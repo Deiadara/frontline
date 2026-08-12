@@ -242,6 +242,59 @@ floor. All three gates move the wrong way on the gap case, which is the one that
 rule is the only thing that covers any of the three, which is why the `plane-city-far` and
 `plane-city-fore` prompts carry it (§3.3, §3.4 of ART-PROMPTS).
 
+### 6.3 Minimum artwork-to-field separation
+
+§6.2 governs how _thin_ a keyed asset may be. This governs how _close in colour_ it may come to the
+background it is keyed out of, and it is the other half of the same precondition.
+
+**No part of a keyed asset's artwork may sit within 80 levels of the field colour on all three
+channels** — at least one of R, G, B must differ from the flat background by **≥ 80**. That is a
+per-channel (Chebyshev) distance, because it is the keyer's own test, not a perceptual one: two
+colours 79 apart on every channel are "the same colour" to the encoder no matter how different they
+look.
+
+80 is **4 × `--matte-tolerance`** at the default 18. An operator who widens the tolerance to key a
+grainier field raises this floor with it — `--matte-tolerance 30` needs 120 levels of separation, and
+a master authored against the default stops satisfying the rule.
+
+**Satisfy it on the field side, not the artwork side.** The image backend cannot emit alpha, so
+"transparent background" is always delivered as some painted field of the model's choosing — and for
+`plane-city-fore`, whose artwork is specified at `#05070d`–`#1e293b`, a model that paints that field
+as night sky lands within a handful of levels of the artwork and no separation rule is satisfiable at
+all. So the two keyed prompts **name the field**: a flat unshaded magenta `#ff00ff` chroma-key,
+removed before anything composites. The §2.3 ban on channel extremes is about _art_; the key field is
+not art, and never survives the encode step. `#ff00ff` is not free of the palette — **sear** is a
+magenta ramp, and its brightest stop `sear.100` (`#ff6cc0`) sits 108 levels off it. That clears the
+floor, but it is the margin to check first if a third asset is ever keyed: neither of these two planes
+uses `sear` at all, so the question does not arise for them.
+
+**Why 80 and not 36.** `MAX_ERASED_ARTWORK` only counts a cleared pixel as artwork when the master
+puts it past 2 × the tolerance — 36 levels — so below that the gate stops discriminating in **both**
+directions and a §6.2 violation ships silently. Measured on 2048×1152 fore-plane layouts, artwork at
+a uniform separation from the field, clean and under both grain generators (`erased`, budget 256):
+
+| separation | 1 px hard | 1 px antialiased, off-grid  | 2 px (legal)       | 3 px (§6.2) |
+| ---------- | --------- | --------------------------- | ------------------ | ----------- |
+| 30         | **0**     | **0**                       | 0–69, 9–10 islands | 0           |
+| 40         | 1506–2032 | **0**                       | 0                  | 0           |
+| 60         | 2032–2059 | **0–59**                    | 0                  | 0           |
+| 72         | 2032–2059 | **0** clean, 586–589 grainy | 0                  | 0           |
+| 80         | 2032–2059 | 1506–2032                   | 0                  | 0           |
+
+The hard-edged threshold is the expected 36, but a 1-px line whose edges land off the pixel grid
+splits its colour across two rows at ~50% coverage each, so it needs **twice** that before any of its
+pixels reads as artwork — and a §6.2 violation delivered by a diffusion backend is antialiased by
+construction. 72 is the arithmetic boundary and still ships on a clean master; 80 is the first value
+that refuses under every generator. The relationship to the measured threshold is the same one §6.2
+takes: 3 px declared over a 2 px threshold, 80 declared over a 72 boundary.
+
+Below the floor the gate also fires the _wrong_ way — at separation 30 a legal 2-px element reads up
+to 69 erased pixels and fragments to 10 islands under grain, so a plane that is fine gets refused.
+Both failures are the same missing precondition.
+
+Unlike §6.2 nothing enforces this: it is the assumption every erasure measurement is made under. A
+master that breaks it does not fail loudly, it goes quiet.
+
 ---
 
 ## 7. File naming

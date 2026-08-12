@@ -21,7 +21,7 @@ import {
   type AssetSource,
   type AssetSpec,
 } from './manifest.js';
-import { FRAMING, NEGATIVE, STYLE_ANCHOR } from './prompts.js';
+import { FRAMING, NEGATIVE, PLATE_SUBJECTS, STYLE_ANCHOR } from './prompts.js';
 
 /**
  * Transcribed from `docs/ART-PROMPTS.md` §1–§6. The manifest derives these from the domain
@@ -269,6 +269,17 @@ describe('ART_MANIFEST', () => {
     expect(
       ART_MANIFEST.filter((spec) => spec.postProcess.includes('matte')).map((spec) => spec.key),
     ).toEqual(['plane-city-far', 'plane-city-fore']);
+  });
+
+  it('names the ART-BIBLE §6.3 key field in both matted prompts, and asks no backend for alpha', () => {
+    // The backend cannot emit alpha, so a matted prompt that says "transparent background" leaves the
+    // field colour to the model — and a night-sky field lands inside the separation the erasure gate
+    // needs to see anything at all. Naming `#ff00ff` is what makes §6.3 satisfiable at all.
+    for (const key of ['plane-city-far', 'plane-city-fore'] as const) {
+      const subject = PLATE_SUBJECTS[key];
+      expect(subject, key).toContain('#ff00ff');
+      expect(subject, key).not.toContain('transparent');
+    }
   });
 
   it('carries the ART-BIBLE §6 transparency floors on both matted planes', () => {
