@@ -531,6 +531,12 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--out'])).toThrow(/needs a value/);
     expect(() => parseArgs(['--only', '--dry-run'])).toThrow(/needs a value/);
   });
+
+  // `--only "$KEY"` with an unset variable used to select nothing, which selected everything.
+  it('rejects an --only that names no key instead of reading it as the whole manifest', () => {
+    expect(() => parseArgs(['--only', ''])).toThrow(/selected no asset keys/);
+    expect(() => parseArgs(['--only', ',,'])).toThrow(/selected no asset keys/);
+  });
 });
 
 describe('selectSpecs', () => {

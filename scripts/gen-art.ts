@@ -469,7 +469,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) throw new Error(`${arg} needs a value`);
       if (arg === '--out') options.outDir = path.resolve(value);
-      else options.only.push(...value.split(',').filter(Boolean));
+      else options.only.push(...parseOnlyKeys(value));
       i += 1;
     } else {
       throw new Error(
@@ -478,6 +478,17 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     }
   }
   return options;
+}
+
+/**
+ * An empty list means "the whole manifest" only when `--only` is absent. `--only "$KEY"` with an
+ * unset shell variable must not silently become a funded run over all 44 assets, so an explicit
+ * `--only` that names no key fails the same way an unknown key does.
+ */
+function parseOnlyKeys(value: string): string[] {
+  const keys = value.split(',').filter(Boolean);
+  if (keys.length === 0) throw new Error(`--only selected no asset keys, got "${value}"`);
+  return keys;
 }
 
 export function selectSpecs(only: readonly string[]): readonly AssetSpec[] {
