@@ -1,6 +1,30 @@
 import type { MeResponse } from '@frontline/shared';
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { authResponse, baseDetail, battle, city, createOverseerResponse, TOKEN } from './fixtures';
+
+/** The display webfont every geometry assertion has to be measured against. */
+const DISPLAY_FONT = 'Orbitron';
+
+/**
+ * Wait until layout is measured against the font the player actually sees.
+ *
+ * `index.html` loads Orbitron with `display=swap`, so text is laid out in the ~12% narrower
+ * fallback until it lands. A geometry assertion that races the swap measures a screen nobody
+ * renders — and, worse, passes *because* of the narrower metrics. Awaiting `fonts.ready` alone
+ * is not enough either: if the font request fails, that resolves immediately and every guard
+ * goes vacuously green, so the load is asserted rather than assumed.
+ */
+export async function settleFonts(page: Page): Promise<void> {
+  await page.evaluate(() => document.fonts.ready);
+  const loaded = await page.evaluate(
+    (family) =>
+      [...document.fonts].some(
+        (face) => face.family.replace(/["']/g, '') === family && face.status === 'loaded',
+      ),
+    DISPLAY_FONT,
+  );
+  expect(loaded, `${DISPLAY_FONT} must be loaded before any geometry is measured`).toBe(true);
+}
 
 /**
  * Make a screen self-contained: seed the persisted token and intercept every

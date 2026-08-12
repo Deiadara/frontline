@@ -9,14 +9,18 @@ import { palette } from '../../theme/tokens';
 
 /*
  * The radar renders at ~128px, so the viewBox is kept tight — a much larger one scales the
- * axis labels down to an illegible few pixels. SIZE then has to leave room for a ~24-unit
- * label to sit *outside* LABEL_R without crossing the edge, or the side labels get clipped
- * mid-word ("TEC" -> "C").
+ * axis labels down to an illegible few pixels. SIZE then has to leave room for the label to
+ * sit *outside* LABEL_R without crossing the edge, or the side labels get clipped mid-word
+ * ("TEC" -> "C").
+ *
+ * The side labels are the binding case: `CENTER + LABEL_R + labelWidth <= SIZE`. Measured in
+ * Orbitron (not the fallback — it is ~12% narrower), the widest abbreviation renders 29.3
+ * viewBox units, so LABEL_R <= 60.7. 56 keeps ~4.7 units of margin and still clears MAX_R.
  */
 const SIZE = 180;
 const CENTER = SIZE / 2;
 const MAX_R = 50;
-const LABEL_R = 62;
+const LABEL_R = 56;
 const RINGS = [0.25, 0.5, 0.75, 1];
 
 const GROUP_ABBREVIATIONS: Record<AttributeGroup, string> = {

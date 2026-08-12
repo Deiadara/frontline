@@ -1,7 +1,7 @@
 import { CITY_DISTRICTS } from '@frontline/shared';
 import { expect, test } from '@playwright/test';
 import { me, meNoOverseer, overseer } from './fixtures';
-import { installApi } from './harness';
+import { installApi, settleFonts } from './harness';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -12,6 +12,10 @@ test('character select renders all presets', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
   await page.getByText(overseer.name).click();
   await expect(page.getByRole('button', { name: 'Confirm Overseer' })).toBeEnabled();
+
+  // Both assertions below are geometry, so they are only meaningful once Orbitron has swapped
+  // in — the fallback is narrower and would hide exactly the clipping they exist to catch.
+  await settleFonts(page);
 
   // The radar's axis labels sit outside the plotted rings, so a viewBox that is too tight
   // silently clips them mid-word ("TEC" renders as "C"). Assert each label's rendered box is

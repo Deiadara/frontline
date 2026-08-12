@@ -8,7 +8,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { lateGame, me, meNoOverseer } from './fixtures';
-import { installApi } from './harness';
+import { installApi, settleFonts } from './harness';
 
 interface Size {
   readonly width: number;
@@ -30,14 +30,6 @@ interface DocumentMetrics {
   clientWidth: number;
   scrollHeight: number;
   clientHeight: number;
-}
-
-/**
- * Layout is only final once the display webfont is swapped in: the fallback is narrower, so a
- * geometry check that races the font measures a HUD that is not the one the player sees.
- */
-async function settleFonts(page: Page): Promise<void> {
-  await page.evaluate(() => document.fonts.ready);
 }
 
 async function expectNoDocumentOverflow(page: Page): Promise<void> {
