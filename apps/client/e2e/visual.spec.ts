@@ -7,7 +7,7 @@
  * frame — so review time is spent on the ones that are not (composition, colour, legibility).
  */
 import { expect, test, type Page } from '@playwright/test';
-import { me, meNoOverseer } from './fixtures';
+import { lateGame, me, meNoOverseer } from './fixtures';
 import { installApi } from './harness';
 
 interface Size {
@@ -32,7 +32,16 @@ interface DocumentMetrics {
   clientHeight: number;
 }
 
+/**
+ * Layout is only final once the display webfont is swapped in: the fallback is narrower, so a
+ * geometry check that races the font measures a HUD that is not the one the player sees.
+ */
+async function settleFonts(page: Page): Promise<void> {
+  await page.evaluate(() => document.fonts.ready);
+}
+
 async function expectNoDocumentOverflow(page: Page): Promise<void> {
+  await settleFonts(page);
   const metrics = await page.evaluate<DocumentMetrics>(() => {
     const { scrollWidth, clientWidth, scrollHeight, clientHeight } = document.documentElement;
     return { scrollWidth, clientWidth, scrollHeight, clientHeight };
@@ -53,6 +62,7 @@ async function expectNoDocumentOverflow(page: Page): Promise<void> {
  * `overflow-hidden` parent clips silently rather than growing the document.
  */
 async function expectNothingClippedHorizontally(page: Page): Promise<void> {
+  await settleFonts(page);
   const offenders = await page.evaluate<string[]>(() => {
     const bad: string[] = [];
     for (const el of Array.from(document.body.querySelectorAll<HTMLElement>('*'))) {
@@ -117,6 +127,27 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
       await expectCanvasFillsFrame(page);
       await page.screenshot({ path: `screenshots/visual/map-${tag}.png` });
+    });
+
+    /*
+     * MOU-161: HUD chips are sized by the digits inside them, so the starting stockpile is the
+     * easiest case, not a representative one. A six-figure bank with both meters pegged at 100
+     * is what a real save looks like, and it is what pushed the infamy meter clean off a
+     * horizontally-scrolling economy row at 1024px. Every resource and meter must stay on
+     * screen without the player dragging anything.
+     */
+    test(`late-game HUD stays on screen at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game');
+      await expect(page.locator('canvas')).toBeVisible();
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+
+      const hud = page.locator('header');
+      for (const chip of ['Caps', 'Food', 'Oil', 'Scrap', 'HQ Metal', 'Morale', 'Infamy']) {
+        await expect(hud.getByText(chip, { exact: true })).toBeInViewport({ ratio: 1 });
+      }
+      await page.screenshot({ path: `screenshots/visual/hud-late-game-${tag}.png` });
     });
 
     test(`base view at ${tag}`, async ({ page }) => {

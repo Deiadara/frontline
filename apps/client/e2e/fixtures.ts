@@ -55,6 +55,20 @@ const userNoOverseer: User = { ...user, overseerId: null };
 export const me: MeResponse = { user, overseer, base };
 export const meNoOverseer: MeResponse = { user: userNoOverseer, overseer: null, base: null };
 
+/**
+ * A save that has actually been played: six-figure stockpiles and both meters pegged. HUD chips
+ * are sized by the digits in them, so this — not `base` — is the widest the economy row ever
+ * gets, and it is what the layout has to survive at the narrowest supported viewport.
+ */
+export const lateGameBase: Base = {
+  ...base,
+  level: 12,
+  resources: { caps: 125000, food: 48000, oil: 32000, scrap: 96000, highQualityMetal: 12000 },
+  economy: { ...base.economy, morale: 100, infamy: 100 },
+};
+
+export const lateGame: MeResponse = { user, overseer, base: lateGameBase };
+
 export const city: CityResponse = {
   districts: [...CITY_DISTRICTS],
   bases: [

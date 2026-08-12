@@ -12,8 +12,11 @@ interface TopHudProps {
 /**
  * Two-tier top bar: identity and street reputation up top, the stockpile and meters below.
  *
- * The economy row scrolls horizontally rather than wrapping, so five resources plus two meters
- * can never push the header past its own height and clip on a narrow viewport.
+ * The economy row wraps rather than scrolling: chip widths grow with the digits in them, and at
+ * 1024px a six-figure stockpile pushed the infamy meter off the end of a scroll container, where
+ * nothing but a horizontal drag could reveal it. The shell is a `flex-col` with a `shrink-0`
+ * header over a `flex-1 min-h-0` body, so a second row costs the map some height and clips
+ * nothing.
  */
 export function TopHud({ overseer, resources, economy }: TopHudProps) {
   const reputation = reputationOf(economy, new Date());
@@ -48,7 +51,7 @@ export function TopHud({ overseer, resources, economy }: TopHudProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2">
+      <div className="flex flex-wrap items-center gap-2 px-4 pb-2">
         {RESOURCE_ORDER.map((kind) => (
           <ResourceChip key={kind} kind={kind} value={resources[kind]} />
         ))}
