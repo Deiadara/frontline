@@ -4,6 +4,9 @@ import type { BattleEngine, BattleInput, BattleResult } from './types.js';
 // TODO: replace RandomBattleEngine with a real deterministic combat model (see docs/ARCHITECTURE.md).
 // It must weigh overseer attributes, building levels (walls/barracks), district difficulty and
 // commander bonuses, and be seedable so battles are replayable from the persisted Battle row.
+// TODO-LATER: the moment this reads a *low* attribute, decide MOU-189 — recruitment's weakness
+// injection currently lands inside the natural tail of the roll, so a designed flaw is not
+// mechanically visible. Retune it or drop it then, with this engine as the consumer.
 
 /**
  * Placeholder engine: a 50/50 coin flip REGARDLESS of inputs.
