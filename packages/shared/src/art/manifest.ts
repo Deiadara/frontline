@@ -459,11 +459,21 @@ function assetKeyFor(ref: AssetRef): AssetKey {
  * manifest entry — an unresolvable subject is a build failure, not a warning (ART-BIBLE §7).
  */
 export function resolveAssetKey(ref: AssetRef): AssetKey {
-  const key = assetKeyFor(ref);
-  if (!ASSET_BY_KEY.has(key)) {
-    throw new Error(`No manifest entry for asset key "${key}" (${ref.type})`);
+  const key = tryResolveAssetKey(ref);
+  if (key === undefined) {
+    throw new Error(`No manifest entry for asset key "${assetKeyFor(ref)}" (${ref.type})`);
   }
   return key;
+}
+
+/**
+ * The same resolution for ids that arrive at runtime rather than from a domain constant — a
+ * `portraitId` or `districtId` off the wire is only `z.string()`, so a view asking it for art
+ * must be able to get "no such asset" back instead of a thrown render.
+ */
+export function tryResolveAssetKey(ref: AssetRef): AssetKey | undefined {
+  const key = assetKeyFor(ref);
+  return ASSET_BY_KEY.has(key) ? key : undefined;
 }
 
 export interface ParsedAssetFile {

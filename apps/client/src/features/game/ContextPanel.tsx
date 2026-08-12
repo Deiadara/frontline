@@ -6,6 +6,7 @@ import {
   type DistrictKind,
 } from '@frontline/shared';
 import { Link } from 'react-router-dom';
+import { deliveredUrl } from '../../assets/delivered';
 import { RewardLine, ResourceGrid } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Panel } from '../../components/ui/Panel';
@@ -48,6 +49,7 @@ export function ContextPanel({
   }
 
   const isMyBase = selected.id === myBase.districtId;
+  const art = deliveredUrl({ type: 'district', districtId: selected.id });
   const botBase = bases.find((b) => b.isBot && b.districtId === selected.id) ?? null;
   // Same rule the server enforces on POST /battle — see @frontline/shared.
   const attackable = isDistrictAttackable(selected, {
@@ -59,6 +61,15 @@ export function ContextPanel({
     <Panel title="Intel" className="h-full">
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         <div>
+          {art && (
+            // The 1:1 delivery keeps its horizon at 40% height, so a 4:3 crop holds the skyline
+            // while leaving the panel room for the intel below it.
+            <img
+              src={art}
+              alt=""
+              className="mb-3 aspect-[4/3] w-full border border-neon-cyan/20 object-cover"
+            />
+          )}
           <h3 className="text-glow-cyan font-display text-lg font-bold tracking-wide text-steel-100">
             {selected.name}
           </h3>

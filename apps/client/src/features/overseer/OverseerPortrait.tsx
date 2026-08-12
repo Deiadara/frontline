@@ -1,4 +1,5 @@
 import type { OverseerArchetype } from '@frontline/shared';
+import { deliveredUrl } from '../../assets/delivered';
 import { cn } from '../../lib/cn';
 
 /** On-brand gradient options (theme tokens only), picked deterministically by portraitId. */
@@ -25,10 +26,25 @@ interface OverseerPortraitProps {
   className?: string;
 }
 
+/** The interim look: an operative silhouette over the portrait's gradient (ADR 0001 §5.3). */
+function Silhouette() {
+  return (
+    <svg
+      viewBox="0 0 64 80"
+      className="absolute inset-0 h-full w-full text-steel-100/15"
+      preserveAspectRatio="xMidYMax meet"
+      aria-hidden="true"
+    >
+      <circle cx="32" cy="26" r="14" fill="currentColor" />
+      <path d="M8 80c0-16 11-26 24-26s24 10 24 26z" fill="currentColor" />
+    </svg>
+  );
+}
+
 /**
- * Portrait placeholder locked to a fixed aspect box (per the layout rules). No
- * real art yet, so a deterministic gradient + operative silhouette keyed to
- * portraitId.
+ * Portrait locked to a fixed aspect box (per the layout rules). Shows the painted portrait once
+ * `portrait-<portraitId>` has been delivered, and the deterministic gradient + silhouette until
+ * then — the delivered-or-procedural call belongs to `deliveredUrl`, not to this component.
  */
 export function OverseerPortrait({
   portraitId,
@@ -37,6 +53,7 @@ export function OverseerPortrait({
   showTag = true,
   className,
 }: OverseerPortraitProps) {
+  const painted = deliveredUrl({ type: 'portrait', portraitId });
   return (
     <div
       className={cn(
@@ -46,16 +63,13 @@ export function OverseerPortrait({
         className,
       )}
     >
+      {painted ? (
+        // The 3:4 delivery is framed face-in-the-central-70%, so a square avatar can crop to fill.
+        <img src={painted} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      ) : (
+        <Silhouette />
+      )}
       <div className="grain pointer-events-none absolute inset-0 opacity-60" />
-      <svg
-        viewBox="0 0 64 80"
-        className="absolute inset-0 h-full w-full text-steel-100/15"
-        preserveAspectRatio="xMidYMax meet"
-        aria-hidden="true"
-      >
-        <circle cx="32" cy="26" r="14" fill="currentColor" />
-        <path d="M8 80c0-16 11-26 24-26s24 10 24 26z" fill="currentColor" />
-      </svg>
       {showTag && (
         <span className="absolute bottom-1.5 left-1.5 border border-neon-cyan/30 bg-night/70 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.2em] text-neon-cyan">
           {archetype}

@@ -1,6 +1,12 @@
-import type { BaseSummary } from '@frontline/shared';
-import { describe, expect, it } from 'vitest';
-import { groupByDistrict, markerY } from './CityMap';
+import { CITY_DISTRICTS, type BaseSummary } from '@frontline/shared';
+import { Graphics, Sprite, Texture } from 'pixi.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { districtFace, groupByDistrict, markerY } from './CityMap';
+
+const deliveredTexture = vi.hoisted(() => vi.fn<() => Texture | null>(() => null));
+vi.mock('../../assets/delivered', () => ({ deliveredTexture }));
+
+beforeEach(() => deliveredTexture.mockClear().mockReturnValue(null));
 
 /** The vertical pitch CityMap stacks co-located markers by. */
 const STEP = 28;
@@ -55,5 +61,28 @@ describe('groupByDistrict', () => {
         .get('neon-docks')
         ?.map((b) => b.id),
     ).toEqual(['a', 'c']);
+  });
+});
+
+describe('districtFace', () => {
+  const [district] = CITY_DISTRICTS;
+  if (!district) throw new Error('expected at least one city district');
+
+  it('draws the flat vector node while the district art is undelivered', () => {
+    const face = districtFace(district, 10, 0x22d3ee, false);
+
+    expect(face).toBeInstanceOf(Graphics);
+    expect(deliveredTexture).toHaveBeenCalledWith({ type: 'district', districtId: district.id });
+  });
+
+  it('masks the delivered illustration into the node and keeps the kind-coloured ring', () => {
+    deliveredTexture.mockReturnValue(Texture.EMPTY);
+
+    const face = districtFace(district, 10, 0x22d3ee, false);
+
+    const art = face.children.find((child): child is Sprite => child instanceof Sprite);
+    expect(art, 'the delivered art replaces the flat fill').toBeDefined();
+    expect(art?.mask, 'art outside the node circle would spill over the map').not.toBeNull();
+    expect(face.children.at(-1), 'the ring stays on top of the art').toBeInstanceOf(Graphics);
   });
 });

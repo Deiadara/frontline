@@ -16,6 +16,7 @@ import {
   resolveAssetKey,
   STYLE_REFERENCE_KEYS,
   subjectResolvesToDomainId,
+  tryResolveAssetKey,
   validateAssetSpec,
   type AssetSource,
   type AssetSpec,
@@ -555,5 +556,14 @@ describe('resolveAssetKey', () => {
     expect(() => resolveAssetKey({ type: 'district', districtId: 'nowhere' })).toThrow(
       /No manifest entry/,
     );
+  });
+});
+
+describe('tryResolveAssetKey', () => {
+  it('resolves a known id and answers undefined for an unknown one', () => {
+    expect(tryResolveAssetKey({ type: 'portrait', portraitId: 'overseer-2' })).toBe(
+      'portrait-overseer-2',
+    );
+    expect(tryResolveAssetKey({ type: 'portrait', portraitId: 'overseer-9' })).toBeUndefined();
   });
 });

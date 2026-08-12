@@ -1,7 +1,9 @@
 import type { BaseSummary, District, DistrictKind } from '@frontline/shared';
-import { Application, Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Text, type TextStyleOptions } from 'pixi.js';
 import { useEffect, useRef } from 'react';
+import { deliveredTexture } from '../../assets/delivered';
 import { artLoader } from '../../assets/loader';
+import { useAssetBundle } from '../../assets/useAssetBundle';
 import { paintProcedural } from '../../render/procedural';
 import { PARALLAX_PLANES, planeOffset, type PlaneId, type Vec2 } from '../../render/layers';
 import { createPostFx, createVignette, type PostFxChain } from '../../render/grade';
@@ -124,6 +126,38 @@ function updateTooltip(
 
 // ─── district nodes ──────────────────────────────────────────────────────────
 
+/**
+ * The node's face. A delivered district illustration is masked into the circle; until then it is
+ * the flat kind colour it has always been. The ring is drawn the same way either way, so the node
+ * keeps its selection state and its silhouette on the map whichever way it resolves.
+ */
+export function districtFace(
+  district: District,
+  r: number,
+  color: number,
+  isSelected: boolean,
+): Container {
+  const ring = new Graphics().circle(0, 0, r);
+  const texture = deliveredTexture({ type: 'district', districtId: district.id });
+  if (!texture) ring.fill({ color, alpha: 0.85 });
+  ring.stroke({
+    width: isSelected ? 2.5 : 1.5,
+    color: isSelected ? hex(palette.steel[100]) : color,
+  });
+  if (!texture) return ring;
+
+  const art = new Sprite(texture);
+  art.anchor.set(0.5);
+  art.width = r * 2;
+  art.height = r * 2;
+  const mask = new Graphics().circle(0, 0, r).fill(0xffffff);
+  art.mask = mask;
+
+  const face = new Container();
+  face.addChild(art, mask, ring);
+  return face;
+}
+
 function drawDistrictNode(scene: Scene, district: District, tooltip: Container): Container {
   const { width, height, props } = scene;
   const px = district.position.x * width;
@@ -141,17 +175,11 @@ function drawDistrictNode(scene: Scene, district: District, tooltip: Container):
   const halo = new Graphics();
   halo.circle(0, 0, r + 6).fill({ color, alpha: isSelected ? 0.28 : 0.12 });
 
-  const dot = new Graphics();
-  dot
-    .circle(0, 0, r)
-    .fill({ color, alpha: 0.85 })
-    .stroke({ width: isSelected ? 2.5 : 1.5, color: isSelected ? hex(palette.steel[100]) : color });
-
   const label = new Text({ text: district.name, style: LABEL_STYLE });
   label.anchor.set(0.5, 0);
   label.position.set(0, r + 4);
 
-  node.addChild(halo, dot, label);
+  node.addChild(halo, districtFace(district, r, color, isSelected), label);
 
   node.on('pointertap', () => props.onSelectDistrict(district));
   node.on('pointerover', () => {
@@ -307,6 +335,8 @@ export function CityMap(props: CityMapProps) {
   const sceneRef = useRef<Scene | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
+  // District art arrives after the first paint, so the nodes are rebuilt when the bundle lands.
+  const cityArt = useAssetBundle('city');
 
   useEffect(() => {
     const el = containerRef.current;
@@ -462,7 +492,7 @@ export function CityMap(props: CityMapProps) {
     const scene = sceneRef.current;
     if (!scene) return;
     buildNodes({ ...scene, props });
-  }, [props]);
+  }, [props, cityArt.status]);
 
   return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
 }
