@@ -6,10 +6,11 @@ import {
   applyTraitBonuses,
   type AttributeName,
   type Attributes,
+  type OfficerRole,
   type TraitId,
 } from '@frontline/shared';
-import { weightedAttributesOf } from '../roles/requirements.js';
-import { createRng, gaussian, randomInt, sample, type Rng } from './rng.js';
+import { attributeWeightsOf } from '../roles/requirements.js';
+import { createRng, gaussian, randomInt, sample, weightedSample, type Rng } from './rng.js';
 
 /**
  * Recruitment rolls (GDD §B2, §B2a).
@@ -22,16 +23,27 @@ import { createRng, gaussian, randomInt, sample, type Rng } from './rng.js';
  * read from the hidden requirement table, which is exactly why generation is server-side.
  * `generateCharacter` deliberately does not report which role shaped the roll — that would be a
  * fit hint, and B8 forbids those.
+ *
+ * Not reporting the role is not enough on its own, though: if the lifted attributes were simply
+ * the role's heaviest ones, the sheet would *be* the table, one row at a time (B8 void by
+ * construction). So a strength is not a lookup — 1-2 of them come from outside the template
+ * entirely, and the rest are *drawn* over the weights rather than taken in order. What survives
+ * is a tendency: the affinity is still genuinely the recruit's best role, but the player cannot
+ * prove which role that is, and cannot recompute the fit that would tell them. Selling that
+ * certainty is the §B9 research task's job (W7).
  */
 
-const BASE_MEAN = 15;
-const BASE_STD_DEV = 3.5;
+const BASE_MEAN = 18;
+const BASE_STD_DEV = 2.5;
 const BASE_FLOOR = 5;
 
 const STRENGTH_MEAN = 30;
 const STRENGTH_STD_DEV = 2.5;
 const MIN_STRENGTHS = 3;
 const MAX_STRENGTHS = 5;
+/** How many of a roll's strengths are drawn from outside the affinity's template (B8). */
+const MIN_OFF_TEMPLATE = 1;
+const MAX_OFF_TEMPLATE = 2;
 
 const WEAKNESS_MEAN = 10;
 const WEAKNESS_STD_DEV = 1.5;
@@ -47,12 +59,36 @@ export interface GeneratedCharacter {
   traits: TraitId[];
 }
 
+/**
+ * A roll together with the role that shaped it — server-internal, and deliberately *not* what
+ * `generateCharacter` hands back, because the affinity is precisely the fit hint B8 forbids. It
+ * exists so tests can measure how much of the affinity survives into a sheet a player can see.
+ */
+export interface ShapedRoll extends GeneratedCharacter {
+  affinity: OfficerRole;
+}
+
 /** Round onto the scale and hold the recruitment ceiling (B2a). */
 function atRecruitment(value: number, floor: number): number {
   return Math.min(MAX_RECRUITMENT_ATTRIBUTE, Math.max(floor, Math.round(value)));
 }
 
-function rollAttributes(rng: Rng): Attributes {
+/**
+ * Which attributes a roll lifts. Most are drawn over the affinity's template — heavier weights
+ * come up more often — but 1-2 come from outside it, so the lifted set is never the template's
+ * own membership and cannot be read back as one.
+ */
+function pickStrengths(rng: Rng, affinity: OfficerRole): AttributeName[] {
+  const template = attributeWeightsOf(affinity);
+  const named = new Set<AttributeName>(template.map(([name]) => name));
+  const offTemplate = ATTRIBUTE_NAMES.filter((name) => !named.has(name));
+
+  const count = randomInt(rng, MIN_STRENGTHS, MAX_STRENGTHS);
+  const outside = randomInt(rng, MIN_OFF_TEMPLATE, MAX_OFF_TEMPLATE);
+  return [...sample(rng, offTemplate, outside), ...weightedSample(rng, template, count - outside)];
+}
+
+function rollAttributes(rng: Rng, affinity: OfficerRole): Attributes {
   const sheet = Object.fromEntries(
     ATTRIBUTE_NAMES.map((name) => [
       name,
@@ -60,14 +96,11 @@ function rollAttributes(rng: Rng): Attributes {
     ]),
   ) as Attributes;
 
-  const affinity = OFFICER_ROLES[randomInt(rng, 0, OFFICER_ROLES.length - 1)];
-  if (!affinity) throw new Error('no officer roles to draw an affinity from');
-  const strengths = weightedAttributesOf(affinity).slice(
-    0,
-    randomInt(rng, MIN_STRENGTHS, MAX_STRENGTHS),
-  );
+  const strengths = pickStrengths(rng, affinity);
   for (const name of strengths) {
-    sheet[name] = atRecruitment(gaussian(rng, STRENGTH_MEAN, STRENGTH_STD_DEV), BASE_FLOOR);
+    // The better of the two: a lift marks an attribute as strong, so it must never pull one down.
+    const lifted = atRecruitment(gaussian(rng, STRENGTH_MEAN, STRENGTH_STD_DEV), BASE_FLOOR);
+    sheet[name] = Math.max(sheet[name], lifted);
   }
 
   const eligible = ATTRIBUTE_NAMES.filter((name) => !strengths.includes(name));
@@ -84,10 +117,13 @@ function rollTraits(rng: Rng): TraitId[] {
   return trait ? [trait] : [];
 }
 
-/** Roll one recruitable character. Same seed, same character. */
-export function generateCharacter(seed: number): GeneratedCharacter {
+/** Roll one recruitable character, keeping the affinity. Same seed, same character. */
+export function rollRecruit(seed: number): ShapedRoll {
   const rng = createRng(seed);
-  const rolled = rollAttributes(rng);
+  const affinity = OFFICER_ROLES[randomInt(rng, 0, OFFICER_ROLES.length - 1)];
+  if (!affinity) throw new Error('no officer roles to draw an affinity from');
+
+  const rolled = rollAttributes(rng, affinity);
   const traits = rollTraits(rng);
 
   // A trait's bonus lands on top of the roll but still cannot break the recruitment ceiling.
@@ -99,5 +135,11 @@ export function generateCharacter(seed: number): GeneratedCharacter {
     ]),
   ) as Attributes;
 
+  return { attributes, traits, affinity };
+}
+
+/** Roll one recruitable character. Same seed, same character. */
+export function generateCharacter(seed: number): GeneratedCharacter {
+  const { attributes, traits } = rollRecruit(seed);
   return { attributes, traits };
 }

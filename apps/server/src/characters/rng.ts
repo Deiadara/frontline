@@ -37,3 +37,20 @@ export function sample<T>(rng: Rng, items: readonly T[], count: number): T[] {
   }
   return pool.slice(0, count);
 }
+
+/**
+ * Pick `count` distinct members with probability proportional to weight — Efraimidis-Spirakis:
+ * key each item as `u ** (1 / weight)` and keep the largest keys, which is exactly weighted
+ * sampling without replacement in one pass.
+ */
+export function weightedSample<T>(
+  rng: Rng,
+  entries: readonly (readonly [T, number])[],
+  count: number,
+): T[] {
+  return entries
+    .map(([item, weight]) => ({ item, key: rng() ** (1 / weight) }))
+    .sort((a, b) => b.key - a.key)
+    .slice(0, count)
+    .map(({ item }) => item);
+}

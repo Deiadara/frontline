@@ -127,11 +127,16 @@ export function roleFit(attributes: Attributes, role: OfficerRole): number {
   return weighted / total;
 }
 
-/** The role's attributes in descending weight — what a character shaped for it looks like. */
+/** The role's template attributes in descending weight order — what the role "is about". */
 export function weightedAttributesOf(role: OfficerRole): AttributeName[] {
-  return Object.entries(ROLE_REQUIREMENTS[role].weights)
-    .sort(([, a], [, b]) => b - a)
-    .map(([name]) => name as AttributeName);
+  return (Object.entries(ROLE_REQUIREMENTS[role].weights) as [AttributeName, number][])
+    .sort((a, b) => b[1] - a[1])
+    .map(([name]) => name);
+}
+
+/** The role's template as weighted entries — what a character shaped for it is drawn from. */
+export function attributeWeightsOf(role: OfficerRole): [AttributeName, number][] {
+  return Object.entries(ROLE_REQUIREMENTS[role].weights) as [AttributeName, number][];
 }
 
 /** Every role, in declaration order. Re-exported so callers need only this module. */
