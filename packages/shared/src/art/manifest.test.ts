@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BUILDING_KINDS } from '../building.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS } from '../city.js';
@@ -19,7 +21,7 @@ import {
   type AssetSource,
   type AssetSpec,
 } from './manifest.js';
-import { NEGATIVE, STYLE_ANCHOR } from './prompts.js';
+import { FRAMING, NEGATIVE, STYLE_ANCHOR } from './prompts.js';
 
 /**
  * Transcribed from `docs/ART-PROMPTS.md` §1–§6. The manifest derives these from the domain
@@ -71,6 +73,50 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-kind-market', 'icon-kind-market.webp', 160023],
   ['icon-kind-npc-stronghold', 'icon-kind-npc-stronghold.webp', 160024],
 ];
+
+/**
+ * `prompts.ts` is the only copy of every prompt and `docs/ART-PROMPTS.md` is a hand transcription
+ * of it, so the two drift silently. These parse the doc back out; `block()` collapses whitespace
+ * before a prompt ever reaches a backend, so the comparison is after collapsing, not line-for-line.
+ */
+const PROMPT_DOC = readFileSync(
+  fileURLToPath(new URL('../../../../docs/ART-PROMPTS.md', import.meta.url)),
+  'utf8',
+);
+
+/** §1–§5: a per-asset heading, then a fenced `SUBJECT:` block. */
+const FENCED_SUBJECT = /^### [\d.]+ `([a-z\d-]+)`[^\n]*\n+```\n(SUBJECT:[\s\S]*?)\n```/gm;
+
+/** §6 instead tabulates the twelve icons: ``| `icon-credits` | … | `SUBJECT: …` |``. */
+const TABLE_SUBJECT = /^\| `([a-z\d-]+)` *\|[^\n]*`(SUBJECT:[^`]*)`/gm;
+
+const collapse = (text: string): string => text.trim().replace(/\s+/g, ' ');
+
+const documentedSubjects = new Map(
+  [...PROMPT_DOC.matchAll(FENCED_SUBJECT), ...PROMPT_DOC.matchAll(TABLE_SUBJECT)].map(
+    // Both groups always match; the defaults only satisfy `noUncheckedIndexedAccess`, and an
+    // empty key or subject would fail the assertions below rather than pass silently.
+    ([, key = '', subject = '']) => [key, collapse(subject.slice('SUBJECT:'.length))] as const,
+  ),
+);
+
+/** Where each class's framing lives. Typed off `FRAMING`, so a new class cannot skip the check. */
+const FRAMING_SECTIONS: Readonly<Record<keyof typeof FRAMING, string>> = {
+  portrait: '## 1. ',
+  district: '## 2. ',
+  plate: '## 3. ',
+  building: '## 4. ',
+  ui: '## 5. ',
+  icon: '## 6. ',
+};
+
+/** The shared and per-class blocks are the first fence under their heading rather than keyed. */
+const documentedBlock = (heading: string): string => {
+  const section = PROMPT_DOC.slice(PROMPT_DOC.indexOf(`\n${heading}`));
+  const body = /```\n([\s\S]*?)\n```/.exec(section)?.[1];
+  if (body === undefined) throw new Error(`No fenced block under "${heading}" in ART-PROMPTS.md`);
+  return collapse(body);
+};
 
 const districtSpec = (): AssetSpec => {
   const spec = findAssetSpec('district-neon-docks');
@@ -217,6 +263,14 @@ describe('ART_MANIFEST', () => {
     expect(findAssetSpec('plane-city-sky')).toMatchObject({ postProcess: [] });
   });
 
+  it('mattes exactly the two planes ART-BIBLE §6.2 keys', () => {
+    // §6.2's stroke floor is scoped to the keyed assets, which is why it does not contradict
+    // §3.2's rim allowance. A third matted asset silently widens that scope — trip the doc first.
+    expect(
+      ART_MANIFEST.filter((spec) => spec.postProcess.includes('matte')).map((spec) => spec.key),
+    ).toEqual(['plane-city-far', 'plane-city-fore']);
+  });
+
   it('carries the ART-BIBLE §6 transparency floors on both matted planes', () => {
     expect(findAssetSpec('plane-city-far')?.minTransparency).toBe(0.3);
     expect(findAssetSpec('plane-city-fore')?.minTransparency).toBe(0.55);
@@ -236,6 +290,32 @@ describe('ART_MANIFEST', () => {
     }
     expect(STYLE_ANCHOR).toContain('#22d3ee');
     expect(NEGATIVE).toContain('cel shading');
+  });
+});
+
+describe('docs/ART-PROMPTS.md transcribes prompts.ts', () => {
+  it('documents a subject for every manifest asset and no others', () => {
+    expect([...documentedSubjects.keys()].sort()).toEqual(
+      ART_MANIFEST.map((spec) => spec.key).sort(),
+    );
+  });
+
+  it.each(ART_MANIFEST.map((spec) => [spec.key, spec.prompt.subject] as const))(
+    '%s subject reads identically in both',
+    (key, subject) => {
+      expect(documentedSubjects.get(key)).toBe(subject);
+    },
+  );
+
+  // The shared and per-class blocks ride on every prompt, so a drift here is a 44-asset drift.
+  it.each([
+    ['§0.1 style anchor', '### 0.1 ', STYLE_ANCHOR] as const,
+    ['§0.2 negative', '### 0.2 ', NEGATIVE] as const,
+    ...(Object.keys(FRAMING_SECTIONS) as (keyof typeof FRAMING)[]).map(
+      (name) => [`${name} framing`, FRAMING_SECTIONS[name], FRAMING[name]] as const,
+    ),
+  ])('%s reads identically in both', (_, heading, block) => {
+    expect(documentedBlock(heading)).toBe(block);
   });
 });
 

@@ -123,8 +123,8 @@ warm hanging-lamp smears and one cold sign.
 ### 1.4 `portrait-overseer-4` — Dr. Adaeze Okafor (technocrat)
 
 ```
-SUBJECT: A composed Black woman in her forties, former arcology infrastructure director. Close-
-cropped natural hair, strong brow, deep rich skin holding both lights cleanly — cyan along the
+SUBJECT: A composed Black woman in her forties, former arcology infrastructure director.
+Close-cropped natural hair, strong brow, deep rich skin holding both lights cleanly — cyan along the
 cheekbone and brow, amber under the jaw. Practical engineer's coat over a utility harness, sleeves
 rolled, a smear of conduit grease on one forearm she has not noticed. A slim monocular data lens
 folded up against her temple, its edge catching a thin #7ff0ff line. Expression: tired, certain,
@@ -463,9 +463,9 @@ inner channel as though lit from behind. One corner shows a chipped edge and a p
 
 ```
 SUBJECT: A heavier armoured hatch frame — thicker bezel than the panel, chamfered outer edge,
-two recessed handle lugs top and bottom, faint radial scoring across the plate, and a warning-
-stripe remnant worn nearly away along the lower edge. Cyan channel light, slightly brighter than
-the panel frame.
+two recessed handle lugs top and bottom, faint radial scoring across the plate, and a
+warning-stripe remnant worn nearly away along the lower edge. Cyan channel light, slightly brighter
+than the panel frame.
 ```
 
 ### 5.3 `ui-frame-hud`
