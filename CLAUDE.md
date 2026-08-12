@@ -31,6 +31,22 @@ Do not spawn additional subagents to parallelize beyond this cap — if capacity
 - **Zero visual bugs.** No cut text or images, no overflow, no overlapping elements. Verify with screenshots
   before declaring anything ready.
 
+## Art policy (board rule, 2026-08-13 — supersedes every earlier art plan)
+
+**The board makes the real art. Agents never generate it.**
+
+- **Never drive a chat UI to make art.** No computer-use, no browser automation, no AppleScript/Chrome
+  keystrokes, no screenshot-and-type loop against ChatGPT or any other UI. Do not ask the board to enable
+  a macOS permission so an agent can do it. This is a hard stop, not a preference.
+- **Never buy image generation.** The `fal` and `openai` backends stay dormant and key-gated. No spend.
+- **Everything ships on code-generated art plus open-source / unlicensed assets** until the board hands over
+  masters. Procedural art (`apps/client/src/render/procedural.ts`) is the default source for every asset key;
+  freely-licensed files (CC0/public-domain preferred) fill what code cannot draw. Record the licence and
+  source URL for every third-party file — an asset with no recorded provenance does not ship.
+- **The import path stays.** A correctly-named file in `assets/` still overrides procedural art, so the
+  board's masters drop in with no TypeScript edit. `docs/ART-ORDER.md` (`pnpm art:order`) is the board's
+  order sheet and stays regenerated; it is a list _for the board_, never a work queue for an agent.
+
 ## Shared working tree — commit discipline
 
 All agents share **one** working tree, and more than one run is often writing to it at the same time.
