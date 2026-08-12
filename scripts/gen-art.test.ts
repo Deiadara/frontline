@@ -543,6 +543,10 @@ describe('parseArgs', () => {
   it('rejects an --only that names no key instead of reading it as the whole manifest', () => {
     expect(() => parseArgs(['--only', ''])).toThrow(/selected no asset keys/);
     expect(() => parseArgs(['--only', ',,'])).toThrow(/selected no asset keys/);
+    // Per --only, not per run: an earlier good selector must not absorb a later empty one.
+    expect(() => parseArgs(['--only', 'plate-city', '--only', ''])).toThrow(
+      /selected no asset keys/,
+    );
   });
 });
 
