@@ -500,7 +500,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     i += 1;
     if (arg === '--masters') options.masterDir = path.resolve(value);
     else if (arg === '--out') options.outDir = path.resolve(value);
-    else if (arg === '--only') only.push(...value.split(',').filter(Boolean));
+    else if (arg === '--only') only.push(...parseOnlyKeys(value));
     else options.matteTolerance = parseTolerance(value);
   }
   return { ...options, only };
@@ -512,6 +512,17 @@ function parseTolerance(value: string): number {
     throw new Error(`--matte-tolerance must be an integer 0–255, got "${value}"`);
   }
   return tolerance;
+}
+
+/**
+ * An empty list means "every manifest entry" only when `--only` is absent. `--only "$KEY"` with an
+ * unset shell variable must fail rather than silently widen to the whole manifest — the same trap
+ * that turns a one-asset `gen-art` run into a funded 44-asset one.
+ */
+function parseOnlyKeys(value: string): string[] {
+  const keys = value.split(',').filter(Boolean);
+  if (keys.length === 0) throw new Error(`--only selected no asset keys, got "${value}"`);
+  return keys;
 }
 
 export function selectSpecs(only: readonly string[]): readonly AssetSpec[] {

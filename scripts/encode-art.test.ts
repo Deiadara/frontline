@@ -356,6 +356,12 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--sharpen', '3'])).toThrow(/Unknown argument/);
     expect(() => parseArgs(['--matte-tolerance', '900'])).toThrow(/integer 0–255/);
   });
+
+  // `--only "$KEY"` with an unset variable used to select nothing, which selected everything.
+  it('rejects an --only that names no key instead of reading it as the whole manifest', () => {
+    expect(() => parseArgs(['--only', ''])).toThrow(/selected no asset keys/);
+    expect(() => parseArgs(['--only', ',,'])).toThrow(/selected no asset keys/);
+  });
 });
 
 describe('main', () => {
