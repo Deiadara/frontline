@@ -636,4 +636,21 @@ describe('main', () => {
       expect(captured(err)).toContain('1 master(s) missing');
     });
   });
+
+  // The hero set is hand-pasted in batches, so most of the manifest is legitimately absent between
+  // them — `--landed` is what lets an import run at all before the last file arrives.
+  it('encodes the batch that has landed and names what it is still waiting on', async () => {
+    await withTempDir(async (dir) => {
+      const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      await writeFile(path.join(dir, `${DISTRICT.key}.png`), await master(1024, 1024, () => SKY));
+
+      expect(await main(['--landed', '--masters', dir, '--out', dir])).toBe(0);
+
+      await expect(readFile(path.join(dir, DISTRICT.file))).resolves.toBeInstanceOf(Buffer);
+      expect(captured(out)).toContain('1/44 master(s) landed');
+      expect(captured(out)).toContain('still waiting on');
+      expect(captured(err)).toBe('');
+    });
+  });
 });

@@ -18,7 +18,7 @@ Conventions used below:
 
 - **A1 [BOARD]** The hideout is a **small village**, laid out like Grepolis' town view — discrete
   buildings you can see and click, sitting in a place — not the current single-panel base view. Keep only
-  the *vibe* of what exists today, not the layout.
+  the _vibe_ of what exists today, not the layout.
 - **A2 [BOARD]** Overall aesthetic: **less futuristic, more dystopic**. Reference is **Zaun / the
   undercity in Arcane** — cyberpunk technology inside a broken-down, post-war society. Lots of scrap,
   jury-rigged structures, robots: old, destroyed, and new ones side by side. Clean chrome-and-neon
@@ -65,7 +65,7 @@ Conventions used below:
   slotted anywhere — well or badly.
 - **C3 [CEO]** One officer per role slot; a role is either filled or empty. Duplicate officers in the same
   role are not supported in this pass.
-- **C4** The Professor runs *reskilling* (§G4). The librarian-ish research task in §B9 is a
+- **C4** The Professor runs _reskilling_ (§G4). The librarian-ish research task in §B9 is a
   Professor/Head-of-Research activity.
 
 ## D. Economy: resources and meters
@@ -78,7 +78,7 @@ Conventions used below:
 - **D6 [BOARD]** **High-quality metal** — a resource, distinct from scrap.
 - **D7 [BOARD]** **Infamy** — a meter raised by infamous actions: things that are usually not morally
   good, but that get your name passed around the street.
-- **D8 [BOARD]** **Reputation** — a *word*, not a number, applied to your group by its actions, and it
+- **D8 [BOARD]** **Reputation** — a _word_, not a number, applied to your group by its actions, and it
   changes over time. Named examples: **Revolutionary**, **Anti-systemic** (lots of anti-government
   action), **Hostile** (attacks other players a lot), **Cautious**, **Opportunist**, **Honorable**,
   **Treacherous**, **Collaborator**, **Reckless**, **Feared**, **Respected**.
@@ -151,7 +151,7 @@ Conventions used below:
 - **H5 [BOARD]** Each character you hold has an **alignment meter**: how much they agree or disagree with
   what your group does. **Too low → they threaten to leave. High → they get bonuses to some skills.**
 - **H6 [BOARD]** Characters **evolve slowly**: each can **level up**, and on level-up you get **5 skill
-  points to add** — *"2 separate points you can individually assign"*.
+  points to add** — _"2 separate points you can individually assign"_.
   - **H6a [CEO]** Read as: 5 points total per level, of which **2 are player-assigned** and 3 are
     auto-allocated along the character's affinities. Flagged to the board; cheap to flip if the intended
     reading was different.
@@ -173,15 +173,15 @@ Conventions used below:
 
 ## Delivery map
 
-| Workstream | Covers |
-| --- | --- |
-| W1 Attribute & role model | B1–B9, C1–C4, F1, F6 |
-| W2 Economy: resources & meters | D1–D9, H7 (payroll engine) |
-| W3 Missions, travel & timers | E1–E8 |
-| W4 Assignees | G1–G8 |
-| W5 The Bar & recruitment | H1–H8 |
-| W6 XP & levelling | I1–I3 |
-| W7 Research & hidden-info discovery | B9, F2–F5 |
-| W8 Hideout as a village | A1, D3 |
-| W9 Art direction v2 (Zaun) | A2 |
-| W10 The Government (NPC enemy) | A3, D8 (anti-government reputation) |
+| Workstream                          | Covers                              |
+| ----------------------------------- | ----------------------------------- |
+| W1 Attribute & role model           | B1–B9, C1–C4, F1, F6                |
+| W2 Economy: resources & meters      | D1–D9, H7 (payroll engine)          |
+| W3 Missions, travel & timers        | E1–E8                               |
+| W4 Assignees                        | G1–G8                               |
+| W5 The Bar & recruitment            | H1–H8                               |
+| W6 XP & levelling                   | I1–I3                               |
+| W7 Research & hidden-info discovery | B9, F2–F5                           |
+| W8 Hideout as a village             | A1, D3                              |
+| W9 Art direction v2 (Zaun)          | A2                                  |
+| W10 The Government (NPC enemy)      | A3, D8 (anti-government reputation) |

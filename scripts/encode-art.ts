@@ -667,10 +667,17 @@ export interface CliOptions extends EncodeOptions {
   outDir: string;
   /** Asset keys to encode; empty means every manifest entry with a master on disk. */
   only: readonly string[];
+  /**
+   * Encode whatever masters have arrived and report the rest, instead of failing on the first
+   * absence. The art run lands in hand-pasted batches, so "not downloaded yet" is the normal state
+   * of most of `art-src/` and must not be indistinguishable from "the file you asked for is gone".
+   * Off by default: a run that names its assets still gets the missing-master failure.
+   */
+  landed: boolean;
 }
 
 const USAGE =
-  'Usage: encode-art [--dry-run] [--masters DIR] [--out DIR] [--only KEYS] [--matte-tolerance N]';
+  'Usage: encode-art [--dry-run] [--landed] [--masters DIR] [--out DIR] [--only KEYS] [--matte-tolerance N]';
 
 export function parseArgs(argv: readonly string[]): CliOptions {
   const options: CliOptions = {
@@ -679,12 +686,17 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     outDir: DEFAULT_ASSET_DIR,
     only: [],
     matteTolerance: DEFAULT_MATTE_TOLERANCE,
+    landed: false,
   };
   const only: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--dry-run') {
       options.dryRun = true;
+      continue;
+    }
+    if (arg === '--landed') {
+      options.landed = true;
       continue;
     }
     // Unknown before the value lookup, so a trailing bad flag reads as unknown, not as missing one.
@@ -821,10 +833,15 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   if (missing.length > 0) {
-    process.stderr.write(
-      `${missing.length} master(s) missing from ${options.masterDir}: ${missing.map((s) => s.key).join(', ')}\n`,
+    if (!options.landed) {
+      process.stderr.write(
+        `${missing.length} master(s) missing from ${options.masterDir}: ${missing.map((s) => s.key).join(', ')}\n`,
+      );
+      return 1;
+    }
+    process.stdout.write(
+      `${present.length}/${specs.length} master(s) landed; still waiting on ${missing.map((s) => s.key).join(', ')}\n`,
     );
-    return 1;
   }
 
   try {
