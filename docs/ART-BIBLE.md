@@ -187,12 +187,24 @@ authored. Masters (PNG, full resolution, layered where applicable) live outside 
 
 **No part of a keyed asset's silhouette may be thinner than 3 px at its source resolution** — that
 is, any structure that meets the transparent region: no hairline cables, wires, rims, antennas or
-spire tips. Interior detail is unaffected, at any width: a window light or a panel line surrounded by
-kept artwork is its own region below `MIN_KEYED_REGION` and survives.
+spire tips. Interior detail is unaffected at any width, but by two different mechanisms: a
+_sky-coloured_ window light does match the seed, and survives because its region is below
+`MIN_KEYED_REGION`; a _dark_ panel line never matches the seed at all, so it is not a region under
+that constant — it survives because it is attached to kept artwork and the island sweep only ever
+sees whole detached pieces.
 
-**A _detached_ element must also be at least 8×8 px.** `MIN_OPAQUE_ISLAND` clears every unattached
-opaque island under 64 px² along with the background, so a 6×6 drone or a floating antenna goes even
-though it clears the stroke floor.
+**The same floor applies to the _gaps_: no channel of transparent background narrower than 3 px.** The
+median seals a 1-px slot shut, and unlike an erased stroke nothing measures it — the slot keeps the
+master's background colour at full alpha and ships as a bright seam inside the silhouette. On a dense
+skyline this is the natural failure: 1-px slivers of sky between adjacent towers seal, the towers read
+as one merged blob, and each sealed sliver draws a bright vertical line over whatever parallaxes
+behind it.
+
+**A _detached_ element must cover at least 64 opaque pixels** — 8×8 solid, or any shape with that much
+area. `MIN_OPAQUE_ISLAND` clears every unattached opaque island under 64 px² along with the
+background, so a 6×6 drone or a floating antenna goes even though it clears the stroke floor. It is a
+connected-component _area_ test, not a bounding box: a detached 8×8 open strut of 3-px members covers
+well under 64 px² and is swept, while a 4×20 pipe segment is 80 px² and survives.
 
 Keyed means the master arrives opaque and the encode step cuts the background out of it: today that
 is `plane-city-far` and `plane-city-fore`, and in general any asset whose `postProcess` includes
@@ -209,12 +221,22 @@ hard-edged and antialiased, with and without grain, the threshold is sharp — *
 floor is 3 px rather than 2 px so it still holds when the backend renders an element slightly
 thinner than asked.
 
+The window has no idea which side of the mask is artwork, so the threshold is the same for a slot of
+background, at the opposite polarity. Measured on the same `median(3)`, two dark towers separated by a
+vertical sky slot: at 1 px the centre of the slot reads as tower, so no column of it joins the
+background region and all of it stays opaque; at 2 px and 3 px every column keys open. That is why the
+floor is stated in both directions.
+
 `MAX_ERASED_ARTWORK` refuses a master that breaks this, so a dashed cable fails the encode step
-instead of shipping — but it fails _after_ the generation is paid for, and there are two cases it
+instead of shipping — but it fails _after_ the generation is paid for, and there are three cases it
 cannot see. It cannot see a 1-px rim painted onto a kept mass, because every erased pixel there is
-adjacent to surviving artwork; and a swept detached island is counted but never large enough to
-matter — 63 px at most, against a budget of 256. This rule is the only thing that covers either case,
-which is why the `plane-city-far` and `plane-city-fore` prompts carry it (§3.3, §3.4 of ART-PROMPTS).
+adjacent to surviving artwork. A swept detached island is counted, but any one island is at most
+63 px, so it takes five of them before the 256 budget notices. And a sealed gap clears nothing at all,
+so `erased` reads 0 — while sealing gaps _merges_ pieces, which moves the island count down and away
+from `MAX_KEYED_ISLANDS`, and a handful of 1-px slots is a rounding error against the §6 transparency
+floor. All three gates move the wrong way on the gap case, which is the one that ships silently. This
+rule is the only thing that covers any of the three, which is why the `plane-city-far` and
+`plane-city-fore` prompts carry it (§3.3, §3.4 of ART-PROMPTS).
 
 ---
 
@@ -303,8 +325,9 @@ Reject any asset that trips one of these. This list is the review gate.
 - [ ] No human-scale marker in an environment asset.
 - [ ] Text baked into the image.
 - [ ] Wrong aspect ratio or resolution for its class (§6).
-- [ ] A keyed asset's silhouette carries a structure thinner than 3 px, or a detached element
-      smaller than 8×8 px — the key cannot hold either (§6.2).
+- [ ] A keyed asset's silhouette carries a structure thinner than 3 px, or a gap of background
+      narrower than 3 px, or a detached element covering fewer than 64 opaque pixels — the key
+      cannot hold any of the three (§6.2).
 - [ ] Filename does not resolve to a `@frontline/shared` domain id (§7).
 - [ ] Third-party and not in the register (§9).
 - [ ] Grain, bloom, vignette, chromatic aberration or lens flare baked in — those belong to the

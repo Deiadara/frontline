@@ -243,7 +243,8 @@ export const PLATE_SUBJECTS = {
     the top forty percent of the canvas is fully transparent. Silhouettes are simplified, values
     compressed toward #2a3348 to #55617e, with sparse tiny window lights. Nothing that breaks the
     skyline may be thinner than three pixels at 2048 wide — antenna masts and spire tips stay blunt
-    and stubby, never hairlines, and there are no wires or cables. Detail suppressed: this sits
+    and stubby, never hairlines, and there are no wires or cables, and the towers are separated by
+    open sky at least three pixels wide, never a hairline slot. Detail suppressed: this sits
     behind everything and must never compete.
   `),
   'plane-city-fore': block(`
@@ -253,8 +254,9 @@ export const PLATE_SUBJECTS = {
     corner. Near-silhouette, values #05070d to #1e293b, with a cold rim on the key side. Nothing may
     be thinner than three pixels at 2048 wide — the cable trunk is one heavy sagging mass, the rim a
     broad band, and the gantry and crane arm are built from chunky box members rather than open
-    lattice or truss work, with no hairline wires and no single-pixel rims or edges. The central
-    sixty percent of the canvas must be fully transparent.
+    lattice or truss work, with no hairline wires and no single-pixel rims or edges, and every gap of
+    open background these elements leave against the frame is at least three pixels wide, never a
+    hairline slot. The central sixty percent of the canvas must be fully transparent.
   `),
   'splash-auth': block(`
     A lone figure seen from behind, small in frame, standing at a railing overlooking the
