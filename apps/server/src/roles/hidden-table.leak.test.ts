@@ -17,8 +17,11 @@ import { ROLE_REQUIREMENTS } from './requirements.js';
  *  2. **By value** — the table (or one role's weights) being re-declared or re-exported from
  *     `@frontline/shared`, which the client imports wholesale.
  *
- * What it does *not* catch: someone hand-recomputing an equivalent heuristic from scratch under
- * a different name. That is a review question. It does catch every mechanical leak.
+ * What it does *not* catch: a leak that is *derived* rather than copied — an equivalent heuristic
+ * recomputed under a different name, or the table being inferable from data the server does ship.
+ * Both are review questions, and the second is a live one: recruit sheets currently expose enough
+ * of the weight ordering to reconstruct the table (MOU-160 F1). Passing this file means the table
+ * was not copied; it does not mean the table is secret.
  *
  * W5 (the Bar) and W7 (research hints) put role data on the wire for the first time. When they
  * do, extend this with a response-body assertion — hints are allowed, the raw table is not.
@@ -60,6 +63,22 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Key-order-independent serialization. Exact `JSON.stringify` equality is trivially defeated by
+ * re-ordering the keys or by nesting the table one level down, so leaks are matched on a
+ * canonical form and by containment rather than by equality.
+ */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (isPlainObject(value)) {
+    const entries = Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`);
+    return `{${entries.join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
 /** Every plain object reachable from the shared package's export surface, with its path. */
 function reachableObjects(root: unknown): [string, Record<string, unknown>][] {
   const found: [string, Record<string, unknown>][] = [];
@@ -76,6 +95,33 @@ function reachableObjects(root: unknown): [string, Record<string, unknown>][] {
   };
   visit(root, 'shared');
   return found;
+}
+
+/** Paths at which the table, or one role's weights, is reachable by value from `root`. */
+function valueLeaksIn(root: unknown): string[] {
+  const secrets = OFFICER_ROLES.map((role) => canonical(ROLE_REQUIREMENTS[role].weights));
+  const wholeTable = canonical(ROLE_REQUIREMENTS);
+  return reachableObjects(root)
+    .filter(([, value]) => {
+      const serialized = canonical(value);
+      return serialized.includes(wholeTable) || secrets.some((s) => serialized.includes(s));
+    })
+    .map(([trail]) => trail);
+}
+
+/** Paths at which `root` exposes structured (non-label) data keyed by role id. */
+function roleKeyedLeaksIn(root: unknown): string[] {
+  const roleIds = new Set<string>(OFFICER_ROLES);
+  return reachableObjects(root)
+    .filter(([, value]) => {
+      const keys = Object.keys(value);
+      // Two role ids already make a table. Requiring all 19 (`keys.length >= roleIds.size`) let
+      // any partial copy — 18 roles, or one nested a level down — through untouched.
+      if (keys.length < 2 || !keys.every((key) => roleIds.has(key))) return false;
+      // Public role metadata (display names) is fine; anything structured is a fit hint.
+      return Object.values(value).some((entry) => typeof entry !== 'string');
+    })
+    .map(([trail]) => trail);
 }
 
 describe('the hidden role requirement table', () => {
@@ -101,31 +147,38 @@ describe('the hidden role requirement table', () => {
   });
 
   it('does not appear by value anywhere in the shared package', () => {
-    const objects = reachableObjects(shared);
-    expect(objects.length).toBeGreaterThan(10);
-
-    const secrets = OFFICER_ROLES.map((role) => JSON.stringify(ROLE_REQUIREMENTS[role].weights));
-    const wholeTable = JSON.stringify(ROLE_REQUIREMENTS);
-
-    for (const [trail, value] of objects) {
-      const serialized = JSON.stringify(value);
-      expect(serialized, `${trail} is the requirement table`).not.toBe(wholeTable);
-      for (const secret of secrets) {
-        expect(serialized, `${trail} is a role's requirement weights`).not.toBe(secret);
-      }
-    }
+    expect(reachableObjects(shared).length).toBeGreaterThan(10);
+    expect(
+      valueLeaksIn(shared),
+      'the requirement table is reachable from @frontline/shared',
+    ).toEqual([]);
   });
 
   it('leaves nothing role-keyed but plain labels in the shared package', () => {
-    const roleIds = new Set<string>(OFFICER_ROLES);
-    for (const [trail, value] of reachableObjects(shared)) {
-      const keys = Object.keys(value);
-      const roleKeyed = keys.length >= roleIds.size && keys.every((key) => roleIds.has(key));
-      if (!roleKeyed) continue;
-      // Public role metadata (display names) is fine; anything structured is a fit hint.
-      for (const entry of Object.values(value)) {
-        expect(typeof entry, `${trail} carries structured per-role data`).toBe('string');
-      }
-    }
+    expect(roleKeyedLeaksIn(shared), 'structured per-role data is a fit hint (B8)').toEqual([]);
+  });
+
+  // Guards the guards: both scans above only mean something if they fire on a leak that is
+  // *not* a byte-identical copy of the table — the shapes the previous exact-equality and
+  // all-19-keys checks let through.
+  it('catches a partial, re-ordered or nested copy', () => {
+    const [first, second] = OFFICER_ROLES;
+    if (!first || !second) throw new Error('need two roles to plant a partial copy');
+
+    const reorderedWeights = Object.fromEntries(
+      Object.entries(ROLE_REQUIREMENTS[first].weights).reverse(),
+    );
+    expect(valueLeaksIn({ deep: { down: { weights: reorderedWeights } } })).not.toEqual([]);
+    expect(valueLeaksIn({ everything: ROLE_REQUIREMENTS })).not.toEqual([]);
+
+    // Two roles is a partial table, and it is still a fit hint.
+    const partial = {
+      [first]: ROLE_REQUIREMENTS[first].weights,
+      [second]: ROLE_REQUIREMENTS[second].weights,
+    };
+    expect(roleKeyedLeaksIn({ hint: partial })).not.toEqual([]);
+
+    // ...but public per-role labels stay allowed.
+    expect(roleKeyedLeaksIn({ labels: { [first]: 'Scout', [second]: 'Medic' } })).toEqual([]);
   });
 });
