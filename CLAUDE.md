@@ -31,6 +31,20 @@ Do not spawn additional subagents to parallelize beyond this cap — if capacity
 - **Zero visual bugs.** No cut text or images, no overflow, no overlapping elements. Verify with screenshots
   before declaring anything ready.
 
+## Shared working tree — commit discipline
+
+All agents share **one** working tree, and more than one run is often writing to it at the same time.
+`git status` therefore shows other agents' in-flight work alongside your own.
+
+- **Stage explicit paths. Never `git add -A`, never `git commit -a`.** Run `git status` after staging and
+  confirm nothing outside your issue is staged.
+- **Never commit files you did not edit**, even to "clean up" the tree — you will capture a half-written
+  state from a live run and squash two issues into one unreviewable commit.
+- **Re-check `git status` before claiming a file.** A tree that was clean at the start of your heartbeat
+  may not be clean now; do not state ownership you have not just verified.
+- If your work needs another issue's changes, **rebase onto them after they land** — do not commit them
+  yourself.
+
 ## Communication
 
 All board communication happens in the **MOU-112 issue thread**, via the CEO. Do not open side threads for
