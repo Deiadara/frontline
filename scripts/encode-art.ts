@@ -9,6 +9,7 @@
  *
  *   pnpm --filter @frontline/scripts encode-art --dry-run
  *   pnpm --filter @frontline/scripts encode-art --only icon-alloy
+ *   pnpm --filter @frontline/scripts encode-art --landed   # whatever has arrived so far
  *
  * (No `--` separator: pnpm 11 forwards it to the script, where it parses as an unknown argument.)
  *
@@ -175,12 +176,43 @@ export const MAX_KEYED_ISLANDS = 64;
  *
  * Two things live inside one multiple of the tolerance and must not be counted: the grain the key
  * exists to absorb, and the antialiased ribbon along every silhouette, whose colour interpolates
- * between the artwork and the field. Doubling clears both — grain the key still copes with never
- * reaches 2× (past that the {@link MAX_KEYED_ISLANDS} gate has already refused the master), and a
- * ribbon pixel sits at roughly the midpoint of a separation the operator is required to keep above
- * the tolerance in the first place.
+ * between the artwork and the field. Doubling clears the ribbon outright — it sits at roughly the
+ * midpoint of a separation the operator is required to keep above the tolerance in the first place.
+ *
+ * It does **not** clear grain, and no fixed multiple can: this is a constant cut through a noise
+ * distribution the master never declares. A bounded one stays under it — uniform ±25 against
+ * tolerance 18 never reaches 36 — but any distribution with tails puts field pixels past it at
+ * whatever rate the tail carries, and a flat sky is 1.4M chances. {@link MIN_ERASED_RUN} is what
+ * separates those from an erasure; this multiple only has to keep the ribbon out.
  */
 const ARTWORK_MARGIN = 2;
+
+/**
+ * Flagged pixels in a connected run shorter than this are grain, not erased artwork.
+ *
+ * {@link ARTWORK_MARGIN} cannot tell one tail pixel of grain from one pixel of a cable, and per
+ * pixel nothing can. Shape can: an erased structure is a **line**, so its pixels flag as one long
+ * 8-connected run, while grain flags as dust — isolated pixels and pairs, scattered across the whole
+ * field. Grouping the flagged set and keeping only runs of at least 16 is what makes the count
+ * measure erasure rather than the noise floor.
+ *
+ * Measured on the suite's `gaussianSkyline(2048, 1152, 0.3, σ)` at {@link DEFAULT_MATTE_TOLERANCE} —
+ * **Gaussian** grain, unbounded, so it exercises the tail the uniform generator has none of. Every
+ * one of these keys to 70.0% transparency and **1 island**, i.e. flawlessly:
+ *
+ * | σ | flagged pixels | kept, in runs ≥ 16 |
+ * | --- | --- | --- |
+ * | 8 | 20 | **0** |
+ * | 10 | 856 | **0** |
+ * | 12 | 7,579 | **0** |
+ * | 16 | 73,030 | **0** |
+ * | 20 | 214,582 | 478 |
+ *
+ * The structure it is there to keep survives it whole: on `cabledPlane` a 1-px cable reads 2,032
+ * clean and 2,059 at σ 12 (from 9,602 unfiltered), against 0 for a 2-px or 3-px cable at either.
+ * See {@link MAX_ERASED_ARTWORK} for the band this leaves and what happens past it.
+ */
+const MIN_ERASED_RUN = 16;
 
 /**
  * Pixels of unambiguous artwork the key may take the alpha off before the matte counts as failed.
@@ -188,17 +220,32 @@ const ARTWORK_MARGIN = 2;
  * {@link DENOISE_WINDOW} deletes any structure thinner than itself, and the two gates above both
  * move the *wrong* way when it does: deleting artwork raises transparency past the §6 floor and
  * lowers the island count. This is what sees it — alpha cleared from a pixel the master puts beyond
- * {@link ARTWORK_MARGIN}× the tolerance from the field, with no surviving pixel 4-adjacent to it.
- * The adjacency clause is what excludes the antialiased ribbon, which always has kept artwork
- * against it, and it is why a *rim highlight* painted onto a kept mass is the one thin structure
- * this cannot see — ART-BIBLE §6.2's minimum stroke weight is what covers that case.
+ * {@link ARTWORK_MARGIN}× the tolerance from the field, with no surviving pixel 4-adjacent to it,
+ * and joined to at least {@link MIN_ERASED_RUN} others like it. The adjacency clause is what
+ * excludes the antialiased ribbon, which always has kept artwork against it; the run floor is what
+ * excludes grain. A *rim highlight* painted onto a kept mass is the one thin structure this cannot
+ * see — ART-BIBLE §6.2's minimum stroke weight is what covers that case.
  *
- * Measured on 2048×1152 fore-plane layouts built from ART-PROMPTS, hard-edged and antialiased,
- * grain ±0 to ±25, silhouettes plain and busy, separations 30 and 45: a plane whose thinnest element
- * is ≥2 px reads **0**, and one carrying a 1-px cable reads **at least 1540** — the median returns
- * the field for a line that is only 3 of its 9 samples, at every grain level alike. 256 sits in
- * that gap. (Against the skewed generator MOU-152 replaced, the same matrix read at most 141 clean
- * and at least 920 erased; the gate separated the two cases under both.)
+ * Measured on 2048×1152 fore-plane layouts, hard-edged, silhouettes plain and busy, artwork 45
+ * levels off the field, under both generators the suite carries — clean, uniform ±12 and ±25,
+ * Gaussian σ 8, 12 and 16: a plane whose thinnest element is ≥2 px reads **0** at every level, and
+ * one carrying a 1-px cable reads **1730 to 2156**. The median returns the field for a line that is
+ * only 3 of its 9 samples, so the erasure is there whether the master is clean or grainy. 256 sits
+ * in that gap with 6.7× headroom.
+ *
+ * That separation is a precondition, not a detail. {@link ARTWORK_MARGIN} is what decides whether
+ * the master is *stating* a pixel is artwork, so below 2× the tolerance this stops discriminating
+ * in **both** directions: on the same matrix at separation 30, a 1-px cable reads 0 (nothing in it
+ * is past the margin) and a 2-px one reads up to 557 under grain. A 1-px line whose edges land off
+ * the pixel grid is blind for the same reason — its peak coverage never reaches the margin either.
+ * Both are the {@link ARTWORK_MARGIN} precondition rather than the run floor, and both are what
+ * ART-BIBLE §6.2's stroke floor and a field-to-artwork separation well past `--matte-tolerance` are
+ * there to keep out of the funded masters.
+ *
+ * Past the grain levels above the gate stops discriminating and only refuses: at Gaussian σ 20 a
+ * clean flat sky reads 478 and is refused, because at that noise floor a 45-level cable genuinely is
+ * not separable from the field per pixel. That is a defensible refusal, which is why the message
+ * names `--matte-tolerance` first and does not assert which of the two causes it found.
  *
  * An absolute count, like {@link MIN_OPAQUE_ISLAND} and for the same reason: an erasure scales with
  * the length of the structure, not with the area of the canvas, and both matte assets are declared
@@ -290,7 +337,7 @@ export interface KeyedImage extends RgbaImage {
   erased: number;
 }
 
-/** 4-connected regions of the pixels satisfying some predicate, labelled and measured. */
+/** Connected regions of the pixels satisfying some predicate, labelled and measured. */
 interface Regions {
   /** Region id per pixel; 0 for a pixel the predicate rejected. */
   ids: Int32Array;
@@ -298,10 +345,18 @@ interface Regions {
   sizes: readonly number[];
 }
 
+/**
+ * Which neighbours count as touching. Areas are traced 4-connected, so a region cannot leak across a
+ * diagonal pinch; the thin structures {@link erasedArtwork} looks for are traced 8-connected,
+ * because a 1-px line at any angle other than the two axes *is* a diagonal chain.
+ */
+type Connectivity = 4 | 8;
+
 function connectedRegions(
   width: number,
   height: number,
   matches: (pixel: number) => boolean,
+  connectivity: Connectivity,
 ): Regions {
   const pixels = width * height;
   const ids = new Int32Array(pixels);
@@ -333,6 +388,12 @@ function connectedRegions(
       if (x < width - 1) visit(pixel + 1);
       if (y > 0) visit(pixel - width);
       if (y < height - 1) visit(pixel + width);
+      if (connectivity === 8) {
+        if (x > 0 && y > 0) visit(pixel - width - 1);
+        if (x < width - 1 && y > 0) visit(pixel - width + 1);
+        if (x > 0 && y < height - 1) visit(pixel + width - 1);
+        if (x < width - 1 && y < height - 1) visit(pixel + width + 1);
+      }
     }
     sizes.push(size);
   }
@@ -343,15 +404,16 @@ function connectedRegions(
 type IsArtwork = (pixel: number) => boolean;
 
 /**
- * Pixels of artwork the key cleared and left with nothing standing beside them — the signature of a
- * structure the {@link DENOISE_WINDOW} median erased. See {@link MAX_ERASED_ARTWORK} for why it is
- * measured this way and for the one case it cannot see.
+ * Pixels of artwork the key cleared and left with nothing standing beside them, counted only where
+ * {@link MIN_ERASED_RUN} of them join up — the signature of a structure the {@link DENOISE_WINDOW}
+ * median erased. See {@link MAX_ERASED_ARTWORK} for why it is measured this way and for the one case
+ * it cannot see.
  */
 function erasedArtwork(master: RgbaImage, keyed: Buffer, isArtwork: IsArtwork): number {
   const { width, height } = master;
   const survives = (pixel: number): boolean => keyed[pixel * CHANNELS + 3] !== 0;
 
-  let erased = 0;
+  const flagged = new Uint8Array(width * height);
   for (let pixel = 0; pixel < width * height; pixel += 1) {
     const offset = pixel * CHANNELS;
     if (master.data[offset + 3] === 0 || survives(pixel) || !isArtwork(pixel)) continue;
@@ -362,9 +424,11 @@ function erasedArtwork(master: RgbaImage, keyed: Buffer, isArtwork: IsArtwork): 
       (x < width - 1 && survives(pixel + 1)) ||
       (y > 0 && survives(pixel - width)) ||
       (y < height - 1 && survives(pixel + width));
-    if (!beside) erased += 1;
+    if (!beside) flagged[pixel] = 1;
   }
-  return erased;
+
+  const runs = connectedRegions(width, height, (pixel) => flagged[pixel] === 1, 8);
+  return runs.sizes.reduce((total, size) => (size >= MIN_ERASED_RUN ? total + size : total), 0);
 }
 
 /**
@@ -423,14 +487,14 @@ export async function keyBackground(image: RgbaImage, tolerance: number): Promis
     keyed[pixel * CHANNELS + 3] = 0;
   };
 
-  const background = connectedRegions(width, height, matchesSeed);
+  const background = connectedRegions(width, height, matchesSeed, 4);
   const keyedFloor = MIN_KEYED_REGION * pixels;
   for (let pixel = 0; pixel < pixels; pixel += 1) {
     if (background.sizes[background.ids[pixel]!]! >= keyedFloor) clear(pixel);
   }
 
   // Clearing a pixel that is already clear is a no-op, so region 0 needs no special case here.
-  const islands = connectedRegions(width, height, (pixel) => alphaOf(pixel) !== 0);
+  const islands = connectedRegions(width, height, (pixel) => alphaOf(pixel) !== 0, 4);
   for (let pixel = 0; pixel < pixels; pixel += 1) {
     if (islands.sizes[islands.ids[pixel]!]! < MIN_OPAQUE_ISLAND) clear(pixel);
   }
@@ -461,10 +525,12 @@ const matte: PostProcessor = async (image, spec, options) => {
   }
   if (keyed.erased > MAX_ERASED_ARTWORK) {
     throw new Error(
-      `${spec.key}: the matte erased ${keyed.erased}px of artwork — the master carries structure ` +
-        `thinner than the ${DENOISE_WINDOW}px key window (a 1px cable, antenna or rim), which the ` +
-        `key cannot represent and would ship as a dashed line. Regenerate the master with the ` +
-        `ART-BIBLE §6.2 minimum stroke weight, or hand-matte it (ADR 0001 §6.4).`,
+      `${spec.key}: the matte cleared ${keyed.erased}px the master states are artwork, in runs too ` +
+        `long to be grain. Either the master's background is noisier than --matte-tolerance ` +
+        `${options.matteTolerance} allows for — try a wider one — or it carries structure thinner ` +
+        `than the ${DENOISE_WINDOW}px key window (a 1px cable, antenna or rim), which the key ` +
+        `cannot represent and would ship as a dashed line; regenerate that master with the ` +
+        `ART-BIBLE §6.2 minimum stroke weight. Failing both, hand-matte it (ADR 0001 §6.4).`,
     );
   }
   return keyed;

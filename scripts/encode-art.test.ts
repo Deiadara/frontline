@@ -79,10 +79,35 @@ function grain(index: number, amplitude: number): number {
   return (hash % (2 * amplitude + 1)) - amplitude;
 }
 
-/** `base` with {@link grain} of `amplitude` on each channel, deterministic in the pixel index. */
-function noisy(base: Rgba, pixel: number, amplitude: number): Rgba {
+/**
+ * Deterministic per-channel grain from an **unbounded** distribution: Box-Muller over a hashed
+ * uniform pair, so it has the tail {@link grain} has none of.
+ *
+ * Every threshold in the matte is a fixed cut through a noise distribution the master never
+ * declares, so one bounded generator cannot calibrate any of them — under `grain` alone a cut at
+ * 2× the tolerance is never reached and reads as free of false positives, which is exactly how
+ * `MAX_ERASED_ARTWORK` came to refuse a flawless key (MOU-125 round 3).
+ */
+function gaussianGrain(index: number, sigma: number): number {
+  const unit = (n: number): number => {
+    let hash = Math.imul(n + 1, 2654435761) >>> 0;
+    hash = (hash ^ (hash >>> 15)) >>> 0;
+    hash = Math.imul(hash, 2246822519) >>> 0;
+    hash = (hash ^ (hash >>> 13)) >>> 0;
+    // Offset off 0, so the log below never sees it.
+    return (hash + 0.5) / 4294967296;
+  };
+  const radius = Math.sqrt(-2 * Math.log(unit(index * 2)));
+  return Math.round(sigma * radius * Math.cos(2 * Math.PI * unit(index * 2 + 1)));
+}
+
+/** Per-channel noise as a function of the channel's index in the frame. */
+type Noise = (index: number) => number;
+
+/** `base` with `noise` on each channel, deterministic in the pixel index. */
+function noisy(base: Rgba, pixel: number, noise: Noise): Rgba {
   const channel = (c: number): number =>
-    Math.max(0, Math.min(255, base[c]! + grain(pixel * 3 + c, amplitude)));
+    Math.max(0, Math.min(255, base[c]! + noise(pixel * 3 + c)));
   return [channel(0), channel(1), channel(2), base[3]];
 }
 
@@ -91,15 +116,33 @@ function noisy(base: Rgba, pixel: number, amplitude: number): Rgba {
  * when a prompt asks for a flat sky. Every `keyBackground` input used to be painted from two exact
  * constants, which is why a key that speckles on a grainy field passed every test.
  */
+const noisySkyline = (
+  width: number,
+  height: number,
+  subjectFraction: number,
+  noise: Noise,
+): Promise<Buffer> =>
+  master(width, height, (x, y) =>
+    noisy(y >= height * (1 - subjectFraction) ? SUBJECT : SKY, y * width + x, noise),
+  );
+
+/** {@link noisySkyline} under the bounded generator. */
 const grainySkyline = (
   width: number,
   height: number,
   subjectFraction: number,
   amplitude: number,
 ): Promise<Buffer> =>
-  master(width, height, (x, y) =>
-    noisy(y >= height * (1 - subjectFraction) ? SUBJECT : SKY, y * width + x, amplitude),
-  );
+  noisySkyline(width, height, subjectFraction, (index) => grain(index, amplitude));
+
+/** {@link noisySkyline} under the unbounded one — see {@link gaussianGrain}. */
+const gaussianSkyline = (
+  width: number,
+  height: number,
+  subjectFraction: number,
+  sigma: number,
+): Promise<Buffer> =>
+  noisySkyline(width, height, subjectFraction, (index) => gaussianGrain(index, sigma));
 
 /** The rows a {@link cabledPlane} runs its cable through, whatever it was painted at. */
 const CABLE_TOP = 40;
@@ -113,12 +156,12 @@ const cabledPlane = (
   width: number,
   height: number,
   stroke: number,
-  amplitude = 0,
+  noise: Noise = () => 0,
 ): Promise<Buffer> =>
   master(width, height, (x, y) => {
     const onCable = y >= CABLE_TOP && y < CABLE_TOP + stroke && x >= 8 && x < width - 8;
     const base = onCable || y >= height * 0.7 ? SUBJECT : SKY;
-    return noisy(base, y * width + x, amplitude);
+    return noisy(base, y * width + x, noise);
   });
 
 /** The share of a {@link cabledPlane}'s cable that survived the key. */
@@ -132,6 +175,17 @@ function cableSurvival(image: { data: Buffer; width: number }, stroke: number): 
   }
   return opaque / (cable * stroke);
 }
+
+/**
+ * The noise a master may plausibly arrive carrying, from both generators. Every gate that cuts a
+ * threshold through the field's deviation from its seed is walked across all three: one distribution
+ * calibrates a threshold against its own shape and nothing else.
+ */
+const NOISES: readonly (readonly [string, Noise])[] = [
+  ['clean', () => 0],
+  ['±16 uniform grain', (index) => grain(index, 16)],
+  ['σ12 Gaussian grain', (index) => gaussianGrain(index, 12)],
+];
 
 /** Rows of a 2048×1152 `grainySkyline(…, 0.3, …)` that are flat field rather than subject. */
 const SKY_ROWS = Math.round(1152 * 0.7);
@@ -231,6 +285,26 @@ describe('keyBackground', () => {
   });
 
   /**
+   * The MOU-125 round-3 finding, and the reason {@link gaussianGrain} exists. There is no thin
+   * structure anywhere in this master — a flat field over a solid block — and the key is flawless,
+   * so nothing here may be reported as erased artwork. Under an unbounded distribution it was:
+   * `isArtwork` is a fixed cut, every tail pixel of the field lands past it, and at σ 12 that made
+   * a perfect key read 7,579 px erased and refused, telling the operator to fix a 1-px cable the
+   * master does not have. `MIN_ERASED_RUN` is what separates dust from a structure.
+   */
+  it.each([8, 12, 16])('does not read grain as erased artwork — σ%i Gaussian', async (sigma) => {
+    const keyed = await keyBackground(
+      await decodeMaster(await gaussianSkyline(2048, 1152, 0.3, sigma)),
+      DEFAULT_MATTE_TOLERANCE,
+    );
+
+    expect(transparencyOf(keyed)).toBeCloseTo(0.7, 2);
+    expect(keyed.islands).toBe(1);
+    expect(skySpeckle(keyed, SKY_ROWS)).toBeLessThan(0.001);
+    expect(keyed.erased).toBeLessThanOrEqual(MAX_ERASED_ARTWORK);
+  });
+
+  /**
    * The invariant across the band from workable grain to hopeless: a speckled field is never
    * something the encoder hands back. Past the point where the noise floor beats `tolerance` the
    * misses stop being isolated pixels and clump into islands too big to sweep — which is the case
@@ -279,8 +353,8 @@ describe('keyBackground', () => {
    * shape by name, and both other gates move the *wrong* way when it happens — deleting artwork
    * raises transparency past the §6 floor and lowers the island count.
    */
-  it.each([0, 16])('keeps a cable as thick as the key window — ±%i grain', async (amplitude) => {
-    const image = await decodeMaster(await cabledPlane(2048, 1152, 2, amplitude));
+  it.each(NOISES)('keeps a cable as thick as the key window — %s', async (_label, noise) => {
+    const image = await decodeMaster(await cabledPlane(2048, 1152, 2, noise));
 
     const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
 
@@ -288,15 +362,15 @@ describe('keyBackground', () => {
     expect(keyed.erased).toBeLessThanOrEqual(MAX_ERASED_ARTWORK);
   });
 
-  it.each([0, 16])('refuses a cable thinner than it — ±%i grain', async (amplitude) => {
+  it.each(NOISES)('refuses a cable thinner than it — %s', async (_label, noise) => {
     // The plane canvas both matte assets are declared at, which is what MAX_ERASED_ARTWORK counts.
-    const image = await decodeMaster(await cabledPlane(2048, 1152, 1, amplitude));
+    const image = await decodeMaster(await cabledPlane(2048, 1152, 1, noise));
 
     const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
 
     // The cable goes wholesale, grain or none: it is only 3 of the 9 samples in every window it
-    // touches, so the median returns the field at ±0 and ±16 alike — 0% left, 2032 px erased. (The
-    // dashed line this used to record at ±16 was the skewed generator, not grain — MOU-152.)
+    // touches, so the median returns the field at every level alike — 0% left, ~2030 px erased.
+    // (The dashed line this used to record at ±16 was the skewed generator, not grain — MOU-152.)
     expect(cableSurvival(keyed, 1)).toBeLessThan(0.9);
     expect(keyed.erased).toBeGreaterThan(MAX_ERASED_ARTWORK);
     // Neither older gate sees it, which is why this one has to exist.
