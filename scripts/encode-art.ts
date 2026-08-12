@@ -234,13 +234,13 @@ const MIN_ERASED_RUN = 16;
  * in that gap with 6.7× headroom.
  *
  * That separation is a precondition, not a detail. {@link ARTWORK_MARGIN} is what decides whether
- * the master is *stating* a pixel is artwork, so below 2× the tolerance this stops discriminating
- * in **both** directions: on the same matrix at separation 30, a 1-px cable reads 0 (nothing in it
- * is past the margin) and a 2-px one reads up to 557 under grain. A 1-px line whose edges land off
- * the pixel grid is blind for the same reason — its peak coverage never reaches the margin either.
- * Both are the {@link ARTWORK_MARGIN} precondition rather than the run floor, and both are what
- * ART-BIBLE §6.2's stroke floor and a field-to-artwork separation well past `--matte-tolerance` are
- * there to keep out of the funded masters.
+ * the master is *stating* a pixel is artwork, so artwork drawn too close to the field stops this
+ * discriminating in **both** directions — a thin element reads 0 and a legal one reads an erasure.
+ * ART-BIBLE §6.3's minimum artwork-to-field separation is what keeps that out of the funded masters,
+ * and carries the measurements. It is stated as 4× the tolerance rather than as a fixed number of
+ * levels, so it moves with this run: widening `--matte-tolerance` to 30 to key a grainier field asks
+ * for 120 levels of separation, which a master authored against {@link DEFAULT_MATTE_TOLERANCE} does
+ * not have.
  *
  * Past the grain levels above the gate stops discriminating and only refuses: at Gaussian σ 20 a
  * clean flat sky reads 478 and is refused, because at that noise floor a 45-level cable genuinely is
