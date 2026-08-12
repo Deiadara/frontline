@@ -47,6 +47,8 @@ export interface ImageRequest {
   seed: number;
   width: number;
   height: number;
+  /** ART-BIBLE §6 — whether the master must carry a real alpha channel. */
+  alpha: boolean;
   /** On-disk paths of the already-generated style reference masters (ART-PROMPTS §7.3). */
   styleRefPaths: readonly string[];
 }
@@ -59,6 +61,8 @@ export interface ImageBackend {
   licence: string;
   /** ART-PROMPTS §7.3 — whether `styleRefPaths` actually reach the model. */
   supportsStyleRefs: boolean;
+  /** ART-BIBLE §6 — whether the backend can return a genuinely transparent master. */
+  supportsAlpha: boolean;
   /** ART-BIBLE §9 — whether re-running the same seed reproduces the file. */
   honorsSeed: boolean;
   generate(req: ImageRequest): Promise<Uint8Array>;
@@ -109,6 +113,7 @@ export function buildImageRequest(spec: AssetSpec, outDir: string): ImageRequest
     seed: spec.seed,
     width: spec.width,
     height: spec.height,
+    alpha: spec.alpha,
     styleRefPaths: spec.styleRefs.map((key) => {
       const ref = findAssetSpec(key);
       if (!ref) throw new Error(`${spec.key} references unknown style ref "${key}"`);
@@ -170,6 +175,18 @@ function requireKey(env: Env, variable: string, backend: string): string {
   return key;
 }
 
+/**
+ * ART-BIBLE §6 — which backends can return a master with a real alpha channel. 26 of the 44 assets
+ * need one, and prose in the FRAMING block is not a transparency parameter, so this is capability
+ * data rather than a hope.
+ */
+const BACKEND_SUPPORTS_ALPHA: Readonly<Record<ImageBackendName, boolean>> = {
+  // gpt-image-1 documents `background: transparent`, which requires a png/webp `output_format`.
+  openai: true,
+  // FLUX.2 [pro] documents no transparency, alpha or background parameter — it mattes the subject.
+  fal: false,
+};
+
 const FalResponseSchema = z.object({ images: z.array(z.object({ url: z.string() })).min(1) });
 
 /**
@@ -186,8 +203,10 @@ export function createFalBackend(env: Env): ImageBackend {
     model,
     licence: 'fal.ai — commercial use per the model page (ADR 0001 §6.1); output rights per §6.4',
     supportsStyleRefs: true,
+    supportsAlpha: BACKEND_SUPPORTS_ALPHA.fal,
     honorsSeed: true,
     async generate(req) {
+      if (req.alpha) throw new Error(unsupportedTransparencyMessage('fal'));
       const key = requireKey(env, 'FAL_KEY', 'fal');
       const styleRefs = await Promise.all(req.styleRefPaths.map(toDataUri));
       const response = await fetch(`https://fal.run/${model}`, {
@@ -236,6 +255,7 @@ export function createOpenAiBackend(env: Env): ImageBackend {
     model,
     licence: 'OpenAI gpt-image-1 — output ownership unresolved, see ADR 0001 §6.4',
     supportsStyleRefs: true,
+    supportsAlpha: BACKEND_SUPPORTS_ALPHA.openai,
     honorsSeed: false,
     async generate(req) {
       const key = requireKey(env, 'OPENAI_API_KEY', 'openai');
@@ -243,10 +263,11 @@ export function createOpenAiBackend(env: Env): ImageBackend {
       if (size === null) throw new Error(unsupportedResolutionMessage(req.width, req.height));
 
       const prompt = `${req.prompt}\n\nAvoid entirely: ${req.negative}`;
+      const background = req.alpha ? 'transparent' : 'opaque';
       const response =
         req.styleRefPaths.length > 0
-          ? await openAiEdit(key, model, prompt, size, req.styleRefPaths)
-          : await openAiGenerate(key, model, prompt, size);
+          ? await openAiEdit(key, model, prompt, size, background, req.styleRefPaths)
+          : await openAiGenerate(key, model, prompt, size, background);
 
       const { data } = OpenAiResponseSchema.parse(await readJson(response, 'openai'));
       return new Uint8Array(Buffer.from(data[0]!.b64_json, 'base64'));
@@ -254,16 +275,28 @@ export function createOpenAiBackend(env: Env): ImageBackend {
   };
 }
 
+/** `background: transparent` is only honoured alongside a png/webp `output_format`. */
+type OpenAiBackground = 'transparent' | 'opaque';
+
 async function openAiGenerate(
   key: string,
   model: string,
   prompt: string,
   size: OpenAiSize,
+  background: OpenAiBackground,
 ): Promise<Response> {
   return fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, prompt, size, quality: 'high', output_format: 'png', n: 1 }),
+    body: JSON.stringify({
+      model,
+      prompt,
+      size,
+      quality: 'high',
+      background,
+      output_format: 'png',
+      n: 1,
+    }),
   });
 }
 
@@ -273,6 +306,7 @@ async function openAiEdit(
   model: string,
   prompt: string,
   size: OpenAiSize,
+  background: OpenAiBackground,
   styleRefPaths: readonly string[],
 ): Promise<Response> {
   const form = new FormData();
@@ -280,6 +314,7 @@ async function openAiEdit(
   form.append('prompt', prompt);
   form.append('size', size);
   form.append('quality', 'high');
+  form.append('background', background);
   form.append('output_format', 'png');
   form.append('n', '1');
   for (const refPath of styleRefPaths) {
@@ -319,6 +354,34 @@ export function unsupportedResolution(
     return unsupportedResolutionMessage(width, height);
   }
   return null;
+}
+
+function unsupportedTransparencyMessage(backend: ImageBackendName): string {
+  return `${backend} cannot deliver an alpha channel — this asset must ship transparent (ART-BIBLE §6)`;
+}
+
+/**
+ * Why a backend cannot deliver a spec's transparency, or `null` when it can. Same contract as
+ * {@link unsupportedResolution}: an opaque master for an alpha asset is an ART-BIBLE §10 rejection
+ * that only shows up after the money is spent, so it fails `--dry-run` instead.
+ */
+export function unsupportedTransparency(backend: ImageBackendName, alpha: boolean): string | null {
+  return alpha && !BACKEND_SUPPORTS_ALPHA[backend] ? unsupportedTransparencyMessage(backend) : null;
+}
+
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/**
+ * `output_format: 'png'` is unverified wire format on both backends. If a provider ignores or
+ * renames it we would write a JPEG into `<key>.png` and only find out when the encode step chokes,
+ * long after the run is paid for — so the master's own bytes are the source of truth.
+ */
+export function assertPngMaster(key: string, bytes: Uint8Array): void {
+  if (bytes.length < PNG_MAGIC.length || PNG_MAGIC.some((byte, index) => bytes[index] !== byte)) {
+    throw new Error(
+      `${key}: backend returned non-PNG bytes — masters must be lossless PNG (ART-BIBLE §6)`,
+    );
+  }
 }
 
 /** Error bodies name the offending field — the only diagnostic an unverified wire format has. */
@@ -442,8 +505,13 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
       if (!parsed.success) {
         problems.push(`${spec.key}: unknown FRONTLINE_ART_BACKEND "${selected}"`);
       } else {
-        const unsupported = unsupportedResolution(parsed.data, spec.width, spec.height);
-        if (unsupported !== null) problems.push(`${spec.key}: ${unsupported}`);
+        const unsupported = [
+          unsupportedResolution(parsed.data, spec.width, spec.height),
+          unsupportedTransparency(parsed.data, spec.alpha),
+        ];
+        for (const problem of unsupported) {
+          if (problem !== null) problems.push(`${spec.key}: ${problem}`);
+        }
       }
     }
   }
@@ -500,6 +568,7 @@ export async function generate(
     const masterPath = masterOutputPath(outDir, spec);
     process.stdout.write(`generating ${path.basename(masterPath)} via ${backend.name}\n`);
     const bytes = await backend.generate(request);
+    assertPngMaster(spec.key, bytes);
 
     await writeFile(masterPath, bytes);
     await writeFile(

@@ -11,6 +11,7 @@ import {
 } from '@frontline/shared';
 import {
   assemblePrompt,
+  assertPngMaster,
   buildImageRequest,
   buildProvenance,
   createBackend,
@@ -26,6 +27,7 @@ import {
   resolveBackendName,
   selectSpecs,
   unsupportedResolution,
+  unsupportedTransparency,
   validateRun,
   type Env,
   type ImageRequest,
@@ -40,6 +42,8 @@ const spec = (key: string): AssetSpec => {
 const DISTRICT = spec('district-chrome-row');
 const PORTRAIT = spec('portrait-overseer-1');
 const PLATE = spec('plate-city');
+/** ART-BIBLE §6 — a 1024×1024 asset that must ship with a real alpha channel. */
+const FRAME = spec('ui-frame-panel');
 const OUT = '/tmp/frontline-art';
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -89,6 +93,11 @@ describe('buildImageRequest', () => {
       width: DISTRICT.width,
       height: DISTRICT.height,
     });
+  });
+
+  it('carries the manifest transparency, so the backends can act on it', () => {
+    expect(buildImageRequest(FRAME, OUT).alpha).toBe(true);
+    expect(buildImageRequest(DISTRICT, OUT).alpha).toBe(false);
   });
 
   it('resolves style refs to the on-disk masters under the output dir', () => {
@@ -189,6 +198,35 @@ describe('backend selection', () => {
     expect(unsupportedResolution('openai', 1024, 1536)).toBeNull();
     expect(unsupportedResolution('fal', 2048, 1152)).toBeNull();
   });
+
+  it('reports transparency a backend cannot deliver — FLUX.2 exposes no alpha parameter', () => {
+    expect(unsupportedTransparency('fal', true)).toMatch(/cannot deliver an alpha channel/);
+    expect(unsupportedTransparency('fal', false)).toBeNull();
+    // gpt-image-1 documents `background: transparent`.
+    expect(unsupportedTransparency('openai', true)).toBeNull();
+  });
+
+  it('advertises each backend’s transparency capability', () => {
+    expect(createBackend('fal', {}).supportsAlpha).toBe(false);
+    expect(createBackend('openai', {}).supportsAlpha).toBe(true);
+  });
+});
+
+describe('assertPngMaster', () => {
+  it('accepts bytes carrying the PNG signature', () => {
+    expect(() => assertPngMaster('plate-city', PNG_BYTES)).not.toThrow();
+  });
+
+  it('rejects anything else — `output_format` is unverified wire format', () => {
+    // JPEG SOI + APP0.
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
+    expect(() => assertPngMaster('plate-city', jpeg)).toThrow(
+      /plate-city: backend returned non-PNG bytes/,
+    );
+    expect(() => assertPngMaster('plate-city', new Uint8Array([0x89, 0x50]))).toThrow(
+      /non-PNG bytes/,
+    );
+  });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -271,6 +309,17 @@ describe('fal adapter', () => {
   it('needs its key', async () => {
     await expect(createFalBackend({}).generate(request())).rejects.toThrow(/FAL_KEY is unset/);
   });
+
+  it('refuses an asset that must ship transparent rather than return it matted', async () => {
+    stubFetch();
+    await expect(
+      createFalBackend({ FAL_KEY: 'k' }).generate({
+        ...buildImageRequest(FRAME, OUT),
+        styleRefPaths: [],
+      }),
+    ).rejects.toThrow(/fal cannot deliver an alpha channel/);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('openai adapter', () => {
@@ -292,8 +341,24 @@ describe('openai adapter', () => {
       prompt: `${assemblePrompt(PORTRAIT)}\n\nAvoid entirely: ${NEGATIVE}`,
       size: '1024x1536',
       quality: 'high',
+      background: 'opaque',
       output_format: 'png',
       n: 1,
+    });
+  });
+
+  it('asks for a transparent background on an asset the manifest marks alpha', async () => {
+    const { calls } = stubFetch(jsonResponse({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
+
+    await createOpenAiBackend({ OPENAI_API_KEY: 'k' }).generate({
+      ...buildImageRequest(FRAME, OUT),
+      styleRefPaths: [],
+    });
+
+    expect(jsonBody(calls[0]![1])).toMatchObject({
+      background: 'transparent',
+      // `background: transparent` is only honoured with a png/webp output format.
+      output_format: 'png',
     });
   });
 
@@ -312,6 +377,7 @@ describe('openai adapter', () => {
       expect(form).toBeInstanceOf(FormData);
       expect(form.get('model')).toBe('gpt-image-1');
       expect(form.get('size')).toBe('1024x1536');
+      expect(form.get('background')).toBe('opaque');
       expect(form.getAll('image[]')).toHaveLength(1);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -452,6 +518,13 @@ describe('validateRun', () => {
     );
     expect(validateRun([PLATE], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
   });
+
+  it('fails the run rather than pay fal for 26 assets that come back opaque', () => {
+    expect(validateRun([FRAME], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toContainEqual(
+      expect.stringContaining('ui-frame-panel: fal cannot deliver an alpha channel'),
+    );
+    expect(validateRun([FRAME], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
+  });
 });
 
 describe('main --dry-run', () => {
@@ -512,6 +585,28 @@ describe('main — live run', () => {
         styleRefsApplied: false,
         humanEdited: false,
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to write a non-PNG master into a .png', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'frontline-art-'));
+    try {
+      stubFetch(
+        jsonResponse({ images: [{ url: 'https://cdn.fal.test/a.jpg' }] }),
+        new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0])),
+      );
+      const output = captureOutput();
+
+      const code = await main(['--out', dir, '--only', 'plate-city'], {
+        FRONTLINE_ART_BACKEND: 'fal',
+        FAL_KEY: 'k',
+      });
+
+      expect(code).toBe(1);
+      expect(output.stderr.join('')).toContain('plate-city: backend returned non-PNG bytes');
+      await expect(readFile(path.join(dir, 'plate-city.png'))).rejects.toThrow(/ENOENT/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
