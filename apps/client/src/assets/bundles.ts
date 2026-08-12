@@ -1,0 +1,52 @@
+/**
+ * Lazy-loading bundles — ADR 0001 §5.1. One bundle per screen, so a player who never opens the
+ * base view never downloads the building sprites.
+ *
+ * The partition is derived from `ART_MANIFEST`, never hand-listed: a new manifest entry lands in
+ * a bundle automatically, and `bundles.test.ts` pins that every key lands in exactly one.
+ */
+import { ART_MANIFEST, type AssetKey, type AssetSpec } from '@frontline/shared';
+
+export const ASSET_BUNDLES = ['splash', 'overseer', 'city', 'base', 'ui'] as const;
+export type AssetBundleName = (typeof ASSET_BUNDLES)[number];
+
+function iconBundle(key: AssetKey): AssetBundleName {
+  if (key.startsWith('icon-archetype-')) return 'overseer';
+  if (key.startsWith('icon-kind-')) return 'city';
+  return 'ui';
+}
+
+/**
+ * The screen a spec belongs to. Portraits get their own bundle rather than riding with the UI
+ * chrome: four 1024×1536 heroes are the heaviest thing in the manifest and only the character
+ * select screen needs them.
+ */
+export function bundleFor(spec: AssetSpec): AssetBundleName {
+  switch (spec.class) {
+    case 'splash':
+      return 'splash';
+    case 'portrait':
+      return 'overseer';
+    case 'district':
+    case 'plate':
+    case 'plane':
+    case 'lut':
+      return 'city';
+    case 'building':
+      return 'base';
+    case 'ui':
+      return 'ui';
+    case 'icon':
+      return iconBundle(spec.key);
+  }
+}
+
+function partition(): Readonly<Record<AssetBundleName, readonly AssetSpec[]>> {
+  const buckets = Object.fromEntries(
+    ASSET_BUNDLES.map((name) => [name, [] as AssetSpec[]]),
+  ) as Record<AssetBundleName, AssetSpec[]>;
+  for (const spec of ART_MANIFEST) buckets[bundleFor(spec)].push(spec);
+  return buckets;
+}
+
+export const BUNDLE_SPECS: Readonly<Record<AssetBundleName, readonly AssetSpec[]>> = partition();

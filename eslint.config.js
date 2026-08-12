@@ -31,6 +31,19 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
+      // ADR 0001 §5.4 — the barrel drags all 40+ shaders into the bundle. Import the subpath.
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'pixi-filters',
+              message:
+                'Import the filter from its subpath (e.g. `pixi-filters/advanced-bloom`); the barrel is not tree-shakeable.',
+            },
+          ],
+        },
+      ],
     },
   },
 );
