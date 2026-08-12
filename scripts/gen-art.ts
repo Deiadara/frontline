@@ -642,7 +642,7 @@ function describePostProcess(spec: AssetSpec): string {
 
 /**
  * Printed on both paths, because a paid run otherwise ends with 44 "generating …" lines and no hint
- * that 14 of the masters are not the assets. The encode step does not exist yet, so say so.
+ * that 14 of the masters are not the assets — and this runner never produces a delivery file.
  */
 function postProcessSummary(specs: readonly AssetSpec[]): string {
   const pending = specs.filter((spec) => spec.postProcess.length > 0);
@@ -650,8 +650,8 @@ function postProcessSummary(specs: readonly AssetSpec[]): string {
   const steps = tally(pending.flatMap((spec) => spec.postProcess));
   return (
     `${pending.length} master(s) are not the delivery image (${steps}).\n` +
-    `The AssetPack encode step that applies these is NOT IMPLEMENTED (MOU-125) — until it lands, ` +
-    `those delivery files do not exist.\n`
+    `Run \`pnpm --filter @frontline/scripts encode-art\` to apply these — until it has run, those ` +
+    `delivery files do not exist.\n`
   );
 }
 

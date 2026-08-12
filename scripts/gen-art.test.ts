@@ -647,14 +647,14 @@ describe('main --dry-run', () => {
     expect(stdout).toContain(`backends: fal ${ART_MANIFEST.length - pinned}, openai ${pinned}`);
   });
 
-  it('says the post-process step does not exist yet rather than implying a handoff', async () => {
+  it('names the encode step a master still needs rather than implying it is the asset', async () => {
     const output = captureOutput();
 
     await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
 
     const stdout = output.stdout.join('');
     expect(stdout).toContain('14 master(s) are not the delivery image (matte 2, downscale 12)');
-    expect(stdout).toContain('NOT IMPLEMENTED (MOU-125)');
+    expect(stdout).toContain('encode-art');
   });
 
   it('exits non-zero on an unknown asset key', async () => {
