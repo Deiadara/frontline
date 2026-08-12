@@ -20,6 +20,7 @@ import {
   createFalBackend,
   createOpenAiBackend,
   DEFAULT_OUT_DIR,
+  foldNegativeIntoProse,
   main,
   masterOutputPath,
   openAiSize,
@@ -30,6 +31,7 @@ import {
   selectSpecs,
   unproducibleSource,
   validateRun,
+  type EmittedPrompt,
   type Env,
   type ImageRequest,
 } from './gen-art.js';
@@ -506,9 +508,22 @@ describe('parseArgs', () => {
     ]);
     expect(options).toEqual({
       dryRun: true,
+      emitPrompts: false,
       outDir: '/tmp/art',
       only: ['plate-city', 'ui-divider'],
     });
+  });
+
+  it('reads --emit-prompts, which composes with --only', () => {
+    expect(parseArgs(['--emit-prompts', '--only', 'plate-city'])).toMatchObject({
+      emitPrompts: true,
+      only: ['plate-city'],
+    });
+    expect(parseArgs([]).emitPrompts).toBe(false);
+  });
+
+  it('names --emit-prompts in the usage line', () => {
+    expect(() => parseArgs(['--wat'])).toThrow(/--emit-prompts/);
   });
 
   it('rejects unknown flags and missing values', () => {
@@ -671,6 +686,100 @@ describe('main --dry-run', () => {
   it('needs no backend or credentials', async () => {
     captureOutput();
     await expect(main(['--dry-run', '--only', 'portrait-overseer-1'], {})).resolves.toBe(0);
+  });
+});
+
+describe('foldNegativeIntoProse', () => {
+  it('is the single fold every negative-less route uses', () => {
+    expect(foldNegativeIntoProse('a subject', 'blur, watermark')).toBe(
+      'a subject\n\nAvoid entirely: blur, watermark',
+    );
+  });
+
+  it('produces exactly what the gpt-image-1 adapter posts', async () => {
+    const { calls } = stubFetch(jsonResponse({ data: [{ b64_json: 'iVBORw0KGgo=' }] }));
+
+    await createOpenAiBackend({ OPENAI_API_KEY: 'k' }).generate({
+      ...buildImageRequest(PORTRAIT, OUT),
+      styleRefPaths: [],
+    });
+
+    expect(jsonBody(calls[0]![1])).toMatchObject({
+      prompt: foldNegativeIntoProse(assemblePrompt(PORTRAIT), NEGATIVE),
+    });
+  });
+});
+
+describe('main --emit-prompts', () => {
+  /** The mode's contract is machine-readable stdout — parse it rather than string-matching. */
+  async function emit(...argv: string[]): Promise<EmittedPrompt[]> {
+    const output = captureOutput();
+    await expect(main(['--emit-prompts', ...argv], {})).resolves.toBe(0);
+    return JSON.parse(output.stdout.join('')) as EmittedPrompt[];
+  }
+
+  it('emits valid JSON for exactly the selected key, with no keys and no network', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    const emitted = await emit('--only', 'portrait-overseer-1');
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      key: 'portrait-overseer-1',
+      width: PORTRAIT.source.width,
+      height: PORTRAIT.source.height,
+      aspect: PORTRAIT.aspect,
+      alpha: PORTRAIT.source.alpha,
+      seed: PORTRAIT.seed,
+    });
+  });
+
+  it('emits the exact assembled prompt with the negative folded in', async () => {
+    const [emitted] = await emit('--only', 'district-chrome-row');
+
+    expect(emitted!.prompt).toBe(foldNegativeIntoProse(assemblePrompt(DISTRICT), NEGATIVE));
+    expect(emitted!.prompt.startsWith(STYLE_ANCHOR)).toBe(true);
+    expect(emitted!.prompt).toContain(DISTRICT.prompt.subject);
+    expect(emitted!.prompt).toContain(DISTRICT.prompt.framing);
+    expect(emitted!.prompt).toContain(`Avoid entirely: ${NEGATIVE}`);
+  });
+
+  /** A pasted asset must be able to carry the provenance the generator would have written. */
+  it('hashes the prompt exactly as buildProvenance does', async () => {
+    const [emitted] = await emit('--only', 'district-chrome-row');
+
+    const record = buildProvenance(
+      DISTRICT,
+      createBackend('fal', {}),
+      buildImageRequest(DISTRICT, OUT),
+      new Date('2026-08-12T09:30:00.000Z'),
+    );
+    expect(emitted!.promptSha256).toBe(record.promptSha256);
+  });
+
+  it('asks for spec.source, not the delivery spec, where they differ', async () => {
+    const [icon] = await emit('--only', 'icon-alloy');
+
+    // Ships 512² with alpha; nothing renders that, so the paste target is the 1024² master.
+    expect(icon).toMatchObject({ width: 1024, height: 1024, alpha: true, aspect: '1:1' });
+  });
+
+  it('emits in generation order, whatever order --only names the keys', async () => {
+    const emitted = await emit('--only', 'district-chrome-row,plate-city');
+
+    expect(emitted.map((entry) => entry.key)).toEqual(['plate-city', 'district-chrome-row']);
+  });
+
+  it('exits non-zero on an unknown asset key', async () => {
+    const output = captureOutput();
+    await expect(main(['--emit-prompts', '--only', 'district-atlantis'], {})).resolves.toBe(1);
+    expect(output.stderr.join('')).toContain('Unknown asset key');
+  });
+
+  it('covers the whole manifest by default', async () => {
+    const emitted = await emit();
+    expect(emitted).toHaveLength(ART_MANIFEST.length);
   });
 });
 

@@ -15,6 +15,7 @@
  * step; declaring them is what keeps the substitution deliberate instead of silent.
  *
  *   pnpm --filter @frontline/scripts gen-art -- --dry-run
+ *   pnpm --filter @frontline/scripts gen-art -- --emit-prompts --only plate-city
  *   FRONTLINE_ART_BACKEND=fal FAL_KEY=… pnpm --filter @frontline/scripts gen-art
  *
  * `--dry-run` makes **zero** network calls and is what CI exercises; it exits non-zero on any
@@ -38,6 +39,7 @@ import {
   backendCanProduce,
   findAssetSpec,
   validateAssetSpec,
+  type AssetAspect,
   type AssetSource,
   type AssetSpec,
   type ImageBackendName,
@@ -110,6 +112,24 @@ export function assemblePrompt(spec: AssetSpec): string {
   return [STYLE_ANCHOR, spec.prompt.subject, spec.prompt.framing].join('\n\n');
 }
 
+/**
+ * The one way a NEGATIVE list is expressed to a model that has no negative-prompt parameter — the
+ * gpt-image-1 adapter and every hand-pasted chat-UI route must fold it identically, or two runs of
+ * the same asset are two different prompts.
+ */
+export function foldNegativeIntoProse(prompt: string, negative: string): string {
+  return `${prompt}\n\nAvoid entirely: ${negative}`;
+}
+
+/**
+ * The provenance digest (ADR 0001 §6.4). Hashes the assembled prompt **before** any negative fold,
+ * alongside the shared NEGATIVE — so a prompt or negative edit is visible whichever route rendered
+ * the asset.
+ */
+export function hashPrompt(prompt: string): string {
+  return createHash('sha256').update(`${prompt}\n--- negative ---\n${NEGATIVE}`).digest('hex');
+}
+
 /** Masters are always lossless PNG, whatever the delivery format is (ART-BIBLE §6). */
 export function masterOutputPath(outDir: string, spec: AssetSpec): string {
   return path.join(outDir, `${spec.key}.png`);
@@ -151,9 +171,7 @@ export function buildProvenance(
     backend: backend.name,
     model: backend.model,
     seed: backend.honorsSeed ? spec.seed : null,
-    promptSha256: createHash('sha256')
-      .update(`${request.prompt}\n--- negative ---\n${NEGATIVE}`)
-      .digest('hex'),
+    promptSha256: hashPrompt(request.prompt),
     styleRefsApplied: backend.supportsStyleRefs && request.styleRefPaths.length > 0,
     generatedAt: generatedAt.toISOString(),
     licence: backend.licence,
@@ -268,7 +286,7 @@ export function createOpenAiBackend(env: Env): ImageBackend {
       const size = openAiSize(req.width, req.height);
       if (size === null) throw new Error(unproducibleMessage('openai', requestSource(req)));
 
-      const prompt = `${req.prompt}\n\nAvoid entirely: ${req.negative}`;
+      const prompt = foldNegativeIntoProse(req.prompt, req.negative);
       const background = req.alpha ? 'transparent' : 'opaque';
       const response =
         req.styleRefPaths.length > 0
@@ -427,17 +445,26 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 export interface CliOptions {
   dryRun: boolean;
+  /** Print the assembled prompts as JSON instead of rendering anything. */
+  emitPrompts: boolean;
   outDir: string;
   /** Asset keys to generate; empty means the whole manifest. */
   only: readonly string[];
 }
 
 export function parseArgs(argv: readonly string[]): CliOptions {
-  const options = { dryRun: false, outDir: DEFAULT_OUT_DIR, only: [] as string[] };
+  const options = {
+    dryRun: false,
+    emitPrompts: false,
+    outDir: DEFAULT_OUT_DIR,
+    only: [] as string[],
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--dry-run') {
       options.dryRun = true;
+    } else if (arg === '--emit-prompts') {
+      options.emitPrompts = true;
     } else if (arg === '--out' || arg === '--only') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) throw new Error(`${arg} needs a value`);
@@ -446,7 +473,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       i += 1;
     } else {
       throw new Error(
-        `Unknown argument "${arg}". Usage: gen-art [--dry-run] [--out DIR] [--only KEYS]`,
+        `Unknown argument "${arg}". Usage: gen-art [--dry-run] [--emit-prompts] [--out DIR] [--only KEYS]`,
       );
     }
   }
@@ -472,6 +499,40 @@ export function orderForGeneration(specs: readonly AssetSpec[]): readonly AssetS
     return (STYLE_REFERENCE_KEYS as readonly string[]).includes(spec.key) ? 1 : 0;
   };
   return [...specs].sort((a, b) => tier(a) - tier(b));
+}
+
+/** One `--emit-prompts` record: everything a hand- or robot-driven chat UI needs to render an asset. */
+export interface EmittedPrompt {
+  key: string;
+  /** The exact prose to paste — `assemblePrompt` with NEGATIVE folded in, never a paraphrase. */
+  prompt: string;
+  /** `spec.source` — what to ask the UI for, which is not always what ships. */
+  width: number;
+  height: number;
+  /** `spec.aspect`; `validateAssetSpec` pins the source to the delivery ratio, so it covers both. */
+  aspect: AssetAspect;
+  alpha: boolean;
+  seed: number;
+  /** Identical to what {@link buildProvenance} records, so a pasted asset's provenance still matches. */
+  promptSha256: string;
+}
+
+/**
+ * ART-PROMPTS §0 — a chat UI has neither a negative-prompt field nor a seed, so the negative is
+ * folded into the prose exactly as the gpt-image-1 adapter folds it and the seed travels as data.
+ */
+export function emitPrompt(spec: AssetSpec): EmittedPrompt {
+  const prompt = assemblePrompt(spec);
+  return {
+    key: spec.key,
+    prompt: foldNegativeIntoProse(prompt, NEGATIVE),
+    width: spec.source.width,
+    height: spec.source.height,
+    aspect: spec.aspect,
+    alpha: spec.source.alpha,
+    seed: spec.seed,
+    promptSha256: hashPrompt(prompt),
+  };
 }
 
 /**
@@ -592,6 +653,13 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   } catch (error) {
     process.stderr.write(`${errorMessage(error)}\n`);
     return 1;
+  }
+
+  // Before `validateRun`: a chat UI is not one of the two backends, so the selectability gate has
+  // nothing to say here — and this mode must run on a machine holding no credentials at all.
+  if (options.emitPrompts) {
+    process.stdout.write(`${JSON.stringify(specs.map(emitPrompt), null, 2)}\n`);
+    return 0;
   }
 
   const problems = validateRun(specs, options.outDir, env);
