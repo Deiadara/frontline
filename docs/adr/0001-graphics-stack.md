@@ -262,6 +262,49 @@ neither set it runs `--dry-run` only, which is what CI exercises.
 | Stability (Ultra / Core) | not verified from primary source                                           | ❌                | Community License reported free under $1M annual revenue | Solid, generally a step behind FLUX.2 on painterly detail.                                                                                    |
 | Replicate                | per-second GPU billing; effective per-image varies with model and hardware | ❌                | model-dependent (each model carries its own licence)     | Widest model catalogue; worst cost predictability. Reported to be 1.4–2.9× more expensive than fal for equivalent image work.                 |
 
+#### 6.1.1 Request shapes, checked against the published schemas (MOU-132)
+
+Checked against each vendor's **generated** schema, not their prose docs:
+`https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/flux-2-pro` and
+`openai/openai-openapi@master:openapi.yaml`. This is a schema check, **not** a live call — no key was
+held and nothing was spent, so "the server accepts this body" remains unproven. What a schema cannot
+tell us is listed at the end.
+
+**fal — `fal-ai/flux-2-pro`** (the endpoint id is hyphenated; `fal-ai/flux-2/pro` is not a published
+id — both its model page and its schema URL 404). `Flux2ProTextToImageInput` accepts exactly
+`prompt`, `image_size`, `seed`, `safety_tolerance`, `enable_safety_checker`, `output_format`,
+`sync_mode`.
+
+- **`image_size` takes the `{width, height}` object** — `anyOf: [ImageSize, enum]`, so MOU-122's open
+  question resolves in favour of the object form. It is **bounded**, though: `x-fal` declares
+  `min_width`/`min_height` 256, `max_width`/`max_height` 2560, `multiple_of` 16, `max_area` 4194304.
+  `BACKEND_CAPABILITIES.fal.sizes = null` therefore overstates the backend. Every source size in the
+  manifest today (1024×1024, 1024×1536, 2048×1152) satisfies all four constraints, so the routing
+  tally does not move — but the capability record must state the bounds, not "anything".
+- **No transparency parameter of any kind.** `BACKEND_CAPABILITIES.fal.alpha = false` is correct, and
+  the 28 alpha assets stay on gpt-image-1.
+- **`negative_prompt`, `num_images`, `num_inference_steps`, `guidance_scale` do not exist.** Negatives
+  must be folded into the prompt, as the OpenAI adapter already does. `num_images` is absent because
+  the endpoint returns exactly one image — which is the budget assumption, now sourced.
+- **`image_urls` exists only on `fal-ai/flux-2-pro/edit`.** Style references cannot ride the
+  text-to-image endpoint; carrying them means routing to `/edit`.
+- `output_format` is `jpeg | png`, defaulting to **`jpeg`** — sending `png` explicitly is required,
+  not decorative. Output is `{images: [ImageFile], seed}`.
+
+**OpenAI — `gpt-image-1`.** Confirmed unchanged: `size` ∈ `1024x1024 | 1536x1024 | 1024x1536` for the
+GPT image models, `background` ∈ `transparent | opaque | auto`, and `transparent` requires
+`output_format` `png` or `webp` (we send `png`). GPT image models always return base64, so there is no
+`response_format` to set. `BACKEND_CAPABILITIES.openai` matches.
+
+Two things the schema left open, both needing one live call:
+
+- Whether `background: transparent` returns a genuine alpha channel or a painted checkerboard. Only
+  pixels can answer that.
+- The spec's `size` description says `gpt-image-2` accepts arbitrary `WIDTHxHEIGHT` (÷16, aspect
+  between 1:3 and 3:1, up to 3840×2160), but `gpt-image-2` is **absent from the same file's model
+  enum** — so the spec contradicts itself and we are not treating it as real. If it is, a 2048×1152
+  transparent master becomes directly producible and the `matte` step for the two planes disappears.
+
 ### 6.2 No-key routes — **not recommended**
 
 Public "free Flux" proxies exist. Do not use them:
