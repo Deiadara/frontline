@@ -166,7 +166,16 @@ describe('renderSheet', () => {
     // One cell is the narrowest layout there is, and the header does not narrow with the grid: this
     // is where a title that overruns the canvas gets cut mid-glyph. Pins `MIN_WIDTH` against a
     // header that grows — a third digit in the counts, or a longer title.
-    const sheet = await renderSheet([{ spec: PORTRAIT, bytes: undefined }], counts);
+    //
+    // Rendered at the widest counts actually reachable, which is a *half-landed* manifest, not a
+    // finished one: `painted` and `procedural` sum to `ART_MANIFEST.length`, so driving `painted`
+    // to the end shrinks `procedural` to a single digit. Splitting keeps all three at two digits.
+    const widest = {
+      painted: ART_MANIFEST.length - 10,
+      procedural: 10,
+      heroPainted: HERO_ASSET_KEYS.length,
+    };
+    const sheet = await renderSheet([{ spec: PORTRAIT, bytes: undefined }], widest);
     const { data, info } = await sharp(sheet).raw().toBuffer({ resolveWithObject: true });
     const layout = layoutFor(1);
     expect(info.width).toBe(layout.width);

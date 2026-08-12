@@ -57,9 +57,13 @@ const CELL_HEIGHT = THUMB + LABEL_HEIGHT;
 
 /**
  * A floor wide enough for the header, which does not narrow with the grid: at one cell the columns
- * alone would give a 376px sheet and the title would be cut mid-glyph. Measured — the header's
- * widest rendering ends at x=433, so 434 + `MARGIN` of air. Pinned by a test that renders the
- * one-cell sheet and checks the header ink stays inside the page.
+ * alone would give a 376px sheet and the title would be cut mid-glyph.
+ *
+ * Measured, on the summary line (the wider of the two). It is widest when all three counts carry
+ * two digits, which takes a *split* manifest rather than a finished one — `painted` and
+ * `procedural` sum to `ART_MANIFEST.length`, so `44/44 · 15/15 · 0` is 10px narrower than
+ * `34/44 · 15/15 · 10`. That widest reachable header ends at x=433, so 434 + `MARGIN` of air.
+ * Pinned by a test that renders it on the one-cell sheet and checks the ink stays inside the page.
  */
 const MIN_WIDTH = 462;
 
@@ -130,7 +134,11 @@ export function sheetSpecs(delivered: ReadonlySet<string>): readonly AssetSpec[]
 
 /** What the client globs out of the drop directory — see `assets/README.md`. */
 const DELIVERY_FILE = /\.(?:webp|png)$/;
-/** A 2× variant is the same art as its 1×, and the 1× is what the sheet reports. */
+/**
+ * A 2× variant is the same art as its 1×, and the 1× is what the sheet reports. This also means a
+ * misnamed 2× goes unreported below: the client derives the 2× name from the 1× via `retinaName`,
+ * so a bad one degrades to the 1× rather than to a blank slot.
+ */
 const RETINA_FILE = /@2x\.(?:webp|png)$/;
 
 /**
@@ -232,7 +240,7 @@ async function thumbnail(bytes: Uint8Array, file: string): Promise<Buffer> {
       .png()
       .toBuffer();
   } catch (error) {
-    throw new Error(`${file}: ${errorMessage(error)}`);
+    throw new Error(`${file}: ${errorMessage(error)}`, { cause: error });
   }
 }
 
@@ -324,10 +332,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   let cells: Cell[];
-  let sheet: Buffer;
   try {
     cells = await collectCells(sheetSpecs(delivered), delivered, options.assetDir);
-    sheet = await renderSheet(cells, counts);
+    const sheet = await renderSheet(cells, counts);
     await mkdir(path.dirname(options.outPath), { recursive: true });
     await writeFile(options.outPath, sheet);
   } catch (error) {
