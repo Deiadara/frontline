@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // `page.evaluate` bodies are compiled here but execute in the browser, so the specs need both
+    // halves: node types for the runner and DOM types for the code shipped into the page.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["e2e"]
+}

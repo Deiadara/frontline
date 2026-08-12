@@ -11,8 +11,8 @@
  */
 import { ramps } from '../theme/tokens';
 
-/** Which parallax plane a mass belongs to — ADR §5.2 rows `sky`, `far` and `fore`. */
-export type DepthBand = 'sky' | 'far' | 'fore';
+/** Which parallax plane a mass belongs to — ADR §5.2 rows `sky`, `far`, `mid` and `fore`. */
+export type DepthBand = 'sky' | 'far' | 'mid' | 'fore';
 
 export interface Point {
   x: number;
@@ -72,43 +72,85 @@ interface BandProfile {
   /** Chance any one façade cell is lit. */
   windowChance: number;
   /**
+   * Lit-window size as a fraction of *plane* height. Sizing windows off the tower instead makes a
+   * wide foreground tower sprout 40px light-boxes — the flat-rectangle failure mode. A storey is a
+   * fixed real-world size, so it scales with the plane and only grows a little as bands come nearer.
+   */
+  windowScale: number;
+  /**
+   * Fractions of plane width the band's masses are laid across. Every band but `fore` spans the
+   * full plate; `fore` is split into two outer margins so the readable middle stays open.
+   */
+  spans: readonly (readonly [number, number])[];
+  /**
    * Fill stops for the band, furthest → nearest. Distant bands sit on `smog` (haze-desaturated
    * architecture); near bands sit on `abyss` (near-black occluders that frame the readable middle).
    */
   fills: readonly string[];
 }
 
+const FULL_SPAN = [[0, 1]] as const;
+
 /**
- * ART-BIBLE §5 — silhouette reads first. Distant bands are many, thin and low-contrast; the
- * foreground is few, wide and near-black, so the interactive middle plane stays the bright subject.
+ * ART-BIBLE §5 — silhouette reads first, and it reads by *value*: each band forward is a step
+ * darker than the one behind it (`smog` → `abyss.300` → `abyss.500` → `abyss.950`), which is what
+ * atmospheric perspective is. Bands all painted from the same near-black end read as one flat
+ * black field no matter how good the geometry is.
+ *
+ * `fore` is deliberately low and edge-bound. It sits *above* the interactive plane, so anything
+ * tall and wide there is not an occluder but a curtain over the districts the player must click.
  */
 const BAND_PROFILES: Record<DepthBand, BandProfile> = {
   sky: {
     towers: 26,
+    // Taller than every band in front of it — bands are all floor-anchored, so a distant band
+    // that is not the tallest is simply painted over and contributes nothing.
     width: [0.018, 0.055],
-    height: [0.3, 0.72],
+    height: [0.46, 0.9],
     setbackChance: 0.55,
     spireChance: 0.45,
-    windowChance: 0.08,
-    fills: [ramps.smog[700], ramps.smog[950], ramps.abyss[100]],
+    windowChance: 0.1,
+    windowScale: 0.0026,
+    spans: FULL_SPAN,
+    fills: [ramps.smog[700], ramps.smog[950], ramps.abyss[300]],
   },
   far: {
-    towers: 18,
-    width: [0.05, 0.12],
-    height: [0.35, 0.8],
+    towers: 16,
+    width: [0.05, 0.11],
+    height: [0.32, 0.66],
     setbackChance: 0.45,
     spireChance: 0.28,
-    windowChance: 0.32,
-    fills: [ramps.abyss[300], ramps.abyss[500], ramps.ferrite[950]],
+    windowChance: 0.2,
+    windowScale: 0.0034,
+    spans: FULL_SPAN,
+    fills: [ramps.smog[950], ramps.abyss[300], ramps.abyss[500]],
+  },
+  mid: {
+    towers: 12,
+    width: [0.06, 0.14],
+    height: [0.16, 0.4],
+    setbackChance: 0.4,
+    spireChance: 0.2,
+    windowChance: 0.16,
+    windowScale: 0.0042,
+    spans: FULL_SPAN,
+    fills: [ramps.abyss[500], ramps.abyss[700]],
   },
   fore: {
-    towers: 7,
-    width: [0.1, 0.22],
-    height: [0.45, 0.95],
+    towers: 8,
+    // Low enough to clear the lowest district (y = 0.88) and its tag; masts are thin, so they
+    // read as foreground antennae without hiding anything clickable behind them.
+    width: [0.06, 0.16],
+    height: [0.03, 0.075],
     setbackChance: 0.3,
-    spireChance: 0.12,
+    spireChance: 0.5,
     windowChance: 0.05,
-    fills: [ramps.abyss[700], ramps.abyss[950]],
+    windowScale: 0.006,
+    spans: [
+      [0, 0.34],
+      [0.66, 1],
+    ],
+    fills: [ramps.abyss[950]],
   },
 };
 
@@ -172,10 +214,11 @@ function windowsFor(
   centreX: number,
   top: number,
   profile: BandProfile,
+  planeHeight: number,
   rng: () => number,
 ): WindowCell[] {
-  const cell = Math.max(2, segment.width * 0.16);
-  const gap = cell * 0.6;
+  const cell = Math.max(1.5, planeHeight * profile.windowScale);
+  const gap = cell * 1.1;
   const columns = Math.floor((segment.width - gap) / (cell + gap));
   const rows = Math.floor((segment.height - gap) / (cell + gap));
   if (columns < 1 || rows < 1) return [];
@@ -214,7 +257,7 @@ function towerAt(
   let top = height;
   for (const segment of segments) {
     top -= segment.height;
-    windows.push(...windowsFor(segment, centreX, top, profile, rng));
+    windows.push(...windowsFor(segment, centreX, top, profile, height, rng));
   }
 
   return {
@@ -226,8 +269,27 @@ function towerAt(
 }
 
 /**
- * Builds one band's silhouette. Towers are laid on a jittered even spacing and sorted back to
- * front, so nearer (darker) masses overlap the hazed ones behind them.
+ * Tower centres, laid on a jittered even spacing inside each of the band's spans. The band's
+ * tower budget is shared out in proportion to how much of the plate each span covers, so a band
+ * confined to two narrow margins gets a sensible density rather than the full-plate count crammed
+ * into a third of the width.
+ */
+function centresFor(profile: BandProfile, width: number, rng: () => number): number[] {
+  const covered = profile.spans.reduce((sum, [from, to]) => sum + (to - from), 0);
+  const centres: number[] = [];
+  for (const [from, to] of profile.spans) {
+    const count = Math.max(1, Math.round((profile.towers * (to - from)) / covered));
+    const step = ((to - from) * width) / count;
+    for (let index = 0; index < count; index += 1) {
+      centres.push(from * width + step * (index + 0.5) + (rng() - 0.5) * step * 0.8);
+    }
+  }
+  return centres;
+}
+
+/**
+ * Builds one band's silhouette. Towers are sorted back to front, so nearer (darker) masses overlap
+ * the hazed ones behind them.
  */
 export function generateSkyline(
   band: DepthBand,
@@ -237,12 +299,10 @@ export function generateSkyline(
 ): Skyline {
   const profile = BAND_PROFILES[band];
   const rng = mulberry32(seed);
-  const step = width / profile.towers;
 
-  const towers = Array.from({ length: profile.towers }, (_, index) => {
-    const centreX = step * (index + 0.5) + (rng() - 0.5) * step * 0.8;
-    return towerAt(centreX, rng(), profile, width, height, rng);
-  }).sort((a, b) => a.depth - b.depth);
+  const towers = centresFor(profile, width, rng)
+    .map((centreX) => towerAt(centreX, rng(), profile, width, height, rng))
+    .sort((a, b) => a.depth - b.depth);
 
   return { band, width, height, towers };
 }

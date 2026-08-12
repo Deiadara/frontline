@@ -54,13 +54,17 @@ export function createViewport(app: Application, options: ViewportOptions): View
 }
 
 /**
- * Syncs the viewport's screen dimensions after a container resize. Call from the
- * `ResizeObserver` callback in `CityMap.tsx` alongside `app.renderer.resize()`.
+ * Syncs the viewport after a container resize. Call from the `ResizeObserver` callback in
+ * `CityMap.tsx` alongside `app.renderer.resize()`.
+ *
+ * The world is repainted at the new screen size, so the world bounds move with it — leaving them
+ * at the old size would make `clamp()` refuse to pan into freshly painted area, or let it pan
+ * past the painted edge into empty space.
  */
 export function resizeViewport(
   viewport: Viewport,
   screenWidth: number,
   screenHeight: number,
 ): void {
-  viewport.resize(screenWidth, screenHeight);
+  viewport.resize(screenWidth, screenHeight, screenWidth, screenHeight);
 }

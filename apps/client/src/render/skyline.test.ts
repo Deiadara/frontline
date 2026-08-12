@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ramps } from '../theme/tokens';
 import { fillForDepth, generateSkyline, mulberry32, type DepthBand, type Skyline } from './skyline';
 
-const BANDS: DepthBand[] = ['sky', 'far', 'fore'];
+const BANDS: DepthBand[] = ['sky', 'far', 'mid', 'fore'];
 const RAMP_STOPS = new Set<string>(Object.values(ramps).flatMap((ramp) => Object.values(ramp)));
 
 const towersOf = (skyline: Skyline) => skyline.towers;

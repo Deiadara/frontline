@@ -6,7 +6,7 @@ import { paintProcedural } from '../../render/procedural';
 import { PARALLAX_PLANES, planeOffset, type PlaneId, type Vec2 } from '../../render/layers';
 import { createPostFx, createVignette, type PostFxChain } from '../../render/grade';
 import { createViewport, resizeViewport } from '../../render/viewport';
-import { palette } from '../../theme/tokens';
+import { palette, ramps } from '../../theme/tokens';
 import type { Viewport } from 'pixi-viewport';
 
 interface CityMapProps {
@@ -26,13 +26,34 @@ const KIND_COLOR: Record<DistrictKind, number> = {
   market: hex(palette.steel[300]),
 };
 
-const LABEL_STYLE: TextStyleOptions = {
-  fontFamily: 'Orbitron, sans-serif',
-  fontSize: 11,
-  fontWeight: '600',
-  fill: hex(palette.steel[200]),
-  letterSpacing: 0.5,
-};
+/**
+ * The city behind a label is a dense field of lit windows at every value, so a plain fill is
+ * unreadable wherever it happens to land on one. The dark casing gives every label the same
+ * contrast regardless of what it sits over.
+ *
+ * The casing is a ratio of the type size, not a constant: 3px around an 11px district name reads
+ * as a clean outline, but the same 3px around an 8px base tag closes up the counters and turns
+ * the word into a smudge.
+ */
+function labelStyle(fontSize: number, fill: number): TextStyleOptions {
+  return {
+    fontFamily: 'Orbitron, sans-serif',
+    fontSize,
+    fontWeight: '600',
+    fill,
+    letterSpacing: 0.5,
+    stroke: { color: hex(ramps.abyss[950]), width: fontSize * 0.28, join: 'round' },
+    dropShadow: {
+      color: hex(ramps.abyss[950]),
+      alpha: 0.9,
+      blur: 4,
+      distance: 1,
+      angle: Math.PI / 2,
+    },
+  };
+}
+
+const LABEL_STYLE = labelStyle(11, hex(palette.steel[200]));
 
 const LABEL_FONT = '600 11px Orbitron';
 
@@ -73,7 +94,7 @@ function makeTooltip(): Container {
   const bg = new Graphics();
   const text = new Text({
     text: '',
-    style: { ...LABEL_STYLE, fontSize: 10, fill: hex(palette.steel[100]) },
+    style: labelStyle(10, hex(palette.steel[100])),
   });
   text.position.set(8, 5);
   container.addChild(bg, text);
@@ -201,7 +222,7 @@ function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Cont
 
   const tag = new Text({
     text: isMine ? 'YOU' : base.name,
-    style: { ...LABEL_STYLE, fontSize: 8, fill: color },
+    style: labelStyle(9, color),
   });
   tag.anchor.set(0.5, 1);
   tag.position.set(0, -TAG_GAP);
@@ -293,6 +314,13 @@ export function CityMap(props: CityMapProps) {
     const app = new Application();
     let observer: ResizeObserver | undefined;
     let disposed = false;
+    /**
+     * `Application.destroy()` tears down plugins that only exist after `init()` resolves, so
+     * destroying a not-yet-initialised app throws. Under StrictMode the effect is torn down
+     * before `init()` settles, and that throw used to unmount the whole game screen — hence
+     * the flag: only the side that owns a live app destroys it.
+     */
+    let initialized = false;
 
     void app
       .init({
@@ -302,6 +330,7 @@ export function CityMap(props: CityMapProps) {
         autoDensity: true,
       })
       .then(async () => {
+        initialized = true;
         if (disposed) {
           app.destroy(true, { children: true });
           return;
@@ -309,7 +338,12 @@ export function CityMap(props: CityMapProps) {
 
         el.appendChild(app.canvas);
 
-        const { width, height } = el.getBoundingClientRect();
+        // Pixi boots at its 800×600 default; without this the canvas leaves a dead band in the
+        // frame and every district — positioned as a fraction of the frame — lands off-canvas.
+        const rect = el.getBoundingClientRect();
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        app.renderer.resize(width, height);
 
         // Start fetching the city bundle — procedural keys resolve synchronously.
         artLoader.ensure('city');
@@ -319,7 +353,10 @@ export function CityMap(props: CityMapProps) {
         for (const planeSpec of PARALLAX_PLANES) {
           const container = new Container();
           container.label = planeSpec.id;
-          container.sortableChildren = planeSpec.id === 'nodes';
+          container.sortableChildren = planeSpec.interactive;
+          // Exactly one plane takes pointer events (ADR §5.2). The painted planes are stacked over
+          // the interactive one, so leaving them hit-testable would let scenery eat the clicks.
+          container.eventMode = planeSpec.interactive ? 'static' : 'none';
           planes.set(planeSpec.id, container);
         }
 
@@ -343,7 +380,7 @@ export function CityMap(props: CityMapProps) {
         // Apply the filter chain to the viewport so it covers the whole scrollable scene.
         viewport.filters = [...postFx.filters];
 
-        const vignette = createVignette(width, height);
+        let vignette = createVignette(width, height);
         app.stage.addChild(viewport);
         if (gradePlane) {
           app.stage.addChild(gradePlane);
@@ -353,8 +390,6 @@ export function CityMap(props: CityMapProps) {
         // Enable interactive events through the viewport.
         app.stage.eventMode = 'static';
         viewport.eventMode = 'static';
-        const nodesLayer = planes.get('nodes');
-        if (nodesLayer) nodesLayer.eventMode = 'static';
 
         const scene: Scene = {
           app,
@@ -386,16 +421,20 @@ export function CityMap(props: CityMapProps) {
         observer = new ResizeObserver(() => {
           if (disposed) return;
           const rect = el.getBoundingClientRect();
-          const w = rect.width;
-          const h = rect.height;
+          const w = Math.round(rect.width);
+          const h = Math.round(rect.height);
           if (w < 2 || h < 2) return;
+          // ResizeObserver fires once on `observe()` with the size we already built for.
+          if (w === scene.width && h === scene.height) return;
           app.renderer.resize(w, h);
           resizeViewport(viewport, w, h);
 
-          // Rebuild vignette to fit new dimensions.
+          // The vignette is sized in world units, so it is rebuilt rather than scaled. Swap the
+          // reference too — otherwise the next resize destroys a dead object and leaves this one
+          // stacked on the scene, darkening the map one multiply-blend at a time.
           vignette.destroy();
-          const newVig = createVignette(w, h);
-          app.stage.addChild(newVig);
+          vignette = createVignette(w, h);
+          app.stage.addChild(vignette);
 
           scene.width = w;
           scene.height = h;
@@ -415,7 +454,7 @@ export function CityMap(props: CityMapProps) {
       observer?.disconnect();
       sceneRef.current?.postFx.destroy();
       sceneRef.current = null;
-      app.destroy(true, { children: true });
+      if (initialized) app.destroy(true, { children: true });
     };
   }, []);
 

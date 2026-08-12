@@ -157,6 +157,9 @@ export function createVignette(width: number, height: number): Graphics {
   const g = new Graphics();
   g.label = 'vignette';
   g.blendMode = 'multiply';
+  // A full-screen `Graphics` is hit-testable by default, and this one sits above everything — so
+  // without this it silently swallows every click on the map underneath it.
+  g.eventMode = 'none';
   g.rect(0, 0, width, height).fill(gradient);
   return g;
 }
