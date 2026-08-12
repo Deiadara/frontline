@@ -90,6 +90,26 @@ must not defeat it** — hiring insight (§B9) surfaces discovered facts, never 
 Reputation and infamy counters are defined once, in W2. W10 (The Government) **feeds** those counters;
 it does not open a second anti-government tally. §D8a's `[TODO-LATER]` markers are W2's to place.
 
+### R6 — migration numbers are allocated by the CTO, and `0003` is already doubled
+
+W1 and W2 each wrote a migration numbered `0003` (`0003_attribute_model.sql`, `0003_economy.sql`).
+The runner (`apps/server/src/db/index.ts`) keys `schema_migrations` on the **file name** and applies
+in lexicographic order, so the duplicate prefix does not break it: both apply, `attribute_model`
+first, `economy` second. That ordering is alphabetical accident, not intent.
+
+- **Do not renumber either file.** The runner keys on the name, so a rename re-applies the migration
+  against any database that already ran it — and `0003_attribute_model.sql` re-applied throws
+  (`RENAME COLUMN skills_json` on a column that is already `attributes_json`), which fails boot.
+- **The next migration is `0004`.** From here, a workstream asks on MOU-170 for its number before
+  writing the file; the CTO allocates. Two agents picking the next integer from the same tree is how
+  this happened.
+- **No migration may depend on another `0003` running before it.** `0003_attribute_model.sql`
+  `DELETE`s `bases`/`battles`/`overseers`; `0003_economy.sql` then backfills `bases` rows that no
+  longer exist, so its `UPDATE` is a no-op in the combined run. That is harmless only because the
+  seeder rebuilds. It means the **fresh-insert path**, not the backfill, is what actually has to
+  produce a valid `economy_json` — the column's `DEFAULT '{}'` does not satisfy `EconomyStateSchema`.
+  Verified at the W2 integration gate.
+
 ---
 
 ## 3. Shared-file discipline
