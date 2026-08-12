@@ -36,6 +36,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
 
     const result = app.battleEngine.simulate({
       attackerBaseId: base.id,
+      attackerBaseName: base.name,
       targetDistrictId: district.id,
     });
 

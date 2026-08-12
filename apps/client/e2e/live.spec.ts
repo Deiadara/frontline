@@ -143,6 +143,11 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(dialog.getByRole('heading', { name: 'VICTORY' })).toBeVisible();
   await expect(dialog).toContainText(String(AFTER_RAID.credits));
   await expect(dialog).toContainText(String(AFTER_RAID.alloy));
+  // A player never sees a UUID: the narration names the base it deployed from.
+  await expect(dialog).toContainText("Nikos's Foothold");
+  expect(await dialog.innerText()).not.toMatch(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+  );
   await shootEveryViewport(page, 'raid-result');
 
   // The salvage is also reflected in the persistent HUD after the refetch.

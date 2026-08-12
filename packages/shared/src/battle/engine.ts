@@ -22,7 +22,7 @@ export class RandomBattleEngine implements BattleEngine {
     const attackerWins = this.random() < 0.5;
 
     const log = [
-      `Strike team deployed from base ${input.attackerBaseId} under a dead satellite window.`,
+      `Strike team deployed from ${input.attackerBaseName} under a dead satellite window.`,
       `Netrunners spoof the sentry grid at ${target}; drones circle blind for 41 seconds.`,
       attackerWins
         ? `Breach charges crack the ferrocrete line — defenders of ${target} scatter into the undergrid.`

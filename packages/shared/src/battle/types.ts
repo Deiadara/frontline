@@ -4,6 +4,8 @@ import { PartialResourcesSchema } from '../resources.js';
 
 export const BattleInputSchema = z.object({
   attackerBaseId: IdSchema,
+  /** Display name of the attacking base. Ids never reach the narration log. */
+  attackerBaseName: z.string().min(1),
   targetDistrictId: IdSchema,
 });
 export type BattleInput = z.infer<typeof BattleInputSchema>;
