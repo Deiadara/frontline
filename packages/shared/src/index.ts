@@ -3,7 +3,9 @@
  * Every type is co-located with its Zod schema (`type X = z.infer<typeof XSchema>`).
  */
 export * from './primitives.js';
-export * from './skills.js';
+export * from './attributes.js';
+export * from './traits.js';
+export * from './roles.js';
 export * from './resources.js';
 export * from './building.js';
 export * from './overseer.js';

@@ -1,8 +1,8 @@
-import type { OverseerPreset } from '@frontline/shared';
+import { TRAIT_CATALOG, type OverseerPreset } from '@frontline/shared';
 import { cn } from '../../lib/cn';
+import { AttributeRadar } from './AttributeRadar';
+import { AttributeSheet } from './AttributeSheet';
 import { OverseerPortrait } from './OverseerPortrait';
-import { SkillBars } from './SkillBars';
-import { SkillRadar } from './SkillRadar';
 
 interface OverseerCardProps {
   preset: OverseerPreset;
@@ -10,7 +10,7 @@ interface OverseerCardProps {
   onSelect: () => void;
 }
 
-/** One character-select option: portrait, bio, skill bars, and radar. */
+/** One character-select option: portrait, bio, traits, group radar, and the full sheet. */
 export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) {
   return (
     <button
@@ -39,17 +39,28 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
           <span className="mt-0.5 w-fit border border-neon-cyan/30 px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.2em] text-neon-cyan">
             {preset.archetype}
           </span>
-          <p className="mt-2 line-clamp-3 font-body text-[11px] leading-relaxed text-steel-400">
+          <p className="mt-1.5 line-clamp-3 font-body text-[11px] leading-relaxed text-steel-400">
             {preset.bio}
           </p>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {preset.traits.map((traitId) => (
+              <span
+                key={traitId}
+                title={TRAIT_CATALOG[traitId].description}
+                className="border border-warning/40 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.15em] text-warning"
+              >
+                {TRAIT_CATALOG[traitId].name}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="h-32 w-32 shrink-0 self-start">
+          <AttributeRadar attributes={preset.attributes} />
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-steel-800 p-2">
-        <SkillBars skills={preset.skills} />
-        <div className="h-20 w-20 shrink-0">
-          <SkillRadar skills={preset.skills} />
-        </div>
+      <div className="border-t border-steel-800 p-2">
+        <AttributeSheet attributes={preset.attributes} />
       </div>
     </button>
   );

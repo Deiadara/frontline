@@ -117,7 +117,8 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
         archetype: preset.archetype,
         portraitId: preset.portraitId,
         bio: preset.bio,
-        skills: preset.skills,
+        attributes: preset.attributes,
+        traits: preset.traits,
       };
       repos.overseers.insert({ overseer, userId, presetId: preset.presetId, createdAt: now });
       repos.users.setOverseerId(userId, overseer.id);

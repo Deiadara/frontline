@@ -246,7 +246,7 @@ describe('POST /api/overseer', () => {
     expect(res.statusCode).toBe(201);
     const body = res.json<{
       user: { overseerId: string | null };
-      overseer: { archetype: string; skills: Record<string, number> };
+      overseer: { archetype: string; attributes: Record<string, number> };
       base: {
         ownerId: string;
         districtId: string;

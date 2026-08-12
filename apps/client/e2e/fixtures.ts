@@ -27,7 +27,8 @@ export const overseer: Overseer = {
   archetype: preset.archetype,
   portraitId: preset.portraitId,
   bio: preset.bio,
-  skills: preset.skills,
+  attributes: preset.attributes,
+  traits: preset.traits,
 };
 
 export const base: Base = {

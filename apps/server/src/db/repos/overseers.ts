@@ -8,7 +8,8 @@ interface OverseerRow {
   archetype: string;
   portrait_id: string;
   bio: string;
-  skills_json: string;
+  attributes_json: string;
+  traits_json: string;
 }
 
 /** An overseer minted from a preset, together with the ownership/audit columns the table needs. */
@@ -31,15 +32,16 @@ function rowToOverseer(row: OverseerRow): Overseer {
     archetype: row.archetype,
     portraitId: row.portrait_id,
     bio: row.bio,
-    skills: readJson(row.skills_json),
+    attributes: readJson(row.attributes_json),
+    traits: readJson(row.traits_json),
   });
 }
 
 export function createOverseersRepo(db: AppDatabase): OverseersRepo {
   const insertStmt = db.prepare(
     `INSERT INTO overseers
-       (id, user_id, preset_id, name, archetype, portrait_id, bio, skills_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, user_id, preset_id, name, archetype, portrait_id, bio, attributes_json, traits_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM overseers WHERE id = ?');
 
@@ -53,7 +55,8 @@ export function createOverseersRepo(db: AppDatabase): OverseersRepo {
         overseer.archetype,
         overseer.portraitId,
         overseer.bio,
-        JSON.stringify(overseer.skills),
+        JSON.stringify(overseer.attributes),
+        JSON.stringify(overseer.traits),
         createdAt,
       );
     },

@@ -52,22 +52,31 @@ export const MVP_BOT: BotBlueprint = {
     { id: 'vex-foundry', kind: 'foundry', level: 2 },
     { id: 'vex-data-hub', kind: 'data_hub', level: 2 },
   ],
+  /* Four of the 19 officer positions (GDD §C1), on the 0..100 attribute scale. */
   commanders: [
-    createCommander('vex-commander-doctor', 'Iris "Suture" Vale', 'head_doctor', {
-      medicine: 18,
-      leadership: 12,
+    createCommander(
+      'vex-commander-doctor',
+      'Iris "Suture" Vale',
+      'chief_medic',
+      { medicine: 38, composure: 30, chemistry: 24 },
+      ['field_surgeon'],
+    ),
+    createCommander('vex-commander-analyst', 'Ren Kaido', 'field_commander', {
+      tactics: 36,
+      leadership: 28,
+      vigilance: 22,
     }),
-    createCommander('vex-commander-analyst', 'Ren Kaido', 'battle_analyst', {
-      tactics: 17,
-      engineering: 13,
+    createCommander('vex-commander-accountant', 'Odile Marchetti', 'finance_officer', {
+      appraisal: 34,
+      analysis: 27,
+      logistics: 25,
     }),
-    createCommander('vex-commander-accountant', 'Odile Marchetti', 'accountant', {
-      negotiation: 16,
-      logistics: 15,
-    }),
-    createCommander('vex-commander-spy', 'The Ghost of Sector Nine', 'head_spy', {
-      hacking: 18,
-      intimidation: 14,
-    }),
+    createCommander(
+      'vex-commander-spy',
+      'The Ghost of Sector Nine',
+      'head_spy',
+      { stealth: 37, deception: 29, hacking: 26 },
+      ['gutter_born'],
+    ),
   ],
 };

@@ -1,26 +1,32 @@
 import { z } from 'zod';
+import { AttributesSchema, DEFAULT_ATTRIBUTES, type Attributes } from './attributes.js';
 import { IdSchema } from './primitives.js';
-import { DEFAULT_SKILLS, SkillsSchema, type Skills } from './skills.js';
+import { OfficerRoleSchema, type OfficerRole } from './roles.js';
+import { TraitsSchema, type TraitId } from './traits.js';
 
-/** Staff/commander roles a base can employ (implemented in a later milestone). */
-export const COMMANDER_ROLES = ['head_doctor', 'battle_analyst', 'accountant', 'head_spy'] as const;
-export const CommanderRoleSchema = z.enum(COMMANDER_ROLES);
-export type CommanderRole = z.infer<typeof CommanderRoleSchema>;
-
+/** A character hired into one of the officer positions in GDD §C1. */
 export const CommanderSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
-  role: CommanderRoleSchema,
-  skills: SkillsSchema,
+  role: OfficerRoleSchema,
+  attributes: AttributesSchema,
+  traits: TraitsSchema,
 });
 export type Commander = z.infer<typeof CommanderSchema>;
 
-/** Example factory: unspecified skills default to a neutral 10. */
+/** Example factory: unlisted attributes default to the recruitment mean. */
 export function createCommander(
   id: string,
   name: string,
-  role: CommanderRole,
-  skills: Partial<Skills> = {},
+  role: OfficerRole,
+  attributes: Partial<Attributes> = {},
+  traits: readonly TraitId[] = [],
 ): Commander {
-  return { id, name, role, skills: { ...DEFAULT_SKILLS, ...skills } };
+  return {
+    id,
+    name,
+    role,
+    attributes: { ...DEFAULT_ATTRIBUTES, ...attributes },
+    traits: [...traits],
+  };
 }

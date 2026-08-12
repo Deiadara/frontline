@@ -13,6 +13,35 @@ test('character select renders all presets', async ({ page }) => {
   await page.getByText(overseer.name).click();
   await expect(page.getByRole('button', { name: 'Confirm Overseer' })).toBeEnabled();
 
+  // The radar's axis labels sit outside the plotted rings, so a viewBox that is too tight
+  // silently clips them mid-word ("TEC" renders as "C"). Assert each label's rendered box is
+  // fully inside its svg rather than trusting the geometry constants to stay in agreement.
+  const clipped = await page.evaluate(() =>
+    [...document.querySelectorAll('svg[aria-label="Attribute radar"]')].flatMap((svg) => {
+      const box = svg.getBoundingClientRect();
+      return [...svg.querySelectorAll('text')]
+        .filter((label) => {
+          const at = label.getBoundingClientRect();
+          return (
+            at.left < box.left - 0.5 ||
+            at.right > box.right + 0.5 ||
+            at.top < box.top - 0.5 ||
+            at.bottom > box.bottom + 0.5
+          );
+        })
+        .map((label) => label.textContent ?? '');
+    }),
+  );
+  expect(clipped, 'radar axis labels must not be clipped by the viewBox').toEqual([]);
+
+  // Nothing in a card may be cut off horizontally either.
+  const overflowing = await page.evaluate(() =>
+    [...document.querySelectorAll('h3, p, span')]
+      .filter((el) => el.scrollWidth > el.clientWidth + 1)
+      .map((el) => el.textContent?.slice(0, 40) ?? ''),
+  );
+  expect(overflowing, 'card text must not overflow its column').toEqual([]);
+
   await page.screenshot({ path: 'screenshots/character-select.png', fullPage: false });
 });
 

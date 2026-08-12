@@ -34,7 +34,8 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         archetype: preset.archetype,
         portraitId: preset.portraitId,
         bio: preset.bio,
-        skills: preset.skills,
+        attributes: preset.attributes,
+        traits: preset.traits,
       };
       const base: Base = {
         id: randomUUID(),

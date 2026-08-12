@@ -1,4 +1,4 @@
-import { OVERSEER_PRESETS, SKILL_NAMES } from '@frontline/shared';
+import { ATTRIBUTE_NAMES, OVERSEER_PRESETS, TRAIT_CATALOG } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -24,13 +24,26 @@ describe('CharacterSelectScreen', () => {
     }
   });
 
-  it('renders skill bars and a radar for all four presets', () => {
+  // B6/F6: the four options are unchanged, and each one shows its *whole* sheet — every
+  // attribute, not a role-relevant subset.
+  it('renders the full attribute sheet and a radar for all four presets', () => {
     renderScreen();
-    for (const skill of SKILL_NAMES) {
-      expect(screen.getAllByText(skill)).toHaveLength(OVERSEER_PRESETS.length);
+    for (const attribute of ATTRIBUTE_NAMES) {
+      expect(screen.getAllByText(attribute)).toHaveLength(OVERSEER_PRESETS.length);
     }
-    expect(screen.getAllByRole('img', { name: 'Skill radar' })).toHaveLength(
+    expect(screen.getAllByRole('img', { name: 'Attribute radar' })).toHaveLength(
       OVERSEER_PRESETS.length,
     );
+  });
+
+  // B7: traits are public — they are half of what a player has to guess fit from, since the
+  // requirement table itself is hidden (B8).
+  it('names each preset trait', () => {
+    renderScreen();
+    for (const preset of OVERSEER_PRESETS) {
+      for (const traitId of preset.traits) {
+        expect(screen.getByText(TRAIT_CATALOG[traitId].name)).toBeInTheDocument();
+      }
+    }
   });
 });

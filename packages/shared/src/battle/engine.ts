@@ -2,7 +2,7 @@ import { findDistrict } from '../city.js';
 import type { BattleEngine, BattleInput, BattleResult } from './types.js';
 
 // TODO: replace RandomBattleEngine with a real deterministic combat model (see docs/ARCHITECTURE.md).
-// It must weigh overseer skills, building levels (walls/barracks), district difficulty and
+// It must weigh overseer attributes, building levels (walls/barracks), district difficulty and
 // commander bonuses, and be seedable so battles are replayable from the persisted Battle row.
 
 /**
