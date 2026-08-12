@@ -290,7 +290,7 @@ and the readable action sits on top of it.
 | ----------------- | -------- | ----------------------- |
 | `plate-city`      | `130001` | opaque                  |
 | `plane-city-sky`  | `130002` | opaque                  |
-| `plane-city-far`  | `130003` | alpha                   |
+| `plane-city-far`  | `130003` | alpha, ≥30% transparent |
 | `plane-city-fore` | `130004` | alpha, ≥55% transparent |
 | `splash-auth`     | `130005` | opaque                  |
 

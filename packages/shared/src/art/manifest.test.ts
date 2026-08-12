@@ -217,6 +217,15 @@ describe('ART_MANIFEST', () => {
     expect(findAssetSpec('plane-city-sky')).toMatchObject({ postProcess: [] });
   });
 
+  it('carries the ART-BIBLE §6 transparency floors on both matted planes', () => {
+    expect(findAssetSpec('plane-city-far')?.minTransparency).toBe(0.3);
+    expect(findAssetSpec('plane-city-fore')?.minTransparency).toBe(0.55);
+    // §6 names a floor for the planes only; every other asset leaves the gate to the matte checks.
+    expect(
+      ART_MANIFEST.filter((spec) => spec.minTransparency !== undefined).map((spec) => spec.key),
+    ).toEqual(['plane-city-far', 'plane-city-fore']);
+  });
+
   it('leaves the other 30 assets needing no post-process at all', () => {
     expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(14);
   });

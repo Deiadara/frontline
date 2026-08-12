@@ -328,6 +328,13 @@ const OPAQUE_PLANE_SOURCE: AssetSource = { width: 2048, height: 1152, alpha: fal
 /** ART-BIBLE §6 — "the fore plane must be ≥55% transparent or it smothers the map". */
 const FORE_PLANE_MIN_TRANSPARENCY = 0.55;
 
+/**
+ * ART-BIBLE §6 — "far plane ≥30% or it hides the sky". Its prompt paints the top forty percent of
+ * the canvas fully transparent, so the floor sits under that ask: enough slack for a skyline drawn
+ * high in frame, still far above a matte that only cut a sliver and left the sky plane covered.
+ */
+const FAR_PLANE_MIN_TRANSPARENCY = 0.3;
+
 const plateDrafts = (
   [
     ['plate-city', 'plate'],
@@ -347,6 +354,7 @@ const plateDrafts = (
     ...(key === 'plane-city-far' || key === 'plane-city-fore'
       ? { source: OPAQUE_PLANE_SOURCE }
       : {}),
+    ...(key === 'plane-city-far' ? { minTransparency: FAR_PLANE_MIN_TRANSPARENCY } : {}),
     ...(key === 'plane-city-fore' ? { minTransparency: FORE_PLANE_MIN_TRANSPARENCY } : {}),
   }),
 );

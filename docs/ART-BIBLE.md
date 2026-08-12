@@ -155,18 +155,18 @@ The signature of the look. Rules:
 
 Aspect ratios are **fixed** — they are baked into the layout and changing one is a code change.
 
-| Class                             | Source resolution | Aspect   | Delivery              | Transparency                   | Notes                                                                                          |
-| --------------------------------- | ----------------- | -------- | --------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Overseer portrait                 | 1024 × 1536       | **3:4**  | WebP q90 + PNG master | opaque                         | Head-and-shoulders, eyes on the upper-third line. Matches `OverseerPortrait`'s `aspect-[3/4]`. |
-| Overseer avatar (derived)         | 512 × 512         | **1:1**  | WebP q88              | opaque                         | Centre-crop of the portrait, **not** a separate generation.                                    |
-| District illustration             | 1024 × 1024       | **1:1**  | WebP q90              | opaque                         | Shown in the context panel. Oblique 3/4 view, horizon at 40% height.                           |
-| City map base plate               | 2048 × 1152       | **16:9** | WebP q92              | opaque                         | Plane 2. Districts sit on it at normalised coords.                                             |
-| Parallax plane (sky / far / fore) | 2048 × 1152       | **16:9** | WebP q90              | sky opaque, far/fore **alpha** | Fore plane must be ≥55% transparent or it smothers the map.                                    |
-| Base building sprite              | 1024 × 1024       | **1:1**  | WebP q90              | **alpha**                      | Ground contact at the bottom-centre 20%; drop shadow **not** baked in.                         |
-| UI frame / HUD element            | 1024 × 1024       | **1:1**  | PNG (9-slice)         | **alpha**                      | Corners must survive 9-slice: no detail in the stretchable middle bands.                       |
-| Icon                              | 512 × 512         | **1:1**  | WebP q88              | **alpha**                      | Must read at 24 px. Two values + one accent, maximum.                                          |
-| Splash / auth backdrop            | 2048 × 1152       | **16:9** | WebP q90              | opaque                         | Centre 40% must stay low-contrast — the login form sits there.                                 |
-| LUT / colour grade                | 512 × 512         | **1:1**  | **PNG, lossless**     | opaque                         | 64×64×64 strip. Never lossy-compress a LUT.                                                    |
+| Class                             | Source resolution | Aspect   | Delivery              | Transparency                   | Notes                                                                                           |
+| --------------------------------- | ----------------- | -------- | --------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------- |
+| Overseer portrait                 | 1024 × 1536       | **3:4**  | WebP q90 + PNG master | opaque                         | Head-and-shoulders, eyes on the upper-third line. Matches `OverseerPortrait`'s `aspect-[3/4]`.  |
+| Overseer avatar (derived)         | 512 × 512         | **1:1**  | WebP q88              | opaque                         | Centre-crop of the portrait, **not** a separate generation.                                     |
+| District illustration             | 1024 × 1024       | **1:1**  | WebP q90              | opaque                         | Shown in the context panel. Oblique 3/4 view, horizon at 40% height.                            |
+| City map base plate               | 2048 × 1152       | **16:9** | WebP q92              | opaque                         | Plane 2. Districts sit on it at normalised coords.                                              |
+| Parallax plane (sky / far / fore) | 2048 × 1152       | **16:9** | WebP q90              | sky opaque, far/fore **alpha** | Fore plane must be ≥55% transparent or it smothers the map; far plane ≥30% or it hides the sky. |
+| Base building sprite              | 1024 × 1024       | **1:1**  | WebP q90              | **alpha**                      | Ground contact at the bottom-centre 20%; drop shadow **not** baked in.                          |
+| UI frame / HUD element            | 1024 × 1024       | **1:1**  | PNG (9-slice)         | **alpha**                      | Corners must survive 9-slice: no detail in the stretchable middle bands.                        |
+| Icon                              | 512 × 512         | **1:1**  | WebP q88              | **alpha**                      | Must read at 24 px. Two values + one accent, maximum.                                           |
+| Splash / auth backdrop            | 2048 × 1152       | **16:9** | WebP q90              | opaque                         | Centre 40% must stay low-contrast — the login form sits there.                                  |
+| LUT / colour grade                | 512 × 512         | **1:1**  | **PNG, lossless**     | opaque                         | 64×64×64 strip. Never lossy-compress a LUT.                                                     |
 
 **Every raster asset ships at 1× and 2×.** The 1× variant is generated by the pipeline, never
 authored. Masters (PNG, full resolution, layered where applicable) live outside the app bundle in
