@@ -7,7 +7,13 @@ export const OVERSEER_ARCHETYPES = ['enforcer', 'netrunner', 'fixer', 'technocra
 export const OverseerArchetypeSchema = z.enum(OVERSEER_ARCHETYPES);
 export type OverseerArchetype = z.infer<typeof OverseerArchetypeSchema>;
 
-/** The player's avatar/commander-in-chief. Same sheet as everyone else (GDD §F1). */
+/**
+ * The player's avatar/commander-in-chief. Same sheet as everyone else (GDD §F1).
+ *
+ * `attributes` is the **effective** sheet: any trait bonus is already in it, exactly as the
+ * server's recruitment roll stores it. Read it, render it, level it — never run
+ * `applyTraitBonuses` over it again, or the trait counts twice.
+ */
 export const OverseerSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
@@ -35,6 +41,9 @@ export type OverseerPreset = z.infer<typeof OverseerPresetSchema>;
  * The four character-select options — one per archetype (GDD §F6: the choice stays exactly as it
  * is today, restated on the new attribute model). Everything unlisted sits at the recruitment
  * mean; each Overseer starts inside the same band a recruit does (§B2a), so nothing exceeds 40.
+ *
+ * The listed ratings are post-trait, per `OverseerSchema` — the fixer's `negotiation: 35` already
+ * contains silver_tongue's +8.
  */
 export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
   {

@@ -122,13 +122,6 @@ export function groupOf(attribute: AttributeName): AttributeGroup {
   return group;
 }
 
-/** Mean rating across a group — the shape a character-select radar reads off. */
-export function groupAverage(attributes: Attributes, group: AttributeGroup): number {
-  const names = ATTRIBUTES_BY_GROUP[group];
-  const total = names.reduce((sum, name) => sum + attributes[name], 0);
-  return total / names.length;
-}
-
 export const ATTRIBUTE_TIERS = ['weak', 'average', 'strong', 'elite'] as const;
 export type AttributeTier = (typeof ATTRIBUTE_TIERS)[number];
 

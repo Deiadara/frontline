@@ -77,7 +77,13 @@ export function findTrait(id: string): Trait | undefined {
   return TRAIT_IDS.includes(id as TraitId) ? TRAIT_CATALOG[id as TraitId] : undefined;
 }
 
-/** Apply every trait's bonus to a sheet. Ratings stay on the 0..100 scale. */
+/**
+ * Apply every trait's bonus to a sheet. Ratings stay on the 0..100 scale.
+ *
+ * This builds a sheet; it is not a read-time view. Stored sheets — generated characters and
+ * `OVERSEER_PRESETS` alike — already have their bonuses in them, so calling this on one double
+ * counts the trait.
+ */
 export function applyTraitBonuses(attributes: Attributes, traits: readonly TraitId[]): Attributes {
   const boosted = { ...attributes };
   for (const traitId of traits) {

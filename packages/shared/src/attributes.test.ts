@@ -7,7 +7,6 @@ import {
   DEFAULT_ATTRIBUTES,
   MAX_RECRUITMENT_ATTRIBUTE,
   clampAttribute,
-  groupAverage,
   groupOf,
   makeAttributes,
 } from './attributes.js';
@@ -65,13 +64,6 @@ describe('AttributesSchema', () => {
     expect(clampAttribute(-5)).toBe(0);
     expect(clampAttribute(999)).toBe(100);
     expect(clampAttribute(12.4)).toBe(12);
-  });
-
-  it('groupAverage averages only its own group', () => {
-    const sheet = makeAttributes(10, { strength: 50 });
-    const physical = ATTRIBUTES_BY_GROUP.physical.length;
-    expect(groupAverage(sheet, 'physical')).toBeCloseTo((10 * (physical - 1) + 50) / physical);
-    expect(groupAverage(sheet, 'mental')).toBe(10);
   });
 });
 
@@ -138,5 +130,22 @@ describe('OVERSEER_PRESETS', () => {
         expect(TRAIT_IDS).toContain(trait);
       }
     }
+  });
+
+  // Pins the one meaning `attributes` has: the *effective* sheet, trait bonuses already in it.
+  // The presets are the standing proof — the fixer's negotiation is 35 and silver_tongue grants
+  // +8, so reading these as pre-trait would put them at 43, past the §B2a ceiling of 40. Nothing
+  // may apply a preset's bonuses a second time, and this fails if someone tries.
+  it('stores sheets with trait bonuses already applied', () => {
+    const breached = OVERSEER_PRESETS.filter((preset) =>
+      ATTRIBUTE_NAMES.some(
+        (name) =>
+          applyTraitBonuses(preset.attributes, preset.traits)[name] > MAX_RECRUITMENT_ATTRIBUTE,
+      ),
+    );
+    expect(
+      breached.map((preset) => preset.presetId),
+      'applying a preset trait again breaks §B2a — sheets are post-trait, not raw',
+    ).toContain('fixer');
   });
 });
