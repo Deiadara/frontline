@@ -16,6 +16,18 @@ with no TypeScript edit anywhere** — the MOU-114 acceptance bar, ADR 0001 §5.
 - PNG masters live in `art-src/`, **not** here — they are not shipped.
 - Every third-party file needs a row in the ART-BIBLE §9 licensing register. No row, no ship.
 
+## Seeing what has landed
+
+The art arrives in hand-pasted batches, so most of the manifest is legitimately absent between them.
+
+```sh
+pnpm --filter @frontline/scripts contact-sheet   # → docs/art/contact-sheet.png
+```
+
+The contact sheet draws every delivery in this directory next to its asset key, with an empty slot
+for each hero-set key still outstanding, and prints the painted-vs-procedural split. Filenames answer
+whether a file exists; only the sheet answers whether the art is any good.
+
 ## Dev-server caveat
 
 This directory sits outside the client's Vite root, so Vite's watcher does not invalidate the glob
