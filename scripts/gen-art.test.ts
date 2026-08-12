@@ -494,8 +494,8 @@ describe('buildProvenance', () => {
 });
 
 describe('parseArgs', () => {
-  it('defaults to a live run over the whole manifest', () => {
-    expect(parseArgs([])).toMatchObject({ dryRun: false, only: [] });
+  it('defaults to a live run with no selection of its own', () => {
+    expect(parseArgs([])).toMatchObject({ dryRun: false, only: [], all: false });
   });
 
   it('reads --dry-run, --out and a comma-separated --only', () => {
@@ -511,7 +511,14 @@ describe('parseArgs', () => {
       emitPrompts: false,
       outDir: '/tmp/art',
       only: ['plate-city', 'ui-divider'],
+      all: false,
     });
+  });
+
+  it('reads --all and refuses to guess when it contradicts --only', () => {
+    expect(parseArgs(['--all'])).toMatchObject({ all: true, only: [] });
+    expect(() => parseArgs(['--all', '--only', 'plate-city'])).toThrow(/mutually exclusive/);
+    expect(() => parseArgs(['--only', 'plate-city', '--all'])).toThrow(/mutually exclusive/);
   });
 
   it('reads --emit-prompts, which composes with --only', () => {
@@ -692,6 +699,40 @@ describe('main --dry-run', () => {
   it('needs no backend or credentials', async () => {
     captureOutput();
     await expect(main(['--dry-run', '--only', 'portrait-overseer-1'], {})).resolves.toBe(0);
+  });
+});
+
+// MOU-145: `--only ""` was closed first, but a bare invocation reached the same 44-asset bill by a
+// shorter path — a stray Enter, or a wrapper script that dropped its args.
+describe('main funded-selection gate', () => {
+  const FUNDED_ENV: Env = { FRONTLINE_ART_BACKEND: 'fal', FAL_KEY: 'k' };
+
+  it('refuses a bare funded run over the whole manifest, before any network call', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const output = captureOutput();
+
+    await expect(main([], FUNDED_ENV)).resolves.toBe(1);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(output.stderr.join('')).toContain(`all ${ART_MANIFEST.length} manifest assets`);
+    expect(output.stderr.join('')).toContain('--all');
+  });
+
+  it('lets --all through the gate, leaving the run to fail on its own merits', async () => {
+    const output = captureOutput();
+
+    await expect(main(['--all'], {})).resolves.toBe(1);
+
+    expect(output.stderr.join('')).toContain('FRONTLINE_ART_BACKEND is unset');
+    expect(output.stderr.join('')).not.toContain('without an explicit selection');
+  });
+
+  it('leaves the wildcard alone where it spends nothing', async () => {
+    const output = captureOutput();
+
+    await expect(main(['--dry-run'], FUNDED_ENV)).resolves.toBe(0);
+
+    expect(output.stdout.join('')).toContain(`${ART_MANIFEST.length} asset(s) validated`);
   });
 });
 

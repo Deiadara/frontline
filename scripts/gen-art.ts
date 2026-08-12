@@ -16,11 +16,12 @@
  *
  *   pnpm --filter @frontline/scripts gen-art -- --dry-run
  *   pnpm --filter @frontline/scripts gen-art -- --emit-prompts --only plate-city
- *   FRONTLINE_ART_BACKEND=fal FAL_KEY=… pnpm --filter @frontline/scripts gen-art
+ *   FRONTLINE_ART_BACKEND=fal FAL_KEY=… pnpm --filter @frontline/scripts gen-art -- --all
  *
  * `--dry-run` makes **zero** network calls and is what CI exercises; it exits non-zero on any
- * validation failure. No backend is activated by default — see ADR 0001 §6.2 for why there is
- * deliberately no key-free route.
+ * validation failure. A funded run must name its selection — `--only KEYS` or `--all` — so the
+ * whole manifest is never billed by accident. No backend is activated by default — see ADR 0001
+ * §6.2 for why there is deliberately no key-free route.
  */
 import { createHash } from 'node:crypto';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -450,7 +451,11 @@ export interface CliOptions {
   outDir: string;
   /** Asset keys to generate; empty means the whole manifest. */
   only: readonly string[];
+  /** Consent to a funded run over the whole manifest — see {@link assertSelectionWasChosen}. */
+  all: boolean;
 }
+
+const USAGE = 'Usage: gen-art [--dry-run] [--emit-prompts] [--out DIR] [--only KEYS | --all]';
 
 export function parseArgs(argv: readonly string[]): CliOptions {
   const options = {
@@ -458,6 +463,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     emitPrompts: false,
     outDir: DEFAULT_OUT_DIR,
     only: [] as string[],
+    all: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -465,6 +471,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       options.dryRun = true;
     } else if (arg === '--emit-prompts') {
       options.emitPrompts = true;
+    } else if (arg === '--all') {
+      options.all = true;
     } else if (arg === '--out' || arg === '--only') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) throw new Error(`${arg} needs a value`);
@@ -472,10 +480,12 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       else options.only.push(...parseOnlyKeys(value));
       i += 1;
     } else {
-      throw new Error(
-        `Unknown argument "${arg}". Usage: gen-art [--dry-run] [--emit-prompts] [--out DIR] [--only KEYS]`,
-      );
+      throw new Error(`Unknown argument "${arg}". ${USAGE}`);
     }
+  }
+  // Which one wins is unguessable, and guessing wrong either overbills or silently skips assets.
+  if (options.all && options.only.length > 0) {
+    throw new Error('--all and --only are mutually exclusive');
   }
   return options;
 }
@@ -489,6 +499,21 @@ function parseOnlyKeys(value: string): string[] {
   const keys = value.split(',').filter(Boolean);
   if (keys.length === 0) throw new Error(`--only selected no asset keys, got "${value}"`);
   return keys;
+}
+
+/**
+ * The wildcard is free to *reach* and expensive to *run*: no selector means the whole manifest, so a
+ * bare `gen-art` on a machine holding credentials bills for all 44 assets — one stray Enter, or a
+ * wrapper that drops its args, and the money is spent. A funded full-manifest run therefore has to
+ * name itself with `--all`. `--dry-run` and `--emit-prompts` keep the wildcard: neither spends, and
+ * the dry run is the documented way to see what `--all` would cost before paying it.
+ */
+function assertSelectionWasChosen(options: CliOptions, specs: readonly AssetSpec[]): void {
+  if (options.dryRun || options.all || options.only.length > 0) return;
+  throw new Error(
+    `Refusing to generate all ${specs.length} manifest assets without an explicit selection. ` +
+      `Pass --only KEYS, or --all to fund the whole manifest; --dry-run lists it for free. ${USAGE}`,
+  );
 }
 
 export function selectSpecs(only: readonly string[]): readonly AssetSpec[] {
@@ -671,6 +696,15 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   if (options.emitPrompts) {
     process.stdout.write(`${JSON.stringify(specs.map(emitPrompt), null, 2)}\n`);
     return 0;
+  }
+
+  // Before `validateRun`: the cheapest, most specific refusal should be the one the operator reads,
+  // not a backend-unset list that says nothing about the 44 assets they were about to pay for.
+  try {
+    assertSelectionWasChosen(options, specs);
+  } catch (error) {
+    process.stderr.write(`${errorMessage(error)}\n`);
+    return 1;
   }
 
   const problems = validateRun(specs, options.outDir, env);

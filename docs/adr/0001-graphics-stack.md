@@ -250,7 +250,10 @@ licensing register in `docs/ART-BIBLE.md` §9 — no exceptions, no un-registere
 
 **None of these are activated. No account created, no key requested, nothing spent.**
 `scripts/gen-art.ts` selects a backend from `FRONTLINE_ART_BACKEND` and reads its key from env; with
-neither set it runs `--dry-run` only, which is what CI exercises.
+neither set it runs `--dry-run` only, which is what CI exercises. A funded run must also name what it
+is buying: with no `--only` and no `--all` it exits 1 before any network call, so the full-manifest
+wildcard cannot be reached by a stray Enter or an arg-dropping wrapper. `--dry-run` and
+`--emit-prompts` keep the wildcard — neither spends, and the dry run is how you price `--all` first.
 
 ### 6.1 Keyed routes (recommended class)
 
