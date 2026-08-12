@@ -176,6 +176,40 @@ function cableSurvival(image: { data: Buffer; width: number }, stroke: number): 
   return opaque / (cable * stroke);
 }
 
+/** The roofline {@link antennaPlane} stands its antennae on — the top row of a 0.7 subject block. */
+const ROOFLINE = Math.ceil(1152 * 0.7);
+const ANTENNA_LEFT = 16;
+const ANTENNA_SPACING = 13;
+
+/**
+ * A 2048×1152 plane with `count` 1-px antennae `tall` px high along its roofline — the floating
+ * antenna ART-BIBLE §6.2 names, at whatever height the caller wants to put against
+ * {@link MAX_ERASED_ARTWORK}'s run floor.
+ */
+const antennaPlane = (count: number, tall: number): Promise<Buffer> =>
+  master(2048, 1152, (x, y) => {
+    const index = (x - ANTENNA_LEFT) / ANTENNA_SPACING;
+    const onAntenna =
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index < count &&
+      y >= ROOFLINE - tall &&
+      y < ROOFLINE;
+    return onAntenna || y >= ROOFLINE ? SUBJECT : SKY;
+  });
+
+/** The share of an {@link antennaPlane}'s antennae the key left standing. */
+function antennaSurvival(image: { data: Buffer; width: number }, count: number, tall: number) {
+  let opaque = 0;
+  for (let index = 0; index < count; index += 1) {
+    const x = ANTENNA_LEFT + index * ANTENNA_SPACING;
+    for (let y = ROOFLINE - tall; y < ROOFLINE; y += 1) {
+      if (image.data[(y * image.width + x) * 4 + 3] !== 0) opaque += 1;
+    }
+  }
+  return opaque / (count * tall);
+}
+
 /**
  * The noise a master may plausibly arrive carrying, from both generators. Every gate that cuts a
  * threshold through the field's deviation from its seed is walked across all three: one distribution
@@ -376,6 +410,36 @@ describe('keyBackground', () => {
     // Neither older gate sees it, which is why this one has to exist.
     expect(keyed.islands).toBeLessThanOrEqual(MAX_KEYED_ISLANDS);
     expect(transparencyOf(keyed)).toBeGreaterThan(0.55);
+  });
+
+  /**
+   * The fourth blind spot, pinned as a known property so nobody re-derives it as coverage.
+   * `MIN_ERASED_RUN` is what stops grain reading as erasure, and it buys that by counting only runs
+   * of 16 or more — so an erasure in shorter runs is invisible, and *no number of them adds up*.
+   * A 1-px antenna 14 px tall leaves a 12-px run, so this master loses 2,100 px of the structure
+   * ART-BIBLE §6.2 exists to protect and every gate still reads clean. §6.2's minimum stroke weight
+   * is the only cover; see `MIN_ERASED_RUN` for why no lower floor is available.
+   */
+  it('cannot see an erasure shorter than the run floor, however many there are', async () => {
+    const keyed = await keyBackground(
+      await decodeMaster(await antennaPlane(150, 14)),
+      DEFAULT_MATTE_TOLERANCE,
+    );
+
+    // The antennae really are erased — the assertion below is a hole, not a key that kept them.
+    expect(antennaSurvival(keyed, 150, 14)).toBeLessThan(0.1);
+    expect(keyed.erased).toBe(0);
+    // And nothing else catches it, so the master ships.
+    expect(keyed.islands).toBeLessThanOrEqual(MAX_KEYED_ISLANDS);
+    await expect(encodeAsset(await antennaPlane(150, 14), FORE_PLANE)).resolves.toBeDefined();
+
+    // The cliff is the run floor and not the count: 18 px drawn leaves a 16-px run, and 40 of those
+    // — a quarter of the structure this master loses — are refused.
+    const taller = await keyBackground(
+      await decodeMaster(await antennaPlane(40, 18)),
+      DEFAULT_MATTE_TOLERANCE,
+    );
+    expect(taller.erased).toBeGreaterThan(MAX_ERASED_ARTWORK);
   });
 
   it('does not chase a gradient across the whole frame', async () => {

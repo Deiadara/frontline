@@ -211,6 +211,26 @@ const ARTWORK_MARGIN = 2;
  * The structure it is there to keep survives it whole: on `cabledPlane` a 1-px cable reads 2,032
  * clean and 2,059 at σ 12 (from 9,602 unfiltered), against 0 for a 2-px or 3-px cable at either.
  * See {@link MAX_ERASED_ARTWORK} for the band this leaves and what happens past it.
+ *
+ * **The cost is a blind spot, and it is unbounded.** An erasure whose flagged run is shorter than
+ * this is invisible, and no number of them ever adds up — the total is over runs that clear the
+ * floor, so a master carrying only short ones reads exactly 0 however much it has lost. A 1-px
+ * antenna drawn `n` px tall leaves an `n - 2` px run (the pixel touching the roofline survives the
+ * median, and the one above it is excluded as adjacent to a survivor), so on a 2048×1152 roofline:
+ * **150 antennae 14 px tall erase 2,100 px of ART-BIBLE §6.2-violating structure and read 0**, while
+ * the same antennae at 18 px drawn read 640 for 40 of them and are refused. Detached islands cross
+ * the same line by area: 300 × 3×3 is 2,700 px drawn and reads 0, a 4×4 counts.
+ *
+ * Lowering it does not fix that, it just moves the wall, and the grain distribution says where the
+ * wall is. Measured on the same flat `gaussianSkyline`, the longest 8-connected run grain produces
+ * is **10 px at σ 16 and 14 px at σ 18** — a 14-px antenna and a grain clump are the same object to
+ * a run-length statistic. What a lower floor would read on a *flawless* σ 18 key, against the 256
+ * budget: 16 → 0, 14 → 28, 12 → 88, 10 → 243, **9 → 387, refused**. So nothing under 10 is
+ * available at all (the 3×3 island needs 9), and the range that is available buys a shorter
+ * structure by spending the headroom that keeps a grainy master from being refused for artwork it
+ * does not have — which is the failure this floor was added to fix. 16 keeps that headroom whole.
+ * ART-BIBLE §6.2's minimum stroke weight is the only cover for what is left, as it is for the
+ * rim-on-a-mass case in {@link MAX_ERASED_ARTWORK}.
  */
 const MIN_ERASED_RUN = 16;
 
@@ -223,15 +243,19 @@ const MIN_ERASED_RUN = 16;
  * {@link ARTWORK_MARGIN}× the tolerance from the field, with no surviving pixel 4-adjacent to it,
  * and joined to at least {@link MIN_ERASED_RUN} others like it. The adjacency clause is what
  * excludes the antialiased ribbon, which always has kept artwork against it; the run floor is what
- * excludes grain. A *rim highlight* painted onto a kept mass is the one thin structure this cannot
- * see — ART-BIBLE §6.2's minimum stroke weight is what covers that case.
+ * excludes grain. Two thin structures this cannot see: a *rim highlight* painted onto a kept mass,
+ * because every erased pixel there has surviving artwork against it, and anything erased in runs
+ * under {@link MIN_ERASED_RUN}, at any multiplicity. ART-BIBLE §6.2's minimum stroke weight is what
+ * covers both.
  *
  * Measured on 2048×1152 fore-plane layouts, hard-edged, silhouettes plain and busy, artwork 45
  * levels off the field, under both generators the suite carries — clean, uniform ±12 and ±25,
  * Gaussian σ 8, 12 and 16: a plane whose thinnest element is ≥2 px reads **0** at every level, and
  * one carrying a 1-px cable reads **1730 to 2156**. The median returns the field for a line that is
  * only 3 of its 9 samples, so the erasure is there whether the master is clean or grainy. 256 sits
- * in that gap with 6.7× headroom.
+ * in that gap with 6.7× headroom. That range is what those layouts erase, not a general figure for
+ * a 1-px cable: the count scales with the structure's length, and the suite's own `cabledPlane`,
+ * whose cable spans the full 2048, reads 2,032 clean and 2,568 at σ 20.
  *
  * That separation is a precondition, not a detail. {@link ARTWORK_MARGIN} is what decides whether
  * the master is *stating* a pixel is artwork, so artwork drawn too close to the field stops this

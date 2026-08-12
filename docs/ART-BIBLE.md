@@ -231,15 +231,21 @@ background region and all of it stays opaque; at 2 px and 3 px every column keys
 floor is stated in both directions.
 
 `MAX_ERASED_ARTWORK` refuses a master that breaks this, so a dashed cable fails the encode step
-instead of shipping — but it fails _after_ the generation is paid for, and there are three cases it
+instead of shipping — but it fails _after_ the generation is paid for, and there are four cases it
 cannot see. It cannot see a 1-px rim painted onto a kept mass, because every erased pixel there is
-adjacent to surviving artwork. A swept detached island is counted, but `erased` counts those pixels
-as _drawn_ and the largest island the sweep can take is 67 px drawn, so it takes four of them before
-the 256 budget notices. And a sealed gap clears nothing at all,
+adjacent to surviving artwork. It cannot see a _short_ erasure: it counts only pixels that join up
+into a run of at least 16, which is what keeps a grainy field from reading as erased artwork, and
+nothing bounds how many shorter ones a master may carry. Measured on 2048×1152, a 1-px antenna 14 px
+tall leaves a 12-px run, so 150 of them erase 2,100 px of structure and `erased` reads **0**; the
+same antennae drawn 18 px tall read 640 for 40 of them and are refused. A swept detached island is
+counted only once what the sweep takes clears that run floor — a detached 4×4 counts, a 3×3 reads 0
+however many there are (300 of them are 2,700 px drawn and read 0) — and for the ones that do count,
+`erased` counts those pixels as _drawn_ and the largest island the sweep can take is 67 px drawn, so
+it takes four of them before the 256 budget notices. And a sealed gap clears nothing at all,
 so `erased` reads 0 — while sealing gaps _merges_ pieces, which moves the island count down and away
 from `MAX_KEYED_ISLANDS`, and a handful of 1-px slots is a rounding error against the §6 transparency
 floor. All three gates move the wrong way on the gap case, which is the one that ships silently. This
-rule is the only thing that covers any of the three, which is why the `plane-city-far` and
+rule is the only thing that covers any of the four, which is why the `plane-city-far` and
 `plane-city-fore` prompts carry it (§3.3, §3.4 of ART-PROMPTS).
 
 ### 6.3 Minimum artwork-to-field separation
