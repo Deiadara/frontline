@@ -3,7 +3,10 @@
  *
  * Every asset is described once, in `@frontline/shared`'s `ART_MANIFEST`. This runner assembles
  * `STYLE_ANCHOR + SUBJECT + FRAMING` for each entry, hands it to a pluggable {@link ImageBackend},
- * writes the bytes under the manifest filename and drops a `*.provenance.json` beside it.
+ * writes the returned bytes as a **lossless PNG master** under `art-src/` and drops a
+ * `*.provenance.json` beside it. Turning a master into its ART-BIBLE §6 delivery file
+ * (`spec.file` — WebP at `ASSET_CLASS_SPECS[class].quality`) and the 1×/2× split belong to the
+ * AssetPack step; masters live outside the app bundle and are never shipped (ART-BIBLE §6).
  *
  *   pnpm --filter @frontline/scripts gen-art -- --dry-run
  *   FRONTLINE_ART_BACKEND=fal FAL_KEY=… pnpm --filter @frontline/scripts gen-art
@@ -13,7 +16,7 @@
  * deliberately no key-free route.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +27,7 @@ import {
   ImageBackendNameSchema,
   NEGATIVE,
   STYLE_ANCHOR,
+  STYLE_REFERENCE_KEYS,
   findAssetSpec,
   validateAssetSpec,
   type AssetSpec,
@@ -32,8 +36,8 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** ADR 0001 §5.1 — the asset tree AssetPack packs from. */
-export const DEFAULT_OUT_DIR = path.join(REPO_ROOT, 'assets');
+/** ADR 0001 §5.1 / ART-BIBLE §6 — masters live outside the shipped asset tree. */
+export const DEFAULT_OUT_DIR = path.join(REPO_ROOT, 'art-src');
 
 export interface ImageRequest {
   spec: AssetSpec;
@@ -43,7 +47,7 @@ export interface ImageRequest {
   seed: number;
   width: number;
   height: number;
-  /** On-disk paths of the already-generated style reference images (ART-PROMPTS §7.3). */
+  /** On-disk paths of the already-generated style reference masters (ART-PROMPTS §7.3). */
   styleRefPaths: readonly string[];
 }
 
@@ -53,16 +57,26 @@ export interface ImageBackend {
   model: string;
   /** Licence statement for the licensing register (ART-BIBLE §9). */
   licence: string;
+  /** ART-PROMPTS §7.3 — whether `styleRefPaths` actually reach the model. */
+  supportsStyleRefs: boolean;
+  /** ART-BIBLE §9 — whether re-running the same seed reproduces the file. */
+  honorsSeed: boolean;
   generate(req: ImageRequest): Promise<Uint8Array>;
 }
 
 export interface Provenance {
   assetKey: string;
-  file: string;
+  /** The lossless master this record describes. */
+  masterFile: string;
+  /** The ART-BIBLE §6 delivery file the encode step produces from the master. */
+  deliveryFile: string;
   backend: ImageBackendName;
   model: string;
-  seed: number;
+  /** `null` when the backend exposes no seed (gpt-image-1) — the asset is then not reproducible. */
+  seed: number | null;
   promptSha256: string;
+  /** Whether the ART-PROMPTS §7.3 consistency references were passed to the backend. */
+  styleRefsApplied: boolean;
   generatedAt: string;
   licence: string;
   /** Flip to `true` only when a human genuinely overpainted the file (ADR 0001 §6.4). */
@@ -78,12 +92,13 @@ export function assemblePrompt(spec: AssetSpec): string {
   return [STYLE_ANCHOR, spec.prompt.subject, spec.prompt.framing].join('\n\n');
 }
 
-export function assetOutputPath(outDir: string, spec: AssetSpec): string {
-  return path.join(outDir, spec.file);
+/** Masters are always lossless PNG, whatever the delivery format is (ART-BIBLE §6). */
+export function masterOutputPath(outDir: string, spec: AssetSpec): string {
+  return path.join(outDir, `${spec.key}.png`);
 }
 
 export function provenanceOutputPath(outDir: string, spec: AssetSpec): string {
-  return path.join(outDir, `${spec.file.replace(/\.[^.]+$/, '')}.provenance.json`);
+  return path.join(outDir, `${spec.key}.provenance.json`);
 }
 
 export function buildImageRequest(spec: AssetSpec, outDir: string): ImageRequest {
@@ -97,7 +112,7 @@ export function buildImageRequest(spec: AssetSpec, outDir: string): ImageRequest
     styleRefPaths: spec.styleRefs.map((key) => {
       const ref = findAssetSpec(key);
       if (!ref) throw new Error(`${spec.key} references unknown style ref "${key}"`);
-      return assetOutputPath(outDir, ref);
+      return masterOutputPath(outDir, ref);
     }),
   };
 }
@@ -105,18 +120,20 @@ export function buildImageRequest(spec: AssetSpec, outDir: string): ImageRequest
 export function buildProvenance(
   spec: AssetSpec,
   backend: ImageBackend,
-  prompt: string,
+  request: ImageRequest,
   generatedAt: Date,
 ): Provenance {
   return {
     assetKey: spec.key,
-    file: spec.file,
+    masterFile: `${spec.key}.png`,
+    deliveryFile: spec.file,
     backend: backend.name,
     model: backend.model,
-    seed: spec.seed,
+    seed: backend.honorsSeed ? spec.seed : null,
     promptSha256: createHash('sha256')
-      .update(`${prompt}\n--- negative ---\n${NEGATIVE}`)
+      .update(`${request.prompt}\n--- negative ---\n${NEGATIVE}`)
       .digest('hex'),
+    styleRefsApplied: backend.supportsStyleRefs && request.styleRefPaths.length > 0,
     generatedAt: generatedAt.toISOString(),
     licence: backend.licence,
     humanEdited: false,
@@ -168,6 +185,8 @@ export function createFalBackend(env: Env): ImageBackend {
     name: 'fal',
     model,
     licence: 'fal.ai — commercial use per the model page (ADR 0001 §6.1); output rights per §6.4',
+    supportsStyleRefs: true,
+    honorsSeed: true,
     async generate(req) {
       const key = requireKey(env, 'FAL_KEY', 'fal');
       const styleRefs = await Promise.all(req.styleRefPaths.map(toDataUri));
@@ -179,9 +198,13 @@ export function createFalBackend(env: Env): ImageBackend {
           negative_prompt: req.negative,
           image_size: { width: req.width, height: req.height },
           seed: req.seed,
+          // ART-PROMPTS §0.3 asks for 3 candidates (5 for portraits) and ADR 0001 §6.5 budgets on
+          // that basis. We request one: picking among candidates needs a human review loop that
+          // does not exist yet. Raising this is a budget decision, not a code decision.
           num_images: 1,
           num_inference_steps: GENERATION_SETTINGS.steps,
           guidance_scale: GENERATION_SETTINGS.guidanceScale,
+          // Masters are lossless; the ART-BIBLE §6 WebP is produced by the encode step.
           output_format: 'png',
           ...(styleRefs.length > 0 ? { image_urls: styleRefs } : {}),
         }),
@@ -201,56 +224,134 @@ export type OpenAiSize = '1024x1024' | '1024x1536' | '1536x1024';
  * OpenAI gpt-image-1 — used for the four overseer portraits (ADR 0001 §6.6).
  *
  * gpt-image-1 exposes neither a seed nor a negative prompt, so reproducibility is weaker than fal
- * and the negative list is folded into the prompt. Request shape follows OpenAI's documented images
- * API; like the fal adapter it has **not** been exercised against the live API.
+ * (`honorsSeed: false`) and the negative list is folded into the prompt. Style references go
+ * through the images **edit** endpoint, which is how ART-PROMPTS §7.3 says to carry them. Request
+ * shape follows OpenAI's documented images API; like the fal adapter it has **not** been exercised
+ * against the live API.
  */
 export function createOpenAiBackend(env: Env): ImageBackend {
+  const model = 'gpt-image-1';
   return {
     name: 'openai',
-    model: 'gpt-image-1',
+    model,
     licence: 'OpenAI gpt-image-1 — output ownership unresolved, see ADR 0001 §6.4',
+    supportsStyleRefs: true,
+    honorsSeed: false,
     async generate(req) {
       const key = requireKey(env, 'OPENAI_API_KEY', 'openai');
-      const response = await fetch('https://api.openai.com/v1/images/generations', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'gpt-image-1',
-          prompt: `${req.prompt}\n\nAvoid entirely: ${req.negative}`,
-          size: openAiSize(req.width, req.height),
-          quality: 'high',
-          n: 1,
-        }),
-      });
+      const size = openAiSize(req.width, req.height);
+      if (size === null) throw new Error(unsupportedResolutionMessage(req.width, req.height));
+
+      const prompt = `${req.prompt}\n\nAvoid entirely: ${req.negative}`;
+      const response =
+        req.styleRefPaths.length > 0
+          ? await openAiEdit(key, model, prompt, size, req.styleRefPaths)
+          : await openAiGenerate(key, model, prompt, size);
+
       const { data } = OpenAiResponseSchema.parse(await readJson(response, 'openai'));
-      return Buffer.from(data[0]!.b64_json, 'base64');
+      return new Uint8Array(Buffer.from(data[0]!.b64_json, 'base64'));
     },
   };
 }
 
-/** Maps a manifest resolution onto the closest supported gpt-image-1 size. */
-export function openAiSize(width: number, height: number): OpenAiSize {
-  if (width === height) return '1024x1024';
-  return width < height ? '1024x1536' : '1536x1024';
+async function openAiGenerate(
+  key: string,
+  model: string,
+  prompt: string,
+  size: OpenAiSize,
+): Promise<Response> {
+  return fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, prompt, size, quality: 'high', output_format: 'png', n: 1 }),
+  });
+}
+
+/** ART-PROMPTS §7.3 — the two approved references are passed as `image[]` edit inputs. */
+async function openAiEdit(
+  key: string,
+  model: string,
+  prompt: string,
+  size: OpenAiSize,
+  styleRefPaths: readonly string[],
+): Promise<Response> {
+  const form = new FormData();
+  form.append('model', model);
+  form.append('prompt', prompt);
+  form.append('size', size);
+  form.append('quality', 'high');
+  form.append('output_format', 'png');
+  form.append('n', '1');
+  for (const refPath of styleRefPaths) {
+    const bytes = await readFile(refPath);
+    form.append('image[]', new Blob([bytes], { type: 'image/png' }), path.basename(refPath));
+  }
+  return fetch('https://api.openai.com/v1/images/edits', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}` },
+    body: form,
+  });
+}
+
+/** The gpt-image-1 size for a manifest resolution, or `null` when it cannot produce one. */
+export function openAiSize(width: number, height: number): OpenAiSize | null {
+  if (width === 1024 && height === 1024) return '1024x1024';
+  if (width === 1024 && height === 1536) return '1024x1536';
+  if (width === 1536 && height === 1024) return '1536x1024';
+  return null;
+}
+
+function unsupportedResolutionMessage(width: number, height: number): string {
+  return `gpt-image-1 cannot produce ${width}×${height} (supported: 1024×1024, 1024×1536, 1536×1024)`;
+}
+
+/**
+ * Why a backend cannot deliver a spec at its manifest resolution, or `null` when it can. Silently
+ * substituting a size would manufacture an ART-BIBLE §10 rejection at cost, so this is a
+ * `--dry-run` failure instead.
+ */
+export function unsupportedResolution(
+  backend: ImageBackendName,
+  width: number,
+  height: number,
+): string | null {
+  if (backend === 'openai' && openAiSize(width, height) === null) {
+    return unsupportedResolutionMessage(width, height);
+  }
+  return null;
+}
+
+/** Error bodies name the offending field — the only diagnostic an unverified wire format has. */
+async function describeFailure(response: Response, backend: string): Promise<Error> {
+  const body = (await response.text().catch(() => '')).trim().slice(0, 500);
+  return new Error(
+    `${backend} request failed: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`,
+  );
 }
 
 async function readJson(response: Response, backend: string): Promise<unknown> {
-  if (!response.ok) {
-    throw new Error(`${backend} request failed: ${response.status} ${response.statusText}`);
-  }
+  if (!response.ok) throw await describeFailure(response, backend);
   return response.json();
 }
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const response = await fetch(url);
-  if (!response.ok) throw new Error(`Could not download image: ${response.status}`);
+  if (!response.ok) throw await describeFailure(response, 'image download');
   return new Uint8Array(await response.arrayBuffer());
 }
 
 async function toDataUri(filePath: string): Promise<string> {
   const bytes = await readFile(filePath);
-  const mime = filePath.endsWith('.png') ? 'image/png' : 'image/webp';
-  return `data:${mime};base64,${bytes.toString('base64')}`;
+  return `data:image/png;base64,${bytes.toString('base64')}`;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -295,6 +396,18 @@ export function selectSpecs(only: readonly string[]): readonly AssetSpec[] {
 }
 
 /**
+ * ART-PROMPTS §7.1 — plates and planes first (they set the world's value key), then the two assets
+ * that become the style references, then everything that depends on them. Stable within each tier.
+ */
+export function orderForGeneration(specs: readonly AssetSpec[]): readonly AssetSpec[] {
+  const tier = (spec: AssetSpec): number => {
+    if (spec.styleRefs.length > 0) return 2;
+    return (STYLE_REFERENCE_KEYS as readonly string[]).includes(spec.key) ? 1 : 0;
+  };
+  return [...specs].sort((a, b) => tier(a) - tier(b));
+}
+
+/**
  * Everything `--dry-run` checks: manifest legality, prompt assembly, output paths and backend
  * selectability. Returns one line per problem; empty means the run would be safe.
  */
@@ -305,7 +418,7 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
   for (const spec of specs) {
     for (const problem of validateAssetSpec(spec)) problems.push(`${spec.key}: ${problem}`);
 
-    const outPath = assetOutputPath(outDir, spec);
+    const outPath = masterOutputPath(outDir, spec);
     const claimedBy = seenPaths.get(outPath);
     if (claimedBy) problems.push(`${spec.key}: output path collides with ${claimedBy}`);
     seenPaths.set(outPath, spec.key);
@@ -323,10 +436,14 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
     }
 
     // Backend selection is a dry-run concern; credentials are not (they are never needed offline).
-    if (spec.backend === undefined && env.FRONTLINE_ART_BACKEND !== undefined) {
-      const parsed = ImageBackendNameSchema.safeParse(env.FRONTLINE_ART_BACKEND);
+    const selected = spec.backend ?? env.FRONTLINE_ART_BACKEND;
+    if (selected !== undefined) {
+      const parsed = ImageBackendNameSchema.safeParse(selected);
       if (!parsed.success) {
-        problems.push(`${spec.key}: unknown FRONTLINE_ART_BACKEND "${env.FRONTLINE_ART_BACKEND}"`);
+        problems.push(`${spec.key}: unknown FRONTLINE_ART_BACKEND "${selected}"`);
+      } else {
+        const unsupported = unsupportedResolution(parsed.data, spec.width, spec.height);
+        if (unsupported !== null) problems.push(`${spec.key}: ${unsupported}`);
       }
     }
   }
@@ -334,8 +451,38 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
   return problems;
 }
 
-async function generate(specs: readonly AssetSpec[], outDir: string, env: Env): Promise<void> {
+/**
+ * ART-PROMPTS §7.3 refs must exist before the asset that cites them. Checked up front so a
+ * `--only` run fails for free instead of ENOENT-ing partway through a paid one.
+ */
+async function assertStyleRefsAvailable(
+  specs: readonly AssetSpec[],
+  outDir: string,
+): Promise<void> {
+  const generated = new Set<string>();
+  for (const spec of specs) {
+    for (const key of spec.styleRefs) {
+      if (generated.has(key)) continue;
+      const ref = findAssetSpec(key);
+      if (!ref) throw new Error(`${spec.key}: unknown style ref "${key}"`);
+      const refPath = masterOutputPath(outDir, ref);
+      if (!(await fileExists(refPath))) {
+        throw new Error(
+          `${spec.key}: style ref ${key} has not been generated yet (expected ${refPath})`,
+        );
+      }
+    }
+    generated.add(spec.key);
+  }
+}
+
+export async function generate(
+  specs: readonly AssetSpec[],
+  outDir: string,
+  env: Env,
+): Promise<void> {
   await mkdir(outDir, { recursive: true });
+  await assertStyleRefsAvailable(specs, outDir);
   const backends = new Map<ImageBackendName, ImageBackend>();
 
   for (const spec of specs) {
@@ -344,13 +491,20 @@ async function generate(specs: readonly AssetSpec[], outDir: string, env: Env): 
     backends.set(name, backend);
 
     const request = buildImageRequest(spec, outDir);
-    process.stdout.write(`generating ${spec.file} via ${backend.name} (seed ${spec.seed})\n`);
+    if (request.styleRefPaths.length > 0 && !backend.supportsStyleRefs) {
+      process.stderr.write(
+        `warning: ${spec.key} generated without its style references — ${backend.name} cannot carry them\n`,
+      );
+    }
+
+    const masterPath = masterOutputPath(outDir, spec);
+    process.stdout.write(`generating ${path.basename(masterPath)} via ${backend.name}\n`);
     const bytes = await backend.generate(request);
 
-    await writeFile(assetOutputPath(outDir, spec), bytes);
+    await writeFile(masterPath, bytes);
     await writeFile(
       provenanceOutputPath(outDir, spec),
-      `${JSON.stringify(buildProvenance(spec, backend, request.prompt, new Date()), null, 2)}\n`,
+      `${JSON.stringify(buildProvenance(spec, backend, request, new Date()), null, 2)}\n`,
     );
   }
 }
@@ -360,7 +514,7 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   let specs: readonly AssetSpec[];
   try {
     options = parseArgs(argv);
-    specs = selectSpecs(options.only);
+    specs = orderForGeneration(selectSpecs(options.only));
   } catch (error) {
     process.stderr.write(`${errorMessage(error)}\n`);
     return 1;
@@ -376,7 +530,9 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   if (options.dryRun) {
     process.stdout.write(`${specs.length} asset(s) validated, no network calls made:\n`);
     for (const spec of specs) {
-      process.stdout.write(`  ${assetOutputPath(options.outDir, spec)}  seed ${spec.seed}\n`);
+      process.stdout.write(
+        `  ${masterOutputPath(options.outDir, spec)}  seed ${spec.seed} → ${spec.file}\n`,
+      );
     }
     return 0;
   }

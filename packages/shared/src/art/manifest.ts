@@ -58,7 +58,11 @@ export const AssetPromptSchema = z.object({
 });
 export type AssetPrompt = z.infer<typeof AssetPromptSchema>;
 
-/** ART-BIBLE §7 — `variant` ∈ `damaged` | `selected` | `night` | `alt1..n`. */
+/**
+ * ART-BIBLE §7 — `variant` ∈ `damaged` | `selected` | `night` | `alt1..n`. Matched against the
+ * filename tail, so a future domain id ending in one of these words (a district `halcyon-night`)
+ * would parse as subject `halcyon` + variant `night` and fail as an unresolvable subject.
+ */
 const VARIANT_PATTERN = '(?:damaged|selected|night|alt[1-9][0-9]*)';
 const SUBJECT_PATTERN = '[a-z0-9]+(?:-[a-z0-9]+)*?';
 
@@ -93,21 +97,23 @@ export interface AssetClassSpec {
   aspect: AssetAspect;
   /** ART-BIBLE §6 delivery format. 9-slice frames and LUTs must stay lossless. */
   ext: 'webp' | 'png';
+  /** WebP encoder quality for the delivery file; `null` for the lossless PNG classes. */
+  quality: number | null;
   alpha: boolean;
 }
 
 /** ART-BIBLE §6 — source resolution, aspect, delivery format and default transparency per class. */
 export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
-  portrait: { width: 1024, height: 1536, aspect: '3:4', ext: 'webp', alpha: false },
-  district: { width: 1024, height: 1024, aspect: '1:1', ext: 'webp', alpha: false },
-  plate: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', alpha: false },
+  portrait: { width: 1024, height: 1536, aspect: '3:4', ext: 'webp', quality: 90, alpha: false },
+  district: { width: 1024, height: 1024, aspect: '1:1', ext: 'webp', quality: 90, alpha: false },
+  plate: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', quality: 92, alpha: false },
   // Sky is opaque, far/fore carry alpha — the manifest overrides per plane.
-  plane: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', alpha: true },
-  building: { width: 1024, height: 1024, aspect: '1:1', ext: 'webp', alpha: true },
-  ui: { width: 1024, height: 1024, aspect: '1:1', ext: 'png', alpha: true },
-  icon: { width: 512, height: 512, aspect: '1:1', ext: 'webp', alpha: true },
-  splash: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', alpha: false },
-  lut: { width: 512, height: 512, aspect: '1:1', ext: 'png', alpha: false },
+  plane: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', quality: 90, alpha: true },
+  building: { width: 1024, height: 1024, aspect: '1:1', ext: 'webp', quality: 90, alpha: true },
+  ui: { width: 1024, height: 1024, aspect: '1:1', ext: 'png', quality: null, alpha: true },
+  icon: { width: 512, height: 512, aspect: '1:1', ext: 'webp', quality: 88, alpha: true },
+  splash: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', quality: 90, alpha: false },
+  lut: { width: 512, height: 512, aspect: '1:1', ext: 'png', quality: null, alpha: false },
 };
 
 /**

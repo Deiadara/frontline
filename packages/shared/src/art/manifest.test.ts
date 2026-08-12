@@ -119,6 +119,25 @@ describe('ART_MANIFEST', () => {
     }
   });
 
+  it('carries the ART-BIBLE §6 delivery format and quality per class', () => {
+    // Hand-transcribed from the §6 table; PNG classes are lossless and carry no quality.
+    expect(
+      Object.fromEntries(
+        Object.entries(ASSET_CLASS_SPECS).map(([name, s]) => [name, `${s.ext}${s.quality ?? ''}`]),
+      ),
+    ).toEqual({
+      portrait: 'webp90',
+      district: 'webp90',
+      plate: 'webp92',
+      plane: 'webp90',
+      building: 'webp90',
+      ui: 'png',
+      icon: 'webp88',
+      splash: 'webp90',
+      lut: 'png',
+    });
+  });
+
   it('marks the sky plane opaque and the other planes alpha', () => {
     expect(findAssetSpec('plane-city-sky')?.alpha).toBe(false);
     expect(findAssetSpec('plane-city-far')?.alpha).toBe(true);
