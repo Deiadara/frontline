@@ -70,10 +70,12 @@ const skyline = (width: number, height: number, subjectFraction: number) =>
 
 /** Deterministic per-channel grain in [-amplitude, amplitude]. */
 function grain(index: number, amplitude: number): number {
+  // Each shift-xor is re-cast with `>>> 0`: `^=` alone yields a *signed* int, and a negative hash
+  // makes `%` negative, which silently widened this to [-3·amplitude, amplitude] (MOU-152).
   let hash = Math.imul(index, 2654435761) >>> 0;
-  hash ^= hash >>> 15;
+  hash = (hash ^ (hash >>> 15)) >>> 0;
   hash = Math.imul(hash, 2246822519) >>> 0;
-  hash ^= hash >>> 13;
+  hash = (hash ^ (hash >>> 13)) >>> 0;
   return (hash % (2 * amplitude + 1)) - amplitude;
 }
 
@@ -232,12 +234,16 @@ describe('keyBackground', () => {
    * The invariant across the band from workable grain to hopeless: a speckled field is never
    * something the encoder hands back. Past the point where the noise floor beats `tolerance` the
    * misses stop being isolated pixels and clump into islands too big to sweep — which is the case
-   * `MAX_KEYED_ISLANDS` refuses. At `DEFAULT_MATTE_TOLERANCE` the boundary measures between ±18
-   * (11 islands, 0.09% speckle, ships) and ±20 (120 islands, 0.64% speckle, refused).
+   * `MAX_KEYED_ISLANDS` refuses. At `DEFAULT_MATTE_TOLERANCE` the boundary measures between ±35
+   * (47 islands, 0.29% speckle, ships) and ±36 (126 islands, 0.71% speckle, refused).
+   *
+   * Well past ±45 the master stops having a keyable field at all and the key cuts *nothing* — one
+   * fully opaque island, which passes the island count. That case is `encodeAsset`'s to refuse
+   * (it has a separate no-cut gate), so the levels here stay inside the band this gate governs.
    */
   it('keys clean or refuses at every grain level — it never ships speckle', async () => {
     const shipped: boolean[] = [];
-    for (const amplitude of [18, 20, 25]) {
+    for (const amplitude of [35, 36, 40]) {
       const keyed = await keyBackground(
         await decodeMaster(await grainySkyline(2048, 1152, 0.3, amplitude)),
         DEFAULT_MATTE_TOLERANCE,
@@ -288,8 +294,9 @@ describe('keyBackground', () => {
 
     const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
 
-    // Clean the cable goes wholesale (8% left); grainy the median flips per pixel and it comes
-    // back as a dashed line (52%). Either way it is not a cable, and no gate below sees that.
+    // The cable goes wholesale, grain or none: it is only 3 of the 9 samples in every window it
+    // touches, so the median returns the field at ±0 and ±16 alike — 0% left, 2032 px erased. (The
+    // dashed line this used to record at ±16 was the skewed generator, not grain — MOU-152.)
     expect(cableSurvival(keyed, 1)).toBeLessThan(0.9);
     expect(keyed.erased).toBeGreaterThan(MAX_ERASED_ARTWORK);
     // Neither older gate sees it, which is why this one has to exist.
@@ -342,9 +349,9 @@ describe('encodeAsset', () => {
   });
 
   it('refuses a grainier master than the tolerance covers, and takes a wider one', async () => {
-    // ±25 grain against tolerance 18: the key misses in clumps rather than isolated pixels, and it
-    // used to ship — 56% transparent clears the §6 floor while a fifth of the sky stays opaque.
-    const bytes = await grainySkyline(2048, 1152, 0.3, 25);
+    // ±40 grain against tolerance 18: the key misses in clumps rather than isolated pixels, and it
+    // used to ship — 62% transparent clears the §6 floor while a tenth of the sky stays opaque.
+    const bytes = await grainySkyline(2048, 1152, 0.3, 40);
 
     await expect(encodeAsset(bytes, FORE_PLANE)).rejects.toThrow(/disconnected pieces/);
 

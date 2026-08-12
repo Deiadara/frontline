@@ -160,10 +160,12 @@ export const MIN_OPAQUE_ISLAND = 64;
  * The island sweep guarantees no piece is *small*, not that there are few of them: past the point
  * where the master's noise floor exceeds `--matte-tolerance`, the misses stop being isolated pixels
  * and clump into islands the sweep is right to keep. Fragmentation is what separates the two cases,
- * and it separates them by orders of magnitude. Measured on 2048×1152 synthetic planes: a legitimate
- * `plane-city-fore` layout (edge occluders, a drone, three detached spires) keys to **5** pieces and
- * stays at 5 through ±16 grain, while the first grain level that ships visible speckle keys to
- * **121** and ±25 grain to **2215**. 64 sits in that empty gap.
+ * and it separates them by orders of magnitude. Measured on 2048×1152 synthetic planes at
+ * {@link DEFAULT_MATTE_TOLERANCE}: a legitimate `plane-city-fore` layout (edge occluders, a drone,
+ * detached spires) keys to **2** pieces and stays there through ±30 grain; ±35 — the last level
+ * that still ships — reads **42**, ±36 reads **114**, and ±40 reads **1396**. 64 sits in the empty
+ * gap between 42 and 114. (The ±18/±20 boundary quoted before MOU-152 was the test suite's skewed
+ * grain generator, not this gate moving.)
  */
 export const MAX_KEYED_ISLANDS = 64;
 
@@ -192,12 +194,11 @@ const ARTWORK_MARGIN = 2;
  * this cannot see — ART-BIBLE §6.2's minimum stroke weight is what covers that case.
  *
  * Measured on 2048×1152 fore-plane layouts built from ART-PROMPTS, hard-edged and antialiased,
- * grain ±0 to ±18, silhouettes plain and busy, separations 30 and 45: a plane whose thinnest element
- * is ≥2 px reads **at most 141**, and one carrying a 1-px cable reads **at least 920** — clean or
- * chewed into runs by grain. 256 sits in that gap, 1.8× over the worst clean master. Those figures
- * are against this suite's grain generator, whose distribution is skewed well past its nominal
- * amplitude (MOU-152); against symmetric grain the separation is wider still — a ≥2px plane reads
- * **0** at every level out to ±25, a 1-px cable **at least 1540**.
+ * grain ±0 to ±25, silhouettes plain and busy, separations 30 and 45: a plane whose thinnest element
+ * is ≥2 px reads **0**, and one carrying a 1-px cable reads **at least 1540** — the median returns
+ * the field for a line that is only 3 of its 9 samples, at every grain level alike. 256 sits in
+ * that gap. (Against the skewed generator MOU-152 replaced, the same matrix read at most 141 clean
+ * and at least 920 erased; the gate separated the two cases under both.)
  *
  * An absolute count, like {@link MIN_OPAQUE_ISLAND} and for the same reason: an erasure scales with
  * the length of the structure, not with the area of the canvas, and both matte assets are declared
