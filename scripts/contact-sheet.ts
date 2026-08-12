@@ -55,6 +55,14 @@ const MAX_COLUMNS = 5;
 const CELL_WIDTH = THUMB;
 const CELL_HEIGHT = THUMB + LABEL_HEIGHT;
 
+/**
+ * A floor wide enough for the header, which does not narrow with the grid: at one cell the columns
+ * alone would give a 376px sheet and the title would be cut mid-glyph. Measured — the header's
+ * widest rendering ends at x=433, so 434 + `MARGIN` of air. Pinned by a test that renders the
+ * one-cell sheet and checks the header ink stays inside the page.
+ */
+const MIN_WIDTH = 462;
+
 /** A manifest entry's place on the sheet. `bytes` is absent while the asset is still outstanding. */
 export interface Cell {
   spec: AssetSpec;
@@ -74,7 +82,7 @@ export function layoutFor(cellCount: number): Layout {
   return {
     columns,
     rows,
-    width: MARGIN * 2 + columns * CELL_WIDTH + (columns - 1) * GUTTER,
+    width: Math.max(MIN_WIDTH, MARGIN * 2 + columns * CELL_WIDTH + (columns - 1) * GUTTER),
     height: MARGIN * 2 + HEADER_HEIGHT + rows * CELL_HEIGHT + (rows - 1) * GUTTER,
   };
 }
@@ -118,6 +126,28 @@ export function sheetSpecs(delivered: ReadonlySet<string>): readonly AssetSpec[]
   return ART_MANIFEST.filter(
     (spec) => HERO_ASSET_KEYS.includes(spec.key) || delivered.has(spec.file),
   );
+}
+
+/** What the client globs out of the drop directory — see `assets/README.md`. */
+const DELIVERY_FILE = /\.(?:webp|png)$/;
+/** A 2× variant is the same art as its 1×, and the 1× is what the sheet reports. */
+const RETINA_FILE = /@2x\.(?:webp|png)$/;
+
+/**
+ * Images in the drop directory that no manifest entry claims: a wrong extension
+ * (`portrait-overseer-1.png` where the manifest asks for `.webp`), art orphaned by a district
+ * rename, a `-final` suffix the §7 naming rule bans.
+ *
+ * The sheet draws those keys as "not delivered yet" while the paint sits in `assets/` — the one way
+ * this report can be confidently wrong — and the game will not load them either, so `main` names
+ * them on stderr. Deliberately extension-shaped rather than grammar-shaped: a file the naming rule
+ * rejects is exactly the kind that goes missing, so it has to be named too.
+ */
+export function unclaimedDeliveries(delivered: ReadonlySet<string>): readonly string[] {
+  const claimed = new Set(ART_MANIFEST.map((spec) => spec.file));
+  return [...delivered]
+    .filter((file) => DELIVERY_FILE.test(file) && !RETINA_FILE.test(file) && !claimed.has(file))
+    .sort();
 }
 
 /** Delivery file names present in `assetDir`. The 2× variants are the same art — 1× is the cell. */
@@ -187,17 +217,32 @@ export async function fontsRender(): Promise<boolean> {
   return data.some((channel) => channel !== 0);
 }
 
-/** Fits a delivery into the thumbnail box without cropping — letterboxed onto the slot colour. */
-function thumbnail(bytes: Uint8Array): Promise<Buffer> {
-  return sharp(bytes)
-    .resize(THUMB, THUMB, { fit: 'contain', background: INK.slot })
-    .flatten({ background: INK.slot })
-    .png()
-    .toBuffer();
+/**
+ * Fits a delivery into the thumbnail box without cropping — letterboxed onto the slot colour.
+ *
+ * sharp names neither the file nor the key when it rejects one ("Input buffer contains unsupported
+ * image format"), and a hand-pasted batch is exactly where a truncated download turns up, so the
+ * failure has to say which of the 15 to re-download.
+ */
+async function thumbnail(bytes: Uint8Array, file: string): Promise<Buffer> {
+  try {
+    return await sharp(bytes)
+      .resize(THUMB, THUMB, { fit: 'contain', background: INK.slot })
+      .flatten({ background: INK.slot })
+      .png()
+      .toBuffer();
+  } catch (error) {
+    throw new Error(`${file}: ${errorMessage(error)}`);
+  }
 }
 
-export async function renderSheet(cells: readonly Cell[], counts: Tally): Promise<Buffer> {
-  if (!(await fontsRender())) {
+export async function renderSheet(
+  cells: readonly Cell[],
+  counts: Tally,
+  /** Seam for the no-font path, which is otherwise only reachable on a machine without one. */
+  fontsAvailable: () => Promise<boolean> = fontsRender,
+): Promise<Buffer> {
+  if (!(await fontsAvailable())) {
     throw new Error(
       'librsvg rendered no glyphs — no system font is visible to fontconfig, so every cell would be ' +
         'unlabelled. Install a font (or run this on a machine that has one) and try again.',
@@ -209,7 +254,7 @@ export async function renderSheet(cells: readonly Cell[], counts: Tally): Promis
     cells.map(async (cell, index) => {
       if (cell.bytes === undefined) return undefined;
       const { x, y } = cellOrigin(index, layout);
-      return { input: await thumbnail(cell.bytes), left: x, top: y };
+      return { input: await thumbnail(cell.bytes, cell.spec.file), left: x, top: y };
     }),
   );
 
@@ -270,10 +315,19 @@ export async function main(argv: readonly string[]): Promise<number> {
 
   const delivered = await deliveredFiles(options.assetDir);
   const counts = tally(delivered);
-  const cells = await collectCells(sheetSpecs(delivered), delivered, options.assetDir);
+  const unclaimed = unclaimedDeliveries(delivered);
+  if (unclaimed.length > 0) {
+    process.stderr.write(
+      `warning: no manifest entry claims ${unclaimed.join(', ')} — the matching key is drawn as ` +
+        'not delivered yet. Check the extension and the subject against the manifest.\n',
+    );
+  }
 
+  let cells: Cell[];
+  let sheet: Buffer;
   try {
-    const sheet = await renderSheet(cells, counts);
+    cells = await collectCells(sheetSpecs(delivered), delivered, options.assetDir);
+    sheet = await renderSheet(cells, counts);
     await mkdir(path.dirname(options.outPath), { recursive: true });
     await writeFile(options.outPath, sheet);
   } catch (error) {

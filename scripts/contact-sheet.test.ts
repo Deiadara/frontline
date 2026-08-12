@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -13,6 +13,7 @@ import {
   renderSheet,
   sheetSpecs,
   tally,
+  unclaimedDeliveries,
   type Cell,
 } from './contact-sheet.js';
 
@@ -110,6 +111,13 @@ describe('layoutFor', () => {
     expect(layout.width).toBeGreaterThan(0);
     expect(layout.height).toBeGreaterThan(0);
   });
+
+  it('never narrows below the header, which does not shrink with the grid', () => {
+    // One cell of columns is 376px wide; the header needs 462. See the header-fits test below.
+    expect(layoutFor(1).width).toBe(462);
+    expect(layoutFor(0).width).toBe(462);
+    expect(layoutFor(2).width).toBeGreaterThan(462);
+  });
 });
 
 describe('renderSheet', () => {
@@ -154,16 +162,39 @@ describe('renderSheet', () => {
     expect(await inkOf(withText)).toBeGreaterThan(0);
   });
 
-  it('refuses to write an unlabelled sheet when no font is available', async () => {
-    // The probe raster comes back empty exactly as it would with no font installed. Mocked at the
-    // first `raw()` of the render, which is the probe's.
-    const blankProbe = {
-      toBuffer: () => Promise.resolve({ data: Buffer.alloc(200 * 40 * 4), info: {} }),
-    };
-    vi.spyOn(sharp.prototype, 'raw').mockReturnValueOnce(blankProbe);
+  it('keeps the header inside the page at the narrowest sheet', async () => {
+    // One cell is the narrowest layout there is, and the header does not narrow with the grid: this
+    // is where a title that overruns the canvas gets cut mid-glyph. Pins `MIN_WIDTH` against a
+    // header that grows — a third digit in the counts, or a longer title.
+    const sheet = await renderSheet([{ spec: PORTRAIT, bytes: undefined }], counts);
+    const { data, info } = await sharp(sheet).raw().toBuffer({ resolveWithObject: true });
+    const layout = layoutFor(1);
+    expect(info.width).toBe(layout.width);
 
-    await expect(renderSheet([{ spec: PORTRAIT, bytes: undefined }], counts)).rejects.toThrow(
-      /no glyphs/,
+    let rightmost = 0;
+    // The header band only: down to the rule that closes it, above the first row of cells.
+    for (let y = 0; y < 120; y += 1) {
+      for (let x = 0; x < info.width; x += 1) {
+        const i = (y * info.width + x) * info.channels;
+        if (data[i]! > 100 || data[i + 1]! > 100 || data[i + 2]! > 100)
+          rightmost = Math.max(x, rightmost);
+      }
+    }
+    expect(rightmost).toBeGreaterThan(0); // the header drew at all
+    expect(rightmost).toBeLessThan(layout.width - 8);
+  });
+
+  it('refuses to write an unlabelled sheet when no font is available', async () => {
+    // What librsvg does when fontconfig turns up empty. The real probe has its own test below.
+    await expect(
+      renderSheet([{ spec: PORTRAIT, bytes: undefined }], counts, () => Promise.resolve(false)),
+    ).rejects.toThrow(/no glyphs/);
+  });
+
+  it('names the file when a delivery cannot be decoded', async () => {
+    const corrupt = Buffer.from('not an image at all');
+    await expect(renderSheet([{ spec: PORTRAIT, bytes: corrupt }], counts)).rejects.toThrow(
+      PORTRAIT.file,
     );
   });
 });
@@ -229,5 +260,70 @@ describe('main', () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     await expect(main(['--nope'])).resolves.toBe(1);
     expect(stderr.mock.calls.join('')).toMatch(/Unknown argument/);
+  });
+
+  it('exits 1 when a listed delivery cannot be read', async () => {
+    await withAssetDir({}, async (dir) => {
+      // A directory where the manifest expects a file: listed by readdir, EISDIR on read. Same
+      // shape as a file that disappears between the listing and the read of a hand-pasted batch.
+      await mkdir(path.join(dir, PORTRAIT.file));
+      const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+      await expect(main(['--assets', dir, '--out', path.join(dir, 'sheet.png')])).resolves.toBe(1);
+      expect(stderr.mock.calls.join('')).toMatch(/EISDIR/);
+    });
+  });
+
+  it('warns about a delivery no manifest entry claims, and still writes the sheet', async () => {
+    // The manifest asks for this key as `.webp`; a `.png` next to it is invisible on the sheet.
+    const orphan = PORTRAIT.file.replace(/\.\w+$/, '.png');
+    expect(orphan).not.toBe(PORTRAIT.file);
+
+    await withAssetDir(
+      { [orphan]: await delivery(PORTRAIT, { r: 1, g: 2, b: 3 }) },
+      async (dir) => {
+        const out = path.join(dir, 'sheet.png');
+        const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+        vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+        await expect(main(['--assets', dir, '--out', out])).resolves.toBe(0);
+        expect(stderr.mock.calls.join('')).toContain(orphan);
+        await expect(readFile(out)).resolves.toBeInstanceOf(Buffer);
+      },
+    );
+  });
+
+  it('says nothing about files that are not deliveries', async () => {
+    await withAssetDir(
+      {
+        'README.md': Buffer.from('# assets'),
+        [PORTRAIT.file]: await delivery(PORTRAIT, { r: 90, g: 20, b: 20 }),
+      },
+      async (dir) => {
+        const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+        vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+        await expect(main(['--assets', dir, '--out', path.join(dir, 'sheet.png')])).resolves.toBe(
+          0,
+        );
+        expect(stderr.mock.calls).toEqual([]);
+      },
+    );
+  });
+});
+
+describe('unclaimedDeliveries', () => {
+  it('names a delivery-shaped file the manifest does not claim', () => {
+    const wrongExtension = PORTRAIT.file.replace(/\.\w+$/, '.png');
+    expect(unclaimedDeliveries(new Set([PORTRAIT.file, wrongExtension]))).toEqual([wrongExtension]);
+    // A renamed district leaves its art behind, and a banned `-final` suffix never loads either.
+    expect(
+      unclaimedDeliveries(new Set(['district-renamed.webp', 'portrait-x-final.webp'])),
+    ).toEqual(['district-renamed.webp', 'portrait-x-final.webp']);
+  });
+
+  it('stays quiet about the 2× variants and anything that is not an image', () => {
+    const retina = PORTRAIT.file.replace(/\.(\w+)$/, '@2x.$1');
+    expect(unclaimedDeliveries(new Set([retina, 'README.md', 'notes.txt']))).toEqual([]);
   });
 });
