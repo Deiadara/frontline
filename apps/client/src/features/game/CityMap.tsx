@@ -1,7 +1,13 @@
 import type { BaseSummary, District, DistrictKind } from '@frontline/shared';
 import { Application, Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
 import { useEffect, useRef } from 'react';
+import { artLoader } from '../../assets/loader';
+import { paintProcedural } from '../../render/procedural';
+import { PARALLAX_PLANES, planeOffset, type PlaneId, type Vec2 } from '../../render/layers';
+import { createPostFx, createVignette, type PostFxChain } from '../../render/grade';
+import { createViewport, resizeViewport } from '../../render/viewport';
 import { palette } from '../../theme/tokens';
+import type { Viewport } from 'pixi-viewport';
 
 interface CityMapProps {
   districts: readonly District[];
@@ -28,28 +34,11 @@ const LABEL_STYLE: TextStyleOptions = {
   letterSpacing: 0.5,
 };
 
-/**
- * The face every Text in the scene is drawn with. A `font` shorthand needs a size, but the
- * size does not select a different face — so this one spec covers the district labels, the
- * marker tags and the tooltip alike.
- */
 const LABEL_FONT = '600 11px Orbitron';
 
-/**
- * Resolves once the label font is actually usable.
- *
- * Pixi bakes a Text into a texture measured with whatever font is available when the object
- * is constructed, so a webfont arriving later strands the whole scene on the fallback:
- * labels in the wrong typeface, and glyphs clipped wherever the two metrics disagree. The
- * cure is to redraw once loading has settled — never to guess with a timeout.
- *
- * `fonts.load` is what forces the fetch: a CSS font is otherwise only requested for the DOM
- * that uses it, so `fonts.ready` alone can resolve before Orbitron is ever asked for.
- */
 async function labelFontsReady(): Promise<void> {
   const fonts: FontFaceSet | undefined = document.fonts;
   if (!fonts) return;
-  // A font that fails to load must not block the redraw — the fallback is then correct.
   await fonts.load(LABEL_FONT).catch(() => undefined);
   await fonts.ready;
 }
@@ -58,30 +47,24 @@ function radiusFor(district: District): number {
   return 7 + district.difficulty * 0.7;
 }
 
-/** Everything needed to redraw the scene, read fresh on each resize/prop change. */
-interface Scene {
-  app: Application;
-  width: number;
-  height: number;
-  props: CityMapProps;
-  /** Districts held by an AI rival — drawn hostile rather than in their kind color. */
-  botDistrictIds: ReadonlySet<string>;
-}
-
 /** A district garrisoned by a bot reads as a threat, not as a friendly player base. */
 function districtColor(district: District, botDistrictIds: ReadonlySet<string>): number {
   return botDistrictIds.has(district.id) ? hex(palette.neon.magenta) : KIND_COLOR[district.kind];
 }
 
-function drawBackground(width: number, height: number): Graphics {
-  const g = new Graphics();
-  g.rect(0, 0, width, height).fill({ color: hex(palette.night.raised), alpha: 0.35 });
-  const step = 48;
-  for (let x = step; x < width; x += step) g.moveTo(x, 0).lineTo(x, height);
-  for (let y = step; y < height; y += step) g.moveTo(0, y).lineTo(width, y);
-  g.stroke({ width: 1, color: hex(palette.steel[700]), alpha: 0.25 });
-  return g;
+interface Scene {
+  app: Application;
+  viewport: Viewport;
+  planes: Map<PlaneId, Container>;
+  postFx: PostFxChain;
+  width: number;
+  height: number;
+  props: CityMapProps;
+  /** Districts held by an AI rival — drawn hostile rather than in their kind colour. */
+  botDistrictIds: ReadonlySet<string>;
 }
+
+// ─── tooltip ────────────────────────────────────────────────────────────────
 
 function makeTooltip(): Container {
   const container = new Container();
@@ -117,6 +100,8 @@ function updateTooltip(
   tooltip.position.set(Math.max(2, x - w / 2), Math.max(2, y - h - 12));
   tooltip.visible = true;
 }
+
+// ─── district nodes ──────────────────────────────────────────────────────────
 
 function drawDistrictNode(scene: Scene, district: District, tooltip: Container): Container {
   const { width, height, props } = scene;
@@ -160,30 +145,19 @@ function drawDistrictNode(scene: Scene, district: District, tooltip: Container):
   return node;
 }
 
-/** Gap between the marker glyph and the tag sitting above it. */
+// ─── base markers ────────────────────────────────────────────────────────────
+
 const TAG_GAP = 8;
-/** How far above the district node the marker floats — clears the node's halo. */
 const MARKER_LIFT = 17;
-/** Keeps a marker's tag from being clipped by the top edge of the canvas. */
 const MARKER_MIN_Y = 26;
-/** Keeps a tag from bleeding past the left/right edges of the canvas. */
 const EDGE_PADDING = 4;
-/** Vertical pitch between markers sharing a district — clears a marker's glyph and tag. */
 const MARKER_STACK_STEP = 28;
 
-/** A marker's slot among the bases sharing its district. */
 interface MarkerSlot {
-  /** 0 sits nearest the district node; each further marker floats one step higher. */
   index: number;
   count: number;
 }
 
-/**
- * Districts are not exclusive — every human settles in the same starter district — so
- * co-located markers stack straight up from their node instead of drawing on top of each
- * other. The stack is clamped into the canvas as a unit, which keeps the pitch exact and
- * leaves a district's only marker exactly where it has always been.
- */
 export function markerY(nodeY: number, nodeRadius: number, slot: MarkerSlot): number {
   const bottom = nodeY - nodeRadius - MARKER_LIFT;
   const top = bottom - (slot.count - 1) * MARKER_STACK_STEP;
@@ -191,7 +165,6 @@ export function markerY(nodeY: number, nodeRadius: number, slot: MarkerSlot): nu
   return bottom - slot.index * MARKER_STACK_STEP + lift;
 }
 
-/** Bases grouped by district and ordered by id, so the stack order is stable across renders. */
 export function groupByDistrict(bases: readonly BaseSummary[]): Map<string, BaseSummary[]> {
   const groups = new Map<string, BaseSummary[]>();
   for (const base of [...bases].sort((a, b) => a.id.localeCompare(b.id))) {
@@ -202,11 +175,6 @@ export function groupByDistrict(bases: readonly BaseSummary[]): Map<string, Base
   return groups;
 }
 
-/**
- * Base markers sit above their district node so they never cover the district label
- * (which is drawn below the node). Own base = cyan diamond tagged YOU, bot base =
- * magenta hostile chevron tagged with the rival's name, other humans = muted diamond.
- */
 function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Container | null {
   const { width, height, props } = scene;
   const district = props.districts.find((d) => d.id === base.districtId);
@@ -220,7 +188,6 @@ function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Cont
 
   const glyph = new Graphics();
   if (base.isBot) {
-    // Downward chevron — hostile, and unmistakably not the friendly diamond.
     glyph
       .poly([0, 7, -7, -5, 0, -1, 7, -5])
       .fill({ color, alpha: 1 })
@@ -239,7 +206,6 @@ function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Cont
   tag.anchor.set(0.5, 1);
   tag.position.set(0, -TAG_GAP);
 
-  // Clamp into the canvas: the tag is the widest/highest part of the marker.
   const halfTag = tag.width / 2;
   const px = district.position.x * width;
   const py = district.position.y * height;
@@ -253,43 +219,74 @@ function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Cont
   return marker;
 }
 
-function redraw(input: Omit<Scene, 'botDistrictIds'>): void {
-  const { app, width, height } = input;
-  if (width < 2 || height < 2) return;
-  const scene: Scene = {
-    ...input,
-    botDistrictIds: new Set(
-      input.props.bases.filter((base) => base.isBot).map((base) => base.districtId),
-    ),
-  };
-  for (const child of app.stage.removeChildren()) child.destroy({ children: true });
-  app.stage.sortableChildren = true;
+// ─── scene builders ──────────────────────────────────────────────────────────
 
-  const tooltip = makeTooltip();
-  app.stage.addChild(drawBackground(width, height));
-  for (const district of scene.props.districts) {
-    app.stage.addChild(drawDistrictNode(scene, district, tooltip));
+/**
+ * Rebuilds procedural background planes. Called on mount and resize — not on every prop change,
+ * since geometry is seeded from dimensions, not data.
+ */
+function buildProceduralPlanes(scene: Scene): void {
+  for (const planeSpec of PARALLAX_PLANES) {
+    if (!planeSpec.assetKey) continue;
+    const container = scene.planes.get(planeSpec.id);
+    if (!container) continue;
+    for (const child of container.removeChildren()) child.destroy({ children: true });
+    const source = artLoader.sourceOf(planeSpec.assetKey);
+    const painted = paintProcedural(source, scene.width, scene.height);
+    if (painted) container.addChild(painted);
   }
-  for (const group of groupByDistrict(scene.props.bases).values()) {
-    group.forEach((base, index) => {
-      const marker = drawBaseMarker(scene, base, { index, count: group.length });
-      if (marker) app.stage.addChild(marker);
-    });
-  }
-  app.stage.addChild(tooltip);
 }
 
 /**
- * Pixi city map. The renderer is sized to its container via ResizeObserver, the
- * container clips overflow, and the app is destroyed on unmount.
+ * Rebuilds only the interactive nodes plane (district nodes + base markers). Called on every
+ * prop change so selection/data changes are reflected immediately.
  */
+function buildNodes(scene: Scene): void {
+  if (scene.width < 2 || scene.height < 2) return;
+  const nodesContainer = scene.planes.get('nodes');
+  if (!nodesContainer) return;
+  for (const child of nodesContainer.removeChildren()) child.destroy({ children: true });
+
+  const enriched: Scene = {
+    ...scene,
+    botDistrictIds: new Set(scene.props.bases.filter((b) => b.isBot).map((b) => b.districtId)),
+  };
+
+  const tooltip = makeTooltip();
+  for (const district of scene.props.districts) {
+    nodesContainer.addChild(drawDistrictNode(enriched, district, tooltip));
+  }
+  for (const group of groupByDistrict(scene.props.bases).values()) {
+    group.forEach((base, index) => {
+      const marker = drawBaseMarker(enriched, base, { index, count: group.length });
+      if (marker) nodesContainer.addChild(marker);
+    });
+  }
+  nodesContainer.addChild(tooltip);
+}
+
+/**
+ * Updates each parallax plane's position to compensate for the viewport's scroll, giving each
+ * band its own apparent speed. Screen-pinned planes (atmosphere, grade) end up back at (0,0)
+ * in screen space. Called from the viewport's `moved` event.
+ */
+function applyParallax(planes: Map<PlaneId, Container>, camera: Vec2): void {
+  for (const planeSpec of PARALLAX_PLANES) {
+    const container = planes.get(planeSpec.id);
+    if (!container) continue;
+    const offset = planeOffset(planeSpec, camera);
+    container.position.set(offset.x, offset.y);
+  }
+}
+
+// ─── React component ─────────────────────────────────────────────────────────
+
 export function CityMap(props: CityMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const appRef = useRef<Application | null>(null);
+  const sceneRef = useRef<Scene | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
 
-  // Mount once: create the Pixi app + observe container size.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -304,46 +301,128 @@ export function CityMap(props: CityMapProps) {
         resolution: window.devicePixelRatio,
         autoDensity: true,
       })
-      .then(() => {
+      .then(async () => {
         if (disposed) {
           app.destroy(true, { children: true });
           return;
         }
-        appRef.current = app;
-        el.appendChild(app.canvas);
-        const render = () => {
-          const { width, height } = el.getBoundingClientRect();
-          app.renderer.resize(width, height);
-          redraw({ app, width, height, props: propsRef.current });
-        };
-        observer = new ResizeObserver(render);
-        observer.observe(el);
-        render();
 
-        // Paint immediately so the map is never blank, then redraw once the label font has
-        // landed so nothing keeps a texture measured against the fallback.
-        void labelFontsReady().then(() => {
-          if (!disposed) render();
+        el.appendChild(app.canvas);
+
+        const { width, height } = el.getBoundingClientRect();
+
+        // Start fetching the city bundle — procedural keys resolve synchronously.
+        artLoader.ensure('city');
+
+        // Build the parallax plane containers (draw order = PARALLAX_PLANES order).
+        const planes = new Map<PlaneId, Container>();
+        for (const planeSpec of PARALLAX_PLANES) {
+          const container = new Container();
+          container.label = planeSpec.id;
+          container.sortableChildren = planeSpec.id === 'nodes';
+          planes.set(planeSpec.id, container);
+        }
+
+        const viewport = createViewport(app, {
+          screenWidth: width,
+          screenHeight: height,
+          worldWidth: width,
+          worldHeight: height,
         });
+
+        // All planes live inside the viewport; the viewport pans them together.
+        for (const id of ['sky', 'far', 'mid', 'nodes', 'fore', 'atmosphere'] as PlaneId[]) {
+          const c = planes.get(id);
+          if (c) viewport.addChild(c);
+        }
+
+        // Grade plane sits on top of the viewport in screen space.
+        const gradePlane = planes.get('grade');
+
+        const postFx = createPostFx({ tier: 'high' });
+        // Apply the filter chain to the viewport so it covers the whole scrollable scene.
+        viewport.filters = [...postFx.filters];
+
+        const vignette = createVignette(width, height);
+        app.stage.addChild(viewport);
+        if (gradePlane) {
+          app.stage.addChild(gradePlane);
+        }
+        app.stage.addChild(vignette);
+
+        // Enable interactive events through the viewport.
+        app.stage.eventMode = 'static';
+        viewport.eventMode = 'static';
+        const nodesLayer = planes.get('nodes');
+        if (nodesLayer) nodesLayer.eventMode = 'static';
+
+        const scene: Scene = {
+          app,
+          viewport,
+          planes,
+          postFx,
+          width,
+          height,
+          props: propsRef.current,
+          botDistrictIds: new Set(),
+        };
+        sceneRef.current = scene;
+
+        buildProceduralPlanes(scene);
+        buildNodes({ ...scene, props: propsRef.current });
+
+        // Parallax: update plane positions whenever the user pans.
+        viewport.on('moved', () => {
+          const camera = { x: viewport.left, y: viewport.top };
+          applyParallax(planes, camera);
+        });
+
+        // Grain boil at 12 Hz — advance uses absolute time since creation.
+        const startTime = performance.now();
+        app.ticker.add(() => {
+          postFx.advance(performance.now() - startTime);
+        });
+
+        observer = new ResizeObserver(() => {
+          if (disposed) return;
+          const rect = el.getBoundingClientRect();
+          const w = rect.width;
+          const h = rect.height;
+          if (w < 2 || h < 2) return;
+          app.renderer.resize(w, h);
+          resizeViewport(viewport, w, h);
+
+          // Rebuild vignette to fit new dimensions.
+          vignette.destroy();
+          const newVig = createVignette(w, h);
+          app.stage.addChild(newVig);
+
+          scene.width = w;
+          scene.height = h;
+          buildProceduralPlanes(scene);
+          buildNodes({ ...scene, props: propsRef.current });
+        });
+        observer.observe(el);
+
+        await labelFontsReady();
+        if (!disposed) {
+          buildNodes({ ...scene, props: propsRef.current });
+        }
       });
 
     return () => {
       disposed = true;
       observer?.disconnect();
-      if (appRef.current) {
-        appRef.current.destroy(true, { children: true });
-        appRef.current = null;
-      }
+      sceneRef.current?.postFx.destroy();
+      sceneRef.current = null;
+      app.destroy(true, { children: true });
     };
   }, []);
 
-  // Redraw when data / selection changes (size changes are handled by the observer).
   useEffect(() => {
-    const app = appRef.current;
-    const el = containerRef.current;
-    if (!app || !el) return;
-    const { width, height } = el.getBoundingClientRect();
-    redraw({ app, width, height, props });
+    const scene = sceneRef.current;
+    if (!scene) return;
+    buildNodes({ ...scene, props });
   }, [props]);
 
   return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
