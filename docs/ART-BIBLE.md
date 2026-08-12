@@ -185,12 +185,20 @@ authored. Masters (PNG, full resolution, layered where applicable) live outside 
 
 ### 6.2 Minimum stroke weight
 
-**No element of a keyed asset may be thinner than 3 px at its source resolution** — no hairline
-cables, wires, rims, antennas or spire tips. Keyed means the master arrives opaque and the encode
-step cuts the background out of it: today that is `plane-city-far` and `plane-city-fore`, and in
-general any asset whose `postProcess` includes `matte`. An asset the backend delivers with its own
-alpha never meets the keyer, so §3.2's 2–4 px rim stands unchanged there — and on a 2048-wide plane
-that same rim is 4–8 px, already clear of this floor.
+**No part of a keyed asset's silhouette may be thinner than 3 px at its source resolution** — that
+is, any structure that meets the transparent region: no hairline cables, wires, rims, antennas or
+spire tips. Interior detail is unaffected, at any width: a window light or a panel line surrounded by
+kept artwork is its own region below `MIN_KEYED_REGION` and survives.
+
+**A _detached_ element must also be at least 8×8 px.** `MIN_OPAQUE_ISLAND` clears every unattached
+opaque island under 64 px² along with the background, so a 6×6 drone or a floating antenna goes even
+though it clears the stroke floor.
+
+Keyed means the master arrives opaque and the encode step cuts the background out of it: today that
+is `plane-city-far` and `plane-city-fore`, and in general any asset whose `postProcess` includes
+`matte`. An asset the backend delivers with its own alpha never meets the keyer, so §3.2's 2–4 px rim
+stands unchanged there — and on a 2048-wide plane that same rim is 4–8 px, already clear of this
+floor.
 
 The keyer that cuts the transparent background out of a master (`scripts/encode-art.ts`) decides the
 mask on a 3×3 median, and a median cannot represent a structure thinner than its own window: a 1-px
@@ -202,10 +210,11 @@ floor is 3 px rather than 2 px so it still holds when the backend renders an ele
 thinner than asked.
 
 `MAX_ERASED_ARTWORK` refuses a master that breaks this, so a dashed cable fails the encode step
-instead of shipping — but it fails _after_ the generation is paid for, and it cannot see a 1-px rim
-painted onto a kept mass, because every erased pixel there is adjacent to surviving artwork. This
-rule is the only thing that covers that case, which is why the `plane-city-far` and `plane-city-fore`
-prompts carry it (§3.3, §3.4 of ART-PROMPTS).
+instead of shipping — but it fails _after_ the generation is paid for, and there are two cases it
+cannot see. It cannot see a 1-px rim painted onto a kept mass, because every erased pixel there is
+adjacent to surviving artwork; and a swept detached island is counted but never large enough to
+matter — 63 px at most, against a budget of 256. This rule is the only thing that covers either case,
+which is why the `plane-city-far` and `plane-city-fore` prompts carry it (§3.3, §3.4 of ART-PROMPTS).
 
 ---
 
@@ -294,7 +303,8 @@ Reject any asset that trips one of these. This list is the review gate.
 - [ ] No human-scale marker in an environment asset.
 - [ ] Text baked into the image.
 - [ ] Wrong aspect ratio or resolution for its class (§6).
-- [ ] A keyed asset carries an element thinner than 3 px — the key cannot hold it (§6.2).
+- [ ] A keyed asset's silhouette carries a structure thinner than 3 px, or a detached element
+      smaller than 8×8 px — the key cannot hold either (§6.2).
 - [ ] Filename does not resolve to a `@frontline/shared` domain id (§7).
 - [ ] Third-party and not in the register (§9).
 - [ ] Grain, bloom, vignette, chromatic aberration or lens flare baked in — those belong to the
