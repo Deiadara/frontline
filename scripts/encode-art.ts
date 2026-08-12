@@ -118,6 +118,52 @@ const HISTOGRAM_BITS = 4;
 export const MIN_KEYED_REGION = 0.005;
 
 /**
+ * Window of the median filter the key is decided on. A diffusion backend hands back per-pixel grain
+ * even where the prompt asked for a flat field; matched against the seed independently, each grainy
+ * pixel is its own 1-px region, falls under {@link MIN_KEYED_REGION} and stays **opaque**. That ships
+ * a speckled sky the coverage-weighted §6 gate cannot see, because it measures how much transparency
+ * there is and not whether it is connected. A 3×3 median is exactly the filter for per-pixel grain
+ * and does not move a region boundary.
+ */
+const DENOISE_WINDOW = 3;
+
+/**
+ * The dual of {@link MIN_KEYED_REGION}: an opaque island smaller than this is cleared along with the
+ * background. Absolute rather than a share of the canvas — `MIN_KEYED_REGION` of a 2048×1152 frame is
+ * ≈108×108, which would erase a genuine distant spire or drone, while 64 px (8×8 of a full-screen
+ * parallax layer) can only be grain the denoise did not reach.
+ *
+ * This sweep bounds how *small* a surviving piece can be, not how *many* there are — past a noise
+ * floor the misses clump into islands bigger than this and it stops helping. {@link MAX_KEYED_ISLANDS}
+ * is what covers that end.
+ */
+export const MIN_OPAQUE_ISLAND = 64;
+
+/**
+ * Opaque pieces a keyed plane may be left in before the matte counts as failed.
+ *
+ * The island sweep guarantees no piece is *small*, not that there are few of them: past the point
+ * where the master's noise floor exceeds `--matte-tolerance`, the misses stop being isolated pixels
+ * and clump into islands the sweep is right to keep. Fragmentation is what separates the two cases,
+ * and it separates them by orders of magnitude. Measured on 2048×1152 synthetic planes: a legitimate
+ * `plane-city-fore` layout (edge occluders, a drone, three detached spires) keys to **5** pieces and
+ * stays at 5 through ±16 grain, while the first grain level that ships visible speckle keys to
+ * **121** and ±25 grain to **2215**. 64 sits in that empty gap.
+ */
+export const MAX_KEYED_ISLANDS = 64;
+
+/**
+ * Mean-shift passes that recentre the histogram peak on the field's real colour before keying.
+ *
+ * The peak bucket is 16 levels wide, so its centroid can sit several levels off a noisy field's true
+ * colour — the noise spills across a bucket boundary and the peak keeps only the slice on one side.
+ * That offset comes straight out of the tolerance budget, and the pixels it pushes out of range are
+ * spatially correlated, so they clump into islands too big for {@link MIN_OPAQUE_ISLAND} to sweep.
+ * Recentring on the mean of what currently matches converges on the field itself.
+ */
+const SEED_REFINEMENT_PASSES = 3;
+
+/**
  * The master's dominant colour: the mean of the fullest bucket of a quantised RGB histogram.
  *
  * The backends cannot render alpha, so asked for a "transparent background" they paint a large flat
@@ -125,7 +171,7 @@ export const MIN_KEYED_REGION = 0.005;
  * is the point: `plane-city-far` is transparent along the **top**, `plane-city-fore` through its
  * **centre**, so nothing may assume the background touches any particular edge.
  */
-function backgroundColour(image: RgbaImage): [number, number, number] {
+function backgroundColour(image: RgbaImage, tolerance: number): [number, number, number] {
   const { data } = image;
   const shift = 8 - HISTOGRAM_BITS;
   const bucketOf = (offset: number): number =>
@@ -149,48 +195,69 @@ function backgroundColour(image: RgbaImage): [number, number, number] {
     if (bucketOf(offset) !== peak) continue;
     for (let c = 0; c < 3; c += 1) sums[c]! += data[offset + c]!;
   }
-  return sums.map((sum) => Math.round(sum / counts[peak]!)) as [number, number, number];
+  const centroid = sums.map((sum) => Math.round(sum / counts[peak]!)) as [number, number, number];
+
+  let seed = centroid;
+  for (let pass = 0; pass < SEED_REFINEMENT_PASSES; pass += 1) {
+    seed = recentre(image, seed, tolerance);
+  }
+  return seed;
 }
 
-/**
- * Cuts an alpha channel out of an opaque master by clearing every **contiguous region** of the
- * background colour that covers at least {@link MIN_KEYED_REGION} of the canvas.
- *
- * Connectivity is what makes this safe to run unattended: a window light or a rim highlight that
- * happens to sit within `tolerance` of the sky is its own tiny region and survives, while the flat
- * field the backend painted in place of transparency goes, wherever in the frame it sits.
- *
- * Matching is against the seed colour, never a pixel's neighbour — chained tolerance walks a
- * gradient and would quietly eat the artwork. A master whose background is not flat therefore keys
- * badly on purpose and fails the ART-BIBLE §6 gate rather than shipping a hole in the city.
- *
- * The mask is binary. Edge feathering is a human-pass concern, not something to fake here.
- */
-export function keyBackground(image: RgbaImage, tolerance: number): RgbaImage {
-  const { data, width, height } = image;
-  const [seedR, seedG, seedB] = backgroundColour(image);
+/** The mean of every pixel within `tolerance` of `seed` — one mean-shift pass. */
+function recentre(
+  image: RgbaImage,
+  seed: [number, number, number],
+  tolerance: number,
+): [number, number, number] {
+  const { data } = image;
+  const sums = [0, 0, 0];
+  let matched = 0;
+  for (let offset = 0; offset < data.length; offset += CHANNELS) {
+    if (
+      Math.abs(data[offset]! - seed[0]) > tolerance ||
+      Math.abs(data[offset + 1]! - seed[1]) > tolerance ||
+      Math.abs(data[offset + 2]! - seed[2]) > tolerance
+    ) {
+      continue;
+    }
+    for (let c = 0; c < 3; c += 1) sums[c]! += data[offset + c]!;
+    matched += 1;
+  }
+  if (matched === 0) return seed;
+  return sums.map((sum) => Math.round(sum / matched)) as [number, number, number];
+}
+
+/** A keyed master, plus how fragmented what it kept turned out to be. */
+export interface KeyedImage extends RgbaImage {
+  /** Opaque pieces the key left standing, counted after the {@link MIN_OPAQUE_ISLAND} sweep. */
+  islands: number;
+}
+
+/** 4-connected regions of the pixels satisfying some predicate, labelled and measured. */
+interface Regions {
+  /** Region id per pixel; 0 for a pixel the predicate rejected. */
+  ids: Int32Array;
+  /** Pixel count per region id. `sizes[0]` is 0, so an unmatched pixel measures as no region. */
+  sizes: readonly number[];
+}
+
+function connectedRegions(
+  width: number,
+  height: number,
+  matches: (pixel: number) => boolean,
+): Regions {
   const pixels = width * height;
-
-  const matchesSeed = (pixel: number): boolean => {
-    const offset = pixel * CHANNELS;
-    return (
-      Math.abs(data[offset]! - seedR) <= tolerance &&
-      Math.abs(data[offset + 1]! - seedG) <= tolerance &&
-      Math.abs(data[offset + 2]! - seedB) <= tolerance
-    );
-  };
-
-  // Region id per pixel: 0 means "does not match the background colour".
-  const region = new Int32Array(pixels);
+  const ids = new Int32Array(pixels);
   const sizes: number[] = [0];
   const stack = new Int32Array(pixels);
 
   for (let seed = 0; seed < pixels; seed += 1) {
-    if (region[seed] !== 0 || !matchesSeed(seed)) continue;
+    if (ids[seed] !== 0 || !matches(seed)) continue;
     const id = sizes.length;
     let size = 0;
     let top = 1;
-    region[seed] = id;
+    ids[seed] = id;
     stack[0] = seed;
 
     while (top > 0) {
@@ -200,9 +267,9 @@ export function keyBackground(image: RgbaImage, tolerance: number): RgbaImage {
       const x = pixel % width;
       const y = (pixel - x) / width;
       const visit = (neighbour: number): void => {
-        if (region[neighbour] !== 0 || !matchesSeed(neighbour)) return;
+        if (ids[neighbour] !== 0 || !matches(neighbour)) return;
         // Claimed at push time, so every pixel enters the stack at most once.
-        region[neighbour] = id;
+        ids[neighbour] = id;
         stack[top] = neighbour;
         top += 1;
       };
@@ -213,25 +280,89 @@ export function keyBackground(image: RgbaImage, tolerance: number): RgbaImage {
     }
     sizes.push(size);
   }
+  return { ids, sizes };
+}
 
-  const keyed = Buffer.from(data);
-  const floor = MIN_KEYED_REGION * pixels;
+/**
+ * Cuts an alpha channel out of an opaque master by clearing every **contiguous region** of the
+ * background colour that covers at least {@link MIN_KEYED_REGION} of the canvas, then clearing every
+ * opaque island left under {@link MIN_OPAQUE_ISLAND}.
+ *
+ * Connectivity is what makes this safe to run unattended: a window light or a rim highlight that
+ * happens to sit within `tolerance` of the sky is its own tiny region and survives, while the flat
+ * field the backend painted in place of transparency goes, wherever in the frame it sits.
+ *
+ * Grain is what makes that hard. A backend hands back a "flat" field with per-pixel noise in it, and
+ * a seed-relative match reads every noisy pixel as its own 1-px region that {@link MIN_KEYED_REGION}
+ * then keeps **opaque** — a sky full of dots, which the coverage-weighted §6 gate cannot see because
+ * it measures how much transparency there is and not whether it is connected. Three things answer it:
+ * the key is decided on a {@link DENOISE_WINDOW} median and applied to the master's own pixels, so
+ * the kept edge stays at full resolution; the seed is recentred off the quantised histogram peak
+ * ({@link SEED_REFINEMENT_PASSES}); and the leftovers are swept by {@link MIN_OPAQUE_ISLAND}.
+ *
+ * None of that is a guarantee — past a noise floor the sweep's leftovers stop being specks and clump
+ * into islands worth keeping — so {@link islands} reports the fragmentation and `matte` refuses
+ * anything past {@link MAX_KEYED_ISLANDS} rather than shipping it.
+ *
+ * Matching is against the seed colour, never a pixel's neighbour — chained tolerance walks a
+ * gradient and would quietly eat the artwork. A master whose background is not flat therefore keys
+ * badly on purpose and fails the ART-BIBLE §6 gate rather than shipping a hole in the city.
+ *
+ * The mask is binary. Edge feathering is a human-pass concern, not something to fake here.
+ */
+export async function keyBackground(image: RgbaImage, tolerance: number): Promise<KeyedImage> {
+  const { width, height } = image;
+  const pixels = width * height;
+  const flat = await toRgba(sharpFrom(image).median(DENOISE_WINDOW));
+  const [seedR, seedG, seedB] = backgroundColour(flat, tolerance);
+
+  const matchesSeed = (pixel: number): boolean => {
+    const offset = pixel * CHANNELS;
+    return (
+      Math.abs(flat.data[offset]! - seedR) <= tolerance &&
+      Math.abs(flat.data[offset + 1]! - seedG) <= tolerance &&
+      Math.abs(flat.data[offset + 2]! - seedB) <= tolerance
+    );
+  };
+
+  const keyed = Buffer.from(image.data);
+  const alphaOf = (pixel: number): number => keyed[pixel * CHANNELS + 3]!;
+  const clear = (pixel: number): void => {
+    keyed[pixel * CHANNELS + 3] = 0;
+  };
+
+  const background = connectedRegions(width, height, matchesSeed);
+  const keyedFloor = MIN_KEYED_REGION * pixels;
   for (let pixel = 0; pixel < pixels; pixel += 1) {
-    if (sizes[region[pixel]!]! >= floor) keyed[pixel * CHANNELS + 3] = 0;
+    if (background.sizes[background.ids[pixel]!]! >= keyedFloor) clear(pixel);
   }
-  return { data: keyed, width, height };
+
+  // Clearing a pixel that is already clear is a no-op, so region 0 needs no special case here.
+  const islands = connectedRegions(width, height, (pixel) => alphaOf(pixel) !== 0);
+  for (let pixel = 0; pixel < pixels; pixel += 1) {
+    if (islands.sizes[islands.ids[pixel]!]! < MIN_OPAQUE_ISLAND) clear(pixel);
+  }
+  const survivors = islands.sizes.filter((size) => size >= MIN_OPAQUE_ISLAND).length;
+  return { data: keyed, width, height, islands: survivors };
 }
 
 const downscale: PostProcessor = async (image, spec) =>
   // libvips premultiplies alpha across a resize, so a matted edge does not fringe on the way down.
   toRgba(sharpFrom(image).resize(spec.width, spec.height, { fit: 'fill', kernel: 'lanczos3' }));
 
-const matte: PostProcessor = (image, _spec, options) =>
-  Promise.resolve(
-    transparencyOf(image) >= HUMAN_MATTE_FLOOR
-      ? image
-      : keyBackground(image, options.matteTolerance),
-  );
+const matte: PostProcessor = async (image, spec, options) => {
+  if (transparencyOf(image) >= HUMAN_MATTE_FLOOR) return image;
+  const keyed = await keyBackground(image, options.matteTolerance);
+  if (keyed.islands > MAX_KEYED_ISLANDS) {
+    throw new Error(
+      `${spec.key}: the matte left the plane in ${keyed.islands} disconnected pieces — the master's ` +
+        `background is grainier than --matte-tolerance ${options.matteTolerance} allows for, so the key ` +
+        `is shot through with speckle. Re-key with a wider --matte-tolerance, or hand-matte the ` +
+        `master (ADR 0001 §6.4).`,
+    );
+  }
+  return keyed;
+};
 
 /**
  * Every step the manifest can declare. Typed as a total `Record`, so adding a member to
@@ -278,6 +409,12 @@ function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffer> {
  * Everything that must hold after the declared steps have run. A master that skipped its downscale,
  * or a matte that cut nothing, is an asset that looks fine on disk and wrong in the browser — so it
  * fails here rather than shipping.
+ *
+ * The transparency floor is asymmetric on purpose: ART-BIBLE §6 (`docs/ART-BIBLE.md`) names one for
+ * `plane-city-fore` and stays silent on `plane-city-far`, so `spec.minTransparency` is set only where
+ * the bible speaks and no number is invented here. `plane-city-far`'s remaining cover is the
+ * cut-nothing check below plus `MAX_KEYED_ISLANDS`, which together catch a key that failed — but not
+ * a key that succeeded over too small a band. Raised with the CTO as a §6 clarification (MOU-140).
  */
 function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: number): string[] {
   const problems: string[] = [];
@@ -354,14 +491,17 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       options.dryRun = true;
       continue;
     }
+    // Unknown before the value lookup, so a trailing bad flag reads as unknown, not as missing one.
+    if (arg !== '--masters' && arg !== '--out' && arg !== '--only' && arg !== '--matte-tolerance') {
+      throw new Error(`Unknown argument "${arg}". ${USAGE}`);
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith('--')) throw new Error(`${arg} needs a value`);
     i += 1;
     if (arg === '--masters') options.masterDir = path.resolve(value);
     else if (arg === '--out') options.outDir = path.resolve(value);
     else if (arg === '--only') only.push(...value.split(',').filter(Boolean));
-    else if (arg === '--matte-tolerance') options.matteTolerance = parseTolerance(value);
-    else throw new Error(`Unknown argument "${arg}". ${USAGE}`);
+    else options.matteTolerance = parseTolerance(value);
   }
   return { ...options, only };
 }

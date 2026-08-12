@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_MATTE_TOLERANCE,
   HUMAN_MATTE_FLOOR,
+  MAX_KEYED_ISLANDS,
   decodeMaster,
   encodeAsset,
   keyBackground,
@@ -66,6 +67,47 @@ async function master(
 const skyline = (width: number, height: number, subjectFraction: number) =>
   master(width, height, (_x, y) => (y >= height * (1 - subjectFraction) ? SUBJECT : SKY));
 
+/** Deterministic per-channel grain in [-amplitude, amplitude]. */
+function grain(index: number, amplitude: number): number {
+  let hash = Math.imul(index, 2654435761) >>> 0;
+  hash ^= hash >>> 15;
+  hash = Math.imul(hash, 2246822519) >>> 0;
+  hash ^= hash >>> 13;
+  return (hash % (2 * amplitude + 1)) - amplitude;
+}
+
+/**
+ * {@link skyline} with per-pixel grain in the flat field — what a diffusion backend actually returns
+ * when a prompt asks for a flat sky. Every `keyBackground` input used to be painted from two exact
+ * constants, which is why a key that speckles on a grainy field passed every test.
+ */
+const grainySkyline = (
+  width: number,
+  height: number,
+  subjectFraction: number,
+  amplitude: number,
+): Promise<Buffer> =>
+  master(width, height, (x, y) => {
+    const base = y >= height * (1 - subjectFraction) ? SUBJECT : SKY;
+    const pixel = y * width + x;
+    const noisy = [0, 1, 2].map((c) =>
+      Math.max(0, Math.min(255, base[c]! + grain(pixel * 3 + c, amplitude))),
+    );
+    return [noisy[0]!, noisy[1]!, noisy[2]!, 255];
+  });
+
+/** Rows of a 2048×1152 `grainySkyline(…, 0.3, …)` that are flat field rather than subject. */
+const SKY_ROWS = Math.round(1152 * 0.7);
+
+/** The share of the flat field left opaque — speckle the coverage-weighted §6 gate cannot see. */
+function skySpeckle(image: { data: Buffer; width: number }, skyRows: number): number {
+  let opaque = 0;
+  for (let pixel = 0; pixel < image.width * skyRows; pixel += 1) {
+    if (image.data[pixel * 4 + 3] !== 0) opaque += 1;
+  }
+  return opaque / (image.width * skyRows);
+}
+
 describe('post-process registry', () => {
   /** MOU-125 scope item 4: nothing the manifest declares may be silently skipped. */
   it('implements every step the manifest declares', () => {
@@ -100,13 +142,14 @@ describe('keyBackground', () => {
     const image = await decodeMaster(
       await master(64, 64, (x, y) => (x >= 16 && x < 48 && y >= 16 && y < 48 ? SUBJECT : SKY)),
     );
-    const keyed = keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+    const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
     const alphaAt = (x: number, y: number): number => keyed.data[(y * 64 + x) * 4 + 3]!;
 
     expect(alphaAt(0, 0)).toBe(0);
     expect(alphaAt(32, 32)).toBe(255);
-    // 64² canvas, 32² subject — exactly three quarters keyed.
-    expect(transparencyOf(keyed)).toBeCloseTo(0.75, 5);
+    // 64² canvas, 32² subject — three quarters keyed, plus the subject's four corner pixels: the
+    // median the mask is decided on rounds a 90° corner by one pixel. Invisible on a 2048px plane.
+    expect(transparencyOf(keyed)).toBeCloseTo((64 * 64 - (32 * 32 - 4)) / (64 * 64), 5);
   });
 
   it('keeps a sky-coloured window inside the subject — it is its own tiny region', async () => {
@@ -117,7 +160,7 @@ describe('keyBackground', () => {
       await master(64, 64, (x, y) => (inSubject(x, y) && !inWindow(x, y) ? SUBJECT : SKY)),
     );
 
-    const keyed = keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+    const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
     expect(keyed.data[(32 * 64 + 32) * 4 + 3]).toBe(255);
     expect(keyed.data[3]).toBe(0);
   });
@@ -127,11 +170,65 @@ describe('keyBackground', () => {
     const image = await decodeMaster(
       await master(64, 64, (x, y) => (x >= 6 && x < 58 && y >= 6 && y < 58 ? SKY : SUBJECT)),
     );
-    const keyed = keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+    const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
 
     expect(keyed.data[(32 * 64 + 32) * 4 + 3]).toBe(0);
     expect(keyed.data[3]).toBe(255);
-    expect(transparencyOf(keyed)).toBeCloseTo((52 * 52) / (64 * 64), 5);
+    // The keyed centre likewise keeps its four corner pixels to the median's 1-px rounding.
+    expect(transparencyOf(keyed)).toBeCloseTo((52 * 52 - 4) / (64 * 64), 5);
+  });
+
+  /**
+   * The MOU-125 review's finding: per-pixel grain punches 1-px holes the region floor then keeps,
+   * so a "transparent" sky ships full of opaque dots while the §6 transparency gate reads fine.
+   */
+  it('keys a grainy field as cleanly as a flat one', async () => {
+    const image = await decodeMaster(await grainySkyline(2048, 1152, 0.3, 16));
+
+    const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+
+    // The flat master keys to 70.0%: grain must neither eat the field nor stay behind in it.
+    expect(transparencyOf(keyed)).toBeCloseTo(0.7, 2);
+    expect(skySpeckle(keyed, SKY_ROWS)).toBeLessThan(0.001);
+    expect(keyed.islands).toBe(1);
+  });
+
+  /**
+   * The invariant across the band from workable grain to hopeless: a speckled field is never
+   * something the encoder hands back. Past the point where the noise floor beats `tolerance` the
+   * misses stop being isolated pixels and clump into islands too big to sweep — which is the case
+   * `MAX_KEYED_ISLANDS` refuses. At `DEFAULT_MATTE_TOLERANCE` the boundary measures between ±18
+   * (11 islands, 0.09% speckle, ships) and ±20 (120 islands, 0.64% speckle, refused).
+   */
+  it('keys clean or refuses at every grain level — it never ships speckle', async () => {
+    const shipped: boolean[] = [];
+    for (const amplitude of [18, 20, 25]) {
+      const keyed = await keyBackground(
+        await decodeMaster(await grainySkyline(2048, 1152, 0.3, amplitude)),
+        DEFAULT_MATTE_TOLERANCE,
+      );
+      const ships = keyed.islands <= MAX_KEYED_ISLANDS;
+      if (ships) expect(skySpeckle(keyed, SKY_ROWS), `±${amplitude}`).toBeLessThan(0.005);
+      shipped.push(ships);
+    }
+    // Both outcomes have to occur, or a key that refused everything would satisfy this vacuously.
+    expect(shipped).toContain(true);
+    expect(shipped).toContain(false);
+  });
+
+  it('sweeps an opaque speck too small to be artwork, and keeps one that is big enough', async () => {
+    // 3×3 = 9 px is under MIN_OPAQUE_ISLAND; 16×16 = 256 px is over it.
+    const inBox = (x: number, y: number, left: number, size: number): boolean =>
+      x >= left && x < left + size && y >= 8 && y < 8 + size;
+    const image = await decodeMaster(
+      await master(64, 64, (x, y) => (inBox(x, y, 4, 3) || inBox(x, y, 40, 16) ? SUBJECT : SKY)),
+    );
+
+    const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+    const alphaAt = (x: number, y: number): number => keyed.data[(y * 64 + x) * 4 + 3]!;
+    expect(alphaAt(5, 9)).toBe(0);
+    expect(alphaAt(47, 15)).toBe(255);
+    expect(keyed.islands).toBe(1);
   });
 
   it('does not chase a gradient across the whole frame', async () => {
@@ -139,7 +236,7 @@ describe('keyBackground', () => {
     const image = await decodeMaster(
       await master(64, 64, (_x, y) => [20, 20, Math.min(255, y * 4), 255]),
     );
-    expect(transparencyOf(keyBackground(image, DEFAULT_MATTE_TOLERANCE))).toBeLessThan(0.5);
+    expect(transparencyOf(await keyBackground(image, DEFAULT_MATTE_TOLERANCE))).toBeLessThan(0.5);
   });
 });
 
@@ -176,6 +273,18 @@ describe('encodeAsset', () => {
     await expect(encodeAsset(bytes, FORE_PLANE)).rejects.toThrow(
       /transparent, ART-BIBLE §6 requires at least 55\.0%/,
     );
+  });
+
+  it('refuses a grainier master than the tolerance covers, and takes a wider one', async () => {
+    // ±25 grain against tolerance 18: the key misses in clumps rather than isolated pixels, and it
+    // used to ship — 56% transparent clears the §6 floor while a fifth of the sky stays opaque.
+    const bytes = await grainySkyline(2048, 1152, 0.3, 25);
+
+    await expect(encodeAsset(bytes, FORE_PLANE)).rejects.toThrow(/disconnected pieces/);
+
+    // The remedy the failure names has to actually work, or it is not a remedy.
+    const { transparency } = await encodeAsset(bytes, FORE_PLANE, { matteTolerance: 32 });
+    expect(transparency).toBeCloseTo(0.7, 2);
   });
 
   it('fails when the matte cuts nothing — an opaque "transparent" plane is a browser bug', async () => {
