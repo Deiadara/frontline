@@ -183,6 +183,30 @@ authored. Masters (PNG, full resolution, layered where applicable) live outside 
 | UI 9-slice frame        | Outer **96 px** is the corner/edge region; the inner region must be a flat tileable field.                                                                                                   |
 | All text baked into art | **None.** Never bake text into an asset — it cannot be localised and it will not survive scaling. Type is rendered by the app.                                                               |
 
+### 6.2 Minimum stroke weight
+
+**No element of a keyed asset may be thinner than 3 px at its source resolution** — no hairline
+cables, wires, rims, antennas or spire tips. Keyed means the master arrives opaque and the encode
+step cuts the background out of it: today that is `plane-city-far` and `plane-city-fore`, and in
+general any asset whose `postProcess` includes `matte`. An asset the backend delivers with its own
+alpha never meets the keyer, so §3.2's 2–4 px rim stands unchanged there — and on a 2048-wide plane
+that same rim is 4–8 px, already clear of this floor.
+
+The keyer that cuts the transparent background out of a master (`scripts/encode-art.ts`) decides the
+mask on a 3×3 median, and a median cannot represent a structure thinner than its own window: a 1-px
+line is 3 of the 9 samples in every window it touches, so the median returns the field colour, the
+line joins the background region and its alpha is cleared. Measured on 2048×1152 fore-plane layouts,
+hard-edged and antialiased, with and without grain, the threshold is sharp — **≤1 px is destroyed,
+≥2 px is intact**. A 1-px rim on the key side lost all 700 of its pixels; a 1-px cable kept 8%. The
+floor is 3 px rather than 2 px so it still holds when the backend renders an element slightly
+thinner than asked.
+
+`MAX_ERASED_ARTWORK` refuses a master that breaks this, so a dashed cable fails the encode step
+instead of shipping — but it fails _after_ the generation is paid for, and it cannot see a 1-px rim
+painted onto a kept mass, because every erased pixel there is adjacent to surviving artwork. This
+rule is the only thing that covers that case, which is why the `plane-city-far` and `plane-city-fore`
+prompts carry it (§3.3, §3.4 of ART-PROMPTS).
+
 ---
 
 ## 7. File naming
@@ -270,6 +294,7 @@ Reject any asset that trips one of these. This list is the review gate.
 - [ ] No human-scale marker in an environment asset.
 - [ ] Text baked into the image.
 - [ ] Wrong aspect ratio or resolution for its class (§6).
+- [ ] A keyed asset carries an element thinner than 3 px — the key cannot hold it (§6.2).
 - [ ] Filename does not resolve to a `@frontline/shared` domain id (§7).
 - [ ] Third-party and not in the register (§9).
 - [ ] Grain, bloom, vignette, chromatic aberration or lens flare baked in — those belong to the

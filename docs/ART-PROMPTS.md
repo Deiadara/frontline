@@ -320,8 +320,9 @@ no foreground, no legible structure.
 ```
 SUBJECT: A band of mid-distance city blocks and towers, painted with alpha above the skyline —
 the top forty percent of the canvas is fully transparent. Silhouettes are simplified, values
-compressed toward #2a3348 to #55617e, with sparse tiny window lights. Detail suppressed: this sits
-behind everything and must never compete.
+compressed toward #2a3348 to #55617e, with sparse tiny window lights. Nothing may be thinner than
+three pixels at 2048 wide — antenna masts and spire tips stay blunt and stubby, never hairlines, and
+there are no wires or cables. Detail suppressed: this sits behind everything and must never compete.
 ```
 
 ### 3.4 `plane-city-fore` — foreground occluders (plane 4)
@@ -330,8 +331,10 @@ behind everything and must never compete.
 SUBJECT: Foreground occluding elements only, on transparent background, arranged around the frame
 edges and corners — a cantilevered pipe run entering from the upper left, a bundle of sagging cable
 across the top, a signage gantry in the lower right, a crane arm cutting the upper right corner.
-Near-silhouette, values #05070d to #1e293b, with a thin cold rim on the key side. The central sixty
-percent of the canvas must be fully transparent.
+Near-silhouette, values #05070d to #1e293b, with a cold rim on the key side. Nothing may be thinner
+than three pixels at 2048 wide — the cable bundle is one heavy sagging mass and the rim a broad band,
+with no hairline wires and no single-pixel rims or edges. The central sixty percent of the canvas
+must be fully transparent.
 ```
 
 ### 3.5 `splash-auth` — login backdrop
