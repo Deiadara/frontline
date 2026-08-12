@@ -200,11 +200,14 @@ skyline this is the natural failure: 1-px slivers of sky between adjacent towers
 as one merged blob, and each sealed sliver draws a bright vertical line over whatever parallaxes
 behind it.
 
-**A _detached_ element must cover at least 64 opaque pixels** — 8×8 solid, or any shape with that much
-area. `MIN_OPAQUE_ISLAND` clears every unattached opaque island under 64 px² along with the
-background, so a 6×6 drone or a floating antenna goes even though it clears the stroke floor. It is a
-connected-component _area_ test, not a bounding box: a detached 8×8 open strut of 3-px members covers
-well under 64 px² and is swept, while a 4×20 pipe segment is 80 px² and survives.
+**A _detached_ element must be drawn at least 68 opaque pixels** — 4×17, 9×8, or any solid shape with
+that much area. `MIN_OPAQUE_ISLAND` clears every unattached opaque island under 64 px² along with the
+background, but it measures the island the median has already run on, and the median clears a solid
+outline's convex corners while filling its concave ones — for any solid rectilinear shape that nets
+out to exactly 4 px lost. So the drawn floor is 68, and a solid 8×8 is the trap it looks least like:
+64 px² drawn measures 60 and goes, as does a 6×6 drone or a floating antenna. It is a
+connected-component _area_ test, not a bounding box: a detached 8×8 open strut of 3-px members is
+60 px² drawn and is swept, while a 4×20 pipe segment is 80 px² and survives with 76.
 
 Keyed means the master arrives opaque and the encode step cuts the background out of it: today that
 is `plane-city-far` and `plane-city-fore`, and in general any asset whose `postProcess` includes
@@ -230,8 +233,9 @@ floor is stated in both directions.
 `MAX_ERASED_ARTWORK` refuses a master that breaks this, so a dashed cable fails the encode step
 instead of shipping — but it fails _after_ the generation is paid for, and there are three cases it
 cannot see. It cannot see a 1-px rim painted onto a kept mass, because every erased pixel there is
-adjacent to surviving artwork. A swept detached island is counted, but any one island is at most
-63 px, so it takes five of them before the 256 budget notices. And a sealed gap clears nothing at all,
+adjacent to surviving artwork. A swept detached island is counted, but `erased` counts those pixels
+as _drawn_ and the largest island the sweep can take is 67 px drawn, so it takes four of them before
+the 256 budget notices. And a sealed gap clears nothing at all,
 so `erased` reads 0 — while sealing gaps _merges_ pieces, which moves the island count down and away
 from `MAX_KEYED_ISLANDS`, and a handful of 1-px slots is a rounding error against the §6 transparency
 floor. All three gates move the wrong way on the gap case, which is the one that ships silently. This
@@ -326,7 +330,7 @@ Reject any asset that trips one of these. This list is the review gate.
 - [ ] Text baked into the image.
 - [ ] Wrong aspect ratio or resolution for its class (§6).
 - [ ] A keyed asset's silhouette carries a structure thinner than 3 px, or a gap of background
-      narrower than 3 px, or a detached element covering fewer than 64 opaque pixels — the key
+      narrower than 3 px, or a detached element drawn smaller than 68 opaque pixels — the key
       cannot hold any of the three (§6.2).
 - [ ] Filename does not resolve to a `@frontline/shared` domain id (§7).
 - [ ] Third-party and not in the register (§9).
