@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ART_MANIFEST,
   BACKEND_CAPABILITIES,
+  backendCanProduce,
   NEGATIVE,
   STYLE_ANCHOR,
   findAssetSpec,
@@ -27,8 +28,7 @@ import {
   provenanceOutputPath,
   resolveBackendName,
   selectSpecs,
-  unsupportedResolution,
-  unsupportedTransparency,
+  unproducibleSource,
   validateRun,
   type Env,
   type ImageRequest,
@@ -208,25 +208,39 @@ describe('backend selection', () => {
     expect(openAiSize(512, 512)).toBeNull();
   });
 
+  /**
+   * `openAiSize` is the API-string mapper; `BACKEND_CAPABILITIES` decides what is producible. Pin
+   * them together in both directions — a one-way check lets a size drift into one table only.
+   */
   it('maps exactly the sizes the shared capability table advertises', () => {
     const advertised = BACKEND_CAPABILITIES.openai.sizes ?? [];
     expect(advertised).not.toHaveLength(0);
     for (const [width, height] of advertised) {
       expect(openAiSize(width, height), `${width}×${height}`).toBe(`${width}x${height}`);
     }
+    for (const [width, height] of [
+      [1024, 1024],
+      [1024, 1536],
+      [1536, 1024],
+      [2048, 1152],
+      [512, 512],
+    ]) {
+      const mapped = openAiSize(width!, height!) !== null;
+      const capable = backendCanProduce('openai', { width: width!, height: height!, alpha: false });
+      expect(mapped, `${width}×${height}`).toBe(capable);
+    }
   });
 
-  it('reports a resolution a backend cannot deliver', () => {
-    expect(unsupportedResolution('openai', 2048, 1152)).toMatch(/cannot produce 2048×1152/);
-    expect(unsupportedResolution('openai', 1024, 1536)).toBeNull();
-    expect(unsupportedResolution('fal', 2048, 1152)).toBeNull();
-  });
-
-  it('reports transparency a backend cannot deliver — FLUX.2 exposes no alpha parameter', () => {
-    expect(unsupportedTransparency('fal', true)).toMatch(/cannot deliver an alpha channel/);
-    expect(unsupportedTransparency('fal', false)).toBeNull();
-    // gpt-image-1 documents `background: transparent`.
-    expect(unsupportedTransparency('openai', true)).toBeNull();
+  it('reports why a backend cannot render a source, from the one capability table', () => {
+    expect(unproducibleSource('openai', { width: 2048, height: 1152, alpha: false })).toMatch(
+      /openai cannot render 2048×1152 — it supports 1024×1024, 1024×1536, 1536×1024, with alpha/,
+    );
+    expect(unproducibleSource('openai', { width: 1024, height: 1536, alpha: false })).toBeNull();
+    // FLUX.2 takes any size but exposes no alpha parameter.
+    expect(unproducibleSource('fal', { width: 2048, height: 1152, alpha: false })).toBeNull();
+    expect(unproducibleSource('fal', { width: 1024, height: 1024, alpha: true })).toMatch(
+      /fal cannot render 1024×1024 with alpha — it supports any size, no alpha/,
+    );
   });
 
   it('advertises each backend’s transparency capability', () => {
@@ -340,7 +354,7 @@ describe('fal adapter', () => {
         ...buildImageRequest(FRAME, OUT),
         styleRefPaths: [],
       }),
-    ).rejects.toThrow(/fal cannot deliver an alpha channel/);
+    ).rejects.toThrow(/fal cannot render 1024×1024 with alpha/);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
@@ -414,7 +428,7 @@ describe('openai adapter', () => {
         ...buildImageRequest(PLATE, OUT),
         styleRefPaths: [],
       }),
-    ).rejects.toThrow(/cannot produce 2048×1152/);
+    ).rejects.toThrow(/openai cannot render 2048×1152/);
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
@@ -513,10 +527,29 @@ describe('selectSpecs', () => {
 });
 
 describe('validateRun', () => {
-  const env: Env = {};
+  const env: Env = { FRONTLINE_ART_BACKEND: 'fal' };
 
   it('passes on the shipped manifest', () => {
     expect(validateRun(ART_MANIFEST, OUT, env)).toEqual([]);
+  });
+
+  /**
+   * MOU-126 blocking regression: with no selector at all this returned `[]`, so `--dry-run` exited
+   * 0 on a run that bills for every pinned asset it reaches and then throws on the first unpinned
+   * one. The 11 districts carry no capability pin, so the whole manifest must fail.
+   */
+  it('fails when nothing selects a backend for an unpinned asset', () => {
+    const problems = validateRun(ART_MANIFEST, OUT, {});
+    expect(problems).not.toEqual([]);
+    expect(problems).toContainEqual(
+      'district-chrome-row: not pinned to a backend and FRONTLINE_ART_BACKEND is unset — set it to "fal" or "openai"',
+    );
+    expect(problems).toHaveLength(ART_MANIFEST.filter((s) => s.backend === undefined).length);
+  });
+
+  /** A `--only` run over capability-pinned assets is legitimately runnable with no selector. */
+  it('needs no selector for an asset the manifest pins', () => {
+    expect(validateRun([PORTRAIT, FRAME, ICON], OUT, {})).toEqual([]);
   });
 
   it('reports an ART-BIBLE violation against the offending key', () => {
@@ -556,7 +589,7 @@ describe('validateRun', () => {
   it('fails the run rather than let an unpinned asset rewrite a manifest resolution', () => {
     const unpinned: AssetSpec = { ...PLATE, backend: undefined };
     expect(validateRun([unpinned], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toContainEqual(
-      expect.stringContaining('plate-city: gpt-image-1 cannot produce 2048×1152'),
+      expect.stringContaining('plate-city: openai cannot render 2048×1152'),
     );
     expect(validateRun([unpinned], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
   });
@@ -564,7 +597,7 @@ describe('validateRun', () => {
   it('fails the run rather than pay fal for an asset that comes back opaque', () => {
     const unpinned: AssetSpec = { ...FRAME, backend: undefined };
     expect(validateRun([unpinned], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toContainEqual(
-      expect.stringContaining('ui-frame-panel: fal cannot deliver an alpha channel'),
+      expect.stringContaining('ui-frame-panel: fal cannot render 1024×1024 with alpha'),
     );
   });
 
@@ -574,20 +607,54 @@ describe('validateRun', () => {
     expect(validateRun([icon], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
     expect(
       validateRun([{ ...icon, backend: undefined }], OUT, { FRONTLINE_ART_BACKEND: 'fal' }),
-    ).toContainEqual(expect.stringContaining('icon-alloy: fal cannot deliver an alpha channel'));
+    ).toContainEqual(expect.stringContaining('icon-alloy: fal cannot render 1024×1024 with alpha'));
   });
 });
 
 describe('main --dry-run', () => {
+  const DRY_RUN_ENV: Env = { FRONTLINE_ART_BACKEND: 'fal' };
+
   it('validates the whole manifest and exits 0 with no network calls', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const output = captureOutput();
 
-    await expect(main(['--dry-run', '--out', OUT], {})).resolves.toBe(0);
+    await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(output.stdout.join('')).toContain('44 asset(s) validated');
     expect(output.stdout.join('')).toContain(`${OUT}/district-neon-docks.png`);
+  });
+
+  /** The regression the reviewer reproduced: this used to exit 0 and then bill five assets. */
+  it('refuses a run with no backend selected instead of exiting 0', async () => {
+    const output = captureOutput();
+
+    await expect(main(['--dry-run', '--out', OUT], {})).resolves.toBe(1);
+
+    expect(output.stderr.join('')).toContain('FRONTLINE_ART_BACKEND is unset');
+  });
+
+  it('names the backend per asset and tallies the split that drives the bill', async () => {
+    const output = captureOutput();
+
+    await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
+
+    const stdout = output.stdout.join('');
+    // Capability-pinned to openai despite the operator asking for fal.
+    expect(stdout).toContain(`${OUT}/ui-frame-panel.png  openai  seed`);
+    expect(stdout).toContain(`${OUT}/district-neon-docks.png  fal  seed`);
+    const pinned = ART_MANIFEST.filter((s) => s.backend === 'openai').length;
+    expect(stdout).toContain(`backends: fal ${ART_MANIFEST.length - pinned}, openai ${pinned}`);
+  });
+
+  it('says the post-process step does not exist yet rather than implying a handoff', async () => {
+    const output = captureOutput();
+
+    await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
+
+    const stdout = output.stdout.join('');
+    expect(stdout).toContain('14 master(s) are not the delivery image (matte 2, downscale 12)');
+    expect(stdout).toContain('NOT IMPLEMENTED (MOU-125)');
   });
 
   it('exits non-zero on an unknown asset key', async () => {

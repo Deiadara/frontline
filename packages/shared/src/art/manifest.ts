@@ -233,13 +233,17 @@ const toSnake = (subject: string): string => subject.replaceAll('-', '_');
 type Delivery = Pick<AssetSpec, 'width' | 'height' | 'alpha'>;
 
 /**
- * The steps that turn `source` into `delivery`. Derived rather than declared, so a manifest entry
- * cannot claim a post-process it does not need or omit one it does.
+ * The steps that turn `source` into `delivery`, **in application order**. Derived rather than
+ * declared, so a manifest entry cannot claim a post-process it does not need or omit one it does.
+ *
+ * `matte` comes first: cutting alpha out of an already-downscaled master keys edge pixels that have
+ * been blended with the background, which bakes fringing into the alpha edge and does it with a
+ * quarter of the information. Matte at master resolution, then downscale with premultiplied alpha.
  */
 export function postProcessFor(source: AssetSource, delivery: Delivery): PostProcessStep[] {
   const steps: PostProcessStep[] = [];
-  if (source.width !== delivery.width || source.height !== delivery.height) steps.push('downscale');
   if (delivery.alpha && !source.alpha) steps.push('matte');
+  if (source.width !== delivery.width || source.height !== delivery.height) steps.push('downscale');
   return steps;
 }
 

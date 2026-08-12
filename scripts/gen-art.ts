@@ -35,6 +35,7 @@ import {
   NEGATIVE,
   STYLE_ANCHOR,
   STYLE_REFERENCE_KEYS,
+  backendCanProduce,
   findAssetSpec,
   validateAssetSpec,
   type AssetSource,
@@ -209,7 +210,7 @@ export function createFalBackend(env: Env): ImageBackend {
     supportsAlpha: BACKEND_CAPABILITIES.fal.alpha,
     honorsSeed: true,
     async generate(req) {
-      if (req.alpha) throw new Error(unsupportedTransparencyMessage('fal'));
+      assertProducible('fal', req);
       const key = requireKey(env, 'FAL_KEY', 'fal');
       const styleRefs = await Promise.all(req.styleRefPaths.map(toDataUri));
       const response = await fetch(`https://fal.run/${model}`, {
@@ -261,9 +262,11 @@ export function createOpenAiBackend(env: Env): ImageBackend {
     supportsAlpha: BACKEND_CAPABILITIES.openai.alpha,
     honorsSeed: false,
     async generate(req) {
+      assertProducible('openai', req);
       const key = requireKey(env, 'OPENAI_API_KEY', 'openai');
+      // Unreachable while the size table and the capability table agree — pinned by a test.
       const size = openAiSize(req.width, req.height);
-      if (size === null) throw new Error(unsupportedResolutionMessage(req.width, req.height));
+      if (size === null) throw new Error(unproducibleMessage('openai', requestSource(req)));
 
       const prompt = `${req.prompt}\n\nAvoid entirely: ${req.negative}`;
       const background = req.alpha ? 'transparent' : 'opaque';
@@ -339,39 +342,35 @@ export function openAiSize(width: number, height: number): OpenAiSize | null {
   return null;
 }
 
-function unsupportedResolutionMessage(width: number, height: number): string {
-  return `gpt-image-1 cannot produce ${width}×${height} (supported: 1024×1024, 1024×1536, 1536×1024)`;
+/** What a request asks the backend for, in the shape the capability table speaks. */
+function requestSource(req: ImageRequest): AssetSource {
+  return { width: req.width, height: req.height, alpha: req.alpha };
+}
+
+function describeSource({ width, height, alpha }: AssetSource): string {
+  return `${width}×${height}${alpha ? ' with alpha' : ''}`;
+}
+
+/** Puts {@link BACKEND_CAPABILITIES}' verdict into words. Only meaningful when it is a refusal. */
+function unproducibleMessage(backend: ImageBackendName, source: AssetSource): string {
+  const { sizes, alpha } = BACKEND_CAPABILITIES[backend];
+  const supported = sizes === null ? 'any size' : sizes.map(([w, h]) => `${w}×${h}`).join(', ');
+  return `${backend} cannot render ${describeSource(source)} — it supports ${supported}, ${alpha ? 'with' : 'no'} alpha`;
 }
 
 /**
- * Why a backend cannot deliver a spec at its manifest resolution, or `null` when it can. Silently
- * substituting a size would manufacture an ART-BIBLE §10 rejection at cost, so this is a
- * `--dry-run` failure instead.
+ * Why a backend cannot render `source`, or `null` when it can. {@link backendCanProduce} owns the
+ * decision so there is exactly one capability table; this only explains it. Silently substituting a
+ * size or dropping alpha would manufacture an ART-BIBLE §10 rejection at cost, so every caller
+ * refuses instead — in `--dry-run` before the money, and in the adapters as a last line.
  */
-export function unsupportedResolution(
-  backend: ImageBackendName,
-  width: number,
-  height: number,
-): string | null {
-  if (backend === 'openai' && openAiSize(width, height) === null) {
-    return unsupportedResolutionMessage(width, height);
-  }
-  return null;
+export function unproducibleSource(backend: ImageBackendName, source: AssetSource): string | null {
+  return backendCanProduce(backend, source) ? null : unproducibleMessage(backend, source);
 }
 
-function unsupportedTransparencyMessage(backend: ImageBackendName): string {
-  return `${backend} cannot deliver an alpha channel — this asset must ship transparent (ART-BIBLE §6)`;
-}
-
-/**
- * Why a backend cannot deliver a spec's transparency, or `null` when it can. Same contract as
- * {@link unsupportedResolution}: an opaque master for an alpha asset is an ART-BIBLE §10 rejection
- * that only shows up after the money is spent, so it fails `--dry-run` instead.
- */
-export function unsupportedTransparency(backend: ImageBackendName, alpha: boolean): string | null {
-  return alpha && !BACKEND_CAPABILITIES[backend].alpha
-    ? unsupportedTransparencyMessage(backend)
-    : null;
+function assertProducible(backend: ImageBackendName, req: ImageRequest): void {
+  const problem = unproducibleSource(backend, requestSource(req));
+  if (problem !== null) throw new Error(problem);
 }
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -505,21 +504,21 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
 
     // Backend selection is a dry-run concern; credentials are not (they are never needed offline).
     const selected = spec.backend ?? env.FRONTLINE_ART_BACKEND;
-    if (selected !== undefined) {
-      const parsed = ImageBackendNameSchema.safeParse(selected);
-      if (!parsed.success) {
-        problems.push(`${spec.key}: unknown FRONTLINE_ART_BACKEND "${selected}"`);
-      } else {
-        // Guards run against `spec.source` — the thing the backend is actually asked for.
-        const unsupported = [
-          unsupportedResolution(parsed.data, spec.source.width, spec.source.height),
-          unsupportedTransparency(parsed.data, spec.source.alpha),
-        ];
-        for (const problem of unsupported) {
-          if (problem !== null) problems.push(`${spec.key}: ${problem}`);
-        }
-      }
+    if (selected === undefined) {
+      // Otherwise the run starts, bills for every pinned asset it reaches, and only then throws.
+      problems.push(
+        `${spec.key}: not pinned to a backend and FRONTLINE_ART_BACKEND is unset — set it to "fal" or "openai"`,
+      );
+      continue;
     }
+    const parsed = ImageBackendNameSchema.safeParse(selected);
+    if (!parsed.success) {
+      problems.push(`${spec.key}: unknown FRONTLINE_ART_BACKEND "${selected}"`);
+      continue;
+    }
+    // The guard runs against `spec.source` — the thing the backend is actually asked for.
+    const unproducible = unproducibleSource(parsed.data, spec.source);
+    if (unproducible !== null) problems.push(`${spec.key}: ${unproducible}`);
   }
 
   return problems;
@@ -606,15 +605,15 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
     process.stdout.write(`${specs.length} asset(s) validated, no network calls made:\n`);
     for (const spec of specs) {
       process.stdout.write(
-        `  ${masterOutputPath(options.outDir, spec)}  seed ${spec.seed} → ${spec.file}${describePostProcess(spec)}\n`,
+        `  ${masterOutputPath(options.outDir, spec)}  ${resolveBackendName(spec, env)}  seed ${spec.seed} → ${spec.file}${describePostProcess(spec)}\n`,
       );
     }
-    const pending = specs.filter((spec) => spec.postProcess.length > 0);
-    if (pending.length > 0) {
-      process.stdout.write(
-        `${pending.length} master(s) are not the delivery image — the AssetPack encode step must apply the post-process shown above.\n`,
-      );
-    }
+    // Most of these pins are capability-forced rather than chosen, and they move the bill several
+    // times over — the gate that runs before the money is the place to say which backend gets what.
+    process.stdout.write(
+      `backends: ${tally(specs.map((spec) => resolveBackendName(spec, env)))}\n`,
+    );
+    process.stdout.write(postProcessSummary(specs));
     return 0;
   }
 
@@ -624,14 +623,36 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
     process.stderr.write(`${errorMessage(error)}\n`);
     return 1;
   }
+  process.stdout.write(postProcessSummary(specs));
   return 0;
+}
+
+/** `name count, name count` — used for both the backend split and the post-process split. */
+function tally(values: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts].map(([value, count]) => `${value} ${count}`).join(', ');
 }
 
 /** Makes a master that is not yet the delivery image visible in the dry-run listing. */
 function describePostProcess(spec: AssetSpec): string {
   if (spec.postProcess.length === 0) return '';
-  const { width, height, alpha } = spec.source;
-  return `  [rendered ${width}×${height}${alpha ? '+alpha' : ''}, then ${spec.postProcess.join(' + ')}]`;
+  return `  [rendered ${describeSource(spec.source)}, then ${spec.postProcess.join(' + ')}]`;
+}
+
+/**
+ * Printed on both paths, because a paid run otherwise ends with 44 "generating …" lines and no hint
+ * that 14 of the masters are not the assets. The encode step does not exist yet, so say so.
+ */
+function postProcessSummary(specs: readonly AssetSpec[]): string {
+  const pending = specs.filter((spec) => spec.postProcess.length > 0);
+  if (pending.length === 0) return '';
+  const steps = tally(pending.flatMap((spec) => spec.postProcess));
+  return (
+    `${pending.length} master(s) are not the delivery image (${steps}).\n` +
+    `The AssetPack encode step that applies these is NOT IMPLEMENTED (MOU-125) — until it lands, ` +
+    `those delivery files do not exist.\n`
+  );
 }
 
 function errorMessage(error: unknown): string {

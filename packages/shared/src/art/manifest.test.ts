@@ -417,9 +417,10 @@ describe('postProcessFor', () => {
     expect(postProcessFor({ width: 1024, height: 1024, alpha: true }, delivery)).toEqual([
       'downscale',
     ]);
+    // Matte at master resolution, then downscale — the other order fringes the alpha edge.
     expect(postProcessFor({ width: 1024, height: 1024, alpha: false }, delivery)).toEqual([
-      'downscale',
       'matte',
+      'downscale',
     ]);
   });
 });
