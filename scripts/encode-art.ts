@@ -410,11 +410,11 @@ function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffer> {
  * or a matte that cut nothing, is an asset that looks fine on disk and wrong in the browser — so it
  * fails here rather than shipping.
  *
- * The transparency floor is asymmetric on purpose: ART-BIBLE §6 (`docs/ART-BIBLE.md`) names one for
- * `plane-city-fore` and stays silent on `plane-city-far`, so `spec.minTransparency` is set only where
- * the bible speaks and no number is invented here. `plane-city-far`'s remaining cover is the
- * cut-nothing check below plus `MAX_KEYED_ISLANDS`, which together catch a key that failed — but not
- * a key that succeeded over too small a band. Raised with the CTO as a §6 clarification (MOU-140).
+ * `spec.minTransparency` carries whatever floor ART-BIBLE §6 (`docs/ART-BIBLE.md`) declares and no
+ * number invented here — ≥55% for `plane-city-fore`, ≥30% for `plane-city-far`. The floor is what
+ * catches a key that *succeeded over too small a band*: the cut-nothing check below and
+ * `MAX_KEYED_ISLANDS` only catch one that failed outright, and a far plane matted over a sliver
+ * would otherwise pass both and hide the sky plane behind it.
  */
 function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: number): string[] {
   const problems: string[] = [];
