@@ -14,9 +14,12 @@
  * that close the gap. The steps are recorded in provenance and applied by the AssetPack encode
  * step; declaring them is what keeps the substitution deliberate instead of silent.
  *
- *   pnpm --filter @frontline/scripts gen-art -- --dry-run
- *   pnpm --filter @frontline/scripts gen-art -- --emit-prompts --only plate-city
- *   FRONTLINE_ART_BACKEND=fal FAL_KEY=… pnpm --filter @frontline/scripts gen-art -- --all
+ * `pnpm --filter` forwards its trailing arguments already, so a `--` separator is passed through to
+ * `argv` and rejected as an unknown argument. The runnable forms are:
+ *
+ *   pnpm --filter @frontline/scripts gen-art --dry-run
+ *   pnpm --filter @frontline/scripts gen-art --emit-prompts --only plate-city
+ *   FRONTLINE_ART_BACKEND=fal FAL_KEY=… pnpm --filter @frontline/scripts gen-art --all
  *
  * `--dry-run` makes **zero** network calls and is what CI exercises; it exits non-zero on any
  * validation failure. A funded run must name its selection — `--only KEYS` or `--all` — so the
