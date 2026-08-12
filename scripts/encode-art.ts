@@ -132,8 +132,8 @@ export const MIN_KEYED_REGION = 0.005;
  * without grain and with or without antialiasing. Nothing about that is recoverable here — a 1-px
  * antialiased line lands the same distance off the field colour as the antialiased edge of a solid
  * mass, so no per-pixel test can tell them apart. {@link MAX_ERASED_ARTWORK} makes it loud instead,
- * and MOU-149 asks the CTO for an ART-BIBLE §6 minimum stroke weight on the two plane prompts, so
- * that a funded master does not carry the shape in the first place.
+ * and ART-BIBLE §6.2 puts a 3px minimum stroke weight on every keyed asset, so that a funded master
+ * does not carry the shape in the first place.
  */
 const DENOISE_WINDOW = 3;
 
@@ -189,12 +189,15 @@ const ARTWORK_MARGIN = 2;
  * {@link ARTWORK_MARGIN}× the tolerance from the field, with no surviving pixel 4-adjacent to it.
  * The adjacency clause is what excludes the antialiased ribbon, which always has kept artwork
  * against it, and it is why a *rim highlight* painted onto a kept mass is the one thin structure
- * this cannot see (ART-BIBLE §6's minimum stroke weight is what covers that case).
+ * this cannot see — ART-BIBLE §6.2's minimum stroke weight is what covers that case.
  *
  * Measured on 2048×1152 fore-plane layouts built from ART-PROMPTS, hard-edged and antialiased,
  * grain ±0 to ±18, silhouettes plain and busy, separations 30 and 45: a plane whose thinnest element
  * is ≥2 px reads **at most 141**, and one carrying a 1-px cable reads **at least 920** — clean or
- * chewed into runs by grain. 256 sits in that gap, 1.8× over the worst clean master.
+ * chewed into runs by grain. 256 sits in that gap, 1.8× over the worst clean master. Those figures
+ * are against this suite's grain generator, whose distribution is skewed well past its nominal
+ * amplitude (MOU-152); against symmetric grain the separation is wider still — a ≥2px plane reads
+ * **0** at every level out to ±25, a 1-px cable **at least 1540**.
  *
  * An absolute count, like {@link MIN_OPAQUE_ISLAND} and for the same reason: an erasure scales with
  * the length of the structure, not with the area of the canvas, and both matte assets are declared
@@ -460,7 +463,7 @@ const matte: PostProcessor = async (image, spec, options) => {
       `${spec.key}: the matte erased ${keyed.erased}px of artwork — the master carries structure ` +
         `thinner than the ${DENOISE_WINDOW}px key window (a 1px cable, antenna or rim), which the ` +
         `key cannot represent and would ship as a dashed line. Regenerate the master with the ` +
-        `ART-BIBLE §6 minimum stroke weight, or hand-matte it (ADR 0001 §6.4).`,
+        `ART-BIBLE §6.2 minimum stroke weight, or hand-matte it (ADR 0001 §6.4).`,
     );
   }
   return keyed;
