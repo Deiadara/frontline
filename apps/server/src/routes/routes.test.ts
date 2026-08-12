@@ -310,10 +310,12 @@ describe('GET /api/city', () => {
     expect(body.bases).toHaveLength(2);
     for (const summary of body.bases) {
       expect(Object.keys(summary).sort()).toEqual(
-        ['districtId', 'id', 'level', 'name', 'ownerId'].sort(),
+        ['districtId', 'id', 'isBot', 'level', 'name', 'ownerId'].sort(),
       );
+      expect(summary.isBot).toBe(false);
       expect(summary).not.toHaveProperty('resources');
       expect(summary).not.toHaveProperty('buildings');
+      expect(summary).not.toHaveProperty('commanders');
     }
   });
 });
@@ -397,7 +399,14 @@ describe('POST /api/battle', () => {
       headers: auth(token),
       payload: { targetDistrictId: 'nowhere' },
     });
-    for (const res of [market, unknown]) {
+    // Your own base sits here — a human base is never a valid target.
+    const ownBase = await app.inject({
+      method: 'POST',
+      url: '/api/battle',
+      headers: auth(token),
+      payload: { targetDistrictId: 'neon-docks' },
+    });
+    for (const res of [market, unknown, ownBase]) {
       expect(res.statusCode).toBe(400);
       expect(errorCode(res)).toBe('INVALID_TARGET');
     }

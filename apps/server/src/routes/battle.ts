@@ -3,11 +3,22 @@ import {
   BattleRequestSchema,
   addResources,
   findDistrict,
+  isDistrictAttackable,
+  type Base,
   type BattleResponse,
+  type District,
   type Resources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
+
+/** Reads the district's occupancy out of the database and applies the shared rule. */
+function isAttackable(app: FastifyInstance, district: District, attacker: Base): boolean {
+  return isDistrictAttackable(district, {
+    isOwnBase: attacker.districtId === district.id,
+    hasBotBase: app.repos.bases.findBotByDistrictId(district.id) !== undefined,
+  });
+}
 
 export function registerBattleRoutes(app: FastifyInstance): void {
   app.post('/battle', { preHandler: app.authenticate }, (request): BattleResponse => {
@@ -19,7 +30,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     }
 
     const district = findDistrict(targetDistrictId);
-    if (!district || (district.kind !== 'raid' && district.kind !== 'npc_stronghold')) {
+    if (!district || !isAttackable(app, district, base)) {
       throw new AppError('INVALID_TARGET', 'That district cannot be attacked');
     }
 

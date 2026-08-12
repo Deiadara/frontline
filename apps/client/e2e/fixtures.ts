@@ -36,11 +36,13 @@ export const base: Base = {
   name: "Operator's Foothold",
   districtId: 'neon-docks',
   level: 1,
+  isBot: false,
   resources: STARTING_RESOURCES,
   buildings: [
     { id: 'b1', kind: 'command_center', level: 1 },
     { id: 'b2', kind: 'reactor', level: 1 },
   ],
+  commanders: [],
   createdAt: NOW,
 };
 
@@ -53,13 +55,21 @@ export const meNoOverseer: MeResponse = { user: userNoOverseer, overseer: null, 
 export const city: CityResponse = {
   districts: [...CITY_DISTRICTS],
   bases: [
-    { id: base.id, ownerId: user.id, name: base.name, districtId: 'neon-docks', level: 1 },
+    {
+      id: base.id,
+      ownerId: user.id,
+      name: base.name,
+      districtId: 'neon-docks',
+      level: 1,
+      isBot: false,
+    },
     {
       id: 'rival-1',
       ownerId: 'user-2',
       name: 'Vex Holdings',
       districtId: 'ashen-terraces',
-      level: 3,
+      level: 4,
+      isBot: true,
     },
   ],
 };

@@ -1,4 +1,9 @@
-import { LoginRequestSchema, RegisterRequestSchema, type AuthResponse } from '@frontline/shared';
+import {
+  LoginRequestSchema,
+  MVP_DEV_CREDENTIALS,
+  RegisterRequestSchema,
+  type AuthResponse,
+} from '@frontline/shared';
 import { useMutation } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { ApiRequestError, login, register } from '../lib/api';
@@ -13,11 +18,21 @@ interface FieldErrors {
   password?: string | undefined;
 }
 
+/**
+ * MVP ONLY — the login form starts prefilled with the seeded dev operator so the build can
+ * be picked up and played. Register mode starts blank: the dev passphrase is 5 characters
+ * and would fail `RegisterRequestSchema`'s 8-character minimum.
+ */
+const prefillFor = (mode: Mode) =>
+  mode === 'login'
+    ? { username: MVP_DEV_CREDENTIALS.username, password: MVP_DEV_CREDENTIALS.password }
+    : { username: '', password: '' };
+
 export function AuthScreen() {
   const setSession = useSession((s) => s.login);
   const [mode, setMode] = useState<Mode>('login');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState(prefillFor('login').username);
+  const [password, setPassword] = useState(prefillFor('login').password);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const mutation = useMutation<AuthResponse, Error, void>({
@@ -27,7 +42,10 @@ export function AuthScreen() {
   });
 
   const switchMode = (next: Mode) => {
+    const prefill = prefillFor(next);
     setMode(next);
+    setUsername(prefill.username);
+    setPassword(prefill.password);
     setFieldErrors({});
     mutation.reset();
   };
@@ -95,6 +113,13 @@ export function AuthScreen() {
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               error={fieldErrors.password}
             />
+
+            {mode === 'login' && (
+              <p className="border border-dashed border-warning/40 bg-warning/5 px-3 py-2 font-body text-[11px] leading-relaxed text-warning/90">
+                MVP build — dev login prefilled ({MVP_DEV_CREDENTIALS.username} /{' '}
+                {MVP_DEV_CREDENTIALS.password})
+              </p>
+            )}
 
             {serverError && (
               <p

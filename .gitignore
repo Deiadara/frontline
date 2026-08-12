@@ -11,5 +11,6 @@ coverage/
 playwright-report/
 test-results/
 apps/client/screenshots/
+.tmp/
 *.tsbuildinfo
 .DS_Store

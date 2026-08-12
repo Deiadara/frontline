@@ -24,7 +24,7 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
           : 'border-steel-700 hover:border-neon-cyan/50',
       )}
     >
-      <div className="flex gap-3 p-2.5">
+      <div className="flex gap-3 p-2">
         <div className="w-20 shrink-0">
           <OverseerPortrait
             portraitId={preset.portraitId}
@@ -45,7 +45,7 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-steel-800 p-2.5">
+      <div className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-steel-800 p-2">
         <SkillBars skills={preset.skills} />
         <div className="h-20 w-20 shrink-0">
           <SkillRadar skills={preset.skills} />

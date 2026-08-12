@@ -16,3 +16,4 @@ export * from './art/manifest.js';
 export * from './battle/types.js';
 export * from './battle/engine.js';
 export * from './api.js';
+export * from './mvp.js';

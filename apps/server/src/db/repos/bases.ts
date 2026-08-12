@@ -14,24 +14,29 @@ interface BaseRow {
   name: string;
   district_id: string;
   level: number;
+  is_bot: number;
   resources_json: string;
   buildings_json: string;
+  commanders_json: string;
   created_at: string;
 }
 
-interface BaseSummaryRow {
-  id: string;
-  owner_id: string;
-  name: string;
-  district_id: string;
-  level: number;
-}
+type BaseSummaryRow = Pick<
+  BaseRow,
+  'id' | 'owner_id' | 'name' | 'district_id' | 'level' | 'is_bot'
+>;
 
 export interface BasesRepo {
   insert(base: Base): void;
   findById(id: string): Base | undefined;
   findByOwnerId(ownerId: string): Base | undefined;
-  /** Public projections of every base — never exposes resources or buildings. */
+  /**
+   * The AI rival garrisoning a district, if one is there. A district can hold several
+   * bases, so this answers only "is there a bot here?" — the one question raid targeting
+   * asks. The seed mints at most one rival per district.
+   */
+  findBotByDistrictId(districtId: string): Base | undefined;
+  /** Public projections of every base — never exposes resources, buildings or commanders. */
   listSummaries(): BaseSummary[];
   updateResources(baseId: string, resources: Resources): void;
 }
@@ -43,8 +48,10 @@ function rowToBase(row: BaseRow): Base {
     name: row.name,
     districtId: row.district_id,
     level: row.level,
+    isBot: row.is_bot === 1,
     resources: readJson(row.resources_json),
     buildings: readJson(row.buildings_json),
+    commanders: readJson(row.commanders_json),
     createdAt: row.created_at,
   });
 }
@@ -56,18 +63,23 @@ function rowToSummary(row: BaseSummaryRow): BaseSummary {
     name: row.name,
     districtId: row.district_id,
     level: row.level,
+    isBot: row.is_bot === 1,
   });
 }
 
 export function createBasesRepo(db: AppDatabase): BasesRepo {
   const insertStmt = db.prepare(
     `INSERT INTO bases
-       (id, owner_id, name, district_id, level, resources_json, buildings_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, owner_id, name, district_id, level, is_bot,
+        resources_json, buildings_json, commanders_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
-  const summariesStmt = db.prepare('SELECT id, owner_id, name, district_id, level FROM bases');
+  const botByDistrictStmt = db.prepare('SELECT * FROM bases WHERE district_id = ? AND is_bot = 1');
+  const summariesStmt = db.prepare(
+    'SELECT id, owner_id, name, district_id, level, is_bot FROM bases',
+  );
   const updateResourcesStmt = db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?');
 
   return {
@@ -78,8 +90,10 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         base.name,
         base.districtId,
         base.level,
+        base.isBot ? 1 : 0,
         JSON.stringify(base.resources),
         JSON.stringify(base.buildings),
+        JSON.stringify(base.commanders),
         base.createdAt,
       );
     },
@@ -89,6 +103,10 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     findByOwnerId(ownerId) {
       const row = byOwnerStmt.get(ownerId) as BaseRow | undefined;
+      return row ? rowToBase(row) : undefined;
+    },
+    findBotByDistrictId(districtId) {
+      const row = botByDistrictStmt.get(districtId) as BaseRow | undefined;
       return row ? rowToBase(row) : undefined;
     },
     listSummaries() {

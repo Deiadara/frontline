@@ -1,4 +1,9 @@
-import { RegisterRequestSchema, type AuthResponse, type User } from '@frontline/shared';
+import {
+  MVP_DEV_CREDENTIALS,
+  RegisterRequestSchema,
+  type AuthResponse,
+  type User,
+} from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -33,6 +38,60 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('AuthScreen MVP dev prefill', () => {
+  const usernameField = () => screen.getByLabelText<HTMLInputElement>(/Operator ID/);
+  const passwordField = () => screen.getByLabelText<HTMLInputElement>(/Passphrase/);
+
+  it('prefills the seeded dev credentials in login mode and flags the build', () => {
+    renderAuth();
+
+    expect(usernameField().value).toBe(MVP_DEV_CREDENTIALS.username);
+    expect(passwordField().value).toBe(MVP_DEV_CREDENTIALS.password);
+    expect(screen.getByText(/MVP build — dev login prefilled/)).toBeInTheDocument();
+  });
+
+  it('clears both fields when switching to register', () => {
+    renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: 'register' }));
+
+    // The 5-character dev passphrase would fail the >= 8 register rule, so it must not linger.
+    expect(usernameField().value).toBe('');
+    expect(passwordField().value).toBe('');
+    expect(screen.queryByText(/MVP build — dev login prefilled/)).not.toBeInTheDocument();
+  });
+
+  it('restores the prefill when switching back to login', () => {
+    renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: 'register' }));
+    fireEvent.change(usernameField(), { target: { value: 'someone_else' } });
+    fireEvent.click(screen.getByRole('button', { name: 'login' }));
+
+    expect(usernameField().value).toBe(MVP_DEV_CREDENTIALS.username);
+    expect(passwordField().value).toBe(MVP_DEV_CREDENTIALS.password);
+  });
+
+  it('submits the prefilled credentials to the login endpoint untouched', async () => {
+    const body: AuthResponse = { token: 'tok', user: USER };
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: '',
+      json: () => Promise.resolve(body),
+    });
+
+    renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: 'Jack In' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+    expect(url).toBe('/api/auth/login');
+    expect(JSON.parse(init.body)).toEqual({
+      username: MVP_DEV_CREDENTIALS.username,
+      password: MVP_DEV_CREDENTIALS.password,
+    });
+  });
+});
 
 describe('AuthScreen', () => {
   it('blocks submission and surfaces the schema error on invalid input', () => {

@@ -42,11 +42,13 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         name: `${user.username}'s Foothold`,
         districtId: STARTER_DISTRICT_ID,
         level: 1,
+        isBot: false,
         resources: STARTING_RESOURCES,
         buildings: [
           { id: randomUUID(), kind: 'command_center', level: 1 },
           { id: randomUUID(), kind: 'reactor', level: 1 },
         ],
+        commanders: [],
         createdAt: now,
       };
 

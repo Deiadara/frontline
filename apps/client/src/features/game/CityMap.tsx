@@ -28,6 +28,32 @@ const LABEL_STYLE: TextStyleOptions = {
   letterSpacing: 0.5,
 };
 
+/**
+ * The face every Text in the scene is drawn with. A `font` shorthand needs a size, but the
+ * size does not select a different face — so this one spec covers the district labels, the
+ * marker tags and the tooltip alike.
+ */
+const LABEL_FONT = '600 11px Orbitron';
+
+/**
+ * Resolves once the label font is actually usable.
+ *
+ * Pixi bakes a Text into a texture measured with whatever font is available when the object
+ * is constructed, so a webfont arriving later strands the whole scene on the fallback:
+ * labels in the wrong typeface, and glyphs clipped wherever the two metrics disagree. The
+ * cure is to redraw once loading has settled — never to guess with a timeout.
+ *
+ * `fonts.load` is what forces the fetch: a CSS font is otherwise only requested for the DOM
+ * that uses it, so `fonts.ready` alone can resolve before Orbitron is ever asked for.
+ */
+async function labelFontsReady(): Promise<void> {
+  const fonts: FontFaceSet | undefined = document.fonts;
+  if (!fonts) return;
+  // A font that fails to load must not block the redraw — the fallback is then correct.
+  await fonts.load(LABEL_FONT).catch(() => undefined);
+  await fonts.ready;
+}
+
 function radiusFor(district: District): number {
   return 7 + district.difficulty * 0.7;
 }
@@ -38,6 +64,13 @@ interface Scene {
   width: number;
   height: number;
   props: CityMapProps;
+  /** Districts held by an AI rival — drawn hostile rather than in their kind color. */
+  botDistrictIds: ReadonlySet<string>;
+}
+
+/** A district garrisoned by a bot reads as a threat, not as a friendly player base. */
+function districtColor(district: District, botDistrictIds: ReadonlySet<string>): number {
+  return botDistrictIds.has(district.id) ? hex(palette.neon.magenta) : KIND_COLOR[district.kind];
 }
 
 function drawBackground(width: number, height: number): Graphics {
@@ -65,7 +98,13 @@ function makeTooltip(): Container {
   return container;
 }
 
-function updateTooltip(tooltip: Container, district: District, x: number, y: number): void {
+function updateTooltip(
+  tooltip: Container,
+  district: District,
+  x: number,
+  y: number,
+  color: number,
+): void {
   const bg = tooltip.children[0] as Graphics;
   const text = tooltip.children[1] as Text;
   text.text = `${district.name}  ·  DIFF ${district.difficulty}`;
@@ -74,7 +113,7 @@ function updateTooltip(tooltip: Container, district: District, x: number, y: num
   bg.clear()
     .rect(0, 0, w, h)
     .fill({ color: hex(palette.night.overlay), alpha: 0.95 })
-    .stroke({ width: 1, color: KIND_COLOR[district.kind], alpha: 0.8 });
+    .stroke({ width: 1, color, alpha: 0.8 });
   tooltip.position.set(Math.max(2, x - w / 2), Math.max(2, y - h - 12));
   tooltip.visible = true;
 }
@@ -84,7 +123,7 @@ function drawDistrictNode(scene: Scene, district: District, tooltip: Container):
   const px = district.position.x * width;
   const py = district.position.y * height;
   const r = radiusFor(district);
-  const color = KIND_COLOR[district.kind];
+  const color = districtColor(district, scene.botDistrictIds);
   const isSelected = props.selectedId === district.id;
 
   const node = new Container();
@@ -111,7 +150,7 @@ function drawDistrictNode(scene: Scene, district: District, tooltip: Container):
   node.on('pointertap', () => props.onSelectDistrict(district));
   node.on('pointerover', () => {
     halo.scale.set(1.25);
-    updateTooltip(tooltip, district, px, py - r);
+    updateTooltip(tooltip, district, px, py - r, color);
   });
   node.on('pointerout', () => {
     halo.scale.set(1);
@@ -121,38 +160,108 @@ function drawDistrictNode(scene: Scene, district: District, tooltip: Container):
   return node;
 }
 
-function drawBaseMarker(scene: Scene, base: BaseSummary): Container | null {
+/** Gap between the marker glyph and the tag sitting above it. */
+const TAG_GAP = 8;
+/** How far above the district node the marker floats — clears the node's halo. */
+const MARKER_LIFT = 17;
+/** Keeps a marker's tag from being clipped by the top edge of the canvas. */
+const MARKER_MIN_Y = 26;
+/** Keeps a tag from bleeding past the left/right edges of the canvas. */
+const EDGE_PADDING = 4;
+/** Vertical pitch between markers sharing a district — clears a marker's glyph and tag. */
+const MARKER_STACK_STEP = 28;
+
+/** A marker's slot among the bases sharing its district. */
+interface MarkerSlot {
+  /** 0 sits nearest the district node; each further marker floats one step higher. */
+  index: number;
+  count: number;
+}
+
+/**
+ * Districts are not exclusive — every human settles in the same starter district — so
+ * co-located markers stack straight up from their node instead of drawing on top of each
+ * other. The stack is clamped into the canvas as a unit, which keeps the pitch exact and
+ * leaves a district's only marker exactly where it has always been.
+ */
+export function markerY(nodeY: number, nodeRadius: number, slot: MarkerSlot): number {
+  const bottom = nodeY - nodeRadius - MARKER_LIFT;
+  const top = bottom - (slot.count - 1) * MARKER_STACK_STEP;
+  const lift = Math.max(0, MARKER_MIN_Y - top);
+  return bottom - slot.index * MARKER_STACK_STEP + lift;
+}
+
+/** Bases grouped by district and ordered by id, so the stack order is stable across renders. */
+export function groupByDistrict(bases: readonly BaseSummary[]): Map<string, BaseSummary[]> {
+  const groups = new Map<string, BaseSummary[]>();
+  for (const base of [...bases].sort((a, b) => a.id.localeCompare(b.id))) {
+    const group = groups.get(base.districtId);
+    if (group) group.push(base);
+    else groups.set(base.districtId, [base]);
+  }
+  return groups;
+}
+
+/**
+ * Base markers sit above their district node so they never cover the district label
+ * (which is drawn below the node). Own base = cyan diamond tagged YOU, bot base =
+ * magenta hostile chevron tagged with the rival's name, other humans = muted diamond.
+ */
+function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Container | null {
   const { width, height, props } = scene;
   const district = props.districts.find((d) => d.id === base.districtId);
   if (!district) return null;
-  const px = district.position.x * width;
-  const py = district.position.y * height;
   const isMine = base.id === props.myBaseId;
-  const color = isMine ? hex(palette.neon.cyan) : hex(palette.steel[300]);
+  const color = base.isBot
+    ? hex(palette.neon.magenta)
+    : isMine
+      ? hex(palette.neon.cyan)
+      : hex(palette.steel[300]);
 
-  const marker = new Container();
-  marker.position.set(px, py - radiusFor(district) - 12);
-
-  const diamond = new Graphics();
-  diamond
-    .poly([0, -6, 5, 0, 0, 6, -5, 0])
-    .fill({ color, alpha: isMine ? 1 : 0.7 })
-    .stroke({ width: 1, color: hex(palette.night.DEFAULT) });
+  const glyph = new Graphics();
+  if (base.isBot) {
+    // Downward chevron — hostile, and unmistakably not the friendly diamond.
+    glyph
+      .poly([0, 7, -7, -5, 0, -1, 7, -5])
+      .fill({ color, alpha: 1 })
+      .stroke({ width: 1, color: hex(palette.night.DEFAULT) });
+  } else {
+    glyph
+      .poly([0, -6, 5, 0, 0, 6, -5, 0])
+      .fill({ color, alpha: isMine ? 1 : 0.7 })
+      .stroke({ width: 1, color: hex(palette.night.DEFAULT) });
+  }
 
   const tag = new Text({
     text: isMine ? 'YOU' : base.name,
     style: { ...LABEL_STYLE, fontSize: 8, fill: color },
   });
   tag.anchor.set(0.5, 1);
-  tag.position.set(0, -8);
+  tag.position.set(0, -TAG_GAP);
 
-  marker.addChild(diamond, tag);
+  // Clamp into the canvas: the tag is the widest/highest part of the marker.
+  const halfTag = tag.width / 2;
+  const px = district.position.x * width;
+  const py = district.position.y * height;
+  const marker = new Container();
+  marker.position.set(
+    Math.min(Math.max(px, halfTag + EDGE_PADDING), width - halfTag - EDGE_PADDING),
+    markerY(py, radiusFor(district), slot),
+  );
+
+  marker.addChild(glyph, tag);
   return marker;
 }
 
-function redraw(scene: Scene): void {
-  const { app, width, height } = scene;
+function redraw(input: Omit<Scene, 'botDistrictIds'>): void {
+  const { app, width, height } = input;
   if (width < 2 || height < 2) return;
+  const scene: Scene = {
+    ...input,
+    botDistrictIds: new Set(
+      input.props.bases.filter((base) => base.isBot).map((base) => base.districtId),
+    ),
+  };
   for (const child of app.stage.removeChildren()) child.destroy({ children: true });
   app.stage.sortableChildren = true;
 
@@ -161,9 +270,11 @@ function redraw(scene: Scene): void {
   for (const district of scene.props.districts) {
     app.stage.addChild(drawDistrictNode(scene, district, tooltip));
   }
-  for (const base of scene.props.bases) {
-    const marker = drawBaseMarker(scene, base);
-    if (marker) app.stage.addChild(marker);
+  for (const group of groupByDistrict(scene.props.bases).values()) {
+    group.forEach((base, index) => {
+      const marker = drawBaseMarker(scene, base, { index, count: group.length });
+      if (marker) app.stage.addChild(marker);
+    });
   }
   app.stage.addChild(tooltip);
 }
@@ -208,6 +319,12 @@ export function CityMap(props: CityMapProps) {
         observer = new ResizeObserver(render);
         observer.observe(el);
         render();
+
+        // Paint immediately so the map is never blank, then redraw once the label font has
+        // landed so nothing keeps a texture measured against the fallback.
+        void labelFontsReady().then(() => {
+          if (!disposed) render();
+        });
       });
 
     return () => {

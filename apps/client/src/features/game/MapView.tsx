@@ -21,6 +21,7 @@ export function MapView() {
   const me = useMe();
   const city = useCity();
   const myBase = me.data?.base ?? null;
+  const bases = city.data?.bases ?? [];
   const attack = useAttack(myBase?.id);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -45,7 +46,7 @@ export function MapView() {
       <div className="relative min-h-0 min-w-0 flex-1 border-r border-neon-cyan/20 bg-night">
         <CityMap
           districts={CITY_DISTRICTS}
-          bases={city.data?.bases ?? []}
+          bases={bases}
           myBaseId={myBase.id}
           selectedId={selected?.id ?? null}
           onSelectDistrict={(district) => setSelectedId(district.id)}
@@ -61,6 +62,7 @@ export function MapView() {
         <ContextPanel
           selected={selected}
           myBase={myBase}
+          bases={bases}
           onAttack={onAttack}
           isAttacking={attack.isPending}
         />
