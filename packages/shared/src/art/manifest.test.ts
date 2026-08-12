@@ -7,12 +7,16 @@ import {
   ART_MANIFEST,
   ASSET_CLASS_SPECS,
   AssetSpecSchema,
+  backendCanProduce,
+  backendsForSource,
   findAssetSpec,
   parseAssetFileName,
+  postProcessFor,
   resolveAssetKey,
   STYLE_REFERENCE_KEYS,
   subjectResolvesToDomainId,
   validateAssetSpec,
+  type AssetSource,
   type AssetSpec,
 } from './manifest.js';
 import { NEGATIVE, STYLE_ANCHOR } from './prompts.js';
@@ -162,9 +166,59 @@ describe('ART_MANIFEST', () => {
   });
 
   it('routes the overseer portraits to gpt-image-1 per ADR 0001 §6.6', () => {
-    for (const spec of ART_MANIFEST) {
-      expect(spec.backend).toBe(spec.class === 'portrait' ? 'openai' : undefined);
+    for (const spec of ART_MANIFEST.filter((s) => s.class === 'portrait')) {
+      expect(spec.backend).toBe('openai');
     }
+  });
+
+  /** The acceptance criterion of MOU-123: no manifest entry may be unbuildable. */
+  it('gives every asset at least one backend that can render its source', () => {
+    for (const spec of ART_MANIFEST) {
+      expect(backendsForSource(spec.source), spec.key).not.toEqual([]);
+    }
+  });
+
+  it('pins a backend exactly when only one can render the asset, and never a wrong one', () => {
+    for (const spec of ART_MANIFEST) {
+      const capable = backendsForSource(spec.source);
+      if (spec.backend === undefined) {
+        expect(capable.length, spec.key).toBeGreaterThan(1);
+      } else {
+        expect(capable, spec.key).toContain(spec.backend);
+        // Portraits are pinned for quality (ADR 0001 §6.6); everything else for capability.
+        if (capable.length > 1) expect(spec.class).toBe('portrait');
+      }
+    }
+  });
+
+  it('renders icons at 1024² and downscales — nothing produces 512² with alpha', () => {
+    for (const spec of ART_MANIFEST.filter((s) => s.class === 'icon')) {
+      expect(spec, spec.key).toMatchObject({
+        width: 512,
+        height: 512,
+        alpha: true,
+        source: { width: 1024, height: 1024, alpha: true },
+        postProcess: ['downscale'],
+        backend: 'openai',
+      });
+    }
+  });
+
+  it('renders the alpha planes opaque and mattes them — nothing produces 16:9 with alpha', () => {
+    for (const key of ['plane-city-far', 'plane-city-fore']) {
+      expect(findAssetSpec(key), key).toMatchObject({
+        alpha: true,
+        source: { width: 2048, height: 1152, alpha: false },
+        postProcess: ['matte'],
+        backend: 'fal',
+      });
+    }
+    // The sky plane already ships opaque, so its master is the delivery image.
+    expect(findAssetSpec('plane-city-sky')).toMatchObject({ postProcess: [] });
+  });
+
+  it('leaves the other 30 assets needing no post-process at all', () => {
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(14);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {
@@ -280,6 +334,93 @@ describe('validateAssetSpec', () => {
     expect(
       validateAssetSpec({ ...districtSpec(), styleRefs: ['district-atlantis'] }),
     ).toContainEqual(expect.stringContaining('unknown style ref'));
+  });
+
+  const withSource = (source: AssetSource, extra: Partial<AssetSpec> = {}): AssetSpec => ({
+    ...districtSpec(),
+    source,
+    postProcess: postProcessFor(source, { width: 1024, height: 1024, alpha: false }),
+    ...extra,
+  });
+
+  it('rejects a source smaller than the delivery — upscaling invents detail', () => {
+    expect(validateAssetSpec(withSource({ width: 512, height: 512, alpha: false }))).toContainEqual(
+      expect.stringContaining('smaller than its 1024×1024 delivery'),
+    );
+  });
+
+  it('rejects a source that changes the aspect', () => {
+    expect(
+      validateAssetSpec(withSource({ width: 2048, height: 1152, alpha: false })),
+    ).toContainEqual(expect.stringContaining('a different aspect'));
+  });
+
+  it('rejects a source carrying alpha the delivery throws away', () => {
+    expect(
+      validateAssetSpec(withSource({ width: 1024, height: 1024, alpha: true })),
+    ).toContainEqual(expect.stringContaining('renders with alpha but ships opaque'));
+  });
+
+  it('rejects a declared post-process the source does not imply', () => {
+    const spec = withSource(
+      { width: 1024, height: 1024, alpha: false },
+      { postProcess: ['matte'] },
+    );
+    expect(validateAssetSpec(spec)).toContainEqual(
+      expect.stringContaining('declares postProcess [matte], its source implies []'),
+    );
+  });
+
+  it('rejects an asset no backend can render — the MOU-123 failure mode', () => {
+    // 512×512 with alpha: below gpt-image-1's minimum, and fal has no alpha channel.
+    const spec = withSource({ width: 512, height: 512, alpha: true });
+    expect(validateAssetSpec(spec)).toContainEqual(
+      expect.stringContaining('has no producible backend path'),
+    );
+  });
+
+  it('rejects a pin to a backend that cannot render the source', () => {
+    const spec = withSource({ width: 1024, height: 1024, alpha: false }, { backend: 'openai' });
+    expect(
+      validateAssetSpec({ ...spec, source: { width: 2048, height: 1152, alpha: false } }),
+    ).toContainEqual(expect.stringContaining('is pinned to "openai", which cannot render'));
+  });
+});
+
+describe('backend capabilities (ADR 0001 §6.1)', () => {
+  it('knows fal takes any size but no alpha', () => {
+    expect(backendCanProduce('fal', { width: 2048, height: 1152, alpha: false })).toBe(true);
+    expect(backendCanProduce('fal', { width: 512, height: 512, alpha: false })).toBe(true);
+    expect(backendCanProduce('fal', { width: 1024, height: 1024, alpha: true })).toBe(false);
+  });
+
+  it('knows gpt-image-1 takes alpha but only three sizes', () => {
+    expect(backendCanProduce('openai', { width: 1024, height: 1024, alpha: true })).toBe(true);
+    expect(backendCanProduce('openai', { width: 1024, height: 1536, alpha: false })).toBe(true);
+    expect(backendCanProduce('openai', { width: 2048, height: 1152, alpha: false })).toBe(false);
+    expect(backendCanProduce('openai', { width: 512, height: 512, alpha: true })).toBe(false);
+  });
+
+  it('reports the empty set for a source neither backend can render', () => {
+    expect(backendsForSource({ width: 512, height: 512, alpha: true })).toEqual([]);
+    expect(backendsForSource({ width: 1024, height: 1024, alpha: false })).toEqual([
+      'fal',
+      'openai',
+    ]);
+  });
+});
+
+describe('postProcessFor', () => {
+  it('derives the steps from the gap between source and delivery', () => {
+    const delivery = { width: 512, height: 512, alpha: true };
+    expect(postProcessFor({ width: 512, height: 512, alpha: true }, delivery)).toEqual([]);
+    expect(postProcessFor({ width: 1024, height: 1024, alpha: true }, delivery)).toEqual([
+      'downscale',
+    ]);
+    expect(postProcessFor({ width: 1024, height: 1024, alpha: false }, delivery)).toEqual([
+      'downscale',
+      'matte',
+    ]);
   });
 });
 

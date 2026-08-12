@@ -46,6 +46,67 @@ export type AssetAspect = z.infer<typeof AssetAspectSchema>;
 export const ImageBackendNameSchema = z.enum(['fal', 'openai']);
 export type ImageBackendName = z.infer<typeof ImageBackendNameSchema>;
 
+/** What a backend is actually asked to render — see {@link AssetSpec.source}. */
+export const AssetSourceSchema = z.object({
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  alpha: z.boolean(),
+});
+export type AssetSource = z.infer<typeof AssetSourceSchema>;
+
+/**
+ * A declared master→delivery step the AssetPack encode stage (ADR 0001 §4.1) must apply.
+ *
+ * - `downscale` — resample the master to the ART-BIBLE §6 delivery resolution.
+ * - `matte` — cut an alpha channel out of an opaque master.
+ *
+ * Both exist because no text-to-image parameter delivers the result directly. Declaring them makes
+ * the substitution deliberate and auditable rather than something a backend does silently.
+ */
+export const POST_PROCESS_STEPS = ['downscale', 'matte'] as const;
+export const PostProcessStepSchema = z.enum(POST_PROCESS_STEPS);
+export type PostProcessStep = z.infer<typeof PostProcessStepSchema>;
+
+export interface BackendCapabilities {
+  /** The resolutions the backend accepts, or `null` when it takes an arbitrary size. */
+  sizes: readonly (readonly [width: number, height: number])[] | null;
+  /** ART-BIBLE §6 — whether it can return a master with a real alpha channel. */
+  alpha: boolean;
+}
+
+/**
+ * ADR 0001 §6.1 — what each backend can actually be asked for. This is capability data, not a
+ * preference: prose in the FRAMING block is neither a size nor a transparency parameter, so an
+ * asset whose {@link AssetSpec.source} no backend satisfies cannot be generated at all.
+ */
+export const BACKEND_CAPABILITIES: Readonly<Record<ImageBackendName, BackendCapabilities>> = {
+  // FLUX.2 [pro] takes an arbitrary `image_size` but documents no transparency parameter.
+  fal: { sizes: null, alpha: false },
+  // gpt-image-1 documents `background: transparent` and exactly three sizes.
+  openai: {
+    sizes: [
+      [1024, 1024],
+      [1024, 1536],
+      [1536, 1024],
+    ],
+    alpha: true,
+  },
+};
+
+export function backendCanProduce(backend: ImageBackendName, source: AssetSource): boolean {
+  const caps = BACKEND_CAPABILITIES[backend];
+  if (source.alpha && !caps.alpha) return false;
+  return (
+    caps.sizes === null ||
+    caps.sizes.some(([width, height]) => width === source.width && height === source.height)
+  );
+}
+
+/** Every backend that could render `source`. Empty means the asset has no producible path. */
+export function backendsForSource(source: AssetSource): readonly ImageBackendName[] {
+  return ImageBackendNameSchema.options.filter((name) => backendCanProduce(name, source));
+}
+
 /** Lower-kebab identifier. Never string-concatenated by hand — see {@link resolveAssetKey}. */
 export const AssetKeySchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 export type AssetKey = z.infer<typeof AssetKeySchema>;
@@ -82,6 +143,14 @@ export const AssetSpecSchema = z.object({
   height: z.number().int().positive(),
   aspect: AssetAspectSchema,
   alpha: z.boolean(),
+  /**
+   * What the backend is asked to render. Equals the delivery spec above unless no backend can
+   * produce that directly (512×512 alpha icons, 16:9 alpha planes) — then it is the nearest thing
+   * one *can* produce, and {@link AssetSpec.postProcess} says how to get from here to there.
+   */
+  source: AssetSourceSchema,
+  /** The declared master→delivery steps. Empty when the master already is the delivery image. */
+  postProcess: z.array(PostProcessStepSchema),
   seed: z.number().int().nonnegative(),
   prompt: AssetPromptSchema,
   /** Reference images passed to the backend for style consistency (ART-PROMPTS §7.3). */
@@ -100,6 +169,8 @@ export interface AssetClassSpec {
   /** WebP encoder quality for the delivery file; `null` for the lossless PNG classes. */
   quality: number | null;
   alpha: boolean;
+  /** Class-wide {@link AssetSpec.source} override; absent means "render it at delivery size". */
+  source?: AssetSource;
 }
 
 /** ART-BIBLE §6 — source resolution, aspect, delivery format and default transparency per class. */
@@ -111,7 +182,17 @@ export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
   plane: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', quality: 90, alpha: true },
   building: { width: 1024, height: 1024, aspect: '1:1', ext: 'webp', quality: 90, alpha: true },
   ui: { width: 1024, height: 1024, aspect: '1:1', ext: 'png', quality: null, alpha: true },
-  icon: { width: 512, height: 512, aspect: '1:1', ext: 'webp', quality: 88, alpha: true },
+  // No backend does 512×512 with alpha (fal has no alpha, gpt-image-1 has no size below 1024), so
+  // icons are rendered transparent at 1024² and downscaled by the encode step.
+  icon: {
+    width: 512,
+    height: 512,
+    aspect: '1:1',
+    ext: 'webp',
+    quality: 88,
+    alpha: true,
+    source: { width: 1024, height: 1024, alpha: true },
+  },
   splash: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', quality: 90, alpha: false },
   lut: { width: 512, height: 512, aspect: '1:1', ext: 'png', quality: null, alpha: false },
 };
@@ -148,18 +229,49 @@ const RESOURCE_KEYS = Object.keys(ResourcesSchema.shape) as readonly (keyof Reso
 const toKebab = (id: string): string => id.replaceAll('_', '-');
 const toSnake = (subject: string): string => subject.replaceAll('-', '_');
 
-type DraftSpec = Omit<AssetSpec, 'styleRefs' | 'file' | 'width' | 'height' | 'aspect' | 'alpha'> &
-  Partial<Pick<AssetSpec, 'alpha'>>;
+/** The delivery half of a spec — what ships, as opposed to what the backend renders. */
+type Delivery = Pick<AssetSpec, 'width' | 'height' | 'alpha'>;
+
+/**
+ * The steps that turn `source` into `delivery`. Derived rather than declared, so a manifest entry
+ * cannot claim a post-process it does not need or omit one it does.
+ */
+export function postProcessFor(source: AssetSource, delivery: Delivery): PostProcessStep[] {
+  const steps: PostProcessStep[] = [];
+  if (source.width !== delivery.width || source.height !== delivery.height) steps.push('downscale');
+  if (delivery.alpha && !source.alpha) steps.push('matte');
+  return steps;
+}
+
+/** Pins the backend when exactly one can render `source`; otherwise `FRONTLINE_ART_BACKEND` picks. */
+function soleCapableBackend(source: AssetSource): ImageBackendName | undefined {
+  const capable = backendsForSource(source);
+  return capable.length === 1 ? capable[0] : undefined;
+}
+
+type DraftSpec = Omit<
+  AssetSpec,
+  'styleRefs' | 'file' | 'width' | 'height' | 'aspect' | 'alpha' | 'source' | 'postProcess'
+> &
+  Partial<Pick<AssetSpec, 'alpha' | 'source'>>;
 
 function draft(spec: DraftSpec): Omit<AssetSpec, 'styleRefs'> {
   const classSpec = ASSET_CLASS_SPECS[spec.class];
-  return {
-    ...spec,
-    file: `${spec.key}.${classSpec.ext}`,
+  const delivery: Delivery = {
     width: classSpec.width,
     height: classSpec.height,
-    aspect: classSpec.aspect,
     alpha: spec.alpha ?? classSpec.alpha,
+  };
+  const source = spec.source ?? classSpec.source ?? delivery;
+  return {
+    ...spec,
+    ...delivery,
+    file: `${spec.key}.${classSpec.ext}`,
+    aspect: classSpec.aspect,
+    source,
+    postProcess: postProcessFor(source, delivery),
+    // A capability-pinned backend is not a preference — the other one physically cannot deliver.
+    backend: spec.backend ?? soleCapableBackend(source),
   };
 }
 
@@ -196,6 +308,13 @@ const districtDrafts = CITY_DISTRICTS.map((district, index) =>
   }),
 );
 
+/**
+ * The far and fore planes ship transparent, but nothing renders 16:9 with alpha — gpt-image-1 has
+ * no 16:9 size at all and FLUX.2 has no alpha. ART-BIBLE §6 also wants the fore plane ≥55%
+ * transparent, which no text-to-image parameter delivers, so the cut was always a post-process.
+ */
+const OPAQUE_PLANE_SOURCE: AssetSource = { width: 2048, height: 1152, alpha: false };
+
 const plateDrafts = (
   [
     ['plate-city', 'plate'],
@@ -212,6 +331,9 @@ const plateDrafts = (
     prompt: { subject: PLATE_SUBJECTS[key], framing: FRAMING.plate },
     // The sky plane sits behind everything and needs no transparency (ART-BIBLE §6).
     ...(key === 'plane-city-sky' ? { alpha: false } : {}),
+    ...(key === 'plane-city-far' || key === 'plane-city-fore'
+      ? { source: OPAQUE_PLANE_SOURCE }
+      : {}),
   }),
 );
 
@@ -420,9 +542,56 @@ export function validateAssetSpec(spec: AssetSpec): string[] {
       `${spec.key} declares aspect ${spec.aspect}, ART-BIBLE §6 requires ${classSpec.aspect}`,
     );
   }
+  problems.push(...sourceProblems(spec));
+
   for (const ref of spec.styleRefs) {
     if (!ASSET_BY_KEY.has(ref)) problems.push(`${spec.key} references unknown style ref "${ref}"`);
     if (ref === spec.key) problems.push(`${spec.key} references itself as a style ref`);
+  }
+
+  return problems;
+}
+
+/**
+ * Everything that must hold between what a backend renders and what ships. The last check is the
+ * one that matters most: an asset no backend can render is not a manifest entry, it is a plan to
+ * discover the gap at the paywall.
+ */
+function sourceProblems(spec: AssetSpec): string[] {
+  const problems: string[] = [];
+  const { source } = spec;
+  const delivery: Delivery = { width: spec.width, height: spec.height, alpha: spec.alpha };
+
+  if (source.width < spec.width || source.height < spec.height) {
+    problems.push(
+      `${spec.key} renders at ${source.width}×${source.height}, smaller than its ${spec.width}×${spec.height} delivery — upscaling invents detail`,
+    );
+  }
+  if (source.width * spec.height !== source.height * spec.width) {
+    problems.push(
+      `${spec.key} renders at ${source.width}×${source.height}, a different aspect than its ${spec.width}×${spec.height} delivery`,
+    );
+  }
+  if (source.alpha && !spec.alpha) {
+    problems.push(`${spec.key} renders with alpha but ships opaque — render it opaque instead`);
+  }
+
+  const expected = postProcessFor(source, delivery);
+  if (spec.postProcess.join() !== expected.join()) {
+    problems.push(
+      `${spec.key} declares postProcess [${spec.postProcess.join(', ')}], its source implies [${expected.join(', ')}]`,
+    );
+  }
+
+  const capable = backendsForSource(source);
+  if (capable.length === 0) {
+    problems.push(
+      `${spec.key} has no producible backend path: nothing renders ${source.width}×${source.height}${source.alpha ? ' with alpha' : ''}`,
+    );
+  } else if (spec.backend !== undefined && !capable.includes(spec.backend)) {
+    problems.push(
+      `${spec.key} is pinned to "${spec.backend}", which cannot render ${source.width}×${source.height}${source.alpha ? ' with alpha' : ''}`,
+    );
   }
 
   return problems;

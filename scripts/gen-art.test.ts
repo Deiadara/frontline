@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ART_MANIFEST,
+  BACKEND_CAPABILITIES,
   NEGATIVE,
   STYLE_ANCHOR,
   findAssetSpec,
@@ -44,6 +45,9 @@ const PORTRAIT = spec('portrait-overseer-1');
 const PLATE = spec('plate-city');
 /** ART-BIBLE §6 — a 1024×1024 asset that must ship with a real alpha channel. */
 const FRAME = spec('ui-frame-panel');
+/** The two shapes no backend renders directly: 512² alpha, and 16:9 alpha. */
+const ICON = spec('icon-alloy');
+const FORE_PLANE = spec('plane-city-fore');
 const OUT = '/tmp/frontline-art';
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -98,6 +102,17 @@ describe('buildImageRequest', () => {
   it('carries the manifest transparency, so the backends can act on it', () => {
     expect(buildImageRequest(FRAME, OUT).alpha).toBe(true);
     expect(buildImageRequest(DISTRICT, OUT).alpha).toBe(false);
+  });
+
+  it('asks for spec.source, not the delivery spec, on the 14 assets where they differ', () => {
+    // An icon ships 512² with alpha; nothing renders that, so it is rendered at 1024².
+    expect(buildImageRequest(ICON, OUT)).toMatchObject({ width: 1024, height: 1024, alpha: true });
+    // The fore plane ships transparent; nothing renders 16:9 alpha, so it is rendered opaque.
+    expect(buildImageRequest(FORE_PLANE, OUT)).toMatchObject({
+      width: 2048,
+      height: 1152,
+      alpha: false,
+    });
   });
 
   it('resolves style refs to the on-disk masters under the output dir', () => {
@@ -191,6 +206,14 @@ describe('backend selection', () => {
     // 16:9 plates/planes/splashes have no gpt-image-1 equivalent — never silently substitute one.
     expect(openAiSize(2048, 1152)).toBeNull();
     expect(openAiSize(512, 512)).toBeNull();
+  });
+
+  it('maps exactly the sizes the shared capability table advertises', () => {
+    const advertised = BACKEND_CAPABILITIES.openai.sizes ?? [];
+    expect(advertised).not.toHaveLength(0);
+    for (const [width, height] of advertised) {
+      expect(openAiSize(width, height), `${width}×${height}`).toBe(`${width}x${height}`);
+    }
   });
 
   it('reports a resolution a backend cannot deliver', () => {
@@ -419,6 +442,9 @@ describe('buildProvenance', () => {
       assetKey: 'district-chrome-row',
       masterFile: 'district-chrome-row.png',
       deliveryFile: 'district-chrome-row.webp',
+      // This master already is the delivery image — no substitution to declare.
+      source: { width: 1024, height: 1024, alpha: false },
+      postProcess: [],
       backend: 'fal',
       model: 'fal-ai/flux-2/pro',
       seed: DISTRICT.seed,
@@ -495,9 +521,9 @@ describe('validateRun', () => {
 
   it('reports an ART-BIBLE violation against the offending key', () => {
     const broken: AssetSpec = { ...DISTRICT, width: 640, height: 480 };
-    expect(validateRun([broken], OUT, env)).toEqual([
+    expect(validateRun([broken], OUT, env)).toContainEqual(
       expect.stringContaining('district-chrome-row: '),
-    ]);
+    );
   });
 
   it('catches two runs claiming the same output path', () => {
@@ -512,18 +538,43 @@ describe('validateRun', () => {
     );
   });
 
-  it('fails the run rather than let a backend rewrite a manifest resolution', () => {
-    expect(validateRun([PLATE], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toContainEqual(
-      expect.stringContaining('plate-city: gpt-image-1 cannot produce 2048×1152'),
-    );
-    expect(validateRun([PLATE], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
+  /** MOU-123 acceptance: whichever backend the operator picks, all 44 assets are producible. */
+  it('passes on the whole manifest under either backend', () => {
+    expect(validateRun(ART_MANIFEST, OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
+    expect(validateRun(ART_MANIFEST, OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
   });
 
-  it('fails the run rather than pay fal for 26 assets that come back opaque', () => {
-    expect(validateRun([FRAME], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toContainEqual(
+  it('routes around a backend that cannot deliver, via the manifest pin rather than silently', () => {
+    // 16:9 has no gpt-image-1 size; 1024² alpha has no fal equivalent. Both are pinned, so the
+    // env var cannot send either one somewhere that would fail.
+    expect(PLATE.backend).toBe('fal');
+    expect(validateRun([PLATE], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
+    expect(FRAME.backend).toBe('openai');
+    expect(validateRun([FRAME], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
+  });
+
+  it('fails the run rather than let an unpinned asset rewrite a manifest resolution', () => {
+    const unpinned: AssetSpec = { ...PLATE, backend: undefined };
+    expect(validateRun([unpinned], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toContainEqual(
+      expect.stringContaining('plate-city: gpt-image-1 cannot produce 2048×1152'),
+    );
+    expect(validateRun([unpinned], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
+  });
+
+  it('fails the run rather than pay fal for an asset that comes back opaque', () => {
+    const unpinned: AssetSpec = { ...FRAME, backend: undefined };
+    expect(validateRun([unpinned], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toContainEqual(
       expect.stringContaining('ui-frame-panel: fal cannot deliver an alpha channel'),
     );
-    expect(validateRun([FRAME], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
+  });
+
+  /** An icon's guard must run against its 1024² render, not its 512² delivery. */
+  it('validates the source a backend is asked for, not the delivery spec', () => {
+    const icon = spec('icon-alloy');
+    expect(validateRun([icon], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
+    expect(
+      validateRun([{ ...icon, backend: undefined }], OUT, { FRONTLINE_ART_BACKEND: 'fal' }),
+    ).toContainEqual(expect.stringContaining('icon-alloy: fal cannot deliver an alpha channel'));
   });
 });
 

@@ -8,6 +8,12 @@
  * (`spec.file` — WebP at `ASSET_CLASS_SPECS[class].quality`) and the 1×/2× split belong to the
  * AssetPack step; masters live outside the app bundle and are never shipped (ART-BIBLE §6).
  *
+ * A backend is asked for `spec.source`, not `spec.file`'s resolution. For 14 assets those differ —
+ * no backend renders 512×512 with alpha, and none renders 16:9 with alpha at all — so the manifest
+ * declares the nearest producible render plus the `spec.postProcess` steps (`downscale`, `matte`)
+ * that close the gap. The steps are recorded in provenance and applied by the AssetPack encode
+ * step; declaring them is what keeps the substitution deliberate instead of silent.
+ *
  *   pnpm --filter @frontline/scripts gen-art -- --dry-run
  *   FRONTLINE_ART_BACKEND=fal FAL_KEY=… pnpm --filter @frontline/scripts gen-art
  *
@@ -23,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {
   ART_MANIFEST,
+  BACKEND_CAPABILITIES,
   GENERATION_SETTINGS,
   ImageBackendNameSchema,
   NEGATIVE,
@@ -30,8 +37,10 @@ import {
   STYLE_REFERENCE_KEYS,
   findAssetSpec,
   validateAssetSpec,
+  type AssetSource,
   type AssetSpec,
   type ImageBackendName,
+  type PostProcessStep,
 } from '@frontline/shared';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -45,9 +54,9 @@ export interface ImageRequest {
   prompt: string;
   negative: string;
   seed: number;
+  /** `spec.source` — what the backend is asked for, which is not always what ships. */
   width: number;
   height: number;
-  /** ART-BIBLE §6 — whether the master must carry a real alpha channel. */
   alpha: boolean;
   /** On-disk paths of the already-generated style reference masters (ART-PROMPTS §7.3). */
   styleRefPaths: readonly string[];
@@ -74,6 +83,10 @@ export interface Provenance {
   masterFile: string;
   /** The ART-BIBLE §6 delivery file the encode step produces from the master. */
   deliveryFile: string;
+  /** What the backend was asked to render — differs from the delivery spec for 14 assets. */
+  source: AssetSource;
+  /** The declared steps the encode step must apply to turn this master into `deliveryFile`. */
+  postProcess: readonly PostProcessStep[];
   backend: ImageBackendName;
   model: string;
   /** `null` when the backend exposes no seed (gpt-image-1) — the asset is then not reproducible. */
@@ -111,9 +124,9 @@ export function buildImageRequest(spec: AssetSpec, outDir: string): ImageRequest
     prompt: assemblePrompt(spec),
     negative: NEGATIVE,
     seed: spec.seed,
-    width: spec.width,
-    height: spec.height,
-    alpha: spec.alpha,
+    width: spec.source.width,
+    height: spec.source.height,
+    alpha: spec.source.alpha,
     styleRefPaths: spec.styleRefs.map((key) => {
       const ref = findAssetSpec(key);
       if (!ref) throw new Error(`${spec.key} references unknown style ref "${key}"`);
@@ -132,6 +145,8 @@ export function buildProvenance(
     assetKey: spec.key,
     masterFile: `${spec.key}.png`,
     deliveryFile: spec.file,
+    source: spec.source,
+    postProcess: spec.postProcess,
     backend: backend.name,
     model: backend.model,
     seed: backend.honorsSeed ? spec.seed : null,
@@ -175,18 +190,6 @@ function requireKey(env: Env, variable: string, backend: string): string {
   return key;
 }
 
-/**
- * ART-BIBLE §6 — which backends can return a master with a real alpha channel. 26 of the 44 assets
- * need one, and prose in the FRAMING block is not a transparency parameter, so this is capability
- * data rather than a hope.
- */
-const BACKEND_SUPPORTS_ALPHA: Readonly<Record<ImageBackendName, boolean>> = {
-  // gpt-image-1 documents `background: transparent`, which requires a png/webp `output_format`.
-  openai: true,
-  // FLUX.2 [pro] documents no transparency, alpha or background parameter — it mattes the subject.
-  fal: false,
-};
-
 const FalResponseSchema = z.object({ images: z.array(z.object({ url: z.string() })).min(1) });
 
 /**
@@ -203,7 +206,7 @@ export function createFalBackend(env: Env): ImageBackend {
     model,
     licence: 'fal.ai — commercial use per the model page (ADR 0001 §6.1); output rights per §6.4',
     supportsStyleRefs: true,
-    supportsAlpha: BACKEND_SUPPORTS_ALPHA.fal,
+    supportsAlpha: BACKEND_CAPABILITIES.fal.alpha,
     honorsSeed: true,
     async generate(req) {
       if (req.alpha) throw new Error(unsupportedTransparencyMessage('fal'));
@@ -255,7 +258,7 @@ export function createOpenAiBackend(env: Env): ImageBackend {
     model,
     licence: 'OpenAI gpt-image-1 — output ownership unresolved, see ADR 0001 §6.4',
     supportsStyleRefs: true,
-    supportsAlpha: BACKEND_SUPPORTS_ALPHA.openai,
+    supportsAlpha: BACKEND_CAPABILITIES.openai.alpha,
     honorsSeed: false,
     async generate(req) {
       const key = requireKey(env, 'OPENAI_API_KEY', 'openai');
@@ -366,7 +369,9 @@ function unsupportedTransparencyMessage(backend: ImageBackendName): string {
  * that only shows up after the money is spent, so it fails `--dry-run` instead.
  */
 export function unsupportedTransparency(backend: ImageBackendName, alpha: boolean): string | null {
-  return alpha && !BACKEND_SUPPORTS_ALPHA[backend] ? unsupportedTransparencyMessage(backend) : null;
+  return alpha && !BACKEND_CAPABILITIES[backend].alpha
+    ? unsupportedTransparencyMessage(backend)
+    : null;
 }
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -505,9 +510,10 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
       if (!parsed.success) {
         problems.push(`${spec.key}: unknown FRONTLINE_ART_BACKEND "${selected}"`);
       } else {
+        // Guards run against `spec.source` — the thing the backend is actually asked for.
         const unsupported = [
-          unsupportedResolution(parsed.data, spec.width, spec.height),
-          unsupportedTransparency(parsed.data, spec.alpha),
+          unsupportedResolution(parsed.data, spec.source.width, spec.source.height),
+          unsupportedTransparency(parsed.data, spec.source.alpha),
         ];
         for (const problem of unsupported) {
           if (problem !== null) problems.push(`${spec.key}: ${problem}`);
@@ -600,7 +606,13 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
     process.stdout.write(`${specs.length} asset(s) validated, no network calls made:\n`);
     for (const spec of specs) {
       process.stdout.write(
-        `  ${masterOutputPath(options.outDir, spec)}  seed ${spec.seed} → ${spec.file}\n`,
+        `  ${masterOutputPath(options.outDir, spec)}  seed ${spec.seed} → ${spec.file}${describePostProcess(spec)}\n`,
+      );
+    }
+    const pending = specs.filter((spec) => spec.postProcess.length > 0);
+    if (pending.length > 0) {
+      process.stdout.write(
+        `${pending.length} master(s) are not the delivery image — the AssetPack encode step must apply the post-process shown above.\n`,
       );
     }
     return 0;
@@ -613,6 +625,13 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
     return 1;
   }
   return 0;
+}
+
+/** Makes a master that is not yet the delivery image visible in the dry-run listing. */
+function describePostProcess(spec: AssetSpec): string {
+  if (spec.postProcess.length === 0) return '';
+  const { width, height, alpha } = spec.source;
+  return `  [rendered ${width}×${height}${alpha ? '+alpha' : ''}, then ${spec.postProcess.join(' + ')}]`;
 }
 
 function errorMessage(error: unknown): string {
