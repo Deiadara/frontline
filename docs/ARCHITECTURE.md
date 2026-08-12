@@ -37,7 +37,9 @@ or client-facing type.
 | Module             | Contents                                                                                  |
 | ------------------ | ----------------------------------------------------------------------------------------- |
 | `primitives.ts`    | `IdSchema`, `IsoDateTimeSchema`, `UsernameSchema`                                         |
-| `skills.ts`        | `SKILL_NAMES` (8 FM-style attributes), `Skills` (1..20), `DEFAULT_SKILLS`                 |
+| `attributes.ts`    | `ATTRIBUTE_NAMES` (34, four groups), `Attributes` (0..100), `attributeTier`               |
+| `traits.ts`        | `TRAIT_IDS`, `TRAIT_CATALOG`, `applyTraitBonuses`                                         |
+| `roles.ts`         | `OFFICER_ROLES` (19) + labels; the requirement weights stay server-side (GDD §B8)         |
 | `overseer.ts`      | `Overseer`, archetypes, `OVERSEER_PRESETS` (4), `findOverseerPreset`                      |
 | `commander.ts`     | Staff roles (head_doctor/battle_analyst/accountant/head_spy), factory                     |
 | `resources.ts`     | `Resources` {credits,power,data,alloy}, `STARTING_RESOURCES`, `addResources`              |

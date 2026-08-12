@@ -47,8 +47,9 @@ message}`; on `401` also clear the session (logout).
    server error display (`error.message`), submit disabled while pending.
 2. **Character Select** — the 4 `OVERSEER_PRESETS` as cards: portrait area (see image rule
    below; placeholder gradient keyed to `portraitId` is fine), name, archetype tag, bio, and the
-   8 skills as labeled 1..20 bars PLUS a compact FM-style radar/spider (SVG is fine — octagon,
-   one vertex per `SKILL_NAMES` entry). Selecting a card → confirm button → `POST /api/overseer`
+   34 attributes as a grouped 0..100 sheet PLUS a compact FM-style radar/spider (SVG is fine —
+   one vertex per `ATTRIBUTE_GROUPS` entry, plotting the group's peak rating). Traits are shown
+   as named badges. Selecting a card → confirm button → `POST /api/overseer`
    → navigate to `/game`.
 3. **Game shell** (`/game`) — fixed viewport app frame, no page scroll:
    - **Top HUD** (fixed height): the four resources with icons/labels (from `me.base.resources`)

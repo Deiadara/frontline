@@ -27,7 +27,8 @@ from `@frontline/shared`.
 - **Ids**: `crypto.randomUUID()`. **Timestamps**: ISO-8601 UTC strings (`new Date().toISOString()`).
 - **Persistence**: better-sqlite3 (synchronous — no `await` on db calls). Tables exist from
   `0001_init.sql`: `users`, `overseers`, `bases`, `battles` (+ `schema_migrations`). JSON payload
-  columns (`skills_json`, `resources_json`, `buildings_json`, `log_json`, `rewards_json`) are
+  columns (`attributes_json`, `traits_json`, `resources_json`, `buildings_json`, `log_json`,
+  `rewards_json`) are
   serialized with `JSON.stringify` and parsed through the shared Zod schemas when read.
   (Fallback note: if better-sqlite3's native build ever fails on a machine, swap
   `src/db/index.ts` to Node 24's built-in `node:sqlite` `DatabaseSync` — same synchronous shape.
@@ -67,7 +68,7 @@ Body: `CreateOverseerRequestSchema` `{presetId}`.
 - User already has an overseer → `409 OVERSEER_ALREADY_CHOSEN`.
 - `findOverseerPreset(presetId)` undefined → `400 UNKNOWN_PRESET`.
 - In one transaction: create the overseer from the preset (fresh id, copy name/archetype/
-  portraitId/bio/skills), set `users.overseer_id`, and create the starting base:
+  portraitId/bio/attributes/traits), set `users.overseer_id`, and create the starting base:
   district `STARTER_DISTRICT_ID`, level 1, `STARTING_RESOURCES`, buildings =
   `[command_center L1, reactor L1]` (fresh ids), name `"<username>'s Foothold"`.
 - `201` → `CreateOverseerResponseSchema` `{user, overseer, base}`.
