@@ -23,7 +23,10 @@ export type Building = z.infer<typeof BuildingSchema>;
 export interface BuildingSpec {
   name: string;
   description: string;
-  /** Cost to construct at level 1 (per-level scaling is a later milestone). */
+  /**
+   * Cost to construct at level 1 (per-level scaling is a later milestone). Every structure burns
+   * oil to raise: GDD §D3 makes oil the resource that building and upgrading consume.
+   */
   baseCost: PartialResources;
   /** Passive output per tick at level 1. */
   output: PartialResources;
@@ -33,37 +36,37 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
   command_center: {
     name: 'Command Center',
     description: 'The nerve center of the base. Caps the level of every other structure.',
-    baseCost: { credits: 400, alloy: 200 },
-    output: { credits: 10 },
+    baseCost: { caps: 400, scrap: 200, oil: 100 },
+    output: { caps: 10 },
   },
   reactor: {
     name: 'Fusion Reactor',
     description: 'Feeds the grid. Everything dies in the dark without it.',
-    baseCost: { credits: 150, alloy: 100 },
-    output: { power: 20 },
+    baseCost: { caps: 150, scrap: 100, oil: 60 },
+    output: { oil: 18 },
   },
   data_hub: {
     name: 'Data Hub',
     description: 'Harvests the datastream for intel and market signals.',
-    baseCost: { credits: 200, power: 30 },
-    output: { data: 15 },
+    baseCost: { caps: 200, scrap: 80, oil: 40 },
+    output: { caps: 12 },
   },
   foundry: {
     name: 'Foundry',
-    description: 'Smelts scavenged wreckage into usable alloy.',
-    baseCost: { credits: 250, power: 40 },
-    output: { alloy: 12 },
+    description: 'Smelts scavenged wreckage into high-quality metal.',
+    baseCost: { caps: 250, scrap: 150, oil: 50 },
+    output: { highQualityMetal: 6 },
   },
   barracks: {
     name: 'Barracks',
     description: 'Houses and trains your enforcers.',
-    baseCost: { credits: 300, alloy: 150 },
+    baseCost: { caps: 300, scrap: 150, oil: 40 },
     output: {},
   },
   wall: {
     name: 'Perimeter Wall',
     description: 'Ferrocrete and razorwire. The first thing raiders meet.',
-    baseCost: { alloy: 250 },
+    baseCost: { scrap: 250, oil: 30 },
     output: {},
   },
 };

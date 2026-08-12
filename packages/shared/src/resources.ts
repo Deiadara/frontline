@@ -1,13 +1,28 @@
 import { z } from 'zod';
 
-/** The four base-building currencies. */
+/**
+ * The five base resources (GDD §D1 food, §D2 caps, §D3 oil, §D5 scrap, §D6 high-quality metal).
+ *
+ * `caps` is the currency: officer wages are paid in caps (§D2, §H7). `scrap` and high-quality
+ * metal are deliberately distinct (§D6) — scrap is the salvage floor, high-quality metal is the
+ * scarce input. This set *replaces* the MVP's credits/power/data/alloy outright (§D9); there is
+ * no live player data, so the migration is destructive.
+ */
 export const ResourcesSchema = z.object({
-  credits: z.number().nonnegative(),
-  power: z.number().nonnegative(),
-  data: z.number().nonnegative(),
-  alloy: z.number().nonnegative(),
+  caps: z.number().nonnegative(),
+  food: z.number().nonnegative(),
+  oil: z.number().nonnegative(),
+  scrap: z.number().nonnegative(),
+  highQualityMetal: z.number().nonnegative(),
 });
 export type Resources = z.infer<typeof ResourcesSchema>;
+export type ResourceKey = keyof Resources;
+
+/**
+ * Every resource key in display order — derived from the schema, so a resource added to
+ * `ResourcesSchema` can never be silently missing from a readout.
+ */
+export const RESOURCE_KEYS = Object.keys(ResourcesSchema.shape) as readonly ResourceKey[];
 
 /** Partial bundle — used for costs, outputs and battle rewards. */
 export const PartialResourcesSchema = ResourcesSchema.partial();
@@ -15,18 +30,20 @@ export type PartialResources = z.infer<typeof PartialResourcesSchema>;
 
 /** Stockpile every new base starts with. */
 export const STARTING_RESOURCES: Resources = {
-  credits: 500,
-  power: 100,
-  data: 50,
-  alloy: 200,
+  caps: 500,
+  food: 300,
+  oil: 120,
+  scrap: 200,
+  highQualityMetal: 40,
 };
 
 /** Immutable add: returns `a` with `b`'s amounts applied on top. */
 export function addResources(a: Resources, b: PartialResources): Resources {
   return {
-    credits: a.credits + (b.credits ?? 0),
-    power: a.power + (b.power ?? 0),
-    data: a.data + (b.data ?? 0),
-    alloy: a.alloy + (b.alloy ?? 0),
+    caps: a.caps + (b.caps ?? 0),
+    food: a.food + (b.food ?? 0),
+    oil: a.oil + (b.oil ?? 0),
+    scrap: a.scrap + (b.scrap ?? 0),
+    highQualityMetal: a.highQualityMetal + (b.highQualityMetal ?? 0),
   };
 }

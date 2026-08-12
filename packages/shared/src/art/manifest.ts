@@ -2,7 +2,7 @@
  * The single source of asset-key truth.
  *
  * Keys, filenames and seeds are **derived** from the domain constants (`CITY_DISTRICTS`,
- * `BUILDING_CATALOG`, `OVERSEER_PRESETS`, `ResourcesSchema`, `OVERSEER_ARCHETYPES`,
+ * `BUILDING_CATALOG`, `OVERSEER_PRESETS`, `RESOURCE_ICON_SUBJECTS`, `OVERSEER_ARCHETYPES`,
  * `DISTRICT_KINDS`) so the `docs/ART-BIBLE.md` §7 naming rule cannot drift from the game model.
  * Resolutions and aspects come from the ART-BIBLE §6 table; prompts come from `./prompts.js`.
  */
@@ -10,7 +10,6 @@ import { z } from 'zod';
 import { BUILDING_KINDS, type BuildingKind } from '../building.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS, type DistrictKind } from '../city.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS, type OverseerArchetype } from '../overseer.js';
-import { ResourcesSchema, type Resources } from '../resources.js';
 import {
   ARCHETYPE_ICON_SUBJECTS,
   BUILDING_SUBJECTS,
@@ -21,6 +20,7 @@ import {
   PORTRAIT_SUBJECTS,
   RESOURCE_ICON_SUBJECTS,
   UI_SUBJECTS,
+  type ResourceIconId,
 } from './prompts.js';
 
 /** ART-BIBLE §7 — the `class` segment of every filename. */
@@ -230,7 +230,8 @@ const SEED_BASE = {
   kindIcon: 160020,
 } as const;
 
-const RESOURCE_KEYS = Object.keys(ResourcesSchema.shape) as readonly (keyof Resources)[];
+/** Art ids, not economy keys — see `RESOURCE_ICON_SUBJECTS`. Renaming these renames shipped files. */
+const RESOURCE_ICON_IDS = Object.keys(RESOURCE_ICON_SUBJECTS) as readonly ResourceIconId[];
 
 const toKebab = (id: string): string => id.replaceAll('_', '-');
 const toSnake = (subject: string): string => subject.replaceAll('-', '_');
@@ -378,7 +379,7 @@ const uiDrafts = (Object.keys(UI_SUBJECTS) as (keyof typeof UI_SUBJECTS)[]).map(
 );
 
 const iconDrafts = [
-  ...RESOURCE_KEYS.map((resource, index) =>
+  ...RESOURCE_ICON_IDS.map((resource, index) =>
     draft({
       key: `icon-${resource}`,
       class: 'icon',
@@ -432,7 +433,7 @@ export type AssetRef =
   | { type: 'portrait'; portraitId: string }
   | { type: 'district'; districtId: string }
   | { type: 'building'; building: BuildingKind }
-  | { type: 'resource-icon'; resource: keyof Resources }
+  | { type: 'resource-icon'; resource: ResourceIconId }
   | { type: 'archetype-icon'; archetype: OverseerArchetype }
   | { type: 'district-kind-icon'; districtKind: DistrictKind };
 
@@ -517,7 +518,7 @@ function iconSubjectResolves(subject: string): boolean {
     return (DISTRICT_KINDS as readonly string[]).includes(toSnake(districtKind));
   }
 
-  return (RESOURCE_KEYS as readonly string[]).includes(subject);
+  return (RESOURCE_ICON_IDS as readonly string[]).includes(subject);
 }
 
 function stripPrefix(value: string, prefix: string): string | null {

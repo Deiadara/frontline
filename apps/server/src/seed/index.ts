@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { BOT_DISTRICT_ID, findOverseerPreset, type Base, type Overseer } from '@frontline/shared';
+import {
+  BOT_DISTRICT_ID,
+  findOverseerPreset,
+  startingEconomy,
+  type Base,
+  type Overseer,
+} from '@frontline/shared';
 import bcrypt from 'bcryptjs';
 import Database from 'better-sqlite3';
 import type { AppDatabase } from '../db/index.js';
@@ -132,6 +138,7 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
       level: MVP_BOT.level,
       isBot: true,
       resources: MVP_BOT.resources,
+      economy: startingEconomy(now),
       buildings: MVP_BOT.buildings,
       commanders: MVP_BOT.commanders,
       createdAt: now,

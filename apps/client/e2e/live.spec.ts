@@ -97,7 +97,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   const hud = page.locator('header'); // the TopHud; scopes the name away from the char-select DOM
   await expect(hud.getByText(overseerName)).toBeVisible();
   await expect(page.locator('canvas')).toBeVisible();
-  await expect(hud).toContainText(String(STARTING_RESOURCES.credits));
+  await expect(hud).toContainText(String(STARTING_RESOURCES.caps));
   await page.waitForTimeout(800); // let Pixi paint the map before the screenshot
   await shootEveryViewport(page, 'city-map');
 
@@ -141,8 +141,8 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // rival district's rewards.
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: 'VICTORY' })).toBeVisible();
-  await expect(dialog).toContainText(String(AFTER_RAID.credits));
-  await expect(dialog).toContainText(String(AFTER_RAID.alloy));
+  await expect(dialog).toContainText(String(AFTER_RAID.caps));
+  await expect(dialog).toContainText(String(AFTER_RAID.scrap));
   // A player never sees a UUID: the narration names the base it deployed from.
   await expect(dialog).toContainText("Nikos's Foothold");
   expect(await dialog.innerText()).not.toMatch(
@@ -153,7 +153,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // The salvage is also reflected in the persistent HUD after the refetch.
   await page.getByRole('button', { name: 'Dismiss' }).click();
   await expect(dialog).toBeHidden();
-  await expect(hud).toContainText(String(AFTER_RAID.credits));
+  await expect(hud).toContainText(String(AFTER_RAID.caps));
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);

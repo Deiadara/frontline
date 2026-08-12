@@ -9,7 +9,6 @@
 import type { BuildingKind } from '../building.js';
 import type { DistrictKind } from '../city.js';
 import type { OverseerArchetype } from '../overseer.js';
-import type { Resources } from '../resources.js';
 
 /** Collapses authoring whitespace into a single-line prose block. */
 const block = (text: string): string => text.trim().replace(/\s+/g, ' ');
@@ -345,8 +344,15 @@ export const UI_SUBJECTS = {
   `),
 } as const;
 
-/** ART-PROMPTS §6.1 — keyed by `Resources` key. */
-export const RESOURCE_ICON_SUBJECTS: Readonly<Record<keyof Resources, string>> = {
+/**
+ * ART-PROMPTS §6.1. These keys are *shipped art ids*, not economy keys: each has an authored
+ * prompt here, a row in ART-PROMPTS/ART-BIBLE/ART-ORDER and a rendered `.webp` behind it, so
+ * they must not be renamed by a schema change. MOU-161 replaced the MVP economy with
+ * caps/food/oil/scrap/high-quality metal (GDD §D9) and deliberately left this set alone —
+ * TODO-LATER: re-prompt the resource icons for the real economy in W9/MOU-168 (art direction v2),
+ * which owns the art pass and the doc rows that move with it.
+ */
+export const RESOURCE_ICON_SUBJECTS = {
   credits: block(`
     A short stack of worn hexagonal transaction chits, top one tilted, edges nicked, a faint
     amber #f59e0b glyph-glow along the rim of the top chit.
@@ -363,7 +369,10 @@ export const RESOURCE_ICON_SUBJECTS: Readonly<Record<keyof Resources, string>> =
     Three stacked rough-cast metal ingots with hammered faces and scale still on them, cold
     #94a3b8 specular on the top edges, one cracked corner.
   `),
-};
+} as const;
+
+/** The shipped resource-icon ids, derived from the prompts that actually exist. */
+export type ResourceIconId = keyof typeof RESOURCE_ICON_SUBJECTS;
 
 /** ART-PROMPTS §6.2 — keyed by `OverseerArchetype`. */
 export const ARCHETYPE_ICON_SUBJECTS: Readonly<Record<OverseerArchetype, string>> = {

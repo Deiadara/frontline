@@ -3,6 +3,7 @@ import {
   CITY_DISTRICTS,
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
+  startingEconomy,
   type AuthResponse,
   type Base,
   type BaseDetailResponse,
@@ -39,6 +40,7 @@ export const base: Base = {
   level: 1,
   isBot: false,
   resources: STARTING_RESOURCES,
+  economy: startingEconomy(NOW),
   buildings: [
     { id: 'b1', kind: 'command_center', level: 1 },
     { id: 'b2', kind: 'reactor', level: 1 },
@@ -77,7 +79,7 @@ export const city: CityResponse = {
 
 export const baseDetail: BaseDetailResponse = { base };
 
-const rewards = { alloy: 120, credits: 60 };
+const rewards = { scrap: 120, caps: 60 };
 
 export const battle: BattleResponse = {
   result: {

@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { BUILDING_KINDS } from '../building.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS } from '../city.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS } from '../overseer.js';
-import { ResourcesSchema } from '../resources.js';
 import {
   ART_MANIFEST,
   ASSET_CLASS_SPECS,
@@ -21,7 +20,13 @@ import {
   type AssetSource,
   type AssetSpec,
 } from './manifest.js';
-import { FRAMING, NEGATIVE, PLATE_SUBJECTS, STYLE_ANCHOR } from './prompts.js';
+import {
+  FRAMING,
+  NEGATIVE,
+  PLATE_SUBJECTS,
+  RESOURCE_ICON_SUBJECTS,
+  STYLE_ANCHOR,
+} from './prompts.js';
 
 /**
  * Transcribed from `docs/ART-PROMPTS.md` §1–§6. The manifest derives these from the domain
@@ -386,7 +391,8 @@ describe('subject resolution (ART-BIBLE §7)', () => {
   });
 
   it('resolves resource, archetype and district-kind icon subjects', () => {
-    for (const resource of Object.keys(ResourcesSchema.shape)) {
+    // Art ids, not economy keys: MOU-161 replaced the economy without renaming shipped art.
+    for (const resource of Object.keys(RESOURCE_ICON_SUBJECTS)) {
       expect(subjectResolvesToDomainId('icon', resource)).toBe(true);
     }
     for (const archetype of OVERSEER_ARCHETYPES) {
@@ -395,7 +401,7 @@ describe('subject resolution (ART-BIBLE §7)', () => {
     for (const kind of DISTRICT_KINDS) {
       expect(subjectResolvesToDomainId('icon', `kind-${kind.replaceAll('_', '-')}`)).toBe(true);
     }
-    expect(subjectResolvesToDomainId('icon', 'scrap')).toBe(false);
+    expect(subjectResolvesToDomainId('icon', 'plutonium')).toBe(false);
     expect(subjectResolvesToDomainId('icon', 'archetype-samurai')).toBe(false);
     expect(subjectResolvesToDomainId('icon', 'kind-wasteland')).toBe(false);
   });

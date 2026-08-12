@@ -206,7 +206,7 @@ describe('seedMvpWorld', () => {
       expect.arrayContaining(['wall', 'barracks', 'command_center']),
     );
     expect(base?.commanders.length).toBeGreaterThan(0);
-    expect(base?.resources.credits).toBeGreaterThan(STARTING_RESOURCES.credits);
+    expect(base?.resources.caps).toBeGreaterThan(STARTING_RESOURCES.caps);
   });
 
   it('exposes the bot base to the city map as a hostile summary', async () => {

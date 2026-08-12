@@ -43,7 +43,7 @@ export const MVP_BOT: BotBlueprint = {
   baseName: 'Vex Holdings',
   overseerPresetId: 'fixer',
   level: 4,
-  resources: { credits: 4200, power: 1600, data: 1400, alloy: 3800 },
+  resources: { caps: 4200, food: 2400, oil: 1600, scrap: 3800, highQualityMetal: 900 },
   buildings: [
     { id: 'vex-command-center', kind: 'command_center', level: 4 },
     { id: 'vex-wall', kind: 'wall', level: 4 },

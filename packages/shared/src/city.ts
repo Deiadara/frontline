@@ -50,7 +50,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     position: { x: 0.85, y: 0.2 },
     // Held by the AI rival: a fortified base, so it sits between the mid raids and Blacksite 7.
     difficulty: 4,
-    rewards: { credits: 180, alloy: 140, data: 60 },
+    rewards: { caps: 180, scrap: 140, food: 60 },
   },
   {
     id: 'rustyard',
@@ -58,7 +58,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     kind: 'raid',
     position: { x: 0.28, y: 0.55 },
     difficulty: 2,
-    rewards: { alloy: 120, credits: 60 },
+    rewards: { scrap: 120, caps: 60 },
   },
   {
     id: 'chrome-row',
@@ -66,7 +66,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     kind: 'raid',
     position: { x: 0.45, y: 0.78 },
     difficulty: 4,
-    rewards: { credits: 200, power: 40 },
+    rewards: { caps: 200, scrap: 40 },
   },
   {
     id: 'undergrid',
@@ -74,7 +74,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     kind: 'raid',
     position: { x: 0.55, y: 0.42 },
     difficulty: 5,
-    rewards: { power: 90, data: 45 },
+    rewards: { oil: 90, scrap: 45 },
   },
   {
     id: 'datavault-sigma',
@@ -82,7 +82,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     kind: 'raid',
     position: { x: 0.68, y: 0.65 },
     difficulty: 6,
-    rewards: { data: 160, credits: 90 },
+    rewards: { caps: 160, highQualityMetal: 30 },
   },
   {
     id: 'glasshouse-fields',
@@ -90,7 +90,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     kind: 'raid',
     position: { x: 0.2, y: 0.28 },
     difficulty: 3,
-    rewards: { credits: 110, alloy: 70 },
+    rewards: { food: 110, scrap: 70 },
   },
   {
     id: 'sprawl-exchange',
@@ -114,7 +114,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     kind: 'npc_stronghold',
     position: { x: 0.78, y: 0.38 },
     difficulty: 8,
-    rewards: { credits: 350, data: 200, alloy: 150 },
+    rewards: { caps: 350, highQualityMetal: 90, oil: 150 },
   },
   {
     id: 'combine-spire',
@@ -122,7 +122,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     kind: 'npc_stronghold',
     position: { x: 0.5, y: 0.08 },
     difficulty: 10,
-    rewards: { credits: 600, power: 250, data: 300, alloy: 300 },
+    rewards: { caps: 600, oil: 250, highQualityMetal: 200, food: 300 },
   },
 ];
 

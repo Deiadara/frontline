@@ -1,4 +1,15 @@
-import { BUILDING_CATALOG, findDistrict, type Building } from '@frontline/shared';
+import {
+  BUILDING_CATALOG,
+  PAY_WEEK_MS,
+  findDistrict,
+  foodUpkeepFor,
+  reputationOf,
+  startOfPayWeek,
+  weeklyWageBill,
+  type Base,
+  type Building,
+} from '@frontline/shared';
+import { StandingReadout } from '../../components/Meters';
 import { RewardLine, ResourceGrid } from '../../components/Resources';
 import { Panel } from '../../components/ui/Panel';
 import { useBase, useMe } from '../../lib/queries';
@@ -20,6 +31,7 @@ export function BasePanel() {
   }
 
   const districtName = findDistrict(base.districtId)?.name ?? base.districtId;
+  const now = new Date();
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -42,6 +54,15 @@ export function BasePanel() {
           <ResourceGrid resources={base.resources} className="p-4" />
         </Panel>
 
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Panel title="Standing">
+            <StandingReadout economy={base.economy} reputation={reputationOf(base.economy, now)} />
+          </Panel>
+          <Panel title="Payroll">
+            <PayrollRows base={base} now={now} />
+          </Panel>
+        </div>
+
         <Panel title="Structures">
           <ul className="flex flex-col divide-y divide-steel-800">
             {base.buildings.map((building) => (
@@ -50,6 +71,45 @@ export function BasePanel() {
           </ul>
         </Panel>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The wage book (GDD §H7): what the crew costs every week and when the caps next leave. Salary
+ * negotiation itself is W5/MOU-164 — this is the money side of it, which is what already moves.
+ */
+function PayrollRows({ base, now }: { base: Base; now: Date }) {
+  const officers = base.commanders.length;
+  const nextPayday = new Date(startOfPayWeek(now).getTime() + PAY_WEEK_MS);
+
+  return (
+    <dl className="flex flex-col divide-y divide-steel-800">
+      <PayrollRow label="Officers on the books" value={String(officers)} />
+      <PayrollRow
+        label="Wages / week"
+        value={`${weeklyWageBill(base.economy.payroll.wages)} caps`}
+      />
+      <PayrollRow label="Food upkeep / week" value={`${foodUpkeepFor(officers)} food`} />
+      <PayrollRow
+        label="Next payday"
+        value={nextPayday.toLocaleDateString(undefined, {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+        })}
+      />
+    </dl>
+  );
+}
+
+function PayrollRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+      <dt className="font-display text-[10px] uppercase tracking-[0.18em] text-steel-400">
+        {label}
+      </dt>
+      <dd className="font-display text-sm font-semibold tabular-nums text-steel-100">{value}</dd>
     </div>
   );
 }

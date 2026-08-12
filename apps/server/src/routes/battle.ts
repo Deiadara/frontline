@@ -1,16 +1,40 @@
 import { randomUUID } from 'node:crypto';
 import {
   BattleRequestSchema,
+  INFAMY_PER_RAID_WON,
   addResources,
+  adjustMeter,
   findDistrict,
   isDistrictAttackable,
+  recordRaidOutcome,
   type Base,
   type BattleResponse,
   type District,
+  type EconomyState,
   type Resources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { settleBaseEconomy } from '../economy/settle.js';
 import { AppError, parseBody } from '../errors.js';
+
+/**
+ * Taking a site by force is the one *infamous* action the game can currently perform (GDD §D7),
+ * so it is the only live driver of the infamy meter and the reputation tally (§D8). Losing still
+ * goes on the books — a crew that keeps throwing people at doors that do not open earns the
+ * `Reckless` label for it.
+ */
+function recordRaid(
+  economy: EconomyState,
+  winner: 'attacker' | 'defender',
+  now: Date,
+): EconomyState {
+  return {
+    ...economy,
+    infamy:
+      winner === 'attacker' ? adjustMeter(economy.infamy, INFAMY_PER_RAID_WON) : economy.infamy,
+    reputationTally: recordRaidOutcome(economy.reputationTally, winner, now),
+  };
+}
 
 /** Reads the district's occupancy out of the database and applies the shared rule. */
 function isAttackable(app: FastifyInstance, district: District, attacker: Base): boolean {
@@ -24,10 +48,14 @@ export function registerBattleRoutes(app: FastifyInstance): void {
   app.post('/battle', { preHandler: app.authenticate }, (request): BattleResponse => {
     const { targetDistrictId } = parseBody(BattleRequestSchema, request.body);
 
-    const base = app.repos.bases.findByOwnerId(request.currentUser.id);
-    if (!base) {
+    const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
+    if (!owned) {
       throw new AppError('NO_BASE', 'You must establish a base before launching an attack');
     }
+    // Wages and upkeep come off the stockpile before the raid pays into it, so a player cannot
+    // outrun an overdue payroll by spending the caps first.
+    const now = new Date();
+    const base = settleBaseEconomy(app.repos, owned, now);
 
     const district = findDistrict(targetDistrictId);
     if (!district || !isAttackable(app, district, base)) {
@@ -48,8 +76,9 @@ export function registerBattleRoutes(app: FastifyInstance): void {
         winner: result.winner,
         log: result.log,
         rewards: result.rewards,
-        createdAt: new Date().toISOString(),
+        createdAt: now.toISOString(),
       });
+      app.repos.bases.updateEconomy(base.id, recordRaid(base.economy, result.winner, now));
       if (result.winner === 'attacker') {
         const updated = addResources(base.resources, result.rewards);
         app.repos.bases.updateResources(base.id, updated);

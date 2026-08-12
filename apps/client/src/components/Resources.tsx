@@ -1,8 +1,13 @@
-import type { PartialResources, Resources } from '@frontline/shared';
+import {
+  RESOURCE_KEYS,
+  type PartialResources,
+  type ResourceKey,
+  type Resources,
+} from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { cn } from '../lib/cn';
 
-export type ResourceKey = keyof Resources;
+export type { ResourceKey };
 
 interface ResourceMeta {
   label: string;
@@ -17,48 +22,93 @@ const glyph = (path: ReactNode) => (
   </svg>
 );
 
+/**
+ * GDD §D. Scrap and high-quality metal are deliberately different materials (§D6), so they read
+ * apart at a glance: dull ferrite shards against bright milled ingots.
+ */
 export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
-  credits: {
-    label: 'Credits',
+  caps: {
+    label: 'Caps',
     color: 'text-warning',
     icon: glyph(
       <>
-        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4" />
-        <circle cx="8" cy="8" r="2.4" stroke="currentColor" strokeWidth="1.4" />
+        <circle cx="8" cy="8" r="5.6" stroke="currentColor" strokeWidth="1.4" />
+        <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.2" />
+        <path
+          d="M8 2.4v1.4M8 12.2v1.4M2.4 8h1.4M12.2 8h1.4"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+        />
       </>,
     ),
   },
-  power: {
-    label: 'Power',
-    color: 'text-neon-cyan',
-    icon: glyph(<path d="M9 1 3 9h4l-1 6 6-9H8z" fill="currentColor" />),
-  },
-  data: {
-    label: 'Data',
-    color: 'text-steel-200',
+  food: {
+    label: 'Food',
+    color: 'text-bile-300',
     icon: glyph(
       <>
-        <ellipse cx="8" cy="4" rx="5" ry="2" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="4" y="3.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M4.4 6.2h7.2" stroke="currentColor" strokeWidth="1.2" />
       </>,
     ),
   },
-  alloy: {
-    label: 'Alloy',
-    color: 'text-steel-400',
+  oil: {
+    label: 'Oil',
+    color: 'text-hextech-300',
     icon: glyph(
       <path
-        d="M8 2 14 5v6L8 14 2 11V5z"
+        d="M8 1.8c2.6 3 4.2 5.1 4.2 7a4.2 4.2 0 1 1-8.4 0c0-1.9 1.6-4 4.2-7z"
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinejoin="round"
       />,
     ),
   },
+  scrap: {
+    label: 'Scrap',
+    color: 'text-ferrite-300',
+    icon: glyph(
+      <>
+        <path
+          d="M2.4 9.4 6 3.2l3 3.6-1.5 2.6z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M8.2 13 11 7.6l3 2.4-1.2 3z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+      </>,
+    ),
+  },
+  highQualityMetal: {
+    label: 'HQ Metal',
+    color: 'text-steel-100',
+    icon: glyph(
+      <>
+        <path
+          d="M3 10.6 8 8.4l5 2.2-5 2.2z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M4.4 6.6 8 5l3.6 1.6L8 8.2z"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+      </>,
+    ),
+  },
 };
 
-/** Fixed display order (typed so it stays in sync with the shared shape). */
-export const RESOURCE_ORDER: readonly ResourceKey[] = ['credits', 'power', 'data', 'alloy'];
+/** Fixed display order — taken from the shared schema so a new resource cannot be dropped. */
+export const RESOURCE_ORDER: readonly ResourceKey[] = RESOURCE_KEYS;
 
 interface ResourceChipProps {
   kind: ResourceKey;
@@ -69,7 +119,7 @@ interface ResourceChipProps {
 export function ResourceChip({ kind, value }: ResourceChipProps) {
   const meta = RESOURCE_META[kind];
   return (
-    <div className="flex items-center gap-2 border border-steel-700 bg-night px-3 py-1.5">
+    <div className="flex shrink-0 items-center gap-2 border border-steel-700 bg-night px-2.5 py-1.5">
       <span className={meta.color}>{meta.icon}</span>
       <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-400">
         {meta.label}
@@ -97,7 +147,7 @@ export function ResourceGrid({ resources, className }: ResourceGridProps) {
   );
 }
 
-/** Inline "+120 alloy · +60 credits" style reward line for partial bundles. */
+/** Inline "+120 scrap · +60 caps" style reward line for partial bundles. */
 export function RewardLine({ rewards }: { rewards: PartialResources }) {
   const entries = RESOURCE_ORDER.filter(
     (kind): kind is ResourceKey => (rewards[kind] ?? 0) > 0,

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BuildingSchema } from './building.js';
 import { CommanderSchema } from './commander.js';
+import { EconomyStateSchema } from './economy/state.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { ResourcesSchema } from './resources.js';
 
@@ -14,6 +15,8 @@ export const BaseSchema = z.object({
   /** AI-controlled rival base. Bot bases are raidable; human bases are not. */
   isBot: z.boolean(),
   resources: ResourcesSchema,
+  /** Meters, action tally and wage book (GDD §D, §H7). Owner-only — never in a public projection. */
+  economy: EconomyStateSchema,
   buildings: z.array(BuildingSchema),
   commanders: z.array(CommanderSchema),
   createdAt: IsoDateTimeSchema,
