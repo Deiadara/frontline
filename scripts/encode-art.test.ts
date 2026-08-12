@@ -1,0 +1,299 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import sharp from 'sharp';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  ART_MANIFEST,
+  POST_PROCESS_STEPS,
+  findAssetSpec,
+  type AssetSpec,
+  type PostProcessStep,
+} from '@frontline/shared';
+import {
+  DEFAULT_MATTE_TOLERANCE,
+  HUMAN_MATTE_FLOOR,
+  decodeMaster,
+  encodeAsset,
+  keyBackground,
+  main,
+  parseArgs,
+  postProcessorFor,
+  transparencyOf,
+  unimplementedSteps,
+} from './encode-art.js';
+
+const spec = (key: string): AssetSpec => {
+  const found = findAssetSpec(key);
+  if (!found) throw new Error(`${key} is missing from the manifest`);
+  return found;
+};
+
+/** The two shapes no backend renders directly — the whole reason `postProcess` exists. */
+const ICON = spec('icon-alloy');
+const FORE_PLANE = spec('plane-city-fore');
+const FAR_PLANE = spec('plane-city-far');
+/** A master that already is its delivery image. */
+const DISTRICT = spec('district-chrome-row');
+
+const SKY: readonly [number, number, number, number] = [27, 34, 51, 255];
+const SUBJECT: readonly [number, number, number, number] = [240, 200, 120, 255];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+type Rgba = readonly [number, number, number, number];
+
+/** A PNG master painted pixel-by-pixel, so a test can state exactly what the encoder is handed. */
+async function master(
+  width: number,
+  height: number,
+  paint: (x: number, y: number) => Rgba,
+): Promise<Buffer> {
+  const data = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      data.set(paint(x, y), (y * width + x) * 4);
+    }
+  }
+  return sharp(data, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
+
+/** An opaque master whose subject fills the bottom `subjectFraction` of the frame. */
+const skyline = (width: number, height: number, subjectFraction: number) =>
+  master(width, height, (_x, y) => (y >= height * (1 - subjectFraction) ? SUBJECT : SKY));
+
+describe('post-process registry', () => {
+  /** MOU-125 scope item 4: nothing the manifest declares may be silently skipped. */
+  it('implements every step the manifest declares', () => {
+    expect(unimplementedSteps(ART_MANIFEST)).toEqual([]);
+  });
+
+  it('implements every step in the shared POST_PROCESS_STEPS union', () => {
+    for (const step of POST_PROCESS_STEPS) {
+      expect(postProcessorFor(step), step).toBeTypeOf('function');
+    }
+  });
+
+  it('is a hard failure, never a pass-through, for a step with no implementation', () => {
+    expect(() => postProcessorFor('sharpen' as PostProcessStep)).toThrow(
+      /no implementation for post-process step "sharpen"/,
+    );
+    expect(unimplementedSteps([{ ...ICON, postProcess: ['sharpen' as PostProcessStep] }])).toEqual([
+      'sharpen',
+    ]);
+  });
+
+  it('covers exactly the 14 assets MOU-123 left post-processed', () => {
+    const pending = ART_MANIFEST.filter((s) => s.postProcess.length > 0);
+    expect(pending).toHaveLength(14);
+    expect(pending.filter((s) => s.postProcess.includes('downscale'))).toHaveLength(12);
+    expect(pending.filter((s) => s.postProcess.includes('matte'))).toHaveLength(2);
+  });
+});
+
+describe('keyBackground', () => {
+  it('clears the background and keeps the subject', async () => {
+    const image = await decodeMaster(
+      await master(64, 64, (x, y) => (x >= 16 && x < 48 && y >= 16 && y < 48 ? SUBJECT : SKY)),
+    );
+    const keyed = keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+    const alphaAt = (x: number, y: number): number => keyed.data[(y * 64 + x) * 4 + 3]!;
+
+    expect(alphaAt(0, 0)).toBe(0);
+    expect(alphaAt(32, 32)).toBe(255);
+    // 64² canvas, 32² subject — exactly three quarters keyed.
+    expect(transparencyOf(keyed)).toBeCloseTo(0.75, 5);
+  });
+
+  it('keeps a sky-coloured window inside the subject — it is its own tiny region', async () => {
+    const inSubject = (x: number, y: number): boolean => x >= 16 && x < 48 && y >= 16 && y < 48;
+    // 4×4 of 64² is 0.4% of the canvas, under MIN_KEYED_REGION.
+    const inWindow = (x: number, y: number): boolean => x >= 30 && x < 34 && y >= 30 && y < 34;
+    const image = await decodeMaster(
+      await master(64, 64, (x, y) => (inSubject(x, y) && !inWindow(x, y) ? SUBJECT : SKY)),
+    );
+
+    const keyed = keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+    expect(keyed.data[(32 * 64 + 32) * 4 + 3]).toBe(255);
+    expect(keyed.data[3]).toBe(0);
+  });
+
+  /** `plane-city-fore` is transparent through its centre and painted at the edges (ART-BIBLE §6). */
+  it('keys a centre background the frame border never touches', async () => {
+    const image = await decodeMaster(
+      await master(64, 64, (x, y) => (x >= 6 && x < 58 && y >= 6 && y < 58 ? SKY : SUBJECT)),
+    );
+    const keyed = keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+
+    expect(keyed.data[(32 * 64 + 32) * 4 + 3]).toBe(0);
+    expect(keyed.data[3]).toBe(255);
+    expect(transparencyOf(keyed)).toBeCloseTo((52 * 52) / (64 * 64), 5);
+  });
+
+  it('does not chase a gradient across the whole frame', async () => {
+    // Seed-relative tolerance keeps the key inside the band nearest the dominant colour.
+    const image = await decodeMaster(
+      await master(64, 64, (_x, y) => [20, 20, Math.min(255, y * 4), 255]),
+    );
+    expect(transparencyOf(keyBackground(image, DEFAULT_MATTE_TOLERANCE))).toBeLessThan(0.5);
+  });
+});
+
+describe('encodeAsset', () => {
+  it('downscales an icon master to its ART-BIBLE §6 delivery size, keeping alpha', async () => {
+    // gpt-image-1 renders icons at 1024² with a real alpha channel; only the size needs closing.
+    const bytes = await master(1024, 1024, (x, y) =>
+      x >= 256 && x < 768 && y >= 256 && y < 768 ? SUBJECT : [0, 0, 0, 0],
+    );
+
+    const { bytes: delivery, transparency } = await encodeAsset(bytes, ICON);
+    const meta = await sharp(delivery).metadata();
+    expect({ width: meta.width, height: meta.height, format: meta.format }).toEqual({
+      width: 512,
+      height: 512,
+      format: 'webp',
+    });
+    expect(meta.hasAlpha).toBe(true);
+    // The transparent three quarters survive the resample.
+    expect(transparency).toBeCloseTo(0.75, 2);
+  });
+
+  it('mattes an opaque plane master and reports the transparency it achieved', async () => {
+    const { transparency, bytes } = await encodeAsset(await skyline(2048, 1152, 0.3), FORE_PLANE);
+    expect(transparency).toBeCloseTo(0.7, 2);
+    expect((await sharp(bytes).metadata()).hasAlpha).toBe(true);
+  });
+
+  it('fails rather than shipping a fore plane under the ART-BIBLE §6 transparency floor', async () => {
+    // Sky over the top 30% only; the painted 70% below it carries no single dominant colour.
+    const bytes = await master(2048, 1152, (x, y) =>
+      y < 1152 * 0.3 ? SKY : [90, (x * 7 + y * 13) % 256, 20, 255],
+    );
+    await expect(encodeAsset(bytes, FORE_PLANE)).rejects.toThrow(
+      /transparent, ART-BIBLE §6 requires at least 55\.0%/,
+    );
+  });
+
+  it('fails when the matte cuts nothing — an opaque "transparent" plane is a browser bug', async () => {
+    // Pure noise: no flat field, so every matching region falls under MIN_KEYED_REGION.
+    const bytes = await master(2048, 1152, (x, y) => [
+      (x * 13 + y * 7) % 256,
+      (x * 5 + y * 11) % 256,
+      (x * 3 + y * 17) % 256,
+      255,
+    ]);
+    await expect(encodeAsset(bytes, FAR_PLANE)).rejects.toThrow(/the matte cut nothing/);
+  });
+
+  it('fails when the matte cuts the whole frame rather than shipping an empty plane', async () => {
+    await expect(encodeAsset(await skyline(2048, 1152, 0), FAR_PLANE)).rejects.toThrow(
+      /the matte cut the entire frame/,
+    );
+  });
+
+  it('keeps a hand-matted master instead of keying over it (ADR 0001 §6.4)', async () => {
+    // No flat keyable border here — a flood key would cut nothing and fail. The human's alpha wins.
+    const bytes = await master(2048, 1152, (x, y) => [90, (x * y) % 256, 20, y < 461 ? 255 : 0]);
+    const { transparency } = await encodeAsset(bytes, FORE_PLANE);
+    expect(transparency).toBeCloseTo(0.6, 2);
+    expect(transparency).toBeGreaterThan(HUMAN_MATTE_FLOOR);
+  });
+
+  it('encodes a no-post-process master straight to its delivery format, opaque', async () => {
+    const bytes = await skyline(1024, 1024, 0.5);
+    const { bytes: delivery, transparency } = await encodeAsset(bytes, DISTRICT);
+    const meta = await sharp(delivery).metadata();
+    expect({ width: meta.width, height: meta.height, format: meta.format }).toEqual({
+      width: 1024,
+      height: 1024,
+      format: 'webp',
+    });
+    expect(meta.hasAlpha).toBe(false);
+    expect(transparency).toBe(0);
+  });
+
+  it('refuses a master that is not the resolution the manifest declared', async () => {
+    await expect(encodeAsset(await skyline(512, 512, 0.5), ICON)).rejects.toThrow(
+      /master is 512×512, the manifest declares a 1024×1024 source/,
+    );
+  });
+});
+
+describe('parseArgs', () => {
+  it('defaults to a real run over the whole manifest', () => {
+    expect(parseArgs([])).toMatchObject({
+      dryRun: false,
+      only: [],
+      matteTolerance: DEFAULT_MATTE_TOLERANCE,
+    });
+  });
+
+  it('reads the flags a first funded run needs', () => {
+    expect(
+      parseArgs(['--dry-run', '--only', 'icon-alloy,plane-city-fore', '--matte-tolerance', '32']),
+    ).toMatchObject({
+      dryRun: true,
+      only: ['icon-alloy', 'plane-city-fore'],
+      matteTolerance: 32,
+    });
+  });
+
+  it('rejects a missing value, an unknown flag and an out-of-range tolerance', () => {
+    expect(() => parseArgs(['--only'])).toThrow(/needs a value/);
+    expect(() => parseArgs(['--sharpen', '3'])).toThrow(/Unknown argument/);
+    expect(() => parseArgs(['--matte-tolerance', '900'])).toThrow(/integer 0–255/);
+  });
+});
+
+describe('main', () => {
+  /** Each case gets its own master + delivery directory; nothing here touches the repo's own. */
+  async function withTempDir(body: (dir: string) => Promise<void>): Promise<void> {
+    const dir = await mkdtemp(path.join(tmpdir(), 'frontline-encode-'));
+    try {
+      await body(dir);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  const captured = (spy: { mock: { calls: readonly unknown[][] } }): string =>
+    spy.mock.calls.map((call) => String(call[0])).join('');
+
+  it('dry-runs clean against an empty master directory and names what is missing', async () => {
+    await withTempDir(async (dir) => {
+      const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      expect(await main(['--dry-run', '--masters', dir, '--out', dir])).toBe(0);
+      expect(captured(out)).toContain('44 asset(s) validated');
+      expect(captured(out)).toContain('44 master(s) not generated yet');
+    });
+  });
+
+  it('encodes a master end to end into the drop directory', async () => {
+    await withTempDir(async (dir) => {
+      const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      await writeFile(path.join(dir, `${FORE_PLANE.key}.png`), await skyline(2048, 1152, 0.3));
+
+      expect(await main(['--only', FORE_PLANE.key, '--masters', dir, '--out', dir])).toBe(0);
+
+      const meta = await sharp(await readFile(path.join(dir, FORE_PLANE.file))).metadata();
+      expect({ width: meta.width, height: meta.height, hasAlpha: meta.hasAlpha }).toEqual({
+        width: 2048,
+        height: 1152,
+        hasAlpha: true,
+      });
+      expect(captured(out)).toContain('matte, 70.1% transparent');
+    });
+  });
+
+  it('reports a missing master rather than half-encoding a run', async () => {
+    await withTempDir(async (dir) => {
+      const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      expect(await main(['--only', 'icon-alloy', '--masters', dir, '--out', dir])).toBe(1);
+      expect(captured(err)).toContain('1 master(s) missing');
+    });
+  });
+});

@@ -151,6 +151,12 @@ export const AssetSpecSchema = z.object({
   source: AssetSourceSchema,
   /** The declared master→delivery steps. Empty when the master already is the delivery image. */
   postProcess: z.array(PostProcessStepSchema),
+  /**
+   * ART-BIBLE §6 — the fraction of the delivery that must end up transparent. Declared only where
+   * the bible states a floor, and enforced by the encode step: a fore plane that fails it smothers
+   * the map, and neither a text-to-image prompt nor an automatic matte can be trusted to hit it.
+   */
+  minTransparency: z.number().min(0).max(1).optional(),
   seed: z.number().int().nonnegative(),
   prompt: AssetPromptSchema,
   /** Reference images passed to the backend for style consistency (ART-PROMPTS §7.3). */
@@ -319,6 +325,9 @@ const districtDrafts = CITY_DISTRICTS.map((district, index) =>
  */
 const OPAQUE_PLANE_SOURCE: AssetSource = { width: 2048, height: 1152, alpha: false };
 
+/** ART-BIBLE §6 — "the fore plane must be ≥55% transparent or it smothers the map". */
+const FORE_PLANE_MIN_TRANSPARENCY = 0.55;
+
 const plateDrafts = (
   [
     ['plate-city', 'plate'],
@@ -338,6 +347,7 @@ const plateDrafts = (
     ...(key === 'plane-city-far' || key === 'plane-city-fore'
       ? { source: OPAQUE_PLANE_SOURCE }
       : {}),
+    ...(key === 'plane-city-fore' ? { minTransparency: FORE_PLANE_MIN_TRANSPARENCY } : {}),
   }),
 );
 

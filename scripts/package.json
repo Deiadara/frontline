@@ -3,15 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Repo tooling: the manifest-driven art generation pipeline.",
+  "description": "Repo tooling: the manifest-driven art generation and encode pipeline.",
   "scripts": {
     "gen-art": "tsx gen-art.ts",
+    "encode-art": "tsx encode-art.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run"
   },
   "dependencies": {
     "@frontline/shared": "workspace:*",
+    "sharp": "^0.35.3",
     "zod": "^4.1.12"
   },
   "devDependencies": {
