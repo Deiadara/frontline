@@ -80,7 +80,10 @@ export interface BackendCapabilities {
  * asset whose {@link AssetSpec.source} no backend satisfies cannot be generated at all.
  */
 export const BACKEND_CAPABILITIES: Readonly<Record<ImageBackendName, BackendCapabilities>> = {
-  // FLUX.2 [pro] takes an arbitrary `image_size` but documents no transparency parameter.
+  // FLUX.2 [pro] documents no transparency parameter of any kind (verified, ADR §6.1.1).
+  // `null` is an approximation: `image_size` is not arbitrary but bounded — 256–2560 per side,
+  // both divisible by 16, area ≤ 4194304. Every source size the manifest produces today clears
+  // all four, so widening it to `null` moves no routing; a source outside those bounds would.
   fal: { sizes: null, alpha: false },
   // gpt-image-1 documents `background: transparent` and exactly three sizes.
   openai: {

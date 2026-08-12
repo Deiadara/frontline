@@ -233,6 +233,29 @@ describe('backend selection', () => {
     }
   });
 
+  /**
+   * `BACKEND_CAPABILITIES.fal.sizes` is `null` — "any size" — but FLUX.2 [pro]'s published
+   * `image_size` bounds are not unbounded (ADR §6.1.1). The table therefore green-lights sizes the
+   * API would reject, and only a paid call would surface it. Pin the real bounds here so a manifest
+   * source that drifts outside them fails locally instead of at spend time.
+   */
+  it('keeps every fal-routed source inside the published FLUX.2 [pro] image_size bounds', () => {
+    const routed = ART_MANIFEST.map((s) => s.source).filter((source) =>
+      backendCanProduce('fal', source),
+    );
+    expect(routed).not.toHaveLength(0);
+    for (const { width, height } of routed) {
+      const at = `${width}×${height}`;
+      expect(width, at).toBeGreaterThanOrEqual(256);
+      expect(height, at).toBeGreaterThanOrEqual(256);
+      expect(width, at).toBeLessThanOrEqual(2560);
+      expect(height, at).toBeLessThanOrEqual(2560);
+      expect(width % 16, at).toBe(0);
+      expect(height % 16, at).toBe(0);
+      expect(width * height, at).toBeLessThanOrEqual(4194304);
+    }
+  });
+
   it('reports why a backend cannot render a source, from the one capability table', () => {
     expect(unproducibleSource('openai', { width: 2048, height: 1152, alpha: false })).toMatch(
       /openai cannot render 2048×1152 — it supports 1024×1024, 1024×1536, 1536×1024, with alpha/,
