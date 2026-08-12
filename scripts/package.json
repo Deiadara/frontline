@@ -6,6 +6,7 @@
   "description": "Repo tooling: the manifest-driven art generation and encode pipeline.",
   "scripts": {
     "gen-art": "tsx gen-art.ts",
+    "order-art": "tsx order-art.ts",
     "encode-art": "tsx encode-art.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
