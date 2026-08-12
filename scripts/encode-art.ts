@@ -122,8 +122,18 @@ export const MIN_KEYED_REGION = 0.005;
  * even where the prompt asked for a flat field; matched against the seed independently, each grainy
  * pixel is its own 1-px region, falls under {@link MIN_KEYED_REGION} and stays **opaque**. That ships
  * a speckled sky the coverage-weighted §6 gate cannot see, because it measures how much transparency
- * there is and not whether it is connected. A 3×3 median is exactly the filter for per-pixel grain
- * and does not move a region boundary.
+ * there is and not whether it is connected. A 3×3 median is exactly the filter for per-pixel grain,
+ * and it does not move the boundary of a *region*.
+ *
+ * It does delete a *structure* thinner than the window. A 1-px line is 3 of the 9 samples in every
+ * window it touches, so the median returns the field, the line joins the background region and its
+ * alpha is cleared — the master's own RGB survives, which is not the same as surviving. Measured on
+ * a 2048×1152 fore plane the threshold is sharp: **≤1 px is destroyed, ≥2 px is intact**, with or
+ * without grain and with or without antialiasing. Nothing about that is recoverable here — a 1-px
+ * antialiased line lands the same distance off the field colour as the antialiased edge of a solid
+ * mass, so no per-pixel test can tell them apart. {@link MAX_ERASED_ARTWORK} makes it loud instead,
+ * and MOU-149 asks the CTO for an ART-BIBLE §6 minimum stroke weight on the two plane prompts, so
+ * that a funded master does not carry the shape in the first place.
  */
 const DENOISE_WINDOW = 3;
 
@@ -136,6 +146,11 @@ const DENOISE_WINDOW = 3;
  * This sweep bounds how *small* a surviving piece can be, not how *many* there are — past a noise
  * floor the misses clump into islands bigger than this and it stops helping. {@link MAX_KEYED_ISLANDS}
  * is what covers that end.
+ *
+ * It is a trade, not a free win, and the trade is that anything detached and smaller than 8×8 is
+ * gone: a 6×6 drone in a fore-plane layout is deleted on a clean master. That is the deliberate
+ * price of never shipping speckle, and {@link MAX_ERASED_ARTWORK} bounds how much of it a run may
+ * pay before the matte is refused outright.
  */
 export const MIN_OPAQUE_ISLAND = 64;
 
@@ -151,6 +166,41 @@ export const MIN_OPAQUE_ISLAND = 64;
  * **121** and ±25 grain to **2215**. 64 sits in that empty gap.
  */
 export const MAX_KEYED_ISLANDS = 64;
+
+/**
+ * How far off the field colour a pixel must sit, as a multiple of `tolerance`, before the master is
+ * taken to be stating that it is artwork rather than noise.
+ *
+ * Two things live inside one multiple of the tolerance and must not be counted: the grain the key
+ * exists to absorb, and the antialiased ribbon along every silhouette, whose colour interpolates
+ * between the artwork and the field. Doubling clears both — grain the key still copes with never
+ * reaches 2× (past that the {@link MAX_KEYED_ISLANDS} gate has already refused the master), and a
+ * ribbon pixel sits at roughly the midpoint of a separation the operator is required to keep above
+ * the tolerance in the first place.
+ */
+const ARTWORK_MARGIN = 2;
+
+/**
+ * Pixels of unambiguous artwork the key may take the alpha off before the matte counts as failed.
+ *
+ * {@link DENOISE_WINDOW} deletes any structure thinner than itself, and the two gates above both
+ * move the *wrong* way when it does: deleting artwork raises transparency past the §6 floor and
+ * lowers the island count. This is what sees it — alpha cleared from a pixel the master puts beyond
+ * {@link ARTWORK_MARGIN}× the tolerance from the field, with no surviving pixel 4-adjacent to it.
+ * The adjacency clause is what excludes the antialiased ribbon, which always has kept artwork
+ * against it, and it is why a *rim highlight* painted onto a kept mass is the one thin structure
+ * this cannot see (ART-BIBLE §6's minimum stroke weight is what covers that case).
+ *
+ * Measured on 2048×1152 fore-plane layouts built from ART-PROMPTS, hard-edged and antialiased,
+ * grain ±0 to ±18, silhouettes plain and busy, separations 30 and 45: a plane whose thinnest element
+ * is ≥2 px reads **at most 141**, and one carrying a 1-px cable reads **at least 920** — clean or
+ * chewed into runs by grain. 256 sits in that gap, 1.8× over the worst clean master.
+ *
+ * An absolute count, like {@link MIN_OPAQUE_ISLAND} and for the same reason: an erasure scales with
+ * the length of the structure, not with the area of the canvas, and both matte assets are declared
+ * at 2048×1152. On a materially smaller canvas it would want re-measuring.
+ */
+export const MAX_ERASED_ARTWORK = 256;
 
 /**
  * Mean-shift passes that recentre the histogram peak on the field's real colour before keying.
@@ -228,10 +278,12 @@ function recentre(
   return sums.map((sum) => Math.round(sum / matched)) as [number, number, number];
 }
 
-/** A keyed master, plus how fragmented what it kept turned out to be. */
+/** A keyed master, plus the two measurements `matte` refuses on. */
 export interface KeyedImage extends RgbaImage {
   /** Opaque pieces the key left standing, counted after the {@link MIN_OPAQUE_ISLAND} sweep. */
   islands: number;
+  /** Pixels of unambiguous artwork the key cleared — see {@link MAX_ERASED_ARTWORK}. */
+  erased: number;
 }
 
 /** 4-connected regions of the pixels satisfying some predicate, labelled and measured. */
@@ -283,6 +335,34 @@ function connectedRegions(
   return { ids, sizes };
 }
 
+/** A pixel the master itself puts too far off the field colour to be grain or an antialiased edge. */
+type IsArtwork = (pixel: number) => boolean;
+
+/**
+ * Pixels of artwork the key cleared and left with nothing standing beside them — the signature of a
+ * structure the {@link DENOISE_WINDOW} median erased. See {@link MAX_ERASED_ARTWORK} for why it is
+ * measured this way and for the one case it cannot see.
+ */
+function erasedArtwork(master: RgbaImage, keyed: Buffer, isArtwork: IsArtwork): number {
+  const { width, height } = master;
+  const survives = (pixel: number): boolean => keyed[pixel * CHANNELS + 3] !== 0;
+
+  let erased = 0;
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    const offset = pixel * CHANNELS;
+    if (master.data[offset + 3] === 0 || survives(pixel) || !isArtwork(pixel)) continue;
+    const x = pixel % width;
+    const y = (pixel - x) / width;
+    const beside =
+      (x > 0 && survives(pixel - 1)) ||
+      (x < width - 1 && survives(pixel + 1)) ||
+      (y > 0 && survives(pixel - width)) ||
+      (y < height - 1 && survives(pixel + width));
+    if (!beside) erased += 1;
+  }
+  return erased;
+}
+
 /**
  * Cuts an alpha channel out of an opaque master by clearing every **contiguous region** of the
  * background colour that covers at least {@link MIN_KEYED_REGION} of the canvas, then clearing every
@@ -304,6 +384,11 @@ function connectedRegions(
  * into islands worth keeping — so {@link islands} reports the fragmentation and `matte` refuses
  * anything past {@link MAX_KEYED_ISLANDS} rather than shipping it.
  *
+ * The denoise has a cost of its own, at the other end of the scale: it deletes any structure thinner
+ * than its window, and a 1-px cable or rim is exactly the kind of thing the `plane-city-fore` prompt
+ * asks for. That is not repairable here (see {@link DENOISE_WINDOW}), so {@link erased} measures it
+ * and `matte` refuses past {@link MAX_ERASED_ARTWORK} instead of shipping a dashed cable.
+ *
  * Matching is against the seed colour, never a pixel's neighbour — chained tolerance walks a
  * gradient and would quietly eat the artwork. A master whose background is not flat therefore keys
  * badly on purpose and fails the ART-BIBLE §6 gate rather than shipping a hole in the city.
@@ -316,14 +401,17 @@ export async function keyBackground(image: RgbaImage, tolerance: number): Promis
   const flat = await toRgba(sharpFrom(image).median(DENOISE_WINDOW));
   const [seedR, seedG, seedB] = backgroundColour(flat, tolerance);
 
-  const matchesSeed = (pixel: number): boolean => {
+  const within = (data: Buffer, pixel: number, distance: number): boolean => {
     const offset = pixel * CHANNELS;
     return (
-      Math.abs(flat.data[offset]! - seedR) <= tolerance &&
-      Math.abs(flat.data[offset + 1]! - seedG) <= tolerance &&
-      Math.abs(flat.data[offset + 2]! - seedB) <= tolerance
+      Math.abs(data[offset]! - seedR) <= distance &&
+      Math.abs(data[offset + 1]! - seedG) <= distance &&
+      Math.abs(data[offset + 2]! - seedB) <= distance
     );
   };
+  const matchesSeed = (pixel: number): boolean => within(flat.data, pixel, tolerance);
+  const isArtwork = (pixel: number): boolean =>
+    !within(image.data, pixel, tolerance * ARTWORK_MARGIN);
 
   const keyed = Buffer.from(image.data);
   const alphaOf = (pixel: number): number => keyed[pixel * CHANNELS + 3]!;
@@ -343,7 +431,13 @@ export async function keyBackground(image: RgbaImage, tolerance: number): Promis
     if (islands.sizes[islands.ids[pixel]!]! < MIN_OPAQUE_ISLAND) clear(pixel);
   }
   const survivors = islands.sizes.filter((size) => size >= MIN_OPAQUE_ISLAND).length;
-  return { data: keyed, width, height, islands: survivors };
+  return {
+    data: keyed,
+    width,
+    height,
+    islands: survivors,
+    erased: erasedArtwork(image, keyed, isArtwork),
+  };
 }
 
 const downscale: PostProcessor = async (image, spec) =>
@@ -359,6 +453,14 @@ const matte: PostProcessor = async (image, spec, options) => {
         `background is grainier than --matte-tolerance ${options.matteTolerance} allows for, so the key ` +
         `is shot through with speckle. Re-key with a wider --matte-tolerance, or hand-matte the ` +
         `master (ADR 0001 §6.4).`,
+    );
+  }
+  if (keyed.erased > MAX_ERASED_ARTWORK) {
+    throw new Error(
+      `${spec.key}: the matte erased ${keyed.erased}px of artwork — the master carries structure ` +
+        `thinner than the ${DENOISE_WINDOW}px key window (a 1px cable, antenna or rim), which the ` +
+        `key cannot represent and would ship as a dashed line. Regenerate the master with the ` +
+        `ART-BIBLE §6 minimum stroke weight, or hand-matte it (ADR 0001 §6.4).`,
     );
   }
   return keyed;

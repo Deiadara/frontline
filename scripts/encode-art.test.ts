@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_MATTE_TOLERANCE,
   HUMAN_MATTE_FLOOR,
+  MAX_ERASED_ARTWORK,
   MAX_KEYED_ISLANDS,
   decodeMaster,
   encodeAsset,
@@ -76,6 +77,13 @@ function grain(index: number, amplitude: number): number {
   return (hash % (2 * amplitude + 1)) - amplitude;
 }
 
+/** `base` with {@link grain} of `amplitude` on each channel, deterministic in the pixel index. */
+function noisy(base: Rgba, pixel: number, amplitude: number): Rgba {
+  const channel = (c: number): number =>
+    Math.max(0, Math.min(255, base[c]! + grain(pixel * 3 + c, amplitude)));
+  return [channel(0), channel(1), channel(2), base[3]];
+}
+
 /**
  * {@link skyline} with per-pixel grain in the flat field — what a diffusion backend actually returns
  * when a prompt asks for a flat sky. Every `keyBackground` input used to be painted from two exact
@@ -87,14 +95,41 @@ const grainySkyline = (
   subjectFraction: number,
   amplitude: number,
 ): Promise<Buffer> =>
+  master(width, height, (x, y) =>
+    noisy(y >= height * (1 - subjectFraction) ? SUBJECT : SKY, y * width + x, amplitude),
+  );
+
+/** The rows a {@link cabledPlane} runs its cable through, whatever it was painted at. */
+const CABLE_TOP = 40;
+
+/**
+ * {@link grainySkyline} with a horizontal cable `stroke` px thick laid across the field — the
+ * `plane-city-fore` prompt asks for "a bundle of sagging cable across the top", and how thin that
+ * comes back is what decides whether the key can represent it at all.
+ */
+const cabledPlane = (
+  width: number,
+  height: number,
+  stroke: number,
+  amplitude = 0,
+): Promise<Buffer> =>
   master(width, height, (x, y) => {
-    const base = y >= height * (1 - subjectFraction) ? SUBJECT : SKY;
-    const pixel = y * width + x;
-    const noisy = [0, 1, 2].map((c) =>
-      Math.max(0, Math.min(255, base[c]! + grain(pixel * 3 + c, amplitude))),
-    );
-    return [noisy[0]!, noisy[1]!, noisy[2]!, 255];
+    const onCable = y >= CABLE_TOP && y < CABLE_TOP + stroke && x >= 8 && x < width - 8;
+    const base = onCable || y >= height * 0.7 ? SUBJECT : SKY;
+    return noisy(base, y * width + x, amplitude);
   });
+
+/** The share of a {@link cabledPlane}'s cable that survived the key. */
+function cableSurvival(image: { data: Buffer; width: number }, stroke: number): number {
+  let opaque = 0;
+  const cable = image.width - 16;
+  for (let y = CABLE_TOP; y < CABLE_TOP + stroke; y += 1) {
+    for (let x = 8; x < image.width - 8; x += 1) {
+      if (image.data[(y * image.width + x) * 4 + 3] !== 0) opaque += 1;
+    }
+  }
+  return opaque / (cable * stroke);
+}
 
 /** Rows of a 2048×1152 `grainySkyline(…, 0.3, …)` that are flat field rather than subject. */
 const SKY_ROWS = Math.round(1152 * 0.7);
@@ -231,6 +266,37 @@ describe('keyBackground', () => {
     expect(keyed.islands).toBe(1);
   });
 
+  /**
+   * The round-2 review's finding. The median the mask is decided on cannot represent a structure
+   * thinner than its window: a 1-px line is 3 of the 9 samples in every window it touches, so the
+   * median returns the field and the line is keyed away. `plane-city-fore` asks for exactly that
+   * shape by name, and both other gates move the *wrong* way when it happens — deleting artwork
+   * raises transparency past the §6 floor and lowers the island count.
+   */
+  it.each([0, 16])('keeps a cable as thick as the key window — ±%i grain', async (amplitude) => {
+    const image = await decodeMaster(await cabledPlane(2048, 1152, 2, amplitude));
+
+    const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+
+    expect(cableSurvival(keyed, 2)).toBeGreaterThan(0.99);
+    expect(keyed.erased).toBeLessThanOrEqual(MAX_ERASED_ARTWORK);
+  });
+
+  it.each([0, 16])('refuses a cable thinner than it — ±%i grain', async (amplitude) => {
+    // The plane canvas both matte assets are declared at, which is what MAX_ERASED_ARTWORK counts.
+    const image = await decodeMaster(await cabledPlane(2048, 1152, 1, amplitude));
+
+    const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
+
+    // Clean the cable goes wholesale (8% left); grainy the median flips per pixel and it comes
+    // back as a dashed line (52%). Either way it is not a cable, and no gate below sees that.
+    expect(cableSurvival(keyed, 1)).toBeLessThan(0.9);
+    expect(keyed.erased).toBeGreaterThan(MAX_ERASED_ARTWORK);
+    // Neither older gate sees it, which is why this one has to exist.
+    expect(keyed.islands).toBeLessThanOrEqual(MAX_KEYED_ISLANDS);
+    expect(transparencyOf(keyed)).toBeGreaterThan(0.55);
+  });
+
   it('does not chase a gradient across the whole frame', async () => {
     // Seed-relative tolerance keeps the key inside the band nearest the dominant colour.
     const image = await decodeMaster(
@@ -284,6 +350,16 @@ describe('encodeAsset', () => {
 
     // The remedy the failure names has to actually work, or it is not a remedy.
     const { transparency } = await encodeAsset(bytes, FORE_PLANE, { matteTolerance: 32 });
+    expect(transparency).toBeCloseTo(0.7, 2);
+  });
+
+  it('refuses a plane whose artwork is thinner than the key window, and takes the same plane thicker', async () => {
+    await expect(encodeAsset(await cabledPlane(2048, 1152, 1), FORE_PLANE)).rejects.toThrow(
+      /thinner than the 3px key window/,
+    );
+
+    // Same layout, cable at the stroke weight the key can represent: nothing else about it changed.
+    const { transparency } = await encodeAsset(await cabledPlane(2048, 1152, 3), FORE_PLANE);
     expect(transparency).toBeCloseTo(0.7, 2);
   });
 
