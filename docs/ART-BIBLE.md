@@ -322,7 +322,7 @@ portrait-overseer-1.webp            portrait-overseer-1@2x.webp
 district-neon-docks.webp            district-combine-spire.webp
 plate-city.webp                     plane-city-sky.webp   plane-city-fore.webp
 building-command-center.webp        building-reactor-damaged.webp
-icon-credits.webp   icon-power.webp   icon-data.webp   icon-alloy.webp
+icon-caps.webp   icon-oil.webp   icon-high-quality-metal.webp
 icon-archetype-netrunner.webp       icon-kind-npc-stronghold.webp
 ui-frame-panel.png                  ui-frame-modal.png
 splash-auth.webp                    lut-frontline-grade.png

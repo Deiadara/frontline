@@ -9,6 +9,7 @@
 import type { BuildingKind } from '../building.js';
 import type { DistrictKind } from '../city.js';
 import type { OverseerArchetype } from '../overseer.js';
+import type { ResourceKey } from '../resources.js';
 
 /** Collapses authoring whitespace into a single-line prose block. */
 const block = (text: string): string => text.trim().replace(/\s+/g, ' ');
@@ -345,34 +346,36 @@ export const UI_SUBJECTS = {
 } as const;
 
 /**
- * ART-PROMPTS §6.1. These keys are *shipped art ids*, not economy keys: each has an authored
- * prompt here, a row in ART-PROMPTS/ART-BIBLE/ART-ORDER and a rendered `.webp` behind it, so
- * they must not be renamed by a schema change. MOU-161 replaced the MVP economy with
- * caps/food/oil/scrap/high-quality metal (GDD §D9) and deliberately left this set alone —
- * TODO-LATER: re-prompt the resource icons for the real economy in W9/MOU-168 (art direction v2),
- * which owns the art pass and the doc rows that move with it.
+ * ART-PROMPTS §6.1 — keyed by `ResourceKey`, so a resource added to `ResourcesSchema` cannot ship
+ * without an icon prompt. The asset id is the kebab-cased key (`highQualityMetal` →
+ * `icon-high-quality-metal`), which `art/manifest.ts` derives; never hand-write one.
  */
-export const RESOURCE_ICON_SUBJECTS = {
-  credits: block(`
-    A short stack of worn hexagonal transaction chits, top one tilted, edges nicked, a faint
-    amber #f59e0b glyph-glow along the rim of the top chit.
+export const RESOURCE_ICON_SUBJECTS: Readonly<Record<ResourceKey, string>> = {
+  caps: block(`
+    A loose handful of crimped bottle caps, painted faces scratched back to bare steel, one
+    standing on edge against the pile, warm amber #f59e0b catching the ridged rims.
   `),
-  power: block(`
-    A heavy industrial cell canister with a ribbed body and two terminal lugs, an amber #ffd166
-    charge window glowing down one side.
+  food: block(`
+    A dented ration tin with its lid peeled half back on a torn hinge of metal, a scorched crust
+    of pressed protein inside, the paper label stripped to a pale ghost, warm amber #ffd166
+    glancing off the peeled edge.
   `),
-  data: block(`
-    A solid-state data slug — a small dark wedge with a gold contact comb along one edge and a
-    cyan #22d3ee status filament across its face.
+  oil: block(`
+    A squat riveted fuel drum with a hand-cranked spigot, a black bead swelling at the nozzle and
+    a thin slick pooling beneath it, seams weeping rust, cyan #22d3ee iridescence riding the
+    surface of the slick.
   `),
-  alloy: block(`
-    Three stacked rough-cast metal ingots with hammered faces and scale still on them, cold
-    #94a3b8 specular on the top edges, one cracked corner.
+  scrap: block(`
+    A bundle of salvaged offcuts wired together at the middle — bent rebar, a torn hull plate, a
+    coiled length of stripped cable — cold #94a3b8 light along the freshly broken edges, dull and
+    powdery everywhere else.
   `),
-} as const;
-
-/** The shipped resource-icon ids, derived from the prompts that actually exist. */
-export type ResourceIconId = keyof typeof RESOURCE_ICON_SUBJECTS;
+  highQualityMetal: block(`
+    Three stacked machined ingots with clean milled faces and a cast foundry stamp still legible
+    on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to
+    show bright grain.
+  `),
+};
 
 /** ART-PROMPTS §6.2 — keyed by `OverseerArchetype`. */
 export const ARCHETYPE_ICON_SUBJECTS: Readonly<Record<OverseerArchetype, string>> = {

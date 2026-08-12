@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILDING_KINDS } from '../building.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS } from '../city.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS } from '../overseer.js';
+import { RESOURCE_KEYS } from '../resources.js';
 import {
   ART_MANIFEST,
   ASSET_CLASS_SPECS,
@@ -21,13 +22,7 @@ import {
   type AssetSource,
   type AssetSpec,
 } from './manifest.js';
-import {
-  FRAMING,
-  NEGATIVE,
-  PLATE_SUBJECTS,
-  RESOURCE_ICON_SUBJECTS,
-  STYLE_ANCHOR,
-} from './prompts.js';
+import { FRAMING, NEGATIVE, PLATE_SUBJECTS, STYLE_ANCHOR } from './prompts.js';
 
 /**
  * Transcribed from `docs/ART-PROMPTS.md` §1–§6. The manifest derives these from the domain
@@ -66,10 +61,11 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['ui-plate-button', 'ui-plate-button.png', 150004],
   ['ui-plate-nav', 'ui-plate-nav.png', 150005],
   ['ui-divider', 'ui-divider.png', 150006],
-  ['icon-credits', 'icon-credits.webp', 160001],
-  ['icon-power', 'icon-power.webp', 160002],
-  ['icon-data', 'icon-data.webp', 160003],
-  ['icon-alloy', 'icon-alloy.webp', 160004],
+  ['icon-caps', 'icon-caps.webp', 160001],
+  ['icon-food', 'icon-food.webp', 160002],
+  ['icon-oil', 'icon-oil.webp', 160003],
+  ['icon-scrap', 'icon-scrap.webp', 160004],
+  ['icon-high-quality-metal', 'icon-high-quality-metal.webp', 160005],
   ['icon-archetype-enforcer', 'icon-archetype-enforcer.webp', 160011],
   ['icon-archetype-netrunner', 'icon-archetype-netrunner.webp', 160012],
   ['icon-archetype-fixer', 'icon-archetype-fixer.webp', 160013],
@@ -93,7 +89,7 @@ const PROMPT_DOC = readFileSync(
 /** §1–§5: a per-asset heading, then a fenced `SUBJECT:` block. */
 const FENCED_SUBJECT = /^### [\d.]+ `([a-z\d-]+)`[^\n]*\n+```\n(SUBJECT:[\s\S]*?)\n```/gm;
 
-/** §6 instead tabulates the twelve icons: ``| `icon-credits` | … | `SUBJECT: …` |``. */
+/** §6 instead tabulates the thirteen icons: ``| `icon-caps` | … | `SUBJECT: …` |``. */
 const TABLE_SUBJECT = /^\| `([a-z\d-]+)` *\|[^\n]*`(SUBJECT:[^`]*)`/gm;
 
 const collapse = (text: string): string => text.trim().replace(/\s+/g, ' ');
@@ -137,8 +133,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 44 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(44);
+  it('holds the 45 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(45);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -298,7 +294,7 @@ describe('ART_MANIFEST', () => {
   });
 
   it('leaves the other 30 assets needing no post-process at all', () => {
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(14);
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(15);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {
@@ -392,10 +388,12 @@ describe('subject resolution (ART-BIBLE §7)', () => {
   });
 
   it('resolves resource, archetype and district-kind icon subjects', () => {
-    // Art ids, not economy keys: MOU-161 replaced the economy without renaming shipped art.
-    for (const resource of Object.keys(RESOURCE_ICON_SUBJECTS)) {
-      expect(subjectResolvesToDomainId('icon', resource)).toBe(true);
+    for (const resource of RESOURCE_KEYS) {
+      const subject = resource.replace(/([a-z\d])([A-Z])/g, '$1-$2').toLowerCase();
+      expect(subjectResolvesToDomainId('icon', subject)).toBe(true);
     }
+    // The camelCase key itself is not a legal subject — only its kebab form is.
+    expect(subjectResolvesToDomainId('icon', 'highQualityMetal')).toBe(false);
     for (const archetype of OVERSEER_ARCHETYPES) {
       expect(subjectResolvesToDomainId('icon', `archetype-${archetype}`)).toBe(true);
     }
@@ -543,7 +541,9 @@ describe('resolveAssetKey', () => {
     expect(resolveAssetKey({ type: 'portrait', portraitId: 'overseer-2' })).toBe(
       'portrait-overseer-2',
     );
-    expect(resolveAssetKey({ type: 'resource-icon', resource: 'alloy' })).toBe('icon-alloy');
+    expect(resolveAssetKey({ type: 'resource-icon', resource: 'highQualityMetal' })).toBe(
+      'icon-high-quality-metal',
+    );
     expect(resolveAssetKey({ type: 'archetype-icon', archetype: 'fixer' })).toBe(
       'icon-archetype-fixer',
     );

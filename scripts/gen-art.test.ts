@@ -48,7 +48,7 @@ const PLATE = spec('plate-city');
 /** ART-BIBLE §6 — a 1024×1024 asset that must ship with a real alpha channel. */
 const FRAME = spec('ui-frame-panel');
 /** The two shapes no backend renders directly: 512² alpha, and 16:9 alpha. */
-const ICON = spec('icon-alloy');
+const ICON = spec('icon-scrap');
 const FORE_PLANE = spec('plane-city-fore');
 const OUT = '/tmp/frontline-art';
 
@@ -106,7 +106,7 @@ describe('buildImageRequest', () => {
     expect(buildImageRequest(DISTRICT, OUT).alpha).toBe(false);
   });
 
-  it('asks for spec.source, not the delivery spec, on the 14 assets where they differ', () => {
+  it('asks for spec.source, not the delivery spec, on the 15 assets where they differ', () => {
     // An icon ships 512² with alpha; nothing renders that, so it is rendered at 1024².
     expect(buildImageRequest(ICON, OUT)).toMatchObject({ width: 1024, height: 1024, alpha: true });
     // The fore plane ships transparent; nothing renders 16:9 alpha, so it is rendered opaque.
@@ -576,8 +576,8 @@ describe('parseArgs', () => {
 describe('selectSpecs', () => {
   it('returns the whole manifest by default and the named subset otherwise', () => {
     expect(selectSpecs([])).toHaveLength(ART_MANIFEST.length);
-    expect(selectSpecs(['icon-alloy']).map((s) => s.key)).toEqual(['icon-alloy']);
-    expect(() => selectSpecs(['icon-scrap'])).toThrow(/Unknown asset key/);
+    expect(selectSpecs(['icon-scrap']).map((s) => s.key)).toEqual(['icon-scrap']);
+    expect(() => selectSpecs(['icon-plutonium'])).toThrow(/Unknown asset key/);
   });
 });
 
@@ -626,7 +626,7 @@ describe('validateRun', () => {
     );
   });
 
-  /** MOU-123 acceptance: whichever backend the operator picks, all 44 assets are producible. */
+  /** MOU-123 acceptance: whichever backend the operator picks, all 45 assets are producible. */
   it('passes on the whole manifest under either backend', () => {
     expect(validateRun(ART_MANIFEST, OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
     expect(validateRun(ART_MANIFEST, OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
@@ -658,11 +658,11 @@ describe('validateRun', () => {
 
   /** An icon's guard must run against its 1024² render, not its 512² delivery. */
   it('validates the source a backend is asked for, not the delivery spec', () => {
-    const icon = spec('icon-alloy');
+    const icon = spec('icon-scrap');
     expect(validateRun([icon], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
     expect(
       validateRun([{ ...icon, backend: undefined }], OUT, { FRONTLINE_ART_BACKEND: 'fal' }),
-    ).toContainEqual(expect.stringContaining('icon-alloy: fal cannot render 1024×1024 with alpha'));
+    ).toContainEqual(expect.stringContaining('icon-scrap: fal cannot render 1024×1024 with alpha'));
   });
 });
 
@@ -676,7 +676,7 @@ describe('main --dry-run', () => {
     await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(output.stdout.join('')).toContain('44 asset(s) validated');
+    expect(output.stdout.join('')).toContain('45 asset(s) validated');
     expect(output.stdout.join('')).toContain(`${OUT}/district-neon-docks.png`);
   });
 
@@ -708,7 +708,7 @@ describe('main --dry-run', () => {
     await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
 
     const stdout = output.stdout.join('');
-    expect(stdout).toContain('14 master(s) are not the delivery image (matte 2, downscale 12)');
+    expect(stdout).toContain('15 master(s) are not the delivery image (matte 2, downscale 13)');
     expect(stdout).toContain('encode-art');
   });
 
@@ -833,7 +833,7 @@ describe('main --emit-prompts', () => {
   });
 
   it('asks for spec.source, not the delivery spec, where they differ', async () => {
-    const [icon] = await emit('--only', 'icon-alloy');
+    const [icon] = await emit('--only', 'icon-scrap');
 
     // Ships 512² with alpha; nothing renders that, so the paste target is the 1024² master.
     expect(icon).toMatchObject({ width: 1024, height: 1024, alpha: true, aspect: '1:1' });

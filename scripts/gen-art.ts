@@ -495,7 +495,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 
 /**
  * An empty list means "the whole manifest" only when `--only` is absent. `--only "$KEY"` with an
- * unset shell variable must not silently become a funded run over all 44 assets, so an explicit
+ * unset shell variable must not silently become a funded run over all 45 assets, so an explicit
  * `--only` that names no key fails the same way an unknown key does.
  */
 function parseOnlyKeys(value: string): string[] {
@@ -506,7 +506,7 @@ function parseOnlyKeys(value: string): string[] {
 
 /**
  * The wildcard is free to *reach* and expensive to *run*: no selector means the whole manifest, so a
- * bare `gen-art` on a machine holding credentials bills for all 44 assets — one stray Enter, or a
+ * bare `gen-art` on a machine holding credentials bills for all 45 assets — one stray Enter, or a
  * wrapper that drops its args, and the money is spent. A funded full-manifest run therefore has to
  * name itself with `--all`. `--dry-run` and `--emit-prompts` keep the wildcard: neither spends, and
  * the dry run is the documented way to see what `--all` would cost before paying it.
@@ -702,7 +702,7 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   }
 
   // Before `validateRun`: the cheapest, most specific refusal should be the one the operator reads,
-  // not a backend-unset list that says nothing about the 44 assets they were about to pay for.
+  // not a backend-unset list that says nothing about the 45 assets they were about to pay for.
   try {
     assertSelectionWasChosen(options, specs);
   } catch (error) {

@@ -71,13 +71,12 @@ Two art surfaces are keyed off `keyof Resources` and break with it:
 - `art/manifest.ts` derives asset keys `icon-<resourceKey>` and seeds from key order, so the rename
   changes generated asset identities.
 
-Split:
-
-- **W2 owns the keys.** It keeps `RESOURCE_ICON_SUBJECTS` type-complete with minimal placeholder
-  subjects so typecheck stays green. It does **not** regenerate art and does **not** rewrite
-  ART-PROMPTS §6.1 prose.
-- **W9 owns the copy.** Art direction v2 rewrites those five subjects under the Zaun register and
-  owns any regeneration and seed renumbering, coordinating with MOU-125 (`scripts/encode-art*`).
+Settled by MOU-181: `RESOURCE_ICON_SUBJECTS` is now `Readonly<Record<ResourceKey, string>>` with an
+authored subject per live resource, and the manifest derives `icon-<kebab-cased key>` (so
+`highQualityMetal` → `icon-high-quality-metal`) plus seeds `160001–160005` from `RESOURCE_KEYS`
+order. No art existed under the old ids, so nothing was regenerated. W9 (art direction v2) may still
+re-voice the five subjects; it owns any seed renumbering, coordinating with MOU-125
+(`scripts/encode-art*`).
 
 ### R4 — the hidden role table stays hidden
 

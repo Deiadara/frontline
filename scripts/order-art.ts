@@ -119,7 +119,7 @@ export function orderPrompt(spec: AssetSpec): string {
 
 /**
  * The minimum the download must measure. `spec.source`, not `spec.width`×`spec.height`: they are the
- * same for 30 of the 44 assets, and where they differ the manifest deliberately asks for the larger
+ * same for 30 of the 45 assets, and where they differ the manifest deliberately asks for the larger
  * one (icons render at 1024² so the matte has headroom before the downscale to 512²).
  */
 function minimumSize(spec: AssetSpec): string {

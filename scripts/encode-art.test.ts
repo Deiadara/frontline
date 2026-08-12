@@ -32,7 +32,7 @@ const spec = (key: string): AssetSpec => {
 };
 
 /** The two shapes no backend renders directly — the whole reason `postProcess` exists. */
-const ICON = spec('icon-alloy');
+const ICON = spec('icon-scrap');
 const FORE_PLANE = spec('plane-city-fore');
 const FAR_PLANE = spec('plane-city-far');
 /** A master that already is its delivery image. */
@@ -254,10 +254,10 @@ describe('post-process registry', () => {
     ]);
   });
 
-  it('covers exactly the 14 assets MOU-123 left post-processed', () => {
+  it('covers exactly the 15 assets MOU-123 left post-processed', () => {
     const pending = ART_MANIFEST.filter((s) => s.postProcess.length > 0);
-    expect(pending).toHaveLength(14);
-    expect(pending.filter((s) => s.postProcess.includes('downscale'))).toHaveLength(12);
+    expect(pending).toHaveLength(15);
+    expect(pending.filter((s) => s.postProcess.includes('downscale'))).toHaveLength(13);
     expect(pending.filter((s) => s.postProcess.includes('matte'))).toHaveLength(2);
   });
 });
@@ -564,10 +564,10 @@ describe('parseArgs', () => {
 
   it('reads the flags a first funded run needs', () => {
     expect(
-      parseArgs(['--dry-run', '--only', 'icon-alloy,plane-city-fore', '--matte-tolerance', '32']),
+      parseArgs(['--dry-run', '--only', 'icon-scrap,plane-city-fore', '--matte-tolerance', '32']),
     ).toMatchObject({
       dryRun: true,
-      only: ['icon-alloy', 'plane-city-fore'],
+      only: ['icon-scrap', 'plane-city-fore'],
       matteTolerance: 32,
     });
   });
@@ -583,7 +583,7 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--only', ''])).toThrow(/selected no asset keys/);
     expect(() => parseArgs(['--only', ',,'])).toThrow(/selected no asset keys/);
     // Per --only, not per run: an earlier good selector must not absorb a later empty one.
-    expect(() => parseArgs(['--only', 'icon-alloy', '--only', ''])).toThrow(
+    expect(() => parseArgs(['--only', 'icon-scrap', '--only', ''])).toThrow(
       /selected no asset keys/,
     );
   });
@@ -607,8 +607,8 @@ describe('main', () => {
     await withTempDir(async (dir) => {
       const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
       expect(await main(['--dry-run', '--masters', dir, '--out', dir])).toBe(0);
-      expect(captured(out)).toContain('44 asset(s) validated');
-      expect(captured(out)).toContain('44 master(s) not generated yet');
+      expect(captured(out)).toContain('45 asset(s) validated');
+      expect(captured(out)).toContain('45 master(s) not generated yet');
     });
   });
 
@@ -632,7 +632,7 @@ describe('main', () => {
   it('reports a missing master rather than half-encoding a run', async () => {
     await withTempDir(async (dir) => {
       const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-      expect(await main(['--only', 'icon-alloy', '--masters', dir, '--out', dir])).toBe(1);
+      expect(await main(['--only', 'icon-scrap', '--masters', dir, '--out', dir])).toBe(1);
       expect(captured(err)).toContain('1 master(s) missing');
     });
   });
@@ -648,7 +648,7 @@ describe('main', () => {
       expect(await main(['--landed', '--masters', dir, '--out', dir])).toBe(0);
 
       await expect(readFile(path.join(dir, DISTRICT.file))).resolves.toBeInstanceOf(Buffer);
-      expect(captured(out)).toContain('1/44 master(s) landed');
+      expect(captured(out)).toContain('1/45 master(s) landed');
       expect(captured(out)).toContain('still waiting on');
       expect(captured(err)).toBe('');
     });

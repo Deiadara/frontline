@@ -25,7 +25,7 @@ const spec = (key: string): AssetSpec => {
 
 const PORTRAIT = spec('portrait-overseer-1');
 /** Outside the hero set: it exists on the sheet only once it has actually been delivered. */
-const ICON = spec('icon-alloy');
+const ICON = spec('icon-scrap');
 
 /** A delivery-shaped file of one flat colour, so a test can point at it in the rendered sheet. */
 function delivery(target: AssetSpec, colour: { r: number; g: number; b: number }): Promise<Buffer> {

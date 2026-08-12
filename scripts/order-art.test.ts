@@ -24,7 +24,7 @@ const spec = (key: string): AssetSpec => {
 };
 
 const PORTRAIT = spec('portrait-overseer-1');
-const ICON = spec('icon-alloy');
+const ICON = spec('icon-scrap');
 
 describe('sections', () => {
   it('partitions the manifest — no asset is listed twice or dropped', () => {
@@ -85,7 +85,7 @@ describe('renderSheet', () => {
   });
 
   it('marks the alpha assets as needing a transparent background', () => {
-    const alphaBlock = sheet.slice(sheet.indexOf('### `icon-alloy`'));
+    const alphaBlock = sheet.slice(sheet.indexOf('### `icon-scrap`'));
     expect(alphaBlock.slice(0, alphaBlock.indexOf('```'))).toContain(
       '**with a transparent background**',
     );

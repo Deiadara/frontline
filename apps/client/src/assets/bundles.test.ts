@@ -24,7 +24,7 @@ describe('bundle partition', () => {
       if (!spec) throw new Error(`no manifest entry for ${key}`);
       return bundleFor(spec);
     };
-    expect(bundleOf('icon-credits')).toBe('ui');
+    expect(bundleOf('icon-caps')).toBe('ui');
     expect(bundleOf('icon-archetype-netrunner')).toBe('overseer');
     expect(bundleOf('icon-kind-npc-stronghold')).toBe('city');
   });

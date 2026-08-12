@@ -506,7 +506,7 @@ the central horizontal eighth of the canvas; the rest is fully transparent.
 
 ---
 
-## 6. Icons — 12 assets
+## 6. Icons — 13 assets
 
 **Class framing:**
 
@@ -517,14 +517,15 @@ outline stroke, no drop shadow, no background plate. Square 1:1, subject filling
 seventy percent. Consistent implied light from upper-left across the whole set.
 ```
 
-### 6.1 Resource icons — ids match `Resources` keys
+### 6.1 Resource icons — ids are the kebab-cased `Resources` keys
 
-| Key            | Accent            | Seed     | Subject                                                                                                                                                     |
-| -------------- | ----------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `icon-credits` | ember `#f59e0b`   | `160001` | `SUBJECT: A short stack of worn hexagonal transaction chits, top one tilted, edges nicked, a faint amber #f59e0b glyph-glow along the rim of the top chit.` |
-| `icon-power`   | ember `#ffd166`   | `160002` | `SUBJECT: A heavy industrial cell canister with a ribbed body and two terminal lugs, an amber #ffd166 charge window glowing down one side.`                 |
-| `icon-data`    | hextech `#22d3ee` | `160003` | `SUBJECT: A solid-state data slug — a small dark wedge with a gold contact comb along one edge and a cyan #22d3ee status filament across its face.`         |
-| `icon-alloy`   | ferrite `#94a3b8` | `160004` | `SUBJECT: Three stacked rough-cast metal ingots with hammered faces and scale still on them, cold #94a3b8 specular on the top edges, one cracked corner.`   |
+| Key                       | Accent            | Seed     | Subject                                                                                                                                                                                                                        |
+| ------------------------- | ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `icon-caps`               | ember `#f59e0b`   | `160001` | `SUBJECT: A loose handful of crimped bottle caps, painted faces scratched back to bare steel, one standing on edge against the pile, warm amber #f59e0b catching the ridged rims.`                                             |
+| `icon-food`               | ember `#ffd166`   | `160002` | `SUBJECT: A dented ration tin with its lid peeled half back on a torn hinge of metal, a scorched crust of pressed protein inside, the paper label stripped to a pale ghost, warm amber #ffd166 glancing off the peeled edge.`  |
+| `icon-oil`                | hextech `#22d3ee` | `160003` | `SUBJECT: A squat riveted fuel drum with a hand-cranked spigot, a black bead swelling at the nozzle and a thin slick pooling beneath it, seams weeping rust, cyan #22d3ee iridescence riding the surface of the slick.`        |
+| `icon-scrap`              | ferrite `#94a3b8` | `160004` | `SUBJECT: A bundle of salvaged offcuts wired together at the middle — bent rebar, a torn hull plate, a coiled length of stripped cable — cold #94a3b8 light along the freshly broken edges, dull and powdery everywhere else.` |
+| `icon-high-quality-metal` | hextech `#22d3ee` | `160005` | `SUBJECT: Three stacked machined ingots with clean milled faces and a cast foundry stamp still legible on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to show bright grain.`         |
 
 ### 6.2 Archetype icons — ids match `OverseerArchetype`
 
@@ -548,7 +549,7 @@ seventy percent. Consistent implied light from upper-left across the whole set.
 
 ## 7. Consistency protocol
 
-Generating 44 assets independently will drift. Counter it in this order:
+Generating 45 assets independently will drift. Counter it in this order:
 
 1. **Generate the four parallax/plate assets first** (§3). They set the world's value key. If the
    plate is wrong, everything downstream is wrong.

@@ -8,7 +8,7 @@
  * (WebP at `ASSET_CLASS_SPECS[class].quality`, or lossless PNG) into the `assets/` drop directory.
  *
  *   pnpm --filter @frontline/scripts encode-art --dry-run
- *   pnpm --filter @frontline/scripts encode-art --only icon-alloy
+ *   pnpm --filter @frontline/scripts encode-art --only icon-scrap
  *   pnpm --filter @frontline/scripts encode-art --landed   # whatever has arrived so far
  *
  * (No `--` separator: pnpm 11 forwards it to the script, where it parses as an unknown argument.)

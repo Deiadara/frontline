@@ -324,7 +324,7 @@ Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 d
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```
 
-## Alpha set — not requested yet (26)
+## Alpha set — not requested yet (27)
 
 Do **not** start these. Every asset here ships with a real alpha channel, and ChatGPT does not
 reliably return transparency — `gpt-image-2` explicitly does not support a transparent background
@@ -557,64 +557,80 @@ Game UI element on transparent background, painted rather than vector — hammer
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```
 
-### `icon-credits`
+### `icon-caps`
 
-- **Save the download as** `art-src/icon-credits.png` (`.webp` is accepted too)
+- **Save the download as** `art-src/icon-caps.png` (`.webp` is accepted too)
 - **Minimum size** 1024 × 1024 px, aspect 1:1, **with a transparent background**
-- Ships as `assets/icon-credits.webp`
+- Ships as `assets/icon-caps.webp`
 
 ```text
 Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. Cyberpunk-dystopian, lived-in and decaying. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay. Emissives painted at their own hue rather than white-hot. Cinematic, moody, beautiful and quietly haunting.
 
-A short stack of worn hexagonal transaction chits, top one tilted, edges nicked, a faint amber #f59e0b glyph-glow along the rim of the top chit.
+A loose handful of crimped bottle caps, painted faces scratched back to bare steel, one standing on edge against the pile, warm amber #f59e0b catching the ridged rims.
 
 Single centred icon on a fully transparent background, painted with visible brushwork but radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue. No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the central seventy percent. Consistent implied light from upper-left across the whole set.
 
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```
 
-### `icon-power`
+### `icon-food`
 
-- **Save the download as** `art-src/icon-power.png` (`.webp` is accepted too)
+- **Save the download as** `art-src/icon-food.png` (`.webp` is accepted too)
 - **Minimum size** 1024 × 1024 px, aspect 1:1, **with a transparent background**
-- Ships as `assets/icon-power.webp`
+- Ships as `assets/icon-food.webp`
 
 ```text
 Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. Cyberpunk-dystopian, lived-in and decaying. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay. Emissives painted at their own hue rather than white-hot. Cinematic, moody, beautiful and quietly haunting.
 
-A heavy industrial cell canister with a ribbed body and two terminal lugs, an amber #ffd166 charge window glowing down one side.
+A dented ration tin with its lid peeled half back on a torn hinge of metal, a scorched crust of pressed protein inside, the paper label stripped to a pale ghost, warm amber #ffd166 glancing off the peeled edge.
 
 Single centred icon on a fully transparent background, painted with visible brushwork but radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue. No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the central seventy percent. Consistent implied light from upper-left across the whole set.
 
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```
 
-### `icon-data`
+### `icon-oil`
 
-- **Save the download as** `art-src/icon-data.png` (`.webp` is accepted too)
+- **Save the download as** `art-src/icon-oil.png` (`.webp` is accepted too)
 - **Minimum size** 1024 × 1024 px, aspect 1:1, **with a transparent background**
-- Ships as `assets/icon-data.webp`
+- Ships as `assets/icon-oil.webp`
 
 ```text
 Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. Cyberpunk-dystopian, lived-in and decaying. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay. Emissives painted at their own hue rather than white-hot. Cinematic, moody, beautiful and quietly haunting.
 
-A solid-state data slug — a small dark wedge with a gold contact comb along one edge and a cyan #22d3ee status filament across its face.
+A squat riveted fuel drum with a hand-cranked spigot, a black bead swelling at the nozzle and a thin slick pooling beneath it, seams weeping rust, cyan #22d3ee iridescence riding the surface of the slick.
 
 Single centred icon on a fully transparent background, painted with visible brushwork but radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue. No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the central seventy percent. Consistent implied light from upper-left across the whole set.
 
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```
 
-### `icon-alloy`
+### `icon-scrap`
 
-- **Save the download as** `art-src/icon-alloy.png` (`.webp` is accepted too)
+- **Save the download as** `art-src/icon-scrap.png` (`.webp` is accepted too)
 - **Minimum size** 1024 × 1024 px, aspect 1:1, **with a transparent background**
-- Ships as `assets/icon-alloy.webp`
+- Ships as `assets/icon-scrap.webp`
 
 ```text
 Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. Cyberpunk-dystopian, lived-in and decaying. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay. Emissives painted at their own hue rather than white-hot. Cinematic, moody, beautiful and quietly haunting.
 
-Three stacked rough-cast metal ingots with hammered faces and scale still on them, cold #94a3b8 specular on the top edges, one cracked corner.
+A bundle of salvaged offcuts wired together at the middle — bent rebar, a torn hull plate, a coiled length of stripped cable — cold #94a3b8 light along the freshly broken edges, dull and powdery everywhere else.
+
+Single centred icon on a fully transparent background, painted with visible brushwork but radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue. No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the central seventy percent. Consistent implied light from upper-left across the whole set.
+
+Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
+```
+
+### `icon-high-quality-metal`
+
+- **Save the download as** `art-src/icon-high-quality-metal.png` (`.webp` is accepted too)
+- **Minimum size** 1024 × 1024 px, aspect 1:1, **with a transparent background**
+- Ships as `assets/icon-high-quality-metal.webp`
+
+```text
+Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. Cyberpunk-dystopian, lived-in and decaying. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay. Emissives painted at their own hue rather than white-hot. Cinematic, moody, beautiful and quietly haunting.
+
+Three stacked machined ingots with clean milled faces and a cast foundry stamp still legible on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to show bright grain.
 
 Single centred icon on a fully transparent background, painted with visible brushwork but radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue. No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the central seventy percent. Consistent implied light from upper-left across the whole set.
 

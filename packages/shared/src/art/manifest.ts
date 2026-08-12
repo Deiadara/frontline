@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { BUILDING_KINDS, type BuildingKind } from '../building.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS, type DistrictKind } from '../city.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS, type OverseerArchetype } from '../overseer.js';
+import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import {
   ARCHETYPE_ICON_SUBJECTS,
   BUILDING_SUBJECTS,
@@ -20,7 +21,6 @@ import {
   PORTRAIT_SUBJECTS,
   RESOURCE_ICON_SUBJECTS,
   UI_SUBJECTS,
-  type ResourceIconId,
 } from './prompts.js';
 
 /** ART-BIBLE §7 — the `class` segment of every filename. */
@@ -233,11 +233,15 @@ const SEED_BASE = {
   kindIcon: 160020,
 } as const;
 
-/** Art ids, not economy keys — see `RESOURCE_ICON_SUBJECTS`. Renaming these renames shipped files. */
-const RESOURCE_ICON_IDS = Object.keys(RESOURCE_ICON_SUBJECTS) as readonly ResourceIconId[];
-
 const toKebab = (id: string): string => id.replaceAll('_', '-');
 const toSnake = (subject: string): string => subject.replaceAll('-', '_');
+
+/** Resource keys are the one camelCase domain id; asset ids are lower-kebab (ART-BIBLE §7). */
+const kebabFromCamel = (id: string): string =>
+  id.replace(/([a-z\d])([A-Z])/g, '$1-$2').toLowerCase();
+
+/** The icon ids, in `RESOURCE_KEYS` order — that order fixes the seeds. */
+const RESOURCE_ICON_IDS: readonly string[] = RESOURCE_KEYS.map(kebabFromCamel);
 
 /** The delivery half of a spec — what ships, as opposed to what the backend renders. */
 type Delivery = Pick<AssetSpec, 'width' | 'height' | 'alpha'>;
@@ -382,9 +386,9 @@ const uiDrafts = (Object.keys(UI_SUBJECTS) as (keyof typeof UI_SUBJECTS)[]).map(
 );
 
 const iconDrafts = [
-  ...RESOURCE_ICON_IDS.map((resource, index) =>
+  ...RESOURCE_KEYS.map((resource, index) =>
     draft({
-      key: `icon-${resource}`,
+      key: `icon-${kebabFromCamel(resource)}`,
       class: 'icon',
       seed: SEED_BASE.resourceIcon + index + 1,
       prompt: { subject: RESOURCE_ICON_SUBJECTS[resource], framing: FRAMING.icon },
@@ -436,7 +440,7 @@ export type AssetRef =
   | { type: 'portrait'; portraitId: string }
   | { type: 'district'; districtId: string }
   | { type: 'building'; building: BuildingKind }
-  | { type: 'resource-icon'; resource: ResourceIconId }
+  | { type: 'resource-icon'; resource: ResourceKey }
   | { type: 'archetype-icon'; archetype: OverseerArchetype }
   | { type: 'district-kind-icon'; districtKind: DistrictKind };
 
@@ -449,7 +453,7 @@ function assetKeyFor(ref: AssetRef): AssetKey {
     case 'building':
       return `building-${toKebab(ref.building)}`;
     case 'resource-icon':
-      return `icon-${ref.resource}`;
+      return `icon-${kebabFromCamel(ref.resource)}`;
     case 'archetype-icon':
       return `icon-archetype-${ref.archetype}`;
     case 'district-kind-icon':
@@ -531,7 +535,7 @@ function iconSubjectResolves(subject: string): boolean {
     return (DISTRICT_KINDS as readonly string[]).includes(toSnake(districtKind));
   }
 
-  return (RESOURCE_ICON_IDS as readonly string[]).includes(subject);
+  return RESOURCE_ICON_IDS.includes(subject);
 }
 
 function stripPrefix(value: string, prefix: string): string | null {
