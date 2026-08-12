@@ -11,6 +11,8 @@ export * from './commander.js';
 export * from './base.js';
 export * from './city.js';
 export * from './user.js';
+export * from './art/prompts.js';
+export * from './art/manifest.js';
 export * from './battle/types.js';
 export * from './battle/engine.js';
 export * from './api.js';

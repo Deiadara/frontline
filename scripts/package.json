@@ -1,0 +1,23 @@
+{
+  "name": "@frontline/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Repo tooling: the manifest-driven art generation pipeline.",
+  "scripts": {
+    "gen-art": "tsx gen-art.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@frontline/shared": "workspace:*",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
