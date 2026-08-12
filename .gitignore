@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/
+apps/client/screenshots/
+*.tsbuildinfo
+.DS_Store

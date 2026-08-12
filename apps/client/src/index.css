@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-night font-body text-steel-200 antialiased;
+  }
+
+  ::selection {
+    @apply bg-neon-cyan/40 text-white;
+  }
+}
+
+@layer utilities {
+  /* Overlay utilities. Apply to a positioned container; the pseudo-element
+     covers it without capturing pointer events. */
+  .scanlines {
+    position: relative;
+  }
+  .scanlines::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgb(255 255 255 / 0.02) 0px,
+      rgb(255 255 255 / 0.02) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  .grain {
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/></svg>");
+  }
+
+  .text-glow-cyan {
+    text-shadow:
+      0 0 18px rgb(34 211 238 / 0.55),
+      0 0 45px rgb(34 211 238 / 0.25);
+  }
+
+  .text-glow-magenta {
+    text-shadow:
+      0 0 18px rgb(225 29 143 / 0.55),
+      0 0 45px rgb(225 29 143 / 0.25);
+  }
+}
