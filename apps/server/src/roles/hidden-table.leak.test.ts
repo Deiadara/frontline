@@ -34,13 +34,20 @@ const CLIENT_REACHABLE_DIRS = ['packages/shared/src', 'apps/client/src', 'apps/c
 
 /**
  * Naming the hidden module or any of its exports. `fit`/`suitability`/`star rating` are in here
- * because B8 bans the *derived* indicator just as firmly as the table itself.
+ * because B8 bans the *derived* indicator just as firmly as the table itself — and so is
+ * `rollRecruit`, which lives in the generator but hands back the affinity that shaped a roll,
+ * which is the same hint by another name.
+ *
+ * Every accessor that reaches the weights belongs here. A rename that updates the accessor but
+ * not this list fails *open*: the scan stays green while the new name goes uncovered.
  */
 const FORBIDDEN_TOKENS = [
   'ROLE_REQUIREMENTS',
   'RoleRequirement',
   'roleFit',
   'weightedAttributesOf',
+  'attributeWeightsOf',
+  'rollRecruit',
   'roles/requirements',
   'fitScore',
   'roleSuitability',
