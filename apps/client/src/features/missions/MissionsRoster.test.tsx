@@ -124,6 +124,10 @@ describe('the board cannot read the roster', () => {
     expect(screen.queryByText(/Reload/)).toBeNull();
     // The gate still holds: nothing may be sent out under a leader the page could not name.
     expect(deploy('Convoy Ambush')).toBeDisabled();
+    // A message *or* the select, never both. The card used to make that impossible by construction;
+    // it is now three separate guards agreeing with `canPick`, so the agreement has to be watched —
+    // a hard card that renders a zero-option dropdown under its own error line is a visual defect.
+    expect(within(card('Convoy Ambush')).queryByRole('combobox')).toBeNull();
     // Easy work is unaffected — §G6 lets it go out on a delegation, roster or no roster.
     expect(deploy('Scrap Run')).toBeEnabled();
   });
@@ -141,8 +145,12 @@ describe('the board cannot read the roster', () => {
     const easy = within(card('Scrap Run'));
     await easy.findByText('Could not read your officers.');
     // The choice itself survives — the card still offers the delegation, it just cannot offer
-    // officers, and the line above now says so.
-    expect(easy.getByRole('combobox')).toBeTruthy();
+    // officers, and the line above now says so. Assert on what the picker *holds*: a surviving
+    // combobox that had lost its one option would be a dead control, and the §G6 entitlement this
+    // whole case exists to protect would be gone with the error line still sitting above it.
+    expect(easy.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Nobody — assignees alone, slower',
+    ]);
   });
 });
 

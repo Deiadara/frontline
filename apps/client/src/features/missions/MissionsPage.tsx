@@ -186,6 +186,10 @@ function LeaderPicker({
        * hire an officer, on all four hard cards, on every visit to this page. A read that failed is
        * not a read that is still arriving either: this query never retries and is never polled, so
        * "Reading the roster…" would sit there for the life of the page.
+       *
+       * This one stays gated to hard cards while the error line above is not, deliberately: loading
+       * ends in one round trip, so an easy card that flashed a line on every normal load would be
+       * noise; a failed read never ends, which is what earns it a place on all eight.
        */}
       {needsOfficer && roster.status === 'loading' && (
         <p className="text-[11px] leading-relaxed text-steel-600">Reading the roster…</p>
