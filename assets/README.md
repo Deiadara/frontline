@@ -50,9 +50,11 @@ delivery that fails the floor names itself: `encode-art` refuses to encode it, a
 straight in here fails the test suite and is named again by the contact sheet below. Note that a red
 test does not block `pnpm build` — the failing art still reaches the browser until it is replaced.
 
-The plate is the exception. `encode-art` guarantees its opacity by stripping alpha on the way
-through, but a `plate-city` file dropped straight in here declares no floor, so `auditDeliveries`
-skips it and nothing opens its pixels — the one rule above the hand-drop route cannot catch.
+The plate and the sky are the exceptions. `encode-art` guarantees the opacity of both by stripping
+alpha on the way through, but neither declares a floor, so a `plate-city` or `plane-city-sky` file
+dropped straight in here is skipped by `auditDeliveries` and nothing opens its pixels — the one rule
+above cannot catch either of them on the hand-drop route. The bullets above say what each one costs:
+a see-through plate glazes the art behind it, a see-through sky leaves the page showing through.
 
 ## Seeing what has landed
 
