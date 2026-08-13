@@ -26,6 +26,13 @@ export function startingProgression(): ProgressionState {
  *
  * `raidLost` exists because §I1 pays for *fighting* other players, not for winning; a lost raid
  * still taught you something, just less.
+ *
+ * Not every entry fires yet, and the table deliberately does not say which do: §I1 enumerates the
+ * sources, so pricing all of them is the deliverable, and a system that arrives later names its
+ * source rather than reopening what it is worth. As of the W3/W6 seam landing, `missionCompleted`,
+ * `raidWon` and `raidLost` have live call sites; `buildingConstructed` and `questCompleted` have no
+ * system to fire them — the server has no build/upgrade route and no quest system at all. Do not
+ * read a key here as evidence that something awards it.
  */
 export const PLAYER_XP_AWARDS = {
   missionCompleted: 120,
@@ -44,7 +51,10 @@ export interface PlayerXpAward {
   /** `Base.level` after the award. */
   level: number;
   progression: ProgressionState;
-  /** XP still needed to clear `level`. */
+  /**
+   * What clearing `level` costs in total — the denominator of a progress bar, not the remainder.
+   * XP still to go is `xpToNextLevel - progression.xpIntoLevel`.
+   */
   xpToNextLevel: number;
   levelsGained: number;
   /** §I2 grants at the new level. Unchanged when no level was gained. */
