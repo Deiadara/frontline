@@ -28,20 +28,20 @@ export function randomInt(rng: Rng, min: number, max: number): number {
   return min + Math.floor(rng() * (max - min + 1));
 }
 
-/** Pick `count` distinct members, Fisher-Yates on a copy. */
+/** Pick `count` distinct members, Fisher-Yates on a copy. A non-positive `count` picks none. */
 export function sample<T>(rng: Rng, items: readonly T[], count: number): T[] {
   const pool = [...items];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [pool[i], pool[j]] = [pool[j] as T, pool[i] as T];
   }
-  return pool.slice(0, count);
+  return pool.slice(0, Math.max(0, count));
 }
 
 /**
  * Pick `count` distinct members with probability proportional to weight — Efraimidis-Spirakis:
  * key each item as `u ** (1 / weight)` and keep the largest keys, which is exactly weighted
- * sampling without replacement in one pass.
+ * sampling without replacement in one pass. A non-positive `count` picks none.
  */
 export function weightedSample<T>(
   rng: Rng,
@@ -51,6 +51,6 @@ export function weightedSample<T>(
   return entries
     .map(([item, weight]) => ({ item, key: rng() ** (1 / weight) }))
     .sort((a, b) => b.key - a.key)
-    .slice(0, count)
+    .slice(0, Math.max(0, count))
     .map(({ item }) => item);
 }
