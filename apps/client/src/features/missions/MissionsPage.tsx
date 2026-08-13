@@ -155,42 +155,54 @@ function LeaderPicker({
   leader: AssigneeOfficer | undefined;
   onPick: (officerId: string) => void;
 }) {
+  const needsOfficer = requiresOfficer(template.difficulty);
   const officers = rosterOfficers(roster);
+  /** Easy work always has something to offer — §G6's delegation. Hard work needs a real name. */
+  const canPick = !needsOfficer || officers.length > 0;
   return (
     <label className="flex min-w-0 flex-col gap-1">
       <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
         Leading
       </span>
       {/*
+       * A failed read is said out loud on *every* card, not just the ones it disables. An easy card
+       * keeps its select — §G6 lets that work go out on a delegation — but the roster it should be
+       * offering is missing from it, and an unexplained "Nobody" is the same absent-read-rendered-
+       * as-empty-roster lie MOU-248 found on the hard cards, only quieter: a stocked player is
+       * silently denied the officer they are entitled to put on an easy run for the §G5/§G7 bonus.
+       *
+       * The sentence names no remedy, matching the §G screen's own wording. Re-entering the page
+       * refetches (`retryOnMount`), so "reload" would have been advice for a cheaper problem.
+       */}
+      {roster.status === 'error' && (
+        <p className="text-[11px] leading-relaxed text-neon-magenta">
+          Could not read your officers.
+        </p>
+      )}
+      {/*
        * "You have nobody" is only true once the roster has actually answered. The officers arrive on
        * their own query, one round trip behind the board — which renders immediately off a static
        * template list — so treating "not loaded" as "empty" told every player with a full crew to go
-       * hire an officer, on all four hard cards, on every visit to this page.
-       *
-       * A failed read gets its own sentence for the same reason: the §G page already says "Could
-       * not read your assignees" rather than pretending to still be loading, and this query never
-       * retries and is never polled, so "Reading the roster…" would sit there until a reload.
+       * hire an officer, on all four hard cards, on every visit to this page. A read that failed is
+       * not a read that is still arriving either: this query never retries and is never polled, so
+       * "Reading the roster…" would sit there for the life of the page.
        */}
-      {requiresOfficer(template.difficulty) && roster.status === 'loading' ? (
+      {needsOfficer && roster.status === 'loading' && (
         <p className="text-[11px] leading-relaxed text-steel-600">Reading the roster…</p>
-      ) : requiresOfficer(template.difficulty) && roster.status === 'error' ? (
-        <p className="text-[11px] leading-relaxed text-neon-magenta">
-          Could not read your officers. Reload to try again.
-        </p>
-      ) : requiresOfficer(template.difficulty) && officers.length === 0 ? (
+      )}
+      {needsOfficer && roster.status === 'ready' && officers.length === 0 && (
         <p className="text-[11px] leading-relaxed text-warning">
           Hard runs need an officer leading them. Hire one at the Bar.
         </p>
-      ) : (
+      )}
+      {canPick && (
         <select
           value={leader?.officerId ?? ''}
           onChange={(event) => onPick(event.target.value)}
           className="min-w-0 border border-steel-700 bg-night px-2 py-1.5 text-[11px] text-steel-200"
         >
           {/* §G6's easy branch — an explicit choice, not the absence of one. */}
-          {!requiresOfficer(template.difficulty) && (
-            <option value="">Nobody — assignees alone, slower</option>
-          )}
+          {!needsOfficer && <option value="">Nobody — assignees alone, slower</option>}
           {/*
            * The name alone. A role label reads well on the §G screen, which has the width for it,
            * but this control is one column of a three-up card grid: "The Ghost of Sector Nine —

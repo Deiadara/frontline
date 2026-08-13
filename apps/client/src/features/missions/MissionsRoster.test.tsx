@@ -98,6 +98,14 @@ afterEach(() => {
 });
 
 describe('the board cannot read the roster', () => {
+  const refuseTheRoster = () =>
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/assignees'))
+        return reply({ error: { code: 'UNKNOWN', message: 'x' } }, { ok: false });
+      if (path.endsWith('/missions')) return reply(board);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+
   /**
    * `retry: false` and no poll on this query, so a refused read is refused for the life of the
    * page. "Reading the roster…" then describes something that stopped happening — and the other
@@ -105,21 +113,36 @@ describe('the board cannot read the roster', () => {
    * telling a fully staffed player to go and hire the officers they have.
    */
   it('says the read failed rather than that the player has no officers', async () => {
-    fetchMock.mockImplementation((path: string) => {
-      if (path.endsWith('/assignees'))
-        return reply({ error: { code: 'UNKNOWN', message: 'x' } }, { ok: false });
-      if (path.endsWith('/missions')) return reply(board);
-      throw new Error(`unstubbed request: ${path}`);
-    });
+    refuseTheRoster();
     renderBoard(appClient());
 
-    await within(card('Convoy Ambush')).findByText(/Could not read your officers/);
+    // The sentence names no remedy, matching the §G screen. The one it used to name — "Reload to
+    // try again" — was wrong: re-entering the page refetches, so a reload was never the only way.
+    await within(card('Convoy Ambush')).findByText('Could not read your officers.');
     expect(screen.queryByText(/Hire one at the Bar/)).toBeNull();
     expect(screen.queryByText('Reading the roster…')).toBeNull();
+    expect(screen.queryByText(/Reload/)).toBeNull();
     // The gate still holds: nothing may be sent out under a leader the page could not name.
     expect(deploy('Convoy Ambush')).toBeDisabled();
     // Easy work is unaffected — §G6 lets it go out on a delegation, roster or no roster.
     expect(deploy('Scrap Run')).toBeEnabled();
+  });
+
+  /**
+   * The quiet half of the same lie. An easy card keeps its picker on a failed read, so it renders
+   * "Nobody — assignees alone, slower" and nothing else: a stocked player reads that as an empty
+   * roster and is silently denied the §G6 choice to put an officer on easy work for the §G5/§G7
+   * bonus. The card has to say the roster is missing, not merely behave as though it were empty.
+   */
+  it('tells an easy card why its picker is short instead of leaving it unexplained', async () => {
+    refuseTheRoster();
+    renderBoard(appClient());
+
+    const easy = within(card('Scrap Run'));
+    await easy.findByText('Could not read your officers.');
+    // The choice itself survives — the card still offers the delegation, it just cannot offer
+    // officers, and the line above now says so.
+    expect(easy.getByRole('combobox')).toBeTruthy();
   });
 });
 
