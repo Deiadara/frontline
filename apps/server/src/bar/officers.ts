@@ -42,10 +42,12 @@ export function alignmentAt(officer: Commander, reputation: ReputationLabel, now
 /**
  * How stale an officer's alignment anchor may get before a read is worth a write.
  *
- * Sizing it: the fastest a meter can move is `ALIGNMENT_START` away from its target, and over a
- * minute of a three-day half-life that is 0.008 alignment points — two orders below the meter's
- * own rounding. So nothing a player can see is lost by not writing, and the window of drift that
- * a later reputation change can misattribute (below) is held to the same 0.008.
+ * Sizing it: a meter can be the whole `ALIGNMENT_MIN`..`ALIGNMENT_MAX` range from its target — an
+ * officer who has settled near 0 under a word their disposition hates, the moment that word turns
+ * to one it loves — and over a minute of a three-day half-life that is 0.016 alignment points, two
+ * orders below the meter's own rounding. So the granularity costs nothing a player can see and
+ * buys one write per minute per roster. What it does *not* bound is the misattribution below: that
+ * window is the gap between two Bar reads, which this constant does not cap.
  */
 const ALIGNMENT_ANCHOR_MAX_AGE_MS = 60 * 1000;
 
@@ -56,10 +58,10 @@ const ALIGNMENT_ANCHOR_MAX_AGE_MS = 60 * 1000;
  * officer already sitting at their target — every stance-0 officer, permanently, since
  * `alignmentTarget(0)` is `ALIGNMENT_START`. Skipping their write leaves `alignmentUpdatedAt`
  * pinned to hire time, and the next reputation word that gives them a non-zero stance is then
- * credited with the whole accumulated tenure in a single read: a stance-0 officer of 21 days
- * jumps 50 -> 69.8 one second after the word turns, and the window grows without bound over their
- * tenure. Refreshing the anchor on any read older than the granularity holds that to one
- * granularity of drift instead.
+ * credited with the whole accumulated tenure in a single read: a stance-0 officer of 21 days jumps
+ * 50 -> 74.8 one second after the word turns to a +1 (99.6 for a +2), and the window grows without
+ * bound over their tenure. Refreshing the anchor on any read older than the granularity holds that
+ * to one granularity of drift instead.
  *
  * Bounded, not eliminated: alignment settles only on the Bar read path (`routes/bar.ts`), so the
  * misattributed window is the gap between two reads. Closing it entirely means recording the word

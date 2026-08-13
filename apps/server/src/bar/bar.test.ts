@@ -187,10 +187,11 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
   it('holds the open-door floor at the measured three', () => {
     // Every other assertion about the floor is written *relative* to this constant, so all of them
     // move with it and none of them pin it: lowering it to 1 leaves the whole W5 suite green while
-    // re-entering the exact state the floor exists to prevent (a crew with a single open door, or
-    // — once §H4 refuses the survivors — none). 3 is what the measurement landed on, so 3 is what
-    // is written down here. The three HTTP cases below also lean on it for their stability under
-    // the real clock.
+    // cutting a brand-new crew's worst day down to a single willing recruit — the worst day offers
+    // exactly the floor, measured. An empty Bar stays unreachable either way (`recruitAt` forces
+    // both gates), so what moves is how much choice a new crew gets, and that is a decision worth
+    // pinning rather than deriving. The three HTTP cases below also lean on it for their
+    // stability under the real clock.
     expect(BAR_OPEN_DOOR_FLOOR).toBe(3);
   });
 

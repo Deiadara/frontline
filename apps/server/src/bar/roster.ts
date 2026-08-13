@@ -40,10 +40,16 @@ const MIN_INFAMY_GATE = 10;
  * whose two halves cannot object to the same reputation word, so §H4 cannot refuse them either.
  *
  * Both gates need the guarantee, and measuring is what showed it. Rolling §H3 independently
- * bottoms out at a single open door over 800 days (2026-08-13 is one of those days); adding a
- * plain open-door floor still left 1 day in 1200 where a brand-new crew had *nobody* willing,
- * because §H4 then refused the survivors. A Bar that can be empty on the day a player first opens
- * it reads as a broken screen rather than as a closed door.
+ * bottoms out at a single open door over 800 days (2026-08-13 is one of those days), and a *plain*
+ * floor — one that forces §H3 but leaves the compass rolled — still left 1 day in 1200 where §H4
+ * refused every survivor and a brand-new crew had nobody willing. Forcing the compass too (see
+ * `recruitAt`) is what closed that: an open-door seat clears both gates by construction, so a Bar
+ * that is empty on the day a player first opens it is unreachable for any floor >= 1.
+ *
+ * Which makes 3 a UX margin rather than the correctness floor — 1 would be safe. On the worst day
+ * a brand-new crew sees exactly this many willing recruits (measured over 1200 days x every
+ * reputation word), so what this constant sets is how much *choice* that day offers. Weigh it as
+ * that.
  */
 export const BAR_OPEN_DOOR_FLOOR = 3;
 
