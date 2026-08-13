@@ -568,6 +568,19 @@ describe('encodeAsset', () => {
     expect(transparency).toBe(0);
   });
 
+  it('flattens a transparent master onto an alpha-less key rather than delivering its alpha', async () => {
+    // The test above cannot see this: its master is fully opaque, and libwebp drops an all-opaque
+    // alpha channel on its own — so `hasAlpha` reads false there whether or not the encode removes
+    // it. Only a master that really carries alpha separates the two, and `district` declares none.
+    const bytes = await master(1024, 1024, (x, y) => [240, 200, 120, y < 512 ? 255 : 0]);
+    const { bytes: delivery, transparency } = await encodeAsset(bytes, DISTRICT);
+
+    // Stated first: if the fixture is not actually transparent going in, the assertion below is
+    // as insensitive as the one it exists to cover for.
+    expect(transparency).toBe(0.5);
+    expect((await sharp(delivery).metadata()).hasAlpha).toBe(false);
+  });
+
   it('refuses a master that is not the resolution the manifest declared', async () => {
     await expect(encodeAsset(await skyline(512, 512, 0.5), ICON)).rejects.toThrow(
       /master is 512×512, which centre-crops to 512×512 .* upscaling invents detail/s,
