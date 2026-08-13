@@ -568,7 +568,7 @@ describe('encodeAsset', () => {
     expect(transparency).toBe(0);
   });
 
-  it('flattens a transparent master onto an alpha-less key rather than delivering its alpha', async () => {
+  it("drops a transparent master's alpha rather than delivering it", async () => {
     // The test above cannot see this: its master is fully opaque, and libwebp drops an all-opaque
     // alpha channel on its own — so `hasAlpha` reads false there whether or not the encode removes
     // it. Only a master that really carries alpha separates the two, and `district` declares none.
