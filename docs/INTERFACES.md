@@ -149,6 +149,21 @@ Per R6 neither may depend on the other having run: `0004` must not read a column
 `0005` must not read one `0004` adds. They apply in name order against a tree where both land
 independently. Need a third file? Ask on MOU-170 — do not take `0006` yourself.
 
+### R9 — W5 / MOU-164 → `0006_recruitment.sql`
+
+Allocated under R6. `0004` and `0005` are both in (`7f8e525`, `c1b5068`), so `0006` is the next free
+prefix and W5 is the only workstream holding it. One file; if the Bar needs a second, ask before
+writing it.
+
+- The daily roster is **derived, not stored** — it is a pure function of the UTC date (§H2), so it
+  needs no table. Persist only what a player changes: held recruits, their alignment, their
+  `Commander.level`, and the agreed wage.
+- The wage belongs in W2's existing `PayrollState` (`packages/shared/src/economy/payroll.ts`,
+  `bases.economy_json`) — W5 writes the numbers, W2's `runEconomyCycle` moves the money. Do not add
+  a second wage column, and do not re-implement `proratedFirstWage`/`startOfPayWeek`.
+- Per R6 `0006` must stand alone: it may read `bases` columns that existed at `0001_init.sql`, but
+  nothing `0004` or `0005` added, and it must not renumber or edit an applied migration.
+
 ---
 
 ## 3. Shared-file discipline
