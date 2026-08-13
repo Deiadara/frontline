@@ -237,6 +237,23 @@ describe('deliveredFiles', () => {
       expect(tally(found).painted).toBe(1);
     });
   });
+
+  it('resolves a duplicate bare name the way the client does, not the way readdir happens to', async () => {
+    // Both maps key on the bare name and both are built last-write-wins, so the entry that survives
+    // is whichever the source enumerated last. The client's source is `import.meta.glob`, whose keys
+    // Vite sorts by path; ours is `readdir`. Sorted, the root copy wins on both sides. Unsorted this
+    // is the filesystem's call, and the sheet can draw `cc0/` while the game paints the root file —
+    // with `painted 1/1` either way, so no count reveals the disagreement.
+    await withAssetDir({}, async (dir) => {
+      await mkdir(path.join(dir, 'cc0'));
+      await writeFile(path.join(dir, 'cc0', PORTRAIT.file), Buffer.from('subdirectory'));
+      await writeFile(path.join(dir, PORTRAIT.file), Buffer.from('root'));
+
+      const found = await deliveredFiles(dir);
+      expect(found.get(PORTRAIT.file)).toBe(PORTRAIT.file);
+      expect(tally(found).painted).toBe(1);
+    });
+  });
 });
 
 describe('parseArgs', () => {

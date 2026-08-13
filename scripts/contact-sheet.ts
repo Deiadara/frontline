@@ -174,10 +174,16 @@ export function unclaimedDeliveries(delivered: Delivered): readonly string[] {
  * Recursive, because the client's glob is (`assets/**` in `source.ts`): a batch filed under
  * `assets/cc0/` renders in the browser, and a flat listing would draw every one of those keys as
  * "not delivered yet" — the sheet reporting the opposite of what shipped.
+ *
+ * Sorted for the same reason. Both sides key on the bare name, so two files sharing one — say
+ * `assets/plate-city.webp` and `assets/cc0/plate-city.webp` — collide, and last-write-wins decides
+ * which survives. The client's map is built from `import.meta.glob`, whose keys Vite sorts by path;
+ * `readdir` order is the filesystem's. Unsorted, the sheet draws one batch while the game renders
+ * the other, and every count still reads `painted N/M`.
  */
 export async function deliveredFiles(assetDir: string): Promise<Delivered> {
   const files = await readdir(assetDir, { recursive: true }).catch(() => []);
-  return new Map(files.map((file) => [path.basename(file), file]));
+  return new Map(files.toSorted().map((file) => [path.basename(file), file]));
 }
 
 /* -------------------------------------------------------------------------- */
