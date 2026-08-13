@@ -633,6 +633,19 @@ describe('encodeAsset', () => {
     expect(error.message).toContain('(0.0% of the frame)');
   });
 
+  it('reports the alpha-carrying area, not the coverage-weighted mean (MOU-401)', async () => {
+    // The only fixture where the two numbers diverge, and the reason this test exists: every other
+    // one here is binary alpha, where mean coverage and area are the same number and the message
+    // can print either. A uniform `alpha: 254` veil covers the whole frame while averaging 1/255,
+    // so the weighted mean called it `0.4% of the frame` beside a count that is 100% of it.
+    const bytes = await master(1024, 1024, () => [240, 200, 120, 254]);
+    expect(transparencyOf(await decodeMaster(bytes))).toBeCloseTo(1 / 255, 6);
+
+    const error = await rejection(encodeAsset(bytes, DISTRICT));
+
+    expect(error.message).toContain('carries alpha on 1048576 px (100.0% of the frame)');
+  });
+
   it('strips the alpha band on a key that delivers none', async () => {
     // Sits on `encodeDelivery` rather than `encodeAsset` because the gate above now rejects every
     // transparent master before it gets here, and an opaque one cannot tell the two apart: libwebp
@@ -1069,6 +1082,19 @@ describe('delivery audit', () => {
       expect(problems.map((p) => p.key)).toEqual([SKY.key]);
       expect(problems[0]?.problem).toContain('1 of 10000 pixels are not opaque');
       expect(problems[0]?.problem).toContain('(0.0% of the frame)');
+    });
+
+    it('reports the alpha-carrying area, not the coverage-weighted mean (MOU-401)', async () => {
+      // The audit route's half of MOU-401. A uniform `alpha: 254` veil is invisible but leaves no
+      // pixel opaque, so the percentage has to agree with the count printed beside it — and here
+      // the denominator is in the very same clause, which is what made the old `0.4%` self-refuting.
+      const veil = await sharp(await master(40, 40, () => [240, 200, 120, 254]))
+        .webp({ lossless: true, alphaQuality: 100 })
+        .toBuffer();
+      const problems = await auditWith({ [SKY.file]: veil });
+
+      expect(problems.map((p) => p.key)).toEqual([SKY.key]);
+      expect(problems[0]?.problem).toContain('1600 of 1600 pixels are not opaque (100.0% of the frame)');
     });
 
     it('audits the @2x slot against its 1× contract, as the floor does', async () => {

@@ -41,6 +41,9 @@ function harness<T>(hook: () => T) {
 /** Both caches the HUD and the board are read from — the whole point of the refresh. */
 const BOTH = [JSON.stringify(queryKeys.missions), JSON.stringify(queryKeys.me)];
 
+/** Both halves a crossed level moves: the HUD's resources, and the §G layer derived from the level. */
+const LEVEL_SENSITIVE = [JSON.stringify(queryKeys.me), JSON.stringify(queryKeys.assignees)];
+
 beforeEach(() => {
   launchMission.mockReset();
   getMissions.mockReset();
@@ -155,28 +158,31 @@ describe('a level-up refreshes the §G layer it moved', () => {
 
   /*
    * The other two thresholds §I1 pays out on. Both are plain mutations, so each is pinned on its
-   * own call rather than on the shared helper: an edit that inlines one back to `me`-only has to
-   * go red here, which it does not when only the helper's body is observed. Two blocks rather than
-   * one table because the two hooks return different payloads, and a table would have to erase
-   * that difference to hold them both.
+   * own call rather than on the shared helper: an edit that inlines one back to a single key has to
+   * go red here, which it does not when only the helper's body is observed. Both halves are named
+   * because either inlining is a real regression — dropping `assignees` is MOU-381, and dropping
+   * `me` leaves a build's spent caps on screen for the whole 30s `staleTime` (MOU-280's class:
+   * no poll on `me`, no refetch on focus, and `GameScreen` never unmounts inside `/game`). Two
+   * blocks rather than one table because the two hooks return different payloads, and a table would
+   * have to erase that difference to hold them both.
    */
-  it('refreshes the roster after a build that crossed one', async () => {
+  it('refreshes the roster and the HUD after a build that crossed one', async () => {
     buildStructure.mockResolvedValueOnce({ base: {}, levelUp: LEVELLED });
     const { result, invalidated } = harness(() => useBuildStructure('base-1'));
 
     result.current.mutate({} as never);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(invalidated()).toContain(JSON.stringify(queryKeys.assignees));
+    expect(invalidated()).toEqual(expect.arrayContaining(LEVEL_SENSITIVE));
   });
 
-  it('refreshes the roster after a raid that crossed one', async () => {
+  it('refreshes the roster and the HUD after a raid that crossed one', async () => {
     attack.mockResolvedValueOnce({ result: {}, resources: {}, levelUp: LEVELLED });
     const { result, invalidated } = harness(() => useAttack('base-1'));
 
     result.current.mutate({} as never);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(invalidated()).toContain(JSON.stringify(queryKeys.assignees));
+    expect(invalidated()).toEqual(expect.arrayContaining(LEVEL_SENSITIVE));
   });
 });

@@ -108,6 +108,24 @@ export function nonOpaquePixels(image: RgbaImage): number {
   return count;
 }
 
+/**
+ * How many pixels break a key's opaque contract, or `null` if it keeps one — the single gate behind
+ * both routes that enforce it, {@link deliveryProblems} and {@link auditDeliveries}.
+ *
+ * They differ in consequence, not in threshold: the encode route throws and the audit reports. That
+ * they agree on *when* to fire is load-bearing, because a master can reach `assets/` down either
+ * path, and it was held by prose alone until this call sat under both (MOU-402).
+ *
+ * The count is the predicate rather than {@link transparencyOf}`> 0` because it is what the messages
+ * lead with, and the two are equivalent here — not approximately: `1 - opacity/(255*w*h)` can only
+ * round a single non-opaque pixel away to zero above ~7e13 pixels.
+ */
+export function opaqueContractBreach(image: RgbaImage, spec: AssetSpec): number | null {
+  if (spec.alpha) return null;
+  const bare = nonOpaquePixels(image);
+  return bare > 0 ? bare : null;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Post-process steps                                                          */
 /* -------------------------------------------------------------------------- */
@@ -756,11 +774,12 @@ function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: numbe
     );
   }
   if (!spec.alpha && transparency > 0) {
+    const bare = nonOpaquePixels(image);
     problems.push(
-      `the master carries alpha on ${nonOpaquePixels(image)} px (${percent(transparency)} of the ` +
-        `frame) but this key delivers none — removeAlpha() drops the band without compositing, so ` +
-        `whatever RGB sits under it ships as artwork. Flatten the master onto its intended ` +
-        `background first (ADR 0001 §6.4)`,
+      `the master carries alpha on ${bare} px ` +
+        `(${percent(bare / (image.width * image.height))} of the frame) but this key delivers ` +
+        `none — removeAlpha() drops the band without compositing, so whatever RGB sits under it ` +
+        `ships as artwork. Flatten the master onto its intended background first (ADR 0001 §6.4)`,
     );
   }
   return problems;
@@ -891,8 +910,9 @@ export async function auditDeliveries(
         file,
         key: spec.key,
         problem:
-          `${bare} of ${image.width * image.height} pixels are not opaque (${percent(transparency)} ` +
-          `of the frame) but "${spec.key}" delivers no alpha — this file ships as it is, so ` +
+          `${bare} of ${image.width * image.height} pixels are not opaque ` +
+          `(${percent(bare / (image.width * image.height))} of the frame) but "${spec.key}" ` +
+          `delivers no alpha — this file ships as it is, so ` +
           `whatever it does not cover is the page showing through. Flatten it onto its intended ` +
           `background (ADR 0001 §6.4)`,
       });
