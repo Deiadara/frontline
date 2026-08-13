@@ -27,6 +27,10 @@ const PORTRAIT = spec('portrait-overseer-1');
 /** Outside the hero set: it exists on the sheet only once it has actually been delivered. */
 const ICON = spec('icon-scrap');
 
+/** What `deliveredFiles` hands the reporters: bare name → path relative to the drop directory. */
+const delivered = (...files: readonly string[]): ReadonlyMap<string, string> =>
+  new Map(files.map((file) => [path.basename(file), file]));
+
 /** A delivery-shaped file of one flat colour, so a test can point at it in the rendered sheet. */
 function delivery(target: AssetSpec, colour: { r: number; g: number; b: number }): Promise<Buffer> {
   return sharp({
@@ -57,14 +61,14 @@ afterEach(() => {
 
 describe('sheetSpecs', () => {
   it('shows every hero key, delivered or not, in manifest order', () => {
-    const keys = sheetSpecs(new Set()).map((entry) => entry.key);
+    const keys = sheetSpecs(delivered()).map((entry) => entry.key);
     expect(keys).toEqual([...HERO_ASSET_KEYS]);
   });
 
   it('adds a non-hero asset only once it has been delivered', () => {
-    expect(sheetSpecs(new Set()).map((entry) => entry.key)).not.toContain(ICON.key);
+    expect(sheetSpecs(delivered()).map((entry) => entry.key)).not.toContain(ICON.key);
 
-    const withIcon = sheetSpecs(new Set([ICON.file])).map((entry) => entry.key);
+    const withIcon = sheetSpecs(delivered(ICON.file)).map((entry) => entry.key);
     expect(withIcon).toContain(ICON.key);
     // Manifest order, not arrival order — icons sit after the hero portraits and districts.
     expect(withIcon.indexOf(ICON.key)).toBeGreaterThan(withIcon.indexOf(PORTRAIT.key));
@@ -73,7 +77,7 @@ describe('sheetSpecs', () => {
 
 describe('tally', () => {
   it('counts an empty drop directory as entirely procedural', () => {
-    expect(tally(new Set())).toEqual({
+    expect(tally(delivered())).toEqual({
       painted: 0,
       procedural: ART_MANIFEST.length,
       heroPainted: 0,
@@ -82,7 +86,7 @@ describe('tally', () => {
 
   it('splits painted from procedural and tracks the hero subset', () => {
     // The icon is painted but is not hero, so it moves `painted` without moving `heroPainted`.
-    expect(tally(new Set([PORTRAIT.file, ICON.file]))).toEqual({
+    expect(tally(delivered(PORTRAIT.file, ICON.file))).toEqual({
       painted: 2,
       procedural: ART_MANIFEST.length - 2,
       heroPainted: 1,
@@ -90,7 +94,7 @@ describe('tally', () => {
   });
 
   it('ignores a file that matches no manifest entry', () => {
-    expect(tally(new Set(['contact-sheet.png', 'notes.txt']))).toEqual(tally(new Set()));
+    expect(tally(delivered('contact-sheet.png', 'notes.txt'))).toEqual(tally(delivered()));
   });
 });
 
@@ -217,8 +221,21 @@ describe('fontsRender', () => {
 describe('deliveredFiles', () => {
   it('is empty for a directory that does not exist yet', async () => {
     await expect(deliveredFiles(path.join(tmpdir(), 'contact-sheet-absent'))).resolves.toEqual(
-      new Set(),
+      new Map(),
     );
+  });
+
+  it('finds a delivery filed in a subdirectory, keyed by its bare name', async () => {
+    // The client globs `assets/**` and keys on the basename, so `assets/cc0/plate-city.webp`
+    // renders. A flat listing would report that key as outstanding while the game painted it.
+    await withAssetDir({}, async (dir) => {
+      await mkdir(path.join(dir, 'cc0'));
+      await writeFile(path.join(dir, 'cc0', PORTRAIT.file), Buffer.from('bytes'));
+
+      const found = await deliveredFiles(dir);
+      expect(found.get(PORTRAIT.file)).toBe(path.join('cc0', PORTRAIT.file));
+      expect(tally(found).painted).toBe(1);
+    });
   });
 });
 
@@ -302,6 +319,42 @@ describe('main', () => {
     );
   });
 
+  it('draws a delivery filed in a subdirectory, which the client globs and renders', async () => {
+    await withAssetDir({}, async (dir) => {
+      await mkdir(path.join(dir, 'cc0'));
+      await writeFile(
+        path.join(dir, 'cc0', PORTRAIT.file),
+        await delivery(PORTRAIT, { r: 40, g: 80, b: 120 }),
+      );
+      const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+      await expect(main(['--assets', dir, '--out', path.join(dir, 'sheet.png')])).resolves.toBe(0);
+      expect(stdout.mock.calls.join('')).toContain(`painted 1/${ART_MANIFEST.length}`);
+      expect(stderr.mock.calls).toEqual([]);
+    });
+  });
+
+  it('names a delivery that fails the ART-BIBLE §6 transparency floor', async () => {
+    // The one failure a thumbnail cannot show: an opaque foreground plane is perfectly good art in
+    // its own cell, and blankets every district node in the game (MOU-289).
+    const fore = spec('plane-city-fore');
+    const opaque = await sharp({
+      create: { width: 32, height: 18, channels: 4, background: { r: 20, g: 24, b: 40 } },
+    })
+      .webp()
+      .toBuffer();
+
+    await withAssetDir({ [fore.file]: opaque }, async (dir) => {
+      const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+      await expect(main(['--assets', dir, '--out', path.join(dir, 'sheet.png')])).resolves.toBe(0);
+      expect(stderr.mock.calls.join('')).toContain(fore.file);
+      expect(stderr.mock.calls.join('')).toMatch(/transparent/);
+    });
+  });
+
   it('says nothing about files that are not deliveries', async () => {
     await withAssetDir(
       {
@@ -324,15 +377,15 @@ describe('main', () => {
 describe('unclaimedDeliveries', () => {
   it('names a delivery-shaped file the manifest does not claim', () => {
     const wrongExtension = PORTRAIT.file.replace(/\.\w+$/, '.png');
-    expect(unclaimedDeliveries(new Set([PORTRAIT.file, wrongExtension]))).toEqual([wrongExtension]);
+    expect(unclaimedDeliveries(delivered(PORTRAIT.file, wrongExtension))).toEqual([wrongExtension]);
     // A renamed district leaves its art behind, and a banned `-final` suffix never loads either.
     expect(
-      unclaimedDeliveries(new Set(['district-renamed.webp', 'portrait-x-final.webp'])),
+      unclaimedDeliveries(delivered('district-renamed.webp', 'portrait-x-final.webp')),
     ).toEqual(['district-renamed.webp', 'portrait-x-final.webp']);
   });
 
   it('stays quiet about the 2× variants and anything that is not an image', () => {
     const retina = PORTRAIT.file.replace(/\.(\w+)$/, '@2x.$1');
-    expect(unclaimedDeliveries(new Set([retina, 'README.md', 'notes.txt']))).toEqual([]);
+    expect(unclaimedDeliveries(delivered(retina, 'README.md', 'notes.txt'))).toEqual([]);
   });
 });

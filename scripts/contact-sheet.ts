@@ -20,6 +20,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { ART_MANIFEST, HERO_ASSET_KEYS, type AssetSpec } from '@frontline/shared';
+import { auditDeliveries } from './encode-art.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -104,6 +105,15 @@ function cellOrigin(index: number, layout: Layout): { x: number; y: number } {
 /* Selection                                                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * What landed in the drop directory, keyed by bare file name — the same shape and the same keying
+ * as the client's own glob (`DELIVERED_ART`, `apps/client/src/assets/source.ts`), so this sheet
+ * reports a file exactly when the browser renders it. The value is the path relative to the drop
+ * directory, which is what the sheet has to open: the client globs `**` and keys on the basename,
+ * so a delivery may sit in a subdirectory.
+ */
+export type Delivered = ReadonlyMap<string, string>;
+
 export interface Tally {
   /** Manifest keys with a delivery file — what the game paints today. */
   painted: number;
@@ -112,7 +122,7 @@ export interface Tally {
   heroPainted: number;
 }
 
-export function tally(delivered: ReadonlySet<string>): Tally {
+export function tally(delivered: Delivered): Tally {
   const painted = ART_MANIFEST.filter((spec) => delivered.has(spec.file));
   return {
     painted: painted.length,
@@ -126,7 +136,7 @@ export function tally(delivered: ReadonlySet<string>): Tally {
  * anything else that has actually been delivered. In manifest order, so the sheet's reading order
  * never depends on which batch a file arrived in.
  */
-export function sheetSpecs(delivered: ReadonlySet<string>): readonly AssetSpec[] {
+export function sheetSpecs(delivered: Delivered): readonly AssetSpec[] {
   return ART_MANIFEST.filter(
     (spec) => HERO_ASSET_KEYS.includes(spec.key) || delivered.has(spec.file),
   );
@@ -151,17 +161,23 @@ const RETINA_FILE = /@2x\.(?:webp|png)$/;
  * them on stderr. Deliberately extension-shaped rather than grammar-shaped: a file the naming rule
  * rejects is exactly the kind that goes missing, so it has to be named too.
  */
-export function unclaimedDeliveries(delivered: ReadonlySet<string>): readonly string[] {
+export function unclaimedDeliveries(delivered: Delivered): readonly string[] {
   const claimed = new Set(ART_MANIFEST.map((spec) => spec.file));
-  return [...delivered]
+  return [...delivered.keys()]
     .filter((file) => DELIVERY_FILE.test(file) && !RETINA_FILE.test(file) && !claimed.has(file))
     .sort();
 }
 
-/** Delivery file names present in `assetDir`. The 2× variants are the same art — 1× is the cell. */
-export async function deliveredFiles(assetDir: string): Promise<ReadonlySet<string>> {
-  const files = await readdir(assetDir).catch(() => []);
-  return new Set(files);
+/**
+ * Delivery files present in `assetDir`. The 2× variants are the same art — 1× is the cell.
+ *
+ * Recursive, because the client's glob is (`assets/**` in `source.ts`): a batch filed under
+ * `assets/cc0/` renders in the browser, and a flat listing would draw every one of those keys as
+ * "not delivered yet" — the sheet reporting the opposite of what shipped.
+ */
+export async function deliveredFiles(assetDir: string): Promise<Delivered> {
+  const files = await readdir(assetDir, { recursive: true }).catch(() => []);
+  return new Map(files.map((file) => [path.basename(file), file]));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -301,14 +317,17 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 
 async function collectCells(
   specs: readonly AssetSpec[],
-  delivered: ReadonlySet<string>,
+  delivered: Delivered,
   assetDir: string,
 ): Promise<Cell[]> {
   return Promise.all(
-    specs.map(async (spec) => ({
-      spec,
-      bytes: delivered.has(spec.file) ? await readFile(path.join(assetDir, spec.file)) : undefined,
-    })),
+    specs.map(async (spec) => {
+      const file = delivered.get(spec.file);
+      return {
+        spec,
+        bytes: file === undefined ? undefined : await readFile(path.join(assetDir, file)),
+      };
+    }),
   );
 }
 
@@ -329,6 +348,14 @@ export async function main(argv: readonly string[]): Promise<number> {
       `warning: no manifest entry claims ${unclaimed.join(', ')} — the matching key is drawn as ` +
         'not delivered yet. Check the extension and the subject against the manifest.\n',
     );
+  }
+
+  // The §6 transparency floor, reported here as well as in the test suite: this is the command
+  // `assets/README.md` sends the board to run after a drop, and the repo has no CI, so vitest only
+  // fires when an agent runs the gates. A thumbnail cannot show the failure either — an opaque
+  // foreground plane looks like perfectly good art in its cell, and blankets the map in the game.
+  for (const problem of await auditDeliveries(options.assetDir)) {
+    process.stderr.write(`warning: ${problem.file} (${problem.key}) — ${problem.problem}\n`);
   }
 
   let cells: Cell[];

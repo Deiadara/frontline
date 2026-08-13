@@ -45,9 +45,10 @@ The four are not interchangeable. They stack back to front — `plane-city-sky`,
 
 The alpha rule is checked, not just asked for: `plane-city-far` and `plane-city-fore` declare an
 ART-BIBLE §6 transparency floor (30% and 55%), and `pnpm --filter @frontline/scripts test` audits
-whatever is sitting in this directory against it — 1× and `@2x` alike. A delivery that fails the
-floor names itself, so it cannot reach the browser through either the `encode-art` route or a file
-dropped straight in here.
+whatever is sitting in this directory against it — 1× and `@2x` alike, subdirectories included. A
+delivery that fails the floor names itself: `encode-art` refuses to encode it, and one dropped
+straight in here fails the test suite and is named again by the contact sheet below. Note that a red
+test does not block `pnpm build` — the failing art still reaches the browser until it is replaced.
 
 The plate is the exception. `encode-art` guarantees its opacity by stripping alpha on the way
 through, but a `plate-city` file dropped straight in here declares no floor, so `auditDeliveries`
