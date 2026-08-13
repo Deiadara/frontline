@@ -681,7 +681,14 @@ export interface EncodeResult {
   transparency: number;
 }
 
-function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffer> {
+/**
+ * Exported for the test that pins `removeAlpha()`. That assertion cannot be written against
+ * {@link encodeAsset}: `deliveryProblems` now rejects any transparency under an `alpha: false` spec
+ * (MOU-374), so nothing carrying alpha reaches here through the public entry point, and libwebp
+ * drops an all-opaque band by itself — which leaves `hasAlpha` reading the same with or without the
+ * call. Reaching the unit directly is what keeps both checks live at once (MOU-377).
+ */
+export function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffer> {
   const classSpec = ASSET_CLASS_SPECS[spec.class];
   const pipeline = spec.alpha ? sharpFrom(image) : sharpFrom(image).removeAlpha();
   if (classSpec.ext === 'png') return pipeline.png({ compressionLevel: 9 }).toBuffer();

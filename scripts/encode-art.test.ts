@@ -22,6 +22,7 @@ import {
   centredCrop,
   decodeMaster,
   encodeAsset,
+  encodeDelivery,
   keyBackground,
   main,
   paintedReport,
@@ -583,6 +584,21 @@ describe('encodeAsset', () => {
     await expect(encodeAsset(bytes, DISTRICT)).rejects.toThrow(
       /carries alpha over 50\.0% of the frame but "district" delivers none/,
     );
+  });
+
+  it('strips the alpha band on a key that delivers none', async () => {
+    // Sits on `encodeDelivery` rather than `encodeAsset` because the gate above now rejects every
+    // transparent master before it gets here, and an opaque one cannot tell the two apart: libwebp
+    // drops an all-opaque band by itself, so `hasAlpha` reads false either way. Feeding the unit
+    // directly is the only place left where deleting `removeAlpha()` can still turn a test red —
+    // which is the coverage MOU-317 landed and the MOU-308 §4 review asked for (MOU-377).
+    const image = await decodeMaster(
+      await master(64, 64, (x, y) => [240, 200, 120, y < 32 ? 255 : 0]),
+    );
+
+    // Stated first, for the same reason as above: an opaque fixture would make this vacuous.
+    expect(transparencyOf(image)).toBe(0.5);
+    expect((await sharp(await encodeDelivery(image, DISTRICT)).metadata()).hasAlpha).toBe(false);
   });
 
   it('refuses a master that is not the resolution the manifest declared', async () => {
