@@ -78,26 +78,45 @@ async function expectNothingClippedHorizontally(page: Page): Promise<void> {
  * honest about the ones it dropped. Both branches are real: at 1280x720 two cards do not fit, at
  * every taller viewport all four do — so the tight viewport is the fat case this screen has, its
  * content being the same four presets everywhere.
+ *
+ * `fitsWholeRoster` pins which of the two branches a viewport is in. Reading the hidden count off
+ * the DOM and checking only that the hint agrees with it is self-fulfilling: a card that grew back
+ * into the 5px of slack 1024x768 has would silently halve the roster and stay green — the same
+ * shape of blind spot that let the horizontal-only gate ship the bug this file exists for.
  */
-async function expectWholeCardRows(page: Page): Promise<void> {
-  const roster = await page.evaluate<{ total: number; hidden: number }>(() => {
-    const cards = [...document.querySelectorAll('button[aria-pressed]')];
-    const viewport = cards[0]?.closest('.overflow-y-auto');
-    if (!viewport) throw new Error('roster viewport not found');
-    const { bottom } = viewport.getBoundingClientRect();
-    return {
-      total: cards.length,
-      hidden: cards.filter((card) => card.getBoundingClientRect().bottom > bottom + 1).length,
-    };
-  });
+async function expectWholeCardRows(page: Page, fitsWholeRoster: boolean): Promise<void> {
+  // Polled, not read once: the viewport is sized by a layout effect that re-runs on every resize
+  // and on the font swap, so a single snapshot can catch an intermediate pass.
+  const roster = () =>
+    page.evaluate<{ total: number; hidden: number }>(() => {
+      const cards = [...document.querySelectorAll('button[aria-pressed]')];
+      const viewport = cards[0]?.closest('.overflow-y-auto');
+      if (!viewport) throw new Error('roster viewport not found');
+      const { bottom } = viewport.getBoundingClientRect();
+      return {
+        total: cards.length,
+        hidden: cards.filter((card) => card.getBoundingClientRect().bottom > bottom + 1).length,
+      };
+    });
 
-  expect(roster.total, 'every preset must be rendered').toBe(4);
+  await expect
+    .poll(async () => (await roster()).total, { message: 'every preset must be rendered' })
+    .toBe(4);
+  await expect
+    .poll(async () => (await roster()).hidden === 0, {
+      message: fitsWholeRoster
+        ? 'this viewport has room for every overseer'
+        : 'this viewport is too short for two rows, so cards must drop',
+    })
+    .toBe(fitsWholeRoster);
+
+  const hidden = (await roster()).hidden;
   const hint = page.getByText(/Scroll for \d+ more/);
-  if (roster.hidden === 0) {
+  if (hidden === 0) {
     await expect(hint, 'a roster that fits must not advertise hidden cards').toHaveCount(0);
   } else {
     await expect(hint, 'hidden cards must be advertised, and counted correctly').toHaveText(
-      new RegExp(`Scroll for ${roster.hidden} more`),
+      new RegExp(`Scroll for ${hidden} more`),
     );
   }
 }
@@ -140,7 +159,9 @@ for (const size of VIEWPORTS) {
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
-      await expectWholeCardRows(page);
+      // Two card rows need 592px of frame. Only the 720px-tall viewport cannot pay for it (549px);
+      // 1024x768 clears it by 5px, which is the margin this argument exists to keep honest.
+      await expectWholeCardRows(page, size.height >= 768);
       await page.screenshot({ path: `screenshots/visual/overseer-${tag}.png` });
     });
 
