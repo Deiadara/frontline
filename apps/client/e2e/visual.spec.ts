@@ -188,8 +188,8 @@ for (const size of VIEWPORTS) {
        * No vertical guard here, deliberately. The base panel is a document scroller: its content
        * is arbitrarily long, so the last visible row is cut at every viewport, exactly as an
        * ordinary scrolling page cuts it. That is a different question from a *bounded* viewport
-       * silently ending mid-card, which is what the guard exists for. At 1280x720 the structure
-       * list does end 4px into "Command Center" — flagged to the CTO, not silently asserted away.
+       * silently ending mid-card, which is what the guard exists for. What the fold does expose at
+       * 1280x720 is that nothing advertises the scroll — MOU-195 tracks the affordance.
        */
       await page.screenshot({ path: `screenshots/visual/base-${tag}.png` });
     });
