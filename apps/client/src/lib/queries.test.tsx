@@ -156,14 +156,23 @@ describe('a level-up refreshes the §G layer it moved', () => {
   /*
    * The other two thresholds §I1 pays out on. Both are plain mutations, so each is pinned on its
    * own call rather than on the shared helper: an edit that inlines one back to `me`-only has to
-   * go red here, which it does not when only the helper's body is observed.
+   * go red here, which it does not when only the helper's body is observed. Two blocks rather than
+   * one table because the two hooks return different payloads, and a table would have to erase
+   * that difference to hold them both.
    */
-  it.each([
-    ['a build that crossed one', () => useBuildStructure('base-1'), buildStructure, { base: {} }],
-    ['a raid that crossed one', () => useAttack('base-1'), attack, { result: {}, resources: {} }],
-  ])('refreshes the roster after %s', async (_case, hook, call, response) => {
-    call.mockResolvedValueOnce({ ...response, levelUp: LEVELLED });
-    const { result, invalidated } = harness(hook);
+  it('refreshes the roster after a build that crossed one', async () => {
+    buildStructure.mockResolvedValueOnce({ base: {}, levelUp: LEVELLED });
+    const { result, invalidated } = harness(() => useBuildStructure('base-1'));
+
+    result.current.mutate({} as never);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toContain(JSON.stringify(queryKeys.assignees));
+  });
+
+  it('refreshes the roster after a raid that crossed one', async () => {
+    attack.mockResolvedValueOnce({ result: {}, resources: {}, levelUp: LEVELLED });
+    const { result, invalidated } = harness(() => useAttack('base-1'));
 
     result.current.mutate({} as never);
 
