@@ -29,10 +29,11 @@ export function startingProgression(): ProgressionState {
  *
  * Not every entry fires yet, and the table deliberately does not say which do: §I1 enumerates the
  * sources, so pricing all of them is the deliverable, and a system that arrives later names its
- * source rather than reopening what it is worth. As of the W3/W6 seam landing, `missionCompleted`,
- * `raidWon` and `raidLost` have live call sites; `buildingConstructed` and `questCompleted` have no
- * system to fire them — the server has no build/upgrade route and no quest system at all. Do not
- * read a key here as evidence that something awards it.
+ * source rather than reopening what it is worth. As of W8 landing the village build path,
+ * `missionCompleted`, `buildingConstructed`, `raidWon` and `raidLost` all have live call sites;
+ * only `questCompleted` has no system to fire it — there is no quest system, and §I1 is the one
+ * place in the GDD that mentions quests at all. Do not read a key here as evidence that something
+ * awards it, and do not add a second producer for a key that already has one.
  */
 export const PLAYER_XP_AWARDS = {
   missionCompleted: 120,
