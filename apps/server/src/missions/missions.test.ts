@@ -1,5 +1,7 @@
 import {
   MISSION_TEMPLATES,
+  PLAYER_XP_AWARDS,
+  applyPlayerXp,
   findMissionTemplate,
   missionRewards,
   templateTimings,
@@ -423,5 +425,86 @@ describe('the mission routes', () => {
 
   it('offers a board that spans every travel band and both kinds', () => {
     expect(MISSION_TEMPLATES.length).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
+  /** What W6's engine makes of `n` mission awards from where the base currently stands. */
+  function expectedAfter(base: Base, missions: number) {
+    return applyPlayerXp(
+      { level: base.level, xpIntoLevel: base.progression.xpIntoLevel },
+      missions * PLAYER_XP_AWARDS.missionCompleted,
+    );
+  }
+
+  it('banks the award and hands back the level it produced, not a pre-award copy', async () => {
+    const stack = await makeStack();
+    const before = freshBase(stack);
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS);
+
+    const { base } = resolveDueMissions(
+      stack.repos,
+      stack.base,
+      after(templateTimings(scrapRun).totalMinutes),
+    );
+
+    const expected = expectedAfter(before, 1);
+    // One mission is worth more than level 1 costs, so this crosses a level: the two halves of
+    // progression have to move together or the returned base contradicts the row.
+    expect(expected.levelsGained).toBeGreaterThan(0);
+    expect(freshBase(stack).level).toBe(expected.level);
+    expect(freshBase(stack).progression.xpIntoLevel).toBe(expected.xpIntoLevel);
+    // The route serves this object, not a re-read, so a stale copy here reaches the player.
+    expect(base.level).toBe(expected.level);
+    expect(base.progression.xpIntoLevel).toBe(expected.xpIntoLevel);
+  });
+
+  it('pays one award per crew that came home, not one per settlement', async () => {
+    const stack = await makeStack();
+    const before = freshBase(stack);
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS, T0);
+    planted(stack, findMissionTemplate('ration-run') as MissionTemplate, ALWAYS_SUCCEEDS, after(1));
+
+    const { base, resolved } = resolveDueMissions(stack.repos, stack.base, after(10_000));
+
+    expect(resolved).toHaveLength(2);
+    const expected = expectedAfter(before, 2);
+    expect(base.level).toBe(expected.level);
+    expect(base.progression.xpIntoLevel).toBe(expected.xpIntoLevel);
+    expect(freshBase(stack).progression.xpIntoLevel).toBe(expected.xpIntoLevel);
+  });
+
+  it('pays a crew that came home empty too — §I1 prices the run, not the win', async () => {
+    const stack = await makeStack();
+    const before = freshBase(stack);
+    const raid = findMissionTemplate('foundry-raid') as MissionTemplate;
+    planted(stack, raid, ALWAYS_FAILS);
+
+    const { base, resolved } = resolveDueMissions(
+      stack.repos,
+      stack.base,
+      after(templateTimings(raid).totalMinutes),
+    );
+
+    expect(resolved[0]?.outcome).toBe('failure');
+    expect(base.resources).toEqual(before.resources);
+    expect(base.progression.xpIntoLevel).toBe(expectedAfter(before, 1).xpIntoLevel);
+  });
+
+  it('pays XP exactly once, however many times the board is read', async () => {
+    const stack = await makeStack();
+    const { totalMinutes } = templateTimings(scrapRun);
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS);
+
+    resolveDueMissions(stack.repos, stack.base, after(totalMinutes));
+    const paidOnce = freshBase(stack).progression.xpIntoLevel;
+    const levelOnce = freshBase(stack).level;
+
+    for (let i = 0; i < 5; i += 1) {
+      resolveDueMissions(stack.repos, stack.base, after(totalMinutes + i));
+    }
+
+    expect(freshBase(stack).progression.xpIntoLevel).toBe(paidOnce);
+    expect(freshBase(stack).level).toBe(levelOnce);
   });
 });

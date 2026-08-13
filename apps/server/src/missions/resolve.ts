@@ -12,6 +12,7 @@ import {
 import { createRng } from '../characters/rng.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { StoredMission } from '../db/repos/missions.js';
+import { awardPlayerXp } from '../progression/award.js';
 
 /**
  * The roll, taken from the seed frozen at launch.
@@ -83,5 +84,15 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   };
   repos.bases.updateResources(settled.id, settled.resources);
   repos.bases.updateEconomy(settled.id, settled.economy);
-  return { base: settled, resolved: settlements.map((s) => s.mission) };
+
+  // INTERFACES R7 — §I1 makes a mission completing an XP source. W6 owns the whole XP side, so this
+  // only names what happened: one award per crew that came home, success or failure, priced by
+  // `PLAYER_XP_AWARDS` and levelled by W6's engine. Threaded through `awardPlayerXp` so a
+  // multi-mission settlement banks every award and the base handed back carries the level it
+  // ended on, rather than a pre-award copy the caller would then serve as current.
+  const progressed = settlements.reduce(
+    (acc) => awardPlayerXp(repos, acc, 'missionCompleted').base,
+    settled,
+  );
+  return { base: progressed, resolved: settlements.map((s) => s.mission) };
 }
