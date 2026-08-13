@@ -30,22 +30,28 @@ nothing is stretched, so a master is never distorted — it is only ever cropped
 Until a plane's master finishes downloading — and if the fetch fails outright — that plane holds its
 procedural skyline rather than going blank.
 
-### …and only the sky is opaque
+### …and only `far` and `fore` carry alpha
 
 The four are not interchangeable. They stack back to front — `plane-city-sky`, `plane-city-far`,
 `plate-city`, the district nodes, `plane-city-fore` — over a transparent stage, so:
 
 - **`plane-city-sky` must be fully opaque.** It is the backdrop; whatever it does not cover is the
   page showing through, not art.
-- **`plane-city-far`, `plate-city` and `plane-city-fore` must carry alpha.** They composite over the
-  sky, and `plane-city-fore` draws _in front of the district nodes_ — an opaque foreground master
-  blankets the whole map, nodes included.
+- **`plane-city-far` and `plane-city-fore` must carry alpha.** They composite over the sky, and
+  `plane-city-fore` draws _in front of the district nodes_ — an opaque foreground master blankets
+  the whole map, nodes included.
+- **`plate-city` is opaque** — ART-BIBLE §6, `plate` class `alpha: false`, and `encode-art` strips
+  any alpha it arrives with. It is the ground, not a glaze.
 
-The last one is checked, not just asked for: `plane-city-far` and `plane-city-fore` declare an
+The alpha rule is checked, not just asked for: `plane-city-far` and `plane-city-fore` declare an
 ART-BIBLE §6 transparency floor (30% and 55%), and `pnpm --filter @frontline/scripts test` audits
 whatever is sitting in this directory against it — 1× and `@2x` alike. A delivery that fails the
 floor names itself, so it cannot reach the browser through either the `encode-art` route or a file
 dropped straight in here.
+
+The plate is the exception. `encode-art` guarantees its opacity by stripping alpha on the way
+through, but a `plate-city` file dropped straight in here declares no floor, so `auditDeliveries`
+skips it and nothing opens its pixels — the one rule above the hand-drop route cannot catch.
 
 ## Seeing what has landed
 
