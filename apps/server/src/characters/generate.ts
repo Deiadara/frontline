@@ -45,6 +45,21 @@ const MAX_STRENGTHS = 5;
 const MIN_OFF_TEMPLATE = 1;
 const MAX_OFF_TEMPLATE = 2;
 
+/**
+ * The off-template band has a legal ceiling. `pickStrengths` draws `count - outside` attributes
+ * from the template, so once `outside` can reach `count` a roll can lift nothing on-template at
+ * all: the affinity contributed nothing, on a sheet that still looks ordinary and passes every
+ * distribution floor below. `MAX_OFF_TEMPLATE < MIN_STRENGTHS` is exactly the guarantee that at
+ * least one strength stays on-template, and widening the band past it has to fail here, at
+ * import, rather than quietly in the numbers.
+ */
+if (MAX_OFF_TEMPLATE >= MIN_STRENGTHS) {
+  throw new Error(
+    `off-template band is degenerate: MAX_OFF_TEMPLATE (${MAX_OFF_TEMPLATE}) must stay below ` +
+      `MIN_STRENGTHS (${MIN_STRENGTHS}), or a roll can lift no on-template attribute at all`,
+  );
+}
+
 const WEAKNESS_MEAN = 10;
 const WEAKNESS_STD_DEV = 1.5;
 const WEAKNESS_FLOOR = 4;

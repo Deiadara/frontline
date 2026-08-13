@@ -167,6 +167,23 @@ describe('what a sheet gives away about its affinity (B8)', () => {
     expect(rate).toBeLessThan(0.2); // measured 0.117
   });
 
+  // Both floors below are means over the whole sample, and a minority of affinity-free rolls
+  // averages away inside them: widening the off-template band to MAX_OFF_TEMPLATE = 3 takes the
+  // share of sheets whose top three carry nothing from the template 0.7% -> 14% while mean rank
+  // (2.26 -> 3.67, floor 4) and best-fit share (0.61 -> 0.47, floor 0.4) both stay green — and
+  // the leak rate *improves*, so a tuning run would read that as a win. This is the per-roll
+  // reading that sees it: the affinity has to reach the sheet on nearly every roll, not on
+  // average. (The band itself is now capped at import; this gate is what makes the cap earn its
+  // place, and would also catch the same degeneracy arriving by another route.)
+  it('leaves almost every individual sheet at least one on-template strength', () => {
+    const shaped = ROLLS.filter((roll) =>
+      ranked(roll.attributes)
+        .slice(0, 3)
+        .some(([name]) => templates.get(roll.affinity)?.has(name)),
+    ).length;
+    expect(shaped / ROLLS.length).toBeGreaterThan(0.95); // measured 0.993; 0.860 at MAX_OFF_TEMPLATE = 3
+  });
+
   // The other direction: the roll still means something. Rank the affinity among all 19 roles by
   // fit — had de-fingerprinting reduced the sheet to noise, this would sit near 10 of 19.
   it('still leaves the affinity the best-fitting role by a wide margin', () => {
