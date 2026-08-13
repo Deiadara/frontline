@@ -1,15 +1,17 @@
 /**
  * The encode stage (ADR 0001 §4.1): master → ART-BIBLE §6 delivery file.
  *
- * `scripts/gen-art.ts` writes a lossless PNG **master** per asset into `art-src/`. For 14 of the 44
- * assets that master is deliberately not the delivery image — no backend renders 512×512 with alpha
- * and none renders 16:9 with alpha at all — so the manifest declares `spec.postProcess`, the steps
- * that close the gap. This runner is what applies them, then encodes the result as `spec.file`
- * (WebP at `ASSET_CLASS_SPECS[class].quality`, or lossless PNG) into the `assets/` drop directory.
+ * A **master** per asset lands in `art-src/` as `<key>.png` or `<key>.webp`. For 14 of the assets
+ * that master is deliberately not the delivery image — no backend renders 512×512 with alpha and
+ * none renders 16:9 with alpha at all — so the manifest declares `spec.postProcess`, the steps that
+ * close the gap. This runner normalizes the master to `spec.source`, applies those steps, then
+ * encodes the result as `spec.file` (WebP at `ASSET_CLASS_SPECS[class].quality`, or lossless PNG)
+ * into the `assets/` drop directory.
  *
  *   pnpm --filter @frontline/scripts encode-art --dry-run
  *   pnpm --filter @frontline/scripts encode-art --only icon-scrap
- *   pnpm --filter @frontline/scripts encode-art --landed   # whatever has arrived so far
+ *   pnpm --filter @frontline/scripts encode-art --landed    # whatever has arrived so far
+ *   pnpm --filter @frontline/scripts encode-art --painted   # what the game actually renders
  *
  * (No `--` separator: pnpm 11 forwards it to the script, where it parses as an unknown argument.)
  *
@@ -29,10 +31,13 @@ import { fileURLToPath } from 'node:url';
 import sharp, { type Sharp } from 'sharp';
 import {
   ART_MANIFEST,
+  ASSET_CLASSES,
   ASSET_CLASS_SPECS,
   POST_PROCESS_STEPS,
   findAssetSpec,
   validateAssetSpec,
+  type AssetClass,
+  type AssetKey,
   type AssetSpec,
   type PostProcessStep,
 } from '@frontline/shared';
@@ -532,6 +537,89 @@ export async function keyBackground(image: RgbaImage, tolerance: number): Promis
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Normalize                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** A rectangle inside a master, in `sharp.extract` order. */
+export interface CropRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The largest centred rectangle inside `image` with `target`'s aspect ratio.
+ *
+ * Centred rather than saliency-cropped: `sharp`'s attention strategy picks its own rectangle per
+ * image, so the same master would frame differently across `sharp` versions and no test could pin
+ * it. The manifest already declares each asset's framing, and a board that wants a different one
+ * crops the file before dropping it in.
+ *
+ * Compared by cross-multiplication rather than by a float ratio — an off-by-one in the ratio is a
+ * one-pixel shear at 4K, and the integer comparison is exact.
+ */
+export function centredCrop(
+  image: Pick<RgbaImage, 'width' | 'height'>,
+  target: { width: number; height: number },
+): CropRect {
+  const wider = image.width * target.height > image.height * target.width;
+  const width = wider ? Math.floor((image.height * target.width) / target.height) : image.width;
+  const height = wider ? image.height : Math.floor((image.width * target.height) / target.width);
+  return {
+    left: Math.floor((image.width - width) / 2),
+    top: Math.floor((image.height - height) / 2),
+    width,
+    height,
+  };
+}
+
+/**
+ * Master → `spec.source`: centre-crop to the declared aspect ratio, then downscale.
+ *
+ * A generator renders to order, so this used to be a size *assertion*. A CC0 master is whatever
+ * size its uploader saved, in whatever aspect they framed, and refusing those left `assets/` empty
+ * however much art the board found — so the shape is brought to the manifest instead of the other
+ * way round, with **zero TypeScript per asset**.
+ *
+ * It normalizes to `spec.source`, not to the delivery size, so the ordering the manifest declares
+ * is untouched: `matte` still runs at source resolution against a canvas the size its gates were
+ * measured on (`MAX_ERASED_ARTWORK`, `MIN_OPAQUE_ISLAND`), and the declared `downscale` still
+ * closes the last step with premultiplied alpha. Cropping to `spec.source`'s ratio is the same
+ * crop as cropping to the delivery's: `validateAssetSpec` refuses a spec whose source and delivery
+ * disagree on aspect, and `validateRun` runs it before any of this.
+ *
+ * **It will not upscale.** A master that centre-crops to less than `spec.source` in either axis is
+ * refused, naming the size it would need — inventing detail to fill a delivery is the one failure
+ * that looks fine on disk and mushy in the browser.
+ */
+export async function normalizeMaster(image: RgbaImage, spec: AssetSpec): Promise<RgbaImage> {
+  const { source } = spec;
+  // The generator-shaped case, and the one every existing master takes: nothing to do, and no
+  // resample to soften an already-exact master.
+  if (image.width === source.width && image.height === source.height) return image;
+
+  const crop = centredCrop(image, source);
+  if (crop.width < source.width || crop.height < source.height) {
+    // The scale that makes the master cover the source box. Taken off the master's own dimensions
+    // rather than off `crop`, whose floor would round the answer up past the sizes that do work.
+    const scale = Math.max(source.width / image.width, source.height / image.height);
+    throw new Error(
+      `${spec.key}: master is ${image.width}×${image.height}, which centre-crops to ` +
+        `${crop.width}×${crop.height} at the manifest's ${source.width}×${source.height} source ` +
+        `aspect — short of it, and upscaling invents detail. At this master's aspect ratio the ` +
+        `smallest one that works is ${Math.ceil(image.width * scale)}×${Math.ceil(image.height * scale)}.`,
+    );
+  }
+
+  return toRgba(
+    sharpFrom(image)
+      .extract(crop)
+      .resize(source.width, source.height, { fit: 'fill', kernel: 'lanczos3' }),
+  );
+}
+
 const downscale: PostProcessor = async (image, spec) =>
   // libvips premultiplies alpha across a resize, so a matted edge does not fringe on the way down.
   toRgba(sharpFrom(image).resize(spec.width, spec.height, { fit: 'fill', kernel: 'lanczos3' }));
@@ -635,18 +723,16 @@ function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: numbe
   return problems;
 }
 
-/** Applies `spec.postProcess` in declared order, then encodes the ART-BIBLE §6 delivery file. */
+/**
+ * Normalizes the master to `spec.source`, applies `spec.postProcess` in declared order, then
+ * encodes the ART-BIBLE §6 delivery file.
+ */
 export async function encodeAsset(
   master: Uint8Array,
   spec: AssetSpec,
   options: EncodeOptions = DEFAULT_ENCODE_OPTIONS,
 ): Promise<EncodeResult> {
-  let image = await decodeMaster(master);
-  if (image.width !== spec.source.width || image.height !== spec.source.height) {
-    throw new Error(
-      `${spec.key}: master is ${image.width}×${image.height}, the manifest declares a ${spec.source.width}×${spec.source.height} source`,
-    );
-  }
+  let image = await normalizeMaster(await decodeMaster(master), spec);
 
   for (const step of spec.postProcess) image = await postProcessorFor(step)(image, spec, options);
 
@@ -674,10 +760,17 @@ export interface CliOptions extends EncodeOptions {
    * Off by default: a run that names its assets still gets the missing-master failure.
    */
   landed: boolean;
+  /**
+   * Report which manifest keys the game now renders from `assets/` and which still fall back to
+   * procedural art, and encode nothing. Under CC0 sourcing the board finds files one at a time and
+   * needs the painted fraction without listing a directory — see {@link paintedSplit} for why
+   * `--landed` does not answer this.
+   */
+  painted: boolean;
 }
 
 const USAGE =
-  'Usage: encode-art [--dry-run] [--landed] [--masters DIR] [--out DIR] [--only KEYS] [--matte-tolerance N]';
+  'Usage: encode-art [--dry-run] [--landed] [--painted] [--masters DIR] [--out DIR] [--only KEYS] [--matte-tolerance N]';
 
 export function parseArgs(argv: readonly string[]): CliOptions {
   const options: CliOptions = {
@@ -687,6 +780,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     only: [],
     matteTolerance: DEFAULT_MATTE_TOLERANCE,
     landed: false,
+    painted: false,
   };
   const only: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
@@ -697,6 +791,10 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     }
     if (arg === '--landed') {
       options.landed = true;
+      continue;
+    }
+    if (arg === '--painted') {
+      options.painted = true;
       continue;
     }
     // Unknown before the value lookup, so a trailing bad flag reads as unknown, not as missing one.
@@ -742,12 +840,100 @@ export function selectSpecs(only: readonly string[]): readonly AssetSpec[] {
   });
 }
 
-export function masterInputPath(masterDir: string, spec: AssetSpec): string {
-  return path.join(masterDir, `${spec.key}.png`);
+/**
+ * What a master may arrive as. A generator wrote lossless PNG because we asked it to; a CC0 file is
+ * whatever its uploader saved, and WebP is most of the archives. Both decode losslessly enough for
+ * the matte — the key is decided on a {@link DENOISE_WINDOW} median, which absorbs more than WebP's
+ * chroma handling costs.
+ */
+export const MASTER_EXTENSIONS = ['png', 'webp'] as const;
+
+/** A master that has arrived, paired with the spec it satisfies. */
+export interface Master {
+  spec: AssetSpec;
+  /** Bare file name inside the master directory — `<key>.png` or `<key>.webp`. */
+  file: string;
+}
+
+/**
+ * The master file for `spec` among `files`, or `undefined` when none has arrived.
+ *
+ * Both extensions present is a failure rather than a preference order: the two files are different
+ * art, and picking one silently makes which one ships depend on the order of this array.
+ */
+export function masterFileFor(spec: AssetSpec, files: ReadonlySet<string>): string | undefined {
+  const names = MASTER_EXTENSIONS.map((ext) => `${spec.key}.${ext}`).filter((name) =>
+    files.has(name),
+  );
+  if (names.length > 1) {
+    throw new Error(
+      `${spec.key}: masters at ${names.join(' and ')} — they are different art, so delete the one ` +
+        `that is not the master rather than leaving the encode to pick.`,
+    );
+  }
+  return names[0];
 }
 
 export function deliveryOutputPath(outDir: string, spec: AssetSpec): string {
   return path.join(outDir, spec.file);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Painted vs procedural                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** One asset class's painted-vs-procedural split. */
+export interface PaintedClass {
+  class: AssetClass;
+  /** Keys the client draws from `assets/`. */
+  painted: readonly AssetKey[];
+  /** Keys still falling back to `apps/client/src/render/procedural.ts` (ADR 0001 §5.3). */
+  procedural: readonly AssetKey[];
+}
+
+/**
+ * Which manifest keys the game actually renders from `assets/` and which still fall back to
+ * procedural art, grouped by class.
+ *
+ * A key is painted when its exact `spec.file` is on disk — the same test
+ * `apps/client/src/assets/source.ts` applies, and the reason `@2x` alone does not count: the client
+ * falls back from retina to 1×, never the other way.
+ *
+ * `--landed` answers a different question and is not a proxy for this one. That reports which
+ * *masters* reached `art-src/`; a master that lands and then fails its matte paints nothing.
+ */
+export function paintedSplit(
+  delivered: ReadonlySet<string>,
+  specs: readonly AssetSpec[] = ART_MANIFEST,
+): readonly PaintedClass[] {
+  return ASSET_CLASSES.map((assetClass) => {
+    const inClass = specs.filter((spec) => spec.class === assetClass);
+    return {
+      class: assetClass,
+      painted: inClass.filter((spec) => delivered.has(spec.file)).map((spec) => spec.key),
+      procedural: inClass.filter((spec) => !delivered.has(spec.file)).map((spec) => spec.key),
+    };
+  }).filter((row) => row.painted.length + row.procedural.length > 0);
+}
+
+/** {@link paintedSplit} as the CLI report — counts first, because that is what the board tracks. */
+export function paintedReport(split: readonly PaintedClass[]): string {
+  const total = split.reduce((n, row) => n + row.painted.length + row.procedural.length, 0);
+  const painted = split.reduce((n, row) => n + row.painted.length, 0);
+  const label = Math.max(...split.map((row) => row.class.length));
+
+  const lines = [`painted ${painted}/${total}, procedural fallback ${total - painted}/${total}`];
+  for (const row of split) {
+    const count = `${row.painted.length}/${row.painted.length + row.procedural.length}`;
+    lines.push(`  ${row.class.padEnd(label)}  ${count.padStart(6)}`);
+    if (row.painted.length > 0) lines.push(`    painted: ${row.painted.join(', ')}`);
+    if (row.procedural.length > 0) lines.push(`    procedural: ${row.procedural.join(', ')}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+async function readPaintedReport(outDir: string): Promise<string> {
+  return paintedReport(paintedSplit(new Set(await readdir(outDir).catch(() => []))));
 }
 
 /**
@@ -764,23 +950,32 @@ export function validateRun(specs: readonly AssetSpec[]): string[] {
   return problems;
 }
 
-/** The subset of `specs` whose master has actually been generated. */
-async function withMasters(
+/** The subset of `specs` whose master has arrived, and what it arrived as. */
+async function findMasters(
   specs: readonly AssetSpec[],
   masterDir: string,
-): Promise<{ present: readonly AssetSpec[]; missing: readonly AssetSpec[] }> {
+): Promise<{ present: readonly Master[]; missing: readonly AssetSpec[] }> {
   const files = new Set(await readdir(masterDir).catch(() => []));
-  const present = specs.filter((spec) => files.has(`${spec.key}.png`));
-  return { present, missing: specs.filter((spec) => !present.includes(spec)) };
+  const present: Master[] = [];
+  const missing: AssetSpec[] = [];
+  for (const spec of specs) {
+    const file = masterFileFor(spec, files);
+    if (file === undefined) missing.push(spec);
+    else present.push({ spec, file });
+  }
+  return { present, missing };
 }
 
-export async function encodeAll(specs: readonly AssetSpec[], options: CliOptions): Promise<void> {
+export async function encodeAll(masters: readonly Master[], options: CliOptions): Promise<void> {
   await mkdir(options.outDir, { recursive: true });
-  for (const spec of specs) {
-    const { bytes, transparency } = await encodeAsset(
-      await readFile(masterInputPath(options.masterDir, spec)),
-      spec,
-      options,
+  for (const { spec, file } of masters) {
+    const master = path.join(options.masterDir, file);
+    // Named here rather than inside the encode: a `--landed` run walks the whole manifest, so
+    // "which master" is the first thing a failure has to answer.
+    const { bytes, transparency } = await encodeAsset(await readFile(master), spec, options).catch(
+      (error: unknown) => {
+        throw new Error(`${master} — ${errorMessage(error)}`);
+      },
     );
     await writeFile(deliveryOutputPath(options.outDir, spec), bytes);
     process.stdout.write(`${spec.file}  ${describeEncode(spec, transparency, bytes.length)}\n`);
@@ -815,14 +1010,26 @@ export async function main(argv: readonly string[]): Promise<number> {
     return 1;
   }
 
-  const { present, missing } = await withMasters(specs, options.masterDir);
+  if (options.painted) {
+    process.stdout.write(await readPaintedReport(options.outDir));
+    return 0;
+  }
+
+  let present: readonly Master[];
+  let missing: readonly AssetSpec[];
+  try {
+    ({ present, missing } = await findMasters(specs, options.masterDir));
+  } catch (error) {
+    process.stderr.write(`${errorMessage(error)}\n`);
+    return 1;
+  }
 
   if (options.dryRun) {
     process.stdout.write(
       `${POST_PROCESS_STEPS.length} post-process step(s) implemented; ${specs.length} asset(s) validated:\n`,
     );
-    for (const spec of present) {
-      process.stdout.write(`  ${spec.key}.png → ${spec.file}  [${describePlan(spec)}]\n`);
+    for (const { spec, file } of present) {
+      process.stdout.write(`  ${file} → ${spec.file}  [${describePlan(spec)}]\n`);
     }
     if (missing.length > 0) {
       process.stdout.write(
@@ -850,6 +1057,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stderr.write(`${errorMessage(error)}\n`);
     return 1;
   }
+  process.stdout.write(await readPaintedReport(options.outDir));
   return 0;
 }
 

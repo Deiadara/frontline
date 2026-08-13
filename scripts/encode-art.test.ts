@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -15,14 +15,18 @@ import {
   HUMAN_MATTE_FLOOR,
   MAX_ERASED_ARTWORK,
   MAX_KEYED_ISLANDS,
+  centredCrop,
   decodeMaster,
   encodeAsset,
   keyBackground,
   main,
+  paintedReport,
+  paintedSplit,
   parseArgs,
   postProcessorFor,
   transparencyOf,
   unimplementedSteps,
+  type PaintedClass,
 } from './encode-art.js';
 
 const spec = (key: string): AssetSpec => {
@@ -548,7 +552,81 @@ describe('encodeAsset', () => {
 
   it('refuses a master that is not the resolution the manifest declared', async () => {
     await expect(encodeAsset(await skyline(512, 512, 0.5), ICON)).rejects.toThrow(
-      /master is 512×512, the manifest declares a 1024×1024 source/,
+      /master is 512×512, which centre-crops to 512×512 .* upscaling invents detail/s,
+    );
+  });
+});
+
+/**
+ * A CC0 master is whatever size its uploader saved, in whatever aspect they framed it — so the
+ * encode brings the shape to the manifest rather than refusing everything that is not already
+ * exact (MOU-229 D1).
+ */
+describe('normalizeMaster', () => {
+  const size = async (bytes: Uint8Array) => {
+    const meta = await sharp(bytes).metadata();
+    return { width: meta.width, height: meta.height };
+  };
+
+  it('takes the largest centred rectangle of the declared aspect', () => {
+    // Master wider than 1:1 → the full height survives and the sides are trimmed evenly.
+    expect(centredCrop({ width: 1600, height: 1000 }, { width: 512, height: 512 })).toEqual({
+      left: 300,
+      top: 0,
+      width: 1000,
+      height: 1000,
+    });
+    // Master taller than 16:9 → the full width survives.
+    expect(centredCrop({ width: 1920, height: 1920 }, { width: 2048, height: 1152 })).toEqual({
+      left: 0,
+      top: 420,
+      width: 1920,
+      height: 1080,
+    });
+    // Already the declared aspect: nothing to trim, at either size.
+    expect(centredCrop({ width: 4096, height: 2304 }, { width: 2048, height: 1152 })).toEqual({
+      left: 0,
+      top: 0,
+      width: 4096,
+      height: 2304,
+    });
+  });
+
+  it('crops and downscales an oversized master in the wrong aspect to the delivery size', async () => {
+    // 3000×2000 for a 512² icon delivered off a 1024² source: 3:2, so 500px goes off each side.
+    // Painting exactly that centred square opaque makes a miss loud rather than plausible — an
+    // edge-aligned crop of the same size reads 25% transparent, an uncropped squash 33%.
+    const bytes = await master(3000, 2000, (x) => (x >= 500 && x < 2500 ? SUBJECT : [0, 0, 0, 0]));
+
+    const { bytes: delivery, transparency } = await encodeAsset(bytes, ICON);
+
+    expect(await size(delivery)).toEqual({ width: 512, height: 512 });
+    expect(transparency).toBeCloseTo(0, 2);
+  });
+
+  it('downscales a master that is oversized but already the right aspect', async () => {
+    const { bytes: delivery } = await encodeAsset(await skyline(4096, 4096, 0.5), DISTRICT);
+    expect(await size(delivery)).toEqual({ width: 1024, height: 1024 });
+  });
+
+  it('mattes at the manifest source size, so the §6 gates keep the canvas they were measured on', async () => {
+    // 4096×2304 is 16:9 already; without a normalize the plane's gates would run on 4× the pixels.
+    const { transparency, bytes } = await encodeAsset(await skyline(4096, 2304, 0.3), FORE_PLANE);
+    expect(await size(bytes)).toEqual({ width: 2048, height: 1152 });
+    expect(transparency).toBeCloseTo(0.7, 2);
+  });
+
+  it('refuses to upscale, naming the file, its size and the size it needs', async () => {
+    // 1600×900 crops to 1600×900 (already 16:9) — short of the 2048×1152 source in both axes.
+    await expect(encodeAsset(await skyline(1600, 900, 0.3), FORE_PLANE)).rejects.toThrow(
+      /plane-city-fore: master is 1600×900, which centre-crops to 1600×900 at the manifest's 2048×1152 source aspect .* smallest one that works is 2048×1152\./s,
+    );
+  });
+
+  it('refuses a master that is only short after the crop', async () => {
+    // 4000×1000 is far wider than 16:9: the crop keeps the full 1000px height, which is short.
+    await expect(encodeAsset(await skyline(4000, 1000, 0.3), FORE_PLANE)).rejects.toThrow(
+      /master is 4000×1000, which centre-crops to 1777×1000 .* is 4608×1152\./s,
     );
   });
 });
@@ -589,20 +667,35 @@ describe('parseArgs', () => {
   });
 });
 
-describe('main', () => {
-  /** Each case gets its own master + delivery directory; nothing here touches the repo's own. */
-  async function withTempDir(body: (dir: string) => Promise<void>): Promise<void> {
-    const dir = await mkdtemp(path.join(tmpdir(), 'frontline-encode-'));
-    try {
-      await body(dir);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+/** Each case gets its own master + delivery directory; nothing here touches the repo's own. */
+async function withTempDir(body: (dir: string) => Promise<void>): Promise<void> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'frontline-encode-'));
+  try {
+    await body(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
+}
 
-  const captured = (spy: { mock: { calls: readonly unknown[][] } }): string =>
-    spy.mock.calls.map((call) => String(call[0])).join('');
+/**
+ * Separate master and delivery directories. A WebP master is `<key>.webp`, which for most classes
+ * is byte-for-byte the delivery's own file name — sharing one directory would have the encode
+ * overwrite its own input.
+ */
+async function withSplitDirs(body: (masters: string, out: string) => Promise<void>): Promise<void> {
+  await withTempDir(async (dir) => {
+    const masters = path.join(dir, 'art-src');
+    const out = path.join(dir, 'assets');
+    await mkdir(masters);
+    await mkdir(out);
+    await body(masters, out);
+  });
+}
 
+const captured = (spy: { mock: { calls: readonly unknown[][] } }): string =>
+  spy.mock.calls.map((call) => String(call[0])).join('');
+
+describe('main', () => {
   it('dry-runs clean against an empty master directory and names what is missing', async () => {
     await withTempDir(async (dir) => {
       const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -637,6 +730,55 @@ describe('main', () => {
     });
   });
 
+  // A CC0 archive serves whatever its uploader saved, and WebP is most of them.
+  it('encodes a WebP master as readily as a PNG one', async () => {
+    await withSplitDirs(async (masters, dir) => {
+      const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      const png = await master(2048, 2048, () => SKY);
+      await writeFile(
+        path.join(masters, `${DISTRICT.key}.webp`),
+        await sharp(png).webp().toBuffer(),
+      );
+
+      expect(await main(['--only', DISTRICT.key, '--masters', masters, '--out', dir])).toBe(0);
+
+      // 2048² normalizes down to the manifest's 1024² source, so this exercises decode + crop.
+      const meta = await sharp(await readFile(path.join(dir, DISTRICT.file))).metadata();
+      expect({ width: meta.width, height: meta.height }).toEqual({ width: 1024, height: 1024 });
+      expect(captured(stdout)).toContain(DISTRICT.file);
+    });
+  });
+
+  it('refuses a key that has masters at both extensions rather than picking one', async () => {
+    await withSplitDirs(async (masters, dir) => {
+      const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      const png = await master(1024, 1024, () => SKY);
+      await writeFile(path.join(masters, `${DISTRICT.key}.png`), png);
+      await writeFile(
+        path.join(masters, `${DISTRICT.key}.webp`),
+        await sharp(png).webp().toBuffer(),
+      );
+
+      expect(await main(['--only', DISTRICT.key, '--masters', masters, '--out', dir])).toBe(1);
+      expect(captured(err)).toContain(
+        `${DISTRICT.key}: masters at ${DISTRICT.key}.png and ${DISTRICT.key}.webp`,
+      );
+      // Nothing was written: the run stops before the encode, not part-way through it.
+      await expect(readFile(path.join(dir, DISTRICT.file))).rejects.toThrow();
+    });
+  });
+
+  it('names the master file a failing encode came from', async () => {
+    await withTempDir(async (dir) => {
+      const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+      await writeFile(path.join(dir, `${FORE_PLANE.key}.png`), await skyline(1600, 900, 0.3));
+
+      expect(await main(['--only', FORE_PLANE.key, '--masters', dir, '--out', dir])).toBe(1);
+      expect(captured(err)).toContain(path.join(dir, `${FORE_PLANE.key}.png`));
+      expect(captured(err)).toContain('upscaling invents detail');
+    });
+  });
+
   // The hero set is hand-pasted in batches, so most of the manifest is legitimately absent between
   // them — `--landed` is what lets an import run at all before the last file arrives.
   it('encodes the batch that has landed and names what it is still waiting on', async () => {
@@ -651,6 +793,55 @@ describe('main', () => {
       expect(captured(out)).toContain('1/45 master(s) landed');
       expect(captured(out)).toContain('still waiting on');
       expect(captured(err)).toBe('');
+    });
+  });
+});
+
+/**
+ * What the game renders, which `--landed` does not answer: that reports masters in `art-src/`, and
+ * a master can land and then fail its matte (MOU-229 D2).
+ */
+describe('painted vs procedural', () => {
+  const keys = (split: readonly PaintedClass[], assetClass: string) =>
+    split.find((row) => row.class === assetClass);
+
+  it('splits every manifest key by whether its delivery file is on disk', () => {
+    const split = paintedSplit(new Set([DISTRICT.file, ICON.file]));
+
+    expect(keys(split, 'district')?.painted).toEqual([DISTRICT.key]);
+    expect(keys(split, 'district')?.procedural).not.toContain(DISTRICT.key);
+    expect(keys(split, 'icon')?.painted).toEqual([ICON.key]);
+    // Every key lands on exactly one side, and no class is silently dropped.
+    const counted = split.flatMap((row) => [...row.painted, ...row.procedural]);
+    expect(counted.sort()).toEqual(ART_MANIFEST.map((s) => s.key).sort());
+  });
+
+  it('does not count a @2x delivery as painted — the client falls back to 1×, not up to it', () => {
+    const retina = DISTRICT.file.replace(/\.(\w+)$/, '@2x.$1');
+    expect(keys(paintedSplit(new Set([retina])), 'district')?.painted).toEqual([]);
+  });
+
+  it('reports counts per class ahead of the key lists', () => {
+    const report = paintedReport(paintedSplit(new Set([DISTRICT.file])));
+    expect(report.split('\n')[0]).toBe(
+      `painted 1/${ART_MANIFEST.length}, procedural fallback ${ART_MANIFEST.length - 1}/${ART_MANIFEST.length}`,
+    );
+    expect(report).toContain(`painted: ${DISTRICT.key}`);
+    expect(report).toMatch(/^ {2}district {2}\s*1\/\d+$/m);
+  });
+
+  it('reports standalone without encoding anything, and again after a run', async () => {
+    await withTempDir(async (dir) => {
+      const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+
+      expect(await main(['--painted', '--masters', dir, '--out', dir])).toBe(0);
+      expect(captured(out)).toContain(`painted 0/${ART_MANIFEST.length}`);
+
+      out.mockClear();
+      await writeFile(path.join(dir, `${DISTRICT.key}.png`), await master(1024, 1024, () => SKY));
+      expect(await main(['--only', DISTRICT.key, '--masters', dir, '--out', dir])).toBe(0);
+      // The run's own delivery is counted, so the fraction moves in the same output.
+      expect(captured(out)).toContain(`painted 1/${ART_MANIFEST.length}`);
     });
   });
 });
