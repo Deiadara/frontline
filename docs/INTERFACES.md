@@ -86,6 +86,20 @@ re-voice the five subjects; it owns any seed renumbering, coordinating with MOU-
 no derived hint in any API response or client bundle. W1 lands the test that enforces it; **W5 and W7
 must not defeat it** — hiring insight (§B9) surfaces discovered facts, never the raw profile.
 
+W1's guard (`apps/server/src/roles/hidden-table.leak.test.ts`) scans `packages/shared/src`,
+`apps/client/src` and `apps/client/e2e` only. A **server route** is outside that scan, so two rules
+bind W5 and W7 directly:
+
+- **Build recruits with `generateCharacter(seed)`, never `rollRecruit(seed)`.** Both live in
+  `apps/server/src/characters/generate.ts`; `rollRecruit` returns `ShapedRoll`, which carries the
+  `affinity` that shaped the roll — the purest fit hint there is. `generateCharacter` is the same
+  roll with `affinity` dropped. `rollRecruit` is server-test-only and is already on the guard's
+  forbidden-token list.
+- **Extend the guard with a response-body assertion** when role data first goes on the wire, as the
+  test's own header says. Serialise the actual recruit/insight response and assert no `affinity`,
+  no weight ordering, no fit score. This is an acceptance criterion for W5 and W7, not a nicety —
+  without it nothing mechanical stops a route from shipping the hint.
+
 ### R5 — one tally per meter
 
 Reputation and infamy counters are defined once, in W2. W10 (The Government) **feeds** those counters;
