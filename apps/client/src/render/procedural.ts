@@ -10,6 +10,7 @@
  * turns it into display objects. `FillGradient` bakes through a 2D canvas, so — like `grade.ts` —
  * construction needs a real browser and is verified in Chromium, not jsdom.
  */
+import { findAssetSpec, type AssetKey } from '@frontline/shared';
 import { Container, FillGradient, Graphics } from 'pixi.js';
 import { ramps, hex } from '../theme/tokens';
 import { generateSkyline, WINDOW_FILLS, type DepthBand, type Skyline } from './skyline';
@@ -162,6 +163,11 @@ export function paintProceduralPlane(
   return root;
 }
 
+function paintBand(key: AssetKey, width: number, height: number, seed: number): Container | null {
+  const band = BAND_BY_KEY[key];
+  return band ? paintProceduralPlane(band, width, height, seed) : null;
+}
+
 /**
  * The seam itself: hand it whatever `ArtLoader.sourceOf` returned. A delivered file is *not* this
  * module's job — the caller uses the texture — so a `file` source yields `null`.
@@ -171,7 +177,17 @@ export function paintProcedural(
   width: number,
   height: number,
 ): Container | null {
-  if (source?.kind !== 'procedural') return null;
-  const band = BAND_BY_KEY[source.key];
-  return band ? paintProceduralPlane(band, width, height, source.seed) : null;
+  return source?.kind === 'procedural' ? paintBand(source.key, width, height, source.seed) : null;
+}
+
+/**
+ * The interim painting for a map key, whatever that key resolves to today.
+ *
+ * {@link paintProcedural} is the seam and rightly declines a delivered file. This is what the
+ * caller draws in the gap *before* that file's texture is in hand — and if the fetch fails so it
+ * never arrives at all — so a plane whose master has landed is never a hole in the background.
+ */
+export function paintPlaneFallback(key: AssetKey, width: number, height: number): Container | null {
+  const spec = findAssetSpec(key);
+  return spec ? paintBand(key, width, height, spec.seed) : null;
 }

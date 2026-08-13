@@ -1,12 +1,37 @@
-import { CITY_DISTRICTS, type BaseSummary } from '@frontline/shared';
-import { type Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { CITY_DISTRICTS, type AssetKey, type BaseSummary } from '@frontline/shared';
+import { Container, Graphics, Sprite, Texture, TextureSource } from 'pixi.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { districtFace, groupByDistrict, markerY } from './CityMap';
+import type { ArtLoader, BundleState } from '../../assets/loader';
+import type { AssetSource } from '../../assets/source';
+import { PARALLAX_PLANES, type PlaneId } from '../../render/layers';
+import { buildPlanes, districtFace, groupByDistrict, markerY } from './CityMap';
 
 const deliveredTexture = vi.hoisted(() => vi.fn<() => Texture | null>(() => null));
 vi.mock('../../assets/delivered', () => ({ deliveredTexture }));
 
-beforeEach(() => deliveredTexture.mockClear().mockReturnValue(null));
+/**
+ * The procedural painters bake gradients through a 2D canvas, which jsdom has none of (see
+ * `procedural.ts`). Stubbing them keeps this file on the dispatch question — *which* painter a
+ * plane reaches for — and leaves the painting itself to the Chromium suite.
+ */
+const painters = vi.hoisted(() => ({
+  paintProcedural: vi.fn(),
+  paintPlaneFallback: vi.fn(),
+}));
+vi.mock('../../render/procedural', () => painters);
+
+beforeEach(() => {
+  deliveredTexture.mockClear().mockReturnValue(null);
+  // The stubs keep the real contract — a display object can only have one parent, so every call
+  // needs its own container, and `paintProcedural` declines a delivered file exactly as it does in
+  // production. Without that second half a plane could look painted here while rendering blank.
+  painters.paintProcedural
+    .mockReset()
+    .mockImplementation((source?: AssetSource) =>
+      source?.kind === 'procedural' ? new Container() : null,
+    );
+  painters.paintPlaneFallback.mockReset().mockImplementation(() => new Container());
+});
 
 /** The vertical pitch CityMap stacks co-located markers by. */
 const STEP = 28;
@@ -61,6 +86,96 @@ describe('groupByDistrict', () => {
         .get('neon-docks')
         ?.map((b) => b.id),
     ).toEqual(['a', 'c']);
+  });
+});
+
+describe('buildPlanes', () => {
+  /** Every plane that is painted from a manifest key — the ones a delivered master can land on. */
+  const PAINTED = PARALLAX_PLANES.filter((spec) => spec.assetKey !== null);
+
+  const READY: BundleState = { status: 'ready', loaded: 1, total: 1, progress: 1, error: null };
+
+  /** A loader where every plane key has a master delivered, loaded or not. */
+  const loaderWith = (textures: ReadonlyMap<AssetKey, Texture>): ArtLoader => ({
+    ensure: () => {},
+    stateOf: () => READY,
+    subscribe: () => () => {},
+    sourceOf: (key) => ({ kind: 'file', key, url: `/${key}.webp` }),
+    textureOf: (key) => textures.get(key) ?? null,
+  });
+
+  const sceneOf = (width: number, height: number) => ({
+    planes: new Map<PlaneId, Container>(PARALLAX_PLANES.map((spec) => [spec.id, new Container()])),
+    width,
+    height,
+  });
+
+  const delivered = (width: number, height: number): Texture =>
+    new Texture({ source: new TextureSource({ width, height }) });
+
+  const master = delivered(400, 200);
+  const allDelivered = new Map(PAINTED.map((spec) => [spec.assetKey as AssetKey, master]));
+
+  it('renders the delivered master on every plane that has one', () => {
+    const scene = sceneOf(800, 600);
+
+    buildPlanes(scene, loaderWith(allDelivered));
+
+    for (const spec of PAINTED) {
+      const children = scene.planes.get(spec.id)?.children ?? [];
+      expect(children, `the ${spec.id} plane paints nothing at all`).toHaveLength(1);
+      expect(children[0], `the ${spec.id} plane ignores its delivered master`).toBeInstanceOf(
+        Sprite,
+      );
+    }
+    expect(
+      painters.paintProcedural,
+      'a delivered plane still paints procedurally',
+    ).not.toHaveBeenCalled();
+  });
+
+  it('fits the master cover — full-bleed, undistorted, centred', () => {
+    const scene = sceneOf(800, 800);
+
+    buildPlanes(scene, loaderWith(allDelivered));
+
+    const sprite = scene.planes.get('mid')?.children[0] as Sprite;
+    // 800/400 = 2 wide, 800/200 = 4 tall: the taller ratio wins, so the frame is covered.
+    expect(sprite.scale.x).toBe(4);
+    expect(sprite.scale.y, 'a non-uniform scale distorts the art').toBe(sprite.scale.x);
+    expect(sprite.width).toBeGreaterThanOrEqual(scene.width);
+    expect(sprite.height).toBeGreaterThanOrEqual(scene.height);
+    // Anchored centre-on-centre, so the cropped surplus is split between both edges.
+    expect([sprite.x, sprite.y]).toEqual([400, 400]);
+    expect([sprite.anchor.x, sprite.anchor.y]).toEqual([0.5, 0.5]);
+  });
+
+  // Until this branch existed a delivered key painted nothing at all: `paintProcedural` declines a
+  // file source and the caller had no other painter to fall back on.
+  it('holds the interim painting while a delivered master is still in flight', () => {
+    const scene = sceneOf(800, 600);
+
+    buildPlanes(scene, loaderWith(new Map()));
+
+    for (const spec of PAINTED) {
+      expect(
+        scene.planes.get(spec.id)?.children ?? [],
+        `the ${spec.id} plane is a hole in the background until its master lands`,
+      ).toHaveLength(1);
+      expect(painters.paintPlaneFallback).toHaveBeenCalledWith(spec.assetKey, 800, 600);
+    }
+  });
+
+  it('repaints a plane rather than stacking a second painting on it', () => {
+    const scene = sceneOf(800, 600);
+    const loader = loaderWith(allDelivered);
+
+    buildPlanes(scene, loader);
+    buildPlanes(scene, loader);
+
+    for (const spec of PAINTED) {
+      expect(scene.planes.get(spec.id)?.children).toHaveLength(1);
+    }
   });
 });
 

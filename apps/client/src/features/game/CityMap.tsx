@@ -1,10 +1,18 @@
-import type { BaseSummary, District, DistrictKind } from '@frontline/shared';
-import { Application, Container, Graphics, Sprite, Text, type TextStyleOptions } from 'pixi.js';
+import type { AssetKey, BaseSummary, District, DistrictKind } from '@frontline/shared';
+import {
+  Application,
+  Container,
+  Graphics,
+  Sprite,
+  Text,
+  type Texture,
+  type TextStyleOptions,
+} from 'pixi.js';
 import { useEffect, useRef } from 'react';
 import { deliveredTexture } from '../../assets/delivered';
-import { artLoader } from '../../assets/loader';
+import { artLoader, type ArtLoader } from '../../assets/loader';
 import { useAssetBundle } from '../../assets/useAssetBundle';
-import { paintProcedural } from '../../render/procedural';
+import { paintPlaneFallback, paintProcedural } from '../../render/procedural';
 import { PARALLAX_PLANES, planeOffset, type PlaneId, type Vec2 } from '../../render/layers';
 import { createPostFx, createVignette, type PostFxChain } from '../../render/grade';
 import { createViewport, resizeViewport } from '../../render/viewport';
@@ -285,17 +293,59 @@ function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Cont
 // ─── scene builders ──────────────────────────────────────────────────────────
 
 /**
- * Rebuilds procedural background planes. Called on mount and resize — not on every prop change,
- * since geometry is seeded from dimensions, not data.
+ * How a delivered plane master is fitted to the frame: **cover** — scaled uniformly by whichever
+ * axis needs the most, then centred, so the surplus is cropped off the other axis.
+ *
+ * A plane is painted at the live `scene.width × scene.height`, which no fixed-size master will
+ * match at every viewport. `contain` would letterbox, and the bars would be transparent — the empty
+ * stage showing straight through the background. `stretch` would squash a skyline into something
+ * that reads as a rendering fault at any aspect but the master's own. Cover is the only rule that
+ * is both full-bleed and undistorted; the price is that a master must keep its load-bearing
+ * composition off the edges, since the long axis is trimmed.
  */
-function buildProceduralPlanes(scene: Scene): void {
+function coverSprite(texture: Texture, width: number, height: number): Sprite {
+  const sprite = new Sprite(texture);
+  sprite.anchor.set(0.5);
+  sprite.scale.set(Math.max(width / texture.width, height / texture.height));
+  sprite.position.set(width / 2, height / 2);
+  return sprite;
+}
+
+/**
+ * One plane's art at the frame's size: the delivered master once its texture is in hand, and the
+ * procedural painting until then — including for a key that resolves to a file, because a delivered
+ * plane is fetched over the network and must not leave the background blank while it travels.
+ */
+function paintPlane(
+  key: AssetKey,
+  width: number,
+  height: number,
+  loader: ArtLoader = artLoader,
+): Container | null {
+  const source = loader.sourceOf(key);
+  if (source?.kind !== 'file') return paintProcedural(source, width, height);
+  const texture = loader.textureOf(key);
+  return texture ? coverSprite(texture, width, height) : paintPlaneFallback(key, width, height);
+}
+
+/** The slice of {@link Scene} the background planes are painted from. */
+interface PlaneScene {
+  planes: Map<PlaneId, Container>;
+  width: number;
+  height: number;
+}
+
+/**
+ * Rebuilds the background planes. Called on mount, on resize, and when the city bundle settles —
+ * not on every prop change, since plane geometry is seeded from dimensions, not data.
+ */
+export function buildPlanes(scene: PlaneScene, loader: ArtLoader = artLoader): void {
   for (const planeSpec of PARALLAX_PLANES) {
     if (!planeSpec.assetKey) continue;
     const container = scene.planes.get(planeSpec.id);
     if (!container) continue;
     for (const child of container.removeChildren()) child.destroy({ children: true });
-    const source = artLoader.sourceOf(planeSpec.assetKey);
-    const painted = paintProcedural(source, scene.width, scene.height);
+    const painted = paintPlane(planeSpec.assetKey, scene.width, scene.height, loader);
     if (painted) container.addChild(painted);
   }
 }
@@ -447,7 +497,7 @@ export function CityMap(props: CityMapProps) {
         };
         sceneRef.current = scene;
 
-        buildProceduralPlanes(scene);
+        buildPlanes(scene);
         buildNodes({ ...scene, props: propsRef.current });
 
         // Parallax: update plane positions whenever the user pans.
@@ -482,7 +532,7 @@ export function CityMap(props: CityMapProps) {
 
           scene.width = w;
           scene.height = h;
-          buildProceduralPlanes(scene);
+          buildPlanes(scene);
           buildNodes({ ...scene, props: propsRef.current });
         });
         observer.observe(el);
@@ -507,6 +557,15 @@ export function CityMap(props: CityMapProps) {
     if (!scene) return;
     buildNodes({ ...scene, props });
   }, [props, cityArt.status]);
+
+  // A delivered plane master is fetched over the network, so it is not in hand when the scene is
+  // first built. Repainting when the bundle settles swaps the interim skyline for the master; a
+  // bundle with nothing delivered is `ready` on its first snapshot and never re-enters here.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    buildPlanes(scene);
+  }, [cityArt.status]);
 
   return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
 }

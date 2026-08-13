@@ -16,6 +16,20 @@ with no TypeScript edit anywhere** — the MOU-114 acceptance bar, ADR 0001 §5.
 - PNG masters live in `art-src/`, **not** here — they are not shipped.
 - Every third-party file needs a row in the ART-BIBLE §9 licensing register. No row, no ship.
 
+## Background planes fit **cover**
+
+The four full-screen map keys — `plate-city`, `plane-city-sky`, `plane-city-far`, `plane-city-fore` —
+are drawn at the live frame size, which no fixed-size master matches at every viewport. The client
+fits them **cover**: scaled uniformly until both axes are filled, then centred, so the surplus is
+cropped off the longer axis (`coverSprite` in `apps/client/src/features/game/CityMap.tsx`).
+
+Practically: **keep the load-bearing composition away from the edges.** The manifest's 16:9 delivery
+is safe at 16:9 and trims the sides at 4:3 and the top and bottom at 21:9. Nothing is letterboxed and
+nothing is stretched, so a master is never distorted — it is only ever cropped.
+
+Until a plane's master finishes downloading — and if the fetch fails outright — that plane holds its
+procedural skyline rather than going blank.
+
 ## Seeing what has landed
 
 The art arrives in hand-pasted batches, so most of the manifest is legitimately absent between them.
