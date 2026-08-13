@@ -1,14 +1,25 @@
 import {
   addResources,
+  alignedAttributes,
+  alignmentBand,
+  alignmentBonusAttributes,
+  alignmentSkillBonus,
   CITY_DISTRICTS,
+  createCommander,
   findMissionTemplate,
+  makeAttributes,
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
   startingEconomy,
   startingProgression,
   templateTimings,
+  threatensToLeave,
   type AuthResponse,
+  type BarOfficer,
+  type BarRecruit,
+  type BarResponse,
   type Base,
+  type Commander,
   type BaseDetailResponse,
   type BattleResponse,
   type CityResponse,
@@ -123,6 +134,102 @@ export const battle: BattleResponse = {
 
 export const createOverseerResponse: CreateOverseerResponse = { user, overseer, base };
 export const authResponse: AuthResponse = { token: TOKEN, user };
+
+/**
+ * The Bar at its widest (GDD §H).
+ *
+ * Deliberately the fat case, per MOU-207: the starting state of this screen is an empty crew and
+ * eight identical-looking cards, and that has never caught a layout bug. This is a late-game crew
+ * — the longest officer names the generator can produce, a four-digit wage, every §H5 band
+ * including the walkout warning and the skill-bonus line, and recruits covering all three card
+ * states (interested, gated, already hired).
+ */
+function barRecruit(id: string, name: string, overrides: Partial<BarRecruit> = {}): BarRecruit {
+  return {
+    id,
+    name,
+    attributes: makeAttributes(18, { stealth: 34, cunning: 31, hacking: 29, medicine: 9 }),
+    traits: ['gutter_born'],
+    ambition: 'notoriety',
+    moralCompass: 'ruthless',
+    requirement: { minInfamy: 0 },
+    assessment: { meetsRequirement: true, stance: 2, interested: true, blockers: [] },
+    askingWage: 48,
+    hired: false,
+    ...overrides,
+  };
+}
+
+function barOfficer(
+  id: string,
+  name: string,
+  role: BarOfficer['commander']['role'],
+  alignment: number,
+  weeklyWage: number,
+  overrides: Partial<BarOfficer['commander']> = {},
+): BarOfficer {
+  const commander: Commander = {
+    ...createCommander(id, name, role, { stealth: 41, cunning: 37, hacking: 33 }, ['gutter_born'], {
+      ambition: 'revenge',
+      moralCompass: 'ruthless',
+      now: NOW,
+    }),
+    alignment,
+    ...overrides,
+  };
+  return {
+    commander,
+    effectiveAttributes: alignedAttributes(commander.attributes, alignment),
+    band: alignmentBand(alignment),
+    threateningToLeave: threatensToLeave(alignment),
+    skillBonus: alignmentSkillBonus(alignment),
+    bonusAttributes:
+      alignmentSkillBonus(alignment) > 0 ? alignmentBonusAttributes(commander.attributes) : [],
+    weeklyWage,
+  };
+}
+
+export const bar: BarResponse = {
+  day: '2026-08-12',
+  serverNow: NOW,
+  recruits: [
+    barRecruit('bar-1', 'Dorotea "The Undergrid Ghost"'),
+    barRecruit('bar-2', 'Emeric Voskuijlen', { askingWage: 1240, traits: [] }),
+    barRecruit('bar-3', 'Kestrel Salvatierra', {
+      requirement: { minInfamy: 60 },
+      assessment: { meetsRequirement: false, stance: 1, interested: false, blockers: ['infamy'] },
+      askingWage: null,
+    }),
+    barRecruit('bar-4', 'Rashid Okonkwo', {
+      ambition: 'knowledge',
+      moralCompass: 'idealist',
+      assessment: {
+        meetsRequirement: false,
+        stance: -2,
+        interested: false,
+        blockers: ['infamy', 'reputation'],
+      },
+      askingWage: null,
+      requirement: { minInfamy: 45 },
+    }),
+    barRecruit('bar-5', 'Ilse Abara', { hired: true, askingWage: 96 }),
+    barRecruit('bar-6', 'Juno Petrosyan', { askingWage: 61, traits: ['silver_tongue'] }),
+  ],
+  officers: [
+    barOfficer('off-1', 'The Ghost of Sector Nine', 'head_spy', 100, 1240, {
+      level: 9,
+      unspentPoints: 4,
+    }),
+    barOfficer('off-2', 'Odile Marchetti', 'finance_officer', 52, 340),
+    barOfficer('off-3', 'Bruno Lindqvist', 'raid_boss', 8, 88, { level: 3 }),
+  ],
+  slotsUsed: 3,
+  slotsTotal: 13,
+  infamy: 100,
+  reputation: 'Feared',
+  caps: 125000,
+  filledRoles: ['head_spy', 'finance_officer', 'raid_boss'],
+};
 
 const minutesBefore = (now: Date, minutes: number) =>
   new Date(now.getTime() - minutes * 60_000).toISOString();

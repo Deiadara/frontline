@@ -1,7 +1,18 @@
 import type { MeResponse } from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { attack, createOverseer, getBase, getCity, getMe, getMissions, launchMission } from './api';
+import {
+  assignPoint,
+  attack,
+  createOverseer,
+  getBar,
+  getBase,
+  getCity,
+  getMe,
+  getMissions,
+  hireRecruit,
+  launchMission,
+} from './api';
 import { useSession } from '../store/session';
 
 /** Canonical react-query keys (see docs/SPEC-client.md). */
@@ -10,6 +21,7 @@ export const queryKeys = {
   city: ['city'] as const,
   base: (id: string) => ['base', id] as const,
   missions: ['missions'] as const,
+  bar: ['bar'] as const,
 };
 
 /**
@@ -75,6 +87,39 @@ export function useLaunchMission() {
     mutationFn: launchMission,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}
+
+/** The Bar: today's roster plus the officers already on the books (GDD §H). */
+export function useBar() {
+  const token = useSession((s) => s.token);
+  return useQuery({ queryKey: queryKeys.bar, queryFn: getBar, enabled: token !== null });
+}
+
+/**
+ * Make an offer (§H7). The Bar is refetched either way — a counter-offer leaves the roster alone
+ * but a signing moves caps, slots and the officer list all at once.
+ */
+export function useHireRecruit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: hireRecruit,
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
+      if (data.accepted) void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}
+
+/** Spend one of the §H6 points the player assigns by hand. */
+export function useAssignPoint() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: assignPoint,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });

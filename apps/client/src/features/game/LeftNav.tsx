@@ -58,7 +58,8 @@ const ITEMS: NavItem[] = [
     ),
   },
   {
-    label: 'Staff',
+    label: 'The Bar',
+    to: '/game/bar',
     icon: icon(
       <>
         <circle cx="10" cy="6" r="3" stroke="currentColor" strokeWidth="1.3" />

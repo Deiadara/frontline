@@ -3,6 +3,7 @@ import {
   BaseSummarySchema,
   type Base,
   type BaseSummary,
+  type Commander,
   type EconomyState,
   type ProgressionState,
   type Resources,
@@ -49,6 +50,11 @@ export interface BasesRepo {
    * write would leave progress sitting above its own level's threshold.
    */
   updateProgression(baseId: string, level: number, progression: ProgressionState): void;
+  /**
+   * The officers on the books (GDD §H). Recruitment, the §H5 alignment drift and the §H6
+   * level-ups all rewrite the whole list, since it is one JSON column rather than a table.
+   */
+  updateCommanders(baseId: string, commanders: Commander[]): void;
 }
 
 function rowToBase(row: BaseRow): Base {
@@ -97,6 +103,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const updateProgressionStmt = db.prepare(
     'UPDATE bases SET level = ?, progression_json = ? WHERE id = ?',
   );
+  const updateCommandersStmt = db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?');
 
   return {
     insert(base) {
@@ -139,6 +146,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateProgression(baseId, level, progression) {
       updateProgressionStmt.run(level, JSON.stringify(progression), baseId);
+    },
+    updateCommanders(baseId, commanders) {
+      updateCommandersStmt.run(JSON.stringify(commanders), baseId);
     },
   };
 }

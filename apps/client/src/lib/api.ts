@@ -1,15 +1,20 @@
 import {
   ApiErrorSchema,
+  AssignPointResponseSchema,
   AuthResponseSchema,
+  BarResponseSchema,
   BaseDetailResponseSchema,
   BattleResponseSchema,
   CityResponseSchema,
   CreateOverseerResponseSchema,
+  HireRecruitResponseSchema,
   LaunchMissionResponseSchema,
   MeResponseSchema,
   MissionsResponseSchema,
+  type AssignPointRequest,
   type BattleRequest,
   type CreateOverseerRequest,
+  type HireRecruitRequest,
   type LaunchMissionRequest,
   type LoginRequest,
   type RegisterRequest,
@@ -90,3 +95,11 @@ export const getMissions = () => apiFetch('/missions', MissionsResponseSchema);
 
 export const launchMission = (body: LaunchMissionRequest) =>
   apiFetch('/missions', LaunchMissionResponseSchema, jsonBody(body));
+
+export const getBar = () => apiFetch('/bar', BarResponseSchema);
+
+export const hireRecruit = (body: HireRecruitRequest) =>
+  apiFetch('/bar/hire', HireRecruitResponseSchema, jsonBody(body));
+
+export const assignPoint = (body: AssignPointRequest) =>
+  apiFetch('/bar/assign-point', AssignPointResponseSchema, jsonBody(body));

@@ -13,6 +13,12 @@ export type ErrorCode =
   | 'NO_BASE'
   | 'INVALID_TARGET'
   | 'MISSIONS_AT_CAPACITY'
+  // the Bar (GDD §H)
+  | 'RECRUIT_UNAVAILABLE'
+  | 'NO_RECRUIT_SLOTS'
+  | 'ROLE_TAKEN'
+  | 'INSUFFICIENT_CAPS'
+  | 'NO_POINTS'
   | 'INTERNAL';
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
@@ -27,6 +33,11 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   NO_BASE: 409,
   INVALID_TARGET: 400,
   MISSIONS_AT_CAPACITY: 409,
+  RECRUIT_UNAVAILABLE: 409,
+  NO_RECRUIT_SLOTS: 409,
+  ROLE_TAKEN: 409,
+  INSUFFICIENT_CAPS: 409,
+  NO_POINTS: 409,
   INTERNAL: 500,
 };
 

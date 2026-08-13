@@ -1,0 +1,388 @@
+import { describe, expect, it } from 'vitest';
+import {
+  ATTRIBUTE_NAMES,
+  MAX_ATTRIBUTE,
+  makeAttributes,
+  type AttributeName,
+} from '../attributes.js';
+import { PAY_WEEK_MS, proratedFirstWage, startOfPayWeek } from '../economy/payroll.js';
+import { REPUTATION_LABELS, type ReputationLabel } from '../economy/reputation.js';
+import {
+  ALIGNMENT_BONUS_ATTRIBUTES,
+  ALIGNMENT_BONUS_THRESHOLD,
+  ALIGNMENT_HALF_LIFE_MS,
+  ALIGNMENT_LEAVE_THRESHOLD,
+  ALIGNMENT_MAX,
+  ALIGNMENT_MIN,
+  ALIGNMENT_START,
+  AMBITIONS,
+  MORAL_COMPASSES,
+  STANCE_MAX,
+  STANCE_MIN,
+  alignedAttributes,
+  alignmentBand,
+  alignmentBonusAttributes,
+  alignmentSkillBonus,
+  alignmentTarget,
+  reputationStance,
+  settleAlignment,
+  threatensToLeave,
+  type Disposition,
+} from './disposition.js';
+import { JOIN_REFUSAL_STANCE, assessJoin } from './join.js';
+import {
+  CHARACTER_LEVEL_AUTO_POINTS,
+  CHARACTER_LEVEL_MIN,
+  CHARACTER_LEVEL_PLAYER_POINTS,
+  CHARACTER_LEVEL_POINTS,
+  applyCharacterXp,
+  autoAllocatedAttributes,
+  characterXpToNextLevel,
+  spendCharacterPoint,
+} from './level.js';
+import { WAGE_RESERVATION_FRACTION, askingWage, negotiateWage, reservationWage } from './wage.js';
+
+const EVERY_DISPOSITION: Disposition[] = AMBITIONS.flatMap((ambition) =>
+  MORAL_COMPASSES.map((moralCompass) => ({ ambition, moralCompass })),
+);
+
+describe('§H4 — reading the crew off its reputation word', () => {
+  it('never scores outside the stance band, for any character against any word', () => {
+    for (const disposition of EVERY_DISPOSITION) {
+      for (const reputation of REPUTATION_LABELS) {
+        const stance = reputationStance(disposition, reputation);
+        expect(stance).toBeGreaterThanOrEqual(STANCE_MIN);
+        expect(stance).toBeLessThanOrEqual(STANCE_MAX);
+        expect(Number.isInteger(stance)).toBe(true);
+      }
+    }
+  });
+
+  it('reads the same word differently depending on who is reading it', () => {
+    // The whole point of §H4: identical crew, opposite answers.
+    expect(reputationStance({ ambition: 'notoriety', moralCompass: 'ruthless' }, 'Feared')).toBe(2);
+    expect(reputationStance({ ambition: 'knowledge', moralCompass: 'ruthless' }, 'Cautious')).toBe(
+      0,
+    );
+    expect(
+      reputationStance({ ambition: 'knowledge', moralCompass: 'pragmatist' }, 'Reckless'),
+    ).toBe(-2);
+  });
+
+  it('spreads over every label a live mechanic can currently produce', () => {
+    // A table that scored 0 everywhere would pass the band check above and mean nothing. Each
+    // reachable word has to move *somebody*, in both directions.
+    const live: ReputationLabel[] = ['Cautious', 'Reckless', 'Feared', 'Respected'];
+    for (const reputation of live) {
+      const stances = EVERY_DISPOSITION.map((d) => reputationStance(d, reputation));
+      expect(Math.max(...stances), `nobody is drawn to a ${reputation} crew`).toBeGreaterThan(0);
+      expect(Math.min(...stances), `nobody objects to a ${reputation} crew`).toBeLessThan(0);
+    }
+  });
+});
+
+describe('§H3 + §H4 — who will talk to you', () => {
+  const anyone: Disposition = { ambition: 'wealth', moralCompass: 'pragmatist' };
+
+  it('shuts the door on a crew below the infamy the character demands (§H3)', () => {
+    const gated = assessJoin(anyone, { minInfamy: 40 }, { infamy: 39, reputation: 'Cautious' });
+    expect(gated.meetsRequirement).toBe(false);
+    expect(gated.interested).toBe(false);
+    expect(gated.blockers).toContain('infamy');
+
+    const cleared = assessJoin(anyone, { minInfamy: 40 }, { infamy: 40, reputation: 'Cautious' });
+    expect(cleared.meetsRequirement).toBe(true);
+    expect(cleared.interested).toBe(true);
+    expect(cleared.blockers).toEqual([]);
+  });
+
+  it('refuses on reputation alone, with every number in order (§H4)', () => {
+    // Ambition and compass both against you: a crew that clears the §H3 gate outright and is still
+    // turned down. This is the case a purely numeric gate cannot express.
+    const hostile: Disposition = { ambition: 'knowledge', moralCompass: 'pragmatist' };
+    const assessment = assessJoin(
+      hostile,
+      { minInfamy: 0 },
+      { infamy: 100, reputation: 'Reckless' },
+    );
+    expect(assessment.meetsRequirement).toBe(true);
+    expect(assessment.stance).toBe(JOIN_REFUSAL_STANCE);
+    expect(assessment.interested).toBe(false);
+    expect(assessment.blockers).toEqual(['reputation']);
+  });
+
+  it('reports both gates when both are shut', () => {
+    const hostile: Disposition = { ambition: 'knowledge', moralCompass: 'pragmatist' };
+    expect(
+      assessJoin(hostile, { minInfamy: 50 }, { infamy: 0, reputation: 'Reckless' }).blockers,
+    ).toEqual(['infamy', 'reputation']);
+  });
+
+  it('lets a single objection through — refusal takes both halves of §H4', () => {
+    const half: Disposition = { ambition: 'knowledge', moralCompass: 'idealist' };
+    const assessment = assessJoin(half, { minInfamy: 0 }, { infamy: 0, reputation: 'Reckless' });
+    expect(assessment.stance).toBe(-1);
+    expect(assessment.interested).toBe(true);
+  });
+});
+
+describe('§H5 — the alignment meter', () => {
+  it('threatens to leave at the low threshold and not one point above it', () => {
+    expect(threatensToLeave(ALIGNMENT_LEAVE_THRESHOLD)).toBe(true);
+    expect(alignmentBand(ALIGNMENT_LEAVE_THRESHOLD)).toBe('leaving');
+    expect(threatensToLeave(ALIGNMENT_LEAVE_THRESHOLD + 1)).toBe(false);
+    expect(alignmentBand(ALIGNMENT_LEAVE_THRESHOLD + 1)).toBe('unsettled');
+    expect(threatensToLeave(ALIGNMENT_START)).toBe(false);
+  });
+
+  it('pays no bonus below the threshold and a growing one above it', () => {
+    expect(alignmentSkillBonus(ALIGNMENT_BONUS_THRESHOLD - 1)).toBe(0);
+    expect(alignmentSkillBonus(ALIGNMENT_BONUS_THRESHOLD)).toBe(0);
+    expect(alignmentSkillBonus(90)).toBe(3);
+    expect(alignmentSkillBonus(ALIGNMENT_MAX)).toBe(5);
+  });
+
+  it('lands the bonus on the few attributes they are already best at, and nowhere else', () => {
+    const attributes = makeAttributes(20, { stealth: 38, cunning: 34, hacking: 30, medicine: 8 });
+    const best = alignmentBonusAttributes(attributes);
+    expect(best).toEqual(['stealth', 'cunning', 'hacking']);
+    expect(best).toHaveLength(ALIGNMENT_BONUS_ATTRIBUTES);
+
+    const boosted = alignedAttributes(attributes, ALIGNMENT_MAX);
+    expect(boosted.stealth).toBe(43);
+    expect(boosted.cunning).toBe(39);
+    expect(boosted.hacking).toBe(35);
+    // "Some skills", not the sheet: everything else is untouched.
+    const untouched = ATTRIBUTE_NAMES.filter((name) => !best.includes(name));
+    for (const name of untouched) expect(boosted[name]).toBe(attributes[name]);
+  });
+
+  it('leaves the sheet alone below the bonus threshold, and never mutates the input', () => {
+    const attributes = makeAttributes(20, { stealth: 38 });
+    const before = { ...attributes };
+    expect(alignedAttributes(attributes, ALIGNMENT_LEAVE_THRESHOLD)).toEqual(attributes);
+    alignedAttributes(attributes, ALIGNMENT_MAX);
+    expect(attributes).toEqual(before);
+  });
+
+  it('holds the 0..100 ceiling for an already-elite sheet', () => {
+    const attributes = makeAttributes(10, { stealth: MAX_ATTRIBUTE });
+    expect(alignedAttributes(attributes, ALIGNMENT_MAX).stealth).toBe(MAX_ATTRIBUTE);
+  });
+
+  it('drifts towards what the character makes of the crew, and stops there', () => {
+    // A stance of -2 targets a value below the leave threshold, which is what makes "too low →
+    // they threaten to leave" reachable at all rather than a band nothing can enter.
+    const doomed = alignmentTarget(STANCE_MIN);
+    expect(doomed).toBeLessThan(ALIGNMENT_LEAVE_THRESHOLD);
+    expect(alignmentTarget(STANCE_MAX)).toBeGreaterThan(ALIGNMENT_BONUS_THRESHOLD);
+    expect(alignmentTarget(0)).toBe(ALIGNMENT_START);
+
+    const oneHalfLife = settleAlignment(ALIGNMENT_START, doomed, ALIGNMENT_HALF_LIFE_MS);
+    expect(oneHalfLife).toBeCloseTo((ALIGNMENT_START + doomed) / 2, 6);
+    // Long enough and they are simply where they were always heading.
+    expect(settleAlignment(ALIGNMENT_START, doomed, 60 * ALIGNMENT_HALF_LIFE_MS)).toBeCloseTo(
+      doomed,
+      6,
+    );
+    expect(
+      threatensToLeave(settleAlignment(ALIGNMENT_START, doomed, 30 * ALIGNMENT_HALF_LIFE_MS)),
+    ).toBe(true);
+  });
+
+  it('does not move on a zero-length or backwards step', () => {
+    expect(settleAlignment(ALIGNMENT_START, 0, 0)).toBe(ALIGNMENT_START);
+    expect(settleAlignment(ALIGNMENT_START, 0, -PAY_WEEK_MS)).toBe(ALIGNMENT_START);
+  });
+
+  it('stays inside the meter for every stance', () => {
+    for (let stance = STANCE_MIN; stance <= STANCE_MAX; stance++) {
+      const target = alignmentTarget(stance);
+      expect(target).toBeGreaterThanOrEqual(ALIGNMENT_MIN);
+      expect(target).toBeLessThanOrEqual(ALIGNMENT_MAX);
+    }
+  });
+});
+
+describe('§H6/§H6a — the character level', () => {
+  const sheet = makeAttributes(18, { stealth: 34, cunning: 30, hacking: 28, medicine: 9 });
+  const fresh = {
+    level: CHARACTER_LEVEL_MIN,
+    xpIntoLevel: 0,
+    unspentPoints: 0,
+    attributes: sheet,
+  };
+
+  it('splits the grant 2 by hand and 3 along affinity, totalling 5 (§H6a)', () => {
+    expect(CHARACTER_LEVEL_PLAYER_POINTS + CHARACTER_LEVEL_AUTO_POINTS).toBe(
+      CHARACTER_LEVEL_POINTS,
+    );
+
+    const advanced = applyCharacterXp(fresh, characterXpToNextLevel(CHARACTER_LEVEL_MIN));
+    expect(advanced.levelsGained).toBe(1);
+    expect(advanced.level).toBe(CHARACTER_LEVEL_MIN + 1);
+    expect(advanced.unspentPoints).toBe(CHARACTER_LEVEL_PLAYER_POINTS);
+
+    const spent = ATTRIBUTE_NAMES.reduce(
+      (total, name) => total + advanced.attributes[name] - sheet[name],
+      0,
+    );
+    expect(spent, 'auto-allocation spends exactly the non-player share').toBe(
+      CHARACTER_LEVEL_AUTO_POINTS,
+    );
+  });
+
+  it('auto-allocates along the strengths already on the sheet (§H6a)', () => {
+    expect(autoAllocatedAttributes(sheet)).toEqual(['stealth', 'cunning', 'hacking']);
+    const advanced = applyCharacterXp(fresh, characterXpToNextLevel(CHARACTER_LEVEL_MIN));
+    expect(advanced.attributes.stealth).toBe(35);
+    expect(advanced.attributes.cunning).toBe(31);
+    expect(advanced.attributes.hacking).toBe(29);
+    expect(advanced.attributes.medicine).toBe(9);
+  });
+
+  it('banks a level it did not reach, and carries the remainder', () => {
+    const threshold = characterXpToNextLevel(CHARACTER_LEVEL_MIN);
+    const short = applyCharacterXp(fresh, threshold - 1);
+    expect(short.levelsGained).toBe(0);
+    expect(short.level).toBe(CHARACTER_LEVEL_MIN);
+    expect(short.xpIntoLevel).toBe(threshold - 1);
+    expect(short.attributes).toEqual(sheet);
+
+    expect(applyCharacterXp(short, 1).level).toBe(CHARACTER_LEVEL_MIN + 1);
+    expect(applyCharacterXp(short, 5).xpIntoLevel).toBe(4);
+  });
+
+  it('pays every level a single large award crossed', () => {
+    const twoLevels =
+      characterXpToNextLevel(CHARACTER_LEVEL_MIN) + characterXpToNextLevel(CHARACTER_LEVEL_MIN + 1);
+    const advanced = applyCharacterXp(fresh, twoLevels);
+    expect(advanced.levelsGained).toBe(2);
+    expect(advanced.unspentPoints).toBe(2 * CHARACTER_LEVEL_PLAYER_POINTS);
+    expect(advanced.xpIntoLevel).toBe(0);
+  });
+
+  it('is worth the same split across awards as in one lump', () => {
+    const total = 3 * characterXpToNextLevel(CHARACTER_LEVEL_MIN);
+    const lump = applyCharacterXp(fresh, total);
+    let split = fresh as ReturnType<typeof applyCharacterXp>;
+    for (let i = 0; i < total; i += 37) split = applyCharacterXp(split, Math.min(37, total - i));
+    expect(split.level).toBe(lump.level);
+    expect(split.xpIntoLevel).toBe(lump.xpIntoLevel);
+    expect(split.unspentPoints).toBe(lump.unspentPoints);
+  });
+
+  it('ignores a negative award rather than clawing progress back', () => {
+    expect(applyCharacterXp({ ...fresh, xpIntoLevel: 50 }, -1000).xpIntoLevel).toBe(50);
+  });
+
+  it('spends a banked point, and refuses when there are none', () => {
+    const banked = { ...fresh, unspentPoints: 2 };
+    const spent = spendCharacterPoint(banked, 'medicine');
+    expect(spent?.unspentPoints).toBe(1);
+    expect(spent?.attributes.medicine).toBe(10);
+    expect(banked.attributes.medicine, 'the input sheet is not mutated').toBe(9);
+    expect(spendCharacterPoint(fresh, 'medicine')).toBeNull();
+  });
+
+  it('holds the attribute ceiling when a point is spent at the top of the scale', () => {
+    const maxed = {
+      ...fresh,
+      unspentPoints: 1,
+      attributes: makeAttributes(18, { medicine: MAX_ATTRIBUTE }),
+    };
+    expect(spendCharacterPoint(maxed, 'medicine')?.attributes.medicine).toBe(MAX_ATTRIBUTE);
+  });
+
+  it('costs strictly more at every level — "characters evolve slowly" (§H6)', () => {
+    for (let level = CHARACTER_LEVEL_MIN; level < 20; level++) {
+      expect(characterXpToNextLevel(level + 1)).toBeGreaterThan(characterXpToNextLevel(level));
+    }
+    expect(characterXpToNextLevel(0), 'a malformed level clamps rather than throwing').toBe(
+      characterXpToNextLevel(CHARACTER_LEVEL_MIN),
+    );
+  });
+});
+
+describe('§H7 — negotiating a salary', () => {
+  const ordinary = makeAttributes(18);
+  const excellent = makeAttributes(18, { stealth: 38, cunning: 36, hacking: 34, deception: 32 });
+
+  it('prices a better sheet higher', () => {
+    expect(askingWage(excellent, 0)).toBeGreaterThan(askingWage(ordinary, 0));
+  });
+
+  it('charges a crew they dislike more, and one they like less', () => {
+    const neutral = askingWage(excellent, 0);
+    expect(askingWage(excellent, STANCE_MIN)).toBeGreaterThan(neutral);
+    expect(askingWage(excellent, STANCE_MAX)).toBeLessThan(neutral);
+  });
+
+  it('takes an offer at or above the reservation, and counters below it', () => {
+    const asking = askingWage(excellent, 0);
+    const floor = reservationWage(asking);
+    expect(floor).toBe(Math.ceil(asking * WAGE_RESERVATION_FRACTION));
+
+    expect(negotiateWage(asking, asking)).toEqual({ accepted: true, wage: asking });
+    expect(negotiateWage(floor, asking)).toEqual({ accepted: true, wage: floor });
+    // Haggling well is worth caps: they sign for what was offered, not for what they asked.
+    expect(negotiateWage(floor, asking).wage).toBeLessThan(asking);
+
+    const lowball = negotiateWage(1, asking);
+    expect(lowball.accepted).toBe(false);
+    expect(lowball.wage).toBeGreaterThanOrEqual(floor);
+    expect(lowball.wage).toBeLessThanOrEqual(asking);
+  });
+
+  it('counters closer to the asking price the closer the offer was', () => {
+    const asking = askingWage(excellent, 0);
+    const floor = reservationWage(asking);
+    const near = negotiateWage(floor - 1, asking);
+    const far = negotiateWage(0, asking);
+    expect(near.accepted).toBe(false);
+    expect(near.wage).toBeGreaterThanOrEqual(far.wage);
+  });
+
+  it('never asks less than the floor wage, however poor the sheet', () => {
+    expect(askingWage(makeAttributes(0), STANCE_MAX)).toBeGreaterThan(0);
+  });
+});
+
+describe('§H7 — the first payment covers the rest of the week', () => {
+  // W2's payroll engine owns the arithmetic; what W5 has to get right is *which* clock it hands
+  // over. These pin the two boundaries the issue calls out by name.
+  const MONDAY = new Date('2026-08-10T00:00:00.000Z');
+
+  it('costs a full week when the ink dries exactly on the boundary', () => {
+    expect(startOfPayWeek(MONDAY).getTime()).toBe(MONDAY.getTime());
+    expect(proratedFirstWage(140, MONDAY)).toBe(140);
+  });
+
+  it('costs an hour when there is an hour left', () => {
+    const hourLeft = new Date(MONDAY.getTime() + PAY_WEEK_MS - 60 * 60 * 1000);
+    expect(proratedFirstWage(168, hourLeft)).toBe(1);
+  });
+
+  it('charges the whole of the next week to someone hired a moment after rollover', () => {
+    const justAfter = new Date(MONDAY.getTime() + PAY_WEEK_MS + 1);
+    expect(proratedFirstWage(140, justAfter)).toBe(140);
+  });
+});
+
+describe('the shared package keeps no role-shaped data', () => {
+  it('prices a wage off the visible sheet only, never off a role', () => {
+    // A wage that tracked role fit would put the hidden table on the wire with a price on it
+    // (§B8a, INTERFACES R4). Two sheets with the same ratings in different *attributes* must
+    // therefore cost exactly the same.
+    const first = makeAttributes(18, { stealth: 38, cunning: 30 });
+    const second = makeAttributes(18, { medicine: 38, mentoring: 30 });
+    expect(askingWage(first, 0)).toBe(askingWage(second, 0));
+  });
+
+  it('auto-allocates by rating, not by role', () => {
+    const swap = (a: AttributeName, b: AttributeName) =>
+      autoAllocatedAttributes(makeAttributes(18, { [a]: 38, [b]: 30 }));
+    expect(swap('stealth', 'cunning')).toEqual(['stealth', 'cunning', ATTRIBUTE_NAMES[0]]);
+    expect(swap('medicine', 'mentoring')).toEqual(['medicine', 'mentoring', ATTRIBUTE_NAMES[0]]);
+  });
+});

@@ -1,11 +1,25 @@
 import { z } from 'zod';
+import { ATTRIBUTE_NAMES, AttributesSchema } from './attributes.js';
+import {
+  ALIGNMENT_BANDS,
+  AmbitionSchema,
+  JOIN_BLOCKERS,
+  JoinRequirementSchema,
+  MoralCompassSchema,
+  STANCE_MAX,
+  STANCE_MIN,
+} from './bar/index.js';
 import { BaseSchema, BaseSummarySchema } from './base.js';
 import { BattleResultSchema } from './battle/types.js';
 import { DistrictSchema } from './city.js';
+import { CommanderSchema } from './commander.js';
+import { ReputationLabelSchema } from './economy/reputation.js';
 import { MissionSchema } from './missions.js';
 import { OverseerSchema } from './overseer.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { ResourcesSchema } from './resources.js';
+import { OfficerRoleSchema } from './roles.js';
+import { TraitsSchema } from './traits.js';
 import { UserSchema } from './user.js';
 
 /**
@@ -120,3 +134,113 @@ export const LaunchMissionResponseSchema = z.object({
   serverNow: IsoDateTimeSchema,
 });
 export type LaunchMissionResponse = z.infer<typeof LaunchMissionResponseSchema>;
+
+// --- the Bar (GDD §H) ---
+
+/**
+ * One character on the Bar's roster.
+ *
+ * Everything here is either rolled onto the visible sheet or a judgement made *from* it. There is
+ * deliberately no role, no affinity and no fit score: the roster is where role data would first
+ * reach a player, and §B8a/INTERFACES R4 say it must not. A recruit has no role until the player
+ * hires them into one (§C2), which is why `role` is on the hire request rather than on this DTO.
+ */
+export const BarRecruitSchema = z.object({
+  id: IdSchema,
+  name: z.string().min(1),
+  attributes: AttributesSchema,
+  traits: TraitsSchema,
+  /** §H4 — what they want and how far they will go for it. */
+  ambition: AmbitionSchema,
+  moralCompass: MoralCompassSchema,
+  /** §H3 — what the crew has to be before they will consider signing. */
+  requirement: JoinRequirementSchema,
+  /** §H3 + §H4 judged against *this* crew, so the client never re-derives the gate. */
+  assessment: z.object({
+    meetsRequirement: z.boolean(),
+    stance: z.number().int().min(STANCE_MIN).max(STANCE_MAX),
+    interested: z.boolean(),
+    blockers: z.array(z.enum(JOIN_BLOCKERS)),
+  }),
+  /** §H7 — the weekly wage in caps they open at. Absent until they are interested. */
+  askingWage: z.number().int().positive().nullable(),
+  /** Already on this crew's books — the roster is global, the hiring is not (§H2). */
+  hired: z.boolean(),
+});
+export type BarRecruit = z.infer<typeof BarRecruitSchema>;
+
+/** A held officer as the Bar shows them: their sheet, their §H5 standing and their §H6 level. */
+export const BarOfficerSchema = z.object({
+  commander: CommanderSchema,
+  /** §H5 — the sheet as it performs, with the alignment bonus folded in. */
+  effectiveAttributes: AttributesSchema,
+  band: z.enum(ALIGNMENT_BANDS),
+  /** §H5 — "too low → they threaten to leave". */
+  threateningToLeave: z.boolean(),
+  /** §H5 — attribute points the alignment bonus is currently worth, and where they land. */
+  skillBonus: z.number().int().nonnegative(),
+  bonusAttributes: z.array(z.string()),
+  /** §H7 — the agreed weekly wage, read back out of the payroll book W2 owns. */
+  weeklyWage: z.number().nonnegative(),
+});
+export type BarOfficer = z.infer<typeof BarOfficerSchema>;
+
+/**
+ * The Bar screen in one call (GDD §H).
+ *
+ * `day` is the UTC date the roster was generated from and `serverNow` is the clock it came from:
+ * §H2a makes the roster a pure function of the date, so a client with a skewed clock must still
+ * be told which day it is looking at rather than working it out locally.
+ */
+export const BarResponseSchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  serverNow: IsoDateTimeSchema,
+  recruits: z.array(BarRecruitSchema),
+  officers: z.array(BarOfficerSchema),
+  /** §H8 — recruit slots, `2 + level - 1`, read off W6's grant table. */
+  slotsUsed: z.number().int().nonnegative(),
+  slotsTotal: z.number().int().nonnegative(),
+  /** The two crew facts §H3/§H4 judge against, so the client can explain a refusal. */
+  infamy: z.number(),
+  reputation: ReputationLabelSchema,
+  caps: z.number(),
+  /** Roles §C3 says are already filled, so the hire form cannot offer them. */
+  filledRoles: z.array(OfficerRoleSchema),
+});
+export type BarResponse = z.infer<typeof BarResponseSchema>;
+
+export const HireRecruitRequestSchema = z.object({
+  recruitId: IdSchema,
+  /** §C2/§C3 — a character is hired *into* a role, and a role holds one officer. */
+  role: OfficerRoleSchema,
+  /** §H7 — the weekly wage in caps being offered. */
+  offerWage: z.number().int().nonnegative(),
+});
+export type HireRecruitRequest = z.infer<typeof HireRecruitRequestSchema>;
+
+/**
+ * §H7 — the answer to an offer. A rejected offer is a 200, not an error: the character countering
+ * is the negotiation working, and `wage` is what they came back with.
+ */
+export const HireRecruitResponseSchema = z.object({
+  accepted: z.boolean(),
+  wage: z.number().int().nonnegative(),
+  /** Present only when the offer was accepted. */
+  officer: CommanderSchema.nullable(),
+  /** §H7 — the prorated first payment, taken at recruitment for the rest of this pay week. */
+  firstPayment: z.number().nonnegative(),
+  resources: ResourcesSchema.nullable(),
+});
+export type HireRecruitResponse = z.infer<typeof HireRecruitResponseSchema>;
+
+/** §H6 — spend one of the level-up points the player was given to assign by hand. */
+export const AssignPointRequestSchema = z.object({
+  officerId: IdSchema,
+  attribute: z.enum(ATTRIBUTE_NAMES),
+});
+export type AssignPointRequest = z.infer<typeof AssignPointRequestSchema>;
+
+export const AssignPointResponseSchema = z.object({
+  officer: CommanderSchema,
+});
+export type AssignPointResponse = z.infer<typeof AssignPointResponseSchema>;

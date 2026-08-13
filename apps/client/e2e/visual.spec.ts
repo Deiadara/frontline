@@ -302,6 +302,55 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/progression-${tag}.png` });
     });
+
+    /*
+     * MOU-164 §H: the Bar, at the widest state it has. `bar` is deliberately a late-game fixture —
+     * the longest names the roster generator can produce, a four-digit weekly wage, all four §H5
+     * bands including the walkout warning, and recruits in every card state. The starting state of
+     * this screen is an empty crew and eight interchangeable cards, which is exactly the
+     * half-fixture MOU-207 was filed about.
+     *
+     * A document scroller, like the base and missions pages, so no vertical-clip guard: the fold
+     * cuts the last row at every viewport by design. The roster below it is shot separately.
+     */
+    test(`the bar at ${tag}`, async ({ page }) => {
+      // `lateGame`, so the HUD above the screen describes the same crew the Bar does — serving the
+      // fat `bar` fixture over a starting session showed "STREET READS FEARED" under a `Cautious`
+      // HUD, which only the screenshot caught (MOU-207).
+      await installApi(page, lateGame);
+      await page.goto('/game/bar');
+      await expect(page.getByRole('heading', { name: 'The Bar' })).toBeVisible();
+      await settleFonts(page);
+
+      // §H8 — the slot counter is the one figure on this screen that has to stay legible at the
+      // narrowest viewport, and a full crew is what makes it widest.
+      await expect(page.getByText('recruits', { exact: false }).first()).toBeInViewport({
+        ratio: 1,
+      });
+
+      /*
+       * Every label on this screen is authored copy at a fixed size, so an ellipsis is a permanent
+       * defect rather than a fat-content edge case — the §E4 breakdown shipped cut exactly this
+       * way. The §H4 disposition tags and §H5 band tags are the narrowest of them.
+       */
+      const clipped = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('article span, article p, li span, li p')]
+          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+      );
+      expect(clipped, `cut text on the Bar: ${clipped.join(' | ')}`).toEqual([]);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/bar-${tag}.png` });
+
+      // The roster is the §H1–§H4 surface and sits below the fold, so `fullPage` cannot reach it.
+      const lastCard = page.getByRole('article').filter({ hasText: 'Juno Petrosyan' }).first();
+      await lastCard.scrollIntoViewIfNeeded();
+      await settleFonts(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/bar-roster-${tag}.png` });
+    });
   });
 }
 

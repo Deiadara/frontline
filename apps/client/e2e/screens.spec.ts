@@ -1,6 +1,14 @@
 import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test } from '@playwright/test';
-import { me, meNoOverseer, overseer, paidBase, paidMe, settlingMissions } from './fixtures';
+import {
+  lateGame,
+  me,
+  meNoOverseer,
+  overseer,
+  paidBase,
+  paidMe,
+  settlingMissions,
+} from './fixtures';
 import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
 
 test.use({ viewport: { width: 1280, height: 800 } });
@@ -73,6 +81,54 @@ test('base panel lists structures', async ({ page }) => {
   await expect(page.getByText('Fusion Reactor')).toBeVisible();
 
   await page.screenshot({ path: 'screenshots/base.png', fullPage: false });
+});
+
+/**
+ * The Bar (GDD §H). The roster sits inside the page's own scroller, so `fullPage` would not reach
+ * the cards below the fold — they are scrolled to and re-checked instead (MOU-162).
+ *
+ * Installed against `lateGame`, not `me`: the `bar` fixture is a level-12 crew with 13 slots, a
+ * `Feared` street and six figures of caps, and serving it over a starting session put "STREET
+ * READS FEARED" directly under a HUD reading `Cautious` / infamy 0 — the half-fixture MOU-207 was
+ * filed about, visible only in the screenshot. The two now describe the same save.
+ */
+test('the bar lists tonight’s roster and the crew already signed', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/bar');
+
+  await expect(page.getByRole('heading', { name: 'The Bar' })).toBeVisible();
+  await expect(page.getByText('The Ghost of Sector Nine')).toBeVisible();
+  await expect(page.getByText('Dorotea "The Undergrid Ghost"')).toBeVisible();
+  // §H5's two ends both render: a walkout warning and an earned skill bonus.
+  await expect(page.getByText('Says they are done unless something changes.')).toBeVisible();
+  await expect(page.getByText(/^\+5 to /)).toBeVisible();
+  // §H3/§H4 refusals say which gate is shut rather than just greying the card out.
+  await expect(page.getByText('Not infamous enough').first()).toBeVisible();
+  await expect(page.getByText('Wants no part of you')).toBeVisible();
+
+  await settleFonts(page);
+
+  // Fixed copy that ellipsises is invisible to a document-overflow gate, so authored text is
+  // measured directly — this is the defect class that shipped `ROUND TRI…` on the missions page.
+  const truncated = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('h1, h2, h3, p, span, li, option')]
+      .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+      .map((el) => el.textContent?.slice(0, 40) ?? ''),
+  );
+  expect(truncated, 'no authored label on the Bar may be cut off').toEqual([]);
+
+  /*
+   * No vertical-clip guard, deliberately, and for the same reason the base and missions pages
+   * skip it: this is a scroller whose content is arbitrarily long, so the fold cuts the first
+   * roster card at every viewport exactly as an ordinary scrolling page cuts its last row. That
+   * is a different question from a *bounded* viewport ending mid-card, which is what the guard on
+   * character select exists for.
+   */
+  await page.screenshot({ path: 'screenshots/bar.png', fullPage: false });
+
+  // ...and again at the bottom of the roster, which no viewport-sized screenshot can reach.
+  await page.getByText('Juno Petrosyan').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'screenshots/bar-scrolled.png', fullPage: false });
 });
 
 test('battle result modal opens after an attack', async ({ page }) => {
