@@ -8,7 +8,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { lateGame, me, meNoOverseer } from './fixtures';
-import { installApi, settleFonts } from './harness';
+import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
 
 interface Size {
   readonly width: number;
@@ -71,6 +71,37 @@ async function expectNothingClippedHorizontally(page: Page): Promise<void> {
   expect(offenders, `elements outside the viewport: ${offenders.join(' | ')}`).toEqual([]);
 }
 
+/**
+ * The roster gives up whole cards, never part of one.
+ *
+ * `expectNothingClippedVertically` proves no card is sliced; this proves the roster is still
+ * honest about the ones it dropped. Both branches are real: at 1280x720 two cards do not fit, at
+ * every taller viewport all four do — so the tight viewport is the fat case this screen has, its
+ * content being the same four presets everywhere.
+ */
+async function expectWholeCardRows(page: Page): Promise<void> {
+  const roster = await page.evaluate<{ total: number; hidden: number }>(() => {
+    const cards = [...document.querySelectorAll('button[aria-pressed]')];
+    const viewport = cards[0]?.closest('.overflow-y-auto');
+    if (!viewport) throw new Error('roster viewport not found');
+    const { bottom } = viewport.getBoundingClientRect();
+    return {
+      total: cards.length,
+      hidden: cards.filter((card) => card.getBoundingClientRect().bottom > bottom + 1).length,
+    };
+  });
+
+  expect(roster.total, 'every preset must be rendered').toBe(4);
+  const hint = page.getByText(/Scroll for \d+ more/);
+  if (roster.hidden === 0) {
+    await expect(hint, 'a roster that fits must not advertise hidden cards').toHaveCount(0);
+  } else {
+    await expect(hint, 'hidden cards must be advertised, and counted correctly').toHaveText(
+      new RegExp(`Scroll for ${roster.hidden} more`),
+    );
+  }
+}
+
 /** The map canvas must exactly fill its frame — a short canvas shows a dead band of page ground. */
 async function expectCanvasFillsFrame(page: Page): Promise<void> {
   const canvas = page.locator('canvas');
@@ -98,6 +129,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByRole('heading', { name: 'FRONTLINE' })).toBeVisible();
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
+      await expectNothingClippedVertically(page);
       await page.screenshot({ path: `screenshots/visual/auth-${tag}.png` });
     });
 
@@ -107,6 +139,8 @@ for (const size of VIEWPORTS) {
       await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
+      await expectNothingClippedVertically(page);
+      await expectWholeCardRows(page);
       await page.screenshot({ path: `screenshots/visual/overseer-${tag}.png` });
     });
 
@@ -117,6 +151,7 @@ for (const size of VIEWPORTS) {
       await page.waitForTimeout(900);
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
+      await expectNothingClippedVertically(page);
       await expectCanvasFillsFrame(page);
       await page.screenshot({ path: `screenshots/visual/map-${tag}.png` });
     });
@@ -134,6 +169,7 @@ for (const size of VIEWPORTS) {
       await expect(page.locator('canvas')).toBeVisible();
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
+      await expectNothingClippedVertically(page);
 
       const hud = page.locator('header');
       for (const chip of ['Caps', 'Food', 'Oil', 'Scrap', 'HQ Metal', 'Morale', 'Infamy']) {
@@ -148,6 +184,13 @@ for (const size of VIEWPORTS) {
       await expect(page.getByRole('heading', { name: "Operator's Foothold" })).toBeVisible();
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
+      /*
+       * No vertical guard here, deliberately. The base panel is a document scroller: its content
+       * is arbitrarily long, so the last visible row is cut at every viewport, exactly as an
+       * ordinary scrolling page cuts it. That is a different question from a *bounded* viewport
+       * silently ending mid-card, which is what the guard exists for. At 1280x720 the structure
+       * list does end 4px into "Command Center" — flagged to the CTO, not silently asserted away.
+       */
       await page.screenshot({ path: `screenshots/visual/base-${tag}.png` });
     });
   });

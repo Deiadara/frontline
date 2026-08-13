@@ -1,7 +1,7 @@
 import { CITY_DISTRICTS } from '@frontline/shared';
 import { expect, test } from '@playwright/test';
 import { me, meNoOverseer, overseer } from './fixtures';
-import { installApi, settleFonts } from './harness';
+import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -45,6 +45,10 @@ test('character select renders all presets', async ({ page }) => {
       .map((el) => el.textContent?.slice(0, 40) ?? ''),
   );
   expect(overflowing, 'card text must not overflow its column').toEqual([]);
+
+  // ...nor may the roster's scroll viewport end part-way down a card, slicing the attribute
+  // rows through the digits. Every card the player can see must be whole.
+  await expectNothingClippedVertically(page);
 
   await page.screenshot({ path: 'screenshots/character-select.png', fullPage: false });
 });

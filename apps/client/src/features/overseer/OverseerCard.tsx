@@ -18,13 +18,13 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        'group flex min-h-0 flex-col border bg-night-raised text-left transition-all duration-150',
+        'group flex min-h-0 snap-start flex-col border bg-night-raised text-left transition-all duration-150',
         selected
           ? 'border-neon-cyan shadow-neon-cyan'
           : 'border-steel-700 hover:border-neon-cyan/50',
       )}
     >
-      <div className="flex gap-3 p-2">
+      <div className="flex gap-3 px-2 py-1.5">
         <div className="w-20 shrink-0">
           <OverseerPortrait
             portraitId={preset.portraitId}
@@ -59,7 +59,7 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
         </div>
       </div>
 
-      <div className="border-t border-steel-800 p-2">
+      <div className="border-t border-steel-800 px-2 py-1.5">
         <AttributeSheet attributes={preset.attributes} />
       </div>
     </button>

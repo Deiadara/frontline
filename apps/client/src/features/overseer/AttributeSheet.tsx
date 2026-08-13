@@ -26,9 +26,9 @@ const TIER_TEXT: Record<AttributeTier, string> = {
 function AttributeRow({ name, value }: { name: AttributeName; value: number }) {
   return (
     <div className="flex items-baseline justify-between gap-1">
-      <span className="truncate font-body text-[10px] leading-[1.35] text-steel-400">{name}</span>
+      <span className="truncate font-body text-[10px] leading-[1.2] text-steel-400">{name}</span>
       <span
-        className={`shrink-0 font-display text-[10px] font-semibold leading-[1.35] tabular-nums ${TIER_TEXT[attributeTier(value)]}`}
+        className={`shrink-0 font-display text-[10px] font-semibold leading-[1.2] tabular-nums ${TIER_TEXT[attributeTier(value)]}`}
       >
         {value}
       </span>
@@ -46,7 +46,7 @@ export function AttributeSheet({ attributes }: { attributes: Attributes }) {
     <div className="grid grid-cols-4 gap-x-3">
       {ATTRIBUTE_GROUPS.map((group) => (
         <div key={group} className="min-w-0">
-          <p className="mb-1 truncate border-b border-steel-700 pb-0.5 font-display text-[8px] uppercase tracking-[0.18em] text-neon-cyan/70">
+          <p className="mb-0.5 truncate border-b border-steel-700 pb-0.5 font-display text-[8px] uppercase tracking-[0.18em] text-neon-cyan/70">
             {GROUP_LABELS[group]}
           </p>
           {ATTRIBUTES_BY_GROUP[group].map((name) => (
