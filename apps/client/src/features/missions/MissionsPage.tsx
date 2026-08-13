@@ -506,8 +506,12 @@ export function MissionsPage() {
                   launch.mutate(
                     { templateId, ...(officerId ? { officerId } : {}) },
                     // A launch settles the board first, so this response is the only place a crew
-                    // that landed on it is ever reported.
-                    { onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp) },
+                    // that landed on it is ever reported — including when the launch is then
+                    // refused, since the settle is not rolled back (MOU-280).
+                    {
+                      onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp),
+                      onError: (error) => error.levelUp && setLevelUp(error.levelUp),
+                    },
                   )
                 }
               />

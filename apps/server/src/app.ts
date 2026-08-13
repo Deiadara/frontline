@@ -80,9 +80,11 @@ export async function buildApp({
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {
-      return reply
-        .status(error.statusCode)
-        .send({ error: { code: error.code, message: error.message } });
+      return reply.status(error.statusCode).send({
+        error: { code: error.code, message: error.message },
+        // Only when the refusal really banked one — presence is the signal here as everywhere else.
+        ...(error.levelUp ? { levelUp: error.levelUp } : {}),
+      });
     }
     // Fastify's own client errors (empty/malformed JSON body, unsupported media type, …) carry a
     // 4xx statusCode. Surface them as a clean VALIDATION_ERROR instead of masking them as a 500.

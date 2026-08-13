@@ -1,3 +1,4 @@
+import type { LevelUp } from '@frontline/shared';
 import { z } from 'zod';
 
 /** Domain error codes from docs/SPEC-server.md — always SCREAMING_SNAKE. */
@@ -69,11 +70,21 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
 /** A thrown domain error the central error handler maps to the `{error:{code,message}}` envelope. */
 export class AppError extends Error {
   readonly code: ErrorCode;
+  /**
+   * A level-up this request banked *before* it decided to refuse (MOU-280).
+   *
+   * The write routes settle lazily, so a refusal can sit downstream of a settlement that already
+   * crossed a threshold and was written to the database. That write is not rolled back and no
+   * later read re-resolves it, so a thrower that reached this state must hand the announcement to
+   * the envelope or it is lost outright rather than deferred.
+   */
+  readonly levelUp: LevelUp | undefined;
 
-  constructor(code: ErrorCode, message: string) {
+  constructor(code: ErrorCode, message: string, levelUp?: LevelUp) {
     super(message);
     this.name = 'AppError';
     this.code = code;
+    this.levelUp = levelUp;
   }
 
   get statusCode(): number {

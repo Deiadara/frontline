@@ -2,6 +2,7 @@ import {
   MISSION_STANCE_SPECS,
   MISSION_TEMPLATES,
   assigneeBonusPercent,
+  playerLevelGrants,
   type AssigneesResponse,
   type LaunchMissionRequest,
   type LaunchMissionResponse,
@@ -100,6 +101,18 @@ const NEEDS_OFFICER = {
       code: 'MISSION_NEEDS_OFFICER',
       message: 'That job is too hard to run without an officer leading it',
     },
+  },
+};
+
+/**
+ * The same refusal from a request that settled the board on its way to refusing (MOU-280): a crew
+ * came home and crossed a level, and that write is not rolled back with the launch.
+ */
+const REFUSED_AFTER_LEVELLING = {
+  ...NEEDS_OFFICER,
+  body: {
+    ...NEEDS_OFFICER.body,
+    levelUp: { level: 4, levelsGained: 1, grants: playerLevelGrants(4) },
   },
 };
 
@@ -297,6 +310,34 @@ describe('a refused launch', () => {
 
     await rosterLoaded();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  /**
+   * MOU-280 — a launch settles the board before it decides, and the settle is not rolled back when
+   * it then refuses. The board's own poll re-resolves nothing, so this refusal is the only response
+   * that will ever carry that level-up: dropping it here loses the moment outright.
+   */
+  it('still announces a level-up the refused launch had already banked', async () => {
+    stubApi({ assignees: staffed, launch: REFUSED_AFTER_LEVELLING });
+    renderBoard();
+
+    await rosterLoaded();
+    fireEvent.click(deploy('Scrap Run'));
+
+    expect(await screen.findByRole('region', { name: 'Level up' })).toHaveTextContent('LEVEL 4');
+    // And the refusal itself is still explained — the banner does not replace the reason.
+    expect(screen.getByRole('alert')).toHaveTextContent(/officer leading it/);
+  });
+
+  it('shows no level-up banner when the refusal banked nothing', async () => {
+    stubApi({ assignees: staffed, launch: NEEDS_OFFICER });
+    renderBoard();
+
+    await rosterLoaded();
+    fireEvent.click(deploy('Scrap Run'));
+
+    await screen.findByRole('alert');
+    expect(screen.queryByRole('region', { name: 'Level up' })).toBeNull();
   });
 });
 

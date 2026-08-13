@@ -35,12 +35,44 @@ import { UserSchema } from './user.js';
  * The server validates request bodies with these schemas; the client parses responses with them.
  */
 
+// --- player levelling (GDD §I) ---
+
+/**
+ * A level-up the *caller's own request* just paid for, so the path that caused it can announce it.
+ *
+ * Carried on every response whose call can award XP, and **present only when a level was actually
+ * crossed** — presence is the whole signal, so no client compares two numbers to work out whether
+ * something happened. `levelsGained > 1` when one settlement crossed several levels.
+ *
+ * §I3 unlocks are deliberately absent: `PLAYER_LEVEL_UNLOCKS` is empty until the board files the
+ * catalogue, and an always-empty array is plumbing for a feature that does not exist yet. It goes
+ * in with the first real unlock.
+ */
+export const LevelUpSchema = z.object({
+  /** `Base.level` after the award. */
+  level: z.number().int().positive(),
+  levelsGained: z.number().int().positive(),
+  /** §I2 grants at the new level — what the level is actually worth. */
+  grants: PlayerLevelGrantsSchema,
+});
+export type LevelUp = z.infer<typeof LevelUpSchema>;
+
 /** Every non-2xx response uses this envelope. */
 export const ApiErrorSchema = z.object({
   error: z.object({
     code: z.string(),
     message: z.string(),
   }),
+  /**
+   * MOU-280 — a refusal can still have banked a level-up on its way to refusing.
+   *
+   * The write routes settle lazily (`resolveDueMissions`, `economy/settle.ts`), so a request that
+   * is about to be rejected may already have brought a crew home and crossed a threshold. That
+   * write is not rolled back, and no later read re-resolves it, so the *refusal* is the only place
+   * it can ever be announced. A sibling of `error` rather than a field inside it, because it is not
+   * part of why the call failed.
+   */
+  levelUp: LevelUpSchema.optional(),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
@@ -98,28 +130,6 @@ export const BaseDetailResponseSchema = z.object({
   base: BaseSchema,
 });
 export type BaseDetailResponse = z.infer<typeof BaseDetailResponseSchema>;
-
-// --- player levelling (GDD §I) ---
-
-/**
- * A level-up the *caller's own request* just paid for, so the path that caused it can announce it.
- *
- * Carried on every response whose call can award XP, and **present only when a level was actually
- * crossed** — presence is the whole signal, so no client compares two numbers to work out whether
- * something happened. `levelsGained > 1` when one settlement crossed several levels.
- *
- * §I3 unlocks are deliberately absent: `PLAYER_LEVEL_UNLOCKS` is empty until the board files the
- * catalogue, and an always-empty array is plumbing for a feature that does not exist yet. It goes
- * in with the first real unlock.
- */
-export const LevelUpSchema = z.object({
-  /** `Base.level` after the award. */
-  level: z.number().int().positive(),
-  levelsGained: z.number().int().positive(),
-  /** §I2 grants at the new level — what the level is actually worth. */
-  grants: PlayerLevelGrantsSchema,
-});
-export type LevelUp = z.infer<typeof LevelUpSchema>;
 
 // --- the hideout (GDD §A1, §D3) ---
 

@@ -714,6 +714,86 @@ describe('a settlement announces its level-up on the response that caused it (§
     expect(launched.statusCode).toBe(200);
     expect(launched.json<LevelUpBody>().levelUp).toBeUndefined();
   });
+
+  /**
+   * MOU-280 — a *refused* launch settled the board on its way to the refusal, so it owes the
+   * announcement exactly as much as a successful one does. There is no second chance: the next
+   * `GET /missions` re-resolves nothing.
+   *
+   * The two halves are fixed differently on purpose, so both are pinned here.
+   */
+  it('never runs the settle when the launch names an officer who does not exist', async () => {
+    const stack = await makeStack();
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+    const before = freshBase(stack).level;
+
+    const refused = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(stack.token),
+      payload: { templateId: 'scrap-run', officerId: 'nobody-by-that-id' },
+    });
+
+    expect(refused.statusCode).toBe(404);
+    // Nothing to lose because nothing was banked: this check needs no post-settle state.
+    expect(freshBase(stack).level).toBe(before);
+    expect(stack.repos.missions.countActiveByBaseId(stack.base.id)).toBe(1);
+
+    // And the crew is still waiting, so the next board read banks and announces it for real.
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+    expect(board.json<LevelUpBody>().levelUp?.levelsGained).toBe(1);
+    expect(freshBase(stack).level).toBe(before + 1);
+  });
+
+  it('announces a banked level-up on the refusal envelope of a launch it had to settle first', async () => {
+    const stack = await makeStack();
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+    const before = freshBase(stack).level;
+
+    // §G6 — a hard run with nobody on the books is refused, and `resolveCrew` reads `base.level`
+    // to size the delegation. This very settle moves that level, so the check cannot be hoisted
+    // above the settle the way the officer lookup can: it would refuse a crew the level-up allows.
+    const refused = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(stack.token),
+      payload: { templateId: 'convoy-ambush' },
+    });
+
+    expect(refused.statusCode).toBe(409);
+    const body = refused.json<LevelUpBody & { error: { code: string } }>();
+    expect(body.error.code).toBe('MISSION_NEEDS_OFFICER');
+    // The settle genuinely happened and is not rolled back — the level really moved…
+    expect(freshBase(stack).level).toBe(before + 1);
+    // …so this refusal is the only response that can ever report it.
+    expect(body.levelUp?.levelsGained).toBe(1);
+    expect(body.levelUp?.level).toBe(freshBase(stack).level);
+
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+    expect(board.json<LevelUpBody>().levelUp).toBeUndefined();
+  });
+
+  it('leaves the refusal envelope clean when the launch settled nothing', async () => {
+    const stack = await makeStack();
+
+    const refused = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(stack.token),
+      payload: { templateId: 'convoy-ambush' },
+    });
+
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<LevelUpBody>().levelUp).toBeUndefined();
+  });
 });
 
 describe('what a mission says about the Combine (§A3, §D8)', () => {

@@ -1,6 +1,12 @@
-import type { BaseDetailResponse, MeResponse } from '@frontline/shared';
+import type {
+  BaseDetailResponse,
+  LaunchMissionRequest,
+  LaunchMissionResponse,
+  MeResponse,
+} from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import type { ApiRequestError } from './api';
 import {
   assignPoint,
   attack,
@@ -94,7 +100,9 @@ export function useMissions() {
 /** Send a crew out, then refresh the board and everything a returning crew may have paid into. */
 export function useLaunchMission() {
   const queryClient = useQueryClient();
-  return useMutation({
+  // Typed on `ApiRequestError` rather than `Error`: a refused launch may still have settled the
+  // board, and the level-up it banked rides out on the failure (MOU-280).
+  return useMutation<LaunchMissionResponse, ApiRequestError, LaunchMissionRequest>({
     mutationFn: launchMission,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.missions });

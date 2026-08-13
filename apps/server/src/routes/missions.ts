@@ -46,11 +46,28 @@ export function registerMissionRoutes(app: FastifyInstance): void {
 
     const now = new Date();
     const own = requireOwnBase(app, request.currentUser.id);
+
+    // §G6 — naming somebody who does not work here is a 404, not an unled run: silently demoting it
+    // to a delegation would charge the §G6 penalty for what is really a stale tab or a typo.
+    //
+    // Checked *before* the settle so a doomed request never banks one (MOU-280): the settle's
+    // level-up can only be announced by the response that caused it, and this one is an error
+    // envelope. The lookup reads `base.commanders`, which a settlement never touches, so hoisting
+    // it changes no answer. The checks below cannot follow it up: both read state the settle moves.
+    const officer = officerId ? own.commanders.find((held) => held.id === officerId) : undefined;
+    if (officerId !== undefined && !officer) {
+      throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+    }
+
     // Settle first: a mission that came home while the player was reading the board frees a slot
     // they should be allowed to use on this very request.
     const { base, levelUp } = resolveDueMissions(app.repos, own, now);
     if (app.repos.missions.countActiveByBaseId(base.id) >= CONCURRENT_MISSION_LIMIT) {
-      throw new AppError('MISSIONS_AT_CAPACITY', 'Every crew you have is already out on a mission');
+      throw new AppError(
+        'MISSIONS_AT_CAPACITY',
+        'Every crew you have is already out on a mission',
+        levelUp,
+      );
     }
 
     // §F5 — the run rides on the player's own character, so the Overseer is read here and the
@@ -61,12 +78,9 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     // §G6 — hard runs need an officer; easy ones can go out on assignees alone. The crew also
     // fixes the §G5/§G7 multipliers, which `launchMission` freezes onto the row beside §F5's.
     //
-    // Naming somebody who does not work here is a 404, not an unled run: silently demoting it to a
-    // delegation would charge the §G6 penalty for what is really a stale tab or a typo.
-    const officer = officerId ? base.commanders.find((held) => held.id === officerId) : undefined;
-    if (officerId !== undefined && !officer) {
-      throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
-    }
+    // This sizes the delegation off `base.level`, which the settle above may just have raised, so
+    // it runs on the settled base: hoisting it would refuse a crew the level-up had already paid
+    // for. Its refusal therefore carries the level-up out on the envelope instead.
     const crew = resolveCrew({ base, template, officer });
     if (!crew.terms.allowed) {
       throw new AppError(
@@ -74,6 +88,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         crew.terms.refusal === 'needs_officer'
           ? 'That job is too hard to run without an officer leading it'
           : 'You have nobody free to send',
+        levelUp,
       );
     }
 

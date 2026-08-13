@@ -24,6 +24,7 @@ import {
   type CreateOverseerRequest,
   type HireRecruitRequest,
   type LaunchMissionRequest,
+  type LevelUp,
   type LoginRequest,
   type RegisterRequest,
   type StartResearchRequest,
@@ -40,6 +41,11 @@ export class ApiRequestError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /**
+     * A level-up the refused call banked before refusing (MOU-280). The server settles lazily on
+     * the write paths, so a rejection can be the only response that ever carries one.
+     */
+    readonly levelUp?: LevelUp | undefined,
   ) {
     super(message);
     this.name = 'ApiRequestError';
@@ -69,7 +75,7 @@ export async function apiFetch<Schema extends z.ZodType>(
     const { code, message } = parsed.success
       ? parsed.data.error
       : { code: 'UNKNOWN', message: res.statusText || 'Request failed' };
-    throw new ApiRequestError(res.status, code, message);
+    throw new ApiRequestError(res.status, code, message, parsed.data?.levelUp);
   }
 
   return schema.parse(await res.json());
