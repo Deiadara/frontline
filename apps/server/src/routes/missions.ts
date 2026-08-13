@@ -8,6 +8,7 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
+import { resolveCrew } from '../missions/crew.js';
 import { CONCURRENT_MISSION_LIMIT, launchMission } from '../missions/launch.js';
 import { resolveDueMissions } from '../missions/resolve.js';
 
@@ -36,7 +37,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
   });
 
   app.post('/missions', { preHandler: app.authenticate }, (request): LaunchMissionResponse => {
-    const { templateId } = parseBody(LaunchMissionRequestSchema, request.body);
+    const { templateId, officerId } = parseBody(LaunchMissionRequestSchema, request.body);
     const template = findMissionTemplate(templateId);
     if (!template) {
       throw new AppError('NOT_FOUND', 'That mission is not on the board');
@@ -56,7 +57,33 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const overseer = request.currentUser.overseerId
       ? app.repos.overseers.findById(request.currentUser.overseerId)
       : undefined;
-    const stored = launchMission({ id: randomUUID(), base, template, now, overseer });
+    // §G6 — hard runs need an officer; easy ones can go out on assignees alone. The crew also
+    // fixes the §G5/§G7 multipliers, which `launchMission` freezes onto the row beside §F5's.
+    //
+    // Naming somebody who does not work here is a 404, not an unled run: silently demoting it to a
+    // delegation would charge the §G6 penalty for what is really a stale tab or a typo.
+    const officer = officerId ? base.commanders.find((held) => held.id === officerId) : undefined;
+    if (officerId !== undefined && !officer) {
+      throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+    }
+    const crew = resolveCrew({ base, template, officer });
+    if (!crew.terms.allowed) {
+      throw new AppError(
+        crew.terms.refusal === 'needs_officer' ? 'MISSION_NEEDS_OFFICER' : 'NO_ASSIGNEES',
+        crew.terms.refusal === 'needs_officer'
+          ? 'That job is too hard to run without an officer leading it'
+          : 'You have nobody free to send',
+      );
+    }
+
+    const stored = launchMission({
+      id: randomUUID(),
+      base,
+      template,
+      now,
+      overseer,
+      terms: crew.terms,
+    });
     app.repos.missions.insert(stored);
     return { mission: stored.mission, serverNow: now.toISOString() };
   });

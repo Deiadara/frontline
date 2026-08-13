@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_ASSIGNEES_PER_OFFICER } from './assignees/index.js';
 import { ATTRIBUTE_NAMES, AttributesSchema } from './attributes.js';
 import {
   ALIGNMENT_BANDS,
@@ -131,6 +132,11 @@ export type MissionsResponse = z.infer<typeof MissionsResponseSchema>;
 
 export const LaunchMissionRequestSchema = z.object({
   templateId: IdSchema,
+  /**
+   * §G6 — the officer leading the run. Optional: an *easy* mission can go out on a delegation of
+   * assignees alone, slower and with worse odds. A hard one without an officer is refused.
+   */
+  officerId: IdSchema.optional(),
 });
 export type LaunchMissionRequest = z.infer<typeof LaunchMissionRequestSchema>;
 
@@ -309,3 +315,64 @@ export const StartResearchResponseSchema = z.object({
   resources: ResourcesSchema,
 });
 export type StartResearchResponse = z.infer<typeof StartResearchResponseSchema>;
+// --- assignees (GDD §G) ---
+
+/** One officer on the §G screen: who stands under them, and what §G7 pays for it. */
+export const AssigneeOfficerSchema = z.object({
+  officerId: IdSchema,
+  name: z.string(),
+  role: OfficerRoleSchema,
+  assignees: z.number().int().nonnegative(),
+  /** §G7 — the bonus this many assignees give, applied to both time and power. */
+  bonusPercent: z.number().nonnegative(),
+  /** What one more would pay, or null when this officer is at the §G3 cap. */
+  nextBonusPercent: z.number().nonnegative().nullable(),
+});
+export type AssigneeOfficer = z.infer<typeof AssigneeOfficerSchema>;
+
+/**
+ * The whole assignee layer in one call (GDD §G).
+ *
+ * Every number here is derived server-side from `Base.level` and the stored placement map — the
+ * client renders them and never recomputes them, so the §G8 pool formula and the §G7 table have
+ * exactly one home.
+ */
+export const AssigneesResponseSchema = z.object({
+  /** `Base.level` (INTERFACES R1) — echoed so the page can explain where the cap came from. */
+  level: z.number().int().min(1),
+  /** §G8 — the whole pool at this level. */
+  pool: z.number().int().nonnegative(),
+  placed: z.number().int().nonnegative(),
+  /** §G2 — what a level-up handed over that the player has not placed yet. */
+  unplaced: z.number().int().nonnegative(),
+  /** §G3/§G3a, capped at the §G7 table's twelve rows. */
+  capPerOfficer: z.number().int().min(1).max(MAX_ASSIGNEES_PER_OFFICER),
+  /** The best §G7 bonus reachable at this level — not always 50%, because the cap bites first. */
+  maxBonusPercent: z.number().nonnegative(),
+  /** §C4/§G4 — whether a Professor is on the books to run reskilling. */
+  canReskill: z.boolean(),
+  officers: z.array(AssigneeOfficerSchema),
+});
+export type AssigneesResponse = z.infer<typeof AssigneesResponseSchema>;
+
+/** §G2 — place some of the unplaced pool under one officer. Placement only ever adds. */
+export const PlaceAssigneesRequestSchema = z.object({
+  officerId: IdSchema,
+  count: z.number().int().min(1).max(MAX_ASSIGNEES_PER_OFFICER),
+});
+export type PlaceAssigneesRequest = z.infer<typeof PlaceAssigneesRequestSchema>;
+
+/**
+ * §G4 — reskilling reassigns *every* assignee at once, so the request is the whole new map rather
+ * than a move. An officer left out of it ends with nobody.
+ */
+export const ReskillRequestSchema = z.object({
+  placements: z.record(IdSchema, z.number().int().nonnegative()),
+});
+export type ReskillRequest = z.infer<typeof ReskillRequestSchema>;
+
+/** Both writes answer with the same refreshed screen, so the client never re-derives state. */
+export const AssigneesMutationResponseSchema = z.object({
+  assignees: AssigneesResponseSchema,
+});
+export type AssigneesMutationResponse = z.infer<typeof AssigneesMutationResponseSchema>;

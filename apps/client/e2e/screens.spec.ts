@@ -62,6 +62,50 @@ test('character select renders all presets', async ({ page }) => {
   await page.screenshot({ path: 'screenshots/character-select.png', fullPage: false });
 });
 
+/**
+ * The §G placement screen, at the widest state it can reach (level 24: a twelve-pip cap, the 50%
+ * ceiling, a decimal bonus and the longest name/role pair on the board).
+ */
+test('assignee placement renders at the §G7 ceiling without clipping', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/assignees');
+
+  await expect(page.getByRole('heading', { name: 'ASSIGNEES' })).toBeVisible();
+  // §G7's twelfth row and its `at cap` state, and a decimal bonus rendered without a stray `.0`.
+  await expect(page.getByText('50%', { exact: true })).toBeVisible();
+  await expect(page.getByText('at cap')).toBeVisible();
+  await expect(page.getByText('14.5%', { exact: true })).toBeVisible();
+  // §C4 — a Professor is on the books, so reskilling is offered rather than explained away.
+  await expect(page.getByRole('button', { name: 'Reskill' })).toBeEnabled();
+
+  await settleFonts(page);
+
+  // Officer names and role labels are the long strings on this row; nothing may ellipsise or spill.
+  const overflowing = await page.evaluate(() =>
+    [...document.querySelectorAll('p, span')]
+      .filter((el) => el.scrollWidth > el.clientWidth + 1)
+      .map((el) => el.textContent?.slice(0, 40) ?? ''),
+  );
+  expect(overflowing, 'officer names and §G7 figures must not overflow their column').toEqual([]);
+  await expectNothingClippedVertically(page);
+
+  await page.screenshot({ path: 'screenshots/assignees.png', fullPage: false });
+});
+
+test('assignee placement explains the empty state before any officer is hired', async ({
+  page,
+}) => {
+  await installApi(page, me);
+  await page.goto('/game/assignees');
+
+  await expect(page.getByText('hire an officer at the Bar first')).toBeVisible();
+  // §G8 — the pool is already 2 at level 1, so the page must not read as "you have nothing".
+  await expect(page.getByText('Unplaced')).toBeVisible();
+  await settleFonts(page);
+  await expectNothingClippedVertically(page);
+  await page.screenshot({ path: 'screenshots/assignees-empty.png', fullPage: false });
+});
+
 test('game shell renders the city map', async ({ page }) => {
   await installApi(page, me);
   await page.goto('/game');

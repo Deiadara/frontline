@@ -7,6 +7,7 @@ import {
   OFFICER_ROLES,
   createCommander,
   startingEconomy,
+  startingAssignees,
   startingProgression,
   startingResearch,
   type Attributes,
@@ -233,6 +234,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     economy: { ...startingEconomy(NOW.toISOString()), infamy: 70 },
     progression: startingProgression(),
     research: startingResearch(),
+    assignees: startingAssignees(),
     buildings: [],
     commanders: [
       createCommander(

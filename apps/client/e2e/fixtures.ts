@@ -18,6 +18,10 @@ import {
   makeAttributes,
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
+  assigneeBonusPercent,
+  assigneeCapPerOfficer,
+  assigneePool,
+  startingAssignees,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -26,6 +30,8 @@ import {
   type AuthResponse,
   type BarOfficer,
   type BarRecruit,
+  type AssigneeOfficer,
+  type AssigneesResponse,
   type BarResponse,
   type Base,
   type Commander,
@@ -75,6 +81,7 @@ export const base: Base = {
   economy: startingEconomy(NOW),
   progression: startingProgression(),
   research: startingResearch(),
+  assignees: startingAssignees(),
   buildings: [
     { id: 'b1', kind: 'command_center', level: 1 },
     { id: 'b2', kind: 'reactor', level: 1 },
@@ -509,3 +516,67 @@ export function settlingResearch(now: Date = new Date()): {
     },
   };
 }
+
+/**
+ * The §G screen (GDD §G).
+ *
+ * The per-officer numbers are *derived* with the shared §G7/§G3 helpers rather than hand-typed.
+ * That is right for a layout fixture — what these specs assert is geometry, and the arithmetic
+ * itself is pinned by hard-coded percentages in `packages/shared/src/assignees/assignees.test.ts`.
+ * Typing them again here would only risk a fixture that disagrees with the server and a screenshot
+ * of a screen nobody is served.
+ */
+function assigneeOfficer(
+  officerId: string,
+  name: string,
+  role: AssigneeOfficer['role'],
+  assignees: number,
+  level: number,
+): AssigneeOfficer {
+  const cap = assigneeCapPerOfficer(level);
+  return {
+    officerId,
+    name,
+    role,
+    assignees,
+    bonusPercent: assigneeBonusPercent(assignees),
+    nextBonusPercent: assignees < cap ? assigneeBonusPercent(assignees + 1) : null,
+  };
+}
+
+function assigneesAt(
+  level: number,
+  placed: readonly [string, string, AssigneeOfficer['role'], number][],
+): AssigneesResponse {
+  const officers = placed.map(([id, name, role, count]) =>
+    assigneeOfficer(id, name, role, count, level),
+  );
+  const total = officers.reduce((sum, officer) => sum + officer.assignees, 0);
+  return {
+    level,
+    pool: assigneePool(level),
+    placed: total,
+    unplaced: assigneePool(level) - total,
+    capPerOfficer: assigneeCapPerOfficer(level),
+    maxBonusPercent: assigneeBonusPercent(assigneeCapPerOfficer(level)),
+    canReskill: officers.some((officer) => officer.role === 'professor'),
+    officers,
+  };
+}
+
+/** A level-1 crew: nobody hired, so nobody to assign anyone to. The empty state. */
+export const assigneesStart: AssigneesResponse = assigneesAt(1, []);
+
+/**
+ * The widest this screen ever gets, and the state every layout guard has to survive.
+ *
+ * Level 24 is where §G3a's `floor(level / 2)` finally reaches the §G7 table's twelfth row, so the
+ * cap is 12 — the most pips a row can ever draw — and one officer sits at it, showing the 50%
+ * ceiling and the `at cap` label. The others cover a decimal bonus (14.5%) and the longest officer
+ * name and role label on the board, which is what actually threatens the column.
+ */
+export const assigneesFat: AssigneesResponse = assigneesAt(24, [
+  ['off-1', 'The Ghost of Sector Nine', 'instructor_of_the_young', 12],
+  ['off-2', 'Wilhelmina Okonkwo-Restrepo', 'head_of_research', 3],
+  ['off-3', 'Vela', 'professor', 7],
+]);

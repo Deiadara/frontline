@@ -1,5 +1,7 @@
 import {
   ApiErrorSchema,
+  AssigneesMutationResponseSchema,
+  AssigneesResponseSchema,
   AssignPointResponseSchema,
   AuthResponseSchema,
   BarResponseSchema,
@@ -14,6 +16,8 @@ import {
   ResearchResponseSchema,
   StartResearchResponseSchema,
   type AssignPointRequest,
+  type PlaceAssigneesRequest,
+  type ReskillRequest,
   type BattleRequest,
   type CreateOverseerRequest,
   type HireRecruitRequest,
@@ -111,3 +115,10 @@ export const getResearch = () => apiFetch('/research', ResearchResponseSchema);
 
 export const startResearch = (body: StartResearchRequest) =>
   apiFetch('/research', StartResearchResponseSchema, jsonBody(body));
+export const getAssignees = () => apiFetch('/assignees', AssigneesResponseSchema);
+
+export const placeAssignees = (body: PlaceAssigneesRequest) =>
+  apiFetch('/assignees/place', AssigneesMutationResponseSchema, jsonBody(body));
+
+export const reskillAssignees = (body: ReskillRequest) =>
+  apiFetch('/assignees/reskill', AssigneesMutationResponseSchema, jsonBody(body));

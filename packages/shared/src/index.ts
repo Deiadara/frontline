@@ -12,6 +12,7 @@ export * from './economy/reputation.js';
 export * from './economy/payroll.js';
 export * from './economy/state.js';
 export * from './progression/index.js';
+export * from './assignees/index.js';
 export * from './bar/index.js';
 export * from './research/index.js';
 export * from './building.js';

@@ -1,6 +1,8 @@
 import type { MeResponse } from '@frontline/shared';
 import { expect, type Page } from '@playwright/test';
 import {
+  assigneesFat,
+  assigneesStart,
   authResponse,
   bar,
   baseDetail,
@@ -111,6 +113,12 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     if (pathname.endsWith('/api/missions')) return json(missionsResponse());
     if (pathname.endsWith('/api/bar')) return json(bar);
     if (pathname.endsWith('/api/research')) return json(research);
+    // Keyed off the installed session for the same reason `/api/base/` is: a fixed §G payload
+    // would put a twelve-pip late-game roster under a level-1 header, and the screenshot would be
+    // of a screen the server can never produce.
+    if (pathname.endsWith('/api/assignees')) {
+      return json((meResponse.base?.level ?? 1) > 1 ? assigneesFat : assigneesStart);
+    }
     if (pathname.endsWith('/api/overseer')) return json(createOverseerResponse, 201);
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);
     if (pathname.endsWith('/api/auth/register')) return json(authResponse, 201);

@@ -1,8 +1,11 @@
 import { randomInt } from 'node:crypto';
 import {
   TRAVEL_BAND_MINUTES,
+  delegatedMinutes,
+  delegatedSuccessChance,
   modifiedSuccessChance,
   type Base,
+  type DelegationTerms,
   type MissionTemplate,
   type Overseer,
 } from '@frontline/shared';
@@ -25,11 +28,22 @@ export const CONCURRENT_MISSION_LIMIT = 4;
  * in flight keeps the terms it launched under. The seed is drawn once, now, and decides the
  * outcome whenever the mission is finally settled — see `rollMissionOutcome`.
  *
- * GDD §F5 is applied at exactly this point, and only this point: the Overseer's Speed and Stealth
- * move the stored `successChance` on a run that risks people, and are then frozen with everything
- * else. Training the Overseer mid-flight must not re-roll the odds a crew already left under, and
- * an Overseer who is somehow absent leaves the template's authored chance untouched. The number
- * never reaches the client — `missions.test.ts` asserts the board ships no `successChance` at all.
+ * Two modifiers land at exactly this point, and only this point:
+ *
+ *   * **§F5** — the Overseer's Speed and Stealth move the odds on a run that risks people.
+ *   * **§G5/§G7** — the crew's assignee bonus cuts the duration *and* lifts the odds.
+ *
+ * They **compose**, in that order: §F5 says what the player's own character is worth to this run,
+ * and §G7 then scales what the crew behind them is worth. Both are frozen onto the row with
+ * everything else, so training the Overseer or moving assignees mid-flight cannot re-roll, retime
+ * or re-price a crew that has already left the gate. An absent Overseer or absent crew leaves the
+ * template's authored value untouched rather than penalising it.
+ *
+ * The number never reaches the client — `missions.test.ts` asserts the board ships no
+ * `successChance` at all.
+ *
+ * Travel is deliberately *not* reduced by §G5: the bonus buys speed on "whatever the officer is
+ * doing", and the ring road is the same length however many people are in the van.
  */
 export function launchMission(args: {
   id: string;
@@ -38,10 +52,17 @@ export function launchMission(args: {
   now: Date;
   /** §F5 — whose Speed and Stealth the run rides on. Absent means no edge either way. */
   overseer?: Overseer | undefined;
+  /** §G5/§G6 — the terms the resolved crew earned. Absent means a bare run, no modifier. */
+  terms?: DelegationTerms | undefined;
   /** Overridable so tests can pin the roll. */
   seed?: number;
 }): StoredMission {
-  const { id, base, template, now, overseer, seed = randomInt(0, 2 ** 32) } = args;
+  const { id, base, template, now, overseer, terms, seed = randomInt(0, 2 ** 32) } = args;
+
+  const afterOverseer = overseer
+    ? modifiedSuccessChance(template.successChance, overseer.attributes, template.kind)
+    : template.successChance;
+
   return {
     mission: {
       id,
@@ -49,15 +70,15 @@ export function launchMission(args: {
       templateId: template.id,
       startedAt: now.toISOString(),
       travelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
-      durationMinutes: template.durationMinutes,
+      durationMinutes: terms
+        ? delegatedMinutes(template.durationMinutes, terms)
+        : template.durationMinutes,
       status: 'active',
       outcome: null,
       rewards: {},
       resolvedAt: null,
     },
     seed,
-    successChance: overseer
-      ? modifiedSuccessChance(template.successChance, overseer.attributes, template.kind)
-      : template.successChance,
+    successChance: terms ? delegatedSuccessChance(afterOverseer, terms) : afterOverseer,
   };
 }

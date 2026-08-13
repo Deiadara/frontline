@@ -83,6 +83,22 @@ const ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Assignees',
+    to: '/game/assignees',
+    icon: icon(
+      <>
+        <circle cx="7" cy="7" r="2.5" stroke="currentColor" strokeWidth="1.3" />
+        <circle cx="13.5" cy="8" r="2" stroke="currentColor" strokeWidth="1.3" />
+        <path
+          d="M2.5 16c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5 M13 11.6c2 .3 3.5 2.1 3.5 4.4"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
+      </>,
+    ),
+  },
+  {
     label: 'Market',
     icon: icon(
       <path

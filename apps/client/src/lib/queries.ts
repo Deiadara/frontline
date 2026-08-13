@@ -4,6 +4,9 @@ import { useEffect } from 'react';
 import {
   assignPoint,
   attack,
+  getAssignees,
+  placeAssignees,
+  reskillAssignees,
   createOverseer,
   getBar,
   getBase,
@@ -25,6 +28,7 @@ export const queryKeys = {
   missions: ['missions'] as const,
   bar: ['bar'] as const,
   research: ['research'] as const,
+  assignees: ['assignees'] as const,
 };
 
 /**
@@ -169,6 +173,37 @@ export function useStartResearch() {
     },
   });
 }
+
+/** The assignee layer: the pool, the placements and what each is worth (GDD §G). */
+export function useAssignees() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.assignees,
+    queryFn: getAssignees,
+    enabled: token !== null,
+  });
+}
+
+/**
+ * §G2 placement and §G4 reskilling.
+ *
+ * Both invalidate the mission board as well as the §G screen: the assignee bonus is applied at
+ * launch (§G5/§G7) and the §G6 gate turns on who is free, so moving people changes what the board
+ * will quote and which runs it will accept.
+ */
+function useAssigneeWrite<Body>(mutationFn: (body: Body) => Promise<unknown>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+    },
+  });
+}
+
+export const usePlaceAssignees = () => useAssigneeWrite(placeAssignees);
+export const useReskillAssignees = () => useAssigneeWrite(reskillAssignees);
 
 /** Mint an overseer + starting base from a preset, then prime the caches. */
 export function useCreateOverseer() {

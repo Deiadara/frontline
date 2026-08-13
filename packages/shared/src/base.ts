@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AssigneeStateSchema } from './assignees/placement.js';
 import { BuildingSchema } from './building.js';
 import { CommanderSchema } from './commander.js';
 import { EconomyStateSchema } from './economy/state.js';
@@ -23,6 +24,11 @@ export const BaseSchema = z.object({
   progression: ProgressionStateSchema,
   /** The research project in flight and what it has taught this crew (GDD §B9). Owner-only. */
   research: ResearchStateSchema,
+  /**
+   * Where the fungible assignee pool is standing (GDD §G). Owner-only. Only the *placements* are
+   * here — the pool size is a pure function of `level` (§G8) and is never stored twice.
+   */
+  assignees: AssigneeStateSchema,
   buildings: z.array(BuildingSchema),
   commanders: z.array(CommanderSchema),
   createdAt: IsoDateTimeSchema,

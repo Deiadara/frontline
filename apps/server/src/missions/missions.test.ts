@@ -2,6 +2,7 @@ import {
   MISSION_TEMPLATES,
   PLAYER_XP_AWARDS,
   applyPlayerXp,
+  createCommander,
   findMissionTemplate,
   missionRewards,
   templateTimings,
@@ -84,6 +85,20 @@ async function makeStack(username = 'runner'): Promise<Stack> {
 }
 
 const scrapRun = findMissionTemplate('scrap-run') as MissionTemplate;
+
+/**
+ * Puts an officer on the books and returns their id (§G6).
+ *
+ * The stack's base starts with nobody hired, which after §G6 means it can only run *easy* missions
+ * — so any test about something other than the officer gate has to hire one first. No assignees are
+ * placed under them, so the §G5/§G7 multipliers are both 1 and the run keeps the template's
+ * authored clock and odds.
+ */
+function withOfficer(stack: Stack): string {
+  const officer = createCommander('off-1', 'Halvard Nyx', 'field_commander');
+  stack.repos.bases.updateCommanders(stack.base.id, [officer]);
+  return officer.id;
+}
 
 /** Puts a mission on the board with a pinned seed and launch time. */
 function planted(stack: Stack, template: MissionTemplate, seed: number, startedAt = T0): Mission {
@@ -316,13 +331,15 @@ describe('the mission routes', () => {
   const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
   it('launches a mission and reports it in flight', async () => {
-    const { app, token } = await makeStack();
+    const stack = await makeStack();
+    const { app, token } = stack;
+    const officerId = withOfficer(stack);
 
     const launched = await app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: 'deep-expedition' },
+      payload: { templateId: 'deep-expedition', officerId },
     });
     expect(launched.statusCode).toBe(200);
     expect(launched.json<{ mission: Mission }>().mission.status).toBe('active');
@@ -337,12 +354,16 @@ describe('the mission routes', () => {
   });
 
   it('freezes the clock at launch so retuning the board cannot retime a run in flight', async () => {
-    const { app, token } = await makeStack();
+    const stack = await makeStack();
+    const { app, token } = stack;
+    // An officer with nobody under them: §G5/§G7 both come out at 1, so this stays a test about
+    // the freeze rather than a test about the assignee bonus.
+    const officerId = withOfficer(stack);
     const res = await app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: 'fuel-siphon' },
+      payload: { templateId: 'fuel-siphon', officerId },
     });
 
     const mission = res.json<{ mission: Mission }>().mission;
@@ -367,12 +388,13 @@ describe('the mission routes', () => {
     const stack = await makeStack();
     const { app, token } = stack;
 
+    const officerId = withOfficer(stack);
     for (let i = 0; i < CONCURRENT_MISSION_LIMIT; i += 1) {
       const res = await app.inject({
         method: 'POST',
         url: '/api/missions',
         headers: auth(token),
-        payload: { templateId: 'deep-expedition' },
+        payload: { templateId: 'deep-expedition', officerId },
       });
       expect(res.statusCode).toBe(200);
     }

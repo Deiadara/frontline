@@ -155,6 +155,7 @@ describe('reward scaling (§E5)', () => {
       name: 'Test',
       brief: 'Test',
       kind: 'standard',
+      difficulty: 'easy',
       travelBand: 'close',
       durationMinutes: 2,
       spoils: { scrap: 100, highQualityMetal: 1 },

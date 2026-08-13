@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MissionDifficultySchema } from './assignees/delegation.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 
@@ -47,6 +48,13 @@ export const MissionTemplateSchema = z.object({
   /** One line of flavour for the pre-commit screen (§E4). */
   brief: z.string().min(1),
   kind: MissionKindSchema,
+  /**
+   * §G6 — hard runs require an officer; easy ones can go out on assignees alone. Authored per
+   * mission rather than derived from `kind` or length: a day-long standard expedition beyond the
+   * wire is not "easy" just because nobody shoots at you, and the board asked for a hard/easy
+   * split, not a battle/standard one.
+   */
+  difficulty: MissionDifficultySchema,
   travelBand: TravelBandSchema,
   durationMinutes: z
     .number()
@@ -74,6 +82,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     name: 'Scrap Run',
     brief: 'Strip the collapsed overpass two blocks out before anyone else calls it theirs.',
     kind: 'standard',
+    difficulty: 'easy',
     travelBand: 'close',
     durationMinutes: 3,
     spoils: { scrap: 40, caps: 5 },
@@ -84,6 +93,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     name: 'Ration Run',
     brief: 'A hydroponics bay under the market still runs. Its owners keep irregular hours.',
     kind: 'standard',
+    difficulty: 'easy',
     travelBand: 'close',
     durationMinutes: 12,
     spoils: { food: 35, caps: 8 },
@@ -94,6 +104,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     name: 'Convoy Ambush',
     brief: 'A short, loud job on the ring road. They are armed and they will shoot back.',
     kind: 'battle',
+    difficulty: 'hard',
     travelBand: 'close',
     durationMinutes: 25,
     spoils: { caps: 30, oil: 20 },
@@ -104,6 +115,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     name: 'Fuel Siphon',
     brief: 'The old tank farm is unguarded at shift change. Bring hose and patience.',
     kind: 'standard',
+    difficulty: 'easy',
     travelBand: 'further',
     durationMinutes: 45,
     spoils: { oil: 45, scrap: 10 },
@@ -114,6 +126,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     name: 'Foundry Raid',
     brief: 'Hit the smelter floor while the pour is hot and walk out with finished stock.',
     kind: 'battle',
+    difficulty: 'hard',
     travelBand: 'further',
     durationMinutes: 60,
     spoils: { highQualityMetal: 6, scrap: 25 },
@@ -124,6 +137,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     name: 'Courier Contract',
     brief: 'Move a sealed crate across three districts. Do not open it. Do not be late.',
     kind: 'standard',
+    difficulty: 'easy',
     travelBand: 'further',
     durationMinutes: 90,
     spoils: { caps: 55 },
@@ -134,6 +148,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     name: 'Refinery Assault',
     brief: 'Take the outer refinery and hold it long enough to empty the alloy store.',
     kind: 'battle',
+    difficulty: 'hard',
     travelBand: 'furthest',
     durationMinutes: 480,
     spoils: { highQualityMetal: 10, oil: 25, scrap: 20 },
@@ -144,6 +159,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     name: 'Deep Expedition',
     brief: 'A full day beyond the wire. They go dark until they are back at the gate.',
     kind: 'standard',
+    difficulty: 'hard',
     travelBand: 'furthest',
     durationMinutes: MISSION_MAX_DURATION_MINUTES,
     spoils: { caps: 20, food: 20, oil: 15, scrap: 25, highQualityMetal: 3 },

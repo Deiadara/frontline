@@ -7,6 +7,7 @@ import type { AppDatabase } from './db/index.js';
 import { createRepositories, type Repositories } from './db/repos/index.js';
 import { AppError } from './errors.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerAssigneeRoutes } from './routes/assignees.js';
 import { registerBarRoutes } from './routes/bar.js';
 import { registerBaseRoutes } from './routes/base.js';
 import { registerBattleRoutes } from './routes/battle.js';
@@ -119,6 +120,7 @@ export async function buildApp({
       registerMissionRoutes(api);
       registerBarRoutes(api);
       registerResearchRoutes(api);
+      registerAssigneeRoutes(api);
       done();
     },
     { prefix: '/api' },

@@ -5,6 +5,7 @@ import { useSession } from './store/session';
 import { AuthScreen } from './screens/AuthScreen';
 import { CharacterSelectScreen } from './screens/CharacterSelectScreen';
 import { GameScreen } from './screens/GameScreen';
+import { AssigneesPage } from './features/assignees/AssigneesPage';
 import { BarPage } from './features/bar/BarPage';
 import { BasePanel } from './features/base/BasePanel';
 import { MapView } from './features/game/MapView';
@@ -76,6 +77,7 @@ export default function App() {
           <Route path="missions" element={<MissionsPage />} />
           <Route path="bar" element={<BarPage />} />
           <Route path="research" element={<ResearchPage />} />
+          <Route path="assignees" element={<AssigneesPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/game" replace />} />
       </Routes>

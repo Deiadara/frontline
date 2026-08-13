@@ -1,0 +1,32 @@
+-- Assignees — the fungible pool under each officer (MOU-163, GDD §G).
+--
+-- Number allocated by the CTO under INTERFACES.md R6/R9 — do not renumber, the runner keys
+-- `schema_migrations` on the file name and a rename re-applies the migration. `0007` is allocated
+-- to W7/MOU-166 (research) and may still be uncommitted when you read this; the gap is deliberate.
+-- We already carry a `0003` collision on disk from exactly this mistake — do not add a third.
+--
+-- Per R6/R9 this file stands alone: it touches only `bases`, which has existed since
+-- `0001_init.sql`, and reads nothing `0004`–`0007` added.
+--
+-- There is deliberately **no assignee table, and no pool column**.
+--
+--   * §G1 makes assignees a *fungible pool* — interchangeable, with no individual identity. There
+--     is nothing to give a row a primary key for. What the player changes is only how many stand
+--     under each officer, so the stored shape is a count keyed by `Commander.id`.
+--   * §G8 makes the pool *size* a pure function of `Base.level` (start with 2, +1 per level, +1
+--     extra every fifth). `playerLevelGrants` in W6 already computes it. Storing it again would let
+--     the two drift, and every level-up would need a write to hand out its own grant.
+--
+-- So the only thing with a home to earn is the placement map. The DEFAULT is a valid
+-- `AssigneeState`, not `'{}'`: SQLite backfills existing rows with it on ADD COLUMN, so the
+-- migrated and the fresh-insert paths both produce something `AssigneeStateSchema` accepts and no
+-- separate UPDATE is needed. The literal is a snapshot of `startingAssignees()` as of this
+-- migration, on purpose — a migration has to keep describing the past even after that constant
+-- moves on.
+--
+-- Backfilling every existing base to "nobody placed" is the honest reading rather than a
+-- convenience: no base predating this migration ever placed an assignee, because there was no way
+-- to. Their pool is not lost — it is derived from `level`, so it shows up as unplaced on the next
+-- read and the player places it under §G2.
+
+ALTER TABLE bases ADD COLUMN assignees_json TEXT NOT NULL DEFAULT '{"placements":{}}';
