@@ -1,5 +1,5 @@
 import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   battle,
   lateGame,
@@ -7,6 +7,7 @@ import {
   meNoOverseer,
   overseer,
   paidBase,
+  missionsResponse,
   paidMe,
   settlingMissions,
   settlingResearch,
@@ -338,4 +339,135 @@ test('a project that lands while the page is open shows what it found', async ({
 
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/research-settled.png', fullPage: false });
+});
+
+/*
+ * MOU-250 §G6 — the launch path crosses the client/server seam, so it is asserted on the wire.
+ *
+ * The server refuses a `difficulty: 'hard'` template unless the launch names an officer, and the
+ * client shipped with no way to name one: all four hard templates — both battles and the day-long
+ * expedition — posted `{ templateId }`, took a 409, and returned the board to normal with no crew
+ * out and nothing on screen. Every gate stayed green because the mocked handler answered any method
+ * on `/api/missions` with the *board*, so no test ever reached the gate. These two cross it.
+ */
+
+/**
+ * The board with a crew slot free.
+ *
+ * The standard fixture is deliberately the *fat* case — every one of the four slots filled — which
+ * disables every Deploy button on the page under §E3's capacity rule. A launch test run against it
+ * fails on a disabled control long before it reaches the §G6 gate it exists to exercise.
+ */
+const boardWithARoom = () => {
+  const board = missionsResponse();
+  return { ...board, missions: board.missions.filter((mission) => mission.status === 'resolved') };
+};
+
+/** Serve the board with a free slot, leaving whoever registered earlier to answer the launch. */
+const routeBoard = (page: Page) =>
+  page.route('**/api/missions', (route) => {
+    if (route.request().method() === 'POST') return route.fallback();
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(boardWithARoom()),
+    });
+  });
+
+test('a hard mission goes out with an officer leading it', async ({ page }) => {
+  await installApi(page, lateGame);
+  await routeBoard(page);
+  await page.goto('/game/missions');
+
+  const card = (name: string) =>
+    page.locator('article').filter({ has: page.getByRole('heading', { name }) });
+  const ambush = card('Convoy Ambush');
+
+  // The §G3 roster is what makes the gate satisfiable: the first officer leads until the player
+  // says otherwise, so a hard card is never offering a button the server is certain to refuse.
+  await expect(ambush.getByRole('combobox')).toHaveValue('off-1');
+
+  const launch = page.waitForRequest(
+    (request) => request.url().includes('/api/missions') && request.method() === 'POST',
+  );
+  await ambush.getByRole('button', { name: 'Deploy' }).click();
+  expect((await launch).postDataJSON()).toEqual({
+    templateId: 'convoy-ambush',
+    officerId: 'off-1',
+  });
+
+  // Accepted, so the board says nothing — the alert below is specific to a refusal.
+  await expect(page.getByRole('alert')).toHaveCount(0);
+
+  await settleFonts(page);
+
+  /*
+   * No vertical-clip guard: the missions board is a scroller, so the fold bisects whatever row it
+   * lands on by design — the same reason the Bar and base screens skip it. What *is* asserted is
+   * the new control, and it needs its own measurement.
+   *
+   * A native `select` clips its own text with no ellipsis and no overflow to measure: `scrollWidth`
+   * matches `clientWidth` whatever the label says, and a closed select's `option` elements have no
+   * box at all. Both existing guards are therefore blind to it, and the first draft of this picker
+   * shipped "Instructor of the Yo" cut mid-word. So the label is measured directly against the
+   * space the control actually gives it.
+   */
+  const cut = await page.evaluate(() => {
+    const ARROW_PX = 20; // the disclosure triangle, which the text may not run under
+    return [...document.querySelectorAll<HTMLSelectElement>('select')]
+      .filter((select) => {
+        const style = getComputedStyle(select);
+        const context = document.createElement('canvas').getContext('2d');
+        if (!context) return false;
+        context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        const room =
+          select.clientWidth -
+          parseFloat(style.paddingLeft) -
+          parseFloat(style.paddingRight) -
+          ARROW_PX;
+        return [...select.options].some((option) => context.measureText(option.text).width > room);
+      })
+      .map((select) => select.options[select.selectedIndex]?.text ?? '');
+  });
+  expect(cut, 'no officer name may be cut off by the picker').toEqual([]);
+
+  await page.screenshot({ path: 'screenshots/missions-officer.png', fullPage: false });
+});
+
+test('a refused launch tells the player why', async ({ page }) => {
+  await installApi(page, lateGame);
+  await routeBoard(page);
+  // Registered last, so this is what answers the launch; the board still comes from `routeBoard`.
+  await page.route('**/api/missions', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    return route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'MISSION_NEEDS_OFFICER',
+          message: 'That job is too hard to run without an officer leading it',
+        },
+      }),
+    });
+  });
+
+  await page.goto('/game/missions');
+  const scrapRun = page
+    .locator('article')
+    .filter({ has: page.getByRole('heading', { name: 'Scrap Run' }) });
+  await scrapRun.getByRole('button', { name: 'Deploy' }).click();
+
+  /*
+   * In the card the player clicked, and *in the viewport*. The first draft put one message at the
+   * foot of the board: `toHaveText` passed on it while it sat below eight cards of scrolling grid,
+   * off-screen — a DOM assertion cannot tell "explained" from "invisible".
+   */
+  const refusal = scrapRun.getByRole('alert');
+  await expect(refusal).toHaveText('That job is too hard to run without an officer leading it');
+  await expect(refusal).toBeInViewport();
+  // ...and only on that card, so the board does not read as eight simultaneous failures.
+  await expect(page.getByRole('alert')).toHaveCount(1);
+
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/missions-refused.png', fullPage: false });
 });

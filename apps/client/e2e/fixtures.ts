@@ -42,6 +42,7 @@ import {
   type DiscoveredFact,
   type MeResponse,
   type OfficerRole,
+  type LaunchMissionResponse,
   type ResearchLead,
   type ResearchResponse,
   type Mission,
@@ -328,6 +329,20 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
     justResolved: [],
     resources: lateGameBase.resources,
     activeLimit: 4,
+    serverNow: now.toISOString(),
+  };
+}
+
+/**
+ * What `POST /missions` answers with — a different shape from the board (§G6 launch path).
+ *
+ * `LaunchMissionResponseSchema` is `{ mission, serverNow }`, not a board, so this cannot be served
+ * by the `GET` fixture: the client validates every 2xx body and would reject it. A launch of the
+ * cheapest easy template, which is the one a delegation can actually run.
+ */
+export function launchResponse(now: Date = new Date()): LaunchMissionResponse {
+  return {
+    mission: launchedMission('m-new', 'scrap-run', now.toISOString()),
     serverNow: now.toISOString(),
   };
 }

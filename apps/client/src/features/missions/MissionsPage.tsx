@@ -8,7 +8,9 @@ import {
   missionRemainingMs,
   missionRewards,
   missionTimings,
+  requiresOfficer,
   templateTimings,
+  type AssigneeOfficer,
   type LevelUp,
   type Mission,
   type MissionKind,
@@ -21,7 +23,7 @@ import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
-import { useLaunchMission, useMissions } from '../../lib/queries';
+import { useAssignees, useLaunchMission, useMissions } from '../../lib/queries';
 import { useServerClock } from './useServerClock';
 
 const KIND_LABEL: Record<MissionKind, string> = {
@@ -96,13 +98,104 @@ function TimingCell({ label, value, hint }: { label: string; value: string; hint
 
 interface MissionCardProps {
   template: MissionTemplate;
+  /** The officers on the books, as the §G screen reports them — who may lead this run. */
+  officers: readonly AssigneeOfficer[];
+  /** Whether the officer list has actually answered — absent is not the same as empty. */
+  rosterKnown: boolean;
   disabled: boolean;
   pending: boolean;
-  onLaunch: (templateId: string) => void;
+  /** Why this card's last launch was refused, if it was — the server's own words. */
+  refusal: string | null;
+  onLaunch: (templateId: string, officerId?: string) => void;
+}
+
+/**
+ * §G6 — who is leading this run.
+ *
+ * The gate is server-side (`MISSION_NEEDS_OFFICER`), so the card has to be able to *satisfy* it:
+ * a hard run with no officer named is refused outright, which without this control made every
+ * hard template a dead Deploy button. An easy run defaults to a delegation and only takes a
+ * leader if the player asks, because that is the §G6 choice the player is entitled to make.
+ */
+function LeaderPicker({
+  template,
+  officers,
+  rosterKnown,
+  leader,
+  onPick,
+}: {
+  template: MissionTemplate;
+  officers: readonly AssigneeOfficer[];
+  rosterKnown: boolean;
+  leader: AssigneeOfficer | undefined;
+  onPick: (officerId: string) => void;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
+        Leading
+      </span>
+      {/*
+       * "You have nobody" is only true once the roster has actually answered. The officers arrive on
+       * their own query, one round trip behind the board — which renders immediately off a static
+       * template list — so treating "not loaded" as "empty" told every player with a full crew to go
+       * hire an officer, on all four hard cards, on every visit to this page.
+       */}
+      {requiresOfficer(template.difficulty) && !rosterKnown ? (
+        <p className="text-[11px] leading-relaxed text-steel-600">Reading the roster…</p>
+      ) : requiresOfficer(template.difficulty) && officers.length === 0 ? (
+        <p className="text-[11px] leading-relaxed text-warning">
+          Hard runs need an officer leading them. Hire one at the Bar.
+        </p>
+      ) : (
+        <select
+          value={leader?.officerId ?? ''}
+          onChange={(event) => onPick(event.target.value)}
+          className="min-w-0 border border-steel-700 bg-night px-2 py-1.5 text-[11px] text-steel-200"
+        >
+          {/* §G6's easy branch — an explicit choice, not the absence of one. */}
+          {!requiresOfficer(template.difficulty) && (
+            <option value="">Nobody — assignees alone, slower</option>
+          )}
+          {/*
+           * The name alone. A role label reads well on the §G screen, which has the width for it,
+           * but this control is one column of a three-up card grid: "The Ghost of Sector Nine —
+           * Instructor of the Young" is cut mid-word by the select's own edge, and a native select
+           * clips without so much as an ellipsis. The role also earns nothing here — §G5/§G7 pay
+           * for the assignees standing under an officer, not for what they are called.
+           */}
+          {officers.map((officer) => (
+            <option key={officer.officerId} value={officer.officerId}>
+              {officer.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </label>
+  );
 }
 
 /** One entry on the board — the pre-commit screen for a single mission (§E4). */
-function MissionCard({ template, disabled, pending, onLaunch }: MissionCardProps) {
+function MissionCard({
+  template,
+  officers,
+  rosterKnown,
+  disabled,
+  pending,
+  refusal,
+  onLaunch,
+}: MissionCardProps) {
+  const [pickedId, setPickedId] = useState('');
+  /*
+   * A hard run cannot go out unled, so the first officer stands in until the player picks somebody
+   * — deriving the leader instead of seeding state keeps this correct across the load: the officer
+   * list arrives on its own query, and a `useState` default would have latched the empty roster.
+   */
+  const leader =
+    officers.find((officer) => officer.officerId === pickedId) ??
+    (requiresOfficer(template.difficulty) ? officers[0] : undefined);
+  const unled = requiresOfficer(template.difficulty) && leader === undefined;
+
   return (
     <article className="flex min-w-0 flex-col gap-3 border border-steel-800 bg-night p-4">
       <header className="flex min-w-0 items-start justify-between gap-3">
@@ -123,6 +216,29 @@ function MissionCard({ template, disabled, pending, onLaunch }: MissionCardProps
         <RewardLine rewards={missionRewards(template, 'success')} />
       </div>
 
+      <LeaderPicker
+        template={template}
+        officers={officers}
+        rosterKnown={rosterKnown}
+        leader={leader}
+        onPick={setPickedId}
+      />
+
+      {/*
+       * The refusal sits in the card the player clicked, not at the foot of the board. The board is
+       * eight cards in a scrolling grid, so a single message under the last one is off-screen for
+       * anybody who deployed from the top — rendered, reported by a DOM assertion, and invisible to
+       * the player, which is the same silent failure it exists to end.
+       */}
+      {refusal && (
+        <p
+          role="alert"
+          className="min-w-0 break-words text-[11px] leading-relaxed text-neon-magenta"
+        >
+          {refusal}
+        </p>
+      )}
+
       <footer className="mt-auto flex items-center justify-between gap-3 pt-1">
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-steel-500">
           Success{' '}
@@ -133,8 +249,8 @@ function MissionCard({ template, disabled, pending, onLaunch }: MissionCardProps
         <Button
           size="sm"
           variant={template.kind === 'battle' ? 'danger' : 'primary'}
-          disabled={disabled || pending}
-          onClick={() => onLaunch(template.id)}
+          disabled={disabled || pending || unled}
+          onClick={() => onLaunch(template.id, leader?.officerId)}
         >
           {pending ? 'Sending…' : 'Deploy'}
         </Button>
@@ -244,6 +360,7 @@ function EmptyRow({ text }: { text: string }) {
  */
 export function MissionsPage() {
   const missionsQuery = useMissions();
+  const assigneesQuery = useAssignees();
   const launch = useLaunchMission();
 
   const data = missionsQuery.data;
@@ -350,11 +467,18 @@ export function MissionsPage() {
               <MissionCard
                 key={template.id}
                 template={template}
+                officers={assigneesQuery.data?.officers ?? []}
+                rosterKnown={assigneesQuery.data !== undefined}
                 disabled={atCapacity}
                 pending={launch.isPending && launch.variables?.templateId === template.id}
-                onLaunch={(templateId) =>
+                refusal={
+                  launch.error && launch.variables?.templateId === template.id
+                    ? launch.error.message
+                    : null
+                }
+                onLaunch={(templateId, officerId) =>
                   launch.mutate(
-                    { templateId },
+                    { templateId, ...(officerId ? { officerId } : {}) },
                     // A launch settles the board first, so this response is the only place a crew
                     // that landed on it is ever reported.
                     { onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp) },

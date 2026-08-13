@@ -9,6 +9,7 @@ import {
   battle,
   city,
   createOverseerResponse,
+  launchResponse,
   missionsResponse,
   research,
   TOKEN,
@@ -109,8 +110,16 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // base — so the detail follows whichever session was installed.
     if (pathname.includes('/api/base/')) return json({ base: meResponse.base ?? baseDetail.base });
     if (pathname.endsWith('/api/battle')) return json(battle);
-    // Rebuilt per request so the countdowns are always live against the page's clock.
-    if (pathname.endsWith('/api/missions')) return json(missionsResponse());
+    /*
+     * Method-aware, deliberately. Fulfilling `/api/missions` for *any* method served the board
+     * payload to a launch too — a shape `LaunchMissionResponseSchema` cannot even parse — so no
+     * e2e ever reached the §G6 officer gate and a launch path that refused half the board shipped
+     * green. The fixture is the contract here; a method-blind handler is a hole in it.
+     */
+    if (pathname.endsWith('/api/missions')) {
+      if (route.request().method() !== 'POST') return json(missionsResponse());
+      return json(launchResponse());
+    }
     if (pathname.endsWith('/api/bar')) return json(bar);
     if (pathname.endsWith('/api/research')) return json(research);
     // Keyed off the installed session for the same reason `/api/base/` is: a fixed §G payload
