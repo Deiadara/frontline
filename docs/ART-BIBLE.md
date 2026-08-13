@@ -383,8 +383,15 @@ Motion is part of the style contract; a static asset animated wrongly stops look
 ## 9. Licensing register
 
 **Every third-party file in `assets/` or `art-src/` has a row here. No row, no ship.**
-`scripts/gen-art.ts` writes `provenance.json` alongside generated files; this table is the
-human-readable index and is the one a lawyer would be shown.
+`scripts/gen-art.ts` writes `provenance.json` alongside the **master** it generates in `art-src/`;
+this table is the human-readable index, the one a lawyer would be shown, and the only record that
+covers a file dropped straight into `assets/` by hand.
+
+"No row, no ship" is checked, not just asked for. `pnpm --filter @frontline/scripts test` reads every
+`.webp` and `.png` sitting in `assets/` and fails naming any whose row is missing, or whose **Source**,
+**Author** or **Licence** cell is blank (`auditProvenance`, `scripts/encode-art.ts`). `@2x` resolves to
+the 1× row — two densities of one artwork are one licence. A row is the only way past it: the sibling
+`provenance.json` records a seed, never a permission, and §9.1 wants a row for generated art too.
 
 | File         | Source | Author | Licence | Commercial OK | Attribution required | Added | Notes                                                 |
 | ------------ | ------ | ------ | ------- | ------------- | -------------------- | ----- | ----------------------------------------------------- |
