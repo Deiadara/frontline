@@ -195,3 +195,42 @@ for (const size of VIEWPORTS) {
     });
   });
 }
+
+/**
+ * The vertical guard has to be able to fail.
+ *
+ * `expectNothingClippedVertically` is the entire regression story for MOU-188, and a guard nobody
+ * has watched fail is indistinguishable from one that returns early — which is how the horizontal
+ * check shipped this bug green in the first place. So the original defect is reproduced here, a
+ * roster viewport ending part-way down a card, and the guard is required to reject it. A later
+ * refactor that neuters the guard fails this test instead of quietly passing the whole matrix.
+ */
+test('the vertical clipping guard rejects a bisected card row', async ({ page }) => {
+  await installApi(page, meNoOverseer);
+  await page.goto('/overseer');
+  await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
+  await expectNothingClippedVertically(page);
+
+  await page.evaluate(() => {
+    const card = document.querySelector('button[aria-pressed]');
+    const viewport = card?.closest<HTMLElement>('.overflow-y-auto');
+    const frame = viewport?.parentElement;
+    if (!card || !viewport || !frame) throw new Error('roster viewport not found');
+
+    // The frame centres its content, so shrinking the viewport would also move it and the cut
+    // would land somewhere unintended. Pin it to the top so the cut lands where it is computed.
+    frame.style.justifyContent = 'flex-start';
+
+    // Cut through the middle of a glyph, not through the padding between two attribute rows.
+    const glyph = [...card.querySelectorAll('*')]
+      .filter((el) => el.childElementCount === 0 && el.textContent?.trim())
+      .map((el) => el.getBoundingClientRect())
+      .findLast((box) => box.height > 0);
+    if (!glyph) throw new Error('the card has no text to bisect');
+
+    const top = viewport.getBoundingClientRect().top;
+    viewport.style.maxHeight = `${glyph.top + glyph.height / 2 - top}px`;
+  });
+
+  await expect(expectNothingClippedVertically(page)).rejects.toThrow(/sliced by a clipping edge/);
+});
