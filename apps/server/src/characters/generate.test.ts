@@ -243,12 +243,22 @@ describe('what a sheet gives away about its affinity (B8)', () => {
 
   // A per-roll reading rather than a mean: the affinity has to reach the sheet on nearly every
   // roll, not on average, because a minority of affinity-free rolls averages away inside every
-  // other floor here. Be honest about what it currently catches — at the highest *legal*
-  // off-template count (2) it reads 0.984 and passes, while best-fit reads 0.444 and fails its
-  // own floor, so this gate is redundant today. It earns its place as the backstop for the
-  // import guard in `generate.ts`: at 3 off-template, where a roll can lift nothing on-template
-  // at all, it collapses to 0.549 — and the leak rate *improves* (0.007 rows/roster), so a
-  // tuning run reading leak numbers alone would call that a win.
+  // other floor here.
+  //
+  // Be honest about what it adds as a *detector* — nothing measurable. Swept over all 517
+  // `(OFF_TEMPLATE_STRENGTHS, MIN_STRENGTHS, MAX_STRENGTHS)` settings the import guard admits for
+  // min <= 12, max <= 14, there is no setting where this bar fails alone: every setting that
+  // trips it also trips best-fit, mean rank, or the roster bound. Do not read a single passing
+  // config as proof it is load-bearing — that generalisation was tried, on `off=4, min=8, max=8`,
+  // and it fails because whole-template containment there is 0.615 rows/roster, not the 0.439 you
+  // get if you mistakenly score containment against the affinity's own template instead of `some`
+  // role's (MOU-198).
+  //
+  // It stays because it states the invariant directly instead of leaving it to be inferred from
+  // aggregate floors. That is what the setting the guard rejects shows: at 3 off-template with
+  // MIN_STRENGTHS 3, where a roll can lift nothing on-template at all, this reads 0.549 while the
+  // leak rate *improves* to 0.007 rows/roster — so a tuning run reading leak numbers alone would
+  // call that degeneracy a win, and a named assertion is what says plainly why it is not.
   it('leaves almost every individual sheet at least one on-template strength', () => {
     const shaped = ROLLS.filter((roll) =>
       ranked(roll.attributes)
