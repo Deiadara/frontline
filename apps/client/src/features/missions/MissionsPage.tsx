@@ -7,6 +7,7 @@ import {
   missionProgressAt,
   missionRemainingMs,
   missionRewards,
+  missionTimings,
   templateTimings,
   type Mission,
   type MissionKind,
@@ -178,7 +179,7 @@ function InFlightRow({ mission, now }: { mission: Mission; now: Date }) {
           {PHASE_LABEL[phase]}
         </span>
         <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.16em] text-steel-600">
-          {formatDuration(2 * mission.travelMinutes + mission.durationMinutes)} round trip
+          {formatDuration(missionTimings(mission).totalMinutes)} round trip
         </span>
       </div>
     </li>
