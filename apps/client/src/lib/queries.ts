@@ -4,7 +4,7 @@ import type {
   LaunchMissionResponse,
   MeResponse,
 } from '@frontline/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import type { ApiRequestError } from './api';
 import {
@@ -37,6 +37,24 @@ export const queryKeys = {
   research: ['research'] as const,
   assignees: ['assignees'] as const,
 };
+
+/**
+ * Refresh everything a level-up moved: the HUD, and the §G layer derived from the same level.
+ *
+ * `projectAssignees` (`apps/server/src/assignees/roster.ts`) computes the whole assignee payload
+ * from nothing but `base.level` — the pool (§G8), the per-officer cap (§G3) and the bonus curve
+ * (§G7) — so every level-up invalidates it server-side. Said in one place because the four sites
+ * that can cross a threshold (§I1: a mission settling, a launch that settled one, a build, a raid)
+ * would otherwise each carry a copy of the reason.
+ *
+ * Without it the cached roster stays authoritative for its whole `staleTime`: the board announces
+ * "Assignee pool 8", the player walks to §G inside the window and reads Unplaced 0 with every Place
+ * button dead — handed people, then refused permission to place them (MOU-381).
+ */
+function invalidateLevelSensitive(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
+}
 
 /**
  * How often the missions page re-asks the server. Missions settle lazily on this read, so the
@@ -87,11 +105,13 @@ export function useMissions() {
    *
    * Keyed on the fetch rather than the payload: the server reports `justResolved` per request, so
    * the settling poll reports it and the next one reports none.
+   *
+   * The settle is also where a level is crossed (§I1), which moves the §G layer with it.
    */
   const settledAt = (query.data?.justResolved.length ?? 0) > 0 ? query.dataUpdatedAt : 0;
   useEffect(() => {
     if (settledAt === 0) return;
-    void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    invalidateLevelSensitive(queryClient);
   }, [settledAt, queryClient]);
 
   return query;
@@ -118,7 +138,7 @@ export function useLaunchMission() {
      */
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      invalidateLevelSensitive(queryClient);
     },
   });
 }
@@ -266,7 +286,7 @@ export function useBuildStructure(baseId: string | undefined) {
       if (baseId !== undefined) {
         queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), { base: data.base });
       }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      invalidateLevelSensitive(queryClient);
     },
   });
 }
@@ -277,7 +297,7 @@ export function useAttack(baseId: string | undefined) {
   return useMutation({
     mutationFn: attack,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      invalidateLevelSensitive(queryClient);
       void queryClient.invalidateQueries({ queryKey: queryKeys.city });
       if (baseId !== undefined) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
