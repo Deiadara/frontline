@@ -127,7 +127,13 @@ export function useHireRecruit() {
     mutationFn: hireRecruit,
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
-      if (data.accepted) void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      if (!data.accepted) return;
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      // A signing adds an officer, and the §G layer is who the officers *are*: the assignee screen
+      // lists them and the mission board's §G6 picker offers them. Without this the cached roster
+      // stays authoritative for its whole `staleTime`, so a player who hires their first officer
+      // and walks straight to the board is told, on every hard card, to go and hire one.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
     },
   });
 }

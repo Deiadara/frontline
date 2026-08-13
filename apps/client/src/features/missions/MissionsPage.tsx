@@ -108,12 +108,27 @@ function TimingCell({ label, value, hint }: { label: string; value: string; hint
   );
 }
 
+/**
+ * The §G roster as this board knows it — who may lead a run here.
+ *
+ * Three states, not a list and a flag: an absent roster is not an empty one, and a roster the
+ * server refused to hand over is neither. Collapsing any pair of them puts a false sentence in
+ * front of the player — "Hire one at the Bar" is a lie to a fully staffed crew, and "Reading the
+ * roster…" is a lie once the read has failed and (`retry: false`) will not be tried again.
+ */
+type Roster =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'ready'; officers: readonly AssigneeOfficer[] };
+
+/** The officers a card may offer — nobody, until the roster has actually arrived. */
+function rosterOfficers(roster: Roster): readonly AssigneeOfficer[] {
+  return roster.status === 'ready' ? roster.officers : [];
+}
+
 interface MissionCardProps {
   template: MissionTemplate;
-  /** The officers on the books, as the §G screen reports them — who may lead this run. */
-  officers: readonly AssigneeOfficer[];
-  /** Whether the officer list has actually answered — absent is not the same as empty. */
-  rosterKnown: boolean;
+  roster: Roster;
   disabled: boolean;
   pending: boolean;
   /** Why this card's last launch was refused, if it was — the server's own words. */
@@ -131,17 +146,16 @@ interface MissionCardProps {
  */
 function LeaderPicker({
   template,
-  officers,
-  rosterKnown,
+  roster,
   leader,
   onPick,
 }: {
   template: MissionTemplate;
-  officers: readonly AssigneeOfficer[];
-  rosterKnown: boolean;
+  roster: Roster;
   leader: AssigneeOfficer | undefined;
   onPick: (officerId: string) => void;
 }) {
+  const officers = rosterOfficers(roster);
   return (
     <label className="flex min-w-0 flex-col gap-1">
       <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
@@ -152,9 +166,17 @@ function LeaderPicker({
        * their own query, one round trip behind the board — which renders immediately off a static
        * template list — so treating "not loaded" as "empty" told every player with a full crew to go
        * hire an officer, on all four hard cards, on every visit to this page.
+       *
+       * A failed read gets its own sentence for the same reason: the §G page already says "Could
+       * not read your assignees" rather than pretending to still be loading, and this query never
+       * retries and is never polled, so "Reading the roster…" would sit there until a reload.
        */}
-      {requiresOfficer(template.difficulty) && !rosterKnown ? (
+      {requiresOfficer(template.difficulty) && roster.status === 'loading' ? (
         <p className="text-[11px] leading-relaxed text-steel-600">Reading the roster…</p>
+      ) : requiresOfficer(template.difficulty) && roster.status === 'error' ? (
+        <p className="text-[11px] leading-relaxed text-neon-magenta">
+          Could not read your officers. Reload to try again.
+        </p>
       ) : requiresOfficer(template.difficulty) && officers.length === 0 ? (
         <p className="text-[11px] leading-relaxed text-warning">
           Hard runs need an officer leading them. Hire one at the Bar.
@@ -188,16 +210,9 @@ function LeaderPicker({
 }
 
 /** One entry on the board — the pre-commit screen for a single mission (§E4). */
-function MissionCard({
-  template,
-  officers,
-  rosterKnown,
-  disabled,
-  pending,
-  refusal,
-  onLaunch,
-}: MissionCardProps) {
+function MissionCard({ template, roster, disabled, pending, refusal, onLaunch }: MissionCardProps) {
   const [pickedId, setPickedId] = useState('');
+  const officers = rosterOfficers(roster);
   /*
    * A hard run cannot go out unled, so the first officer stands in until the player picks somebody
    * — deriving the leader instead of seeding state keeps this correct across the load: the officer
@@ -242,13 +257,7 @@ function MissionCard({
         <RewardLine rewards={missionRewards(template, 'success')} />
       </div>
 
-      <LeaderPicker
-        template={template}
-        officers={officers}
-        rosterKnown={rosterKnown}
-        leader={leader}
-        onPick={setPickedId}
-      />
+      <LeaderPicker template={template} roster={roster} leader={leader} onPick={setPickedId} />
 
       {/*
        * The refusal sits in the card the player clicked, not at the foot of the board. The board is
@@ -391,6 +400,11 @@ export function MissionsPage() {
 
   const data = missionsQuery.data;
   const now = useServerClock(data?.serverNow, missionsQuery.dataUpdatedAt);
+  const roster: Roster = assigneesQuery.data
+    ? { status: 'ready', officers: assigneesQuery.data.officers }
+    : assigneesQuery.isError
+      ? { status: 'error' }
+      : { status: 'loading' };
 
   /*
    * A crew can level the player up while this page is simply *open*, and the server announces that
@@ -493,8 +507,7 @@ export function MissionsPage() {
               <MissionCard
                 key={template.id}
                 template={template}
-                officers={assigneesQuery.data?.officers ?? []}
-                rosterKnown={assigneesQuery.data !== undefined}
+                roster={roster}
                 disabled={atCapacity}
                 pending={launch.isPending && launch.variables?.templateId === template.id}
                 refusal={
