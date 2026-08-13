@@ -48,6 +48,8 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 export const DEFAULT_MASTER_DIR = path.join(REPO_ROOT, 'art-src');
 /** The drop directory the client globs — see `assets/README.md`. */
 export const DEFAULT_ASSET_DIR = path.join(REPO_ROOT, 'assets');
+/** Holds the §9 licensing register, the provenance record `assets/` is audited against. */
+export const DEFAULT_ART_BIBLE_PATH = path.join(REPO_ROOT, 'docs', 'ART-BIBLE.md');
 
 /* -------------------------------------------------------------------------- */
 /* Raster primitives                                                           */
@@ -748,7 +750,7 @@ export async function encodeAsset(
 /* -------------------------------------------------------------------------- */
 
 export interface DeliveryProblem {
-  /** The file as it sits in the drop directory, `@2x` included. */
+  /** Path relative to the drop directory — a batch subfolder and `@2x` included. */
   file: string;
   key: AssetKey;
   problem: string;
@@ -757,6 +759,17 @@ export interface DeliveryProblem {
 /** Drops the ART-BIBLE §6 retina marker, so `plane-city-fore@2x.webp` audits against its 1× spec. */
 function withoutRetinaMarker(file: string): string {
   return file.replace('@2x', '');
+}
+
+/**
+ * Everything in the drop directory, as paths relative to it.
+ *
+ * Recursive because the client's glob is: `assets/**` in `apps/client/src/assets/source.ts` keys on
+ * the **base name**, so `assets/batch-3/plane-city-fore.webp` reaches the browser exactly as a
+ * top-level drop does. A flat walk would let a whole subdirectory of art past both audits.
+ */
+async function droppedFiles(dir: string): Promise<readonly string[]> {
+  return (await readdir(dir, { recursive: true }).catch(() => [])).toSorted();
 }
 
 /**
@@ -784,10 +797,25 @@ export async function auditDeliveries(
   );
 
   const problems: DeliveryProblem[] = [];
-  for (const file of (await readdir(dir).catch(() => [])).toSorted()) {
-    const governed = floors.get(withoutRetinaMarker(file));
+  for (const file of await droppedFiles(dir)) {
+    const governed = floors.get(withoutRetinaMarker(path.basename(file)));
     if (governed === undefined) continue;
-    const transparency = transparencyOf(await decodeMaster(await readFile(path.join(dir, file))));
+
+    let transparency: number;
+    try {
+      transparency = transparencyOf(await decodeMaster(await readFile(path.join(dir, file))));
+    } catch (error) {
+      // sharp names neither the file nor the key when it rejects one, and a hand-pasted batch is
+      // exactly where a truncated download turns up. A delivery that fails has to name itself —
+      // the contact sheet reports this audit too, and a bare throw there kills the whole run.
+      problems.push({
+        file,
+        key: governed.spec.key,
+        problem: `could not be read as an image — ${errorMessage(error)}`,
+      });
+      continue;
+    }
+
     if (transparency >= governed.floor) continue;
     problems.push({
       file,
@@ -796,6 +824,114 @@ export async function auditDeliveries(
         `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ` +
         `${percent(governed.floor)} — an opaque delivery hides everything behind this plane`,
     });
+  }
+  return problems;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Provenance audit                                                            */
+/* -------------------------------------------------------------------------- */
+
+export interface ProvenanceProblem {
+  /** Path relative to the drop directory — a batch subfolder and `@2x` included. */
+  file: string;
+  problem: string;
+}
+
+/** One parsed row of the ART-BIBLE §9 table. */
+export interface LicensingRow {
+  /** The `File` cell, backticks stripped. */
+  file: string;
+  /** Required columns this row leaves empty. */
+  blank: readonly string[];
+}
+
+/**
+ * §9 columns a row has to fill in. A row naming a file and saying nothing else records no
+ * provenance — it only makes the register look populated, which is worse than an empty table.
+ */
+const REQUIRED_LICENSING_COLUMNS = ['Source', 'Author', 'Licence'] as const;
+
+/** What `apps/client/src/assets/source.ts` globs; anything else in the directory is not art. */
+const DELIVERY_EXTENSIONS = new Set(['.webp', '.png']);
+
+/**
+ * Reads the ART-BIBLE §9 licensing table out of the bible's markdown.
+ *
+ * The hand-maintained table is parsed rather than some machine-readable sidecar because §9 declares
+ * *it* authoritative — "the one a lawyer would be shown". A second copy could pass the gate while
+ * the document a human reads stayed empty.
+ *
+ * Columns are located by header name, so reordering the table does not silently re-point the
+ * required-cell check at the wrong column. A renamed column reads as blank, which fails loudly.
+ */
+export function parseLicensingRegister(markdown: string): readonly LicensingRow[] {
+  const section = markdown.split(/^## 9\. /m)[1]?.split(/^## /m)[0] ?? '';
+  const rows = section
+    .split('\n')
+    .filter((line) => line.startsWith('|'))
+    .map((line) =>
+      line
+        .split('|')
+        .slice(1, -1)
+        .map((cell) => cell.trim().replaceAll('`', '')),
+    );
+
+  const header = rows[0] ?? [];
+  return rows
+    .slice(1)
+    .filter((cells) => cells[0] !== undefined && cells[0] !== '')
+    .filter((cells) => !cells.every((cell) => /^:?-+:?$/.test(cell)))
+    .map((cells) => ({
+      file: cells[0] ?? '',
+      blank: REQUIRED_LICENSING_COLUMNS.filter(
+        (column) => (cells[header.indexOf(column)] ?? '') === '',
+      ),
+    }));
+}
+
+/**
+ * Requires every image in the drop directory to have an ART-BIBLE §9 licensing row.
+ *
+ * The board rule is absolute — *an asset with no recorded provenance does not ship* — and until now
+ * it was the one art rule enforced by prose alone. `gen-art.ts` writes a `*.provenance.json`, but
+ * only beside the **master** in `art-src/`, and only on the generate path, which is dormant and
+ * key-gated. The route art actually arrives by is a file saved straight into `assets/`, which the
+ * client globs by name and renders with nothing anywhere complaining (MOU-296).
+ *
+ * Every `.webp`/`.png` is audited, not only the ones matching a manifest delivery name: a misnamed
+ * drop is inert in the browser but is still a third-party file sitting in the repo, and §9 covers
+ * it. `@2x` resolves to the 1× row — two densities of one artwork are one licence, not two.
+ *
+ * A sibling `*.provenance.json` is deliberately *not* accepted in place of a row. §9 requires a row
+ * for generated art too, so the JSON records the seed, never the permission.
+ */
+export async function auditProvenance(
+  dir: string = DEFAULT_ASSET_DIR,
+  biblePath: string = DEFAULT_ART_BIBLE_PATH,
+): Promise<readonly ProvenanceProblem[]> {
+  const rows = new Map(
+    parseLicensingRegister(await readFile(biblePath, 'utf8')).map((row) => [row.file, row]),
+  );
+
+  const problems: ProvenanceProblem[] = [];
+  for (const file of await droppedFiles(dir)) {
+    if (!DELIVERY_EXTENSIONS.has(path.extname(file).toLowerCase())) continue;
+    const name = path.basename(file);
+    const row = rows.get(name) ?? rows.get(withoutRetinaMarker(name));
+    if (row === undefined) {
+      problems.push({
+        file,
+        problem:
+          'no ART-BIBLE §9 licensing row — record the source, author and licence in ' +
+          'docs/ART-BIBLE.md §9 before this file ships',
+      });
+    } else if (row.blank.length > 0) {
+      problems.push({
+        file,
+        problem: `ART-BIBLE §9 row leaves ${row.blank.join(', ')} blank — a row that names a file and nothing else records no provenance`,
+      });
+    }
   }
   return problems;
 }

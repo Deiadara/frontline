@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -11,11 +11,14 @@ import {
   type PostProcessStep,
 } from '@frontline/shared';
 import {
+  DEFAULT_ART_BIBLE_PATH,
+  DEFAULT_ASSET_DIR,
   DEFAULT_MATTE_TOLERANCE,
   HUMAN_MATTE_FLOOR,
   MAX_ERASED_ARTWORK,
   MAX_KEYED_ISLANDS,
   auditDeliveries,
+  auditProvenance,
   centredCrop,
   decodeMaster,
   encodeAsset,
@@ -24,11 +27,13 @@ import {
   paintedReport,
   paintedSplit,
   parseArgs,
+  parseLicensingRegister,
   postProcessorFor,
   transparencyOf,
   unimplementedSteps,
   type DeliveryProblem,
   type PaintedClass,
+  type ProvenanceProblem,
 } from './encode-art.js';
 
 const spec = (key: string): AssetSpec => {
@@ -43,6 +48,17 @@ const FORE_PLANE = spec('plane-city-fore');
 const FAR_PLANE = spec('plane-city-far');
 /** A master that already is its delivery image. */
 const DISTRICT = spec('district-chrome-row');
+
+/**
+ * Both audits list the drop directory through a `readdir(...).catch(() => [])`, which cannot tell
+ * "nothing is wrong" from "there is no such directory". `assets/` holds only `README.md` today, so
+ * the two gates below would go on passing against a directory that had been renamed away — and
+ * they are the only cases that will ever see the board's real art. Anchor them to a file that is
+ * really there, so the gate fails loudly instead of silently auditing nothing.
+ */
+async function expectDropDirectoryReal(): Promise<void> {
+  await expect(readdir(DEFAULT_ASSET_DIR)).resolves.toContain('README.md');
+}
 
 const SKY: readonly [number, number, number, number] = [27, 34, 51, 255];
 const SUBJECT: readonly [number, number, number, number] = [240, 200, 120, 255];
@@ -867,6 +883,7 @@ describe('delivery audit', () => {
     let problems: readonly DeliveryProblem[] = [];
     await withTempDir(async (dir) => {
       for (const [name, bytes] of Object.entries(files)) {
+        await mkdir(path.dirname(path.join(dir, name)), { recursive: true });
         await writeFile(path.join(dir, name), bytes);
       }
       problems = await auditDeliveries(dir);
@@ -911,8 +928,159 @@ describe('delivery audit', () => {
     expect(await auditWith({ 'README.md': Buffer.from('# not art\n') })).toEqual([]);
   });
 
+  it('reaches a delivery dropped in a subdirectory — the client glob does', async () => {
+    // `source.ts` globs `assets/**` and keys on the base name, so a batch folder still ships.
+    const nested = `batch-3/${FORE_PLANE.file}`;
+    const problems = await auditWith({ [nested]: await planeDelivery(0) });
+    expect(problems.map((p) => p.file)).toEqual([nested]);
+  });
+
+  it('names a governed delivery it cannot decode instead of throwing bare from sharp', async () => {
+    // A truncated download under a correct name. sharp's own error carries neither, and the
+    // contact sheet runs this audit — one unreadable file must not take the whole report down.
+    const problems = await auditWith({ [FORE_PLANE.file]: Buffer.from('not an image at all') });
+
+    expect(problems.map((p) => p.file)).toEqual([FORE_PLANE.file]);
+    expect(problems[0]?.key).toBe(FORE_PLANE.key);
+    expect(problems[0]?.problem).toContain('could not be read as an image');
+  });
+
   // The gate itself: whatever is in `assets/` right now has to satisfy its declared floor.
   it('passes against the committed drop directory', async () => {
+    await expectDropDirectoryReal();
     expect(await auditDeliveries()).toEqual([]);
+  });
+});
+
+/**
+ * The §6 floor above is audited against the drop directory; the §9 licence rule next to it was
+ * enforced by prose alone. A correctly-named `.webp` saved straight into `assets/` renders with no
+ * recorded provenance and every gate green — the board rule says it must not ship (MOU-296).
+ */
+describe('provenance audit', () => {
+  const HEADER =
+    '| File | Source | Author | Licence | Commercial OK | Attribution required | Added | Notes |\n' +
+    '| ---- | ------ | ------ | ------- | ------------- | -------------------- | ----- | ----- |\n';
+
+  /** A bible whose §9 table holds exactly `rows`, sandwiched between its real neighbours. */
+  const bibleWith = (rows: readonly string[]): string =>
+    `## 8. Motion and feel\n\ntext\n\n## 9. Licensing register\n\n${HEADER}${rows.join('\n')}\n\n### 9.1 Rules\n\n- a rule\n\n## 10. Rejection checklist\n\n- [ ] item\n`;
+
+  const row = (file: string, ...rest: readonly string[]): string =>
+    `| ${file} | ${[...rest, '', '', '', '', '', '', ''].slice(0, 7).join(' | ')} |`;
+
+  const LICENSED = row('plate-city.webp', 'https://example.test/x', 'A. Painter', 'CC0');
+
+  const auditWith = async (
+    files: readonly string[],
+    rows: readonly string[],
+  ): Promise<readonly ProvenanceProblem[]> => {
+    let problems: readonly ProvenanceProblem[] = [];
+    await withTempDir(async (dir) => {
+      // The bytes are never decoded — this gate reads the register, not the pixels.
+      for (const name of files) {
+        await mkdir(path.dirname(path.join(dir, name)), { recursive: true });
+        await writeFile(path.join(dir, name), 'not really an image');
+      }
+      const biblePath = path.join(dir, 'ART-BIBLE.md');
+      await writeFile(biblePath, bibleWith(rows));
+      problems = await auditProvenance(dir, biblePath);
+    });
+    return problems;
+  };
+
+  it('rejects a delivery with no §9 row — the hand-drop route nothing else looks at', async () => {
+    const problems = await auditWith(
+      ['plate-city.webp'],
+      [LICENSED.replace('plate-city', 'other')],
+    );
+
+    expect(problems.map((p) => p.file)).toEqual(['plate-city.webp']);
+    expect(problems[0]?.problem).toContain('no ART-BIBLE §9 licensing row');
+  });
+
+  it('accepts a delivery whose row names a source, an author and a licence', async () => {
+    expect(await auditWith(['plate-city.webp'], [LICENSED])).toEqual([]);
+  });
+
+  it('rejects a row that names the file and nothing else', async () => {
+    const problems = await auditWith(['plate-city.webp'], [row('plate-city.webp')]);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]?.problem).toContain('Source, Author, Licence blank');
+  });
+
+  it('names only the columns actually left blank', async () => {
+    const problems = await auditWith(
+      ['plate-city.webp'],
+      [row('plate-city.webp', 'https://example.test/x', '', 'CC0')],
+    );
+    expect(problems[0]?.problem).toContain('Author blank');
+  });
+
+  it('covers the @2x density off the 1× row — one artwork is one licence', async () => {
+    expect(await auditWith(['plate-city.webp', 'plate-city@2x.webp'], [LICENSED])).toEqual([]);
+  });
+
+  it('rejects a misnamed drop too — inert in the browser, still a file in the repo', async () => {
+    // Matches no manifest delivery, so the client never renders it and the §6 audit skips it.
+    const problems = await auditWith(['some-photo.png'], [LICENSED]);
+    expect(problems.map((p) => p.file)).toEqual(['some-photo.png']);
+  });
+
+  it('ignores the directory README and other non-image files', async () => {
+    expect(await auditWith(['README.md', 'plate-city.provenance.json'], [])).toEqual([]);
+  });
+
+  it('reaches a drop in a subdirectory, and matches its row on the base name', async () => {
+    expect(await auditWith(['batch-3/plate-city.webp'], [LICENSED])).toEqual([]);
+    expect((await auditWith(['batch-3/plate-city.webp'], [])).map((p) => p.file)).toEqual([
+      'batch-3/plate-city.webp',
+    ]);
+  });
+
+  it('fails closed when §9 has no table at all', async () => {
+    const bible = '## 9. Licensing register\n\nprose only\n\n## 10. Rejection checklist\n';
+    let problems: readonly ProvenanceProblem[] = [];
+    await withTempDir(async (dir) => {
+      await writeFile(path.join(dir, 'plate-city.webp'), 'x');
+      const biblePath = path.join(dir, 'ART-BIBLE.md');
+      await writeFile(biblePath, bible);
+      problems = await auditProvenance(dir, biblePath);
+    });
+    expect(problems.map((p) => p.file)).toEqual(['plate-city.webp']);
+  });
+
+  describe('register parsing', () => {
+    it('skips the header and separator rows', () => {
+      expect(parseLicensingRegister(bibleWith([LICENSED]))).toEqual([
+        { file: 'plate-city.webp', blank: [] },
+      ]);
+    });
+
+    it('strips backticks, so `plate-city.webp` matches the file on disk', () => {
+      const rows = parseLicensingRegister(bibleWith([row('`plate-city.webp`', 'u', 'a', 'CC0')]));
+      expect(rows.map((r) => r.file)).toEqual(['plate-city.webp']);
+    });
+
+    it('stops at §10 and does not read the rejection checklist as rows', () => {
+      const bible = `${bibleWith([LICENSED])}\n| not | a | licence | row |\n`;
+      expect(parseLicensingRegister(bible).map((r) => r.file)).toEqual(['plate-city.webp']);
+    });
+
+    // Against the real document, prettier-padded cells and all — a parser that silently found
+    // nothing there would pass every gate above while enforcing nothing.
+    it('finds rows in the committed ART-BIBLE §9 table', async () => {
+      const rows = parseLicensingRegister(await readFile(DEFAULT_ART_BIBLE_PATH, 'utf8'));
+
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((r) => r.file !== '' && !/^:?-+:?$/.test(r.file))).toBe(true);
+    });
+  });
+
+  // The gate itself: every image sitting in `assets/` right now has a filled-in §9 row.
+  it('passes against the committed drop directory', async () => {
+    await expectDropDirectoryReal();
+    expect(await auditProvenance()).toEqual([]);
   });
 });
