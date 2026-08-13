@@ -4,6 +4,7 @@ import { CommanderSchema } from './commander.js';
 import { EconomyStateSchema } from './economy/state.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { ProgressionStateSchema } from './progression/state.js';
+import { ResearchStateSchema } from './research/state.js';
 import { ResourcesSchema } from './resources.js';
 
 /** A player's base, anchored to a city district. */
@@ -20,6 +21,8 @@ export const BaseSchema = z.object({
   economy: EconomyStateSchema,
   /** XP banked towards the next `level` (GDD §I). Owner-only; `level` itself is public above. */
   progression: ProgressionStateSchema,
+  /** The research project in flight and what it has taught this crew (GDD §B9). Owner-only. */
+  research: ResearchStateSchema,
   buildings: z.array(BuildingSchema),
   commanders: z.array(CommanderSchema),
   createdAt: IsoDateTimeSchema,

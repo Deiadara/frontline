@@ -8,6 +8,7 @@ import {
   paidBase,
   paidMe,
   settlingMissions,
+  settlingResearch,
 } from './fixtures';
 import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
 
@@ -199,4 +200,52 @@ test('a crew that lands while the page is open pays the HUD', async ({ page }) =
   await expect(hud.getByText(String(paidBase.resources.scrap), { exact: true })).toBeVisible();
 
   await page.screenshot({ path: 'screenshots/missions-settled.png', fullPage: false });
+});
+
+/**
+ * MOU-166 §B9 — a project that lands while the page is open puts its facts on the page.
+ *
+ * The same trap the missions settlement was filed under: a research project settles lazily on the
+ * `GET /api/research` read, so nothing turns a finished clock into a discovered fact unless the
+ * poll asks. Every static research fixture is born either running or already idle, so the settle
+ * path — the one moment the whole feature turns on — is reachable from no other test.
+ *
+ * The wait is real: `RESEARCH_POLL_MS` is 15s, and the poll is the event under test.
+ */
+test('a project that lands while the page is open shows what it found', async ({ page }) => {
+  const { pending, settled } = settlingResearch();
+  const AFTER_POLL = 30_000;
+  let landed = false;
+
+  await installApi(page, lateGame);
+  // Registered after `installApi`, so this takes precedence — Playwright tries the most recently
+  // added handler first.
+  await page.route('**/api/research', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(landed ? settled : pending),
+    }),
+  );
+
+  await page.goto('/game/research');
+
+  // Running, with §F4's cross-reference showing — also the proof this route, not the catch-all,
+  // is the one answering.
+  await expect(page.getByText('Investigating the Instructor of the Young')).toBeVisible();
+  await expect(page.getByText('Raid Boss')).toHaveCount(0);
+
+  // The server banks it on the next read.
+  landed = true;
+
+  // The facts land on the page, the "just in" flag names how many, and the slot frees up.
+  await expect(page.getByText('+3 just in')).toBeVisible({ timeout: AFTER_POLL });
+  const raidBossFacts = page.getByRole('listitem').filter({ hasText: 'Raid Boss' }).first();
+  await expect(raidBossFacts).toBeVisible();
+  await expect(raidBossFacts).toContainText('Intimidation');
+  await expect(raidBossFacts).toContainText('Demolition');
+  await expect(raidBossFacts, 'both facts count against the §B9 cap').toContainText('2 / 3 leads');
+  await expect(page.getByRole('heading', { name: 'Put someone on it' })).toBeVisible();
+
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/research-settled.png', fullPage: false });
 });

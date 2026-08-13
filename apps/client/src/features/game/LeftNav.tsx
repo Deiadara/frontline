@@ -68,6 +68,21 @@ const ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Research',
+    to: '/game/research',
+    icon: icon(
+      <>
+        <path
+          d="M4 3h9l3 3v11H4z M13 3v3h3"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path d="M7 10h6M7 13h4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </>,
+    ),
+  },
+  {
     label: 'Market',
     icon: icon(
       <path

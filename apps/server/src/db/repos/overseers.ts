@@ -1,4 +1,4 @@
-import { OverseerSchema, type Overseer } from '@frontline/shared';
+import { OverseerSchema, type Attributes, type Overseer } from '@frontline/shared';
 import { readJson } from '../json.js';
 import type { AppDatabase } from '../index.js';
 
@@ -23,6 +23,8 @@ export interface NewOverseer {
 export interface OverseersRepo {
   insert(input: NewOverseer): void;
   findById(id: string): Overseer | undefined;
+  /** GDD §F2 — the Overseer develops an attribute, which is the only thing that moves this sheet. */
+  updateAttributes(id: string, attributes: Attributes): void;
 }
 
 function rowToOverseer(row: OverseerRow): Overseer {
@@ -44,6 +46,7 @@ export function createOverseersRepo(db: AppDatabase): OverseersRepo {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM overseers WHERE id = ?');
+  const updateAttributesStmt = db.prepare('UPDATE overseers SET attributes_json = ? WHERE id = ?');
 
   return {
     insert({ overseer, userId, presetId, createdAt }) {
@@ -63,6 +66,9 @@ export function createOverseersRepo(db: AppDatabase): OverseersRepo {
     findById(id) {
       const row = byIdStmt.get(id) as OverseerRow | undefined;
       return row ? rowToOverseer(row) : undefined;
+    },
+    updateAttributes(id, attributes) {
+      updateAttributesStmt.run(JSON.stringify(attributes), id);
     },
   };
 }

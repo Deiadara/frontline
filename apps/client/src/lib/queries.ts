@@ -12,6 +12,8 @@ import {
   getMissions,
   hireRecruit,
   launchMission,
+  getResearch,
+  startResearch,
 } from './api';
 import { useSession } from '../store/session';
 
@@ -22,6 +24,7 @@ export const queryKeys = {
   base: (id: string) => ['base', id] as const,
   missions: ['missions'] as const,
   bar: ['bar'] as const,
+  research: ['research'] as const,
 };
 
 /**
@@ -30,6 +33,9 @@ export const queryKeys = {
  * countdown itself ticks locally in between, so this does not need to be a fast poll.
  */
 const MISSION_POLL_MS = 15_000;
+
+/** Same idea for research: the settle happens on the read, and the clock is minutes long. */
+const RESEARCH_POLL_MS = 15_000;
 
 /** Authenticated session snapshot: user + overseer + base. */
 export function useMe() {
@@ -120,6 +126,45 @@ export function useAssignPoint() {
     mutationFn: assignPoint,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}
+
+/**
+ * The research page (GDD §B9). Polled for the same reason the missions page is: a project settles
+ * lazily on this read, so the poll is what turns a finished clock into a discovered fact while the
+ * page is open.
+ */
+export function useResearch() {
+  const token = useSession((s) => s.token);
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: queryKeys.research,
+    queryFn: getResearch,
+    enabled: token !== null,
+    refetchInterval: RESEARCH_POLL_MS,
+  });
+
+  // A landed project can move the Overseer's sheet (§F2) and morale (§F3), and neither of those is
+  // read from here — `me` is what the HUD renders. Keyed on the fetch, not the payload: the server
+  // reports `justDiscovered` per request, so the settling poll reports it and the next reports none.
+  const settledAt = (query.data?.justDiscovered.length ?? 0) > 0 ? query.dataUpdatedAt : 0;
+  useEffect(() => {
+    if (settledAt === 0) return;
+    void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+  }, [settledAt, queryClient]);
+
+  return query;
+}
+
+/** Put the crew on a project (§B9, §F2). Costs caps, so the HUD is refreshed with the page. */
+export function useStartResearch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: startResearch,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.research });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });

@@ -6,6 +6,7 @@ import {
   findOverseerPreset,
   startingEconomy,
   startingProgression,
+  startingResearch,
   type Base,
   type CreateOverseerResponse,
   type Overseer,
@@ -49,6 +50,7 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         resources: STARTING_RESOURCES,
         economy: startingEconomy(now),
         progression: startingProgression(),
+        research: startingResearch(),
         buildings: [
           { id: randomUUID(), kind: 'command_center', level: 1 },
           { id: randomUUID(), kind: 'reactor', level: 1 },

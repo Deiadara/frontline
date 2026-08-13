@@ -6,6 +6,7 @@ import {
   type Commander,
   type EconomyState,
   type ProgressionState,
+  type ResearchState,
   type Resources,
 } from '@frontline/shared';
 import { readJson } from '../json.js';
@@ -21,6 +22,7 @@ interface BaseRow {
   resources_json: string;
   economy_json: string;
   progression_json: string;
+  research_json: string;
   buildings_json: string;
   commanders_json: string;
   created_at: string;
@@ -55,6 +57,8 @@ export interface BasesRepo {
    * level-ups all rewrite the whole list, since it is one JSON column rather than a table.
    */
   updateCommanders(baseId: string, commanders: Commander[]): void;
+  /** The research project in flight and the facts it has produced (GDD §B9). */
+  updateResearch(baseId: string, research: ResearchState): void;
 }
 
 function rowToBase(row: BaseRow): Base {
@@ -68,6 +72,7 @@ function rowToBase(row: BaseRow): Base {
     resources: readJson(row.resources_json),
     economy: readJson(row.economy_json),
     progression: readJson(row.progression_json),
+    research: readJson(row.research_json),
     buildings: readJson(row.buildings_json),
     commanders: readJson(row.commanders_json),
     createdAt: row.created_at,
@@ -89,8 +94,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const insertStmt = db.prepare(
     `INSERT INTO bases
        (id, owner_id, name, district_id, level, is_bot,
-        resources_json, economy_json, progression_json, buildings_json, commanders_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        resources_json, economy_json, progression_json, research_json, buildings_json,
+        commanders_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
@@ -104,6 +110,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     'UPDATE bases SET level = ?, progression_json = ? WHERE id = ?',
   );
   const updateCommandersStmt = db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?');
+  const updateResearchStmt = db.prepare('UPDATE bases SET research_json = ? WHERE id = ?');
 
   return {
     insert(base) {
@@ -117,6 +124,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.resources),
         JSON.stringify(base.economy),
         JSON.stringify(base.progression),
+        JSON.stringify(base.research),
         JSON.stringify(base.buildings),
         JSON.stringify(base.commanders),
         base.createdAt,
@@ -149,6 +157,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateCommanders(baseId, commanders) {
       updateCommandersStmt.run(JSON.stringify(commanders), baseId);
+    },
+    updateResearch(baseId, research) {
+      updateResearchStmt.run(JSON.stringify(research), baseId);
     },
   };
 }

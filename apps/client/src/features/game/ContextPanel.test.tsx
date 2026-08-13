@@ -4,6 +4,7 @@ import {
   STARTING_RESOURCES,
   startingEconomy,
   startingProgression,
+  startingResearch,
   type Base,
   type District,
 } from '@frontline/shared';
@@ -30,6 +31,7 @@ const myBase: Base = {
   resources: STARTING_RESOURCES,
   economy: startingEconomy('2026-08-13T09:30:00.000Z'),
   progression: startingProgression(),
+  research: startingResearch(),
   buildings: [],
   commanders: [],
   createdAt: '2026-08-13T09:30:00.000Z',

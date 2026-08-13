@@ -11,6 +11,8 @@ import {
   LaunchMissionResponseSchema,
   MeResponseSchema,
   MissionsResponseSchema,
+  ResearchResponseSchema,
+  StartResearchResponseSchema,
   type AssignPointRequest,
   type BattleRequest,
   type CreateOverseerRequest,
@@ -18,6 +20,7 @@ import {
   type LaunchMissionRequest,
   type LoginRequest,
   type RegisterRequest,
+  type StartResearchRequest,
 } from '@frontline/shared';
 import type { z } from 'zod';
 import { useSession } from '../store/session';
@@ -103,3 +106,8 @@ export const hireRecruit = (body: HireRecruitRequest) =>
 
 export const assignPoint = (body: AssignPointRequest) =>
   apiFetch('/bar/assign-point', AssignPointResponseSchema, jsonBody(body));
+
+export const getResearch = () => apiFetch('/research', ResearchResponseSchema);
+
+export const startResearch = (body: StartResearchRequest) =>
+  apiFetch('/research', StartResearchResponseSchema, jsonBody(body));

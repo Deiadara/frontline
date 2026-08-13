@@ -19,6 +19,11 @@ export type ErrorCode =
   | 'ROLE_TAKEN'
   | 'INSUFFICIENT_CAPS'
   | 'NO_POINTS'
+  // research and discovery (GDD §B9, §F2-§F4)
+  | 'RESEARCH_BUSY'
+  | 'NO_RESEARCH_LEAD'
+  | 'RESEARCH_OPTION_LOCKED'
+  | 'RESEARCH_EXHAUSTED'
   | 'INTERNAL';
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
@@ -38,6 +43,10 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   ROLE_TAKEN: 409,
   INSUFFICIENT_CAPS: 409,
   NO_POINTS: 409,
+  RESEARCH_BUSY: 409,
+  NO_RESEARCH_LEAD: 409,
+  RESEARCH_OPTION_LOCKED: 409,
+  RESEARCH_EXHAUSTED: 409,
   INTERNAL: 500,
 };
 

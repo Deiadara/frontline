@@ -8,6 +8,7 @@ import {
   createCommander,
   startingEconomy,
   startingProgression,
+  startingResearch,
   type Attributes,
   type Base,
 } from '@frontline/shared';
@@ -231,6 +232,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     resources: { caps: 9000, food: 100, oil: 100, scrap: 100, highQualityMetal: 10 },
     economy: { ...startingEconomy(NOW.toISOString()), infamy: 70 },
     progression: startingProgression(),
+    research: startingResearch(),
     buildings: [],
     commanders: [
       createCommander(

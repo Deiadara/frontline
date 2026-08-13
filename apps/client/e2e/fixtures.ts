@@ -1,6 +1,14 @@
 import {
   addResources,
   alignedAttributes,
+  MAX_PAIRINGS,
+  MAX_ROLE_FACTS,
+  makePairing,
+  OFFICER_ROLES,
+  RESEARCH_COST_CAPS,
+  RESEARCH_MINUTES,
+  researchCompletesAt,
+  roleFullyResearched,
   alignmentBand,
   alignmentBonusAttributes,
   alignmentSkillBonus,
@@ -12,6 +20,7 @@ import {
   STARTING_RESOURCES,
   startingEconomy,
   startingProgression,
+  startingResearch,
   templateTimings,
   threatensToLeave,
   type AuthResponse,
@@ -24,7 +33,11 @@ import {
   type BattleResponse,
   type CityResponse,
   type CreateOverseerResponse,
+  type DiscoveredFact,
   type MeResponse,
+  type OfficerRole,
+  type ResearchLead,
+  type ResearchResponse,
   type Mission,
   type MissionOutcome,
   type MissionsResponse,
@@ -61,6 +74,7 @@ export const base: Base = {
   resources: STARTING_RESOURCES,
   economy: startingEconomy(NOW),
   progression: startingProgression(),
+  research: startingResearch(),
   buildings: [
     { id: 'b1', kind: 'command_center', level: 1 },
     { id: 'b2', kind: 'reactor', level: 1 },
@@ -356,5 +370,142 @@ export function settlingMissions(now: Date = new Date()): {
   return {
     pending: board([shortRun, expedition], [], STARTING_RESOURCES),
     settled: board([shortRun, home], [home], paidBase.resources),
+  };
+}
+
+/**
+ * Research at its widest (GDD §B9).
+ *
+ * The fat case, per the standard `bar` and `missionsResponse` set. Fatness here is specific: the
+ * longest role labels in §C1 (`Instructor of the Young`) against the longest attribute names in
+ * §B (`communication`, `marksmanship`, `intimidation`), every listed role already at
+ * `MAX_ROLE_FACTS` so the `3 / 3 leads` counter is at its widest, the pairing cap filled so that
+ * list wraps as far as it ever will, and a six-figure cap balance in the header.
+ *
+ * The facts below are chosen for *string width*, not for accuracy against the server's hidden
+ * requirement table — a fixture has no business encoding that, and this file is inside the W1 leak
+ * guard's scan (§B8a).
+ */
+const WIDE_ATTRIBUTES = [
+  'communication',
+  'marksmanship',
+  'intimidation',
+  'fabrication',
+  'cybernetics',
+  'scholarship',
+  'negotiation',
+  'demolition',
+  'navigation',
+  'engineering',
+  'mentoring',
+  'appraisal',
+] as const;
+
+const WIDE_ROLES = [
+  'instructor_of_the_young',
+  'head_of_research',
+  'finance_officer',
+  'security_officer',
+  'field_commander',
+] as const satisfies readonly OfficerRole[];
+
+const wideFacts: DiscoveredFact[] = [
+  ...WIDE_ROLES.flatMap((role, roleIndex) =>
+    Array.from({ length: MAX_ROLE_FACTS }, (_unused, factIndex) => ({
+      kind: 'role_attribute' as const,
+      role,
+      attribute:
+        WIDE_ATTRIBUTES[(roleIndex * MAX_ROLE_FACTS + factIndex) % WIDE_ATTRIBUTES.length]!,
+    })),
+  ),
+  ...Array.from({ length: MAX_PAIRINGS - 1 }, (_unused, index) =>
+    makePairing(
+      WIDE_ATTRIBUTES[index % WIDE_ATTRIBUTES.length]!,
+      WIDE_ATTRIBUTES[(index + 5) % WIDE_ATTRIBUTES.length]!,
+    ),
+  ),
+];
+
+/** Two leads, one of them imaginative enough to unlock §F4, with the longest names available. */
+const wideLeads: ResearchLead[] = [
+  {
+    officerId: 'off-prof',
+    name: 'Professor Aurelio Xanthopoulos-Reyes',
+    role: 'professor',
+    crossReference: true,
+  },
+  {
+    officerId: 'off-hor',
+    name: 'Wenqing "Compass" Adebayo-Lindqvist',
+    role: 'head_of_research',
+    crossReference: false,
+  },
+];
+
+const researchBase = {
+  serverNow: NOW,
+  justDiscovered: [] as DiscoveredFact[],
+  facts: wideFacts,
+  leads: wideLeads,
+  openRoles: OFFICER_ROLES.filter((role) => !roleFullyResearched(wideFacts, role)),
+  pairingsExhausted: false,
+  overseerAttributes: overseer.attributes,
+  caps: 125000,
+  costs: RESEARCH_COST_CAPS,
+};
+
+/** Nothing running: the start forms, both of them, over a crew that already knows a lot. */
+export const research: ResearchResponse = {
+  ...researchBase,
+  active: null,
+  completesAt: null,
+};
+
+/** A project in flight, with §F4's cross-reference on, built live so the countdown is real. */
+export function activeResearch(now: Date = new Date()): ResearchResponse {
+  const active = {
+    id: 'r-active',
+    project: {
+      kind: 'investigation' as const,
+      role: 'instructor_of_the_young' as const,
+      leadOfficerId: 'off-prof',
+      crossReference: true,
+    },
+    // One minute in, so the countdown reads at its widest for this duration.
+    startedAt: new Date(now.getTime() - 60_000).toISOString(),
+    durationMinutes: RESEARCH_MINUTES.investigation,
+  };
+  return { ...researchBase, active, completesAt: researchCompletesAt(active).toISOString() };
+}
+
+/**
+ * The state change neither fixture above can express: a project still running on the first read,
+ * landed and reporting its facts on the next.
+ *
+ * Every other research fixture is *born* either active or already idle, so the settle path — the
+ * one moment the whole feature turns on — would never be exercised in a browser, and facts that
+ * never reached the page would pass every assertion in the suite. This is the §E-settlement lesson
+ * applied to §B9.
+ */
+export function settlingResearch(now: Date = new Date()): {
+  pending: ResearchResponse;
+  settled: ResearchResponse;
+} {
+  const pending = activeResearch(now);
+  const discovered: DiscoveredFact[] = [
+    { kind: 'role_attribute', role: 'raid_boss', attribute: 'intimidation' },
+    { kind: 'role_attribute', role: 'raid_boss', attribute: 'demolition' },
+    makePairing('intimidation', 'demolition'),
+  ];
+  return {
+    pending,
+    settled: {
+      ...researchBase,
+      active: null,
+      completesAt: null,
+      justDiscovered: discovered,
+      facts: [...wideFacts, ...discovered],
+      openRoles: researchBase.openRoles.filter((role) => role !== 'raid_boss'),
+    },
   };
 }

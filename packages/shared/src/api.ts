@@ -17,6 +17,11 @@ import { ReputationLabelSchema } from './economy/reputation.js';
 import { MissionSchema } from './missions.js';
 import { OverseerSchema } from './overseer.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
+import {
+  ActiveResearchSchema,
+  DiscoveredFactSchema,
+  ResearchProjectSchema,
+} from './research/index.js';
 import { ResourcesSchema } from './resources.js';
 import { OfficerRoleSchema } from './roles.js';
 import { TraitsSchema } from './traits.js';
@@ -244,3 +249,63 @@ export const AssignPointResponseSchema = z.object({
   officer: CommanderSchema,
 });
 export type AssignPointResponse = z.infer<typeof AssignPointResponseSchema>;
+
+// --- research and discovery (GDD §B9, §F2-§F5) ---
+
+/**
+ * An officer the crew could put on an investigation (§B9/§C4), with what their own sheet buys.
+ *
+ * `crossReference` is §F4's worked example on the wire: the option is *reported* as unlocked or
+ * not, so the client can offer it, and the server re-checks it on the way in. The Imagination
+ * rating behind it is already on the officer's sheet — this adds no new knowledge, only the
+ * consequence.
+ */
+export const ResearchLeadSchema = z.object({
+  officerId: IdSchema,
+  name: z.string().min(1),
+  role: OfficerRoleSchema,
+  crossReference: z.boolean(),
+});
+export type ResearchLead = z.infer<typeof ResearchLeadSchema>;
+
+/**
+ * The research screen in one call.
+ *
+ * Note what is *not* here: no fit score, no weight, no ordering, nothing keyed by role id. Every
+ * scrap of role knowledge in this body is a `DiscoveredFact` the crew paid for (§B9, INTERFACES
+ * R4), and `apps/server/src/research/discovery.leak.test.ts` asserts it over the real response.
+ */
+export const ResearchResponseSchema = z.object({
+  serverNow: IsoDateTimeSchema,
+  active: ActiveResearchSchema.nullable(),
+  /** When `active` lands. Null when nothing is running. */
+  completesAt: IsoDateTimeSchema.nullable(),
+  /** Facts banked by *this* read's settlement, so the page can call out what just came in. */
+  justDiscovered: z.array(DiscoveredFactSchema),
+  /** Everything the crew knows, discovered facts only. */
+  facts: z.array(DiscoveredFactSchema),
+  leads: z.array(ResearchLeadSchema),
+  /** Roles with something left to learn — the rest are at `MAX_ROLE_FACTS`. */
+  openRoles: z.array(OfficerRoleSchema),
+  /** True once `MAX_PAIRINGS` is reached and cross-referencing has nothing left to find. */
+  pairingsExhausted: z.boolean(),
+  /** §F2 — the Overseer's sheet, which is what a training project moves. */
+  overseerAttributes: AttributesSchema,
+  caps: z.number(),
+  costs: z.object({
+    investigation: z.number().int().nonnegative(),
+    training: z.number().int().nonnegative(),
+  }),
+});
+export type ResearchResponse = z.infer<typeof ResearchResponseSchema>;
+
+/** Starting a project is just naming it — the server prices, clocks and validates it. */
+export const StartResearchRequestSchema = ResearchProjectSchema;
+export type StartResearchRequest = z.infer<typeof StartResearchRequestSchema>;
+
+export const StartResearchResponseSchema = z.object({
+  active: ActiveResearchSchema,
+  completesAt: IsoDateTimeSchema,
+  resources: ResourcesSchema,
+});
+export type StartResearchResponse = z.infer<typeof StartResearchResponseSchema>;

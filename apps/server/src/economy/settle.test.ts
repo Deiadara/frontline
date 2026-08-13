@@ -6,6 +6,7 @@ import {
   startOfPayWeek,
   startingEconomy,
   startingProgression,
+  startingResearch,
   type Base,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -54,6 +55,7 @@ function seedBase(repos: Repositories, officerCount: number, weeklyWage: number)
       },
     },
     progression: startingProgression(),
+    research: startingResearch(),
     buildings: [],
     commanders: officers.map((id) => createCommander(id, id, 'head_spy')),
     createdAt: FOUNDED,

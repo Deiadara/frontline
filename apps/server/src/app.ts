@@ -14,6 +14,7 @@ import { registerCityRoutes } from './routes/city.js';
 import { registerMeRoutes } from './routes/me.js';
 import { registerMissionRoutes } from './routes/missions.js';
 import { registerOverseerRoutes } from './routes/overseer.js';
+import { registerResearchRoutes } from './routes/research.js';
 import type { JwtPayload } from './types.js';
 
 declare module 'fastify' {
@@ -117,6 +118,7 @@ export async function buildApp({
       registerBattleRoutes(api);
       registerMissionRoutes(api);
       registerBarRoutes(api);
+      registerResearchRoutes(api);
       done();
     },
     { prefix: '/api' },

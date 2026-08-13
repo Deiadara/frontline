@@ -8,6 +8,7 @@ import {
   city,
   createOverseerResponse,
   missionsResponse,
+  research,
   TOKEN,
 } from './fixtures';
 
@@ -109,6 +110,7 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // Rebuilt per request so the countdowns are always live against the page's clock.
     if (pathname.endsWith('/api/missions')) return json(missionsResponse());
     if (pathname.endsWith('/api/bar')) return json(bar);
+    if (pathname.endsWith('/api/research')) return json(research);
     if (pathname.endsWith('/api/overseer')) return json(createOverseerResponse, 201);
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);
     if (pathname.endsWith('/api/auth/register')) return json(authResponse, 201);

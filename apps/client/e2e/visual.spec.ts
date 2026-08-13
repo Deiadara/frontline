@@ -7,7 +7,7 @@
  * frame — so review time is spent on the ones that are not (composition, colour, legibility).
  */
 import { expect, test, type Page } from '@playwright/test';
-import { lateGame, me, meNoOverseer } from './fixtures';
+import { activeResearch, lateGame, me, meNoOverseer } from './fixtures';
 import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
 
 interface Size {
@@ -350,6 +350,67 @@ for (const size of VIEWPORTS) {
       await settleFonts(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/bar-roster-${tag}.png` });
+    });
+
+    /*
+     * MOU-166 §B9/§F2: the research page, in both of the states it has.
+     *
+     * Fat in the same specific way the Bar fixture is: the longest role labels in §C1 against the
+     * longest attribute names in §B, every listed role at `MAX_ROLE_FACTS` so the leads counter is
+     * at its widest, and the pairing list filled to its cap so it wraps as far as it ever will. The
+     * two states are shot separately because they render disjoint trees — the start forms only
+     * exist when nothing is running, and the countdown only exists when something is.
+     */
+    test(`research at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/research');
+      await expect(page.getByRole('heading', { name: 'The Archive' })).toBeVisible();
+      await settleFonts(page);
+
+      // Every label here is authored copy at a fixed size, so an ellipsis is a permanent defect
+      // rather than a fat-content edge case. The §F4 lock notice and the fact tags are narrowest.
+      const clipped = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('span, p, h3, option, label')]
+          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+      );
+      expect(clipped, `cut text on the research page: ${clipped.join(' | ')}`).toEqual([]);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/research-${tag}.png` });
+
+      /*
+       * What the crew knows sits below the fold on the short viewports, and `fullPage` cannot
+       * reach it through the page's own scroller. Centred explicitly rather than with
+       * `scrollIntoViewIfNeeded`, which treats a heading already peeking over the fold as in view
+       * and leaves the panel it introduces entirely out of the shot.
+       */
+      const pairings = page.getByText('What goes with what', { exact: true });
+      await pairings.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+      await expect(pairings).toBeInViewport({ ratio: 1 });
+      await settleFonts(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/research-facts-${tag}.png` });
+    });
+
+    /** The other half of the same screen: a project in flight, with §F4's option showing. */
+    test(`research in progress at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.route('**/api/research', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(activeResearch()),
+        }),
+      );
+      await page.goto('/game/research');
+      await expect(page.getByText('Investigating the Instructor of the Young')).toBeVisible();
+      await settleFonts(page);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/research-active-${tag}.png` });
     });
   });
 }

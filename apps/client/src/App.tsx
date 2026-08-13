@@ -9,6 +9,7 @@ import { BarPage } from './features/bar/BarPage';
 import { BasePanel } from './features/base/BasePanel';
 import { MapView } from './features/game/MapView';
 import { MissionsPage } from './features/missions/MissionsPage';
+import { ResearchPage } from './features/research/ResearchPage';
 import { RequireAuth, RequireGuest, RequireNoOverseer, RequireOverseer } from './routes/guards';
 
 function BootMessage({ text, tone = 'muted' }: { text: string; tone?: 'muted' | 'error' }) {
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="base" element={<BasePanel />} />
           <Route path="missions" element={<MissionsPage />} />
           <Route path="bar" element={<BarPage />} />
+          <Route path="research" element={<ResearchPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/game" replace />} />
       </Routes>

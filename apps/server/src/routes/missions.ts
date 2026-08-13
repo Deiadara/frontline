@@ -51,7 +51,12 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       throw new AppError('MISSIONS_AT_CAPACITY', 'Every crew you have is already out on a mission');
     }
 
-    const stored = launchMission({ id: randomUUID(), base, template, now });
+    // §F5 — the run rides on the player's own character, so the Overseer is read here and the
+    // modified chance is frozen onto the row by `launchMission`.
+    const overseer = request.currentUser.overseerId
+      ? app.repos.overseers.findById(request.currentUser.overseerId)
+      : undefined;
+    const stored = launchMission({ id: randomUUID(), base, template, now, overseer });
     app.repos.missions.insert(stored);
     return { mission: stored.mission, serverNow: now.toISOString() };
   });
