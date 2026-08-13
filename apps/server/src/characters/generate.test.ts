@@ -5,6 +5,7 @@ import {
   OFFICER_ROLES,
   TRAIT_IDS,
   type AttributeName,
+  type OfficerRole,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { ROLE_REQUIREMENTS, roleFit } from '../roles/requirements.js';
@@ -122,6 +123,9 @@ describe('what a sheet gives away about its affinity (B8)', () => {
     OFFICER_ROLES.map((role) => [role, new Set(Object.keys(ROLE_REQUIREMENTS[role].weights))]),
   );
 
+  /** The rating at which a player reads an attribute as "this recruit is strong here". */
+  const STRONG_CUTOFF = 24;
+
   /** A sheet's attributes in descending rating, strongest first. */
   function ranked(attributes: Record<AttributeName, number>): [AttributeName, number][] {
     return ATTRIBUTE_NAMES.map((name): [AttributeName, number] => [name, attributes[name]]).sort(
@@ -130,16 +134,32 @@ describe('what a sheet gives away about its affinity (B8)', () => {
   }
 
   /**
-   * What a player can actually see as "this recruit is strong here": 24 sits midway between the
-   * ~18 base band and the ~30 lift, which makes it a near-perfect classifier between the two —
-   * a base draw reaches it only on a long tail, and a lift falls short of it about as rarely.
+   * What a player can actually see as "this recruit is strong here": the cutoff sits midway
+   * between the ~18 base band and the ~30 lift, so it separates them well — but not symmetrically.
+   * Measured over 3000 rolls: a non-lifted attribute reaches it 2.45% of the time, while a lift
+   * falls short of it 0.52% of the time. Per attribute that is 4.7x; per *sheet* it is 0.73
+   * spurious strengths against 0.02 missed lifts (~35x), because a sheet has ~29 non-lifted
+   * attributes and only 3-5 lifts — 738 of 3000 sheets show six or more "strong" attributes when
+   * at most five were ever lifted.
+   *
+   * The skew only ever *enlarges* the strong set, which can only make whole-template containment
+   * easier to claim, so every leak number below over-states the real leak. Conservative in the
+   * direction that matters, but do not read the set as the lifted set.
    */
   function strongSet(attributes: Record<AttributeName, number>): Set<string> {
     return new Set(
       ranked(attributes)
-        .filter(([, value]) => value >= 24)
+        .filter(([, value]) => value >= STRONG_CUTOFF)
         .map(([name]) => name),
     );
+  }
+
+  /** The affinity's lowest-weighted template attribute — the one an ordered take never reaches. */
+  function lightestTemplateAttribute(role: OfficerRole): AttributeName {
+    const entries = Object.entries(ROLE_REQUIREMENTS[role].weights) as [AttributeName, number][];
+    const lightest = entries.sort((a, b) => a[1] - b[1])[0];
+    if (!lightest) throw new Error(`role ${role} has an empty template`);
+    return lightest[0];
   }
 
   /**
@@ -163,7 +183,7 @@ describe('what a sheet gives away about its affinity (B8)', () => {
   // fits inside a single template, because one strength is drawn from outside it on purpose.
   it('almost never lets the visible strengths pin down one role', () => {
     const rate = leakRate((sheet) =>
-      sheet.filter(([, value]) => value >= 24).map(([name]) => name),
+      sheet.filter(([, value]) => value >= STRONG_CUTOFF).map(([name]) => name),
     );
     expect(rate).toBeLessThan(0.1); // measured 0.002
   });
@@ -174,13 +194,16 @@ describe('what a sheet gives away about its affinity (B8)', () => {
    * A player does not study one sheet; they read a roster. So the unit is a 20-recruit window,
    * and the question is how many sheets in it hand over a role's *complete* template — every one
    * of its five attributes visibly strong at once, which is the table row itself, verbatim.
-   * Before the off-template draw this was **6.5 rows per roster, worst case 17 of 20**: the Bar
-   * reconstructed the hidden table for free, and §B9's research task (W7) had nothing left to
-   * sell. It is now 0.17, worst case 2 of 150 rosters.
+   * Before the off-template draw this was **6.89 rows per roster**: the Bar reconstructed the
+   * hidden table for free, and §B9's research task (W7) had nothing left to sell. It is now 0.167
+   * — 25 sheets of 3000, landing in 23 of the 150 rosters, at most 2 in any one of them.
    *
-   * A hard zero is the wrong bar — it flakes, because a roll can legitimately land all five by
-   * chance — so this is a rate, well under the ~1-per-roster that would put a row back in front
-   * of the player every time they refresh.
+   * That 2 is a sample maximum, not a bound: at 20k rolls the worst window is still 2 under these
+   * seeds but 3 under other seedings. A hard zero would not *flake* — the sample is
+   * `rollRecruit(0..2999)`, fully deterministic — it would simply fail today, and it would be the
+   * wrong bar anyway: a roll can legitimately land all five by chance, so pinning zero would make
+   * any later change to the seeds or the base band a false alarm. Hence a rate, well under the
+   * ~1-per-roster that would put a row back in front of the player every time they refresh.
    */
   it('does not hand a whole role template to a 20-recruit roster', () => {
     const verbatim = ROLLS.map((roll) => {
@@ -218,21 +241,21 @@ describe('what a sheet gives away about its affinity (B8)', () => {
     expect(rate).toBeLessThan(0.25); // measured 0.194
   });
 
-  // Every floor below is a mean over the whole sample, and a minority of affinity-free rolls
-  // averages away inside them: raising the off-template count to 3 takes the share of sheets
-  // whose top three carry nothing from the template 0% -> 14% while mean rank (3.67, floor 4)
-  // and best-fit share (0.47) stay green under their old floors — and the leak rate *improves*,
-  // so a tuning run would read that as a win. This is the per-roll reading that sees it: the
-  // affinity has to reach the sheet on nearly every roll, not on average. (`generate.ts` now
-  // rejects that count at import; this gate is what makes the cap earn its place, and would also
-  // catch the same degeneracy arriving by another route.)
+  // A per-roll reading rather than a mean: the affinity has to reach the sheet on nearly every
+  // roll, not on average, because a minority of affinity-free rolls averages away inside every
+  // other floor here. Be honest about what it currently catches — at the highest *legal*
+  // off-template count (2) it reads 0.984 and passes, while best-fit reads 0.444 and fails its
+  // own floor, so this gate is redundant today. It earns its place as the backstop for the
+  // import guard in `generate.ts`: at 3 off-template, where a roll can lift nothing on-template
+  // at all, it collapses to 0.549 — and the leak rate *improves* (0.007 rows/roster), so a
+  // tuning run reading leak numbers alone would call that a win.
   it('leaves almost every individual sheet at least one on-template strength', () => {
     const shaped = ROLLS.filter((roll) =>
       ranked(roll.attributes)
         .slice(0, 3)
         .some(([name]) => templates.get(roll.affinity)?.has(name)),
     ).length;
-    expect(shaped / ROLLS.length).toBeGreaterThan(0.95); // measured 1.000; 0.860 at 3 off-template
+    expect(shaped / ROLLS.length).toBeGreaterThan(0.95); // measured 1.000; 0.549 at 3 off-template
   });
 
   /**
@@ -241,7 +264,10 @@ describe('what a sheet gives away about its affinity (B8)', () => {
    * on the roster; the player simply cannot prove it. Had de-fingerprinting reduced the sheet to
    * noise, mean rank would sit near 10 of 19 and every assertion above would still pass.
    *
-   * This is the assertion that fails if someone later "hardens" the generator into mush.
+   * This is the assertion that fails if someone later "hardens" the generator into mush — and,
+   * via the upper bound, the one that fails if the sheet is ever made *more* legible than the
+   * design allows. Every other bound in this block is one-sided; a floor alone is passed by
+   * construction by any change that increases legibility, which is how the whole B8 defect got in.
    */
   it('still leaves the affinity the best-fitting role by a wide margin', () => {
     const ranks = ROLLS.map((roll) => {
@@ -253,10 +279,30 @@ describe('what a sheet gives away about its affinity (B8)', () => {
 
     const bestFit = ranks.filter((rank) => rank === 1).length / ranks.length;
     expect(bestFit).toBeGreaterThan(0.7); // measured 0.756
+    expect(bestFit).toBeLessThan(0.85); // 0.928 if the on-template draw is ever taken in order
 
     const topThree = ranks.filter((rank) => rank <= 3).length / ranks.length;
     expect(topThree).toBeGreaterThan(0.9); // measured 0.952
 
     expect(mean(ranks)).toBeLessThan(2); // measured 1.48 of 19
+  });
+
+  /**
+   * The direct witness for the second half of the de-fingerprinting, which the bounds above only
+   * catch by proxy. A strength is not just "one attribute from outside the template" — the rest
+   * are *drawn* over the weights rather than taken in order, so the affinity's lightest template
+   * member reaches the sheet sometimes instead of never.
+   *
+   * Take the on-template draw in order instead and every assertion above except the best-fit
+   * ceiling still passes, while this number goes 0.355 -> 0.023: the two heaviest members would
+   * then co-occur on every single sheet of that affinity and the lightest on none, which is a
+   * rigid signature to reconstruct the table from — exactly what the co-strength attack behind
+   * W7 looks for, and the reason a per-sheet leak bound alone is not enough.
+   */
+  it("keeps the affinity's lightest template attribute in play", () => {
+    const reached = ROLLS.filter((roll) =>
+      strongSet(roll.attributes).has(lightestTemplateAttribute(roll.affinity)),
+    ).length;
+    expect(reached / ROLLS.length).toBeGreaterThan(0.2); // measured 0.355; 0.023 taken in order
   });
 });
