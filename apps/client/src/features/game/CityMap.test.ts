@@ -240,6 +240,8 @@ describe('districtFace', () => {
         `the threat colour is painted over the art (selected: ${isSelected})`,
       ).toBeDefined();
       expect(scrim?.alpha ?? 0).toBeGreaterThan(0.25);
+      // A scrim, not a repaint: at alpha 1 the delivered master is erased and the art path is a no-op.
+      expect(scrim?.alpha ?? 1).toBeLessThan(0.6);
     }
   });
 
