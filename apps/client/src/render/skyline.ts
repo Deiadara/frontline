@@ -36,6 +36,23 @@ export interface Tower {
   /** `0` furthest back in the band → `1` nearest. Selects the fill stop. */
   depth: number;
   fill: string;
+  /**
+   * Gutted masses — sheared roof, no aerial, near-dark façade. GDD §A2 asks for old, destroyed and
+   * new side by side, and a skyline of uniformly healthy buildings is what reads as "futuristic
+   * city at night" instead of "post-war undercity". This is the flag that keeps both in frame.
+   */
+  derelict: boolean;
+}
+
+/**
+ * A gantry, catwalk or slung cable bridge tying two masses together — ART-BIBLE §5, "scrap is
+ * structure" and "break the box". Kept apart from {@link Tower} because a strut is the one piece
+ * of city geometry that is *not* grounded, so it must not be held to the tower invariants.
+ */
+export interface Strut {
+  /** Closed quad, y-down, in plane pixels. */
+  outline: Point[];
+  fill: string;
 }
 
 export interface Skyline {
@@ -43,6 +60,7 @@ export interface Skyline {
   width: number;
   height: number;
   towers: Tower[];
+  struts: Strut[];
 }
 
 /**
@@ -65,11 +83,21 @@ interface BandProfile {
   width: [number, number];
   /** Tower height as a fraction of plane height. */
   height: [number, number];
-  /** Chance a tower steps in near the top instead of ending flat. */
-  setbackChance: number;
-  /** Chance a tower carries a mast above its top segment. */
+  /** Chance a tower stacks a third accreted storey instead of just two. */
+  stackChance: number;
+  /** Chance a standing tower carries a mast above its top segment. Derelicts never do — it fell. */
   spireChance: number;
-  /** Chance any one façade cell is lit. */
+  /**
+   * How far this band's accretion may wander outside its ground storey's own footprint, as a
+   * fraction of that footprint's width. It bounds every horizontal excursion at once — overhanging
+   * storeys, lean, and the scrap sheds at the foot.
+   *
+   * `fore` is deliberately near-zero. It is the only band with a layout contract: its two margins
+   * exist to leave the middle of the plate clickable, and a leaning foreground mass that wandered
+   * inward would be a near-black occluder over a district the player has to hit.
+   */
+  sprawl: number;
+  /** Chance any one façade cell on a *powered* storey is lit. */
   windowChance: number;
   /**
    * Lit-window size as a fraction of *plane* height. Sizing windows off the tower instead makes a
@@ -107,9 +135,10 @@ const BAND_PROFILES: Record<DepthBand, BandProfile> = {
     // that is not the tallest is simply painted over and contributes nothing.
     width: [0.018, 0.055],
     height: [0.46, 0.9],
-    setbackChance: 0.55,
+    stackChance: 0.55,
     spireChance: 0.45,
-    windowChance: 0.1,
+    sprawl: 0.3,
+    windowChance: 0.2,
     windowScale: 0.0026,
     spans: FULL_SPAN,
     fills: [ramps.smog[700], ramps.smog[950], ramps.abyss[300]],
@@ -118,9 +147,10 @@ const BAND_PROFILES: Record<DepthBand, BandProfile> = {
     towers: 16,
     width: [0.05, 0.11],
     height: [0.32, 0.66],
-    setbackChance: 0.45,
+    stackChance: 0.45,
     spireChance: 0.28,
-    windowChance: 0.2,
+    sprawl: 0.32,
+    windowChance: 0.34,
     windowScale: 0.0034,
     spans: FULL_SPAN,
     fills: [ramps.smog[950], ramps.abyss[300], ramps.abyss[500]],
@@ -129,9 +159,10 @@ const BAND_PROFILES: Record<DepthBand, BandProfile> = {
     towers: 12,
     width: [0.06, 0.14],
     height: [0.16, 0.4],
-    setbackChance: 0.4,
+    stackChance: 0.4,
     spireChance: 0.2,
-    windowChance: 0.16,
+    sprawl: 0.34,
+    windowChance: 0.3,
     windowScale: 0.0042,
     spans: FULL_SPAN,
     fills: [ramps.abyss[500], ramps.abyss[700]],
@@ -142,9 +173,10 @@ const BAND_PROFILES: Record<DepthBand, BandProfile> = {
     // read as foreground antennae without hiding anything clickable behind them.
     width: [0.06, 0.16],
     height: [0.03, 0.075],
-    setbackChance: 0.3,
+    stackChance: 0.3,
     spireChance: 0.5,
-    windowChance: 0.05,
+    sprawl: 0.05,
+    windowChance: 0.12,
     windowScale: 0.006,
     spans: [
       [0, 0.34],
@@ -156,13 +188,65 @@ const BAND_PROFILES: Record<DepthBand, BandProfile> = {
 
 export const WINDOW_WARM_CHANCE = 0.72;
 
-/** One storey of a tower, bottom → top. Each is centred on the tower and no wider than the one below. */
+/**
+ * Share of masses that are gutted rather than standing (GDD §A2 — "old, destroyed, and new ones
+ * side by side"). Kept a minority: past half, the skyline stops reading as a city that lost a war
+ * and starts reading as an abandoned one.
+ */
+export const DERELICT_CHANCE = 0.34;
+
+/**
+ * Chance a storey has power at all, before any individual cell is rolled. ART-BIBLE §5 — "the
+ * lights are half out": an undercity is unevenly powered, so lit windows come in clumped bands
+ * with dark floors between them. Rolling only per-cell gives a uniform sprinkle, which at skyline
+ * scale is exactly the regular curtain-wall grid A2 rejects.
+ */
+const FLOOR_POWERED_CHANCE = { standing: 0.45, derelict: 0.08 } as const;
+
+/**
+ * Roof shear as a signed fraction of the top storey's height — one side of the roof sits that much
+ * lower than the other. ART-BIBLE §5, "no intact roof lines": a flat horizontal top edge is the
+ * chrome-futurism tell, so every mass ends where it broke.
+ */
+const ROOF_SHEAR = { standing: [0.12, 0.4], derelict: [0.4, 0.85] } as const;
+
+/**
+ * Width of an accreted storey relative to the one below it. The range straddles 1.0 on purpose: a
+ * planned tower only ever tapers, and a skyline of pure tapers reads as a zoning code this city
+ * never had. Above 1.0 the storey overhangs the one below (ART-BIBLE §5).
+ */
+const STOREY_WIDTH_RATIO = [0.55, 1.32] as const;
+
+/** Chance a mass has a scrap lean-to piled against its foot — ART-BIBLE §5, "scrap is structure". */
+const LEAN_TO_CHANCE = 0.5;
+
+/** Chance two close-enough neighbours are tied together by a gantry. */
+const GANTRY_CHANCE = 0.45;
+
+/** Widest gap a gantry may span, as a fraction of plane width. Wider than this, nobody bridged it. */
+const MAX_GANTRY_SPAN = 0.05;
+
+/**
+ * One storey of a tower, bottom → top. Unlike a planned tower's setbacks, a storey here may be
+ * *wider* than the one below and sit off its centre — that overhang is the accretion read.
+ */
 interface Segment {
   width: number;
   height: number;
+  /** Centre offset from the tower's own centre. Non-zero storeys lean off true. */
+  dx: number;
+  /** Signed roof shear; only the topmost storey carries one. See {@link ROOF_SHEAR}. */
+  shear: number;
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, value));
+
+/** A signed draw from a magnitude range, e.g. `±[0.4, 0.85]`. */
+const signed = (range: readonly [number, number], rng: () => number): number =>
+  lerp(range[0], range[1], rng()) * (rng() < 0.5 ? -1 : 1);
 
 /** Picks the ramp stop for `depth`, clamped — no interpolation (ART-BIBLE §2.1). */
 export function fillForDepth(fills: readonly string[], depth: number): string {
@@ -170,67 +254,125 @@ export function fillForDepth(fills: readonly string[], depth: number): string {
   return fills[index] as string;
 }
 
-function segmentsFor(profile: BandProfile, width: number, height: number, rng: () => number) {
-  const segments: Segment[] = [{ width, height: height * lerp(0.55, 0.8, rng()) }];
-  if (rng() < profile.setbackChance) {
-    const remaining = height - segments[0]!.height;
-    segments.push({ width: width * lerp(0.55, 0.8, rng()), height: remaining * 0.65 });
-    segments.push({ width: width * lerp(0.3, 0.5, rng()), height: remaining * 0.35 });
+/**
+ * Stacks one accreted storey on `below`.
+ *
+ * Two bounds keep the jury-rigging from becoming a bug:
+ *
+ * - **Consecutive storeys must overlap in x.** `outlineFor` walks one wall up and the other back
+ *   down, so two storeys that do not overlap put the left connector to the right of the right one
+ *   and the polygon self-intersects. `|Δdx| < (w_below + w) / 2` is exactly the overlap condition;
+ *   it is taken at 40% for margin.
+ * - **The stack stays within `sprawl` of the ground storey's footprint** (`reach`), so a band with
+ *   a layout contract — `fore` — cannot lean its way into the middle of the plate.
+ */
+function accretedOnto(
+  below: Segment,
+  width: number,
+  height: number,
+  reach: number,
+  rng: () => number,
+): Segment {
+  const half = Math.min(width, 2 * reach) / 2;
+  const step = 0.4 * (below.width + half * 2) * 0.5;
+  const dx = clamp(below.dx + (rng() * 2 - 1) * step, -(reach - half), reach - half);
+  return { width: half * 2, height, dx, shear: 0 };
+}
+
+function segmentsFor(
+  profile: BandProfile,
+  width: number,
+  height: number,
+  derelict: boolean,
+  rng: () => number,
+): Segment[] {
+  const reach = width * (0.5 + profile.sprawl);
+  const ratio = () => lerp(STOREY_WIDTH_RATIO[0], STOREY_WIDTH_RATIO[1], rng());
+  const stack = (segments: Segment[], storeyHeight: number) => {
+    const below = segments[segments.length - 1]!;
+    segments.push(accretedOnto(below, below.width * ratio(), storeyHeight, reach, rng));
+  };
+
+  const segments: Segment[] = [{ width, height: height * lerp(0.55, 0.8, rng()), dx: 0, shear: 0 }];
+  const remaining = height - segments[0]!.height;
+  if (rng() < profile.stackChance) {
+    stack(segments, remaining * 0.65);
+    stack(segments, remaining * 0.35);
   } else {
-    segments.push({ width, height: height - segments[0]!.height });
+    stack(segments, remaining);
   }
-  if (rng() < profile.spireChance) {
+
+  // A derelict has already lost its aerial; a standing mass may still carry one, leaning off the
+  // storey below it like everything else here.
+  if (!derelict && rng() < profile.spireChance) {
     const top = segments[segments.length - 1]!;
-    segments.push({
-      width: Math.max(1, top.width * 0.12),
-      height: height * lerp(0.08, 0.2, rng()),
-    });
+    segments.push(
+      accretedOnto(top, Math.max(1, top.width * 0.12), height * lerp(0.08, 0.2, rng()), reach, rng),
+    );
   }
+
+  const top = segments[segments.length - 1]!;
+  top.shear = top.height * signed(ROOF_SHEAR[derelict ? 'derelict' : 'standing'], rng);
   return segments;
 }
 
 /**
- * Walks the stepped profile up the left side and back down the right, so setbacks and the mast
- * come out as one closed polygon the painter can fill in a single call.
+ * Walks the stepped profile up the left side and back down the right, so the accreted storeys, the
+ * mast and the sheared roof come out as one closed polygon the painter can fill in a single call.
  */
 function outlineFor(segments: readonly Segment[], centreX: number, baseY: number): Point[] {
   const left: Point[] = [];
   const right: Point[] = [];
   let y = baseY;
   for (const segment of segments) {
+    const centre = centreX + segment.dx;
     const half = segment.width / 2;
-    left.push({ x: centreX - half, y });
-    right.push({ x: centreX + half, y });
+    left.push({ x: centre - half, y });
+    right.push({ x: centre + half, y });
     y -= segment.height;
-    left.push({ x: centreX - half, y });
-    right.push({ x: centreX + half, y });
+    // The roof drops on one side only, so the top edge is a slant, not a level line.
+    left.push({ x: centre - half, y: y + Math.max(0, segment.shear) });
+    right.push({ x: centre + half, y: y + Math.max(0, -segment.shear) });
   }
   return [...left, ...right.reverse()];
 }
 
-/** Façade grid for one segment. Only lit cells survive, so a dark tower costs nothing to draw. */
+/**
+ * Façade grid for one segment. Only lit cells survive, so a dark tower costs nothing to draw.
+ *
+ * Power is rolled per *storey* before any cell is, so the façade comes out in lit bands separated
+ * by dark ones rather than as an even sprinkle across a lattice. Column positions carry a jitter
+ * for the same reason: what makes a curtain wall read as one is the regularity, not the count.
+ */
 function windowsFor(
   segment: Segment,
   centreX: number,
   top: number,
   profile: BandProfile,
   planeHeight: number,
+  poweredChance: number,
   rng: () => number,
 ): WindowCell[] {
   const cell = Math.max(1.5, planeHeight * profile.windowScale);
   const gap = cell * 1.1;
+  // The roof shear cuts into the top storey, so the façade starts below the deepest part of the
+  // cut — otherwise a lit window floats in the sky above a broken roof line.
+  const facadeTop = top + Math.abs(segment.shear);
+  const facadeHeight = segment.height - Math.abs(segment.shear);
   const columns = Math.floor((segment.width - gap) / (cell + gap));
-  const rows = Math.floor((segment.height - gap) / (cell + gap));
+  const rows = Math.floor((facadeHeight - gap) / (cell + gap));
   if (columns < 1 || rows < 1) return [];
 
-  const originX = centreX - ((columns - 1) * (cell + gap)) / 2 - cell / 2;
+  const centre = centreX + segment.dx;
+  const originX = centre - ((columns - 1) * (cell + gap)) / 2 - cell / 2;
   const cells: WindowCell[] = [];
   for (let row = 0; row < rows; row += 1) {
+    if (rng() >= poweredChance) continue;
     for (let column = 0; column < columns; column += 1) {
       if (rng() >= profile.windowChance) continue;
       cells.push({
-        x: originX + column * (cell + gap),
-        y: top + gap + row * (cell + gap),
+        x: originX + column * (cell + gap) + (rng() - 0.5) * gap * 0.8,
+        y: facadeTop + gap + row * (cell + gap),
         w: cell,
         h: cell * 1.35,
         warm: rng() < WINDOW_WARM_CHANCE,
@@ -251,13 +393,15 @@ function towerAt(
   // Nearer towers in a band are taller and wider — the cue that sells depth inside one plane.
   const towerWidth = width * lerp(profile.width[0], profile.width[1], lerp(rng(), depth, 0.5));
   const towerHeight = height * lerp(profile.height[0], profile.height[1], lerp(rng(), depth, 0.5));
-  const segments = segmentsFor(profile, towerWidth, towerHeight, rng);
+  const derelict = rng() < DERELICT_CHANCE;
+  const segments = segmentsFor(profile, towerWidth, towerHeight, derelict, rng);
+  const powered = FLOOR_POWERED_CHANCE[derelict ? 'derelict' : 'standing'];
 
   const windows: WindowCell[] = [];
   let top = height;
   for (const segment of segments) {
     top -= segment.height;
-    windows.push(...windowsFor(segment, centreX, top, profile, height, rng));
+    windows.push(...windowsFor(segment, centreX, top, profile, height, powered, rng));
   }
 
   return {
@@ -265,7 +409,118 @@ function towerAt(
     windows,
     depth,
     fill: fillForDepth(profile.fills, depth),
+    derelict,
   };
+}
+
+/** Horizontal extent of a mass at its base, where it meets the floor. */
+function footprintOf(tower: Tower): { left: number; right: number; top: number } {
+  const xs = tower.outline.map((point) => point.x);
+  return {
+    left: Math.min(...xs),
+    right: Math.max(...xs),
+    top: Math.min(...tower.outline.map((point) => point.y)),
+  };
+}
+
+/**
+ * A scrap shed piled against the foot of a mass — ART-BIBLE §5, "scrap is structure". Its roof
+ * slopes away from the wall it leans on, which is what distinguishes it from just another tower.
+ *
+ * Emitted as a {@link Tower} rather than a special case: it is grounded, closed and filled from the
+ * same ramp stop, so it satisfies every invariant the masses already do and the painter is unchanged.
+ */
+function leanToAgainst(
+  parent: Tower,
+  profile: BandProfile,
+  planeWidth: number,
+  baseY: number,
+  rng: () => number,
+): Tower {
+  const { left, right, top } = footprintOf(parent);
+  const outward = rng() < 0.5 ? -1 : 1;
+  const wallX = outward < 0 ? left : right;
+  // Sized off `sprawl` for the same reason the storeys are: it is the single bound on how far a
+  // mass may spread sideways, and `fore` must not spread at all.
+  const width = planeWidth * profile.sprawl * lerp(0.7, 1, rng()) * lerp(...profile.width, 0.5);
+  const height = (baseY - top) * lerp(0.12, 0.3, rng());
+
+  // Built from the same stacked-storey vocabulary as a mass, so it satisfies the silhouette
+  // invariants rather than needing an exemption: a wide bit on the ground and a narrower one set
+  // back against the wall, roofed by a shear that falls *away* from the wall. That fall is what
+  // reads as a lean-to instead of a small tower.
+  const upperWidth = width * lerp(0.5, 0.8, rng());
+  const upperHeight = height * 0.4;
+  const segments: Segment[] = [
+    { width, height: height - upperHeight, dx: 0, shear: 0 },
+    {
+      width: upperWidth,
+      height: upperHeight,
+      dx: -outward * ((width - upperWidth) / 2),
+      shear: -outward * upperHeight * lerp(0.5, 0.9, rng()),
+    },
+  ];
+
+  return {
+    outline: outlineFor(segments, wallX + (outward * width) / 2, baseY),
+    windows: [],
+    depth: parent.depth,
+    fill: parent.fill,
+    derelict: parent.derelict,
+  };
+}
+
+/**
+ * Ties neighbouring masses together with gantries. Only genuinely adjacent pairs qualify — a strut
+ * across a wide gap is not a catwalk, and on `fore` it would be a bar drawn straight over the
+ * clickable middle of the plate, whose two margins are exactly such a gap.
+ */
+function strutsBetween(
+  towers: readonly Tower[],
+  profile: BandProfile,
+  planeWidth: number,
+  baseY: number,
+  rng: () => number,
+): Strut[] {
+  const struts: Strut[] = [];
+  const ordered = [...towers].sort((a, b) => footprintOf(a).left - footprintOf(b).left);
+  const thickness = Math.max(2, baseY * 0.005);
+  // A gap *between* two spans is there on purpose — on `fore` it is the clickable middle of the
+  // plate. Bounding the span length alone does not protect it: masses jitter and sprawl toward the
+  // boundary, so two of them can close to within a bridgeable distance across it. Requiring the
+  // whole gap to sit inside a single span encodes the layout contract instead of relying on the
+  // draw. Full-span bands are unaffected.
+  const spannable = (from: number, to: number) =>
+    profile.spans.some(([a, b]) => from >= a * planeWidth && to <= b * planeWidth);
+
+  for (let index = 1; index < ordered.length; index += 1) {
+    const near = footprintOf(ordered[index - 1]!);
+    const far = footprintOf(ordered[index]!);
+    const gap = far.left - near.right;
+    if (rng() >= GANTRY_CHANCE) continue;
+    if (gap <= thickness || gap > planeWidth * MAX_GANTRY_SPAN) continue;
+    if (!spannable(near.right, far.left)) continue;
+
+    // Slung below the shorter of the two roofs, so it always has something to hang off at both
+    // ends. Clamped clear of the floor: the shorter mass may be a knee-high scrap shed, and a
+    // gantry hung off that would otherwise cross the horizon line it is supposed to sit above.
+    const lowestRoof = Math.max(near.top, far.top);
+    const y = Math.min(lerp(baseY, lowestRoof, lerp(0.35, 0.85, rng())), baseY - thickness);
+    if (y <= lowestRoof) continue;
+    struts.push({
+      outline: [
+        { x: near.right, y },
+        { x: far.left, y },
+        { x: far.left, y: y + thickness },
+        { x: near.right, y: y + thickness },
+      ],
+      // The nearer mass's stop, so the bridge never reads lighter than what it is attached to.
+      fill: (ordered[index - 1]!.depth > ordered[index]!.depth
+        ? ordered[index - 1]
+        : ordered[index])!.fill,
+    });
+  }
+  return struts;
 }
 
 /**
@@ -300,11 +555,26 @@ export function generateSkyline(
   const profile = BAND_PROFILES[band];
   const rng = mulberry32(seed);
 
-  const towers = centresFor(profile, width, rng)
-    .map((centreX) => towerAt(centreX, rng(), profile, width, height, rng))
-    .sort((a, b) => a.depth - b.depth);
+  const masses: Tower[] = [];
+  for (const centreX of centresFor(profile, width, rng)) {
+    const tower = towerAt(centreX, rng(), profile, width, height, rng);
+    masses.push(tower);
+    // A shed carries its parent's depth, so the stable sort below leaves it painted directly on
+    // top of the mass it leans against rather than behind some unrelated neighbour.
+    if (rng() < LEAN_TO_CHANCE) {
+      masses.push(leanToAgainst(tower, profile, width, height, rng));
+    }
+  }
 
-  return { band, width, height, towers };
+  const towers = masses.sort((a, b) => a.depth - b.depth);
+  // Gantries are strung last, so they can tie sheds and masses alike and are painted over both.
+  return {
+    band,
+    width,
+    height,
+    towers,
+    struts: strutsBetween(towers, profile, width, height, rng),
+  };
 }
 
 /** Window emissive colours — ART-BIBLE §3.3, warm sodium interiors against the cold key. */

@@ -20,16 +20,22 @@ checklist is rejected regardless of how good it looks.
 ```
 Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache
 brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never
-vector-flat. Cyberpunk-dystopian, lived-in and decaying. Split lighting: cold cyan key light
-(#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40
-percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and
-ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog
-(#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of
-the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at
-the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail
-concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows
-wear, repair or decay. Emissives painted at their own hue rather than white-hot. Cinematic, moody,
-beautiful and quietly haunting.
+vector-flat. A Zaun-like undercity: cyberpunk machinery bolted onto a broken-down post-war
+society, never a clean future. Scrap and salvage are the building material — corrugated iron,
+patched brick, mismatched timber, cannibalised plating, jury-rigged pipework and cabling slung
+between structures nobody planned. Old, wrecked and newly-bolted-on machines stand side by side;
+nothing matches, nothing is finished, much of it is still broken. Split lighting: cold cyan key
+light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right
+at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in
+slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and
+drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along
+40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found
+edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush
+economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere.
+Every surface shows wear, repair or decay; rust, soot, water-staining and improvised patching are
+the default finish and polished chrome is not. Emissives painted at their own hue rather than
+white-hot — sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections
+gone dark. Cinematic, moody, beautiful and quietly haunting.
 ```
 
 ### 0.2 NEGATIVE — apply to every prompt
@@ -43,6 +49,8 @@ oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom bake
 lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay,
 pure black #000000, pure white #ffffff, blown highlights, crushed blacks,
 symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza,
+clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers,
+utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city,
 flat even lighting, single neutral light source, grey shadows,
 uniform detail, busy cluttered composition without focal point, three equal masses,
 extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres

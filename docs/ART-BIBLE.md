@@ -4,8 +4,9 @@
 satisfy this document. If an asset and this document disagree, the asset is wrong.
 
 Target register: **Arcane-esque** — hand-painted, sitting between cartoony and photoreal — applied
-to a **cyberpunk-dystopian city interior**. Beautiful, occasionally haunting. Never sterile, never
-neon-soup, never "vector flat".
+to a **Zaun-like undercity**: cyberpunk technology bolted onto a broken-down, post-war society
+(GDD §A2). Beautiful, occasionally haunting. Never sterile, never neon-soup, never "vector flat",
+and never clean chrome-and-neon futurism — that register is the thing we are not.
 
 Companion docs: [`adr/0001-graphics-stack.md`](adr/0001-graphics-stack.md) (how it renders),
 [`ART-PROMPTS.md`](ART-PROMPTS.md) (how it gets made).
@@ -23,8 +24,11 @@ Everything below is elaboration. If you remember nothing else:
    loot, and story beats. ≤15% of any canvas may exceed 60% saturation.
 4. **Edges carry the paint.** Lost-and-found edges. A uniformly crisp asset reads as vector; a
    uniformly soft one reads as mush.
-5. **The city is inhabited and it is failing.** Every surface shows use, repair, or decay. Nothing
-   is factory-new. Nothing is symmetrical by accident.
+5. **The city is scrap, and it lost the war.** Nothing was planned; everything was salvaged,
+   jury-rigged and bolted onto something older. Old, wrecked and newly-built stand side by side in
+   the same frame — a working machine next to the gutted one it was cannibalised from. Every
+   surface shows use, repair or decay; nothing is factory-new, nothing is symmetrical by accident,
+   and nothing is finished.
 
 ---
 
@@ -146,6 +150,20 @@ The signature of the look. Rules:
   skybridge, a pipe. Perfectly contained rectangles read as stock art.
 - **Verticality is the city's character.** Prefer tall, stacked, overhung, accreted. The city grew
   by accretion, not by plan.
+- **No intact roof lines.** A flat horizontal top edge is the chrome-futurism tell. Roofs sag,
+  slump, shear off or are missing outright; the top of a mass is where it broke, not where it was
+  finished.
+- **Accretion steps out, not just in.** A planned tower tapers as it rises. This city does the
+  opposite as often as not — added storeys overhang the ones below, lean off true, and cantilever
+  on props. Uniform inward setbacks read as a zoning code nobody here ever had.
+- **Scrap is structure.** Lean-tos, shanty add-ons and shacks pile against the base of every large
+  mass; gantries, catwalks and slung cable bridges tie masses together at random heights. These are
+  not decoration — they are half the silhouette.
+- **Old and new in the same frame (GDD §A2).** Some masses stand; others are gutted, collapsed or
+  burnt out. Never a skyline of equally-healthy buildings — the contrast between the two is what
+  says "post-war" rather than "grimy".
+- **The lights are half out.** An undercity is unevenly powered: whole floors and whole blocks dark,
+  a few windows blazing, no continuous regular grid of lit panels anywhere.
 - **Human scale markers are mandatory** in every environment asset: a door, a walkway, a figure, a
   vehicle. Without one, scale collapses and the image reads as a model kit.
 
@@ -385,6 +403,8 @@ Reject any asset that trips one of these. This list is the review gate.
 - [ ] Pure `#000000` or `#ffffff` present in the file.
 - [ ] Uniform edge treatment — everything crisp, or everything soft.
 - [ ] Silhouette fails the 25%-scale black-fill read, or is confusable with a sibling asset.
+- [ ] Clean chrome-and-neon futurism: intact flat roof lines, uniform curtain-wall façades, regular
+      grids of lit windows, or a skyline where every mass is equally healthy (§1.5, §5).
 - [ ] No human-scale marker in an environment asset.
 - [ ] Text baked into the image.
 - [ ] Wrong aspect ratio or resolution for its class (§6).

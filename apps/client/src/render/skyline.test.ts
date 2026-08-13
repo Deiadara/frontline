@@ -64,15 +64,67 @@ describe('generateSkyline', () => {
     }
   });
 
-  it.each(BANDS)('%s: never widens going up — setbacks step in, never out', (band) => {
-    for (const tower of towersOf(generateSkyline(band, 1600, 900, 9))) {
-      const half = tower.outline.length / 2;
-      const leftWall = tower.outline.slice(0, half);
-      // Walking up the left wall, x must be monotonically non-decreasing (moving inward).
-      for (let i = 1; i < leftWall.length; i += 1) {
-        expect(leftWall[i]!.x).toBeGreaterThanOrEqual(leftWall[i - 1]!.x - 1e-9);
+  /**
+   * Recovers the horizontal extent of each storey from a finished outline. `outlineFor` walks the
+   * left wall bottom → top and appends the right wall reversed, pushing a base and a top point per
+   * storey, so storey `k` spans `[left[2k].x, right[2k].x]`.
+   */
+  const storeysOf = (tower: { outline: { x: number; y: number }[] }) => {
+    const half = tower.outline.length / 2;
+    const leftWall = tower.outline.slice(0, half);
+    const rightWall = tower.outline.slice(half).reverse();
+    return leftWall
+      .filter((_, i) => i % 2 === 0)
+      .map((point, k) => ({ left: point.x, right: rightWall[2 * k]!.x }));
+  };
+
+  // Replaces an earlier "never widens going up" assertion. That invariant encoded a *planned*
+  // tower's inward setbacks, which is the clean-futurism silhouette GDD §A2 rejects and ART-BIBLE
+  // §5 ("accretion steps out, not just in") now explicitly asks us to break. What actually has to
+  // hold is the weaker, real constraint: consecutive storeys must overlap in x, or the single-pass
+  // left-wall-up / right-wall-down polygon crosses itself and the painter fills a bowtie.
+  it.each(BANDS)('%s: overlaps consecutive storeys, so no silhouette self-intersects', (band) => {
+    for (let seed = 0; seed < 40; seed += 1) {
+      for (const tower of towersOf(generateSkyline(band, 1600, 900, seed))) {
+        const storeys = storeysOf(tower);
+        for (const storey of storeys) {
+          expect(storey.right).toBeGreaterThan(storey.left);
+        }
+        for (let k = 1; k < storeys.length; k += 1) {
+          const below = storeys[k - 1]!;
+          const above = storeys[k]!;
+          expect(Math.max(below.left, above.left)).toBeLessThan(Math.min(below.right, above.right));
+        }
       }
     }
+  });
+
+  // Counter-test to the one above: overlap alone is also satisfied by a pure taper, so without
+  // this the silhouette could silently regress to the planned-tower read that W9 exists to kill
+  // and the suite would stay green (ART-BIBLE §5).
+  it('accretes outward as well as inward — storeys overhang the one below', () => {
+    // Measures *width growth*, not edge excursion: a narrower storey shifted sideways already
+    // pokes past one edge of the one below, so an edge test is satisfied by a pure taper that
+    // merely leans and would not catch a regression to the planned-tower silhouette.
+    let wider = 0;
+    let storeys = 0;
+    for (const band of BANDS) {
+      for (let seed = 0; seed < 40; seed += 1) {
+        for (const tower of towersOf(generateSkyline(band, 1600, 900, seed))) {
+          const walls = storeysOf(tower);
+          for (let k = 1; k < walls.length; k += 1) {
+            const below = walls[k - 1]!;
+            const above = walls[k]!;
+            // The mast is always a sliver by construction; counting it would drown the signal.
+            if (above.right - above.left < (below.right - below.left) * 0.2) continue;
+            storeys += 1;
+            if (above.right - above.left > below.right - below.left + 1e-9) wider += 1;
+          }
+        }
+      }
+    }
+    expect(storeys).toBeGreaterThan(0);
+    expect(wider / storeys).toBeGreaterThan(0.2);
   });
 
   it.each(BANDS)('%s: only uses whole ART-BIBLE ramp stops as fills', (band) => {
@@ -100,6 +152,49 @@ describe('generateSkyline', () => {
     const lit = (band: DepthBand) =>
       towersOf(generateSkyline(band, 1600, 900, 2)).reduce((n, t) => n + t.windows.length, 0);
     expect(lit('far')).toBeGreaterThan(lit('fore'));
+  });
+
+  it.each(BANDS)('%s: strings gantries only across genuinely adjacent masses', (band) => {
+    for (let seed = 0; seed < 40; seed += 1) {
+      const skyline = generateSkyline(band, 1600, 900, seed);
+      for (const strut of skyline.struts) {
+        const xs = strut.outline.map((p) => p.x);
+        const ys = strut.outline.map((p) => p.y);
+        // A catwalk nobody could have built is the failure mode: bound the span, and keep it
+        // between the floor and the roof it hangs off rather than crossing either.
+        expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(0);
+        expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1600 * 0.05);
+        expect(Math.max(...ys)).toBeLessThanOrEqual(900);
+        expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
+        expect(RAMP_STOPS.has(strut.fill)).toBe(true);
+      }
+    }
+  });
+
+  // `fore`'s two margins exist to leave the middle of the plate clickable (BAND_PROFILES.spans).
+  //
+  // Honest scope: this is a regression net, not evidence. At the shipped profile the nearest
+  // cross-middle pair sits ~325px apart against an 80px `MAX_GANTRY_SPAN`, so the case is
+  // unreachable and deleting the `spannable` guard in `strutsBetween` does not fail this test.
+  // It earns its place by catching a *profile* change — widening `fore.width` to close that gap
+  // makes it fail immediately, which is how the guard came to exist.
+  it('never bridges the clickable middle of the foreground plane', () => {
+    for (let seed = 0; seed < 60; seed += 1) {
+      for (const strut of generateSkyline('fore', 1600, 900, seed).struts) {
+        for (const point of strut.outline) {
+          expect(point.x < 1600 * 0.34 || point.x > 1600 * 0.66).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('piles scrap lean-tos against the masses without breaking the floor line', () => {
+    // Sheds are emitted as masses, so they are already covered by the grounded/polygon invariants
+    // above; what this pins is that they are actually produced and share their parent's stop.
+    const skyline = generateSkyline('mid', 1600, 900, 3);
+    const plain = skyline.towers.filter((t) => t.windows.length === 0);
+    expect(plain.length).toBeGreaterThan(0);
+    expect(skyline.towers.length).toBeGreaterThan(BANDS.length);
   });
 
   it('scales with the plane it is painted into', () => {

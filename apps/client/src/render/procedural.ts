@@ -125,6 +125,10 @@ function paintTowers(skyline: Skyline): Container {
       (cell.warm ? warm : cold).rect(cell.x, cell.y, cell.w, cell.h);
     }
   }
+  // Gantries last, so a catwalk reads as strung in front of the masses it ties together.
+  for (const strut of skyline.struts) {
+    masses.poly(strut.outline).fill(hex(strut.fill));
+  }
   warm.fill({ color: hex(WINDOW_FILLS.warm), alpha: 0.85 });
   cold.fill({ color: hex(WINDOW_FILLS.cold), alpha: 0.7 });
 
