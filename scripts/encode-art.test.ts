@@ -26,6 +26,7 @@ import {
   encodeDelivery,
   keyBackground,
   main,
+  opaqueContractBreach,
   paintedReport,
   paintedSplit,
   parseArgs,
@@ -1094,7 +1095,9 @@ describe('delivery audit', () => {
       const problems = await auditWith({ [SKY.file]: veil });
 
       expect(problems.map((p) => p.key)).toEqual([SKY.key]);
-      expect(problems[0]?.problem).toContain('1600 of 1600 pixels are not opaque (100.0% of the frame)');
+      expect(problems[0]?.problem).toContain(
+        '1600 of 1600 pixels are not opaque (100.0% of the frame)',
+      );
     });
 
     it('audits the @2x slot against its 1× contract, as the floor does', async () => {
@@ -1123,6 +1126,52 @@ describe('delivery audit', () => {
       // The ceiling must not collide with the floor: `plane-city-fore` is required to be mostly
       // transparent, so a check keyed on the wrong side of `spec.alpha` would fire on correct art.
       expect(await auditWith({ [FORE_PLANE.file]: await planeDelivery(30) })).toEqual([]);
+    });
+
+    /**
+     * Both routes enforce this ceiling, and until `opaqueContractBreach` sat under both, one doc
+     * comment was the only thing holding them to a single value — the encode route could have
+     * drifted off the audit route with every test still green (MOU-402).
+     */
+    describe('the gate both routes share', () => {
+      it('is silent on a key that declares alpha, however transparent', async () => {
+        const clear = await decodeMaster(await master(8, 8, () => CLEAR));
+
+        // Stated first: without this the null below could mean "found nothing", not "not governed".
+        expect(transparencyOf(clear)).toBe(1);
+        expect(opaqueContractBreach(clear, FORE_PLANE)).toBeNull();
+      });
+
+      it('counts one bare pixel on an opaque key, and returns null when there are none', async () => {
+        const opaque = await decodeMaster(await master(8, 8, () => SUBJECT));
+        expect(opaqueContractBreach(opaque, SKY)).toBeNull();
+
+        const cracked = await decodeMaster(
+          await master(8, 8, (x, y) => (x === 0 && y === 0 ? CLEAR : SUBJECT)),
+        );
+        expect(opaqueContractBreach(cracked, SKY)).toBe(1);
+      });
+
+      it('sends the board to the opacity contract, not the copyright section', async () => {
+        // `ADR 0001 §6.4` is "Ownership of the output" — an AI-copyright note that says nothing
+        // about flattening. This message is the one the board actually reads: it reaches stderr
+        // through `contact-sheet`, which `assets/README.md` names as the step to run after a drop,
+        // and lines 38-50 of that file state the very contract this delivery broke.
+        const audited = await auditWith({ [SKY.file]: await withClearPixels(1) });
+        expect(audited[0]?.problem).toContain('assets/README.md');
+        expect(audited[0]?.problem).not.toContain('§6.4');
+
+        // The encode route names the same remedy, so the board reads one answer down either path.
+        const bytes = await master(1024, 1024, (x, y) => [
+          240,
+          200,
+          120,
+          x === 0 && y === 0 ? 0 : 255,
+        ]);
+        const error = await rejection(encodeAsset(bytes, DISTRICT));
+        expect(error.message).toContain('assets/README.md');
+        expect(error.message).not.toContain('§6.4');
+      });
     });
   });
 });

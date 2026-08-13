@@ -773,13 +773,14 @@ function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: numbe
       `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ${percent(spec.minTransparency)} — re-key with a wider --matte-tolerance or hand-matte the master`,
     );
   }
-  if (!spec.alpha && transparency > 0) {
-    const bare = nonOpaquePixels(image);
+  const bare = opaqueContractBreach(image, spec);
+  if (bare !== null) {
     problems.push(
       `the master carries alpha on ${bare} px ` +
         `(${percent(bare / (image.width * image.height))} of the frame) but this key delivers ` +
         `none — removeAlpha() drops the band without compositing, so whatever RGB sits under it ` +
-        `ships as artwork. Flatten the master onto its intended background first (ADR 0001 §6.4)`,
+        `ships as artwork. Flatten the master onto its intended background first ` +
+        `(assets/README.md)`,
     );
   }
   return problems;
@@ -903,9 +904,9 @@ export async function auditDeliveries(
       });
     }
 
-    if (!spec.alpha && transparency > 0) {
-      // Led by the pixel count: a one-pixel hole and a hairline crack both print as `0.0%`.
-      const bare = nonOpaquePixels(image);
+    // Led by the pixel count: a one-pixel hole and a hairline crack both print as `0.0%`.
+    const bare = opaqueContractBreach(image, spec);
+    if (bare !== null) {
       problems.push({
         file,
         key: spec.key,
@@ -914,7 +915,7 @@ export async function auditDeliveries(
           `(${percent(bare / (image.width * image.height))} of the frame) but "${spec.key}" ` +
           `delivers no alpha — this file ships as it is, so ` +
           `whatever it does not cover is the page showing through. Flatten it onto its intended ` +
-          `background (ADR 0001 §6.4)`,
+          `background (assets/README.md)`,
       });
     }
   }
