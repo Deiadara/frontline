@@ -18,6 +18,9 @@ interface Size {
 const VIEWPORTS: readonly Size[] = [
   { width: 1024, height: 768 },
   { width: 1280, height: 720 },
+  // MOU-188 was reported here, so the screenshot the board looks at has to be regenerated, not
+  // measured once by hand and thrown away.
+  { width: 1280, height: 800 },
   { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
 ];
@@ -254,4 +257,37 @@ test('the vertical clipping guard rejects a bisected card row', async ({ page })
   });
 
   await expect(expectNothingClippedVertically(page)).rejects.toThrow(/sliced by a clipping edge/);
+});
+
+/*
+ * MOU-197: no geometry gate may depend on a third-party fetch.
+ *
+ * The webfonts used to be a runtime `<link>` to fonts.googleapis.com, which failed about 1 load
+ * in 8 and took the whole visual matrix down with it — training everyone to re-run until green,
+ * which is the same habit that lets a real regression through. It was a product defect too: a
+ * player on a bad connection got fallback metrics that no gate has ever measured.
+ *
+ * Every off-origin request is aborted, so re-introducing a hosted stylesheet fails here twice
+ * over: the request is reported by name, and `settleFonts` refuses to measure a screen whose
+ * display face never loaded.
+ */
+test('typography survives with every third-party origin unreachable', async ({ page }) => {
+  const LOCAL = new Set(['localhost', '127.0.0.1']);
+  const offOrigin: string[] = [];
+
+  // Registered before `installApi` so the narrower `**/api/**` handler still wins: Playwright
+  // matches routes in reverse registration order.
+  await page.route('**/*', (route) => {
+    const { hostname } = new URL(route.request().url());
+    if (LOCAL.has(hostname)) return route.continue();
+    offOrigin.push(route.request().url());
+    return route.abort('failed');
+  });
+
+  await installApi(page, meNoOverseer);
+  await page.goto('/overseer');
+  await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
+  await settleFonts(page);
+
+  expect(offOrigin, `the client fetched third-party assets: ${offOrigin.join(' | ')}`).toEqual([]);
 });
