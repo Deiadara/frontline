@@ -233,6 +233,28 @@ describe('§H5 — the alignment meter', () => {
     expect(topBonus).toBe(5);
     for (let bonus = 0; bonus <= topBonus; bonus++) expect(bonuses).toContain(bonus);
   });
+
+  it('pays a durable bonus only where both halves of §H4 approve', () => {
+    // Entered at every step (above) and *rested* at only two: `alignmentTarget(1)` is exactly
+    // ALIGNMENT_BONUS_THRESHOLD, so a stance +1 officer settles on the first alignment that pays
+    // nothing and stays there. That is the decision, not an accident of the constants — asserted
+    // across the stance range so that moving either constant has to come back through it.
+    for (let stance = STANCE_MIN; stance < STANCE_MAX; stance++) {
+      expect(alignmentSkillBonus(alignmentTarget(stance))).toBe(0);
+    }
+    expect(alignmentSkillBonus(alignmentTarget(STANCE_MAX))).toBeGreaterThan(0);
+    // What +1 buys instead: the band the Bar prints against their name.
+    expect(alignmentBand(alignmentTarget(1))).toBe('settled');
+    expect(alignmentBand(alignmentTarget(0))).toBe('unsettled');
+
+    // And the 1..4 steps are the decay ramp that makes losing a +2 word cost a week rather than
+    // five attribute points on the spot.
+    const day = 24 * 60 * 60 * 1000;
+    const descending = (days: number) =>
+      alignmentSkillBonus(settleAlignment(ALIGNMENT_MAX, alignmentTarget(1), days * day));
+    expect(descending(6)).toBeGreaterThan(0);
+    expect(descending(7)).toBe(0);
+  });
 });
 
 describe('§H6/§H6a — the character level', () => {

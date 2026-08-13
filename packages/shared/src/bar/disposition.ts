@@ -176,7 +176,24 @@ export const AlignmentSchema = z.number().min(ALIGNMENT_MIN).max(ALIGNMENT_MAX);
 
 /** §H5 — at or below this they threaten to leave. */
 export const ALIGNMENT_LEAVE_THRESHOLD = 20;
-/** §H5 — at or above this they start earning skill bonuses. */
+/**
+ * §H5 — at or above this they start earning skill bonuses.
+ *
+ * Deliberately equal to `alignmentTarget(1)`, so a stance `+1` officer settles on exactly the
+ * first alignment that pays nothing and earns `+0` forever — not `+0` for the first few months.
+ * That is the intended reading of §H4: the durable bonus is what it buys to have *both* halves of
+ * a character approve of your reputation word, and only `+2` rests above the threshold. What `+1`
+ * buys is the promotion to the `settled` band, which is what the Bar shows against their name.
+ *
+ * The `1`..`4` steps of the scale are a decay ramp rather than resting tiers — every live target
+ * is a multiple of `ALIGNMENT_PER_STANCE` — so an officer who was `+2` and whose word turns to a
+ * `+1` keeps a shrinking bonus for six days instead of losing five attribute points the moment
+ * the street's opinion moves. The tests pin both the ramp and the `+1` officer's zero.
+ *
+ * Paying `+1` at that resting point is not the one-constant change it looks like: at
+ * `ALIGNMENT_POINTS_PER_BONUS` of `5` no threshold both pays at `75` (needs `<= 70`) and caps at
+ * `+5` at `100` (needs `> 70`), and moving this constant also moves the `settled` band cut.
+ */
 export const ALIGNMENT_BONUS_THRESHOLD = 75;
 
 export const ALIGNMENT_BANDS = ['leaving', 'unsettled', 'settled', 'devoted'] as const;
