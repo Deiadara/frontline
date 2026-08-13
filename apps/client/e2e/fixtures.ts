@@ -1,10 +1,12 @@
 import {
   addResources,
   CITY_DISTRICTS,
+  findMissionTemplate,
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
   startingEconomy,
   startingProgression,
+  templateTimings,
   type AuthResponse,
   type Base,
   type BaseDetailResponse,
@@ -12,7 +14,10 @@ import {
   type CityResponse,
   type CreateOverseerResponse,
   type MeResponse,
+  type Mission,
+  type MissionsResponse,
   type Overseer,
+  type PartialResources,
   type User,
 } from '@frontline/shared';
 
@@ -116,3 +121,73 @@ export const battle: BattleResponse = {
 
 export const createOverseerResponse: CreateOverseerResponse = { user, overseer, base };
 export const authResponse: AuthResponse = { token: TOKEN, user };
+
+/**
+ * The missions page at its widest (GDD §E3).
+ *
+ * Deliberately the fat case, not the starting one: every crew slot filled, the longest mission on
+ * the board only just launched — so its countdown reads `25:5x:xx`, the widest string the timer
+ * column can ever hold — and a returned mission paying all five resources at once, which is the
+ * longest reward line that can render. The starting state of this page is an empty list, and an
+ * empty list has never caught a layout bug.
+ *
+ * Built against a live `now` because the countdowns are relative; the widths do not depend on
+ * which second the screenshot lands on.
+ */
+export function missionsResponse(now: Date = new Date()): MissionsResponse {
+  const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString();
+
+  const inFlight = (id: string, templateId: string, startedMinutesAgo: number): Mission => {
+    const template = findMissionTemplate(templateId);
+    if (!template) throw new Error(`unknown mission template: ${templateId}`);
+    const { travelMinutes, durationMinutes } = templateTimings(template);
+    return {
+      id,
+      baseId: base.id,
+      templateId,
+      startedAt: minutesAgo(startedMinutesAgo),
+      travelMinutes,
+      durationMinutes,
+      status: 'active',
+      outcome: null,
+      rewards: {},
+      resolvedAt: null,
+    };
+  };
+
+  const returned = (
+    id: string,
+    templateId: string,
+    outcome: 'success' | 'failure',
+    rewards: PartialResources,
+  ): Mission => ({
+    ...inFlight(id, templateId, 5_000),
+    status: 'resolved',
+    outcome,
+    rewards,
+    resolvedAt: minutesAgo(60),
+  });
+
+  return {
+    missions: [
+      // One minute in on a day-long run: the longest countdown this page can show.
+      inFlight('m-1', 'deep-expedition', 1),
+      inFlight('m-2', 'refinery-assault', 90),
+      inFlight('m-3', 'courier-contract', 40),
+      inFlight('m-4', 'scrap-run', 6),
+      returned('m-5', 'deep-expedition', 'success', {
+        caps: 268,
+        food: 268,
+        oil: 201,
+        scrap: 335,
+        highQualityMetal: 40,
+      }),
+      returned('m-6', 'foundry-raid', 'failure', {}),
+      returned('m-7', 'convoy-ambush', 'success', { caps: 52, oil: 35 }),
+    ],
+    justResolved: [],
+    resources: lateGameBase.resources,
+    activeLimit: 4,
+    serverNow: now.toISOString(),
+  };
+}

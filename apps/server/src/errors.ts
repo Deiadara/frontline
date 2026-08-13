@@ -12,6 +12,7 @@ export type ErrorCode =
   | 'UNKNOWN_PRESET'
   | 'NO_BASE'
   | 'INVALID_TARGET'
+  | 'MISSIONS_AT_CAPACITY'
   | 'INTERNAL';
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
@@ -25,6 +26,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   UNKNOWN_PRESET: 400,
   NO_BASE: 409,
   INVALID_TARGET: 400,
+  MISSIONS_AT_CAPACITY: 409,
   INTERNAL: 500,
 };
 

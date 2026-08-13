@@ -1,0 +1,312 @@
+import {
+  MISSION_TEMPLATES,
+  findMissionTemplate,
+  formatCountdown,
+  formatDuration,
+  missionPhaseAt,
+  missionProgressAt,
+  missionRemainingMs,
+  missionRewards,
+  templateTimings,
+  type Mission,
+  type MissionKind,
+  type MissionPhase,
+  type MissionTemplate,
+} from '@frontline/shared';
+import { RewardLine } from '../../components/Resources';
+import { Button } from '../../components/ui/Button';
+import { Panel } from '../../components/ui/Panel';
+import { cn } from '../../lib/cn';
+import { useLaunchMission, useMissions } from '../../lib/queries';
+import { useServerClock } from './useServerClock';
+
+const KIND_LABEL: Record<MissionKind, string> = {
+  standard: 'Standard',
+  battle: 'Battle',
+};
+
+/** Battles read hot, standard work reads cool — the §E5 risk difference at a glance. */
+const KIND_STYLE: Record<MissionKind, string> = {
+  standard: 'border-neon-cyan/50 text-neon-cyan',
+  battle: 'border-neon-magenta/50 text-neon-magenta',
+};
+
+const PHASE_LABEL: Record<MissionPhase, string> = {
+  outbound: 'Outbound',
+  onSite: 'On site',
+  returning: 'Returning',
+  returned: 'At the gate',
+};
+
+function Tag({ label, className }: { label: string; className?: string }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center border border-steel-700 px-2 py-1 font-display text-[9px] uppercase tracking-[0.18em] text-steel-400',
+        className,
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * §E4 — travel and mission time are shown as two separate figures, never rolled into one, with
+ * the §E8 total spelled out underneath so the player can see where it came from.
+ */
+function TimingBreakdown({ template }: { template: MissionTemplate }) {
+  const { travelMinutes, durationMinutes, totalMinutes } = templateTimings(template);
+  return (
+    <dl className="grid grid-cols-2 gap-px border border-steel-800 bg-steel-800">
+      <TimingCell label="Travel" value={formatDuration(travelMinutes)} hint="each way, ×2" />
+      <TimingCell label="On site" value={formatDuration(durationMinutes)} hint="the mission" />
+      <div className="col-span-2 flex items-baseline justify-between gap-3 bg-night px-2.5 py-2">
+        <dt className="font-display text-[9px] uppercase tracking-[0.16em] text-steel-500">
+          Total round trip
+        </dt>
+        <dd className="font-display text-sm font-semibold tabular-nums text-neon-cyan">
+          {formatDuration(totalMinutes)}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+/**
+ * Nothing here truncates. These cells are the narrowest text on the page and the copy is fixed,
+ * so a clipped label would be a permanent defect rather than a fat-content edge case — the
+ * §E4 figures wrap instead.
+ */
+function TimingCell({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 bg-night px-2.5 py-2">
+      <dt className="font-display text-[9px] uppercase tracking-[0.16em] text-steel-500">
+        {label}
+      </dt>
+      <dd className="font-display text-sm font-semibold tabular-nums text-steel-200">{value}</dd>
+      <dd className="font-display text-[9px] uppercase tracking-[0.14em] text-steel-600">{hint}</dd>
+    </div>
+  );
+}
+
+interface MissionCardProps {
+  template: MissionTemplate;
+  disabled: boolean;
+  pending: boolean;
+  onLaunch: (templateId: string) => void;
+}
+
+/** One entry on the board — the pre-commit screen for a single mission (§E4). */
+function MissionCard({ template, disabled, pending, onLaunch }: MissionCardProps) {
+  return (
+    <article className="flex min-w-0 flex-col gap-3 border border-steel-800 bg-night p-4">
+      <header className="flex min-w-0 items-start justify-between gap-3">
+        <h3 className="min-w-0 break-words font-display text-sm font-semibold uppercase tracking-[0.14em] text-steel-100">
+          {template.name}
+        </h3>
+        <Tag label={KIND_LABEL[template.kind]} className={KIND_STYLE[template.kind]} />
+      </header>
+
+      <p className="min-w-0 break-words text-xs leading-relaxed text-steel-400">{template.brief}</p>
+
+      <TimingBreakdown template={template} />
+
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
+          Expected haul
+        </span>
+        <RewardLine rewards={missionRewards(template, 'success')} />
+      </div>
+
+      <footer className="mt-auto flex items-center justify-between gap-3 pt-1">
+        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-steel-500">
+          Success{' '}
+          <span className="tabular-nums text-steel-300">
+            {Math.round(template.successChance * 100)}%
+          </span>
+        </span>
+        <Button
+          size="sm"
+          variant={template.kind === 'battle' ? 'danger' : 'primary'}
+          disabled={disabled || pending}
+          onClick={() => onLaunch(template.id)}
+        >
+          {pending ? 'Sending…' : 'Deploy'}
+        </Button>
+      </footer>
+    </article>
+  );
+}
+
+/** One crew currently away, with its live countdown (§E3). */
+function InFlightRow({ mission, now }: { mission: Mission; now: Date }) {
+  const template = findMissionTemplate(mission.templateId);
+  const phase = missionPhaseAt(mission, now);
+  const progress = missionProgressAt(mission, now);
+  const remaining = missionRemainingMs(mission, now);
+  const done = remaining === 0;
+
+  return (
+    <li className="flex min-w-0 flex-col gap-2 px-4 py-3">
+      <div className="flex min-w-0 items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-steel-100">
+          {template?.name ?? mission.templateId}
+        </span>
+        <span
+          className={cn(
+            'shrink-0 font-display text-base font-semibold tabular-nums',
+            done ? 'text-bile-300' : 'text-neon-cyan',
+          )}
+        >
+          {done ? 'READY' : formatCountdown(remaining)}
+        </span>
+      </div>
+
+      <div className="h-1 w-full overflow-hidden bg-steel-800">
+        <div
+          className={cn(
+            'h-full transition-[width] duration-1000 ease-linear',
+            done ? 'bg-bile-300' : 'bg-neon-cyan',
+          )}
+          style={{ width: `${Math.round(progress * 100)}%` }}
+        />
+      </div>
+
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <span className="truncate font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
+          {PHASE_LABEL[phase]}
+        </span>
+        <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.16em] text-steel-600">
+          {formatDuration(2 * mission.travelMinutes + mission.durationMinutes)} round trip
+        </span>
+      </div>
+    </li>
+  );
+}
+
+/** A crew that has come home, with what it actually banked. */
+function ReturnedRow({ mission }: { mission: Mission }) {
+  const template = findMissionTemplate(mission.templateId);
+  const failed = mission.outcome === 'failure';
+  return (
+    <li className="flex min-w-0 flex-col gap-1.5 px-4 py-3">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-steel-200">
+          {template?.name ?? mission.templateId}
+        </span>
+        <Tag
+          label={failed ? 'Lost' : 'Success'}
+          className={
+            failed ? 'border-neon-magenta/50 text-neon-magenta' : 'border-bile-300/50 text-bile-300'
+          }
+        />
+      </div>
+      <RewardLine rewards={mission.rewards} />
+    </li>
+  );
+}
+
+function EmptyRow({ text }: { text: string }) {
+  return (
+    <p className="px-4 py-6 text-center font-display text-[10px] uppercase tracking-[0.2em] text-steel-600">
+      {text}
+    </p>
+  );
+}
+
+/**
+ * The dedicated missions page (GDD §E3) — every crew that is away with its timer, the board they
+ * were sent from (§E4), and what the last few brought back.
+ */
+export function MissionsPage() {
+  const missionsQuery = useMissions();
+  const launch = useLaunchMission();
+
+  const data = missionsQuery.data;
+  const now = useServerClock(data?.serverNow, missionsQuery.dataUpdatedAt);
+
+  const missions = data?.missions ?? [];
+  const active = missions.filter((mission) => mission.status === 'active');
+  const returned = missions.filter((mission) => mission.status === 'resolved').slice(0, 6);
+  const limit = data?.activeLimit ?? 0;
+  const atCapacity = limit > 0 && active.length >= limit;
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="mx-auto flex max-w-5xl flex-col gap-5">
+        <header>
+          <p className="font-display text-[10px] tracking-[0.4em] text-neon-cyan/70">
+            // OPERATIONS //
+          </p>
+          <h1 className="text-glow-cyan mt-1 font-display text-2xl font-bold tracking-[0.15em] text-steel-100">
+            Missions
+          </h1>
+          <p className="mt-2 max-w-2xl text-xs leading-relaxed text-steel-500">
+            Crews are away for the whole round trip — out, on site, and back. Timers run on the
+            server, so a mission lands on schedule whether or not this page is open.
+          </p>
+        </header>
+
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Panel
+            title="In Flight"
+            action={
+              <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.18em] text-steel-500">
+                <span className="tabular-nums text-steel-300">{active.length}</span>
+                {limit > 0 ? <span className="tabular-nums"> / {limit}</span> : null} crews out
+              </span>
+            }
+          >
+            {missionsQuery.isLoading ? (
+              <EmptyRow text="Reading the board…" />
+            ) : active.length === 0 ? (
+              <EmptyRow text="Every crew is home" />
+            ) : (
+              <ul className="flex flex-col divide-y divide-steel-800">
+                {active.map((mission) => (
+                  <InFlightRow key={mission.id} mission={mission} now={now} />
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          <Panel title="Recently Returned">
+            {returned.length === 0 ? (
+              <EmptyRow text="No crew has come back yet" />
+            ) : (
+              <ul className="flex flex-col divide-y divide-steel-800">
+                {returned.map((mission) => (
+                  <ReturnedRow key={mission.id} mission={mission} />
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
+
+        <Panel
+          title="Mission Board"
+          action={
+            atCapacity ? (
+              <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.16em] text-warning">
+                All crews deployed
+              </span>
+            ) : null
+          }
+        >
+          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+            {MISSION_TEMPLATES.map((template) => (
+              <MissionCard
+                key={template.id}
+                template={template}
+                disabled={atCapacity}
+                pending={launch.isPending && launch.variables?.templateId === template.id}
+                onLaunch={(templateId) => launch.mutate({ templateId })}
+              />
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}

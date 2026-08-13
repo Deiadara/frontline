@@ -1,6 +1,7 @@
 import type { AppDatabase } from '../index.js';
 import { createBasesRepo, type BasesRepo } from './bases.js';
 import { createBattlesRepo, type BattlesRepo } from './battles.js';
+import { createMissionsRepo, type MissionsRepo } from './missions.js';
 import { createOverseersRepo, type OverseersRepo } from './overseers.js';
 import { createUsersRepo, type UsersRepo } from './users.js';
 
@@ -10,6 +11,7 @@ export interface Repositories {
   overseers: OverseersRepo;
   bases: BasesRepo;
   battles: BattlesRepo;
+  missions: MissionsRepo;
 }
 
 export function createRepositories(db: AppDatabase): Repositories {
@@ -18,5 +20,6 @@ export function createRepositories(db: AppDatabase): Repositories {
     overseers: createOverseersRepo(db),
     bases: createBasesRepo(db),
     battles: createBattlesRepo(db),
+    missions: createMissionsRepo(db),
   };
 }

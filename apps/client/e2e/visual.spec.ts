@@ -219,6 +219,58 @@ for (const size of VIEWPORTS) {
     });
 
     /*
+     * MOU-162 §E3/§E4: the dedicated missions page, at the widest state it has. `missionsResponse`
+     * fills every crew slot, puts a day-long run one minute into its clock so the countdown reads
+     * `25:5x:xx` — the widest string that column can hold — and returns a mission paying all five
+     * resources, the longest reward line that can render. Both surfaces are on this one page: the
+     * in-flight timers (§E3) and the board, where travel and mission time are quoted separately
+     * before you commit (§E4).
+     *
+     * Like the base view this is a document scroller, so there is no vertical-clip guard: content
+     * is arbitrarily long and the fold cuts the last row at every viewport by design.
+     */
+    test(`missions page at ${tag}`, async ({ page }) => {
+      await installApi(page, me);
+      await page.goto('/game/missions');
+      await expect(page.getByRole('heading', { name: 'Missions' })).toBeVisible();
+      await settleFonts(page);
+
+      // §E4 — travel and mission time are quoted separately, and the total is the §E8 sum.
+      const expedition = page.getByRole('article').filter({ hasText: 'Deep Expedition' }).first();
+      await expect(expedition.getByText('Travel', { exact: true })).toBeVisible();
+      await expect(expedition.getByText('1h 00m')).toBeVisible();
+      await expect(expedition.getByText('On site', { exact: true })).toBeVisible();
+      await expect(expedition.getByText('24h 00m')).toBeVisible();
+      await expect(expedition.getByText('Total round trip')).toBeVisible();
+      await expect(expedition.getByText('26h 00m')).toBeVisible();
+
+      /*
+       * The §E4 breakdown is the narrowest fixed copy on the page, and it shipped cut once
+       * already: a three-column layout ellipsised "round trip" to "ROUND TRI…" at every viewport.
+       * The copy here is fixed, so a clipped label is a permanent defect and not a fat-content
+       * edge case — every one of these must render whole, on every card, at every width.
+       */
+      const clipped = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('article dl dt, article dl dd')]
+          .filter((el) => el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+      );
+      expect(clipped, `cut text in the §E4 timing breakdown: ${clipped.join(' | ')}`).toEqual([]);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/missions-${tag}.png` });
+
+      // The board is the §E4 surface and it sits below the fold in a bounded inner scroller, so
+      // `fullPage` cannot reach it — it has to be scrolled to and shot separately, or the pre-
+      // commit screen never actually gets looked at.
+      await expedition.scrollIntoViewIfNeeded();
+      await settleFonts(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/missions-board-${tag}.png` });
+    });
+
+    /*
      * MOU-165 §I: the progression readout is sized by the digits in it, and the starting base
      * shows `0 / 100` — the narrowest case there is. `lateGameBase` sits one XP short of level 13,
      * so the row carries four digits either side of the slash and the bar runs to ~100%. Same

@@ -11,6 +11,7 @@ import { registerBaseRoutes } from './routes/base.js';
 import { registerBattleRoutes } from './routes/battle.js';
 import { registerCityRoutes } from './routes/city.js';
 import { registerMeRoutes } from './routes/me.js';
+import { registerMissionRoutes } from './routes/missions.js';
 import { registerOverseerRoutes } from './routes/overseer.js';
 import type { JwtPayload } from './types.js';
 
@@ -113,6 +114,7 @@ export async function buildApp({
       registerCityRoutes(api);
       registerBaseRoutes(api);
       registerBattleRoutes(api);
+      registerMissionRoutes(api);
       done();
     },
     { prefix: '/api' },

@@ -42,6 +42,22 @@ const ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Missions',
+    to: '/game/missions',
+    icon: icon(
+      <>
+        <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.3" />
+        <path
+          d="M10 5.5V10l3 2"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </>,
+    ),
+  },
+  {
     label: 'Staff',
     icon: icon(
       <>

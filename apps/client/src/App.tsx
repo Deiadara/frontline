@@ -7,6 +7,7 @@ import { CharacterSelectScreen } from './screens/CharacterSelectScreen';
 import { GameScreen } from './screens/GameScreen';
 import { BasePanel } from './features/base/BasePanel';
 import { MapView } from './features/game/MapView';
+import { MissionsPage } from './features/missions/MissionsPage';
 import { RequireAuth, RequireGuest, RequireNoOverseer, RequireOverseer } from './routes/guards';
 
 function BootMessage({ text, tone = 'muted' }: { text: string; tone?: 'muted' | 'error' }) {
@@ -70,6 +71,7 @@ export default function App() {
         >
           <Route index element={<MapView />} />
           <Route path="base" element={<BasePanel />} />
+          <Route path="missions" element={<MissionsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/game" replace />} />
       </Routes>

@@ -17,6 +17,7 @@ export * from './overseer.js';
 export * from './commander.js';
 export * from './base.js';
 export * from './city.js';
+export * from './missions.js';
 export * from './user.js';
 export * from './art/prompts.js';
 export * from './art/manifest.js';

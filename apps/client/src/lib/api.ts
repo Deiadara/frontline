@@ -5,9 +5,12 @@ import {
   BattleResponseSchema,
   CityResponseSchema,
   CreateOverseerResponseSchema,
+  LaunchMissionResponseSchema,
   MeResponseSchema,
+  MissionsResponseSchema,
   type BattleRequest,
   type CreateOverseerRequest,
+  type LaunchMissionRequest,
   type LoginRequest,
   type RegisterRequest,
 } from '@frontline/shared';
@@ -82,3 +85,8 @@ export const getBase = (id: string) => apiFetch(`/base/${id}`, BaseDetailRespons
 
 export const attack = (body: BattleRequest) =>
   apiFetch('/battle', BattleResponseSchema, jsonBody(body));
+
+export const getMissions = () => apiFetch('/missions', MissionsResponseSchema);
+
+export const launchMission = (body: LaunchMissionRequest) =>
+  apiFetch('/missions', LaunchMissionResponseSchema, jsonBody(body));

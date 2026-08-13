@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { BaseSchema, BaseSummarySchema } from './base.js';
 import { BattleResultSchema } from './battle/types.js';
 import { DistrictSchema } from './city.js';
+import { MissionSchema } from './missions.js';
 import { OverseerSchema } from './overseer.js';
-import { IdSchema, UsernameSchema } from './primitives.js';
+import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { ResourcesSchema } from './resources.js';
 import { UserSchema } from './user.js';
 
@@ -88,3 +89,34 @@ export const BattleResponseSchema = z.object({
   resources: ResourcesSchema,
 });
 export type BattleResponse = z.infer<typeof BattleResponseSchema>;
+
+// --- missions (GDD §E) ---
+
+/**
+ * The mission board plus everything in flight. One call backs both §E3 (the timers page) and
+ * §E4 (the pre-commit screen), because the two are the same screen with different selections.
+ *
+ * `serverNow` is what makes the timers honest: the client renders every countdown against the
+ * server's clock offset rather than its own, so a machine with a skewed or nudged clock shows
+ * the same remaining time as everyone else — and still cannot make a mission land early.
+ */
+export const MissionsResponseSchema = z.object({
+  missions: z.array(MissionSchema),
+  /** Anything that came home on this read, so the UI can show what was banked. */
+  justResolved: z.array(MissionSchema),
+  resources: ResourcesSchema,
+  activeLimit: z.number().int().positive(),
+  serverNow: IsoDateTimeSchema,
+});
+export type MissionsResponse = z.infer<typeof MissionsResponseSchema>;
+
+export const LaunchMissionRequestSchema = z.object({
+  templateId: IdSchema,
+});
+export type LaunchMissionRequest = z.infer<typeof LaunchMissionRequestSchema>;
+
+export const LaunchMissionResponseSchema = z.object({
+  mission: MissionSchema,
+  serverNow: IsoDateTimeSchema,
+});
+export type LaunchMissionResponse = z.infer<typeof LaunchMissionResponseSchema>;

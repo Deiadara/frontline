@@ -1,6 +1,14 @@
 import type { MeResponse } from '@frontline/shared';
 import { expect, type Page } from '@playwright/test';
-import { authResponse, baseDetail, battle, city, createOverseerResponse, TOKEN } from './fixtures';
+import {
+  authResponse,
+  baseDetail,
+  battle,
+  city,
+  createOverseerResponse,
+  missionsResponse,
+  TOKEN,
+} from './fixtures';
 
 /** The display webfont every geometry assertion has to be measured against. */
 const DISPLAY_FONT = 'Orbitron';
@@ -97,6 +105,8 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // base — so the detail follows whichever session was installed.
     if (pathname.includes('/api/base/')) return json({ base: meResponse.base ?? baseDetail.base });
     if (pathname.endsWith('/api/battle')) return json(battle);
+    // Rebuilt per request so the countdowns are always live against the page's clock.
+    if (pathname.endsWith('/api/missions')) return json(missionsResponse());
     if (pathname.endsWith('/api/overseer')) return json(createOverseerResponse, 201);
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);
     if (pathname.endsWith('/api/auth/register')) return json(authResponse, 201);
