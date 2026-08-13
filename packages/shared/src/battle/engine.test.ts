@@ -80,6 +80,25 @@ describe('RandomBattleEngine', () => {
     }
   });
 
+  it('keeps the victory line grammatical on both kinds of ground', () => {
+    // Dropping the Combine's name out of the line also drops its plural subject, so the verb has
+    // to move with the branch — checking only that the adjective is absent passes over "arrive".
+    const spire = findDistrict('combine-spire');
+    const independent = CITY_DISTRICTS.find(
+      (d) => d.faction === 'independent' && d.kind === 'raid',
+    );
+    if (!spire || !independent)
+      throw new Error('fixture error: the city map is missing a district');
+
+    const victoryLine = (targetDistrictId: string) =>
+      new RandomBattleEngine(() => 0)
+        .simulate({ ...attacker, targetDistrictId })
+        .log.find((line) => line.startsWith('Salvage crews'));
+
+    expect(victoryLine(spire.id)).toContain(`${GOVERNMENT.adjective} response teams arrive.`);
+    expect(victoryLine(independent.id)).toContain('before anyone else arrives.');
+  });
+
   it('never leaks a raw id into the narration log', () => {
     for (const random of [() => 0, () => 0.99]) {
       for (const targetDistrictId of [raidDistrict.id, 'nowhere']) {

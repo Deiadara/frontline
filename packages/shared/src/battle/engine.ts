@@ -37,7 +37,7 @@ export class RandomBattleEngine implements BattleEngine {
         ? `Breach charges crack the ferrocrete line — defenders of ${target} scatter into the undergrid.`
         : `Counter-ICE flares white-hot; the assault on ${target} collapses at the perimeter wall.`,
       attackerWins
-        ? `Salvage crews strip the site before ${holdsTheState ? `${GOVERNMENT.adjective} response teams` : 'anyone else'} arrive. Victory.`
+        ? `Salvage crews strip the site before ${holdsTheState ? `${GOVERNMENT.adjective} response teams arrive` : 'anyone else arrives'}. Victory.`
         : 'Survivors limp home through the acid rain. The district holds.',
     ];
 
