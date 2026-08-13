@@ -71,8 +71,13 @@ export const ApiErrorSchema = z.object({
    * write is not rolled back, and no later read re-resolves it, so the *refusal* is the only place
    * it can ever be announced. A sibling of `error` rather than a field inside it, because it is not
    * part of why the call failed.
+   *
+   * `.catch` for that same reason: this is an extra riding along, so a malformed one must not fail
+   * the whole envelope and cost the player the refusal *message* — the client falls back to
+   * `UNKNOWN`/`statusText` when this schema does not parse. The success responses keep a plain
+   * `.optional()`: there the body is the contract and a bad one should be rejected loudly.
    */
-  levelUp: LevelUpSchema.optional(),
+  levelUp: LevelUpSchema.optional().catch(undefined),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 

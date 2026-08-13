@@ -1,4 +1,5 @@
 import type { MeResponse, User } from '@frontline/shared';
+import { playerLevelGrants } from '@frontline/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError, getMe, register } from './api';
 import { useSession } from '../store/session';
@@ -80,6 +81,49 @@ describe('apiFetch', () => {
         message: 'Username already exists',
       },
     );
+  });
+
+  it('carries a level-up the refusal banked on its way to refusing', async () => {
+    fetchMock.mockResolvedValueOnce(
+      fakeResponse({
+        ok: false,
+        status: 409,
+        body: {
+          error: { code: 'MISSION_NEEDS_OFFICER', message: 'That job needs an officer' },
+          levelUp: { level: 4, levelsGained: 1, grants: playerLevelGrants(4) },
+        },
+      }),
+    );
+
+    await expect(getMe()).rejects.toMatchObject({
+      code: 'MISSION_NEEDS_OFFICER',
+      levelUp: { level: 4, levelsGained: 1 },
+    });
+  });
+
+  /*
+   * `levelUp` is an extra riding along on the envelope, not part of why the call failed, so a
+   * malformed one must not be able to take the refusal *message* down with it: the whole-object
+   * parse would fail and `apiFetch` would fall back to `UNKNOWN` / `res.statusText`, leaving the
+   * player with no reason at all. Hardening — the shared build makes this unreachable today.
+   */
+  it('keeps the refusal message when the level-up rides along malformed', async () => {
+    fetchMock.mockResolvedValueOnce(
+      fakeResponse({
+        ok: false,
+        status: 409,
+        body: {
+          error: { code: 'MISSION_NEEDS_OFFICER', message: 'That job needs an officer' },
+          levelUp: { level: 4, levelsGained: 1, grants: 'not-a-grants-object' },
+        },
+      }),
+    );
+
+    await expect(getMe()).rejects.toMatchObject({
+      code: 'MISSION_NEEDS_OFFICER',
+      message: 'That job needs an officer',
+      levelUp: undefined,
+    });
   });
 
   it('clears the session on a 401', async () => {

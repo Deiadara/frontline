@@ -104,7 +104,19 @@ export function useLaunchMission() {
   // board, and the level-up it banked rides out on the failure (MOU-280).
   return useMutation<LaunchMissionResponse, ApiRequestError, LaunchMissionRequest>({
     mutationFn: launchMission,
-    onSuccess: () => {
+    /*
+     * `onSettled`, not `onSuccess`: the launch settles the board before it validates, and that
+     * settle is not rolled back when it then refuses. A refusal downstream of it has already moved
+     * the stockpile, morale and the §D8 tally — and nothing else will re-observe them. `me` is
+     * `staleTime: 30_000` with no poll and no refetch on focus, `GameScreen` never unmounts inside
+     * `/game`, and the board's own `justResolved` rescue cannot fire because this very request
+     * consumed the settlement. Refreshing only on success leaves the HUD contradicting the banner
+     * beside it for as long as the player stays on the board (MOU-280).
+     *
+     * The refusals that never reached the settle pay two spare refetches for this; the checks that
+     * can reject before it are the cheap ones, and a stale HUD is the more expensive mistake.
+     */
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
