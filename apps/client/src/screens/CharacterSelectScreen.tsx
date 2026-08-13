@@ -112,13 +112,14 @@ export function CharacterSelectScreen() {
       {/* Centred so the space a dropped row leaves over reads as framing, not as a dead band. */}
       <div
         ref={frameRef}
-        className="relative flex min-h-0 flex-1 flex-col justify-center overflow-hidden px-8 py-3"
+        className="relative flex min-h-0 flex-1 flex-col justify-center overflow-hidden px-8 py-1.5"
       >
         <div
           className="mx-auto w-full max-w-5xl snap-y snap-mandatory overflow-y-auto"
           style={{ maxHeight: rows.height }}
         >
-          <div ref={gridRef} className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          {/* Row gap only: widening the columns would rewrap the bios and change card height. */}
+          <div ref={gridRef} className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
             {OVERSEER_PRESETS.map((preset) => (
               <OverseerCard
                 key={preset.presetId}
