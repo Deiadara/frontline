@@ -757,10 +757,10 @@ function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: numbe
   }
   if (!spec.alpha && transparency > 0) {
     problems.push(
-      `the master carries alpha over ${percent(transparency)} of the frame but "${spec.class}" ` +
-        `delivers none — removeAlpha() drops the band without compositing, so whatever RGB sits ` +
-        `under it ships as artwork. Flatten the master onto its intended background first ` +
-        `(ADR 0001 §6.4)`,
+      `the master carries alpha on ${nonOpaquePixels(image)} px (${percent(transparency)} of the ` +
+        `frame) but this key delivers none — removeAlpha() drops the band without compositing, so ` +
+        `whatever RGB sits under it ships as artwork. Flatten the master onto its intended ` +
+        `background first (ADR 0001 §6.4)`,
     );
   }
   return problems;

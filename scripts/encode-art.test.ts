@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ART_MANIFEST,
+  ASSET_CLASS_SPECS,
   POST_PROCESS_STEPS,
   findAssetSpec,
   type AssetSpec,
@@ -49,6 +50,8 @@ const FORE_PLANE = spec('plane-city-fore');
 const FAR_PLANE = spec('plane-city-far');
 /** A master that already is its delivery image. */
 const DISTRICT = spec('district-chrome-row');
+/** The manifest's one key-level `alpha` override — its class delivers alpha, this key does not. */
+const SKY_PLANE = spec('plane-city-sky');
 
 /**
  * Both audits list the drop directory through a `readdir(...).catch(() => [])`, which cannot tell
@@ -85,6 +88,19 @@ async function master(
   return sharp(data, { raw: { width, height, channels: 4 } })
     .png()
     .toBuffer();
+}
+
+/**
+ * The rejection a call produced, for the assertions `rejects.toThrow` cannot make — a bare `.catch`
+ * widens to include the resolved value, and resolving at all is itself the failure here.
+ */
+async function rejection(call: Promise<unknown>): Promise<Error> {
+  return call.then(
+    () => {
+      throw new Error('expected a rejection, got a delivery');
+    },
+    (cause: unknown) => cause as Error,
+  );
 }
 
 /** An opaque master whose subject fills the bottom `subjectFraction` of the frame. */
@@ -582,8 +598,39 @@ describe('encodeAsset', () => {
     // pass for a reason that has nothing to do with alpha.
     expect(transparencyOf(await decodeMaster(bytes))).toBe(0.5);
     await expect(encodeAsset(bytes, DISTRICT)).rejects.toThrow(
-      /carries alpha over 50\.0% of the frame but "district" delivers none/,
+      /carries alpha on 524288 px \(50\.0% of the frame\) but this key delivers none/,
     );
+  });
+
+  it('names the key, not the class, when only the key overrides alpha (MOU-387)', async () => {
+    // The class name was actively misleading on exactly one key. `plane` declares `alpha: true` and
+    // the other two planes ship transparent, so a board member told "plane delivers none" goes and
+    // reads a class that contradicts the message. Asserted against the manifest rather than
+    // restated, so this stays honest if the override ever moves.
+    expect(ASSET_CLASS_SPECS[SKY_PLANE.class].alpha).toBe(true);
+    expect(SKY_PLANE.alpha).toBe(false);
+
+    const bytes = await master(2048, 1152, (x, y) => [240, 200, 120, y < 576 ? 255 : 0]);
+    const error = await rejection(encodeAsset(bytes, SKY_PLANE));
+
+    // The key is already the error's prefix, so the class name bought nothing but the contradiction.
+    expect(error.message).toMatch(/^plane-city-sky: the master carries alpha/);
+    expect(error.message).not.toContain('"plane"');
+  });
+
+  it('counts the pixels when a stray transparent one rounds to 0.0% (MOU-387)', async () => {
+    // A master exported with a single anti-aliased canvas-edge pixel is the case the board hits far
+    // more often than a half-transparent master, and `percent` fixes to one decimal — so the frame
+    // fraction alone printed "carries alpha over 0.0% of the frame", which contradicts itself and
+    // gives no way to find the pixel. The count is also what tells this apart from a master that
+    // was never flattened at all.
+    const bytes = await master(1024, 1024, (x, y) => [240, 200, 120, x === 0 && y === 0 ? 0 : 255]);
+    const error = await rejection(encodeAsset(bytes, DISTRICT));
+
+    expect(error.message).toContain('carries alpha on 1 px');
+    // Asserted second and deliberately: 1/1024² fixes to `0.0%`, so this line alone would have
+    // passed against the old message too. The count above is the one that discriminates.
+    expect(error.message).toContain('(0.0% of the frame)');
   });
 
   it('strips the alpha band on a key that delivers none', async () => {
