@@ -278,6 +278,38 @@ describe('mission payout (§E1, §E5)', () => {
     expect(stored?.mission.rewards).toEqual(missionRewards(scrapRun, 'success'));
     expect(stored?.mission.resolvedAt).not.toBeNull();
   });
+
+  it('prices a run on the clock frozen at launch, not on a template retuned mid-flight', async () => {
+    const stack = await makeStack();
+    const expedition = findMissionTemplate('deep-expedition') as MissionTemplate;
+    const before = resourcesOf(stack);
+    const owedOnLaunchTerms = missionRewards(expedition, 'success');
+    const launchedTotal = templateTimings(expedition).totalMinutes;
+
+    planted(stack, expedition, ALWAYS_SUCCEEDS);
+
+    // The crew is out on a 26-hour run. Ship a retune that cuts the mission to an hour — the shape
+    // of a deploy landing mid-expedition, which is routine while the board is still being tuned.
+    const shipped = expedition.durationMinutes;
+    try {
+      (expedition as { durationMinutes: number }).durationMinutes = 60;
+
+      // Positive control: without this the assertion below would pass even if the retune never
+      // landed, which is exactly how a mutation test quietly proves nothing.
+      expect(missionRewards(expedition, 'success').scrap).toBeLessThan(
+        owedOnLaunchTerms.scrap ?? 0,
+      );
+
+      const { base, resolved } = resolveDueMissions(stack.repos, stack.base, after(launchedTotal));
+
+      // Held the full 26 hours on the frozen clock, so paid the full 26 hours.
+      expect(resolved[0]?.rewards).toEqual(owedOnLaunchTerms);
+      expect(base.resources.scrap).toBe(before.scrap + (owedOnLaunchTerms.scrap ?? 0));
+      expect(base.resources.caps).toBe(before.caps + (owedOnLaunchTerms.caps ?? 0));
+    } finally {
+      (expedition as { durationMinutes: number }).durationMinutes = shipped;
+    }
+  });
 });
 
 describe('the mission routes', () => {
@@ -420,6 +452,12 @@ describe('the mission routes', () => {
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
     expect(board.body).not.toMatch(/seed/i);
+    // The seed line is the load-bearing one: it is the only value here a client cannot already
+    // derive. The chance line is not a secrecy guarantee today — `MISSION_TEMPLATES` ships
+    // `successChance` to the client and `MissionCard` renders it, and launch copies it verbatim,
+    // so the player already knows every in-flight run's odds. It starts meaning something once W4
+    // makes the stored chance diverge from the template's (crew skill, gear); until then, read it
+    // as "the row's copy stays server-side", not "the number is hidden".
     expect(board.body).not.toMatch(/successChance/i);
   });
 

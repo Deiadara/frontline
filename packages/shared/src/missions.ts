@@ -212,13 +212,24 @@ export function rewardScale(totalMinutes: number, kind: MissionKind): number {
  * What a run pays out: the template's thematic mix (§E1) scaled by the §E5 time curve, then by
  * the share the outcome earns. Amounts are whole units, and a share that rounds a line to zero
  * drops it rather than paying a phantom resource.
+ *
+ * `totalMinutes` defaults to the template's *current* timings, which is what the board wants when
+ * it quotes an unlaunched mission. A run already in flight must pass the total frozen on its row
+ * instead, so retuning the board cannot re-price a crew that is already out — see the invariant on
+ * `MissionSchema`.
+ *
+ * Residue (deliberate, needs a schema change to close): `kind` and `spoils` are still read live off
+ * the template, so a retune of either still moves an in-flight payout, as do the failure share and
+ * the morale delta that hang off `kind`. Closing that needs a `kind` column on the mission row and
+ * a migration number allocated by the CTO per R8, so it is out of scope here.
  */
 export function missionRewards(
   template: MissionTemplate,
   outcome: MissionOutcome = 'success',
+  totalMinutes: number = templateTimings(template).totalMinutes,
 ): PartialResources {
   const share = outcome === 'success' ? 1 : FAILURE_REWARD_SHARE[template.kind];
-  const factor = rewardScale(templateTimings(template).totalMinutes, template.kind) * share;
+  const factor = rewardScale(totalMinutes, template.kind) * share;
 
   const rewards: PartialResources = {};
   for (const [key, amount] of Object.entries(template.spoils) as [ResourceKey, number][]) {

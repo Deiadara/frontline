@@ -5,6 +5,7 @@ import {
   findMissionTemplate,
   isMissionDue,
   missionRewards,
+  missionTimings,
   type Base,
   type Mission,
   type MissionOutcome,
@@ -52,7 +53,11 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     // A template retired from the board after this run launched: bring the crew home empty
     // rather than stranding them on the timers page forever.
     const template = findMissionTemplate(stored.mission.templateId);
-    const rewards = template ? missionRewards(template, outcome) : {};
+    // Priced off the clock frozen on the row, not the template's current timings: a retune that
+    // lands mid-flight must not re-price a crew that is already out.
+    const rewards = template
+      ? missionRewards(template, outcome, missionTimings(stored.mission).totalMinutes)
+      : {};
     return {
       mission: {
         ...stored.mission,
