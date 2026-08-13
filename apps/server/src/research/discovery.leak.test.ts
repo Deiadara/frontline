@@ -77,18 +77,35 @@ describe('discovery never reconstructs the hidden table', () => {
    *
    * A fact body carries no number, so the only channel left is *which* attributes come out and in
    * *what order*. Both are computed from `ATTRIBUTE_NAMES` position, so re-weighting a role — same
-   * attributes, permuted weights — must not move the reveal at all. If discovery ever sorted by
-   * weight, this is what would catch it, and nothing else here would.
+   * attributes, permuted weights and permuted declaration order — must not move the reveal at all.
+   *
+   * This and the two tests below cover different routes back to the table, and no one of them
+   * covers all of them. Measured against two mutants of `discoverableAttributes`:
+   *
+   *  - sorting by weight (heaviest first) — caught here, by the canonical-order test, and by the
+   *    vacuity control;
+   *  - returning `attributeWeightsOf` order untouched — caught *only* by the canonical-order test
+   *    and the vacuity control, and caught here only because the fixture below reverses key order
+   *    as well as rotating values.
+   *
+   * Both mutants matter: all 19 `weights` literals are authored descending, so a declaration-order
+   * reveal leaks the weight-5 primary as fact #1 for every role — the same leak as sorting, by a
+   * different route. `requirements.test.ts` pins that descending-order coincidence.
    */
   it('carries no weight information: reveal is invariant under re-weighting', () => {
     for (const role of OFFICER_ROLES) {
       const before = discoverableAttributes(role);
       const weights = attributeWeightsOf(role);
 
-      // Rotate the weights across the same attributes: the ordering changes completely, the
-      // membership does not.
+      // Move both channels a reveal could ride, keeping membership identical: the weight *values*
+      // rotate across the same attributes, and `.reverse()` flips the key insertion order so the
+      // declaration order `Object.entries` hands back is reversed too. Rotating values alone is
+      // not enough — `attributeWeightsOf` returns declaration order, which a value rotation
+      // leaves untouched, so a reveal that simply rode that order would sail through.
       const rotated = Object.fromEntries(
-        weights.map(([name], index) => [name, weights[(index + 1) % weights.length]?.[1] ?? 1]),
+        weights
+          .map(([name], index) => [name, weights[(index + 1) % weights.length]?.[1] ?? 1])
+          .reverse(),
       ) as Partial<Record<AttributeName, number>>;
       const original = ROLE_REQUIREMENTS[role].weights;
       ROLE_REQUIREMENTS[role].weights = rotated;

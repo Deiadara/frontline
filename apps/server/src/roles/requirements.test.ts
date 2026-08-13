@@ -5,7 +5,12 @@ import {
   type AttributeName,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
-import { ROLE_REQUIREMENTS, roleFit, weightedAttributesOf } from './requirements.js';
+import {
+  ROLE_REQUIREMENTS,
+  attributeWeightsOf,
+  roleFit,
+  weightedAttributesOf,
+} from './requirements.js';
 
 describe('ROLE_REQUIREMENTS', () => {
   it('covers all 19 roles and only real attributes', () => {
@@ -37,6 +42,21 @@ describe('ROLE_REQUIREMENTS', () => {
         if (name !== primary) expect(weight).toBeLessThan(primaryWeight as number);
       }
       expect(weightedAttributesOf(role)[0]).toBe(primary);
+    }
+  });
+
+  // Every literal above is authored heaviest-first, and `attributeWeightsOf` hands the entries
+  // back in that declaration order. The coincidence is load-bearing in the wrong direction: while
+  // it holds, anything that ships `attributeWeightsOf` order untouched leaks the primary as its
+  // first fact without ever naming a weight. `research/discover.ts` re-sorts into canonical order
+  // precisely because of it, and `research/discovery.leak.test.ts` permutes declaration order to
+  // prove it did. Nothing else pinned the coincidence, so this does.
+  it('authors every template in descending weight order', () => {
+    for (const role of OFFICER_ROLES) {
+      const declared = attributeWeightsOf(role).map(([, weight]) => weight);
+      expect(declared, `${role}'s weights are not authored heaviest-first`).toEqual(
+        [...declared].sort((a, b) => b - a),
+      );
     }
   });
 });

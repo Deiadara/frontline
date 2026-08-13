@@ -474,12 +474,12 @@ describe('the mission routes', () => {
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
     expect(board.body).not.toMatch(/seed/i);
-    // The seed line is the load-bearing one: it is the only value here a client cannot already
-    // derive. The chance line is not a secrecy guarantee today — `MISSION_TEMPLATES` ships
-    // `successChance` to the client and `MissionCard` renders it, and launch copies it verbatim,
-    // so the player already knows every in-flight run's odds. It starts meaning something once W4
-    // makes the stored chance diverge from the template's (crew skill, gear); until then, read it
-    // as "the row's copy stays server-side", not "the number is hidden".
+    // Both lines are load-bearing now. The seed always was: it is the only value here a client
+    // cannot derive at all. The chance line used to be a formality — `MISSION_TEMPLATES` ships
+    // `successChance` to the client and `MissionCard` renders it, and launch once copied it
+    // verbatim — but W7's §F5 Overseer modifier and W4's §G7 crew bonus both land in `launch.ts`,
+    // so the stored chance genuinely diverges from the template's and is no longer something the
+    // player can work out from the board. Do not relax this to "the row's copy stays server-side".
     expect(board.body).not.toMatch(/successChance/i);
   });
 
