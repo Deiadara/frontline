@@ -9,8 +9,15 @@ interface NavItem {
   icon: ReactNode;
 }
 
+/*
+ * `shrink-0` is load-bearing. Each row is a flex line, and an `<svg>` root computes to
+ * `overflow: hidden`, so the automatic minimum size that stops an ordinary flex item collapsing
+ * does not apply to it — the icon is the one thing on the row that gives, and it gives all the way
+ * to zero. It did: `Market`, the only row carrying a third child, drew its cart at **0x16px** on
+ * every screen and every viewport, with `Assignees` squeezed to 10.8px beside it.
+ */
 const icon = (path: ReactNode) => (
-  <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
+  <svg viewBox="0 0 20 20" className="h-4 w-4 shrink-0" fill="none" aria-hidden="true">
     {path}
   </svg>
 );
@@ -111,10 +118,16 @@ const ITEMS: NavItem[] = [
   },
 ];
 
-/** Fixed-width primary navigation for the game shell. */
+/**
+ * Fixed-width primary navigation for the game shell.
+ *
+ * `w-48`, not `w-44`: once the icons stop giving, `Market` is the widest row the nav has — icon,
+ * label *and* the `SOON` badge — and at `w-44` that badge cleared the nav's right border by 8px and
+ * sat over the game area. 12rem is the first step at which every row fits whole.
+ */
 export function LeftNav() {
   return (
-    <nav className="flex w-44 shrink-0 flex-col gap-1 border-r border-neon-cyan/20 bg-night-raised p-3">
+    <nav className="flex w-48 shrink-0 flex-col gap-1 border-r border-neon-cyan/20 bg-night-raised p-3">
       {ITEMS.map((item) =>
         item.to ? (
           <NavLink

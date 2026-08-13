@@ -12,7 +12,12 @@ import {
   settlingMissions,
   settlingResearch,
 } from './fixtures';
-import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
+import {
+  expectNoImagesClipped,
+  expectNothingClippedVertically,
+  installApi,
+  settleFonts,
+} from './harness';
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -60,6 +65,10 @@ test('character select renders all presets', async ({ page }) => {
   // ...nor may the roster's scroll viewport end part-way down a card, slicing the attribute
   // rows through the digits. Every card the player can see must be whole.
   await expectNothingClippedVertically(page);
+
+  // The same question for the pictures on this screen: the painted portraits and the radar rings
+  // are `<svg>`/`<img>`, so the text guard above steps straight over both.
+  await expectNoImagesClipped(page);
 
   await page.screenshot({ path: 'screenshots/character-select.png', fullPage: false });
 });

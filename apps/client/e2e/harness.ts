@@ -98,6 +98,110 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
 }
 
 /**
+ * No image may be drawn at nothing, spilling out of its box, or half-cut by a clipping edge.
+ *
+ * The board's bar is "no cut text **or images**", and only the text half was gated:
+ * {@link expectNothingClippedVertically} skips every element that has children or holds no text,
+ * and an `<svg>` fails both tests — so every procedural sprite and every resource glyph in the game
+ * was invisible to it. `StructureSprite` is the sharp case. Its span is `min-h-0 w-full flex-1`, so
+ * the sprite's height is only ever whatever the name plate leaves over; squeezed to zero, or grown
+ * past the plot it stands on, it stayed green on every gate we had.
+ *
+ * Three defects, one sweep:
+ *  - **collapsed** — a rendered image with no area, i.e. art the player is simply not shown;
+ *  - **spilling** — an image drawn outside the box it was placed in, which lands it on a neighbour;
+ *  - **sliced** — an image an `overflow` ancestor cuts partway through, on either axis.
+ *
+ * An image clipped away *entirely* is left alone, exactly as the text guard leaves fully-scrolled
+ * text alone: that is what a scroller does. For the same reason the walk up the clipping ancestors
+ * stops at `root` rather than running to the top of the document: a caller narrows the sweep to a
+ * region precisely because the page *outside* it scrolls, and every scrolling page cuts whatever
+ * lands on its fold. Measured, not assumed — sweeping past the scope reported the village's own
+ * backdrop as sliced at 1280x720, where 14px of the scene simply sits below the fold.
+ */
+export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<void> {
+  await settleFonts(page);
+  const offenders = await page.evaluate<string[], string>((selector) => {
+    const SLACK = 1;
+    const bad = new Set<string>();
+
+    /** The nearest thing a human can be pointed at, since sprites are all `aria-hidden`. */
+    const name = (el: Element): string => {
+      for (let node: Element | null = el; node; node = node.parentElement) {
+        const label =
+          node.getAttribute('alt') ??
+          node.getAttribute('aria-label') ??
+          node.getAttribute('data-testid');
+        if (label?.trim()) return `${el.tagName.toLowerCase()} in "${label.trim()}"`;
+      }
+      return el.tagName.toLowerCase();
+    };
+
+    /** The rect of `el` that survives every clipping ancestor up to `scope`, in viewport coords. */
+    const visibleBand = (el: Element, scope: Element) => {
+      const at = el.getBoundingClientRect();
+      let [left, right, top, bottom] = [at.left, at.right, at.top, at.bottom];
+      for (let node = el.parentElement; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        const box = node.getBoundingClientRect();
+        // Overflow is clipped at the padding box, so the border sits outside the cut.
+        if (style.overflowX !== 'visible') {
+          left = Math.max(left, box.left + parseFloat(style.borderLeftWidth));
+          right = Math.min(right, box.right - parseFloat(style.borderRightWidth));
+        }
+        if (style.overflowY !== 'visible') {
+          top = Math.max(top, box.top + parseFloat(style.borderTopWidth));
+          bottom = Math.min(bottom, box.bottom - parseFloat(style.borderBottomWidth));
+        }
+        if (node === scope) break;
+      }
+      return { width: right - left, height: bottom - top };
+    };
+
+    /** Cut partway through: some of the axis survives the clip, but not all of it. */
+    const sliced = (shown: number, full: number) => shown > SLACK && shown < full - SLACK;
+
+    const scope = document.querySelector(selector);
+    if (!scope) throw new Error(`no element matched ${selector}`);
+
+    for (const el of scope.querySelectorAll('svg, img, canvas')) {
+      // `checkVisibility` answers "does this generate a box at all" without conflating it with
+      // "does that box have area" — which is the very defect below, so the two must stay apart.
+      if (!el.checkVisibility()) continue;
+      const at = el.getBoundingClientRect();
+
+      if (at.width <= SLACK || at.height <= SLACK) {
+        bad.add(`${name(el)} collapsed to ${at.width.toFixed(0)}x${at.height.toFixed(0)}px`);
+        continue;
+      }
+
+      const parent = el.parentElement?.getBoundingClientRect();
+      if (
+        parent &&
+        (at.left < parent.left - SLACK ||
+          at.right > parent.right + SLACK ||
+          at.top < parent.top - SLACK ||
+          at.bottom > parent.bottom + SLACK)
+      ) {
+        bad.add(`${name(el)} spills outside its container`);
+        continue;
+      }
+
+      const shown = visibleBand(el, scope);
+      if (sliced(shown.width, at.width) || sliced(shown.height, at.height)) {
+        bad.add(
+          `${name(el)} sliced by a clipping edge ` +
+            `(${shown.width.toFixed(0)}x${shown.height.toFixed(0)} of ` +
+            `${at.width.toFixed(0)}x${at.height.toFixed(0)}px shown)`,
+        );
+      }
+    }
+    return [...bad].slice(0, 6);
+  }, root);
+  expect(offenders, `images not drawn whole: ${offenders.join(' | ')}`).toEqual([]);
+}
+
+/**
  * Make a screen self-contained: seed the persisted token and intercept every
  * `/api/**` call with fixtures that satisfy the shared Zod schemas.
  */

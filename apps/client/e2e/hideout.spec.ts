@@ -13,7 +13,12 @@
 import { BUILDING_KINDS, type Building } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import { base, lateGame, lateGameBase, me } from './fixtures';
-import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
+import {
+  expectNoImagesClipped,
+  expectNothingClippedVertically,
+  installApi,
+  settleFonts,
+} from './harness';
 
 /**
  * A hideout with every plot standing at `level`, over `lateGame`'s late-game stockpile.
@@ -128,6 +133,11 @@ async function expectVillageLaidOutCleanly(page: Page): Promise<void> {
 
   expectNoPairOverlaps(plots, 'plots');
   expectNoPairOverlaps(plates, 'name plates');
+
+  // ...and the silhouette standing on each plot is actually drawn. Everything above measures
+  // *buttons and plates*; a sprite's own span is `min-h-0 w-full flex-1`, so it takes whatever the
+  // plate leaves it, and a sprite squeezed to nothing leaves every assertion so far untouched.
+  await expectNoImagesClipped(page, '[data-testid="village-scene"]');
 }
 
 async function expectNoDocumentOverflow(page: Page): Promise<void> {
@@ -155,6 +165,10 @@ for (const size of VIEWPORTS) {
 
       await expectVillageLaidOutCleanly(page);
       await expectNoDocumentOverflow(page);
+      // The HUD's resource glyphs and the nav's icons, at the width that squeezes them hardest.
+      // Both are fixed bars rather than scrollers, so nothing here is cut by design.
+      await expectNoImagesClipped(page, 'header');
+      await expectNoImagesClipped(page, 'nav');
       // Scoped to the scene: this page is a document scroller, so its own fold cuts the last row
       // of the panels below by design (the same argument `visual.spec.ts` makes for the base view).
       // The scene is `overflow-hidden` and fixed-aspect, so a cut inside it is always a real bug.
@@ -203,6 +217,53 @@ test.describe('a hideout that has been played', () => {
     await expectVillageLaidOutCleanly(page);
     await expectNothingClippedVertically(page, '[data-testid="village-scene"]');
     await page.screenshot({ path: 'screenshots/hideout/village-built.png' });
+  });
+
+  /**
+   * The positive control for {@link expectNoImagesClipped} — a guard that cannot be made to fail is
+   * not a guard, and this family has a long record of looking covered and not being.
+   *
+   * Both halves are injected as CSS rather than by editing the component, so the control tests the
+   * *gate* and leaves the shipped village exactly as the assertions above just found it. The two
+   * mutations are the two ways a sprite is lost: squeezed to no height by its `flex-1` span, and
+   * pushed past the scene's `overflow-hidden` edge.
+   */
+  test('the image gate goes red on a sprite that is not drawn whole', async ({ page }) => {
+    await installApi(page, villageAt(10));
+    await page.goto('/game/base');
+    const scene = '[data-testid="village-scene"]';
+    const rejection = async (): Promise<string> =>
+      expectNoImagesClipped(page, scene).then(
+        () => 'the gate passed',
+        (error: Error) => error.message,
+      );
+
+    /** Install one mutation, replacing any previous one; `''` puts the village back. */
+    const mutate = (css: string) =>
+      page.evaluate((rule) => {
+        const ID = 'mou-365-mutation';
+        document.getElementById(ID)?.remove();
+        if (!rule) return;
+        const style = document.createElement('style');
+        style.id = ID;
+        style.textContent = rule;
+        document.head.append(style);
+      }, css);
+
+    // Baseline: the gate is quiet on the village the assertions above just approved.
+    await expectNoImagesClipped(page, scene);
+
+    await mutate(
+      `${scene} > button > span:first-child { flex: none !important; height: 0 !important; }`,
+    );
+    expect(await rejection(), 'a sprite with no height must be reported').toContain('collapsed');
+
+    // Put back, so the second mutation is measured on its own rather than on the first's wreckage.
+    await mutate('');
+    await expectNoImagesClipped(page, scene);
+
+    await mutate(`${scene} > button:first-of-type { top: -12% !important; }`);
+    expect(await rejection(), 'a sprite the scene cuts must be reported').toContain('sliced');
   });
 });
 
