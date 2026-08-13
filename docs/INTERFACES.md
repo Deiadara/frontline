@@ -20,6 +20,8 @@ build; this file says _who owns which symbol_ so two workstreams never define th
 | Morale / infamy / reputation counters                                   | W2              | W3, W5, W10              |
 | Weekly payroll engine (§H7)                                             | W2              | W5 (negotiation UI only) |
 | `Base.level` — the **player** progression level (§I)                    | W6              | W4, W5, W8               |
+| Player XP tally, level curve, level-up grant (§I1–I2)                   | W6              | W3, W4, W5, W8           |
+| Mission definitions, travel/duration bands, resolution (§E)             | W3              | W4, W6                   |
 | `Building.level` — per-structure level                                  | W8              | —                        |
 | `Commander.level` — the **character** level (§H6)                       | W5              | W4                       |
 | Resource icon **keys** (`icon-<resourceKey>`)                           | W2              | W9                       |
@@ -108,6 +110,30 @@ first, `economy` second. That ordering is alphabetical accident, not intent.
   seeder rebuilds. It means the **fresh-insert path**, not the backfill, is what actually has to
   produce a valid `economy_json` — the column's `DEFAULT '{}'` does not satisfy `EconomyStateSchema`.
   Verified at the W2 integration gate.
+
+### R7 — missions award player XP: W6 owns the award, W3 owns the trigger
+
+W3 (§E) and W6 (§I) are activated in parallel by MOU-204, and §I1 makes "missions" an XP source, so
+the two meet at exactly one point: a mission completing.
+
+- **W6 owns the whole XP side** — the tally, the curve, the level-up grant, and the single server
+  function that awards XP and applies a level-up. W3 does not compute, store, or write XP, and does
+  not decide how much a mission is worth.
+- **W3 owns the trigger** — mission resolution, and the reward payout for resources.
+- **Neither stubs the other.** W3 lands missions with no XP call at all; do not invent a hook, an
+  injected callback, or a no-op default for a call site with one caller. W6 lands the XP engine, and
+  **whoever lands second wires the one call** at W3's resolution site and cites R7 in the commit body.
+
+### R8 — migration numbers for this wave
+
+Allocated under R6 (the CTO allocates; do not pick your own):
+
+- **W3 / MOU-162 → `0004_missions.sql`**
+- **W6 / MOU-165 → `0005_progression.sql`**
+
+Per R6 neither may depend on the other having run: `0004` must not read a column `0005` adds, and
+`0005` must not read one `0004` adds. They apply in name order against a tree where both land
+independently. Need a third file? Ask on MOU-170 — do not take `0006` yourself.
 
 ---
 
