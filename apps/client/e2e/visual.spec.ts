@@ -267,9 +267,11 @@ test('the vertical clipping guard rejects a bisected card row', async ({ page })
  * which is the same habit that lets a real regression through. It was a product defect too: a
  * player on a bad connection got fallback metrics that no gate has ever measured.
  *
- * Every off-origin request is aborted, so re-introducing a hosted stylesheet fails here twice
- * over: the request is reported by name, and `settleFonts` refuses to measure a screen whose
- * display face never loaded.
+ * Every off-origin request is aborted and reported by name, so re-introducing a hosted stylesheet
+ * fails here with the offending URL in the message. Verified by mutation: serving an `index.html`
+ * that still carries the old `<link>` fails this test. Aborting rather than merely counting also
+ * means that if the local `@font-face` rules are ever dropped as well, `settleFonts` refuses to
+ * measure the screen instead of silently grading fallback metrics.
  */
 test('typography survives with every third-party origin unreachable', async ({ page }) => {
   const LOCAL = new Set(['localhost', '127.0.0.1']);
