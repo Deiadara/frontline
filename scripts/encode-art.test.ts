@@ -950,10 +950,12 @@ describe('delivery audit', () => {
     expect(problems[0]?.key).toBe(FORE_PLANE.key);
   });
 
-  it('leaves a plane the bible declares opaque alone', async () => {
-    // `plane-city-sky` is the backdrop and carries no floor; auditing it would reject correct art.
+  it('holds a plane the bible declares opaque to no floor — a fully opaque sky is correct art', async () => {
+    // The negative control for the ceiling below: `plane-city-sky` carries no `minTransparency`,
+    // and applying one would reject exactly the delivery the bible asks for.
     const sky = spec('plane-city-sky');
     expect(sky.minTransparency).toBeUndefined();
+    expect(sky.alpha).toBe(false);
     expect(await auditWith({ [sky.file]: await planeDelivery(0) })).toEqual([]);
   });
 
@@ -982,6 +984,73 @@ describe('delivery audit', () => {
   it('passes against the committed drop directory', async () => {
     await expectDropDirectoryReal();
     expect(await auditDeliveries()).toEqual([]);
+  });
+
+  /**
+   * MOU-289 with the sign flipped. The floor above catches a plane that arrives opaque and blankets
+   * what is behind it; these catch a key contracted to be opaque that arrives transparent and shows
+   * through. `encodeAsset` refuses that already (MOU-374) but only for masters it encodes — a file
+   * hand-dropped into `assets/` reaches the browser without passing through it (MOU-388).
+   */
+  describe('opaque contract', () => {
+    const SKY = spec('plane-city-sky');
+
+    /** An opaque delivery of `size`² with `clear` pixels punched fully transparent. */
+    const withClearPixels = async (clear: number, size = 100): Promise<Buffer> =>
+      sharp(await master(size, size, (x, y) => (y * size + x < clear ? CLEAR : SUBJECT)))
+        .webp({ lossless: true, alphaQuality: 100 })
+        .toBuffer();
+
+    it('names an alpha-carrying sky — whatever it does not cover is the bare page', async () => {
+      const problems = await auditWith({ [SKY.file]: await planeDelivery(1) });
+
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatchObject({ file: SKY.file, key: SKY.key });
+      expect(problems[0]?.problem).toContain('delivers no alpha');
+      expect(problems[0]?.problem).toContain('40 of 1600 pixels are not opaque');
+    });
+
+    it('passes the same sky once it is flattened', async () => {
+      expect(await auditWith({ [SKY.file]: await planeDelivery(0) })).toEqual([]);
+    });
+
+    it('catches a hole too small to show up as a percentage — the pixel count carries it', async () => {
+      // One pixel in 10 000 is 0.01%, which `percent()` prints as `0.0%`. A ceiling read off the
+      // weighted percentage would have nothing to fire on; the count is the whole signal.
+      const problems = await auditWith({ [SKY.file]: await withClearPixels(1) });
+
+      expect(problems.map((p) => p.key)).toEqual([SKY.key]);
+      expect(problems[0]?.problem).toContain('1 of 10000 pixels are not opaque');
+      expect(problems[0]?.problem).toContain('(0.0% of the frame)');
+    });
+
+    it('audits the @2x slot against its 1× contract, as the floor does', async () => {
+      const retina = SKY.file.replace(/\.(\w+)$/, '@2x.$1');
+      const problems = await auditWith({ [retina]: await planeDelivery(1) });
+
+      expect(problems.map((p) => p.file)).toEqual([retina]);
+      expect(problems[0]?.key).toBe(SKY.key);
+    });
+
+    it('governs the opaque keys outside the plane stack too', async () => {
+      // Same exposure, smaller blast radius — `assets/README.md` calls the plate the ground, and
+      // the district tiles sit under the nodes.
+      const plate = spec('plate-city');
+      const district = spec('district-chrome-row');
+      expect([plate.alpha, district.alpha]).toEqual([false, false]);
+
+      const problems = await auditWith({
+        [plate.file]: await planeDelivery(1),
+        [district.file]: await planeDelivery(1),
+      });
+      expect(problems.map((p) => p.key).toSorted()).toEqual([district.key, plate.key].toSorted());
+    });
+
+    it('leaves the alpha-carrying planes free to be transparent', async () => {
+      // The ceiling must not collide with the floor: `plane-city-fore` is required to be mostly
+      // transparent, so a check keyed on the wrong side of `spec.alpha` would fire on correct art.
+      expect(await auditWith({ [FORE_PLANE.file]: await planeDelivery(30) })).toEqual([]);
+    });
   });
 });
 

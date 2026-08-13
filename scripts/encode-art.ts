@@ -90,6 +90,24 @@ export function transparencyOf(image: RgbaImage): number {
   return 1 - opacity / (255 * image.width * image.height);
 }
 
+/**
+ * How many pixels are not fully opaque, counted rather than coverage-weighted.
+ *
+ * The companion to {@link transparencyOf}, and it exists because the weighted number alone cannot
+ * describe an opaque key's failure. Weighting conflates two unlike things: a uniform `alpha: 254`
+ * veil — invisible, no pixel remotely see-through — measures 0.4%, while a one-pixel crack down the
+ * full height of a 2048×1152 frame, which really does put the page on screen, measures 0.05%. The
+ * harmless case scores eight times the harmful one, and both round to `0.0%` in a report. The count
+ * separates them, so {@link auditDeliveries} can say *how much* of the frame is not opaque instead
+ * of a percentage that reads as zero either way (MOU-388).
+ */
+export function nonOpaquePixels(image: RgbaImage): number {
+  let count = 0;
+  for (let i = CHANNELS - 1; i < image.data.length; i += CHANNELS)
+    if (image.data[i]! < 255) count += 1;
+  return count;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Post-process steps                                                          */
 /* -------------------------------------------------------------------------- */
@@ -807,46 +825,78 @@ async function droppedFiles(dir: string): Promise<readonly string[]> {
  *
  * Both densities are audited: the client takes `@2x` on retina and 1× elsewhere, so an opaque master
  * in either slot erases the map for the displays that resolve to it.
+ *
+ * The floor has a ceiling beside it, for the keys that declare no alpha at all. It is MOU-289 with
+ * the sign flipped: there the fore plane arrived opaque and blanketed the map, here a key contracted
+ * to be opaque arrives transparent and shows through. `assets/README.md` states the case —
+ * `plane-city-sky` is the backdrop, so whatever it does not cover is the bare page, not art — and
+ * `plate-city`, `district-*` and `portrait-*` are the same exposure with a smaller blast radius.
+ * {@link encodeAsset} refuses this already (MOU-374), but only for masters it encodes itself; the
+ * hand-drop route reaches the browser without ever passing through it (MOU-388).
+ *
+ * The ceiling is `> 0`, the same one the encode route throws on, because the alternative is worse
+ * than arbitrary. Encoding does not manufacture alpha — a fully opaque master round-trips at exactly
+ * zero through lossy WebP, lossless WebP and PNG alike — so there is no encoder noise for a
+ * tolerance to absorb, and any tolerance loose enough to forgive a harmless near-opaque veil is far
+ * too loose to catch a hairline of bare page (see {@link nonOpaquePixels}). What differs from the
+ * encode route is the consequence, not the threshold: this audit reports and the contact sheet
+ * prints a warning, where `encodeAsset` throws — so the reporting route can afford the strict gate.
  */
 export async function auditDeliveries(
   dir: string = DEFAULT_ASSET_DIR,
 ): Promise<readonly DeliveryProblem[]> {
-  const floors = new Map<string, { spec: AssetSpec; floor: number }>(
+  // Every key with something to check: a §6 floor to clear, an opaque contract to keep, or both.
+  const governed = new Map<string, AssetSpec>(
     ART_MANIFEST.flatMap((spec) =>
-      spec.minTransparency === undefined
-        ? []
-        : [[spec.file, { spec, floor: spec.minTransparency }] as const],
+      spec.minTransparency === undefined && spec.alpha ? [] : [[spec.file, spec] as const],
     ),
   );
 
   const problems: DeliveryProblem[] = [];
   for (const file of await droppedFiles(dir)) {
-    const governed = floors.get(withoutRetinaMarker(path.basename(file)));
-    if (governed === undefined) continue;
+    const spec = governed.get(withoutRetinaMarker(path.basename(file)));
+    if (spec === undefined) continue;
 
-    let transparency: number;
+    let image: RgbaImage;
     try {
-      transparency = transparencyOf(await decodeMaster(await readFile(path.join(dir, file))));
+      image = await decodeMaster(await readFile(path.join(dir, file)));
     } catch (error) {
       // sharp names neither the file nor the key when it rejects one, and a hand-pasted batch is
       // exactly where a truncated download turns up. A delivery that fails has to name itself —
       // the contact sheet reports this audit too, and a bare throw there kills the whole run.
       problems.push({
         file,
-        key: governed.spec.key,
+        key: spec.key,
         problem: `could not be read as an image — ${errorMessage(error)}`,
       });
       continue;
     }
 
-    if (transparency >= governed.floor) continue;
-    problems.push({
-      file,
-      key: governed.spec.key,
-      problem:
-        `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ` +
-        `${percent(governed.floor)} — an opaque delivery hides everything behind this plane`,
-    });
+    const transparency = transparencyOf(image);
+
+    if (spec.minTransparency !== undefined && transparency < spec.minTransparency) {
+      problems.push({
+        file,
+        key: spec.key,
+        problem:
+          `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ` +
+          `${percent(spec.minTransparency)} — an opaque delivery hides everything behind this plane`,
+      });
+    }
+
+    if (!spec.alpha && transparency > 0) {
+      // Led by the pixel count: a one-pixel hole and a hairline crack both print as `0.0%`.
+      const bare = nonOpaquePixels(image);
+      problems.push({
+        file,
+        key: spec.key,
+        problem:
+          `${bare} of ${image.width * image.height} pixels are not opaque (${percent(transparency)} ` +
+          `of the frame) but "${spec.key}" delivers no alpha — this file ships as it is, so ` +
+          `whatever it does not cover is the page showing through. Flatten it onto its intended ` +
+          `background (ADR 0001 §6.4)`,
+      });
+    }
   }
   return problems;
 }
