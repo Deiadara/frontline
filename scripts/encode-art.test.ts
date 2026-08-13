@@ -568,17 +568,21 @@ describe('encodeAsset', () => {
     expect(transparency).toBe(0);
   });
 
-  it("drops a transparent master's alpha rather than delivering it", async () => {
-    // The test above cannot see this: its master is fully opaque, and libwebp drops an all-opaque
-    // alpha channel on its own — so `hasAlpha` reads false there whether or not the encode removes
-    // it. Only a master that really carries alpha separates the two, and `district` declares none.
+  it('refuses a transparent master on a key that delivers no alpha (MOU-374)', async () => {
+    // What MOU-317 established about `removeAlpha()` is what makes this a rejection rather than a
+    // flatten: it *discards* the band instead of compositing, so the RGB under `alpha = 0` ships
+    // untouched — `[240,200,120]` here, and black for a real master that painted nothing there.
+    // Nothing downstream sees it either: `minTransparency` is attached to the two planes only, and
+    // `postProcessFor` never declares `matte` for an opaque delivery, so both of the gates above
+    // are structurally inert on exactly the keys the board's masters land on. `district` is one.
     const bytes = await master(1024, 1024, (x, y) => [240, 200, 120, y < 512 ? 255 : 0]);
-    const { bytes: delivery, transparency } = await encodeAsset(bytes, DISTRICT);
 
-    // Stated first: if the fixture is not actually transparent going in, the assertion below is
-    // as insensitive as the one it exists to cover for.
-    expect(transparency).toBe(0.5);
-    expect((await sharp(delivery).metadata()).hasAlpha).toBe(false);
+    // Stated first: if the fixture is not actually transparent going in, the rejection below could
+    // pass for a reason that has nothing to do with alpha.
+    expect(transparencyOf(await decodeMaster(bytes))).toBe(0.5);
+    await expect(encodeAsset(bytes, DISTRICT)).rejects.toThrow(
+      /carries alpha over 50\.0% of the frame but "district" delivers none/,
+    );
   });
 
   it('refuses a master that is not the resolution the manifest declared', async () => {

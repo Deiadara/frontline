@@ -701,6 +701,14 @@ function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffer> {
  * catches a key that *succeeded over too small a band*: the cut-nothing check below and
  * `MAX_KEYED_ISLANDS` only catch one that failed outright, and a far plane matted over a sliver
  * would otherwise pass both and hide the sky plane behind it.
+ *
+ * The last check is the mirror image of the matte pair, for the keys that declare no alpha at all:
+ * `encodeDelivery` strips their band with `removeAlpha()`, which *discards* it rather than
+ * compositing, so a master that is transparent anywhere ships whatever RGB was hiding under it —
+ * black patches, for a master with nothing painted there. No other gate sees it: `minTransparency`
+ * is attached only to the two planes, and `matte` is never declared for an opaque delivery
+ * (`postProcessFor`), so both checks above are inert on exactly the keys the board's masters land
+ * on (MOU-374).
  */
 function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: number): string[] {
   const problems: string[] = [];
@@ -720,6 +728,14 @@ function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: numbe
   if (spec.minTransparency !== undefined && transparency < spec.minTransparency) {
     problems.push(
       `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ${percent(spec.minTransparency)} — re-key with a wider --matte-tolerance or hand-matte the master`,
+    );
+  }
+  if (!spec.alpha && transparency > 0) {
+    problems.push(
+      `the master carries alpha over ${percent(transparency)} of the frame but "${spec.class}" ` +
+        `delivers none — removeAlpha() drops the band without compositing, so whatever RGB sits ` +
+        `under it ships as artwork. Flatten the master onto its intended background first ` +
+        `(ADR 0001 §6.4)`,
     );
   }
   return problems;
