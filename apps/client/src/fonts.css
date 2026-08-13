@@ -14,7 +14,9 @@
  */
 
 /* Only the latin subsets are vendored; the UI is English and player-entered text is latin-ext at
-   worst. Anything outside these ranges falls back, exactly as it did with the hosted stylesheet. */
+   worst. This is narrower than the hosted stylesheet, which also served Inter in cyrillic, greek
+   and vietnamese and Rajdhani in devanagari — see public/fonts/README.md before widening either
+   UsernameSchema or the UI's language coverage. */
 @font-face {
   font-family: 'Orbitron';
   font-style: normal;

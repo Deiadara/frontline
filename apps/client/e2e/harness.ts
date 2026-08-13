@@ -8,11 +8,11 @@ const DISPLAY_FONT = 'Orbitron';
 /**
  * Wait until layout is measured against the font the player actually sees.
  *
- * `index.html` loads Orbitron with `display=swap`, so text is laid out in the ~12% narrower
- * fallback until it lands. A geometry assertion that races the swap measures a screen nobody
- * renders — and, worse, passes *because* of the narrower metrics. Awaiting `fonts.ready` alone
- * is not enough either: if the font request fails, that resolves immediately and every guard
- * goes vacuously green, so the load is asserted rather than assumed.
+ * `src/fonts.css` declares Orbitron with `font-display: swap`, so text is laid out in the ~12%
+ * narrower fallback until it lands. A geometry assertion that races the swap measures a screen
+ * nobody renders — and, worse, passes *because* of the narrower metrics. Awaiting `fonts.ready`
+ * alone is not enough either: if the font request fails, that resolves immediately and every
+ * guard goes vacuously green, so the load is asserted rather than assumed.
  */
 export async function settleFonts(page: Page): Promise<void> {
   await page.evaluate(() => document.fonts.ready);

@@ -31,12 +31,11 @@ const AFTER_RAID = addResources(STARTING_RESOURCES, botDistrict.rewards);
 
 /** External noise we never treat as an app bug. */
 function isBenign(text: string): boolean {
-  return (
-    /fonts\.(googleapis|gstatic)/i.test(text) ||
-    /favicon/i.test(text) ||
-    /ResizeObserver loop/i.test(text)
-  );
+  return /favicon/i.test(text) || /ResizeObserver loop/i.test(text);
 }
+
+/** The origins this flow is allowed to touch — everything else is a third-party dependency. */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
 
 /**
  * Screenshot the current screen at every supported viewport, then restore the default.
@@ -67,6 +66,13 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
 }) => {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
+  // A failed third-party fetch is invisible to both listeners below — Chromium reports it on
+  // `requestfailed`, never as a console message — so the hosted-webfont regression MOU-197 closed
+  // has to be watched for by origin. `visual.spec.ts` guards `/overseer`; this is the whole flow.
+  const offOrigin: string[] = [];
+  page.on('request', (req) => {
+    if (!LOCAL_HOSTS.has(new URL(req.url()).hostname)) offOrigin.push(req.url());
+  });
   page.on('pageerror', (err) => {
     if (!isBenign(err.message)) pageErrors.push(err.message);
   });
@@ -157,4 +163,5 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
+  expect(offOrigin, `the flow fetched third-party assets: ${offOrigin.join(' | ')}`).toEqual([]);
 });

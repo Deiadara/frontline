@@ -25,5 +25,12 @@ ships a static file per weight; Orbitron and Inter are variable, so one file ser
 a subset. The `@font-face` rules live in `apps/client/src/fonts.css`, which explains why the weights
 are enumerated instead of declared as a variable range.
 
+That drops six subsets the hosted stylesheet did serve: Inter's `cyrillic`, `cyrillic-ext`, `greek`,
+`greek-ext` and `vietnamese`, and Rajdhani's `devanagari`. Text in those scripts now renders in the
+system fallback instead of the brand face. Nothing can produce such text today — every string is
+English, and the app's one free-text input is `UsernameSchema` (`packages/shared/src/primitives.ts`),
+which is `^[a-zA-Z0-9_]+$`. **Widening that regex, or adding localised copy, means re-vendoring the
+matching subsets**: the `unicode-range` declarations will not reach for them.
+
 To refresh, re-request the stylesheet above with a woff2-capable `User-Agent`, download the `latin`
 and `latin-ext` `src` URLs, and update the version column.
