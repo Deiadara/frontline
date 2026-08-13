@@ -1,8 +1,8 @@
-import { CITY_DISTRICTS, type AssetKey, type BaseSummary } from '@frontline/shared';
+import { CITY_DISTRICTS, findAssetSpec, type AssetKey, type BaseSummary } from '@frontline/shared';
 import { Container, Graphics, Sprite, Texture, TextureSource } from 'pixi.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ArtLoader, BundleState } from '../../assets/loader';
-import type { AssetSource } from '../../assets/source';
+import { resolveAssetSource, type AssetSource } from '../../assets/source';
 import { PARALLAX_PLANES, type PlaneId } from '../../render/layers';
 import { buildPlanes, districtFace, groupByDistrict, markerY } from './CityMap';
 
@@ -104,6 +104,18 @@ describe('buildPlanes', () => {
     textureOf: (key) => textures.get(key) ?? null,
   });
 
+  /**
+   * The shipping state today: nothing delivered, so the real resolver hands every plane key its
+   * procedural source — with that key's own class and seed, not a stand-in shape.
+   */
+  const proceduralLoader = (): ArtLoader => ({
+    ...loaderWith(new Map()),
+    sourceOf: (key) => {
+      const spec = findAssetSpec(key);
+      return spec ? resolveAssetSource(spec, new Map()) : undefined;
+    },
+  });
+
   const sceneOf = (width: number, height: number) => ({
     planes: new Map<PlaneId, Container>(PARALLAX_PLANES.map((spec) => [spec.id, new Container()])),
     width,
@@ -164,6 +176,22 @@ describe('buildPlanes', () => {
       ).toHaveLength(1);
       expect(painters.paintPlaneFallback).toHaveBeenCalledWith(spec.assetKey, 800, 600);
     }
+  });
+
+  // The path 100% of production takes until the first master lands: no delivered file anywhere.
+  it('paints the procedural interim for a key with no master delivered', () => {
+    const scene = sceneOf(800, 600);
+
+    buildPlanes(scene, proceduralLoader());
+
+    for (const spec of PAINTED) {
+      expect(scene.planes.get(spec.id)?.children, `the ${spec.id} plane is blank`).toHaveLength(1);
+    }
+    expect(painters.paintProcedural).toHaveBeenCalledTimes(PAINTED.length);
+    expect(
+      painters.paintPlaneFallback,
+      'an undelivered key never waits on a master that is not coming',
+    ).not.toHaveBeenCalled();
   });
 
   it('repaints a plane rather than stacking a second painting on it', () => {

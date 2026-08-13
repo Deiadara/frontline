@@ -23,7 +23,12 @@ export interface ParallaxPlane {
   scrollFactor: number | null;
   /** Manifest key the plane is painted from; `null` where it is composed at runtime. */
   assetKey: AssetKey | null;
-  /** ADR §5.4 — blurred planes are baked with `cacheAsTexture` and invalidated only on resize. */
+  /**
+   * ADR §5.4 — blurred planes are baked with `cacheAsTexture` and invalidated only on resize. Data
+   * only so far: nothing applies it yet. Whoever does must call `updateCacheTexture()` on the
+   * container after `buildPlanes` swaps its children, or a delivered master lands behind a stale
+   * bake and never appears — Pixi does not refresh a cache on its own.
+   */
   cacheAsTexture: boolean;
   /** Exactly one plane takes pointer events: district nodes and base markers. */
   interactive: boolean;

@@ -30,6 +30,17 @@ nothing is stretched, so a master is never distorted — it is only ever cropped
 Until a plane's master finishes downloading — and if the fetch fails outright — that plane holds its
 procedural skyline rather than going blank.
 
+### …and only the sky is opaque
+
+The four are not interchangeable. They stack back to front — `plane-city-sky`, `plane-city-far`,
+`plate-city`, the district nodes, `plane-city-fore` — over a transparent stage, so:
+
+- **`plane-city-sky` must be fully opaque.** It is the backdrop; whatever it does not cover is the
+  page showing through, not art.
+- **`plane-city-far`, `plate-city` and `plane-city-fore` must carry alpha.** They composite over the
+  sky, and `plane-city-fore` draws _in front of the district nodes_ — an opaque foreground master
+  blankets the whole map, nodes included, and nothing in the build will complain.
+
 ## Seeing what has landed
 
 The art arrives in hand-pasted batches, so most of the manifest is legitimately absent between them.
