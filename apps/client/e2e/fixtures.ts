@@ -4,6 +4,7 @@ import {
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
   startingEconomy,
+  startingProgression,
   type AuthResponse,
   type Base,
   type BaseDetailResponse,
@@ -41,6 +42,7 @@ export const base: Base = {
   isBot: false,
   resources: STARTING_RESOURCES,
   economy: startingEconomy(NOW),
+  progression: startingProgression(),
   buildings: [
     { id: 'b1', kind: 'command_center', level: 1 },
     { id: 'b2', kind: 'reactor', level: 1 },
@@ -65,6 +67,9 @@ export const lateGameBase: Base = {
   level: 12,
   resources: { caps: 125000, food: 48000, oil: 32000, scrap: 96000, highQualityMetal: 12000 },
   economy: { ...base.economy, morale: 100, infamy: 100 },
+  // One XP short of level 13 (§I). Widest the progression readout ever gets — four digits either
+  // side of the slash and a bar at ~100% — where the starting base shows `0 / 100`.
+  progression: { xpIntoLevel: 7799 },
 };
 
 export const lateGame: MeResponse = { user, overseer, base: lateGameBase };

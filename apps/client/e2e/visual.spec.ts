@@ -217,6 +217,39 @@ for (const size of VIEWPORTS) {
        */
       await page.screenshot({ path: `screenshots/visual/base-${tag}.png` });
     });
+
+    /*
+     * MOU-165 §I: the progression readout is sized by the digits in it, and the starting base
+     * shows `0 / 100` — the narrowest case there is. `lateGameBase` sits one XP short of level 13,
+     * so the row carries four digits either side of the slash and the bar runs to ~100%. Same
+     * blind spot the late-game HUD test above exists for, on a different row.
+     */
+    test(`late-game progression readout at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/base');
+      await expect(page.getByRole('heading', { name: "Operator's Foothold" })).toBeVisible();
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+
+      // The base screen is a document scroller, so the panel is below the fold at every viewport
+      // in the matrix — scrolled to, then measured, the same way a player reaches it. Scrolling to
+      // the *last* row puts the whole panel on screen, so the screenshot shows all of it.
+      const grantValue = (label: string) =>
+        page.locator('dl > div').filter({ hasText: label }).locator('dd');
+      await grantValue('Recruit slots').scrollIntoViewIfNeeded();
+      await settleFonts(page);
+
+      await expect(page.getByText('Level 12 → 13')).toBeInViewport({ ratio: 1 });
+      await expect(page.getByText('7799 / 7800 XP')).toBeInViewport({ ratio: 1 });
+
+      // §I2 grants at level 12: §G8 pool 2+11+2, §G3a cap floor(12/2), §H8 slots 2+11.
+      await expect(grantValue('Assignee pool')).toHaveText('15');
+      await expect(grantValue('Assignees / officer')).toHaveText('6');
+      await expect(grantValue('Recruit slots')).toHaveText('13');
+
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/progression-${tag}.png` });
+    });
   });
 }
 

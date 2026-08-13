@@ -3,6 +3,7 @@ import {
   STARTER_DISTRICT_ID,
   STARTING_RESOURCES,
   startingEconomy,
+  startingProgression,
   type Base,
   type District,
 } from '@frontline/shared';
@@ -28,6 +29,7 @@ const myBase: Base = {
   isBot: false,
   resources: STARTING_RESOURCES,
   economy: startingEconomy('2026-08-13T09:30:00.000Z'),
+  progression: startingProgression(),
   buildings: [],
   commanders: [],
   createdAt: '2026-08-13T09:30:00.000Z',

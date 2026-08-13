@@ -3,6 +3,7 @@ import {
   BOT_DISTRICT_ID,
   findOverseerPreset,
   startingEconomy,
+  startingProgression,
   type Base,
   type Overseer,
 } from '@frontline/shared';
@@ -139,6 +140,7 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
       isBot: true,
       resources: MVP_BOT.resources,
       economy: startingEconomy(now),
+      progression: startingProgression(),
       buildings: MVP_BOT.buildings,
       commanders: MVP_BOT.commanders,
       createdAt: now,

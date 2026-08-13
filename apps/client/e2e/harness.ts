@@ -92,7 +92,10 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
 
     if (pathname.endsWith('/api/me')) return json(meResponse);
     if (pathname.endsWith('/api/city')) return json(city);
-    if (pathname.includes('/api/base/')) return json(baseDetail);
+    // The base screen reads `GET /base/:id`, not `/me`. Serving one fixed base regardless of the
+    // session made `installApi(page, lateGame)` a half-fixture — a late-game HUD over a starting
+    // base — so the detail follows whichever session was installed.
+    if (pathname.includes('/api/base/')) return json({ base: meResponse.base ?? baseDetail.base });
     if (pathname.endsWith('/api/battle')) return json(battle);
     if (pathname.endsWith('/api/overseer')) return json(createOverseerResponse, 201);
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);

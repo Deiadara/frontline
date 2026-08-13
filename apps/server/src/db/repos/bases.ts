@@ -4,6 +4,7 @@ import {
   type Base,
   type BaseSummary,
   type EconomyState,
+  type ProgressionState,
   type Resources,
 } from '@frontline/shared';
 import { readJson } from '../json.js';
@@ -18,6 +19,7 @@ interface BaseRow {
   is_bot: number;
   resources_json: string;
   economy_json: string;
+  progression_json: string;
   buildings_json: string;
   commanders_json: string;
   created_at: string;
@@ -42,6 +44,11 @@ export interface BasesRepo {
   listSummaries(): BaseSummary[];
   updateResources(baseId: string, resources: Resources): void;
   updateEconomy(baseId: string, economy: EconomyState): void;
+  /**
+   * Writes a level-up as one statement (GDD §I2). Level and banked XP move together — a partial
+   * write would leave progress sitting above its own level's threshold.
+   */
+  updateProgression(baseId: string, level: number, progression: ProgressionState): void;
 }
 
 function rowToBase(row: BaseRow): Base {
@@ -54,6 +61,7 @@ function rowToBase(row: BaseRow): Base {
     isBot: row.is_bot === 1,
     resources: readJson(row.resources_json),
     economy: readJson(row.economy_json),
+    progression: readJson(row.progression_json),
     buildings: readJson(row.buildings_json),
     commanders: readJson(row.commanders_json),
     createdAt: row.created_at,
@@ -75,8 +83,8 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const insertStmt = db.prepare(
     `INSERT INTO bases
        (id, owner_id, name, district_id, level, is_bot,
-        resources_json, economy_json, buildings_json, commanders_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        resources_json, economy_json, progression_json, buildings_json, commanders_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
@@ -86,6 +94,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   );
   const updateResourcesStmt = db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?');
   const updateEconomyStmt = db.prepare('UPDATE bases SET economy_json = ? WHERE id = ?');
+  const updateProgressionStmt = db.prepare(
+    'UPDATE bases SET level = ?, progression_json = ? WHERE id = ?',
+  );
 
   return {
     insert(base) {
@@ -98,6 +109,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         base.isBot ? 1 : 0,
         JSON.stringify(base.resources),
         JSON.stringify(base.economy),
+        JSON.stringify(base.progression),
         JSON.stringify(base.buildings),
         JSON.stringify(base.commanders),
         base.createdAt,
@@ -124,6 +136,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateEconomy(baseId, economy) {
       updateEconomyStmt.run(JSON.stringify(economy), baseId);
+    },
+    updateProgression(baseId, level, progression) {
+      updateProgressionStmt.run(level, JSON.stringify(progression), baseId);
     },
   };
 }

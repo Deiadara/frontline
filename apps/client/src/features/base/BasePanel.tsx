@@ -3,6 +3,8 @@ import {
   PAY_WEEK_MS,
   findDistrict,
   foodUpkeepFor,
+  playerLevelGrants,
+  playerXpToNextLevel,
   reputationOf,
   startOfPayWeek,
   weeklyWageBill,
@@ -63,6 +65,10 @@ export function BasePanel() {
           </Panel>
         </div>
 
+        <Panel title="Progression">
+          <ProgressionRows base={base} />
+        </Panel>
+
         <Panel title="Structures">
           <ul className="flex flex-col divide-y divide-steel-800">
             {base.buildings.map((building) => (
@@ -100,6 +106,42 @@ function PayrollRows({ base, now }: { base: Base; now: Date }) {
         })}
       />
     </dl>
+  );
+}
+
+/**
+ * Player progression (GDD §I). The bar is XP banked towards the next level — `base.progression`
+ * holds progress only, never a second copy of the level. The three rows under it are the §I2
+ * grants (§G8 pool, §G3 per-officer cap, §H8 recruit slots), read straight off the shared formula
+ * so the screen cannot drift from what the server grants.
+ */
+function ProgressionRows({ base }: { base: Base }) {
+  const needed = playerXpToNextLevel(base.level);
+  const banked = base.progression.xpIntoLevel;
+  const pct = Math.max(0, Math.min(100, (banked / needed) * 100));
+  const grants = playerLevelGrants(base.level);
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex flex-col gap-2 p-4">
+        <div className="flex items-baseline justify-between gap-4">
+          <span className="font-display text-[10px] uppercase tracking-[0.18em] text-steel-400">
+            Level {base.level} → {base.level + 1}
+          </span>
+          <span className="font-display text-sm font-semibold tabular-nums text-neon-cyan">
+            {banked} / {needed} XP
+          </span>
+        </div>
+        <span className="block h-1.5 w-full bg-steel-800">
+          <span className="block h-full bg-neon-cyan" style={{ width: `${pct}%` }} />
+        </span>
+      </div>
+      <dl className="flex flex-col divide-y divide-steel-800 border-t border-steel-800">
+        <PayrollRow label="Assignee pool" value={String(grants.assigneePool)} />
+        <PayrollRow label="Assignees / officer" value={String(grants.assigneeCapPerOfficer)} />
+        <PayrollRow label="Recruit slots" value={String(grants.recruitSlots)} />
+      </dl>
+    </div>
   );
 }
 

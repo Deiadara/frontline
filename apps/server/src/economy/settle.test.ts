@@ -5,6 +5,7 @@ import {
   foodUpkeepFor,
   startOfPayWeek,
   startingEconomy,
+  startingProgression,
   type Base,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -52,6 +53,7 @@ function seedBase(repos: Repositories, officerCount: number, weeklyWage: number)
         wages: Object.fromEntries(officers.map((o) => [o, weeklyWage])),
       },
     },
+    progression: startingProgression(),
     buildings: [],
     commanders: officers.map((id) => createCommander(id, id, 'head_spy')),
     createdAt: FOUNDED,

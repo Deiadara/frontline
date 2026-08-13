@@ -16,6 +16,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { settleBaseEconomy } from '../economy/settle.js';
 import { AppError, parseBody } from '../errors.js';
+import { awardPlayerXp } from '../progression/award.js';
 
 /**
  * Taking a site by force is the one *infamous* action the game can currently perform (GDD §D7),
@@ -79,6 +80,8 @@ export function registerBattleRoutes(app: FastifyInstance): void {
         createdAt: now.toISOString(),
       });
       app.repos.bases.updateEconomy(base.id, recordRaid(base.economy, result.winner, now));
+      // §I1 pays XP for *fighting* other players, not for winning — a loss is worth less, not zero.
+      awardPlayerXp(app.repos, base, result.winner === 'attacker' ? 'raidWon' : 'raidLost');
       if (result.winner === 'attacker') {
         const updated = addResources(base.resources, result.rewards);
         app.repos.bases.updateResources(base.id, updated);
