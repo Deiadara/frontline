@@ -18,6 +18,7 @@ import { ReputationLabelSchema } from './economy/reputation.js';
 import { MissionSchema } from './missions.js';
 import { OverseerSchema } from './overseer.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
+import { PlayerLevelGrantsSchema } from './progression/index.js';
 import {
   ActiveResearchSchema,
   DiscoveredFactSchema,
@@ -97,6 +98,28 @@ export const BaseDetailResponseSchema = z.object({
 });
 export type BaseDetailResponse = z.infer<typeof BaseDetailResponseSchema>;
 
+// --- player levelling (GDD §I) ---
+
+/**
+ * A level-up the *caller's own request* just paid for, so the path that caused it can announce it.
+ *
+ * Carried on every response whose call can award XP, and **present only when a level was actually
+ * crossed** — presence is the whole signal, so no client compares two numbers to work out whether
+ * something happened. `levelsGained > 1` when one settlement crossed several levels.
+ *
+ * §I3 unlocks are deliberately absent: `PLAYER_LEVEL_UNLOCKS` is empty until the board files the
+ * catalogue, and an always-empty array is plumbing for a feature that does not exist yet. It goes
+ * in with the first real unlock.
+ */
+export const LevelUpSchema = z.object({
+  /** `Base.level` after the award. */
+  level: z.number().int().positive(),
+  levelsGained: z.number().int().positive(),
+  /** §I2 grants at the new level — what the level is actually worth. */
+  grants: PlayerLevelGrantsSchema,
+});
+export type LevelUp = z.infer<typeof LevelUpSchema>;
+
 // --- battle ---
 export const BattleRequestSchema = z.object({
   targetDistrictId: IdSchema,
@@ -107,6 +130,8 @@ export const BattleResponseSchema = z.object({
   result: BattleResultSchema,
   /** Attacker base resources AFTER rewards were applied. */
   resources: ResourcesSchema,
+  /** §I1 pays for the raid: set when this raid's XP crossed a level. */
+  levelUp: LevelUpSchema.optional(),
 });
 export type BattleResponse = z.infer<typeof BattleResponseSchema>;
 
@@ -127,6 +152,8 @@ export const MissionsResponseSchema = z.object({
   resources: ResourcesSchema,
   activeLimit: z.number().int().positive(),
   serverNow: IsoDateTimeSchema,
+  /** Set when the crews *this read* banked levelled the player up (§I1). */
+  levelUp: LevelUpSchema.optional(),
 });
 export type MissionsResponse = z.infer<typeof MissionsResponseSchema>;
 
@@ -143,6 +170,11 @@ export type LaunchMissionRequest = z.infer<typeof LaunchMissionRequestSchema>;
 export const LaunchMissionResponseSchema = z.object({
   mission: MissionSchema,
   serverNow: IsoDateTimeSchema,
+  /**
+   * A launch settles the board first, so a crew can land on this very call — and the next
+   * `GET /missions` re-resolves nothing. Without this field that level-up is lost, not deferred.
+   */
+  levelUp: LevelUpSchema.optional(),
 });
 export type LaunchMissionResponse = z.infer<typeof LaunchMissionResponseSchema>;
 

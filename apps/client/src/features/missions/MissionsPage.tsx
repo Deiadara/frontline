@@ -9,11 +9,14 @@ import {
   missionRewards,
   missionTimings,
   templateTimings,
+  type LevelUp,
   type Mission,
   type MissionKind,
   type MissionPhase,
   type MissionTemplate,
 } from '@frontline/shared';
+import { useEffect, useState } from 'react';
+import { LevelUpBanner } from '../../components/LevelUp';
 import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Panel } from '../../components/ui/Panel';
@@ -246,6 +249,21 @@ export function MissionsPage() {
   const data = missionsQuery.data;
   const now = useServerClock(data?.serverNow, missionsQuery.dataUpdatedAt);
 
+  /*
+   * A crew can level the player up while this page is simply *open*, and the server announces that
+   * on the settling response only — the next poll says nothing. So it is latched here rather than
+   * read straight from `data`, or it would flash for one poll interval and vanish.
+   *
+   * Keyed on the value, which is safe precisely because `level` strictly increases: two separate
+   * announcements can never be the deep-equal object react-query's structural sharing would hold
+   * identity on, so this fires exactly once per level-up.
+   */
+  const [levelUp, setLevelUp] = useState<LevelUp | null>(null);
+  const polledLevelUp = data?.levelUp;
+  useEffect(() => {
+    if (polledLevelUp) setLevelUp(polledLevelUp);
+  }, [polledLevelUp]);
+
   const missions = data?.missions ?? [];
   const active = missions.filter((mission) => mission.status === 'active');
   const returned = recentlyReturned(missions);
@@ -267,6 +285,19 @@ export function MissionsPage() {
             server, so a mission lands on schedule whether or not this page is open.
           </p>
         </header>
+
+        {levelUp && (
+          <div className="flex flex-col gap-2">
+            <LevelUpBanner levelUp={levelUp} />
+            <button
+              type="button"
+              onClick={() => setLevelUp(null)}
+              className="self-end font-display text-[10px] uppercase tracking-[0.18em] text-steel-500 hover:text-steel-300"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         <div className="grid gap-5 lg:grid-cols-2">
           <Panel
@@ -321,7 +352,14 @@ export function MissionsPage() {
                 template={template}
                 disabled={atCapacity}
                 pending={launch.isPending && launch.variables?.templateId === template.id}
-                onLaunch={(templateId) => launch.mutate({ templateId })}
+                onLaunch={(templateId) =>
+                  launch.mutate(
+                    { templateId },
+                    // A launch settles the board first, so this response is the only place a crew
+                    // that landed on it is ever reported.
+                    { onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp) },
+                  )
+                }
               />
             ))}
           </div>

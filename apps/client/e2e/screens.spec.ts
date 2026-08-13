@@ -1,6 +1,7 @@
 import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test } from '@playwright/test';
 import {
+  battle,
   lateGame,
   me,
   meNoOverseer,
@@ -195,6 +196,51 @@ test('battle result modal opens after an attack', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'VICTORY' })).toBeVisible();
 
   await page.screenshot({ path: 'screenshots/battle.png', fullPage: false });
+});
+
+/**
+ * MOU-227 — §I1 pays XP for the raid win or lose, and the battle response is the only place a
+ * level it bought is ever reported. The report modal is therefore where the player finds out.
+ */
+test('battle result modal announces a level-up the raid paid for', async ({ page }) => {
+  await installApi(page, me);
+  // Registered after `installApi`, so Playwright's reverse-order matching gives it priority.
+  await page.route('**/api/battle', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...battle,
+        levelUp: {
+          level: 4,
+          levelsGained: 1,
+          grants: { assigneePool: 5, assigneeCapPerOfficer: 2, recruitSlots: 5 },
+        },
+      }),
+    }),
+  );
+  await page.goto('/game');
+  await expect(page.locator('canvas')).toBeVisible();
+  await page.waitForTimeout(700);
+
+  const undergrid = CITY_DISTRICTS.find((d) => d.id === 'undergrid');
+  if (!undergrid) throw new Error('missing undergrid district');
+  const box = await page.locator('canvas').boundingBox();
+  if (!box) throw new Error('canvas has no bounding box');
+  await page.mouse.click(
+    box.x + undergrid.position.x * box.width,
+    box.y + undergrid.position.y * box.height,
+  );
+
+  await page.getByRole('button', { name: 'Launch Attack' }).click();
+  const banner = page.getByRole('region', { name: 'Level up' });
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('LEVEL 4');
+  await settleFonts(page);
+
+  // The modal is a bounded scroller, so the banner has to be *reachable*, not merely rendered.
+  await expect(banner).toBeInViewport();
+  await page.screenshot({ path: 'screenshots/battle-levelup.png', fullPage: false });
 });
 
 /*

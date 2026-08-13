@@ -1,6 +1,7 @@
 import {
   resolvePlayerXpAward,
   type Base,
+  type LevelUp,
   type PlayerXpAward,
   type PlayerXpSource,
 } from '@frontline/shared';
@@ -26,4 +27,19 @@ export function awardPlayerXp(repos: Repositories, base: Base, source: PlayerXpS
   );
   repos.bases.updateProgression(base.id, award.level, award.progression);
   return { base: { ...base, level: award.level, progression: award.progression }, award };
+}
+
+/**
+ * The `levelUp` a response announces for the awards one request banked, or `undefined` when none of
+ * them crossed a level (MOU-227 — presence is the signal, so no client compares two numbers).
+ *
+ * Takes the whole run of awards because a single call can bank several: a settlement that brings two
+ * crews home over two thresholds is *one* level-up to announce, so the levels **add up** while the
+ * level and grants are the ones the player ended on. Passing `[award]` is the one-award case.
+ */
+export function levelUpFrom(awards: readonly PlayerXpAward[]): LevelUp | undefined {
+  const levelsGained = awards.reduce((total, award) => total + award.levelsGained, 0);
+  const last = awards.at(-1);
+  if (levelsGained === 0 || !last) return undefined;
+  return { level: last.level, levelsGained, grants: last.grants };
 }

@@ -11,12 +11,13 @@ import {
   type BattleResponse,
   type District,
   type EconomyState,
+  type PlayerXpAward,
   type Resources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { settleBaseEconomy } from '../economy/settle.js';
 import { AppError, parseBody } from '../errors.js';
-import { awardPlayerXp } from '../progression/award.js';
+import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
 
 /**
  * Taking a site by force is the one *infamous* action the game can currently perform (GDD §D7),
@@ -69,27 +70,38 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       targetDistrictId: district.id,
     });
 
-    const resources = app.db.transaction((): Resources => {
-      app.repos.battles.insert({
-        id: randomUUID(),
-        attackerBaseId: base.id,
-        targetDistrictId: district.id,
-        winner: result.winner,
-        log: result.log,
-        rewards: result.rewards,
-        createdAt: now.toISOString(),
-      });
-      app.repos.bases.updateEconomy(base.id, recordRaid(base.economy, result.winner, now));
-      // §I1 pays XP for *fighting* other players, not for winning — a loss is worth less, not zero.
-      awardPlayerXp(app.repos, base, result.winner === 'attacker' ? 'raidWon' : 'raidLost');
-      if (result.winner === 'attacker') {
-        const updated = addResources(base.resources, result.rewards);
-        app.repos.bases.updateResources(base.id, updated);
-        return updated;
-      }
-      return base.resources;
-    })();
+    // The award stays *inside* the transaction and is lifted out with the resources: a raid that
+    // banks XP and then fails to commit must not have announced a level-up for it.
+    const { resources, award } = app.db.transaction(
+      (): {
+        resources: Resources;
+        award: PlayerXpAward;
+      } => {
+        app.repos.battles.insert({
+          id: randomUUID(),
+          attackerBaseId: base.id,
+          targetDistrictId: district.id,
+          winner: result.winner,
+          log: result.log,
+          rewards: result.rewards,
+          createdAt: now.toISOString(),
+        });
+        app.repos.bases.updateEconomy(base.id, recordRaid(base.economy, result.winner, now));
+        // §I1 pays XP for *fighting* other players, not for winning — a loss is worth less, not zero.
+        const { award } = awardPlayerXp(
+          app.repos,
+          base,
+          result.winner === 'attacker' ? 'raidWon' : 'raidLost',
+        );
+        if (result.winner === 'attacker') {
+          const updated = addResources(base.resources, result.rewards);
+          app.repos.bases.updateResources(base.id, updated);
+          return { resources: updated, award };
+        }
+        return { resources: base.resources, award };
+      },
+    )();
 
-    return { result, resources };
+    return { result, resources, levelUp: levelUpFrom([award]) };
   });
 }

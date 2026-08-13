@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { PLAYER_LEVEL_MIN } from './curve.js';
 
 /**
@@ -6,15 +7,20 @@ import { PLAYER_LEVEL_MIN } from './curve.js';
  * These are defined here, once, because §I2 makes them a consequence of levelling: W4 (§G) and W5
  * (§H) consume this, they do not restate the formulas. Every one is a pure function of level, so
  * there is nothing to store and nothing to keep in step with `Base.level`.
+ *
+ * Schema-first, like `ProgressionStateSchema`: the grants ship inside a response (`LevelUpSchema`),
+ * so the client parses them, and deriving the type means there is no second declaration to drift.
+ * Every figure is a count of something a player holds, so all three are positive integers.
  */
-export interface PlayerLevelGrants {
+export const PlayerLevelGrantsSchema = z.object({
   /** §G8 — total assignees in the fungible pool. */
-  assigneePool: number;
+  assigneePool: z.number().int().positive(),
   /** §G3/§G3a — how many assignees may sit under any one officer. */
-  assigneeCapPerOfficer: number;
+  assigneeCapPerOfficer: z.number().int().positive(),
   /** §H8 — how many recruits the player may hold at once. */
-  recruitSlots: number;
-}
+  recruitSlots: z.number().int().positive(),
+});
+export type PlayerLevelGrants = z.infer<typeof PlayerLevelGrantsSchema>;
 
 /** §G8 — start with 2, +1 per level, +1 extra at every 5th level (5, 10, 15, …). */
 function assigneePoolFor(level: number): number {

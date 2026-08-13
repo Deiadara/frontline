@@ -2,6 +2,7 @@ import {
   PLAYER_XP_AWARDS,
   STARTING_RESOURCES,
   findDistrict,
+  playerLevelGrants,
   playerXpToNextLevel,
   startingEconomy,
   startingAssignees,
@@ -230,5 +231,76 @@ describe('POST /api/battle awards XP (§I1)', () => {
   it('still pays, less, for a raid that failed', async () => {
     const base = await raidOnce('defender');
     expect(base.progression.xpIntoLevel).toBe(PLAYER_XP_AWARDS.raidLost);
+  });
+});
+
+/**
+ * MOU-227 — the raid that paid for the level-up is the only request that knows it happened. The
+ * `Progression` panel catches up on the next base read; this is about announcing the moment.
+ */
+describe('POST /api/battle announces the level-up it paid for (§I2, MOU-227)', () => {
+  const raid = findDistrict('rustyard');
+  if (!raid) throw new Error('fixture error: rustyard district missing');
+  const raidId = raid.id;
+
+  interface BattleBody {
+    levelUp?: { level: number; levelsGained: number; grants: Record<string, number> };
+  }
+
+  /** Raids once from a base parked at `xpIntoLevel`, and hands back the raw battle response. */
+  async function raidFrom(xpIntoLevel: number): Promise<BattleBody> {
+    const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
+    const db = openDatabase(config.databasePath);
+    runMigrations(db);
+    open.push(db);
+    const app = await buildApp({
+      config,
+      db,
+      battleEngine: { simulate: () => ({ winner: 'attacker', log: ['test'], rewards: {} }) },
+      logger: false,
+    });
+    apps.push(app);
+
+    const reg = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'commander', password: 'hunter2pass' },
+    });
+    const headers = { authorization: `Bearer ${reg.json<{ token: string }>().token}` };
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/overseer',
+      headers,
+      payload: { presetId: 'enforcer' },
+    });
+    const baseId = created.json<{ base: { id: string } }>().base.id;
+    createRepositories(db).bases.updateProgression(baseId, 1, { xpIntoLevel });
+
+    const battle = await app.inject({
+      method: 'POST',
+      url: '/api/battle',
+      headers,
+      payload: { targetDistrictId: raidId },
+    });
+    expect(battle.statusCode).toBe(200);
+    return battle.json<BattleBody>();
+  }
+
+  it('carries the new level and its grants when the raid crossed one', async () => {
+    // 80 for the win on top of 40 clears level 1's 100.
+    const { levelUp } = await raidFrom(40);
+
+    expect(levelUp).toEqual({
+      level: 2,
+      levelsGained: 1,
+      grants: playerLevelGrants(2),
+    });
+  });
+
+  it('omits the field entirely when the raid only banked XP', async () => {
+    // 80 short of the 100 level 1 costs, so nothing to announce.
+    const { levelUp } = await raidFrom(0);
+
+    expect(levelUp).toBeUndefined();
   });
 });

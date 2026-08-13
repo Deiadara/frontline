@@ -7,7 +7,7 @@
  * frame — so review time is spent on the ones that are not (composition, colour, legibility).
  */
 import { expect, test, type Page } from '@playwright/test';
-import { activeResearch, lateGame, me, meNoOverseer } from './fixtures';
+import { activeResearch, lateGame, me, meNoOverseer, missionsResponse } from './fixtures';
 import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
 
 interface Size {
@@ -229,6 +229,48 @@ for (const size of VIEWPORTS) {
      * Like the base view this is a document scroller, so there is no vertical-clip guard: content
      * is arbitrarily long and the fold cuts the last row at every viewport by design.
      */
+    /**
+     * MOU-227 — the level-up a returning crew paid for is announced on the settling response only,
+     * so this banner is the whole moment. Its copy is fixed, which makes a cut label a permanent
+     * defect rather than a fat-content edge case: it has to render whole at every width.
+     */
+    test(`missions page announces a level-up at ${tag}`, async ({ page }) => {
+      await installApi(page, me);
+      // Registered after `installApi`, so Playwright's reverse-order matching gives it priority.
+      await page.route('**/api/missions', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...missionsResponse(),
+            // Two levels at once: the widest the banner ever gets, since the count only renders
+            // above 1 (§I2 grants read off the new level).
+            levelUp: {
+              level: 6,
+              levelsGained: 2,
+              grants: { assigneePool: 8, assigneeCapPerOfficer: 3, recruitSlots: 7 },
+            },
+          }),
+        }),
+      );
+      await page.goto('/game/missions');
+
+      const banner = page.getByRole('region', { name: 'Level up' });
+      await expect(banner).toBeVisible();
+      await settleFonts(page);
+
+      const clipped = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('section[aria-label="Level up"] *')]
+          .filter((el) => el.children.length === 0 && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+      );
+      expect(clipped, `cut text in the level-up banner: ${clipped.join(' | ')}`).toEqual([]);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/missions-levelup-${tag}.png` });
+    });
+
     test(`missions page at ${tag}`, async ({ page }) => {
       await installApi(page, me);
       await page.goto('/game/missions');

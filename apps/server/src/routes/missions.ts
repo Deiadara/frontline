@@ -33,6 +33,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       resources: settlement.base.resources,
       activeLimit: CONCURRENT_MISSION_LIMIT,
       serverNow: now.toISOString(),
+      levelUp: settlement.levelUp,
     };
   });
 
@@ -47,7 +48,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const own = requireOwnBase(app, request.currentUser.id);
     // Settle first: a mission that came home while the player was reading the board frees a slot
     // they should be allowed to use on this very request.
-    const { base } = resolveDueMissions(app.repos, own, now);
+    const { base, levelUp } = resolveDueMissions(app.repos, own, now);
     if (app.repos.missions.countActiveByBaseId(base.id) >= CONCURRENT_MISSION_LIMIT) {
       throw new AppError('MISSIONS_AT_CAPACITY', 'Every crew you have is already out on a mission');
     }
@@ -85,6 +86,8 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       terms: crew.terms,
     });
     app.repos.missions.insert(stored);
-    return { mission: stored.mission, serverNow: now.toISOString() };
+    // The settle above is the only place this level-up is ever reported: the next `GET /missions`
+    // re-resolves nothing, so dropping it here loses it outright rather than deferring it.
+    return { mission: stored.mission, serverNow: now.toISOString(), levelUp };
   });
 }

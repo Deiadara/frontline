@@ -1,4 +1,5 @@
-import type { BattleResult, Resources } from '@frontline/shared';
+import type { BattleResult, LevelUp, Resources } from '@frontline/shared';
+import { LevelUpBanner } from '../../components/LevelUp';
 import { RewardLine, ResourceGrid } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -8,14 +9,17 @@ interface BattleResultModalProps {
   result: BattleResult;
   resources: Resources;
   targetName: string;
+  /** §I1 pays for the raid win or lose — set only when this raid's XP crossed a level. */
+  levelUp?: LevelUp | undefined;
   onClose: () => void;
 }
 
-/** Post-battle report: outcome banner, terminal log, salvage, updated stockpile. */
+/** Post-battle report: outcome banner, terminal log, salvage, level-up, updated stockpile. */
 export function BattleResultModal({
   result,
   resources,
   targetName,
+  levelUp,
   onClose,
 }: BattleResultModalProps) {
   const won = result.winner === 'attacker';
@@ -49,6 +53,9 @@ export function BattleResultModal({
       </div>
 
       <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-6">
+        {/* First in the scroller: the raid is over, and this is the part that changed the player. */}
+        {levelUp && <LevelUpBanner levelUp={levelUp} />}
+
         <div className="border border-steel-800 bg-night p-3">
           {result.log.map((line, i) => (
             <p

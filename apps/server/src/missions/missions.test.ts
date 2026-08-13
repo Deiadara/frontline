@@ -5,6 +5,7 @@ import {
   createCommander,
   findMissionTemplate,
   missionRewards,
+  playerLevelGrants,
   templateTimings,
   type Base,
   type Mission,
@@ -566,5 +567,146 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
 
     expect(freshBase(stack).progression.xpIntoLevel).toBe(paidOnce);
     expect(freshBase(stack).level).toBe(levelOnce);
+  });
+});
+
+/**
+ * MOU-227 — the settle happens on *this* request, so the response that caused it is the only place
+ * it can be announced. `GET` is merely early (a base refetch would catch up); `POST` is the one
+ * that loses the moment outright, because the next `GET /missions` re-resolves nothing.
+ *
+ * Planted well in the past rather than at `T0`: both routes settle against the real clock, and a
+ * fixture that is only due after midday is a test that passes depending on when it is run.
+ */
+describe('a settlement announces its level-up on the response that caused it (§I2, MOU-227)', () => {
+  const auth = (token: string) => ({ authorization: `Bearer ${token}` });
+  const LONG_AGO = new Date('2020-01-01T00:00:00.000Z');
+
+  interface LevelUpBody {
+    levelUp?: { level: number; levelsGained: number; grants: Record<string, number> };
+  }
+
+  /** Parks the base at `level` with a clean slate, so a known number of awards crosses or does not. */
+  function parkAt(stack: Stack, level: number): void {
+    stack.repos.bases.updateProgression(stack.base.id, level, { xpIntoLevel: 0 });
+  }
+
+  it('reports the level-up on GET when a returning crew crossed one', async () => {
+    const stack = await makeStack();
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+
+    const { levelUp } = board.json<LevelUpBody>();
+    // One mission (120) clears level 1 (100), so this fixture genuinely crosses.
+    expect(levelUp).toBeDefined();
+    expect(levelUp?.level).toBe(freshBase(stack).level);
+    expect(levelUp?.levelsGained).toBe(1);
+    // The grants are what the level is actually worth — the whole reason to announce it.
+    expect(levelUp?.grants).toEqual(playerLevelGrants(freshBase(stack).level));
+  });
+
+  /**
+   * The aggregation, on a fixture built to need it: parked at 99/100, three awards of 120 cross the
+   * level-1 threshold, then miss level 2's (300), then clear it. So the run is 1, 0, 1 — a total of
+   * 2 that neither the first nor the last award reports on its own.
+   */
+  it('adds the levels up across crews, so two thresholds are one announcement', async () => {
+    const stack = await makeStack();
+    stack.repos.bases.updateProgression(stack.base.id, 1, { xpIntoLevel: 99 });
+    for (const templateId of ['scrap-run', 'ration-run', 'convoy-ambush']) {
+      planted(stack, findMissionTemplate(templateId) as MissionTemplate, ALWAYS_SUCCEEDS, LONG_AGO);
+    }
+
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+
+    const body = board.json<LevelUpBody & { justResolved: Mission[] }>();
+    expect(body.justResolved).toHaveLength(3);
+    // Three separate awards, not one lump: the engine carries the remainder between them.
+    const expected = [1, 2, 3].reduce(
+      (at) => applyPlayerXp(at, PLAYER_XP_AWARDS.missionCompleted),
+      { level: 1, xpIntoLevel: 99 } as ReturnType<typeof applyPlayerXp>,
+    );
+    expect(expected.level).toBe(3);
+    expect(body.levelUp?.levelsGained).toBe(2);
+    expect(body.levelUp?.level).toBe(3);
+    expect(freshBase(stack).level).toBe(3);
+  });
+
+  it('stays silent when a crew came home without crossing a level', async () => {
+    const stack = await makeStack();
+    // Level 3 costs 600; one mission is worth 120, so this settles without levelling.
+    parkAt(stack, 3);
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+
+    const body = board.json<LevelUpBody & { justResolved: Mission[] }>();
+    expect(body.justResolved).toHaveLength(1);
+    // Presence is the whole signal, so a settlement that changed nothing must not carry the field.
+    expect(body.levelUp).toBeUndefined();
+    expect(freshBase(stack).level).toBe(3);
+  });
+
+  it('stays silent on a read that settled nothing', async () => {
+    const stack = await makeStack();
+
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+
+    expect(board.json<LevelUpBody>().levelUp).toBeUndefined();
+  });
+
+  /** The hole the parent issue missed: on this path the moment is lost, not merely delayed. */
+  it('reports a level-up banked by the settle a launch does first', async () => {
+    const stack = await makeStack();
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+
+    const launched = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(stack.token),
+      payload: { templateId: 'scrap-run' },
+    });
+
+    expect(launched.statusCode).toBe(200);
+    expect(launched.json<LevelUpBody>().levelUp?.levelsGained).toBe(1);
+
+    // And it is genuinely unrepeatable: the very next board read has nothing left to announce.
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+    expect(board.json<LevelUpBody>().levelUp).toBeUndefined();
+  });
+
+  it('omits the field on a launch that settled nothing', async () => {
+    const stack = await makeStack();
+
+    const launched = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(stack.token),
+      payload: { templateId: 'scrap-run' },
+    });
+
+    expect(launched.statusCode).toBe(200);
+    expect(launched.json<LevelUpBody>().levelUp).toBeUndefined();
   });
 });

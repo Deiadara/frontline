@@ -7,13 +7,14 @@ import {
   missionRewards,
   missionTimings,
   type Base,
+  type LevelUp,
   type Mission,
   type MissionOutcome,
 } from '@frontline/shared';
 import { createRng } from '../characters/rng.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { StoredMission } from '../db/repos/missions.js';
-import { awardPlayerXp } from '../progression/award.js';
+import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
 
 /**
  * The roll, taken from the seed frozen at launch.
@@ -31,6 +32,11 @@ export interface MissionSettlement {
   base: Base;
   /** The missions that came home on this call, in launch order. */
   resolved: Mission[];
+  /**
+   * Set when the awards *this call* banked crossed a level, so whichever route settled them can
+   * announce it (MOU-227). Aggregated across the crews, never one of them.
+   */
+  levelUp?: LevelUp | undefined;
 }
 
 /**
@@ -95,9 +101,19 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   // `PLAYER_XP_AWARDS` and levelled by W6's engine. Threaded through `awardPlayerXp` so a
   // multi-mission settlement banks every award and the base handed back carries the level it
   // ended on, rather than a pre-award copy the caller would then serve as current.
-  const progressed = settlements.reduce(
-    (acc) => awardPlayerXp(repos, acc, 'missionCompleted').base,
-    settled,
-  );
-  return { base: progressed, resolved: settlements.map((s) => s.mission) };
+  //
+  // The awards are kept, not just the base, because several of them are one announcement: two crews
+  // that cross two thresholds owe the player `levelsGained: 2`, not the last award's 1.
+  let progressed = settled;
+  const awards = settlements.map(() => {
+    const awarded = awardPlayerXp(repos, progressed, 'missionCompleted');
+    progressed = awarded.base;
+    return awarded.award;
+  });
+
+  return {
+    base: progressed,
+    resolved: settlements.map((s) => s.mission),
+    levelUp: levelUpFrom(awards),
+  };
 }

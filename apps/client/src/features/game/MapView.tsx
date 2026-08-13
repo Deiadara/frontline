@@ -2,6 +2,7 @@ import {
   CITY_DISTRICTS,
   type BattleResult,
   type District,
+  type LevelUp,
   type Resources,
 } from '@frontline/shared';
 import { useState } from 'react';
@@ -14,6 +15,8 @@ interface BattleReport {
   result: BattleResult;
   resources: Resources;
   targetName: string;
+  /** Present only when this raid crossed a level (§I2) — the report is where it is announced. */
+  levelUp?: LevelUp | undefined;
 }
 
 /** The `/game` index: city map + context panel + battle flow. */
@@ -36,7 +39,12 @@ export function MapView() {
       { targetDistrictId: district.id },
       {
         onSuccess: (data) =>
-          setReport({ result: data.result, resources: data.resources, targetName: district.name }),
+          setReport({
+            result: data.result,
+            resources: data.resources,
+            targetName: district.name,
+            levelUp: data.levelUp,
+          }),
       },
     );
   };
@@ -73,6 +81,7 @@ export function MapView() {
           result={report.result}
           resources={report.resources}
           targetName={report.targetName}
+          levelUp={report.levelUp}
           onClose={() => setReport(null)}
         />
       )}
