@@ -1,7 +1,9 @@
 import {
   CITY_DISTRICTS,
+  GOVERNMENT,
   STARTER_DISTRICT_ID,
   STARTING_RESOURCES,
+  isSeatOfGovernmentPower,
   startingEconomy,
   startingAssignees,
   startingProgression,
@@ -67,5 +69,43 @@ describe('ContextPanel district art', () => {
   it('asks for no art at all with nothing selected', () => {
     renderPanel(null);
     expect(deliveredUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe('ContextPanel names who holds the ground (§A3)', () => {
+  const combineOutpost = CITY_DISTRICTS.find(
+    (d) => d.faction === 'government' && !isSeatOfGovernmentPower(d),
+  );
+  const seatOfPower = CITY_DISTRICTS.find(isSeatOfGovernmentPower);
+  const independentSite = CITY_DISTRICTS.find(
+    (d) => d.kind === 'raid' && d.faction !== 'government',
+  );
+  if (!combineOutpost || !seatOfPower || !independentSite) {
+    throw new Error('fixture error: the city map is missing a faction case');
+  }
+
+  it('marks a Combine holding and says who holds it', () => {
+    const { getByText } = renderPanel(combineOutpost);
+    expect(getByText(GOVERNMENT.adjective)).toBeInTheDocument();
+    expect(getByText(new RegExp(`Held by ${GOVERNMENT.name}`))).toBeInTheDocument();
+  });
+
+  it('reads a seat of power as a claim on the state, not a raid', () => {
+    const { getByText } = renderPanel(seatOfPower);
+    expect(getByText('Seat of Power')).toBeInTheDocument();
+    expect(getByText(/claim on the state/)).toBeInTheDocument();
+  });
+
+  it('does not call independent ground the government', () => {
+    const { queryByText } = renderPanel(independentSite);
+    expect(queryByText(GOVERNMENT.adjective)).toBeNull();
+    expect(queryByText(new RegExp(`Held by ${GOVERNMENT.name}`))).toBeNull();
+  });
+
+  it('says nothing about factions on the base the player holds', () => {
+    const home = CITY_DISTRICTS.find((d) => d.id === STARTER_DISTRICT_ID);
+    if (!home) throw new Error('fixture error: no starter district');
+    const { queryByText } = renderPanel(home);
+    expect(queryByText(new RegExp(`Held by ${GOVERNMENT.name}`))).toBeNull();
   });
 });

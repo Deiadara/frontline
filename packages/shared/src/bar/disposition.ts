@@ -103,7 +103,10 @@ export const MORAL_COMPASS_SPECS: Readonly<Record<MoralCompass, DispositionSpec>
     label: 'Pragmatist',
     description: 'Takes the working option. Distrusts anyone who never counts the cost.',
     drawnTo: ['Cautious', 'Opportunist', 'Respected'],
-    repelledBy: ['Revolutionary', 'Reckless'],
+    // W10 made `Anti-systemic` reachable and nobody in this table objected to it, which would have
+    // made it the one live word §H4 could not read badly. A pragmatist is exactly who objects: a
+    // standing war on the Combine with no banner to plant is cost nobody has counted.
+    repelledBy: ['Revolutionary', 'Anti-systemic', 'Reckless'],
   },
   opportunist: {
     label: 'Opportunist',

@@ -1,4 +1,5 @@
 import {
+  MISSION_STANCE_SPECS,
   MISSION_TEMPLATES,
   findMissionTemplate,
   formatCountdown,
@@ -15,6 +16,7 @@ import {
   type Mission,
   type MissionKind,
   type MissionPhase,
+  type MissionStance,
   type MissionTemplate,
 } from '@frontline/shared';
 import { useEffect, useState } from 'react';
@@ -35,6 +37,16 @@ const KIND_LABEL: Record<MissionKind, string> = {
 const KIND_STYLE: Record<MissionKind, string> = {
   standard: 'border-neon-cyan/50 text-neon-cyan',
   battle: 'border-neon-magenta/50 text-neon-magenta',
+};
+
+/**
+ * §A3/§D8 — which way the job points at the Combine, shown only when it points at all. A badge on
+ * every card would be noise; a badge on the ones that move a reputation counter is the warning the
+ * player needs before committing a crew.
+ */
+const STANCE_STYLE: Record<Exclude<MissionStance, 'unaligned'>, string> = {
+  against_government: 'border-warning/50 text-warning',
+  for_government: 'border-steel-500 text-steel-300',
 };
 
 const PHASE_LABEL: Record<MissionPhase, string> = {
@@ -198,11 +210,25 @@ function MissionCard({
 
   return (
     <article className="flex min-w-0 flex-col gap-3 border border-steel-800 bg-night p-4">
-      <header className="flex min-w-0 items-start justify-between gap-3">
+      {/*
+        `flex-wrap` is load-bearing now that a card can carry two tags. The tag group cannot shrink,
+        so on a narrow column an un-wrapping header squeezes the heading down to a few characters
+        and `break-words` then cuts it mid-word ("COURIE / R / CONTRA / CT"). Wrapping gives the
+        heading the whole line and drops the tags underneath it instead.
+      */}
+      <header className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <h3 className="min-w-0 break-words font-display text-sm font-semibold uppercase tracking-[0.14em] text-steel-100">
           {template.name}
         </h3>
-        <Tag label={KIND_LABEL[template.kind]} className={KIND_STYLE[template.kind]} />
+        <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+          {template.stance !== 'unaligned' && (
+            <Tag
+              label={MISSION_STANCE_SPECS[template.stance].label}
+              className={STANCE_STYLE[template.stance]}
+            />
+          )}
+          <Tag label={KIND_LABEL[template.kind]} className={KIND_STYLE[template.kind]} />
+        </div>
       </header>
 
       <p className="min-w-0 break-words text-xs leading-relaxed text-steel-400">{template.brief}</p>

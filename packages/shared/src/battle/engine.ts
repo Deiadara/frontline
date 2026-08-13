@@ -1,4 +1,5 @@
-import { findDistrict } from '../city.js';
+import { findDistrict, garrisonOf } from '../city.js';
+import { GOVERNMENT } from '../factions.js';
 import type { BattleEngine, BattleInput, BattleResult } from './types.js';
 
 // TODO: replace RandomBattleEngine with a real deterministic combat model (see docs/ARCHITECTURE.md).
@@ -22,16 +23,21 @@ export class RandomBattleEngine implements BattleEngine {
   simulate(input: BattleInput): BattleResult {
     const district = findDistrict(input.targetDistrictId);
     const target = district?.name ?? 'an uncharted sector';
+    // §A3 — who is actually standing there. On Combine ground the narration names the government's
+    // own composition, which is the whole point of having one antagonist: the player learns what a
+    // state site fields by reading the log, not a wiki.
+    const garrison = district ? garrisonOf(district) : 'nobody the strike team recognises';
+    const holdsTheState = district?.faction === 'government';
     const attackerWins = this.random() < 0.5;
 
     const log = [
       `Strike team deployed from ${input.attackerBaseName} under a dead satellite window.`,
-      `Netrunners spoof the sentry grid at ${target}; drones circle blind for 41 seconds.`,
+      `Contact at ${target}: ${garrison}. Netrunners spoof the sentry grid; drones circle blind for 41 seconds.`,
       attackerWins
         ? `Breach charges crack the ferrocrete line — defenders of ${target} scatter into the undergrid.`
         : `Counter-ICE flares white-hot; the assault on ${target} collapses at the perimeter wall.`,
       attackerWins
-        ? 'Salvage crews strip the site before corporate response teams arrive. Victory.'
+        ? `Salvage crews strip the site before ${holdsTheState ? `${GOVERNMENT.adjective} response teams` : 'anyone else'} arrive. Victory.`
         : 'Survivors limp home through the acid rain. The district holds.',
     ];
 

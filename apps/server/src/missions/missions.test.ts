@@ -1,4 +1,5 @@
 import {
+  ANTI_SYSTEMIC_ACTIONS,
   MISSION_TEMPLATES,
   PLAYER_XP_AWARDS,
   applyPlayerXp,
@@ -6,10 +7,14 @@ import {
   findMissionTemplate,
   missionRewards,
   playerLevelGrants,
+  reputationOf,
+  requiresOfficer,
   templateTimings,
   type Base,
   type Mission,
+  type MissionStance,
   type MissionTemplate,
+  type ReputationTally,
   type Resources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -708,5 +713,98 @@ describe('a settlement announces its level-up on the response that caused it (§
 
     expect(launched.statusCode).toBe(200);
     expect(launched.json<LevelUpBody>().levelUp).toBeUndefined();
+  });
+});
+
+describe('what a mission says about the Combine (§A3, §D8)', () => {
+  const templateWith = (stance: MissionStance): MissionTemplate => {
+    const found = MISSION_TEMPLATES.find((t) => t.stance === stance);
+    if (!found) throw new Error(`fixture error: no ${stance} mission on the board`);
+    return found;
+  };
+
+  /** Settles one planted run and hands back the tally the base was left holding. */
+  async function tallyAfter(
+    template: MissionTemplate,
+    seed: number,
+  ): Promise<{ before: ReputationTally; after: ReputationTally }> {
+    const stack = await makeStack();
+    if (requiresOfficer(template.difficulty)) withOfficer(stack);
+    planted(stack, template, seed);
+
+    const { base } = resolveDueMissions(
+      stack.repos,
+      stack.base,
+      after(templateTimings(template).totalMinutes),
+    );
+    // Read back through the repository, not off the returned object: the counters have to survive
+    // the JSON round trip and `ReputationTallySchema`, or they are only true in memory.
+    const persisted = stack.repos.bases.findById(base.id);
+    if (!persisted) throw new Error('base vanished mid-settlement');
+    return { before: stack.base.economy.reputationTally, after: persisted.economy.reputationTally };
+  }
+
+  it('books a successful anti-Combine run as action against the state', async () => {
+    const { before, after: tally } = await tallyAfter(
+      templateWith('against_government'),
+      ALWAYS_SUCCEEDS,
+    );
+
+    expect(tally.governmentSitesTaken).toBe(before.governmentSitesTaken + 1);
+    expect(tally.governmentContracts).toBe(before.governmentContracts);
+    // Only a raid can take a seat of power — a mission never does (§A3).
+    expect(tally.governmentSeatsTaken).toBe(before.governmentSeatsTaken);
+  });
+
+  it('books a completed Combine contract as collaboration', async () => {
+    const { before, after: tally } = await tallyAfter(
+      templateWith('for_government'),
+      ALWAYS_SUCCEEDS,
+    );
+
+    expect(tally.governmentContracts).toBe(before.governmentContracts + 1);
+    expect(tally.governmentSitesTaken).toBe(before.governmentSitesTaken);
+  });
+
+  it('books nothing for unaligned work or for a run that failed', async () => {
+    const unaligned = await tallyAfter(templateWith('unaligned'), ALWAYS_SUCCEEDS);
+    expect(unaligned.after.governmentSitesTaken).toBe(unaligned.before.governmentSitesTaken);
+    expect(unaligned.after.governmentContracts).toBe(unaligned.before.governmentContracts);
+
+    const failed = await tallyAfter(templateWith('against_government'), ALWAYS_FAILS);
+    expect(failed.after.governmentSitesTaken).toBe(failed.before.governmentSitesTaken);
+  });
+
+  it('turns the run that crosses the threshold into the Anti-systemic word the HUD reads', async () => {
+    // The whole §D8 path end to end: the counters exist to produce a *word*, so this asserts on
+    // `reputationOf` — the one function the HUD and the Bar both call — over the base as the
+    // repository hands it back, and it does so on the exact run that tips the threshold.
+    const template = templateWith('against_government');
+    const stack = await makeStack();
+    if (requiresOfficer(template.difficulty)) withOfficer(stack);
+
+    const settledAt = after(templateTimings(template).totalMinutes);
+    // Stamped at the settlement instant, not at T0: the §D8 drift is continuous, so a tally aged
+    // even half an hour leaves an integer threshold a fraction out of reach. The drift itself is
+    // covered by the shared unit tests — what this one is about is the write path.
+    const oneShort = {
+      ...stack.base.economy,
+      reputationTally: {
+        ...stack.base.economy.reputationTally,
+        updatedAt: settledAt.toISOString(),
+        governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS - 1,
+      },
+    };
+    stack.repos.bases.updateEconomy(stack.base.id, oneShort);
+    expect(reputationOf(oneShort, settledAt)).toBe('Cautious');
+
+    planted({ ...stack, base: freshBase(stack) }, template, ALWAYS_SUCCEEDS);
+    resolveDueMissions(stack.repos, freshBase(stack), settledAt);
+
+    const persisted = freshBase(stack);
+    expect(persisted.economy.reputationTally.governmentSitesTaken).toBeGreaterThanOrEqual(
+      ANTI_SYSTEMIC_ACTIONS,
+    );
+    expect(reputationOf(persisted.economy, settledAt)).toBe('Anti-systemic');
   });
 });

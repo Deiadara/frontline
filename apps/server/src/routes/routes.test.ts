@@ -4,7 +4,10 @@ import {
   STARTING_RESOURCES,
   addResources,
   findDistrict,
+  isSeatOfGovernmentPower,
   type BattleEngine,
+  type EconomyState,
+  type ReputationTally,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -462,6 +465,73 @@ describe('POST /api/battle', () => {
     const rows = db.prepare('SELECT winner FROM battles').all() as { winner: string }[];
     expect(rows).toHaveLength(1);
     expect(rows[0]?.winner).toBe('defender');
+  });
+
+  describe('taking a site off the Combine (§A3, §D8)', () => {
+    /** The §D8 tally as the HUD is served it. */
+    async function tallyOf(app: FastifyInstance, token: string): Promise<ReputationTally> {
+      const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+      return me.json<{ base: { economy: EconomyState } }>().base.economy.reputationTally;
+    }
+
+    async function raidAndRead(districtId: string, random: () => number): Promise<ReputationTally> {
+      const { app } = await makeApp(new RandomBattleEngine(random));
+      const { token } = await register(app, 'commander');
+      await chooseOverseer(app, token);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/battle',
+        headers: auth(token),
+        payload: { targetDistrictId: districtId },
+      });
+      expect(res.statusCode).toBe(200);
+      return tallyOf(app, token);
+    }
+
+    it('books a won raid on a Combine stronghold as a seat of power taken', async () => {
+      const seat = findDistrict('combine-spire');
+      if (!seat) throw new Error('fixture error: combine-spire district missing');
+      expect(isSeatOfGovernmentPower(seat)).toBe(true);
+
+      const tally = await raidAndRead(seat.id, () => 0);
+      expect(tally).toMatchObject({
+        raidsWon: 1,
+        governmentSitesTaken: 1,
+        governmentSeatsTaken: 1,
+      });
+    });
+
+    it('books a Combine outpost as action against the state but not as a seat', async () => {
+      const outpost = findDistrict('undergrid');
+      if (!outpost) throw new Error('fixture error: undergrid district missing');
+      expect(outpost.faction).toBe('government');
+
+      const tally = await raidAndRead(outpost.id, () => 0);
+      expect(tally).toMatchObject({ governmentSitesTaken: 1, governmentSeatsTaken: 0 });
+    });
+
+    it('leaves the stance counters alone on independent ground', async () => {
+      expect(raid.faction).toBe('independent');
+      const tally = await raidAndRead(raid.id, () => 0);
+      expect(tally).toMatchObject({
+        raidsWon: 1,
+        governmentSitesTaken: 0,
+        governmentSeatsTaken: 0,
+      });
+    });
+
+    it('credits the Combine nothing to a crew it turned back', async () => {
+      const seat = findDistrict('combine-spire');
+      if (!seat) throw new Error('fixture error: combine-spire district missing');
+
+      const tally = await raidAndRead(seat.id, () => 0.99);
+      expect(tally).toMatchObject({
+        raidsLost: 1,
+        governmentSitesTaken: 0,
+        governmentSeatsTaken: 0,
+      });
+    });
   });
 });
 

@@ -6,10 +6,12 @@ import {
   isMissionDue,
   missionRewards,
   missionTimings,
+  recordMissionOutcome,
   type Base,
   type LevelUp,
   type Mission,
   type MissionOutcome,
+  type ReputationTally,
 } from '@frontline/shared';
 import { createRng } from '../characters/rng.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -75,6 +77,10 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       outcome,
       rewards,
       moraleDelta: template ? MISSION_MORALE_DELTA[template.kind][outcome] : 0,
+      // §A3/§D8 — which way the job pointed at the Combine. A run whose template has since been
+      // retired comes home politically silent for the same reason it comes home empty: there is
+      // nothing left on the board to say what it was.
+      stance: template?.stance ?? 'unaligned',
     };
   });
 
@@ -91,6 +97,13 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     economy: {
       ...base.economy,
       morale: settlements.reduce((acc, s) => adjustMeter(acc, s.moraleDelta), base.economy.morale),
+      // §D8 — missions are the second live writer of the one reputation tally (the first is
+      // POST /battle). Folded in launch order through the shared recorder so the §D8 drift is
+      // applied exactly once, by the same function, however many crews came home on this call.
+      reputationTally: settlements.reduce<ReputationTally>(
+        (tally, s) => recordMissionOutcome(tally, s.stance, s.outcome, now),
+        base.economy.reputationTally,
+      ),
     },
   };
   repos.bases.updateResources(settled.id, settled.resources);

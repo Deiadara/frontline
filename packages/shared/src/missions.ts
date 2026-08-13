@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MissionDifficultySchema } from './assignees/delegation.js';
+import { MissionStanceSchema } from './factions.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 
@@ -55,6 +56,12 @@ export const MissionTemplateSchema = z.object({
    * split, not a battle/standard one.
    */
   difficulty: MissionDifficultySchema,
+  /**
+   * §A3 — who the job is aimed at. The Combine is the one antagonist NPC content has, so the
+   * board is mostly work against it, some work that ignores it, and a little work *for* it. This
+   * is also the §D8 driver: `recordMissionOutcome` reads it and nothing else.
+   */
+  stance: MissionStanceSchema,
   travelBand: TravelBandSchema,
   durationMinutes: z
     .number()
@@ -75,6 +82,11 @@ export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
 /**
  * The mission board. Every distance band and both kinds are represented, and the durations span
  * §E7's full range — a three-minute scrap run at one end, a day-long expedition at the other.
+ *
+ * §A3 — the Combine is the antagonist the board is written against: most of the paying work is a
+ * blow against it, a little is honest scavenging it does not care about, and two jobs are the
+ * Combine's own, taken for its caps. That last pair is what makes §D8's `Collaborator` a choice a
+ * player can actually make rather than a word in a table.
  */
 export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
@@ -83,6 +95,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     brief: 'Strip the collapsed overpass two blocks out before anyone else calls it theirs.',
     kind: 'standard',
     difficulty: 'easy',
+    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 3,
     spoils: { scrap: 40, caps: 5 },
@@ -94,6 +107,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     brief: 'A hydroponics bay under the market still runs. Its owners keep irregular hours.',
     kind: 'standard',
     difficulty: 'easy',
+    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 12,
     spoils: { food: 35, caps: 8 },
@@ -102,9 +116,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'convoy-ambush',
     name: 'Convoy Ambush',
-    brief: 'A short, loud job on the ring road. They are armed and they will shoot back.',
+    brief:
+      'A Combine ration convoy runs the ring road at dusk. Short, loud, and the escort shoots back.',
     kind: 'battle',
     difficulty: 'hard',
+    stance: 'against_government',
     travelBand: 'close',
     durationMinutes: 25,
     spoils: { caps: 30, oil: 20 },
@@ -113,9 +129,10 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'fuel-siphon',
     name: 'Fuel Siphon',
-    brief: 'The old tank farm is unguarded at shift change. Bring hose and patience.',
+    brief: 'The Combine tank farm sheds its guard at shift change. Bring hose and patience.',
     kind: 'standard',
     difficulty: 'easy',
+    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 45,
     spoils: { oil: 45, scrap: 10 },
@@ -124,9 +141,10 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'foundry-raid',
     name: 'Foundry Raid',
-    brief: 'Hit the smelter floor while the pour is hot and walk out with finished stock.',
+    brief: 'Hit the Combine smelter floor while the pour is hot and walk out with finished stock.',
     kind: 'battle',
     difficulty: 'hard',
+    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 60,
     spoils: { highQualityMetal: 6, scrap: 25 },
@@ -135,20 +153,37 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'courier-contract',
     name: 'Courier Contract',
-    brief: 'Move a sealed crate across three districts. Do not open it. Do not be late.',
+    brief:
+      'A Combine broker needs a sealed crate moved across three districts. Do not open it. Do not be late.',
     kind: 'standard',
     difficulty: 'easy',
+    stance: 'for_government',
     travelBand: 'further',
     durationMinutes: 90,
     spoils: { caps: 55 },
     successChance: 0.91,
   },
   {
-    id: 'refinery-assault',
-    name: 'Refinery Assault',
-    brief: 'Take the outer refinery and hold it long enough to empty the alloy store.',
+    id: 'curfew-sweep',
+    name: 'Curfew Sweep',
+    brief:
+      'The Combine is short of enforcers on the lower tiers and is paying crews to hold curfew for it.',
     kind: 'battle',
     difficulty: 'hard',
+    stance: 'for_government',
+    travelBand: 'close',
+    durationMinutes: 40,
+    // Combine pay: caps and the metal a state armoury can spare, never food it would rather ration.
+    spoils: { caps: 70, highQualityMetal: 4 },
+    successChance: 0.82,
+  },
+  {
+    id: 'refinery-assault',
+    name: 'Refinery Assault',
+    brief: 'Take the outer Combine refinery and hold it long enough to empty the alloy store.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 480,
     spoils: { highQualityMetal: 10, oil: 25, scrap: 20 },
@@ -157,9 +192,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'deep-expedition',
     name: 'Deep Expedition',
-    brief: 'A full day beyond the wire. They go dark until they are back at the gate.',
+    brief:
+      'A full day beyond the wire, past the last Combine checkpoint. They go dark until the gate.',
     kind: 'standard',
     difficulty: 'hard',
+    stance: 'unaligned',
     travelBand: 'furthest',
     durationMinutes: MISSION_MAX_DURATION_MINUTES,
     spoils: { caps: 20, food: 20, oil: 15, scrap: 25, highQualityMetal: 3 },

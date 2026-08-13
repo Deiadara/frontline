@@ -1,5 +1,8 @@
 import {
+  FACTION_IDENTITIES,
+  GOVERNMENT,
   isDistrictAttackable,
+  isSeatOfGovernmentPower,
   type Base,
   type BaseSummary,
   type District,
@@ -15,8 +18,17 @@ const KIND_LABEL: Record<DistrictKind, string> = {
   player_base: 'Player Base',
   raid: 'Raid Site',
   market: 'Market',
-  npc_stronghold: 'NPC Stronghold',
+  // §A3 — a stronghold is a seat of the government's power, and the panel says so.
+  npc_stronghold: 'Seat of Power',
 };
+
+/** Whose ground the selected node is, in the words the fiction uses (§A3). */
+function holdingLine(district: District): string {
+  if (district.faction !== 'government') return FACTION_IDENTITIES.independent.description;
+  return isSeatOfGovernmentPower(district)
+    ? `Held by ${GOVERNMENT.name}. Taking this is not a raid — it is a claim on the state itself.`
+    : `Held by ${GOVERNMENT.name}. A tyranny keeps what it meters, and it will come looking.`;
+}
 
 interface ContextPanelProps {
   selected: District | null;
@@ -40,8 +52,8 @@ export function ContextPanel({
       <Panel title="Intel" className="h-full">
         <div className="flex flex-1 items-center justify-center p-6 text-center">
           <p className="font-body text-xs leading-relaxed text-steel-500">
-            Select a district on the map to inspect it. Raid sites, strongholds and hostile AI bases
-            can be attacked; markets and rival players hold the line.
+            Select a district on the map to inspect it. Most of what is worth taking is held by{' '}
+            {GOVERNMENT.name}; markets and rival players hold the line.
           </p>
         </div>
       </Panel>
@@ -83,10 +95,20 @@ export function ContextPanel({
             >
               {botBase ? 'Rival Base' : KIND_LABEL[selected.kind]}
             </span>
+            {!botBase && selected.faction === 'government' && (
+              <span className="border border-warning/40 px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.2em] text-warning">
+                {GOVERNMENT.adjective}
+              </span>
+            )}
             <span className="font-display text-[10px] uppercase tracking-[0.2em] text-steel-400">
               Difficulty {selected.difficulty}/10
             </span>
           </div>
+          {!isMyBase && !botBase && (
+            <p className="mt-2 font-body text-[11px] leading-relaxed text-steel-400">
+              {holdingLine(selected)}
+            </p>
+          )}
         </div>
 
         {isMyBase ? (

@@ -6,7 +6,7 @@ import {
   type AttributeName,
 } from '../attributes.js';
 import { PAY_WEEK_MS, proratedFirstWage, startOfPayWeek } from '../economy/payroll.js';
-import { REPUTATION_LABELS, type ReputationLabel } from '../economy/reputation.js';
+import { LIVE_REPUTATION_LABELS, REPUTATION_LABELS } from '../economy/reputation.js';
 import {
   ALIGNMENT_BANDS,
   ALIGNMENT_BONUS_ATTRIBUTES,
@@ -73,9 +73,11 @@ describe('§H4 — reading the crew off its reputation word', () => {
 
   it('spreads over every label a live mechanic can currently produce', () => {
     // A table that scored 0 everywhere would pass the band check above and mean nothing. Each
-    // reachable word has to move *somebody*, in both directions.
-    const live: ReputationLabel[] = ['Cautious', 'Reckless', 'Feared', 'Respected'];
-    for (const reputation of live) {
+    // reachable word has to move *somebody*, in both directions. Read off
+    // `LIVE_REPUTATION_LABELS` rather than listed, so a label a later mechanic makes reachable is
+    // covered on the day it lands instead of quietly dropping out of this check.
+    expect(LIVE_REPUTATION_LABELS.length).toBeGreaterThan(0);
+    for (const reputation of LIVE_REPUTATION_LABELS) {
       const stances = EVERY_DISPOSITION.map((d) => reputationStance(d, reputation));
       expect(Math.max(...stances), `nobody is drawn to a ${reputation} crew`).toBeGreaterThan(0);
       expect(Math.min(...stances), `nobody objects to a ${reputation} crew`).toBeLessThan(0);

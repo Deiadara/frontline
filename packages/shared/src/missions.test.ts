@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   FAILURE_REWARD_SHARE,
+  GOVERNMENT,
   KIND_REWARD_MULTIPLIER,
   MISSION_MAX_DURATION_MINUTES,
   MISSION_MIN_DURATION_MINUTES,
+  MISSION_STANCES,
   MISSION_TEMPLATES,
   MissionTemplateSchema,
   REWARD_BASELINE_MINUTES,
@@ -21,6 +23,7 @@ import {
   rewardScale,
   templateTimings,
   type Mission,
+  type MissionStance,
   type MissionTemplate,
   type ResourceKey,
 } from './index.js';
@@ -65,6 +68,30 @@ describe('the mission board', () => {
       new Set(Object.keys(TRAVEL_BAND_MINUTES)),
     );
     expect(new Set(MISSION_TEMPLATES.map((t) => t.kind))).toEqual(new Set(['standard', 'battle']));
+  });
+
+  it('is written against the Combine, but offers both other stances too (§A3)', () => {
+    const byStance = (stance: MissionStance) =>
+      MISSION_TEMPLATES.filter((t) => t.stance === stance);
+
+    expect(new Set(MISSION_TEMPLATES.map((t) => t.stance))).toEqual(new Set(MISSION_STANCES));
+    // "The main enemy" — more of the board points at the government than any other way.
+    expect(byStance('against_government').length).toBeGreaterThan(byStance('unaligned').length);
+    expect(byStance('against_government').length).toBeGreaterThan(
+      byStance('for_government').length,
+    );
+    // §D8 `Collaborator` has to be a real choice rather than one repeatable errand, so state work
+    // comes in more than one flavour.
+    expect(byStance('for_government').length).toBeGreaterThan(1);
+    expect(new Set(byStance('for_government').map((t) => t.kind)).size).toBeGreaterThan(1);
+  });
+
+  it('names the Combine in the brief of every job that touches it (§A3)', () => {
+    // Mission fiction hangs off the one antagonist: a stance the brief never mentions would move a
+    // §D8 counter the player was never told about.
+    for (const template of MISSION_TEMPLATES.filter((t) => t.stance !== 'unaligned')) {
+      expect(template.brief, template.id).toContain(GOVERNMENT.adjective);
+    }
   });
 
   it('spans §E7 — a couple of minutes at one end, a full day at the other', () => {
@@ -156,6 +183,7 @@ describe('reward scaling (§E5)', () => {
       brief: 'Test',
       kind: 'standard',
       difficulty: 'easy',
+      stance: 'unaligned',
       travelBand: 'close',
       durationMinutes: 2,
       spoils: { scrap: 100, highQualityMetal: 1 },

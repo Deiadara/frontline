@@ -8,12 +8,23 @@ import {
   DistrictSchema,
   STARTER_DISTRICT_ID,
   findDistrict,
+  garrisonOf,
   isDistrictAttackable,
+  isSeatOfGovernmentPower,
+  raidTargetOf,
   type District,
 } from './city.js';
+import { REVOLUTIONARY_SEATS } from './economy/reputation.js';
+import { GOVERNMENT_GARRISONS, governmentGarrisonFor } from './factions.js';
 
 /** Minimum gap between two district positions, in normalized (0..1) map units. */
 const MIN_DISTRICT_SEPARATION = 0.06;
+
+const district = (id: string): District => {
+  const found = findDistrict(id);
+  if (!found) throw new Error(`fixture error: no district ${id}`);
+  return found;
+};
 
 describe('CITY_DISTRICTS', () => {
   it('is a valid map with a starter district', () => {
@@ -50,12 +61,79 @@ describe('CITY_DISTRICTS', () => {
   });
 });
 
+describe('who holds the map (§A3)', () => {
+  const attackable = CITY_DISTRICTS.filter((d) =>
+    isDistrictAttackable(d, { isOwnBase: false, hasBotBase: false }),
+  );
+
+  it('makes the Combine the main enemy without making it the only one', () => {
+    const combine = attackable.filter((d) => d.faction === 'government');
+    expect(combine.length).toBeGreaterThan(attackable.length - combine.length);
+    expect(combine.length).toBeLessThan(attackable.length);
+  });
+
+  it('leaves every stronghold in Combine hands — a stronghold is a seat of its power', () => {
+    const strongholds = CITY_DISTRICTS.filter((d) => d.kind === 'npc_stronghold');
+    expect(strongholds.length).toBeGreaterThan(0);
+    for (const stronghold of strongholds) {
+      expect(stronghold.faction, stronghold.id).toBe('government');
+      expect(isSeatOfGovernmentPower(stronghold), stronghold.id).toBe(true);
+    }
+  });
+
+  it('holds enough seats of power for a revolution to be possible (§D8)', () => {
+    // `Revolutionary` needs `REVOLUTIONARY_SEATS` of them, so the map has to field at least that
+    // many or the label is unreachable however hard a player plays.
+    expect(CITY_DISTRICTS.filter(isSeatOfGovernmentPower).length).toBeGreaterThanOrEqual(
+      REVOLUTIONARY_SEATS,
+    );
+  });
+
+  it('calls no player base or market Combine ground', () => {
+    for (const district of CITY_DISTRICTS.filter(
+      (d) => d.kind === 'player_base' || d.kind === 'market',
+    )) {
+      expect(district.faction, district.id).toBe('independent');
+      expect(isSeatOfGovernmentPower(district), district.id).toBe(false);
+    }
+  });
+
+  it('reads a raid target off the district and nothing else', () => {
+    expect(raidTargetOf(district('combine-spire'))).toEqual({
+      faction: 'government',
+      isSeatOfPower: true,
+    });
+    expect(raidTargetOf(district('undergrid'))).toEqual({
+      faction: 'government',
+      isSeatOfPower: false,
+    });
+    expect(raidTargetOf(district('rustyard'))).toEqual({
+      faction: 'independent',
+      isSeatOfPower: false,
+    });
+  });
+
+  it('names a Combine garrison that gets heavier as the site does (§A3)', () => {
+    expect(garrisonOf(district('glasshouse-fields'))).not.toBe(
+      garrisonOf(district('combine-spire')),
+    );
+    for (const combineHeld of CITY_DISTRICTS.filter((d) => d.faction === 'government')) {
+      expect(garrisonOf(combineHeld), combineHeld.id).toMatch(/Combine|Directorate|enforcer/);
+    }
+    // Independent ground must not be narrated as the government's.
+    expect(garrisonOf(district('rustyard'))).not.toMatch(/Combine|Directorate/);
+  });
+
+  it('scales the garrison ladder monotonically over the whole difficulty range', () => {
+    const seen = new Set<string>();
+    for (let difficulty = 1; difficulty <= 10; difficulty++) {
+      seen.add(governmentGarrisonFor(difficulty));
+    }
+    expect(seen.size).toBe(GOVERNMENT_GARRISONS.length);
+  });
+});
+
 describe('isDistrictAttackable', () => {
-  const district = (id: string): District => {
-    const found = findDistrict(id);
-    if (!found) throw new Error(`fixture error: no district ${id}`);
-    return found;
-  };
   const EMPTY = { isOwnBase: false, hasBotBase: false };
 
   it('offers raid sites and NPC strongholds', () => {

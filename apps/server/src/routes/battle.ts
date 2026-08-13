@@ -6,6 +6,7 @@ import {
   adjustMeter,
   findDistrict,
   isDistrictAttackable,
+  raidTargetOf,
   recordRaidOutcome,
   type Base,
   type BattleResponse,
@@ -24,9 +25,15 @@ import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
  * so it is the only live driver of the infamy meter and the reputation tally (§D8). Losing still
  * goes on the books — a crew that keeps throwing people at doors that do not open earns the
  * `Reckless` label for it.
+ *
+ * The district comes in whole rather than just its winner, because §A3 makes *whose* ground it was
+ * part of the record: a site taken off the Combine is anti-government action, and one of its two
+ * seats of power is a step towards replacing it. `raidTargetOf` is the shared reading of that, so
+ * the map is the only place the answer is authored.
  */
 function recordRaid(
   economy: EconomyState,
+  district: District,
   winner: 'attacker' | 'defender',
   now: Date,
 ): EconomyState {
@@ -34,7 +41,11 @@ function recordRaid(
     ...economy,
     infamy:
       winner === 'attacker' ? adjustMeter(economy.infamy, INFAMY_PER_RAID_WON) : economy.infamy,
-    reputationTally: recordRaidOutcome(economy.reputationTally, winner, now),
+    reputationTally: recordRaidOutcome(
+      economy.reputationTally,
+      { winner, target: raidTargetOf(district) },
+      now,
+    ),
   };
 }
 
@@ -86,7 +97,10 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           rewards: result.rewards,
           createdAt: now.toISOString(),
         });
-        app.repos.bases.updateEconomy(base.id, recordRaid(base.economy, result.winner, now));
+        app.repos.bases.updateEconomy(
+          base.id,
+          recordRaid(base.economy, district, result.winner, now),
+        );
         // §I1 pays XP for *fighting* other players, not for winning — a loss is worth less, not zero.
         const { award } = awardPlayerXp(
           app.repos,

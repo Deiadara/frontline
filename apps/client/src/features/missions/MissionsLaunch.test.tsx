@@ -1,8 +1,12 @@
 import {
+  MISSION_STANCE_SPECS,
+  MISSION_TEMPLATES,
   assigneeBonusPercent,
   type AssigneesResponse,
   type LaunchMissionRequest,
   type LaunchMissionResponse,
+  type MissionStance,
+  type MissionTemplate,
   type MissionsResponse,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -293,5 +297,58 @@ describe('a refused launch', () => {
 
     await rosterLoaded();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('the board says which way a job points at the Combine (§A3, §D8)', () => {
+  /** A template on the live board with the given stance, so the fixture cannot drift from content. */
+  const templateWith = (stance: MissionStance): MissionTemplate => {
+    const found = MISSION_TEMPLATES.find((t) => t.stance === stance);
+    if (!found) throw new Error(`fixture error: no ${stance} mission on the board`);
+    return found;
+  };
+
+  it('badges anti-Combine work and Combine contracts differently', async () => {
+    stubApi({ assignees: staffed });
+    renderBoard();
+    await rosterLoaded();
+
+    const against = templateWith('against_government');
+    const forThem = templateWith('for_government');
+
+    expect(
+      within(card(against.name)).getByText(MISSION_STANCE_SPECS.against_government.label),
+    ).toBeInTheDocument();
+    expect(
+      within(card(forThem.name)).getByText(MISSION_STANCE_SPECS.for_government.label),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves unaligned work unbadged rather than labelling every card', async () => {
+    stubApi({ assignees: staffed });
+    renderBoard();
+    await rosterLoaded();
+
+    const unaligned = within(card(templateWith('unaligned').name));
+    for (const spec of Object.values(MISSION_STANCE_SPECS)) {
+      expect(unaligned.queryByText(spec.label)).toBeNull();
+    }
+  });
+
+  it('keeps both badges inside the card it belongs to', async () => {
+    // Two tags in a header is the one place this change can overflow, and the zero-visual-bugs bar
+    // is a hard one — so the badge and the kind tag are asserted to sit in the same card, wrapped.
+    stubApi({ assignees: staffed });
+    renderBoard();
+    await rosterLoaded();
+
+    const battle = MISSION_TEMPLATES.find(
+      (t) => t.stance === 'against_government' && t.kind === 'battle',
+    );
+    if (!battle) throw new Error('fixture error: no anti-Combine battle on the board');
+
+    const header = within(card(battle.name));
+    expect(header.getByText(MISSION_STANCE_SPECS.against_government.label)).toBeInTheDocument();
+    expect(header.getByText('Battle')).toBeInTheDocument();
   });
 });

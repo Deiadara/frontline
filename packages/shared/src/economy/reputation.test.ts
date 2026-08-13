@@ -1,26 +1,45 @@
 import { describe, expect, it } from 'vitest';
 import { STARTING_INFAMY } from './meters.js';
 import {
+  ANTI_SYSTEMIC_ACTIONS,
+  COLLABORATOR_CONTRACTS,
   FEARED_INFAMY,
   LIVE_REPUTATION_LABELS,
   RECKLESS_LOSSES,
   REPUTATION_LABELS,
   REPUTATION_LABEL_SPECS,
   RESPECTED_WINS,
+  REVOLUTIONARY_SEATS,
+  ReputationTallySchema,
+  TALLY_COUNTERS,
   TALLY_HALF_LIFE_MS,
   decayTally,
   deriveReputation,
+  recordMissionOutcome,
   recordRaidOutcome,
   startingTally,
+  type RaidTarget,
   type ReputationTally,
 } from './reputation.js';
 
 const NOW = new Date('2026-08-13T09:30:00.000Z');
+
+/** A tally with only the raid record on it — the pre-W10 shape, spelled out. */
 const tallyOf = (raidsWon: number, raidsLost: number): ReputationTally => ({
-  updatedAt: NOW.toISOString(),
+  ...startingTally(NOW.toISOString()),
   raidsWon,
   raidsLost,
 });
+
+/** A tally with only the §D8 government stance counters on it. */
+const stanceOf = (parts: Partial<ReputationTally>): ReputationTally => ({
+  ...startingTally(NOW.toISOString()),
+  ...parts,
+});
+
+const COMBINE_OUTPOST: RaidTarget = { faction: 'government', isSeatOfPower: false };
+const COMBINE_SEAT: RaidTarget = { faction: 'government', isSeatOfPower: true };
+const STREET_TARGET: RaidTarget = { faction: 'independent', isSeatOfPower: false };
 
 describe('the label set (§D8, §D8a)', () => {
   it('carries every label the board named, and nothing invented', () => {
@@ -53,15 +72,63 @@ describe('the label set (§D8, §D8a)', () => {
    * must not be reachable, or the marker is stale.
    */
   it('reaches exactly the labels it claims are live', () => {
-    expect([...LIVE_REPUTATION_LABELS]).toEqual(['Cautious', 'Reckless', 'Feared', 'Respected']);
+    expect([...LIVE_REPUTATION_LABELS]).toEqual([
+      'Revolutionary',
+      'Anti-systemic',
+      'Cautious',
+      'Collaborator',
+      'Reckless',
+      'Feared',
+      'Respected',
+    ]);
 
     const reachable = new Set([
       deriveReputation({ infamy: STARTING_INFAMY, tally: tallyOf(0, 0) }, NOW),
       deriveReputation({ infamy: FEARED_INFAMY, tally: tallyOf(0, 0) }, NOW),
       deriveReputation({ infamy: 0, tally: tallyOf(0, RECKLESS_LOSSES) }, NOW),
       deriveReputation({ infamy: 0, tally: tallyOf(RESPECTED_WINS, 0) }, NOW),
+      deriveReputation(
+        {
+          infamy: 0,
+          tally: stanceOf({
+            governmentSitesTaken: REVOLUTIONARY_SEATS,
+            governmentSeatsTaken: REVOLUTIONARY_SEATS,
+          }),
+        },
+        NOW,
+      ),
+      deriveReputation(
+        { infamy: 0, tally: stanceOf({ governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS }) },
+        NOW,
+      ),
+      deriveReputation(
+        { infamy: 0, tally: stanceOf({ governmentContracts: COLLABORATOR_CONTRACTS }) },
+        NOW,
+      ),
     ]);
     expect([...reachable].sort()).toEqual([...LIVE_REPUTATION_LABELS].sort());
+  });
+
+  /*
+   * The counters the labels above are read off must all be *reachable from a live writer* too,
+   * not merely present on the schema. `recordRaidOutcome` and `recordMissionOutcome` are the only
+   * two writers in the system, so every counter has to be moved by one of them.
+   */
+  it('has a live writer for every counter on the tally', () => {
+    const start = startingTally(NOW.toISOString());
+    const written = [
+      recordRaidOutcome(start, { winner: 'attacker', target: STREET_TARGET }, NOW),
+      recordRaidOutcome(start, { winner: 'defender', target: STREET_TARGET }, NOW),
+      recordRaidOutcome(start, { winner: 'attacker', target: COMBINE_SEAT }, NOW),
+      recordMissionOutcome(start, 'for_government', 'success', NOW),
+    ];
+
+    for (const counter of TALLY_COUNTERS) {
+      expect(
+        written.some((tally) => tally[counter] > start[counter]),
+        `nothing in the game can increment ${counter}`,
+      ).toBe(true);
+    }
   });
 });
 
@@ -97,6 +164,129 @@ describe('deriveReputation', () => {
   });
 });
 
+describe('where the crew stands on the Combine (§A3, §D8)', () => {
+  const derive = (tally: ReputationTally, infamy = 0) => deriveReputation({ infamy, tally }, NOW);
+
+  it('calls sustained anti-government action Anti-systemic', () => {
+    expect(derive(stanceOf({ governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS }))).toBe('Anti-systemic');
+  });
+
+  it('does not call one raid on the state a movement', () => {
+    expect(derive(stanceOf({ governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS - 1 }))).toBe('Cautious');
+  });
+
+  it('calls a crew that has taken the seats of power Revolutionary', () => {
+    expect(
+      derive(
+        stanceOf({
+          governmentSitesTaken: REVOLUTIONARY_SEATS,
+          governmentSeatsTaken: REVOLUTIONARY_SEATS,
+        }),
+      ),
+    ).toBe('Revolutionary');
+  });
+
+  it('reads one seat as anti-government action, not yet as a revolution', () => {
+    // Seats are a subset of sites, so this crew is short of both thresholds.
+    expect(derive(stanceOf({ governmentSitesTaken: 1, governmentSeatsTaken: 1 }))).toBe('Cautious');
+    expect(
+      derive(stanceOf({ governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS, governmentSeatsTaken: 1 })),
+    ).toBe('Anti-systemic');
+  });
+
+  it('calls a crew on the state payroll a Collaborator', () => {
+    expect(derive(stanceOf({ governmentContracts: COLLABORATOR_CONTRACTS }))).toBe('Collaborator');
+  });
+
+  it('gives no word at all to a crew playing both sides evenly', () => {
+    // Neither ledger dominates, so the politics says nothing and the volume labels answer. That is
+    // `Opportunist`'s territory and no mechanic reaches it yet — see its TODO-LATER.
+    const bothSides = stanceOf({
+      governmentSitesTaken: COLLABORATOR_CONTRACTS,
+      governmentContracts: COLLABORATOR_CONTRACTS,
+      raidsWon: RESPECTED_WINS,
+    });
+    expect(derive(bothSides)).toBe('Respected');
+  });
+
+  it('lets the dominant ledger decide when a crew plays both sides unevenly', () => {
+    const mostlyAgainst = stanceOf({
+      governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS,
+      governmentContracts: ANTI_SYSTEMIC_ACTIONS - 1,
+    });
+    expect(derive(mostlyAgainst)).toBe('Anti-systemic');
+
+    const mostlyFor = stanceOf({
+      governmentSitesTaken: COLLABORATOR_CONTRACTS - 1,
+      governmentContracts: COLLABORATOR_CONTRACTS,
+    });
+    expect(derive(mostlyFor)).toBe('Collaborator');
+  });
+
+  /*
+   * The precedence decision, pinned rather than left to the happy path: a stance on the state is a
+   * claim about what a crew is *for*, so it outranks how loud (`Feared`) or how successful
+   * (`Respected`) it has been, and the narrower `Revolutionary` is tested before the broader
+   * `Anti-systemic` whose signal contains it.
+   */
+  it('puts the government stance above infamy and the raid record', () => {
+    const loudAndPolitical = stanceOf({
+      governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS,
+      raidsWon: RESPECTED_WINS,
+      raidsLost: RECKLESS_LOSSES,
+    });
+    expect(derive(loudAndPolitical, 100)).toBe('Anti-systemic');
+    expect(derive({ ...loudAndPolitical, governmentSeatsTaken: REVOLUTIONARY_SEATS }, 100)).toBe(
+      'Revolutionary',
+    );
+    expect(
+      derive(
+        stanceOf({ governmentContracts: COLLABORATOR_CONTRACTS, raidsWon: RESPECTED_WINS }),
+        100,
+      ),
+    ).toBe('Collaborator');
+  });
+
+  it('drops the stance labels once the crew stops, like every other word', () => {
+    const tally = stanceOf({
+      governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS,
+      governmentSeatsTaken: REVOLUTIONARY_SEATS,
+    });
+    expect(deriveReputation({ infamy: 0, tally }, NOW)).toBe('Revolutionary');
+
+    const muchLater = new Date(NOW.getTime() + 4 * TALLY_HALF_LIFE_MS);
+    expect(deriveReputation({ infamy: 0, tally }, muchLater)).toBe('Cautious');
+  });
+});
+
+describe('the tally a pre-W10 base is holding', () => {
+  /*
+   * W10 adds three counters to a tally that is already persisted as JSON in `bases.economy_json`.
+   * They default to `0` instead of arriving by migration, and this is the claim that rests on:
+   * a row written before W10 has to keep parsing, and read back as a crew that has simply never
+   * met the Combine. If this fails, the change needs a migration number from the CTO (INTERFACES
+   * R8) rather than a schema default.
+   */
+  const legacyRow = { updatedAt: NOW.toISOString(), raidsWon: 3, raidsLost: 1 };
+
+  it('parses, and reads as a crew that has never touched the government', () => {
+    const parsed = ReputationTallySchema.parse(legacyRow);
+
+    expect(parsed).toMatchObject({ raidsWon: 3, raidsLost: 1 });
+    for (const counter of TALLY_COUNTERS.filter((c) => !(c in legacyRow))) {
+      expect(parsed[counter], counter).toBe(0);
+    }
+    expect(deriveReputation({ infamy: 0, tally: parsed }, NOW)).toBe('Cautious');
+  });
+
+  it('still rejects a counter that is present but nonsense', () => {
+    // The default must not soften the schema: a negative counter is still a corrupt row.
+    expect(
+      ReputationTallySchema.safeParse({ ...legacyRow, governmentSitesTaken: -1 }).success,
+    ).toBe(false);
+  });
+});
+
 describe('the §D8 drift', () => {
   it('halves the tally over one half-life', () => {
     const later = new Date(NOW.getTime() + TALLY_HALF_LIFE_MS);
@@ -105,6 +295,21 @@ describe('the §D8 drift', () => {
     expect(decayed.raidsWon).toBeCloseTo(4);
     expect(decayed.raidsLost).toBeCloseTo(2);
     expect(decayed.updatedAt).toBe(later.toISOString());
+  });
+
+  it('halves every counter, not just the ones a test happened to name', () => {
+    // A counter left out of `decayTally` would give its label a score no crew could ever drift out
+    // of. Driven off `TALLY_COUNTERS`, so a counter added later is covered on the day it lands.
+    const loaded = Object.fromEntries(
+      TALLY_COUNTERS.map((counter) => [counter, 8]),
+    ) as unknown as ReputationTally;
+    const later = new Date(NOW.getTime() + TALLY_HALF_LIFE_MS);
+    const decayed = decayTally({ ...loaded, updatedAt: NOW.toISOString() }, later);
+
+    expect(TALLY_COUNTERS.length).toBeGreaterThan(0);
+    for (const counter of TALLY_COUNTERS) {
+      expect(decayed[counter], counter).toBeCloseTo(4);
+    }
   });
 
   it('drops a Respected crew back to Cautious once it stops acting', () => {
@@ -122,17 +327,105 @@ describe('the §D8 drift', () => {
 });
 
 describe('recordRaidOutcome', () => {
+  const start = startingTally(NOW.toISOString());
+
   it('counts a win and a loss on the right side of the ledger', () => {
-    const start = startingTally(NOW.toISOString());
-    expect(recordRaidOutcome(start, 'attacker', NOW)).toMatchObject({ raidsWon: 1, raidsLost: 0 });
-    expect(recordRaidOutcome(start, 'defender', NOW)).toMatchObject({ raidsWon: 0, raidsLost: 1 });
+    expect(
+      recordRaidOutcome(start, { winner: 'attacker', target: STREET_TARGET }, NOW),
+    ).toMatchObject({ raidsWon: 1, raidsLost: 0 });
+    expect(
+      recordRaidOutcome(start, { winner: 'defender', target: STREET_TARGET }, NOW),
+    ).toMatchObject({ raidsWon: 0, raidsLost: 1 });
   });
 
   it('decays what is already on the books before adding to it', () => {
     const later = new Date(NOW.getTime() + TALLY_HALF_LIFE_MS);
-    const recorded = recordRaidOutcome(tallyOf(4, 0), 'attacker', later);
+    const recorded = recordRaidOutcome(
+      tallyOf(4, 0),
+      { winner: 'attacker', target: STREET_TARGET },
+      later,
+    );
 
     expect(recorded.raidsWon).toBeCloseTo(3);
+    expect(recorded.updatedAt).toBe(later.toISOString());
+  });
+
+  it('books a won raid on Combine ground on both ledgers (§A3)', () => {
+    expect(
+      recordRaidOutcome(start, { winner: 'attacker', target: COMBINE_OUTPOST }, NOW),
+    ).toMatchObject({ raidsWon: 1, governmentSitesTaken: 1, governmentSeatsTaken: 0 });
+  });
+
+  it('counts a seat of power as a site as well as a seat', () => {
+    expect(
+      recordRaidOutcome(start, { winner: 'attacker', target: COMBINE_SEAT }, NOW),
+    ).toMatchObject({
+      governmentSitesTaken: 1,
+      governmentSeatsTaken: 1,
+    });
+  });
+
+  it('leaves the stance counters alone for a raid on another crew', () => {
+    expect(
+      recordRaidOutcome(start, { winner: 'attacker', target: STREET_TARGET }, NOW),
+    ).toMatchObject({ governmentSitesTaken: 0, governmentSeatsTaken: 0 });
+  });
+
+  it('credits nothing to a crew the Combine turned back', () => {
+    // A failed attempt is priced in `raidsLost` and in morale. Counting it as anti-government
+    // action too would let one raid record produce both `Reckless` and `Anti-systemic`.
+    expect(
+      recordRaidOutcome(start, { winner: 'defender', target: COMBINE_SEAT }, NOW),
+    ).toMatchObject({
+      raidsLost: 1,
+      governmentSitesTaken: 0,
+      governmentSeatsTaken: 0,
+    });
+  });
+});
+
+describe('recordMissionOutcome (§A3, §D8)', () => {
+  const start = startingTally(NOW.toISOString());
+
+  it('books a successful anti-government run as action against the state', () => {
+    expect(recordMissionOutcome(start, 'against_government', 'success', NOW)).toMatchObject({
+      governmentSitesTaken: 1,
+      governmentContracts: 0,
+    });
+  });
+
+  it('books a successful Combine contract as collaboration', () => {
+    expect(recordMissionOutcome(start, 'for_government', 'success', NOW)).toMatchObject({
+      governmentSitesTaken: 0,
+      governmentContracts: 1,
+    });
+  });
+
+  it('never lets a mission take a seat of power — only a raid can (§A3)', () => {
+    for (const stance of ['against_government', 'for_government', 'unaligned'] as const) {
+      expect(recordMissionOutcome(start, stance, 'success', NOW).governmentSeatsTaken).toBe(0);
+    }
+  });
+
+  it('says nothing about the state for unaligned work or for a failed run', () => {
+    expect(recordMissionOutcome(start, 'unaligned', 'success', NOW)).toMatchObject({
+      governmentSitesTaken: 0,
+      governmentContracts: 0,
+    });
+    for (const stance of ['against_government', 'for_government'] as const) {
+      expect(recordMissionOutcome(start, stance, 'failure', NOW)).toMatchObject({
+        governmentSitesTaken: 0,
+        governmentContracts: 0,
+      });
+    }
+  });
+
+  it('still applies the §D8 drift on a run that moves nothing', () => {
+    // The drift is continuous, so a settlement must advance the clock whatever the run was.
+    const later = new Date(NOW.getTime() + TALLY_HALF_LIFE_MS);
+    const recorded = recordMissionOutcome(tallyOf(4, 0), 'unaligned', 'success', later);
+
+    expect(recorded.raidsWon).toBeCloseTo(2);
     expect(recorded.updatedAt).toBe(later.toISOString());
   });
 });

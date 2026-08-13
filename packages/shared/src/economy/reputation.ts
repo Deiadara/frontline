@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Faction, MissionStance } from '../factions.js';
 import { IsoDateTimeSchema } from '../primitives.js';
 import type { Meter } from './meters.js';
 
@@ -36,11 +37,11 @@ export interface ReputationLabelSpec {
 export const REPUTATION_LABEL_SPECS: Readonly<Record<ReputationLabel, ReputationLabelSpec>> = {
   Revolutionary: {
     description: 'You are not raiding the state. You are trying to replace it.',
-    todo: 'TODO-LATER: organised anti-government campaign tally — W10/MOU-169 (The Government)',
+    todo: null,
   },
   'Anti-systemic': {
     description: 'Sustained action against the government, without a banner to plant.',
-    todo: 'TODO-LATER: anti-government action tally — W10/MOU-169 (The Government)',
+    todo: null,
   },
   Hostile: {
     description: 'You hit other crews often enough that they expect it.',
@@ -64,7 +65,7 @@ export const REPUTATION_LABEL_SPECS: Readonly<Record<ReputationLabel, Reputation
   },
   Collaborator: {
     description: 'The state finds you useful. The street has noticed.',
-    todo: 'TODO-LATER: co-operation with the government — W10/MOU-169 (The Government)',
+    todo: null,
   },
   Reckless: {
     description: 'You keep throwing your people at doors that do not open.',
@@ -90,6 +91,24 @@ export const ReputationTallySchema = z.object({
   updatedAt: IsoDateTimeSchema,
   raidsWon: z.number().nonnegative(),
   raidsLost: z.number().nonnegative(),
+  /**
+   * §A3/§D8 — blows against the Combine that actually landed: raids won on ground it holds, plus
+   * anti-government missions that came home a success. Only *successful* action counts, because
+   * throwing crews at the state and losing already has a word for it (`Reckless`) and counting a
+   * loss on both ledgers would let one raid record produce two contradictory labels.
+   *
+   * The three counters below default to `0` so a tally written before W10 still parses: a crew
+   * that has never met the Combine has taken nothing off it, which is exactly what the missing
+   * field means. That is what keeps this a schema change rather than a migration.
+   */
+  governmentSitesTaken: z.number().nonnegative().default(0),
+  /**
+   * The subset of the above taken off a *seat* of Combine power (`isSeatOfGovernmentPower`) —
+   * what separates replacing the state from robbing it.
+   */
+  governmentSeatsTaken: z.number().nonnegative().default(0),
+  /** §D8 — jobs completed *for* the Combine. Co-operation, and the street counts it. */
+  governmentContracts: z.number().nonnegative().default(0),
 });
 export type ReputationTally = z.infer<typeof ReputationTallySchema>;
 
@@ -99,38 +118,113 @@ export type ReputationTally = z.infer<typeof ReputationTallySchema>;
  */
 export const TALLY_HALF_LIFE_MS = 14 * 24 * 60 * 60 * 1000;
 
+/**
+ * The counters the §D8 drift applies to, read off the schema rather than listed by hand: a counter
+ * added above without a decay line would give its label a score a crew could never drift back out
+ * of, and deriving the list makes that unrepresentable instead of merely reviewable.
+ */
+export type ReputationTallyCounter = Exclude<keyof ReputationTally, 'updatedAt'>;
+export const TALLY_COUNTERS: readonly ReputationTallyCounter[] = ReputationTallySchema.omit({
+  updatedAt: true,
+}).keyof().options;
+
 /** Infamy at or above which the street simply calls you `Feared`. */
 export const FEARED_INFAMY = 60;
 /** Losses that mark a crew `Reckless`, provided it is losing more than it wins. */
 export const RECKLESS_LOSSES = 5;
 /** Wins that earn `Respected`. */
 export const RESPECTED_WINS = 5;
+/**
+ * Blows landed on the Combine before the street calls it sustained (§D8, "lots of anti-government
+ * action"). Deliberately above `RESPECTED_WINS` is *not* the aim — four is reachable in an evening
+ * of raiding, because a crew that spends its evenings raiding the state is what the word describes.
+ */
+export const ANTI_SYSTEMIC_ACTIONS = 4;
+/**
+ * Seats of Combine power taken before the word is `Revolutionary`. Two, because there are exactly
+ * two on the map (Blacksite 7 and the Spire) and holding both once is a campaign, not a raid.
+ */
+export const REVOLUTIONARY_SEATS = 2;
+/** Jobs run for the Combine before the street calls it collaboration. */
+export const COLLABORATOR_CONTRACTS = 4;
 
 export function startingTally(now: string): ReputationTally {
-  return { updatedAt: now, raidsWon: 0, raidsLost: 0 };
+  return {
+    updatedAt: now,
+    raidsWon: 0,
+    raidsLost: 0,
+    governmentSitesTaken: 0,
+    governmentSeatsTaken: 0,
+    governmentContracts: 0,
+  };
 }
 
 /** Applies the §D8 drift up to `now`. Never inflates a counter if the clock jumps backwards. */
 export function decayTally(tally: ReputationTally, now: Date): ReputationTally {
   const elapsed = Math.max(0, now.getTime() - new Date(tally.updatedAt).getTime());
   const factor = Math.pow(0.5, elapsed / TALLY_HALF_LIFE_MS);
-  return {
-    updatedAt: now.toISOString(),
-    raidsWon: tally.raidsWon * factor,
-    raidsLost: tally.raidsLost * factor,
-  };
+  const decayed: ReputationTally = { ...tally, updatedAt: now.toISOString() };
+  for (const counter of TALLY_COUNTERS) decayed[counter] = tally[counter] * factor;
+  return decayed;
 }
 
-/** Decays to `now`, then counts the raid. The only live writer of the tally today. */
+/** What §D8's stance counters need to know about a raided district, and nothing more (§A3). */
+export interface RaidTarget {
+  /** Whose ground it was. Only the Combine moves a stance counter. */
+  faction: Faction;
+  /** A seat of Combine power rather than one of its outposts — see `isSeatOfGovernmentPower`. */
+  isSeatOfPower: boolean;
+}
+
+/** A raid, as the tally reads it. */
+export interface RaidRecord {
+  winner: 'attacker' | 'defender';
+  target: RaidTarget;
+}
+
+/**
+ * Decays to `now`, then counts the raid.
+ *
+ * A won raid on Combine ground is the same event on two ledgers: it is a win the street counts
+ * (`raidsWon`) *and* a blow against the government (§A3). Nothing here tallies a second time
+ * anywhere else — `EconomyState.reputationTally` is the one copy.
+ */
 export function recordRaidOutcome(
   tally: ReputationTally,
-  winner: 'attacker' | 'defender',
+  { winner, target }: RaidRecord,
   now: Date,
 ): ReputationTally {
   const decayed = decayTally(tally, now);
-  return winner === 'attacker'
-    ? { ...decayed, raidsWon: decayed.raidsWon + 1 }
-    : { ...decayed, raidsLost: decayed.raidsLost + 1 };
+  if (winner === 'defender') return { ...decayed, raidsLost: decayed.raidsLost + 1 };
+
+  const againstTheState = target.faction === 'government';
+  return {
+    ...decayed,
+    raidsWon: decayed.raidsWon + 1,
+    governmentSitesTaken: decayed.governmentSitesTaken + (againstTheState ? 1 : 0),
+    governmentSeatsTaken:
+      decayed.governmentSeatsTaken + (againstTheState && target.isSeatOfPower ? 1 : 0),
+  };
+}
+
+/**
+ * Decays to `now`, then books a mission that came home (§E, §D8).
+ *
+ * A mission moves a stance counter only on success, for the reason given on the schema: an attempt
+ * that failed is already priced in morale and in the `Reckless` word. `unaligned` work touches the
+ * Combine not at all and is here only so the caller does not have to branch.
+ */
+export function recordMissionOutcome(
+  tally: ReputationTally,
+  stance: MissionStance,
+  outcome: 'success' | 'failure',
+  now: Date,
+): ReputationTally {
+  const decayed = decayTally(tally, now);
+  if (outcome === 'failure' || stance === 'unaligned') return decayed;
+  return stance === 'against_government'
+    ? { ...decayed, governmentSitesTaken: decayed.governmentSitesTaken + 1 }
+    : { ...decayed, governmentContracts: decayed.governmentContracts + 1 };
 }
 
 export interface ReputationInputs {
@@ -142,9 +236,29 @@ export interface ReputationInputs {
  * The one derivation, in precedence order. Kept deliberately small: a label is only reachable
  * once a mechanic can actually produce the signal behind it, which is what keeps every
  * `todo: null` in `REPUTATION_LABEL_SPECS` true and every non-null one honest.
+ *
+ * **Why the three government words outrank infamy and the raid record.** Where a crew stands on
+ * the Combine (§A3) is a claim about *what it is for*; `Feared`, `Reckless` and `Respected` only
+ * say how loud and how successful it has been. Once the street can answer "whose side are they
+ * on?", that is the answer it gives — a crew four raids into a campaign against the state is read
+ * as `Anti-systemic` even at maximum infamy, because the politics is the more specific fact.
+ *
+ * Within the three: `Revolutionary` outranks `Anti-systemic` because its signal is a strict subset
+ * (a seat taken is also a site taken), so the narrower claim must be tested first or it could never
+ * be returned. A crew that plays both sides needs a *dominant* side to get a word at all — with the
+ * ledgers level it falls through to the volume labels, which is honest: `Opportunist` is the word
+ * for that and no mechanic reaches it yet (see its `TODO-LATER`).
  */
 export function deriveReputation({ infamy, tally }: ReputationInputs, now: Date): ReputationLabel {
-  const { raidsWon, raidsLost } = decayTally(tally, now);
+  const { raidsWon, raidsLost, governmentSitesTaken, governmentSeatsTaken, governmentContracts } =
+    decayTally(tally, now);
+
+  const againstTheState = governmentSitesTaken > governmentContracts;
+  if (againstTheState && governmentSeatsTaken >= REVOLUTIONARY_SEATS) return 'Revolutionary';
+  if (againstTheState && governmentSitesTaken >= ANTI_SYSTEMIC_ACTIONS) return 'Anti-systemic';
+  if (governmentContracts >= COLLABORATOR_CONTRACTS && governmentContracts > governmentSitesTaken) {
+    return 'Collaborator';
+  }
 
   if (infamy >= FEARED_INFAMY) return 'Feared';
   if (raidsLost >= RECKLESS_LOSSES && raidsLost > raidsWon) return 'Reckless';

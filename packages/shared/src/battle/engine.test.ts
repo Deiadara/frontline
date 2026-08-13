@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CITY_DISTRICTS, findDistrict } from '../city.js';
+import { CITY_DISTRICTS, findDistrict, garrisonOf } from '../city.js';
+import { GOVERNMENT } from '../factions.js';
 import { RandomBattleEngine, defaultBattleEngine } from './engine.js';
 import { BattleResultSchema } from './types.js';
 
@@ -49,6 +50,34 @@ describe('RandomBattleEngine', () => {
     const result = engine.simulate({ ...attacker, targetDistrictId: raidDistrict.id });
 
     expect(result.log[0]).toContain(attacker.attackerBaseName);
+  });
+
+  it('names the Combine garrison holding a government site (§A3)', () => {
+    const spire = findDistrict('combine-spire');
+    if (!spire) throw new Error('fixture error: the city map has no Combine spire');
+
+    const log = new RandomBattleEngine(() => 0)
+      .simulate({ ...attacker, targetDistrictId: spire.id })
+      .log.join(' ');
+
+    expect(log).toContain(garrisonOf(spire));
+    expect(log).toContain(GOVERNMENT.adjective);
+  });
+
+  it('does not narrate independent ground as the government', () => {
+    const independent = CITY_DISTRICTS.find(
+      (d) => d.faction === 'independent' && d.kind === 'raid',
+    );
+    if (!independent) throw new Error('fixture error: the city map has no independent raid site');
+
+    for (const random of [() => 0, () => 0.99]) {
+      const log = new RandomBattleEngine(random)
+        .simulate({ ...attacker, targetDistrictId: independent.id })
+        .log.join(' ');
+
+      expect(log).not.toContain(GOVERNMENT.adjective);
+      expect(log).toContain(garrisonOf(independent));
+    }
   });
 
   it('never leaks a raw id into the narration log', () => {

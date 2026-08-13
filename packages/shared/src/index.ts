@@ -7,6 +7,7 @@ export * from './attributes.js';
 export * from './traits.js';
 export * from './roles.js';
 export * from './resources.js';
+export * from './factions.js';
 export * from './economy/meters.js';
 export * from './economy/reputation.js';
 export * from './economy/payroll.js';
