@@ -8,14 +8,19 @@ import type * as ApiModule from './api';
 // Only the two calls under test are stubbed: the hooks' siblings still import the real module.
 const launchMission = vi.hoisted(() => vi.fn());
 const getMissions = vi.hoisted(() => vi.fn());
+const buildStructure = vi.hoisted(() => vi.fn());
+const attack = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
   getMissions,
+  buildStructure,
+  attack,
 }));
 
 const { ApiRequestError } = await import('./api');
-const { queryKeys, useLaunchMission, useMissions } = await import('./queries');
+const { queryKeys, useAttack, useBuildStructure, useLaunchMission, useMissions } =
+  await import('./queries');
 const { useSession } = await import('../store/session');
 
 const LEVELLED = { level: 4, levelsGained: 1, grants: playerLevelGrants(4) };
@@ -39,6 +44,8 @@ const BOTH = [JSON.stringify(queryKeys.missions), JSON.stringify(queryKeys.me)];
 beforeEach(() => {
   launchMission.mockReset();
   getMissions.mockReset();
+  buildStructure.mockReset();
+  attack.mockReset();
   useSession.setState({ token: 'session-token', user: null });
 });
 
@@ -144,5 +151,23 @@ describe('a level-up refreshes the §G layer it moved', () => {
 
     await waitFor(() => expect(result.current.data).toBeDefined());
     expect(invalidated()).toEqual([]);
+  });
+
+  /*
+   * The other two thresholds §I1 pays out on. Both are plain mutations, so each is pinned on its
+   * own call rather than on the shared helper: an edit that inlines one back to `me`-only has to
+   * go red here, which it does not when only the helper's body is observed.
+   */
+  it.each([
+    ['a build that crossed one', () => useBuildStructure('base-1'), buildStructure, { base: {} }],
+    ['a raid that crossed one', () => useAttack('base-1'), attack, { result: {}, resources: {} }],
+  ])('refreshes the roster after %s', async (_case, hook, call, response) => {
+    call.mockResolvedValueOnce({ ...response, levelUp: LEVELLED });
+    const { result, invalidated } = harness(hook);
+
+    result.current.mutate({} as never);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toContain(JSON.stringify(queryKeys.assignees));
   });
 });
