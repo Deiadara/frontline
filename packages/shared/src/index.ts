@@ -25,6 +25,7 @@ export * from './user.js';
 export * from './art/prompts.js';
 export * from './art/manifest.js';
 export * from './art/hero.js';
+export * from './art/backdrop.js';
 export * from './battle/types.js';
 export * from './battle/engine.js';
 export * from './api.js';

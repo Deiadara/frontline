@@ -23,6 +23,7 @@ import {
   HERO_ASSETS,
   NEGATIVE,
   isHeroAsset,
+  isOccludedBackdropAsset,
   type AssetSpec,
 } from '@frontline/shared';
 import { assemblePrompt, foldNegativeIntoProse } from './gen-art.js';
@@ -49,13 +50,15 @@ export interface Section {
 }
 
 /**
- * The three groups, in the order the board should act on them. They **partition** the manifest —
+ * The four groups, in the order the board should act on them. They **partition** the manifest —
  * pinned by a test, so a new asset class cannot quietly fall off the sheet.
  *
  * The split is by what a chat UI can be trusted to hand back, not by what the game wants first:
  * a plain opaque download at a baseline size is verified-by-construction, a 16:9 download is an
  * open question the board answers by measuring one, and transparency is unverified against real
- * ChatGPT output by anyone here.
+ * ChatGPT output by anyone here. The fourth group is the exception to that framing — those assets
+ * are perfectly producible, they just could not be seen afterwards, so the two ordered sections
+ * exclude them rather than invite a master nothing will ever show.
  */
 export const SECTIONS: readonly Section[] = [
   {
@@ -77,7 +80,7 @@ export const SECTIONS: readonly Section[] = [
       'cropping it to 16:9 gives 1536×864 — under the 2048×1152 minimum, and `encode-art` will reject it,',
       'correctly. Upscaling invents detail, so the answer is a bigger render, not a bigger resample.',
     ].join('\n'),
-    includes: (spec) => !spec.alpha && !isHeroAsset(spec),
+    includes: (spec) => !spec.alpha && !isHeroAsset(spec) && !isOccludedBackdropAsset(spec),
   },
   {
     title: 'Alpha set — not requested yet',
@@ -89,7 +92,22 @@ export const SECTIONS: readonly Section[] = [
       'single file, ordering the set is a batch of downloads that may every one of them be unusable.',
       'Listed for completeness only.',
     ].join('\n'),
-    includes: (spec) => spec.alpha,
+    includes: (spec) => spec.alpha && !isOccludedBackdropAsset(spec),
+  },
+  {
+    title: 'Occluded backdrop — nothing to draw',
+    guidance: [
+      'Do **not** draw these, now or later. They sit behind `plate-city` in the map backdrop, and the',
+      'plate is opaque by specification (ART-BIBLE §6 — it is the base image and carries no alpha). So',
+      'the day the plate is delivered as a real file it covers them completely, at every zoom and every',
+      'scroll position, and a master ordered for one of these would never put a pixel on screen.',
+      '',
+      'They are not dead code: `plate-city` is still **procedural**, and until it is delivered these two',
+      'planes are what give the map its depth. Delivering the plate is what retires them — so if the',
+      'plate ever goes back to being transparent, they come back and this section shrinks on its own.',
+      'Listed for completeness only.',
+    ].join('\n'),
+    includes: isOccludedBackdropAsset,
   },
 ];
 

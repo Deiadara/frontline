@@ -268,7 +268,7 @@ Oblique three-quarter aerial view looking down at roughly 40 degrees, horizon at
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers, utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```
 
-## 16:9 set — only if your download measures at least 2048×1152 (3)
+## 16:9 set — only if your download measures at least 2048×1152 (2)
 
 **Check the pixel dimensions of the downloaded file before you spend any time on these.** OpenAI
 documents 2048×1152 as a `gpt-image-2` size, but what the consumer ChatGPT UI hands a human on
@@ -292,22 +292,6 @@ Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 d
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers, utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```
 
-### `plane-city-sky`
-
-- **Save the download as** `art-src/plane-city-sky.png` (`.webp` is accepted too)
-- **Minimum size** 2048 × 1152 px, aspect 16:9
-- Ships as `assets/plane-city-sky.webp`
-
-```text
-Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. A Zaun-like undercity: cyberpunk machinery bolted onto a broken-down post-war society, never a clean future. Scrap and salvage are the building material — corrugated iron, patched brick, mismatched timber, cannibalised plating, jury-rigged pipework and cabling slung between structures nobody planned. Old, wrecked and newly-bolted-on machines stand side by side; nothing matches, nothing is finished, much of it is still broken. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay; rust, soot, water-staining and improvised patching are the default finish and polished chrome is not. Emissives painted at their own hue rather than white-hot — sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections gone dark. Cinematic, moody, beautiful and quietly haunting.
-
-Sky and distant arcology silhouettes only. Heavy smog ceiling in #1b2233 to #3d4761 graduating upward, a diffuse cold light source behind it, and the flat blue-grey silhouettes of enormous far towers reduced almost entirely to value with no detail. Nearly abstract. No ground, no foreground, no legible structure.
-
-Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 degrees. Rendered as a single continuous painted illustration, not a tiled texture. No focal subject — this is a stage, and the readable action sits on top of it.
-
-Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers, utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
-```
-
 ### `splash-auth`
 
 - **Save the download as** `art-src/splash-auth.png` (`.webp` is accepted too)
@@ -324,7 +308,7 @@ Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 d
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers, utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```
 
-## Alpha set — not requested yet (27)
+## Alpha set — not requested yet (26)
 
 Do **not** start these. Every asset here ships with a real alpha channel, and ChatGPT does not
 reliably return transparency — `gpt-image-2` explicitly does not support a transparent background
@@ -332,22 +316,6 @@ at all. The fallback is the `matte` step keying a flat background out of an opaq
 **that path has never been run against real ChatGPT output.** Until someone verifies it on a
 single file, ordering the set is a batch of downloads that may every one of them be unusable.
 Listed for completeness only.
-
-### `plane-city-far`
-
-- **Save the download as** `art-src/plane-city-far.png` (`.webp` is accepted too)
-- **Minimum size** 2048 × 1152 px, aspect 16:9, **with a transparent background**
-- Ships as `assets/plane-city-far.webp`
-
-```text
-Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. A Zaun-like undercity: cyberpunk machinery bolted onto a broken-down post-war society, never a clean future. Scrap and salvage are the building material — corrugated iron, patched brick, mismatched timber, cannibalised plating, jury-rigged pipework and cabling slung between structures nobody planned. Old, wrecked and newly-bolted-on machines stand side by side; nothing matches, nothing is finished, much of it is still broken. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay; rust, soot, water-staining and improvised patching are the default finish and polished chrome is not. Emissives painted at their own hue rather than white-hot — sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections gone dark. Cinematic, moody, beautiful and quietly haunting.
-
-A band of mid-distance city blocks and towers standing against a flat unshaded magenta #ff00ff background — everything above the skyline, the top forty percent of the canvas, is that magenta and nothing else, with no gradient, glow, haze or shading in it. Silhouettes are simplified, values compressed toward #2a3348 to #55617e, with sparse tiny window lights. No magenta, pink or violet appears anywhere in the towers themselves. Nothing that breaks the skyline may be thinner than three pixels at 2048 wide — antenna masts and spire tips stay blunt and stubby, never hairlines, and there are no wires or cables, and the towers are separated by open magenta at least three pixels wide, never a hairline slot. Detail suppressed: this sits behind everything and must never compete.
-
-Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 degrees. Rendered as a single continuous painted illustration, not a tiled texture. No focal subject — this is a stage, and the readable action sits on top of it.
-
-Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers, utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
-```
 
 ### `plane-city-fore`
 
@@ -761,6 +729,50 @@ Hand-painted digital illustration in the style of Arcane (Fortiche) — painterl
 A blunt hexagonal bunker seen from above with sloped revetments on every face and a magenta #e11d8f slit aperture at the centre.
 
 Single centred icon on a fully transparent background, painted with visible brushwork but radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue. No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the central seventy percent. Consistent implied light from upper-left across the whole set.
+
+Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers, utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
+```
+
+## Occluded backdrop — nothing to draw (2)
+
+Do **not** draw these, now or later. They sit behind `plate-city` in the map backdrop, and the
+plate is opaque by specification (ART-BIBLE §6 — it is the base image and carries no alpha). So
+the day the plate is delivered as a real file it covers them completely, at every zoom and every
+scroll position, and a master ordered for one of these would never put a pixel on screen.
+
+They are not dead code: `plate-city` is still **procedural**, and until it is delivered these two
+planes are what give the map its depth. Delivering the plate is what retires them — so if the
+plate ever goes back to being transparent, they come back and this section shrinks on its own.
+Listed for completeness only.
+
+### `plane-city-sky`
+
+- **Save the download as** `art-src/plane-city-sky.png` (`.webp` is accepted too)
+- **Minimum size** 2048 × 1152 px, aspect 16:9
+- Ships as `assets/plane-city-sky.webp`
+
+```text
+Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. A Zaun-like undercity: cyberpunk machinery bolted onto a broken-down post-war society, never a clean future. Scrap and salvage are the building material — corrugated iron, patched brick, mismatched timber, cannibalised plating, jury-rigged pipework and cabling slung between structures nobody planned. Old, wrecked and newly-bolted-on machines stand side by side; nothing matches, nothing is finished, much of it is still broken. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay; rust, soot, water-staining and improvised patching are the default finish and polished chrome is not. Emissives painted at their own hue rather than white-hot — sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections gone dark. Cinematic, moody, beautiful and quietly haunting.
+
+Sky and distant arcology silhouettes only. Heavy smog ceiling in #1b2233 to #3d4761 graduating upward, a diffuse cold light source behind it, and the flat blue-grey silhouettes of enormous far towers reduced almost entirely to value with no detail. Nearly abstract. No ground, no foreground, no legible structure.
+
+Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 degrees. Rendered as a single continuous painted illustration, not a tiled texture. No focal subject — this is a stage, and the readable action sits on top of it.
+
+Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers, utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
+```
+
+### `plane-city-far`
+
+- **Save the download as** `art-src/plane-city-far.png` (`.webp` is accepted too)
+- **Minimum size** 2048 × 1152 px, aspect 16:9, **with a transparent background**
+- Ships as `assets/plane-city-far.webp`
+
+```text
+Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never vector-flat. A Zaun-like undercity: cyberpunk machinery bolted onto a broken-down post-war society, never a clean future. Scrap and salvage are the building material — corrugated iron, patched brick, mismatched timber, cannibalised plating, jury-rigged pipework and cabling slung between structures nobody planned. Old, wrecked and newly-bolted-on machines stand side by side; nothing matches, nothing is finished, much of it is still broken. Split lighting: cold cyan key light (#22d3ee) from upper-left at 35 degrees, weak warm sodium bounce (#f59e0b) from lower-right at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structural midtones in slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere. Every surface shows wear, repair or decay; rust, soot, water-staining and improvised patching are the default finish and polished chrome is not. Emissives painted at their own hue rather than white-hot — sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections gone dark. Cinematic, moody, beautiful and quietly haunting.
+
+A band of mid-distance city blocks and towers standing against a flat unshaded magenta #ff00ff background — everything above the skyline, the top forty percent of the canvas, is that magenta and nothing else, with no gradient, glow, haze or shading in it. Silhouettes are simplified, values compressed toward #2a3348 to #55617e, with sparse tiny window lights. No magenta, pink or violet appears anywhere in the towers themselves. Nothing that breaks the skyline may be thinner than three pixels at 2048 wide — antenna masts and spire tips stay blunt and stubby, never hairlines, and there are no wires or cables, and the towers are separated by open magenta at least three pixels wide, never a hairline slot. Detail suppressed: this sits behind everything and must never compete.
+
+Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 degrees. Rendered as a single continuous painted illustration, not a tiled texture. No focal subject — this is a stage, and the readable action sits on top of it.
 
 Avoid entirely: text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption, flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art, 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly, photograph, photorealistic skin pores, stock photo, oversaturated neon soup, rainbow lighting, every surface glowing, hdr bloom baked in, lens flare, chromatic aberration, film grain, vignette, jpeg artifacts, noise overlay, pure black #000000, pure white #ffffff, blown highlights, crushed blacks, symmetrical, tidy, pristine, brand new, corporate stock illustration, empty sterile plaza, clean chrome futurism, polished chrome, gleaming glass skyscrapers, curtain-wall towers, utopian sci-fi metropolis, showroom finish, orderly planned street grid, intact undamaged city, flat even lighting, single neutral light source, grey shadows, uniform detail, busy cluttered composition without focal point, three equal masses, extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 ```

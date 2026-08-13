@@ -3,6 +3,7 @@ import {
   ART_MANIFEST,
   HERO_ASSETS,
   NEGATIVE,
+  OCCLUDED_BACKDROP_KEYS,
   STYLE_ANCHOR,
   findAssetSpec,
   type AssetSpec,
@@ -33,12 +34,32 @@ describe('sections', () => {
     expect([...grouped].sort()).toEqual(ART_MANIFEST.map((s) => s.key).sort());
   });
 
-  it('puts the 15 hero assets first, then the three 16:9 opaque assets, then the alpha set', () => {
-    const [hero, wide, alpha] = groupIntoSections();
+  it('puts the 15 hero assets first, then the two 16:9 opaque assets, then alpha, then occluded', () => {
+    const [hero, wide, alpha, occluded] = groupIntoSections();
     expect(hero!.specs.map((s) => s.key)).toEqual(HERO_ASSETS.map((s) => s.key));
-    expect(wide!.specs.map((s) => s.key)).toEqual(['plate-city', 'plane-city-sky', 'splash-auth']);
+    expect(wide!.specs.map((s) => s.key)).toEqual(['plate-city', 'splash-auth']);
     expect(alpha!.specs.every((s) => s.alpha)).toBe(true);
-    expect(hero!.specs.length + wide!.specs.length + alpha!.specs.length).toBe(ART_MANIFEST.length);
+    expect(occluded!.specs.map((s) => s.key)).toEqual([...OCCLUDED_BACKDROP_KEYS]);
+    expect(
+      hero!.specs.length + wide!.specs.length + alpha!.specs.length + occluded!.specs.length,
+    ).toBe(ART_MANIFEST.length);
+  });
+
+  /**
+   * MOU-309 — `plane-city-sky` used to land in the *active* `16:9 set` because it is `alpha: false`
+   * at a non-baseline size, so the sheet asked the board to draw a master that the opaque plate
+   * listed sixteen lines above would have made permanently invisible.
+   *
+   * `plane-city-sky` is named literally as well as derived: dropping it from `BACKDROP_STACK` would
+   * empty it out of `OCCLUDED_BACKDROP_KEYS` and make the derived half of this vacuous.
+   */
+  it('keeps every occluded backdrop asset out of the sections the board acts on', () => {
+    const grouped = groupIntoSections();
+    const actionable = grouped.slice(0, -1).flatMap(({ specs }) => specs.map((s) => s.key));
+    expect(actionable).not.toContain('plane-city-sky');
+    expect(actionable).not.toContain('plane-city-far');
+    for (const key of OCCLUDED_BACKDROP_KEYS) expect(actionable).not.toContain(key);
+    expect(OCCLUDED_BACKDROP_KEYS.length).toBeGreaterThan(0);
   });
 
   it('labels the sections so the board knows which to act on', () => {
@@ -46,6 +67,7 @@ describe('sections', () => {
       'Hero set — do these',
       '16:9 set — only if your download measures at least 2048×1152',
       'Alpha set — not requested yet',
+      'Occluded backdrop — nothing to draw',
     ]);
   });
 });

@@ -1,4 +1,4 @@
-import { findAssetSpec } from '@frontline/shared';
+import { BACKDROP_STACK, findAssetSpec } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { PARALLAX_PLANES, PLANE_IDS, plane, planeOffset } from './layers';
 
@@ -30,6 +30,16 @@ describe('the ADR 0001 §5.2 plane stack', () => {
       if (p.assetKey === null) continue;
       expect(findAssetSpec(p.assetKey), `${p.id} → ${p.assetKey}`).toBeDefined();
     }
+  });
+
+  /**
+   * `BACKDROP_STACK` is what decides who the order sheet stops asking the board to draw (MOU-309),
+   * but this module is what actually draws them. The two orders must agree, or a plane reordered
+   * here would silently change who is occluded there.
+   */
+  it('draws the backdrop in the order @frontline/shared derives occlusion from', () => {
+    const painted = PARALLAX_PLANES.flatMap((p) => (p.assetKey === null ? [] : [p.assetKey]));
+    expect(painted).toEqual([...BACKDROP_STACK]);
   });
 
   it('looks planes up by id and rejects unknown ones', () => {

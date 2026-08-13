@@ -37,6 +37,11 @@ export interface ParallaxPlane {
 export const PARALLAX_PLANES: readonly ParallaxPlane[] = [
   {
     index: 0,
+    // Visible only while `mid` is procedural. `plate-city` is opaque by specification
+    // (ART-BIBLE §6), so the day it is delivered as a file it covers this plane completely and
+    // `plane-city-sky` stops contributing a pixel — which is why the order sheet no longer asks the
+    // board for a master for it (MOU-309, `isOccludedBackdropAsset`). Until then this carries the
+    // backdrop: `procedural.ts` paints only `sky` opaque and composites every plane over it.
     id: 'sky',
     label: 'Sky / arcology silhouette',
     scrollFactor: 0.15,
@@ -46,6 +51,9 @@ export const PARALLAX_PLANES: readonly ParallaxPlane[] = [
   },
   {
     index: 1,
+    // Occluded by a delivered `mid` on the same terms as `sky` above. Its ART-BIBLE §6 ≥30%
+    // transparency floor guards the *procedural* stack it is drawn over today, not the delivered
+    // one — once the plate lands there is no sky behind this left to hide.
     id: 'far',
     label: 'Far city block mass',
     scrollFactor: 0.35,
@@ -55,6 +63,8 @@ export const PARALLAX_PLANES: readonly ParallaxPlane[] = [
   },
   {
     index: 2,
+    // The opaque one. Everything behind it (`sky`, `far`) is visible only for as long as this plane
+    // resolves to procedural art rather than a delivered file.
     id: 'mid',
     label: 'Mid city (the base plate)',
     scrollFactor: 1,

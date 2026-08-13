@@ -36,12 +36,24 @@ The four are not interchangeable. They stack back to front — `plane-city-sky`,
 `plate-city`, the district nodes, `plane-city-fore` — over a transparent stage, so:
 
 - **`plane-city-sky` must be fully opaque.** It is the backdrop; whatever it does not cover is the
-  page showing through, not art.
+  page showing through, not art. That reason has a shelf life — see the note below.
 - **`plane-city-far` and `plane-city-fore` must carry alpha.** They composite over the sky, and
   `plane-city-fore` draws _in front of the district nodes_ — an opaque foreground master blankets
   the whole map, nodes included.
 - **`plate-city` is opaque** — ART-BIBLE §6, `plate` class `alpha: false`, and `encode-art` strips
   any alpha it arrives with. It is the ground, not a glaze.
+
+**Do not draw `plane-city-sky` or `plane-city-far`.** The plate is opaque and sits in front of both,
+so the moment it lands as a real file it covers them completely and neither puts a pixel on screen
+again — including the "page showing through" the first bullet is worried about, which the plate
+covers instead. The two rules above still describe the stack correctly; they just stop mattering
+there. This is why the order sheet lists sky and far under _Occluded backdrop — nothing to draw_
+rather than in a section the board works from, and it is derived (`isOccludedBackdropAsset`,
+`packages/shared/src/art/backdrop.ts`), so if the plate ever stops being opaque they come back on
+their own.
+
+Until the plate is delivered it is **procedural**, and while that is true sky and far are doing real
+work — they carry the whole map's depth. Deleting them is not the follow-up; delivering the plate is.
 
 The alpha rule is checked, not just asked for: `plane-city-far` and `plane-city-fore` declare an
 ART-BIBLE §6 transparency floor (30% and 55%), and `pnpm --filter @frontline/scripts test` audits
