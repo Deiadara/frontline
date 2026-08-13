@@ -126,10 +126,24 @@ function updateTooltip(
 
 // ─── district nodes ──────────────────────────────────────────────────────────
 
+/** A node with no art behind it: the colour is the entire face. */
+const FACE_ALPHA = 0.85;
+/**
+ * Over a delivered illustration the same colour stays on as a scrim rather than dropping to the
+ * ring. `districtColor` is a threat code, not decoration — a bot-garrisoned district is magenta —
+ * and a node is only 8–14px across, so a hairline ring does not carry it. The ring cannot carry it
+ * at all on the selected node, where the stroke turns steel.
+ *
+ * A scrim and not `art.tint`: tint multiplies, so dark art times magenta and dark art times cyan
+ * are both near-black. Compositing over the art keeps the codes apart whatever the art's luminance.
+ */
+const ART_SCRIM_ALPHA = 0.45;
+
 /**
  * The node's face. A delivered district illustration is masked into the circle; until then it is
- * the flat kind colour it has always been. The ring is drawn the same way either way, so the node
- * keeps its selection state and its silhouette on the map whichever way it resolves.
+ * the flat kind colour it has always been. The kind/threat colour and the ring are drawn the same
+ * way either way, so the node keeps its selection state, its silhouette and its colour code on the
+ * map whichever way it resolves.
  */
 export function districtFace(
   district: District,
@@ -139,7 +153,7 @@ export function districtFace(
 ): Container {
   const ring = new Graphics().circle(0, 0, r);
   const texture = deliveredTexture({ type: 'district', districtId: district.id });
-  if (!texture) ring.fill({ color, alpha: 0.85 });
+  ring.fill({ color, alpha: texture ? ART_SCRIM_ALPHA : FACE_ALPHA });
   ring.stroke({
     width: isSelected ? 2.5 : 1.5,
     color: isSelected ? hex(palette.steel[100]) : color,
