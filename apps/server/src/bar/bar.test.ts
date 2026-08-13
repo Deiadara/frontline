@@ -18,6 +18,7 @@ import {
   hearsAnyCrewOut,
   playerLevelGrants,
   proratedFirstWage,
+  reputationOf,
   reputationStance,
   reservationWage,
   startingEconomy,
@@ -181,6 +182,16 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
         }
       }
     }
+  });
+
+  it('holds the open-door floor at the measured three', () => {
+    // Every other assertion about the floor is written *relative* to this constant, so all of them
+    // move with it and none of them pin it: lowering it to 1 leaves the whole W5 suite green while
+    // re-entering the exact state the floor exists to prevent (a crew with a single open door, or
+    // — once §H4 refuses the survivors — none). 3 is what the measurement landed on, so 3 is what
+    // is written down here. The three HTTP cases below also lean on it for their stability under
+    // the real clock.
+    expect(BAR_OPEN_DOOR_FLOOR).toBe(3);
   });
 
   it('always seats recruits any crew can approach, on every day and against every word', () => {
@@ -470,7 +481,38 @@ describe('§H5 — alignment drifts to what they make of the crew', () => {
     ).toBeLessThanOrEqual(ALIGNMENT_MAX);
   });
 
-  it('persists a drift, and writes nothing when nobody moved', () => {
+  it('refreshes the anchor of an officer who is sitting exactly on their target', () => {
+    // The write gate is the age of the anchor, not movement of the value. An officer whose stance
+    // is 0 targets ALIGNMENT_START and so never moves at all — gating on movement pinned their
+    // anchor to hire time for their whole tenure, and the next word that gave them a stance then
+    // collected the entire accumulated window in one read.
+    const writes: Commander[][] = [];
+    const repos = {
+      bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
+    } as unknown as Parameters<typeof settleOfficerAlignment>[0];
+
+    const indifferent = officerWho('wealth', 'idealist');
+    const base = makeBase({ commanders: [indifferent] });
+    expect(reputationStance(indifferent, reputationOf(base.economy, NOW))).toBe(0);
+
+    const threeWeeks = new Date(NOW.getTime() + 21 * 24 * 60 * 60 * 1000);
+    const settled = settleOfficerAlignment(repos, base, threeWeeks);
+    const officer = settled.commanders[0];
+
+    // Nothing moved, and that is exactly why the anchor has to be written anyway.
+    expect(officer?.alignment).toBe(ALIGNMENT_START);
+    expect(writes).toHaveLength(1);
+    expect(officer?.alignmentUpdatedAt).toBe(threeWeeks.toISOString());
+
+    // A word they read at +1, one second later, is worth one second of drift — not three weeks of
+    // it. Against a stale anchor this read returned 74.8.
+    const aSecondLater = new Date(threeWeeks.getTime() + 1000);
+    if (!officer) throw new Error('expected the settled officer');
+    expect(reputationStance(officer, 'Respected')).toBe(1);
+    expect(alignmentAt(officer, 'Respected', aSecondLater)).toBeCloseTo(ALIGNMENT_START, 2);
+  });
+
+  it('persists a drift, and writes nothing while the anchor is fresh', () => {
     const writes: Commander[][] = [];
     const repos = {
       bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
@@ -482,7 +524,8 @@ describe('§H5 — alignment drifts to what they make of the crew', () => {
     expect(writes).toHaveLength(1);
     expect(settled.commanders[0]?.alignment).not.toBe(ALIGNMENT_START);
 
-    // Settling the already-settled roster again at the same instant is not a second write.
+    // Settling the already-settled roster again at the same instant is not a second write: the
+    // anchor it just wrote is zero seconds old.
     settleOfficerAlignment(repos, settled, later);
     expect(writes).toHaveLength(1);
 

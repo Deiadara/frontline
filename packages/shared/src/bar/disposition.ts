@@ -244,8 +244,15 @@ export function alignedAttributes(attributes: Attributes, alignment: number): At
 /**
  * Where a character's alignment is heading, given what they make of your reputation (§H4, §H5).
  * A stance of `0` sits at the neutral start, so an indifferent officer never drifts at all.
+ *
+ * The step is exactly `(ALIGNMENT_MAX - ALIGNMENT_START) / STANCE_MAX`, which is what keeps the
+ * meter honest: the strongest §H4 reading either direction can produce heads for the end of the
+ * bar rather than for some interior value. At `20` the reachable range was `10..90`, which left
+ * `devoted` (`>= 95`) and the top of the skill-bonus scale states no live path could enter — the
+ * band cuts are written against `ALIGNMENT_MAX`, a schema bound, and only coincide with the
+ * reachable bound at this step. `alignmentReachesEveryBand` in the tests pins that.
  */
-export const ALIGNMENT_PER_STANCE = 20;
+export const ALIGNMENT_PER_STANCE = (ALIGNMENT_MAX - ALIGNMENT_START) / STANCE_MAX;
 
 export function alignmentTarget(stance: number): number {
   return Math.min(

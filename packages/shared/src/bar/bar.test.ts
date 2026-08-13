@@ -8,12 +8,14 @@ import {
 import { PAY_WEEK_MS, proratedFirstWage, startOfPayWeek } from '../economy/payroll.js';
 import { REPUTATION_LABELS, type ReputationLabel } from '../economy/reputation.js';
 import {
+  ALIGNMENT_BANDS,
   ALIGNMENT_BONUS_ATTRIBUTES,
   ALIGNMENT_BONUS_THRESHOLD,
   ALIGNMENT_HALF_LIFE_MS,
   ALIGNMENT_LEAVE_THRESHOLD,
   ALIGNMENT_MAX,
   ALIGNMENT_MIN,
+  ALIGNMENT_PER_STANCE,
   ALIGNMENT_START,
   AMBITIONS,
   MORAL_COMPASSES,
@@ -201,6 +203,35 @@ describe('§H5 — the alignment meter', () => {
       expect(target).toBeGreaterThanOrEqual(ALIGNMENT_MIN);
       expect(target).toBeLessThanOrEqual(ALIGNMENT_MAX);
     }
+  });
+
+  it('leaves no band and no bonus tier that a live officer cannot reach', () => {
+    // The band cuts and the bonus scale are written against ALIGNMENT_MAX, which is a *schema*
+    // bound; what an officer can actually reach is `alignmentTarget(STANCE_MAX)`. When those two
+    // came apart, `devoted` and the top of the bonus scale were states no play could enter and
+    // every test still passed, because each one was asserted against a hand-written value rather
+    // than a drifted one. This walks the only inputs the game can produce.
+    expect(ALIGNMENT_PER_STANCE).toBe(25);
+    expect(alignmentTarget(STANCE_MAX)).toBe(ALIGNMENT_MAX);
+    expect(alignmentTarget(STANCE_MIN)).toBe(ALIGNMENT_MIN);
+
+    const bands = new Set<string>();
+    const bonuses = new Set<number>();
+    for (let stance = STANCE_MIN; stance <= STANCE_MAX; stance++) {
+      const target = alignmentTarget(stance);
+      // A year of daily reads is a tenure the game plainly supports.
+      for (let day = 0; day <= 365; day++) {
+        const alignment = settleAlignment(ALIGNMENT_START, target, day * 24 * 60 * 60 * 1000);
+        bands.add(alignmentBand(alignment));
+        bonuses.add(alignmentSkillBonus(alignment));
+      }
+    }
+
+    expect([...ALIGNMENT_BANDS].every((band) => bands.has(band))).toBe(true);
+    // ...and the scale is entered at every step, not just at its ends.
+    const topBonus = alignmentSkillBonus(ALIGNMENT_MAX);
+    expect(topBonus).toBe(5);
+    for (let bonus = 0; bonus <= topBonus; bonus++) expect(bonuses).toContain(bonus);
   });
 });
 

@@ -1,11 +1,12 @@
 import {
+  ALIGNMENT_BAND_LABELS,
   AMBITION_SPECS,
   MORAL_COMPASS_SPECS,
   OFFICER_ROLE_LABELS,
   OFFICER_ROLES,
   TRAIT_CATALOG,
   reservationWage,
-  type ALIGNMENT_BANDS,
+  type AlignmentBand,
   type BarOfficer,
   type BarRecruit,
   type JoinBlocker,
@@ -18,21 +19,12 @@ import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { useBar, useHireRecruit } from '../../lib/queries';
 
-type AlignmentBand = (typeof ALIGNMENT_BANDS)[number];
-
 /** Devotion reads in the player's own accent; a walkout reads as a warning. */
 const BAND_STYLE: Record<AlignmentBand, string> = {
   leaving: 'border-neon-magenta/50 text-neon-magenta',
   unsettled: 'border-steel-600 text-steel-300',
   settled: 'border-neon-cyan/50 text-neon-cyan',
   devoted: 'border-bile-300/50 text-bile-300',
-};
-
-const BAND_LABEL: Record<AlignmentBand, string> = {
-  leaving: 'Threatening to walk',
-  unsettled: 'Unsettled',
-  settled: 'Settled',
-  devoted: 'Devoted',
 };
 
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
@@ -243,7 +235,7 @@ function OfficerRow({ officer }: { officer: BarOfficer }) {
         <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.12em] text-steel-100">
           {commander.name}
         </span>
-        <Tag label={BAND_LABEL[officer.band]} className={BAND_STYLE[officer.band]} />
+        <Tag label={ALIGNMENT_BAND_LABELS[officer.band]} className={BAND_STYLE[officer.band]} />
       </div>
       <div className="flex min-w-0 items-center justify-between gap-3">
         <span className="min-w-0 truncate font-display text-[9px] uppercase tracking-[0.16em] text-steel-500">

@@ -222,7 +222,7 @@ export const BarOfficerSchema = z.object({
   threateningToLeave: z.boolean(),
   /** §H5 — attribute points the alignment bonus is currently worth, and where they land. */
   skillBonus: z.number().int().nonnegative(),
-  bonusAttributes: z.array(z.string()),
+  bonusAttributes: z.array(z.enum(ATTRIBUTE_NAMES)),
   /** §H7 — the agreed weekly wage, read back out of the payroll book W2 owns. */
   weeklyWage: z.number().nonnegative(),
 });

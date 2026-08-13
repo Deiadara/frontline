@@ -15,8 +15,11 @@ import type { Repositories } from '../db/repos/index.js';
  * The §H5 alignment meter, kept current.
  *
  * Like payroll (§H7) and the §D8 reputation drift, alignment settles on the real-world clock and
- * is therefore applied lazily on the read path rather than from a scheduler — an officer who was
- * left alone for a week has drifted exactly as far as one who was watched the whole time.
+ * is therefore applied lazily on the read path rather than from a scheduler — under an unchanging
+ * reputation word an officer who was left alone for a week has drifted exactly as far as one who
+ * was watched the whole time, because the decay composes over any split of the interval. Across a
+ * *change* of word it is the anchor that decides which stance the elapsed time is credited to;
+ * `ALIGNMENT_ANCHOR_MAX_AGE_MS` below is what keeps that honest.
  */
 
 function clampAlignment(value: number): number {
@@ -37,23 +40,47 @@ export function alignmentAt(officer: Commander, reputation: ReputationLabel, now
 }
 
 /**
- * Settles every officer on the base and persists the result when anything actually moved.
+ * How stale an officer's alignment anchor may get before a read is worth a write.
  *
- * The write is skipped for an unchanged roster so that opening the Bar twice in a second is not
- * two writes, and so a base with no officers never touches the database at all.
+ * Sizing it: the fastest a meter can move is `ALIGNMENT_START` away from its target, and over a
+ * minute of a three-day half-life that is 0.008 alignment points — two orders below the meter's
+ * own rounding. So nothing a player can see is lost by not writing, and the window of drift that
+ * a later reputation change can misattribute (below) is held to the same 0.008.
+ */
+const ALIGNMENT_ANCHOR_MAX_AGE_MS = 60 * 1000;
+
+/**
+ * Settles every officer on the base and persists the result when an anchor has gone stale.
+ *
+ * The gate is the *age of the anchor*, not whether the value moved. Those come apart for an
+ * officer already sitting at their target — every stance-0 officer, permanently, since
+ * `alignmentTarget(0)` is `ALIGNMENT_START`. Skipping their write leaves `alignmentUpdatedAt`
+ * pinned to hire time, and the next reputation word that gives them a non-zero stance is then
+ * credited with the whole accumulated tenure in a single read: a stance-0 officer of 21 days
+ * jumps 50 -> 69.8 one second after the word turns, and the window grows without bound over their
+ * tenure. Refreshing the anchor on any read older than the granularity holds that to one
+ * granularity of drift instead.
+ *
+ * Bounded, not eliminated: alignment settles only on the Bar read path (`routes/bar.ts`), so the
+ * misattributed window is the gap between two reads. Closing it entirely means recording the word
+ * an officer was drifting under and settling when *it* changes, which is a schema change.
+ *
+ * A base with no officers still never touches the database, and settling the same roster twice
+ * inside the granularity is still one write.
  */
 export function settleOfficerAlignment(repos: Repositories, base: Base, now: Date): Base {
   const reputation = reputationOf(base.economy, now);
+  const stale = base.commanders.some(
+    (officer) =>
+      now.getTime() - new Date(officer.alignmentUpdatedAt).getTime() >= ALIGNMENT_ANCHOR_MAX_AGE_MS,
+  );
+  if (!stale) return base;
+
   const settled = base.commanders.map((officer) => ({
     ...officer,
     alignment: alignmentAt(officer, reputation, now),
     alignmentUpdatedAt: now.toISOString(),
   }));
-
-  const moved = settled.some(
-    (officer, index) => officer.alignment !== base.commanders[index]?.alignment,
-  );
-  if (!moved) return base;
 
   repos.bases.updateCommanders(base.id, settled);
   return { ...base, commanders: settled };
