@@ -133,8 +133,9 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await plotDialog.getByRole('button', { name: 'Build' }).click();
   await expect(foundry).toHaveAttribute('aria-label', /level 1/);
   await plotDialog.getByRole('button', { name: 'Close' }).click();
-  // §D3: the oil left the HUD's ledger, not a second counter of the hideout's own.
-  await expect(hud).toContainText(String(AFTER_BUILD.oil));
+  // §D3: the oil left the HUD's ledger, not a second counter of the hideout's own. Matched as a
+  // whole chip value, so it cannot pass on some other resource that happens to contain the digits.
+  await expect(hud.getByText(String(AFTER_BUILD.oil), { exact: true })).toBeVisible();
   await shootEveryViewport(page, 'hideout-built');
 
   // --- STEP 5: raid the AI rival ---

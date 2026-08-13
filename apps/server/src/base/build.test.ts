@@ -102,17 +102,38 @@ describe('POST /base/build (GDD §A1, §D3)', () => {
   });
 
   /*
-   * The shape of the opening: a fresh hideout can stand up its empty plots straight away, but the
-   * first *upgrade* has to be earned — a level-2 Command Center costs more than W2's whole starting
-   * stockpile. That is deliberate (it is what makes mission income mean something), and it is
-   * pinned here because it is the difference between a tight opening and a dead one: if a later
-   * retune of either number makes every plot unaffordable too, this goes red.
+   * The shape of the opening — the thing a retune of either `STARTING_RESOURCES` or the catalogue
+   * prices can quietly destroy, since the two constants live in different files and neither knows
+   * about the other. Three properties, because pinning only the last two let through a state where
+   * a fresh hideout could afford exactly *one* of its four empty plots and every other click was a
+   * refusal, which reads as "tight" to a test and as a dead opening to a player.
    */
-  it('lets a fresh hideout build, but makes it earn its first upgrade', async () => {
-    const player = await newPlayer();
-    expect((await build(player, 'foundry')).statusCode).toBe(200);
+  const EMPTY_PLOTS: readonly BuildingKind[] = ['data_hub', 'foundry', 'barracks', 'wall'];
 
+  it('leaves no empty plot unaffordable on turn one', async () => {
+    for (const kind of EMPTY_PLOTS) {
+      const player = await newPlayer();
+      expect((await build(player, kind)).statusCode, kind).toBe(200);
+    }
+  });
+
+  it('opens with three builds in reach, and makes oil the thing that runs out', async () => {
+    const player = await newPlayer();
+    // The cheapest three by oil; §D3 wants the sink to be what ends the first session.
+    for (const kind of ['data_hub', 'foundry', 'wall'] as const) {
+      expect((await build(player, kind)).statusCode, kind).toBe(200);
+    }
+    expect(player.app.repos.bases.findById(player.baseId)?.resources.oil).toBe(0);
+
+    const fourth = await build(player, 'barracks');
+    expect(fourth.statusCode).toBe(409);
+    expect(fourth.json<{ error: { code: string } }>().error.code).toBe('INSUFFICIENT_RESOURCES');
+  });
+
+  it('makes the first Command Center upgrade something you have to earn', async () => {
+    const player = await newPlayer();
     const upgrade = await build(player, 'command_center');
+
     expect(upgrade.statusCode).toBe(409);
     expect(upgrade.json<{ error: { code: string } }>().error.code).toBe('INSUFFICIENT_RESOURCES');
   });

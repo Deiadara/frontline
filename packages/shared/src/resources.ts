@@ -28,12 +28,20 @@ export const RESOURCE_KEYS = Object.keys(ResourcesSchema.shape) as readonly Reso
 export const PartialResourcesSchema = ResourcesSchema.partial();
 export type PartialResources = z.infer<typeof PartialResourcesSchema>;
 
-/** Stockpile every new base starts with. */
+/**
+ * Stockpile every new base starts with.
+ *
+ * Sized against the level-1 `BUILDING_CATALOG` prices so the opening is tight but not dead: every
+ * empty plot is affordable on its own, three of them can be raised, and then **oil** is what runs
+ * out — GDD §D3's sink is what ends the first session, not an arbitrary wall. The level-2 Command
+ * Center stays out of reach, so the cap that holds the village down has to be earned.
+ * `build.test.ts` pins both halves of that shape.
+ */
 export const STARTING_RESOURCES: Resources = {
-  caps: 500,
+  caps: 600,
   food: 300,
   oil: 120,
-  scrap: 200,
+  scrap: 500,
   highQualityMetal: 40,
 };
 

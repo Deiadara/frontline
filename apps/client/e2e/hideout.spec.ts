@@ -10,9 +10,27 @@
  *
  * Screenshots land in `screenshots/hideout/` so the board can open the whole matrix at once.
  */
+import { BUILDING_KINDS, type Building } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
-import { base, lateGame, me } from './fixtures';
+import { base, lateGame, lateGameBase, me } from './fixtures';
 import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
+
+/**
+ * A hideout with every plot standing at `level`, over `lateGame`'s late-game stockpile.
+ *
+ * Both fat cases only exist at the top of the curve: the widest name plate the catalogue can
+ * produce is `Data Hub Lv 10` — the only two-digit one — and the widest cost line is the level-10
+ * Command Center, five figures across three materials. `lateGame` on its own is a *rich* base
+ * still wearing the starting village, so it renders neither.
+ */
+function villageAt(level: number): typeof lateGame {
+  const buildings: Building[] = BUILDING_KINDS.map((kind, index) => ({
+    id: `b${index + 1}`,
+    kind,
+    level,
+  }));
+  return { ...lateGame, base: { ...lateGameBase, buildings } };
+}
 
 interface Size {
   readonly width: number;
@@ -150,7 +168,8 @@ for (const size of VIEWPORTS) {
      * a modal is drawn over the page and a `fullPage` shot of the village cannot show it.
      */
     test(`the plot dialog lays out cleanly at ${tag}`, async ({ page }) => {
-      await installApi(page, lateGame);
+      // One level below the ceiling, so the dialog quotes the level-10 price rather than level 2's.
+      await installApi(page, villageAt(9));
       await page.goto('/game/base');
       await page.getByRole('button', { name: /^Command Center —/ }).click();
 
@@ -176,21 +195,9 @@ test.describe('a hideout that has been played', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test('renders every structure standing', async ({ page }) => {
-    const built = {
-      ...lateGame,
-      base: {
-        ...lateGame.base,
-        buildings: [
-          { id: 'b1', kind: 'command_center', level: 6 },
-          { id: 'b2', kind: 'reactor', level: 5 },
-          { id: 'b3', kind: 'data_hub', level: 4 },
-          { id: 'b4', kind: 'foundry', level: 3 },
-          { id: 'b5', kind: 'barracks', level: 5 },
-          { id: 'b6', kind: 'wall', level: 6 },
-        ],
-      },
-    };
-    await installApi(page, built as typeof lateGame);
+    // At the ceiling, not mid-curve: this is the only fixture that lays out a two-digit name plate
+    // (`Data Hub Lv 10`), which is the widest string a plate can ever hold.
+    await installApi(page, villageAt(10));
     await page.goto('/game/base');
 
     await expectVillageLaidOutCleanly(page);

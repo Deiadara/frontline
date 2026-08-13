@@ -30,7 +30,11 @@ export interface BuildingSpec {
    * burns oil to raise: GDD §D3 makes oil the resource that building and upgrading consume.
    */
   baseCost: PartialResources;
-  /** Passive output per tick at level 1. */
+  /**
+   * Intended passive output at level 1. **Nothing pays it yet**: there is no server tick, and the
+   * only accrual path (`runEconomyCycle`) drains rather than produces. Do not show it to a player
+   * as a gain until something produces it — and scale it by level when that lands.
+   */
   output: PartialResources;
 }
 

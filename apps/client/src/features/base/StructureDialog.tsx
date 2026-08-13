@@ -10,7 +10,7 @@ import {
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
-import { CostLine, RewardLine } from '../../components/Resources';
+import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { StructureSprite } from './sprites';
@@ -48,11 +48,14 @@ export function StructureDialog({
   const nextLevel = nextStructureLevel(kind, buildings);
   const cost = nextLevel === null ? null : buildingCost(kind, nextLevel);
   const affordable = cost !== null && canAfford(resources, cost);
-  const hasOutput = Object.values(spec.output).some((value) => (value ?? 0) > 0);
 
   return (
     <Modal onClose={onClose} labelledBy="structure-dialog-title" className="border-neon-cyan/30">
-      <header className="flex items-start justify-between gap-4 border-b border-neon-cyan/15 px-5 py-4">
+      {/* A plain block, not a <header>: `role=dialog` is not sectioning content, so a <header>
+          here still maps to the page's `banner` landmark — the same ambiguity BasePanel dropped
+          its own <header> to avoid, and it would make `locator('header')` match twice whenever a
+          plot dialog is open. */}
+      <div className="flex items-start justify-between gap-4 border-b border-neon-cyan/15 px-5 py-4">
         <div className="min-w-0">
           <p className="font-display text-[10px] uppercase tracking-[0.3em] text-neon-cyan/70">
             {standing ? `Level ${standing.level}` : 'Vacant plot'}
@@ -67,20 +70,10 @@ export function StructureDialog({
         <span className="h-14 w-14 shrink-0">
           <StructureSprite kind={kind} built={standing !== undefined} />
         </span>
-      </header>
+      </div>
 
       <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-5">
         <p className="font-body text-xs leading-relaxed text-steel-400">{spec.description}</p>
-
-        <Row label="Yield / tick">
-          {hasOutput ? (
-            <RewardLine rewards={spec.output} />
-          ) : (
-            <span className="font-display text-[11px] tracking-[0.15em] text-steel-600">
-              PASSIVE
-            </span>
-          )}
-        </Row>
 
         <Row label={standing ? `Upgrade to level ${nextLevel ?? '—'}` : 'Construction cost'}>
           {cost === null ? (
