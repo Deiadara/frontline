@@ -1,5 +1,6 @@
 import type { MeResponse } from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { attack, createOverseer, getBase, getCity, getMe, getMissions, launchMission } from './api';
 import { useSession } from '../store/session';
 
@@ -42,12 +43,29 @@ export function useBase(id: string | undefined) {
 /** The mission board and everything in flight (GDD §E3, §E4). */
 export function useMissions() {
   const token = useSession((s) => s.token);
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
     queryKey: queryKeys.missions,
     queryFn: getMissions,
     enabled: token !== null,
     refetchInterval: MISSION_POLL_MS,
   });
+
+  /*
+   * A crew is paid by the *poll*, not by anything the player did, so nothing else on the client
+   * knows the stockpile and the meters just moved — `me` is what the HUD reads, and a player
+   * watching their own countdown land is exactly the case that never leaves this page.
+   *
+   * Keyed on the fetch rather than the payload: the server reports `justResolved` per request, so
+   * the settling poll reports it and the next one reports none.
+   */
+  const settledAt = (query.data?.justResolved.length ?? 0) > 0 ? query.dataUpdatedAt : 0;
+  useEffect(() => {
+    if (settledAt === 0) return;
+    void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+  }, [settledAt, queryClient]);
+
+  return query;
 }
 
 /** Send a crew out, then refresh the board and everything a returning crew may have paid into. */

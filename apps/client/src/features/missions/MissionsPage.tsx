@@ -207,6 +207,25 @@ function ReturnedRow({ mission }: { mission: Mission }) {
   );
 }
 
+/** How many returned crews the page keeps on screen. */
+const RETURNED_LIMIT = 6;
+
+/**
+ * The crews that came home most recently — by *return* time, not launch time.
+ *
+ * The server hands the board back in launch order, which is right for the in-flight list and
+ * wrong for this one: a day-long expedition returns long after the short runs launched behind it,
+ * so ordering by launch buries it under them and a bounded list drops it entirely — the player's
+ * longest run is the one with no evidence it ever paid. Sorting is stable, so a batch that
+ * settled on the same read keeps the server's launch order as its tiebreak.
+ */
+export function recentlyReturned(missions: readonly Mission[]): Mission[] {
+  return missions
+    .filter((mission) => mission.status === 'resolved')
+    .sort((a, b) => (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? ''))
+    .slice(0, RETURNED_LIMIT);
+}
+
 function EmptyRow({ text }: { text: string }) {
   return (
     <p className="px-4 py-6 text-center font-display text-[10px] uppercase tracking-[0.2em] text-steel-600">
@@ -228,7 +247,7 @@ export function MissionsPage() {
 
   const missions = data?.missions ?? [];
   const active = missions.filter((mission) => mission.status === 'active');
-  const returned = missions.filter((mission) => mission.status === 'resolved').slice(0, 6);
+  const returned = recentlyReturned(missions);
   const limit = data?.activeLimit ?? 0;
   const atCapacity = limit > 0 && active.length >= limit;
 
@@ -263,7 +282,7 @@ export function MissionsPage() {
             ) : active.length === 0 ? (
               <EmptyRow text="Every crew is home" />
             ) : (
-              <ul className="flex flex-col divide-y divide-steel-800">
+              <ul aria-label="Crews in flight" className="flex flex-col divide-y divide-steel-800">
                 {active.map((mission) => (
                   <InFlightRow key={mission.id} mission={mission} now={now} />
                 ))}
@@ -275,7 +294,7 @@ export function MissionsPage() {
             {returned.length === 0 ? (
               <EmptyRow text="No crew has come back yet" />
             ) : (
-              <ul className="flex flex-col divide-y divide-steel-800">
+              <ul aria-label="Crews returned" className="flex flex-col divide-y divide-steel-800">
                 {returned.map((mission) => (
                   <ReturnedRow key={mission.id} mission={mission} />
                 ))}

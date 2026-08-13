@@ -15,9 +15,11 @@ import {
   type CreateOverseerResponse,
   type MeResponse,
   type Mission,
+  type MissionOutcome,
   type MissionsResponse,
   type Overseer,
   type PartialResources,
+  type Resources,
   type User,
 } from '@frontline/shared';
 
@@ -122,6 +124,38 @@ export const battle: BattleResponse = {
 export const createOverseerResponse: CreateOverseerResponse = { user, overseer, base };
 export const authResponse: AuthResponse = { token: TOKEN, user };
 
+const minutesBefore = (now: Date, minutes: number) =>
+  new Date(now.getTime() - minutes * 60_000).toISOString();
+
+/** A crew sent out at `startedAt`, timed from its own template the way the server freezes it. */
+function launchedMission(id: string, templateId: string, startedAt: string): Mission {
+  const template = findMissionTemplate(templateId);
+  if (!template) throw new Error(`unknown mission template: ${templateId}`);
+  const { travelMinutes, durationMinutes } = templateTimings(template);
+  return {
+    id,
+    baseId: base.id,
+    templateId,
+    startedAt,
+    travelMinutes,
+    durationMinutes,
+    status: 'active',
+    outcome: null,
+    rewards: {},
+    resolvedAt: null,
+  };
+}
+
+/** The same crew after the server banked it. */
+function resolvedMission(
+  mission: Mission,
+  outcome: MissionOutcome,
+  rewards: PartialResources,
+  resolvedAt: string,
+): Mission {
+  return { ...mission, status: 'resolved', outcome, rewards, resolvedAt };
+}
+
 /**
  * The missions page at its widest (GDD §E3).
  *
@@ -135,38 +169,16 @@ export const authResponse: AuthResponse = { token: TOKEN, user };
  * which second the screenshot lands on.
  */
 export function missionsResponse(now: Date = new Date()): MissionsResponse {
-  const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000).toISOString();
-
-  const inFlight = (id: string, templateId: string, startedMinutesAgo: number): Mission => {
-    const template = findMissionTemplate(templateId);
-    if (!template) throw new Error(`unknown mission template: ${templateId}`);
-    const { travelMinutes, durationMinutes } = templateTimings(template);
-    return {
-      id,
-      baseId: base.id,
-      templateId,
-      startedAt: minutesAgo(startedMinutesAgo),
-      travelMinutes,
-      durationMinutes,
-      status: 'active',
-      outcome: null,
-      rewards: {},
-      resolvedAt: null,
-    };
-  };
+  const inFlight = (id: string, templateId: string, startedMinutesAgo: number): Mission =>
+    launchedMission(id, templateId, minutesBefore(now, startedMinutesAgo));
 
   const returned = (
     id: string,
     templateId: string,
-    outcome: 'success' | 'failure',
+    outcome: MissionOutcome,
     rewards: PartialResources,
-  ): Mission => ({
-    ...inFlight(id, templateId, 5_000),
-    status: 'resolved',
-    outcome,
-    rewards,
-    resolvedAt: minutesAgo(60),
-  });
+  ): Mission =>
+    resolvedMission(inFlight(id, templateId, 5_000), outcome, rewards, minutesBefore(now, 60));
 
   return {
     missions: [
@@ -189,5 +201,53 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
     resources: lateGameBase.resources,
     activeLimit: 4,
     serverNow: now.toISOString(),
+  };
+}
+
+/** What the crew that lands mid-session brings home (§E5). Distinct digits, so the HUD is unambiguous. */
+export const SETTLED_REWARD: PartialResources = { caps: 268, scrap: 335 };
+
+/** The base after that payout is banked — `caps 768`, `scrap 535`. */
+export const paidBase: Base = {
+  ...base,
+  resources: addResources(STARTING_RESOURCES, SETTLED_REWARD),
+};
+
+export const paidMe: MeResponse = { user, overseer, base: paidBase };
+
+/**
+ * The state change `missionsResponse` cannot express: one crew still out on the first read, home
+ * and paid on the next.
+ *
+ * Every mission in that fixture is *born* either active or already resolved, so the settle path —
+ * the one moment the whole feature turns on — was never exercised in a browser, and a payout that
+ * never reached the HUD passed every gate. The day-long expedition here launched a day before the
+ * short run that is already home, so its return also has to survive a list ordered by launch.
+ */
+export function settlingMissions(now: Date = new Date()): {
+  pending: MissionsResponse;
+  settled: MissionsResponse;
+} {
+  const expedition = launchedMission('m-away', 'deep-expedition', minutesBefore(now, 26 * 60));
+  // Launched a day after the expedition and already back: it sorts above by launch time.
+  const shortRun = resolvedMission(
+    launchedMission('m-home', 'scrap-run', minutesBefore(now, 60)),
+    'success',
+    { scrap: 40, caps: 5 },
+    minutesBefore(now, 47),
+  );
+
+  const board = (missions: Mission[], justResolved: Mission[], resources: Resources) => ({
+    missions,
+    justResolved,
+    resources,
+    activeLimit: 4,
+    serverNow: now.toISOString(),
+  });
+
+  const home = resolvedMission(expedition, 'success', SETTLED_REWARD, now.toISOString());
+  return {
+    pending: board([shortRun, expedition], [], STARTING_RESOURCES),
+    settled: board([shortRun, home], [home], paidBase.resources),
   };
 }
