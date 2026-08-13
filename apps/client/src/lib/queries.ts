@@ -1,9 +1,10 @@
-import type { MeResponse } from '@frontline/shared';
+import type { BaseDetailResponse, MeResponse } from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import {
   assignPoint,
   attack,
+  buildStructure,
   getAssignees,
   placeAssignees,
   reskillAssignees,
@@ -220,6 +221,26 @@ export function useCreateOverseer() {
       });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.city });
+    },
+  });
+}
+
+/**
+ * Raise one structure in the hideout (GDD §A1, §D3).
+ *
+ * The response already carries the whole settled base, so it is written straight into the base
+ * cache rather than waiting for a refetch — the village, the stockpile and the level all moved on
+ * this one call. `me` is invalidated because the HUD reads its resources from there.
+ */
+export function useBuildStructure(baseId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: buildStructure,
+    onSuccess: (data) => {
+      if (baseId !== undefined) {
+        queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), { base: data.base });
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
 }

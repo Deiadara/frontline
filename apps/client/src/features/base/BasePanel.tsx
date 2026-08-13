@@ -1,5 +1,4 @@
 import {
-  BUILDING_CATALOG,
   PAY_WEEK_MS,
   findDistrict,
   foodUpkeepFor,
@@ -9,18 +8,30 @@ import {
   startOfPayWeek,
   weeklyWageBill,
   type Base,
-  type Building,
+  type BuildingKind,
 } from '@frontline/shared';
+import { useState } from 'react';
+import { LevelUpBanner } from '../../components/LevelUp';
 import { StandingReadout } from '../../components/Meters';
-import { RewardLine, ResourceGrid } from '../../components/Resources';
+import { ResourceGrid } from '../../components/Resources';
 import { Panel } from '../../components/ui/Panel';
-import { useBase, useMe } from '../../lib/queries';
+import { useBase, useBuildStructure, useMe } from '../../lib/queries';
+import { StructureDialog } from './StructureDialog';
+import { Village } from './Village';
+import { VILLAGE_PLOTS } from './plots';
 
+/**
+ * The hideout (GDD §A1) — a small village you look at and click, not a list of structure rows.
+ * The W2 stockpile/standing/payroll and W6 progression readouts stay under it: the layout is what
+ * §A1 replaces, not the numbers the other workstreams put on this page.
+ */
 export function BasePanel() {
   const me = useMe();
   const baseId = me.data?.base?.id;
   const baseQuery = useBase(baseId);
   const base = baseQuery.data?.base ?? me.data?.base ?? null;
+  const build = useBuildStructure(baseId);
+  const [selectedPlot, setSelectedPlot] = useState<BuildingKind | null>(null);
 
   if (!base) {
     return (
@@ -35,12 +46,21 @@ export function BasePanel() {
   const districtName = findDistrict(base.districtId)?.name ?? base.districtId;
   const now = new Date();
 
+  // A fresh plot starts with a clean slate: the refusal from the last one is not about this one.
+  const selectPlot = (kind: BuildingKind) => {
+    build.reset();
+    setSelectedPlot(kind);
+  };
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto p-6">
-      <div className="mx-auto flex max-w-4xl flex-col gap-5">
-        <header>
+      <div className="mx-auto flex max-w-5xl flex-col gap-5">
+        {/* A plain block, not a <header>: the game shell's TopHud is already the page banner, and a
+            second one makes "the HUD" ambiguous to assistive tech and to every test that scopes to
+            it. The <h1> below is what carries this page's identity. */}
+        <div>
           <p className="font-display text-[10px] tracking-[0.4em] text-neon-cyan/70">
-            // BASE OF OPERATIONS //
+            // THE HIDEOUT //
           </p>
           <h1 className="text-glow-cyan mt-1 font-display text-2xl font-bold tracking-[0.15em] text-steel-100">
             {base.name}
@@ -48,9 +68,27 @@ export function BasePanel() {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Tag label={`Level ${base.level}`} />
             <Tag label={districtName} />
-            <Tag label={`${base.buildings.length} Structures`} />
+            <Tag label={`${base.buildings.length} / ${VILLAGE_PLOTS.length} Structures`} />
           </div>
-        </header>
+        </div>
+
+        <Village buildings={base.buildings} selected={selectedPlot} onSelect={selectPlot} />
+
+        {/* §I1 pays for building things, and the response is the only thing that knows this build
+            is what crossed the threshold (MOU-227) — so the banner lives with the village. */}
+        {build.data?.levelUp && <LevelUpBanner levelUp={build.data.levelUp} />}
+
+        {selectedPlot !== null && (
+          <StructureDialog
+            kind={selectedPlot}
+            buildings={base.buildings}
+            resources={base.resources}
+            pending={build.isPending}
+            error={build.error}
+            onBuild={() => build.mutate({ kind: selectedPlot })}
+            onClose={() => setSelectedPlot(null)}
+          />
+        )}
 
         <Panel title="Stockpile">
           <ResourceGrid resources={base.resources} className="p-4" />
@@ -67,14 +105,6 @@ export function BasePanel() {
 
         <Panel title="Progression">
           <ProgressionRows base={base} />
-        </Panel>
-
-        <Panel title="Structures">
-          <ul className="flex flex-col divide-y divide-steel-800">
-            {base.buildings.map((building) => (
-              <BuildingRow key={building.id} building={building} />
-            ))}
-          </ul>
         </Panel>
       </div>
     </div>
@@ -161,41 +191,5 @@ function Tag({ label }: { label: string }) {
     <span className="border border-steel-700 bg-night px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.18em] text-steel-300">
       {label}
     </span>
-  );
-}
-
-function BuildingRow({ building }: { building: Building }) {
-  const spec = BUILDING_CATALOG[building.kind];
-  const hasOutput = Object.values(spec.output).some((v) => (v ?? 0) > 0);
-  return (
-    <li className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <h3 className="font-display text-sm font-semibold tracking-[0.1em] text-steel-100">
-            {spec.name}
-          </h3>
-          <span className="border border-neon-cyan/30 px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.15em] text-neon-cyan">
-            Lv {building.level}
-          </span>
-        </div>
-        <p className="mt-1 font-body text-[11px] leading-relaxed text-steel-400">
-          {spec.description}
-        </p>
-      </div>
-      <div className="shrink-0 sm:w-48 sm:text-right">
-        <p className="font-display text-[9px] uppercase tracking-[0.2em] text-steel-500">
-          Output / tick
-        </p>
-        <div className="mt-1 sm:flex sm:justify-end">
-          {hasOutput ? (
-            <RewardLine rewards={spec.output} />
-          ) : (
-            <span className="font-display text-[11px] tracking-[0.15em] text-steel-600">
-              PASSIVE
-            </span>
-          )}
-        </div>
-      </div>
-    </li>
   );
 }

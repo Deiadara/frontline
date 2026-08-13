@@ -2,6 +2,8 @@ import {
   BOT_DISTRICT_ID,
   MVP_DEV_CREDENTIALS,
   STARTING_RESOURCES,
+  buildingCost,
+  spendResources,
   addResources,
   findDistrict,
 } from '@frontline/shared';
@@ -26,8 +28,12 @@ const [DEFAULT_VIEWPORT] = VIEWPORTS;
 const botDistrict = findDistrict(BOT_DISTRICT_ID);
 if (!botDistrict) throw new Error('fixture error: the bot district is missing from the city map');
 
-/** Stockpile after the first won raid on the rival — proof the rewards were applied. */
-const AFTER_RAID = addResources(STARTING_RESOURCES, botDistrict.rewards);
+/** What standing up the Foundry costs (GDD §D3) — spent in STEP 4, before the raid. */
+const FOUNDRY = buildingCost('foundry', 1);
+
+/** Stockpile after the Foundry is paid for and the first raid on the rival is won. */
+const AFTER_BUILD = spendResources(STARTING_RESOURCES, FOUNDRY);
+const AFTER_RAID = addResources(AFTER_BUILD, botDistrict.rewards);
 
 /** External noise we never treat as an app bug. */
 function isBenign(text: string): boolean {
@@ -107,12 +113,29 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await page.waitForTimeout(800); // let Pixi paint the map before the screenshot
   await shootEveryViewport(page, 'city-map');
 
-  // --- STEP 4: own base ---
+  // --- STEP 4: the hideout, and building in it against the real server (GDD §A1, §D3) ---
   await page.getByRole('link', { name: 'Base', exact: true }).click();
   await expect(page.getByRole('heading', { name: /Foothold/ })).toBeVisible();
-  await expect(page.getByText('Command Center')).toBeVisible();
-  await expect(page.getByText('Fusion Reactor')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Command Center —/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Fusion Reactor —/ })).toBeVisible();
   await shootEveryViewport(page, 'base');
+
+  /*
+   * The one place `POST /api/base/build` is exercised end to end: real route, real ledger, real
+   * §I1 award. Every other build test stubs the response, so this is what would catch a spend the
+   * server refuses for a reason the client mirrored wrongly — the village says it can afford the
+   * Foundry, so the server must agree.
+   */
+  const foundry = page.getByRole('button', { name: /^Foundry —/ });
+  await expect(foundry).toHaveAttribute('aria-label', /vacant plot/);
+  await foundry.click();
+  const plotDialog = page.getByRole('dialog');
+  await plotDialog.getByRole('button', { name: 'Build' }).click();
+  await expect(foundry).toHaveAttribute('aria-label', /level 1/);
+  await plotDialog.getByRole('button', { name: 'Close' }).click();
+  // §D3: the oil left the HUD's ledger, not a second counter of the hideout's own.
+  await expect(hud).toContainText(String(AFTER_BUILD.oil));
+  await shootEveryViewport(page, 'hideout-built');
 
   // --- STEP 5: raid the AI rival ---
   await page.getByRole('link', { name: 'Map', exact: true }).click();

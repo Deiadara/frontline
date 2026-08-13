@@ -51,10 +51,15 @@ export async function settleFonts(page: Page): Promise<void> {
  * Every clipping ancestor is intersected, so a card already hidden by an inner scroller is not
  * then re-judged against an outer one. Leaves only: a straddling wrapper is merely the parent of
  * whatever really straddles, and reporting both buries the offender.
+ *
+ * `root` narrows the sweep to one subtree, for a screen whose *page* is a document scroller — the
+ * fold of a scrolling region cuts its last row by design, so sweeping the whole body there reports
+ * ordinary scrolling as a defect. Clipping ancestors are still walked to the top of the document,
+ * so narrowing the sweep never weakens what it measures about the elements it does look at.
  */
-export async function expectNothingClippedVertically(page: Page): Promise<void> {
+export async function expectNothingClippedVertically(page: Page, root = 'body'): Promise<void> {
   await settleFonts(page);
-  const offenders = await page.evaluate<string[]>(() => {
+  const offenders = await page.evaluate<string[], string>((selector) => {
     const SLACK = 1;
     const bad = new Set<string>();
 
@@ -73,7 +78,10 @@ export async function expectNothingClippedVertically(page: Page): Promise<void> 
       return { height: at.height, visible: bottom - top };
     };
 
-    for (const el of document.body.querySelectorAll<HTMLElement>('*')) {
+    const scope = document.querySelector(selector);
+    if (!scope) throw new Error(`no element matched ${selector}`);
+
+    for (const el of scope.querySelectorAll<HTMLElement>('*')) {
       if (el.childElementCount > 0 || !el.textContent?.trim()) continue;
       if (getComputedStyle(el).visibility === 'hidden') continue;
       const { height, visible } = visibleBand(el);
@@ -85,7 +93,7 @@ export async function expectNothingClippedVertically(page: Page): Promise<void> 
       }
     }
     return [...bad].slice(0, 6);
-  });
+  }, root);
   expect(offenders, `text sliced by a clipping edge: ${offenders.join(' | ')}`).toEqual([]);
 }
 

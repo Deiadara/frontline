@@ -37,6 +37,24 @@ export const STARTING_RESOURCES: Resources = {
   highQualityMetal: 40,
 };
 
+/** Whether `stock` covers every line of `cost`. The affordability half of any purchase. */
+export function canAfford(stock: Resources, cost: PartialResources): boolean {
+  return RESOURCE_KEYS.every((key) => stock[key] >= (cost[key] ?? 0));
+}
+
+/**
+ * Immutable spend: `stock` with `cost` taken off it.
+ *
+ * Callers must check {@link canAfford} first — `ResourcesSchema` refuses negatives, so an
+ * unaffordable spend would be caught only on the way back out of the database, one layer too late
+ * to say anything useful to the player.
+ */
+export function spendResources(stock: Resources, cost: PartialResources): Resources {
+  return Object.fromEntries(
+    RESOURCE_KEYS.map((key) => [key, stock[key] - (cost[key] ?? 0)]),
+  ) as Resources;
+}
+
 /** Immutable add: returns `a` with `b`'s amounts applied on top. */
 export function addResources(a: Resources, b: PartialResources): Resources {
   return {

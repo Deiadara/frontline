@@ -12,6 +12,7 @@ import {
 } from './bar/index.js';
 import { BaseSchema, BaseSummarySchema } from './base.js';
 import { BattleResultSchema } from './battle/types.js';
+import { BuildingKindSchema } from './building.js';
 import { DistrictSchema } from './city.js';
 import { CommanderSchema } from './commander.js';
 import { ReputationLabelSchema } from './economy/reputation.js';
@@ -119,6 +120,28 @@ export const LevelUpSchema = z.object({
   grants: PlayerLevelGrantsSchema,
 });
 export type LevelUp = z.infer<typeof LevelUpSchema>;
+
+// --- the hideout (GDD §A1, §D3) ---
+
+/**
+ * Raise one structure by one level — construction when the plot is empty, an upgrade when it is
+ * not. One request for both, because the village has one action per plot: the level goes up and
+ * the resources come out (§D3, oil among them on every structure). The structure is named by
+ * `kind` rather than by id since a hideout holds at most one of each, and an id the client had to
+ * look up first would only be a second way to say the same thing.
+ */
+export const BuildStructureRequestSchema = z.object({
+  kind: BuildingKindSchema,
+});
+export type BuildStructureRequest = z.infer<typeof BuildStructureRequestSchema>;
+
+export const BuildStructureResponseSchema = z.object({
+  /** The whole base after the spend — the village, the stockpile and the level all moved. */
+  base: BaseSchema,
+  /** §I1 pays for building things: set when this build's XP crossed a level. */
+  levelUp: LevelUpSchema.optional(),
+});
+export type BuildStructureResponse = z.infer<typeof BuildStructureResponseSchema>;
 
 // --- battle ---
 export const BattleRequestSchema = z.object({

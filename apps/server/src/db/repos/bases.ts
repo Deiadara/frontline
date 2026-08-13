@@ -4,6 +4,7 @@ import {
   type AssigneeState,
   type Base,
   type BaseSummary,
+  type Building,
   type Commander,
   type EconomyState,
   type ProgressionState,
@@ -63,6 +64,8 @@ export interface BasesRepo {
   updateCommanders(baseId: string, commanders: Commander[]): void;
   /** The research project in flight and the facts it has produced (GDD §B9). */
   updateResearch(baseId: string, research: ResearchState): void;
+  /** The structures standing in the hideout (GDD §A1, §D3). One JSON column, rewritten whole. */
+  updateBuildings(baseId: string, buildings: Building[]): void;
 }
 
 function rowToBase(row: BaseRow): Base {
@@ -117,6 +120,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const updateAssigneesStmt = db.prepare('UPDATE bases SET assignees_json = ? WHERE id = ?');
   const updateCommandersStmt = db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?');
   const updateResearchStmt = db.prepare('UPDATE bases SET research_json = ? WHERE id = ?');
+  const updateBuildingsStmt = db.prepare('UPDATE bases SET buildings_json = ? WHERE id = ?');
 
   return {
     insert(base) {
@@ -170,6 +174,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateResearch(baseId, research) {
       updateResearchStmt.run(JSON.stringify(research), baseId);
+    },
+    updateBuildings(baseId, buildings) {
+      updateBuildingsStmt.run(JSON.stringify(buildings), baseId);
     },
   };
 }

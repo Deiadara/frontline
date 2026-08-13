@@ -147,6 +147,38 @@ export function ResourceGrid({ resources, className }: ResourceGridProps) {
   );
 }
 
+/**
+ * What a purchase costs, against what is in the vault. A line the stockpile cannot cover is drawn
+ * in the hostile ramp, so the player reads *which* material is short rather than only that the
+ * button is dead (GDD §D3 — oil is the one that usually is).
+ */
+export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resources }) {
+  const entries = RESOURCE_ORDER.filter((kind) => (cost[kind] ?? 0) > 0);
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+      {entries.map((kind) => {
+        const amount = cost[kind] ?? 0;
+        const meta = RESOURCE_META[kind];
+        const short = stock[kind] < amount;
+        return (
+          <span
+            key={kind}
+            className={cn(
+              'flex items-center gap-1.5 font-display text-xs',
+              short ? 'text-neon-magenta' : meta.color,
+            )}
+          >
+            {meta.icon}
+            <span className="font-semibold tabular-nums">{Math.round(amount)}</span>
+            <span className="text-[10px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Inline "+120 scrap · +60 caps" style reward line for partial bundles. */
 export function RewardLine({ rewards }: { rewards: PartialResources }) {
   const entries = RESOURCE_ORDER.filter(
