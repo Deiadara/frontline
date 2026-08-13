@@ -744,6 +744,63 @@ export async function encodeAsset(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Delivery audit                                                              */
+/* -------------------------------------------------------------------------- */
+
+export interface DeliveryProblem {
+  /** The file as it sits in the drop directory, `@2x` included. */
+  file: string;
+  key: AssetKey;
+  problem: string;
+}
+
+/** Drops the ART-BIBLE §6 retina marker, so `plane-city-fore@2x.webp` audits against its 1× spec. */
+function withoutRetinaMarker(file: string): string {
+  return file.replace('@2x', '');
+}
+
+/**
+ * Re-checks the ART-BIBLE §6 transparency floor against files that are **already** in `assets/`.
+ *
+ * {@link encodeAsset} applies the same floor, but only to masters it encodes itself. A delivery can
+ * also arrive by hand — a CC0 file saved straight into the drop directory, which the client globs
+ * by name (`apps/client/src/assets/source.ts`) — and that route never opens the pixels. That gap is
+ * not theoretical: `plane-city-fore` draws *in front of* the district nodes, so an opaque foreground
+ * delivered this way blankets the map — every node, base marker, label and the YOU indicator — and
+ * nothing else in the build looks at it (MOU-289).
+ *
+ * Both densities are audited: the client takes `@2x` on retina and 1× elsewhere, so an opaque master
+ * in either slot erases the map for the displays that resolve to it.
+ */
+export async function auditDeliveries(
+  dir: string = DEFAULT_ASSET_DIR,
+): Promise<readonly DeliveryProblem[]> {
+  const floors = new Map<string, { spec: AssetSpec; floor: number }>(
+    ART_MANIFEST.flatMap((spec) =>
+      spec.minTransparency === undefined
+        ? []
+        : [[spec.file, { spec, floor: spec.minTransparency }] as const],
+    ),
+  );
+
+  const problems: DeliveryProblem[] = [];
+  for (const file of (await readdir(dir).catch(() => [])).toSorted()) {
+    const governed = floors.get(withoutRetinaMarker(file));
+    if (governed === undefined) continue;
+    const transparency = transparencyOf(await decodeMaster(await readFile(path.join(dir, file))));
+    if (transparency >= governed.floor) continue;
+    problems.push({
+      file,
+      key: governed.spec.key,
+      problem:
+        `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ` +
+        `${percent(governed.floor)} — an opaque delivery hides everything behind this plane`,
+    });
+  }
+  return problems;
+}
+
+/* -------------------------------------------------------------------------- */
 /* CLI                                                                         */
 /* -------------------------------------------------------------------------- */
 

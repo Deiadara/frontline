@@ -39,7 +39,13 @@ The four are not interchangeable. They stack back to front — `plane-city-sky`,
   page showing through, not art.
 - **`plane-city-far`, `plate-city` and `plane-city-fore` must carry alpha.** They composite over the
   sky, and `plane-city-fore` draws _in front of the district nodes_ — an opaque foreground master
-  blankets the whole map, nodes included, and nothing in the build will complain.
+  blankets the whole map, nodes included.
+
+The last one is checked, not just asked for: `plane-city-far` and `plane-city-fore` declare an
+ART-BIBLE §6 transparency floor (30% and 55%), and `pnpm --filter @frontline/scripts test` audits
+whatever is sitting in this directory against it — 1× and `@2x` alike. A delivery that fails the
+floor names itself, so it cannot reach the browser through either the `encode-art` route or a file
+dropped straight in here.
 
 ## Seeing what has landed
 

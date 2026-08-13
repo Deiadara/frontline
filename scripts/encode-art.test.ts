@@ -15,6 +15,7 @@ import {
   HUMAN_MATTE_FLOOR,
   MAX_ERASED_ARTWORK,
   MAX_KEYED_ISLANDS,
+  auditDeliveries,
   centredCrop,
   decodeMaster,
   encodeAsset,
@@ -26,6 +27,7 @@ import {
   postProcessorFor,
   transparencyOf,
   unimplementedSteps,
+  type DeliveryProblem,
   type PaintedClass,
 } from './encode-art.js';
 
@@ -843,5 +845,74 @@ describe('painted vs procedural', () => {
       // The run's own delivery is counted, so the fraction moves in the same output.
       expect(captured(out)).toContain(`painted 1/${ART_MANIFEST.length}`);
     });
+  });
+});
+
+/**
+ * The drop directory is a second, unencoded way in: a CC0 file saved straight into `assets/` is
+ * globbed by name and never passes `encodeAsset`, so the §6 floor has to be re-applied to what is
+ * actually on disk. `plane-city-fore` draws in front of the district nodes, so an opaque one there
+ * erases the playfield with every other gate green (MOU-289).
+ */
+describe('delivery audit', () => {
+  const CLEAR: Rgba = [0, 0, 0, 0];
+
+  /** A plane delivery whose top `clearRows` of 40 are transparent — each row is 2.5% of the frame. */
+  const planeDelivery = async (clearRows: number): Promise<Buffer> =>
+    sharp(await master(40, 40, (_x, y) => (y < clearRows ? CLEAR : SUBJECT)))
+      .webp({ lossless: true, alphaQuality: 100 })
+      .toBuffer();
+
+  const auditWith = async (files: Record<string, Buffer>): Promise<readonly DeliveryProblem[]> => {
+    let problems: readonly DeliveryProblem[] = [];
+    await withTempDir(async (dir) => {
+      for (const [name, bytes] of Object.entries(files)) {
+        await writeFile(path.join(dir, name), bytes);
+      }
+      problems = await auditDeliveries(dir);
+    });
+    return problems;
+  };
+
+  it('rejects an opaque fore delivery — the failure that blanks the whole map', async () => {
+    const problems = await auditWith({ [FORE_PLANE.file]: await planeDelivery(0) });
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatchObject({ file: FORE_PLANE.file, key: FORE_PLANE.key });
+    expect(problems[0]?.problem).toContain('requires at least 55.0%');
+  });
+
+  it('rejects a fore delivery matted over too small a band, not just a fully opaque one', async () => {
+    // 50% transparent: a plausible hand-matte that keyed the sky and left the skyline solid.
+    const problems = await auditWith({ [FORE_PLANE.file]: await planeDelivery(20) });
+    expect(problems.map((p) => p.key)).toEqual([FORE_PLANE.key]);
+  });
+
+  it('accepts a fore delivery that meets the declared floor exactly', async () => {
+    expect(await auditWith({ [FORE_PLANE.file]: await planeDelivery(22) })).toEqual([]);
+  });
+
+  it('audits the @2x delivery too — retina resolves to it instead of the 1×', async () => {
+    const retina = FORE_PLANE.file.replace(/\.(\w+)$/, '@2x.$1');
+    const problems = await auditWith({ [retina]: await planeDelivery(0) });
+
+    expect(problems.map((p) => p.file)).toEqual([retina]);
+    expect(problems[0]?.key).toBe(FORE_PLANE.key);
+  });
+
+  it('leaves a plane the bible declares opaque alone', async () => {
+    // `plane-city-sky` is the backdrop and carries no floor; auditing it would reject correct art.
+    const sky = spec('plane-city-sky');
+    expect(sky.minTransparency).toBeUndefined();
+    expect(await auditWith({ [sky.file]: await planeDelivery(0) })).toEqual([]);
+  });
+
+  it('ignores files that match no manifest delivery', async () => {
+    expect(await auditWith({ 'README.md': Buffer.from('# not art\n') })).toEqual([]);
+  });
+
+  // The gate itself: whatever is in `assets/` right now has to satisfy its declared floor.
+  it('passes against the committed drop directory', async () => {
+    expect(await auditDeliveries()).toEqual([]);
   });
 });
