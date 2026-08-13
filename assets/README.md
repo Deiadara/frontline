@@ -36,7 +36,13 @@ The four are not interchangeable. They stack back to front — `plane-city-sky`,
 `plate-city`, the district nodes, `plane-city-fore` — over a transparent stage, so:
 
 - **`plane-city-sky` must be fully opaque.** It is the backdrop; whatever it does not cover is the
-  page showing through, not art. That reason has a shelf life — see the note below.
+  page showing through, not art. Opacity is necessary but not sufficient, and it is worth knowing
+  why: the planes are painted at frame size _inside_ the viewport, so they blanket the frame only
+  while the camera cannot shrink the world below it. At the old `ZOOM_MIN` of 0.6 it could — the
+  world sat inset with bare page down all four edges while the sky was opaque the entire time. The
+  floor is 1.0 for exactly that reason (ADR 0001 §8.1, MOU-319), and a change that lowers it again
+  puts the page back on screen no matter how opaque this key is. That reason has a shelf life —
+  see the note below.
 - **`plane-city-far` and `plane-city-fore` must carry alpha.** They composite over the sky, and
   `plane-city-fore` draws _in front of the district nodes_ — an opaque foreground master blankets
   the whole map, nodes included.

@@ -449,4 +449,14 @@ lower this floor in the same change — the invariant is `ZOOM_MIN * world >= sc
 
 **Coverage gap this exposed.** `expectCanvasFillsFrame` in `apps/client/e2e/visual.spec.ts` measures
 the DOM canvas against its parent, not what the canvas paints, and no city-map test ever touches the
-wheel — so the suite could not see this. A zoom-aware regression gate is tracked separately.
+wheel — so the suite could not see this. Closed by `apps/client/e2e/zoom.spec.ts`, which wheels to
+each stop and counts painted pixels rather than reading the constant, so it fails for any reason the
+world stops covering its frame — not only for an edit to `ZOOM_MIN`. Confirmed to fail on the defect
+rather than merely to pass on the fix: with the floor put back to 0.6 it reports 49.8% of the frame
+uncovered, and it is green at 1.0.
+
+One measurement is worth keeping here, because it defeats the obvious version of that test. The
+vignette is a screen-space `multiply` laid over the uncovered ground too, so a probe colour painted
+behind the canvas arrives crushed to ~15% — `#ff00ff` reads back as `(39, 0, 39)`. A brightness
+test ("is this pixel bright magenta?") counts zero pixels and passes straight over the defect. The
+gate matches on hue ratio instead, which survives an arbitrary darkening.
