@@ -92,9 +92,12 @@ interface BandProfile {
    * fraction of that footprint's width. It bounds every horizontal excursion at once — overhanging
    * storeys, lean, and the scrap sheds at the foot.
    *
-   * `fore` is deliberately near-zero. It is the only band with a layout contract: its two margins
-   * exist to leave the middle of the plate clickable, and a leaning foreground mass that wandered
-   * inward would be a near-black occluder over a district the player has to hit.
+   * `fore` is deliberately near-zero, but be precise about what that buys. {@link BandProfile.spans}
+   * bounds tower *centres*, not extents, so a `fore` mass already reaches into the middle of the
+   * plate by up to half its own width; near-zero `sprawl` only stops it leaning any further in.
+   * What keeps the middle readable is that `fore` is kept *low*, so its masses sit below the
+   * districts rather than over them. The one hard horizontal guarantee is on gantries, which
+   * {@link strutsBetween} refuses to string across a gap between two spans.
    */
   sprawl: number;
   /** Chance any one façade cell on a *powered* storey is lit. */
@@ -128,7 +131,7 @@ const FULL_SPAN = [[0, 1]] as const;
  * `fore` is deliberately low and edge-bound. It sits *above* the interactive plane, so anything
  * tall and wide there is not an occluder but a curtain over the districts the player must click.
  */
-const BAND_PROFILES: Record<DepthBand, BandProfile> = {
+export const BAND_PROFILES: Record<DepthBand, BandProfile> = {
   sky: {
     towers: 26,
     // Taller than every band in front of it — bands are all floor-anchored, so a distant band
@@ -413,13 +416,32 @@ function towerAt(
   };
 }
 
-/** Horizontal extent of a mass at its base, where it meets the floor. */
-function footprintOf(tower: Tower): { left: number; right: number; top: number } {
+/**
+ * Horizontal extent of a mass, in the two forms its callers need.
+ *
+ * `left`/`right` span the *whole* outline — what a gantry hangs off, since it attaches somewhere
+ * up the wall rather than at the floor. `base` spans only the ground storey, where the mass meets
+ * the floor. Storeys may overhang (see {@link STOREY_WIDTH_RATIO}), so the two genuinely differ:
+ * anything anchored to the ground-floor wall — a lean-to — must use `base` or it is planted out in
+ * open air under the overhang, with a gap between it and the mass it is supposed to be leaning on.
+ */
+function footprintOf(tower: Tower): {
+  left: number;
+  right: number;
+  top: number;
+  base: { left: number; right: number };
+} {
   const xs = tower.outline.map((point) => point.x);
+  const ys = tower.outline.map((point) => point.y);
+  // `outlineFor` emits the ground storey's two corners at exactly `baseY` and every later point
+  // strictly above it (no segment has zero height), so this is an exact match, not a tolerance.
+  const baseY = Math.max(...ys);
+  const baseXs = tower.outline.filter((point) => point.y === baseY).map((point) => point.x);
   return {
     left: Math.min(...xs),
     right: Math.max(...xs),
-    top: Math.min(...tower.outline.map((point) => point.y)),
+    top: Math.min(...ys),
+    base: { left: Math.min(...baseXs), right: Math.max(...baseXs) },
   };
 }
 
@@ -433,16 +455,19 @@ function footprintOf(tower: Tower): { left: number; right: number; top: number }
 function leanToAgainst(
   parent: Tower,
   profile: BandProfile,
-  planeWidth: number,
   baseY: number,
   rng: () => number,
 ): Tower {
-  const { left, right, top } = footprintOf(parent);
+  const { base, top } = footprintOf(parent);
   const outward = rng() < 0.5 ? -1 : 1;
-  const wallX = outward < 0 ? left : right;
+  // The *ground-floor* wall, not the widest point of the silhouette: an overhanging upper storey
+  // is not something you can pile scrap against.
+  const wallX = outward < 0 ? base.left : base.right;
   // Sized off `sprawl` for the same reason the storeys are: it is the single bound on how far a
-  // mass may spread sideways, and `fore` must not spread at all.
-  const width = planeWidth * profile.sprawl * lerp(0.7, 1, rng()) * lerp(...profile.width, 0.5);
+  // mass may spread sideways, and `fore` must not spread at all. Measured against *this* parent's
+  // footprint rather than the band's average width, so the excursion a shed adds is bounded by
+  // `sprawl` for every parent instead of only for an average-width one.
+  const width = (base.right - base.left) * profile.sprawl * lerp(0.7, 1, rng());
   const height = (baseY - top) * lerp(0.12, 0.3, rng());
 
   // Built from the same stacked-storey vocabulary as a mass, so it satisfies the silhouette
@@ -562,7 +587,7 @@ export function generateSkyline(
     // A shed carries its parent's depth, so the stable sort below leaves it painted directly on
     // top of the mass it leans against rather than behind some unrelated neighbour.
     if (rng() < LEAN_TO_CHANCE) {
-      masses.push(leanToAgainst(tower, profile, width, height, rng));
+      masses.push(leanToAgainst(tower, profile, height, rng));
     }
   }
 

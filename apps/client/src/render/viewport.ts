@@ -7,8 +7,16 @@
 import { Viewport } from 'pixi-viewport';
 import type { Application } from 'pixi.js';
 
-/** ADR §5.2 — zoom range: 0.6 (city overview) to 2.4 (district detail). */
-export const ZOOM_MIN = 0.6;
+/**
+ * ADR 0001 §5.1, amended by §8.1 — zoom range: 1.0 (whole city) to 2.4 (district detail).
+ *
+ * The floor is 1.0 rather than the original 0.6 because the world is built at frame size (see
+ * `CityMap.tsx`, which passes `worldWidth: width, worldHeight: height`), so 1.0 already shows every
+ * district. Below 1.0 the world no longer covers the screen, `clamp()` centres the shortfall, and
+ * the frame edges show bare page ground. The invariant to preserve is `ZOOM_MIN * world >= screen`
+ * — a future change that grows the world past the frame may lower this floor to match.
+ */
+export const ZOOM_MIN = 1.0;
 export const ZOOM_MAX = 2.4;
 
 export interface ViewportOptions {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ramps } from '../theme/tokens';
-import { fillForDepth, generateSkyline, mulberry32, type DepthBand, type Skyline } from './skyline';
+import {
+  BAND_PROFILES,
+  fillForDepth,
+  generateSkyline,
+  mulberry32,
+  type DepthBand,
+  type Skyline,
+} from './skyline';
 
 const BANDS: DepthBand[] = ['sky', 'far', 'mid', 'fore'];
 const RAMP_STOPS = new Set<string>(Object.values(ramps).flatMap((ramp) => Object.values(ramp)));
@@ -44,15 +51,30 @@ describe('generateSkyline', () => {
     );
   });
 
-  it.each(BANDS)('%s: keeps every tower inside the plane and standing on its floor', (band) => {
-    const skyline = generateSkyline(band, 1600, 900, 3);
-    expect(towersOf(skyline).length).toBeGreaterThan(0);
+  /**
+   * `sky` is the one band whose masses may poke out of the top of their plane: its tallest tower is
+   * `height[1]` = 0.9 of the plane, and `segmentsFor` adds a mast of up to a further 0.2 *on top of*
+   * that budget, so a silhouette can reach 1.08. Every other band's `height[1] * 1.2` is below 1, so
+   * for them the overshoot is exactly zero. That is the shape of the real invariant: `>= 0` for the
+   * three low bands, and a bounded, deliberate, plane-clipped overhang for `sky`.
+   *
+   * Asserting `>= 0` for all four (as this test used to) passes at seed 3 by luck — 21 of the 800
+   * (band, seed) pairs below 200 fail it, first at `sky` seed 10 — so it was a red waiting for
+   * someone else's unrelated fixture-seed change.
+   */
+  const MAX_OVERSHOOT = 0.08 * 900;
 
-    for (const tower of towersOf(skyline)) {
-      const ys = tower.outline.map((p) => p.y);
-      // Silhouettes are grounded: the lowest point of every tower is the plane's floor.
-      expect(Math.max(...ys)).toBeCloseTo(900, 6);
-      expect(Math.min(...ys)).toBeGreaterThanOrEqual(0);
+  it.each(BANDS)('%s: keeps every tower inside the plane and standing on its floor', (band) => {
+    for (let seed = 0; seed < 40; seed += 1) {
+      const skyline = generateSkyline(band, 1600, 900, seed);
+      expect(towersOf(skyline).length).toBeGreaterThan(0);
+
+      for (const tower of towersOf(skyline)) {
+        const ys = tower.outline.map((p) => p.y);
+        // Silhouettes are grounded: the lowest point of every tower is the plane's floor.
+        expect(Math.max(...ys)).toBeCloseTo(900, 6);
+        expect(Math.min(...ys)).toBeGreaterThanOrEqual(band === 'sky' ? -MAX_OVERSHOOT : 0);
+      }
     }
   });
 
@@ -127,6 +149,66 @@ describe('generateSkyline', () => {
     expect(wider / storeys).toBeGreaterThan(0.2);
   });
 
+  /** Ground-storey extent — the footprint the mass actually stands on. */
+  const baseOf = (tower: { outline: { x: number; y: number }[] }) => {
+    const baseY = Math.max(...tower.outline.map((p) => p.y));
+    const xs = tower.outline.filter((p) => p.y === baseY).map((p) => p.x);
+    return { left: Math.min(...xs), right: Math.max(...xs) };
+  };
+
+  // `sprawl` is documented as the single bound on every horizontal excursion — overhanging storeys,
+  // lean, and the scrap sheds at the foot — and nothing pinned it. The cap that enforces it for
+  // storeys (`Math.min(width, 2 * reach)` in `accretedOnto`, which is what keeps `reach - half`
+  // non-negative so the `dx` clamp range cannot invert) could be deleted with the whole suite green.
+  it.each(BANDS)('%s: keeps every storey within `sprawl` of the ground it stands on', (band) => {
+    const { sprawl } = BAND_PROFILES[band];
+    for (let seed = 0; seed < 40; seed += 1) {
+      for (const tower of towersOf(generateSkyline(band, 1600, 900, seed))) {
+        const base = baseOf(tower);
+        const centre = (base.left + base.right) / 2;
+        const reach = (base.right - base.left) * (0.5 + sprawl);
+        for (const point of tower.outline) {
+          expect(Math.abs(point.x - centre)).toBeLessThanOrEqual(reach + 1e-9);
+        }
+      }
+    }
+  });
+
+  // The other half of the same contract, and the half that was broken. A shed is emitted with its
+  // parent's exact `depth`, so a depth shared by two masses is a parent/shed pair; the shed is the
+  // narrower of the two, since its width is a `sprawl` fraction of its parent's.
+  //
+  // Two things go wrong if the shed is anchored to the *whole* outline rather than the ground
+  // storey: it is planted up to the overhang's width away from the wall it is supposed to lean on,
+  // and that displacement stacks on top of its own width, taking the pair's excursion past `sprawl`.
+  it.each(BANDS)('%s: leans each scrap shed on its parent, within `sprawl`', (band) => {
+    const { sprawl } = BAND_PROFILES[band];
+    let pairs = 0;
+    for (let seed = 0; seed < 40; seed += 1) {
+      const byDepth = new Map<number, ReturnType<typeof towersOf>>();
+      for (const tower of towersOf(generateSkyline(band, 1600, 900, seed))) {
+        byDepth.set(tower.depth, [...(byDepth.get(tower.depth) ?? []), tower]);
+      }
+      for (const group of byDepth.values()) {
+        if (group.length !== 2) continue;
+        pairs += 1;
+        const [parent, shed] = [...group].sort(
+          (a, b) => baseOf(b).right - baseOf(b).left - (baseOf(a).right - baseOf(a).left),
+        ) as [(typeof group)[number], (typeof group)[number]];
+        const wall = baseOf(parent);
+        const foot = baseOf(shed);
+        // Flush against one ground-floor wall — no gap of open air between shed and mass. Exact by
+        // construction up to the rounding in `centre ± width / 2`, hence the epsilon.
+        expect(
+          Math.min(Math.abs(foot.left - wall.right), Math.abs(foot.right - wall.left)),
+        ).toBeLessThan(1e-6);
+        const excursion = Math.max(wall.left - foot.left, foot.right - wall.right);
+        expect(excursion).toBeLessThanOrEqual((wall.right - wall.left) * sprawl + 1e-9);
+      }
+    }
+    expect(pairs).toBeGreaterThan(0);
+  });
+
   it.each(BANDS)('%s: only uses whole ART-BIBLE ramp stops as fills', (band) => {
     for (const tower of towersOf(generateSkyline(band, 1600, 900, 4))) {
       expect(RAMP_STOPS.has(tower.fill)).toBe(true);
@@ -134,11 +216,15 @@ describe('generateSkyline', () => {
   });
 
   it.each(BANDS)('%s: keeps lit windows within the plane', (band) => {
-    for (const tower of towersOf(generateSkyline(band, 1600, 900, 6))) {
-      for (const cell of tower.windows) {
-        expect(cell.y).toBeGreaterThanOrEqual(0);
-        expect(cell.y + cell.h).toBeLessThanOrEqual(900);
-        expect(cell.w).toBeGreaterThan(0);
+    for (let seed = 0; seed < 40; seed += 1) {
+      for (const tower of towersOf(generateSkyline(band, 1600, 900, seed))) {
+        for (const cell of tower.windows) {
+          // A `sky` mast is wide enough to carry a single column of windows, so a lit cell rides
+          // the same bounded overhang the silhouette does. See MAX_OVERSHOOT.
+          expect(cell.y).toBeGreaterThanOrEqual(band === 'sky' ? -MAX_OVERSHOOT : 0);
+          expect(cell.y + cell.h).toBeLessThanOrEqual(900);
+          expect(cell.w).toBeGreaterThan(0);
+        }
       }
     }
   });

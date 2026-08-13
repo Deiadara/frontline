@@ -4,6 +4,7 @@
 - **Date:** 2026-08-12
 - **Deciders:** CTO (author), CEO (backend-cost decision is a board gate)
 - **Supersedes:** nothing
+- **Amended:** 2026-08-13 — §8.1 raises the zoom floor from 0.6 to 1.0
 - **Related:** [`docs/ART-BIBLE.md`](../ART-BIBLE.md), [`docs/ART-PROMPTS.md`](../ART-PROMPTS.md), MOU-114
 
 ---
@@ -180,7 +181,7 @@ packages/shared/src/art/
   manifest.ts     ArtManifest + AssetKey Zod schemas — single source of asset-key truth
   atlas.ts        bundle definitions (splash / city / base / ui) for lazy loading
 apps/client/src/render/
-  viewport.ts     pixi-viewport factory: clamp to map bounds, zoom 0.6–2.4, decelerate
+  viewport.ts     pixi-viewport factory: clamp to map bounds, zoom 1.0–2.4 (§8.1), decelerate
   grade.ts        the post FX chain, built once, applied to the scene root
   layers.ts       parallax plane registry (§5.2)
   paint/          procedural painterly generators — the interim look (§5.3)
@@ -406,3 +407,46 @@ drops into the same asset tree with zero code change.
 - [OpenAI — gpt-image-1 model page (per-image pricing)](https://developers.openai.com/api/docs/models/gpt-image-1)
 - [fal.ai — FLUX.2 [pro] text-to-image (pricing, commercial use)](https://fal.ai/models/fal-ai/flux-2-pro)
 - [Stability AI — Community License](https://stability.ai/news-updates/license-update) _(secondary reading only; primary pricing page not retrievable)_
+
+---
+
+## 8. Amendments
+
+### 8.1 Zoom floor raised from 0.6 to 1.0 (2026-08-13, MOU-319)
+
+**§5.1's `zoom 0.6–2.4` is amended to `zoom 1.0–2.4`.** `ZOOM_MIN` in
+`apps/client/src/render/viewport.ts` is now `1.0`.
+
+The original 0.6 assumed a world larger than the frame, which is not what was built. `CityMap.tsx`
+creates the viewport with `worldWidth: width, worldHeight: height`, and `resizeViewport` keeps world
+and screen equal on every resize — so the world **is** the frame, and every district is already
+visible at 1.0. Scale below 1.0 shrinks that same view without revealing anything, and because
+`clamp({ direction: 'all' })` centres a world that no longer covers the screen, the shortfall is
+painted as bare page ground around the map.
+
+Measured at the old floor (MOU-310, 1280×720, map frame 783×621):
+
+- Scale bottomed out at **0.601**; the world sat at x[156.6..626.4] y[124.2..496.8], leaving
+  **64% of the frame area outside the world rect** — a 156.6px band left and right, 124.2px top and
+  bottom.
+- Reached in **three wheel notches** from the default, so it was not a corner case.
+- **Panning was dead** at the floor: a 400×300px drag left the scene byte-identical.
+- Three sides showed the page's `bg-night` through the vignette (structureless, identical corners);
+  the left band was spilled into ~130px by the `sky` (0.15) and `far` (0.35) parallax planes, so the
+  dead area was ragged and asymmetric rather than a deliberate-looking inset.
+
+It also contradicted `assets/README.md`, which justifies `plane-city-sky` being opaque on the
+grounds that anything it does not cover is page, not art.
+
+**Rejected alternatives.** Growing the world past the frame (e.g. `worldWidth: width / ZOOM_MIN`)
+would make 0.6 mean something, but districts are placed as a fraction of the frame and the parallax
+scroll factors in §5.2 are tuned against it — that is a gameplay/level-design change, not a camera
+fix, and it moves every district. `underflow: 'none'` and friends only relocate the dead band.
+
+**Consequence.** Panning is live only above 1.0, which is correct for a fit-to-frame map: 1.0 is the
+overview, and drag exists to explore a magnified view. If the world is ever grown past the frame,
+lower this floor in the same change — the invariant is `ZOOM_MIN * world >= screen`.
+
+**Coverage gap this exposed.** `expectCanvasFillsFrame` in `apps/client/e2e/visual.spec.ts` measures
+the DOM canvas against its parent, not what the canvas paints, and no city-map test ever touches the
+wheel — so the suite could not see this. A zoom-aware regression gate is tracked separately.
