@@ -145,6 +145,18 @@ describe('deriveReputation', () => {
     );
   });
 
+  it('earns Respected on the RESPECTED_WINS-th win, not on the one after it', () => {
+    // Same rule as the seat raids: the count a constant names is the count that has to be enough.
+    let tally = startingTally(NOW.toISOString());
+    let at = NOW;
+    for (let i = 0; i < RESPECTED_WINS; i++) {
+      at = new Date(at.getTime() + 60_000);
+      tally = recordRaidOutcome(tally, { winner: 'attacker', target: STREET_TARGET }, at);
+    }
+
+    expect(deriveReputation({ infamy: 0, tally }, at)).toBe('Respected');
+  });
+
   it('calls a crew that loses more than it wins Reckless', () => {
     expect(deriveReputation({ infamy: 0, tally: tallyOf(1, RECKLESS_LOSSES) }, NOW)).toBe(
       'Reckless',
@@ -185,6 +197,38 @@ describe('where the crew stands on the Combine (§A3, §D8)', () => {
       ),
     ).toBe('Revolutionary');
   });
+
+  /*
+   * Every tally above is hand-built at `updatedAt = NOW`, which is the one instant the counters
+   * hold whole numbers. Real play arrives through `recordRaidOutcome`, which decays *before* it
+   * increments, so a raid taken later is worth slightly under 1 — and a `>= N` threshold quietly
+   * costs N+1 raids. Driving the label through the writer with time between the raids is what
+   * catches that; taking both seats on the map has to be enough, at any spacing.
+   */
+  const driveSeatRaids = (raids: number, gapMs: number) => {
+    let tally = startingTally(NOW.toISOString());
+    let at = NOW;
+    for (let i = 0; i < raids; i++) {
+      at = new Date(at.getTime() + gapMs);
+      tally = recordRaidOutcome(tally, { winner: 'attacker', target: COMBINE_SEAT }, at);
+    }
+    return { tally, at };
+  };
+
+  it.each([1_000, 60_000, 24 * 60 * 60 * 1000])(
+    'calls a crew Revolutionary on the last seat raid, %i ms apart',
+    (gapMs) => {
+      const oneShort = driveSeatRaids(REVOLUTIONARY_SEATS - 1, gapMs);
+      expect(deriveReputation({ infamy: 0, tally: oneShort.tally }, oneShort.at)).not.toBe(
+        'Revolutionary',
+      );
+
+      const bothSeats = driveSeatRaids(REVOLUTIONARY_SEATS, gapMs);
+      expect(deriveReputation({ infamy: 0, tally: bothSeats.tally }, bothSeats.at)).toBe(
+        'Revolutionary',
+      );
+    },
+  );
 
   it('reads one seat as anti-government action, not yet as a revolution', () => {
     // Seats are a subset of sites, so this crew is short of both thresholds.

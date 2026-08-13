@@ -148,6 +148,20 @@ export const REVOLUTIONARY_SEATS = 2;
 /** Jobs run for the Combine before the street calls it collaboration. */
 export const COLLABORATOR_CONTRACTS = 4;
 
+/**
+ * Whether a decayed counter still carries `actions` worth of the thing it counts.
+ *
+ * The drift is applied *before* every increment, so the Nth action leaves its counter somewhere in
+ * `(N - 1, N]` — never exactly `N` unless two actions land in the same millisecond. A `>= N` test
+ * therefore silently asks for `N + 1` actions, which is why the threshold is `> N - 1`: true the
+ * moment the Nth action lands at any spacing, false after `N - 1`, and still false again once the
+ * counter has drifted back down (§D8). Every threshold below reads through this, so a constant
+ * documented as "N of these" means N.
+ */
+export function tallyReaches(counter: number, actions: number): boolean {
+  return counter > actions - 1;
+}
+
 export function startingTally(now: string): ReputationTally {
   return {
     updatedAt: now,
@@ -254,15 +268,23 @@ export function deriveReputation({ infamy, tally }: ReputationInputs, now: Date)
     decayTally(tally, now);
 
   const againstTheState = governmentSitesTaken > governmentContracts;
-  if (againstTheState && governmentSeatsTaken >= REVOLUTIONARY_SEATS) return 'Revolutionary';
-  if (againstTheState && governmentSitesTaken >= ANTI_SYSTEMIC_ACTIONS) return 'Anti-systemic';
-  if (governmentContracts >= COLLABORATOR_CONTRACTS && governmentContracts > governmentSitesTaken) {
+  if (againstTheState && tallyReaches(governmentSeatsTaken, REVOLUTIONARY_SEATS)) {
+    return 'Revolutionary';
+  }
+  if (againstTheState && tallyReaches(governmentSitesTaken, ANTI_SYSTEMIC_ACTIONS)) {
+    return 'Anti-systemic';
+  }
+  if (
+    tallyReaches(governmentContracts, COLLABORATOR_CONTRACTS) &&
+    governmentContracts > governmentSitesTaken
+  ) {
     return 'Collaborator';
   }
 
+  // Infamy is a meter, not a decayed tally counter, so it is read directly.
   if (infamy >= FEARED_INFAMY) return 'Feared';
-  if (raidsLost >= RECKLESS_LOSSES && raidsLost > raidsWon) return 'Reckless';
-  if (raidsWon >= RESPECTED_WINS) return 'Respected';
+  if (tallyReaches(raidsLost, RECKLESS_LOSSES) && raidsLost > raidsWon) return 'Reckless';
+  if (tallyReaches(raidsWon, RESPECTED_WINS)) return 'Respected';
   return 'Cautious';
 }
 
