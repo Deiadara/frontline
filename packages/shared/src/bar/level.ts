@@ -138,10 +138,17 @@ export function spendCharacterPoint(
  *
  * This function is the whole of that reading, so a board correction is a one-line change here.
  *
- * TODO-LATER — it has no live caller yet, and deliberately no stub one. Missions (W3/MOU-162)
- * carry no crew and the assignee pool (W4/MOU-163) is not built, so there is currently no
- * "assigned to" relation in the codebase to award against. Whichever of the two lands the
- * assignment wires this in, exactly as INTERFACES R7 wired the player-XP award.
+ * Both halves of the reading are live, and both pay through `awardCharacterXp` — the mirror of the
+ * player-XP award INTERFACES R7 describes:
+ *
+ *   * **Missions** (§E) — the officer on `Mission.officerId` is paid for the run's total minutes.
+ *   * **Internal processes** (§G6) — a research investigation names a `leadOfficerId` and runs on a
+ *     clock, so its lead is paid for the project's duration.
+ *
+ * Nothing else in the game assigns a *named character* to a timed job. Assignees deliberately do
+ * not pay: §G1 makes them a fungible pool with no individual identity, so there is no one to
+ * credit. A training project does not pay either — it develops the Overseer, who carries no
+ * character level of their own.
  */
 export function characterXpForActivity(minutesEngaged: number): number {
   return Math.max(0, Math.trunc(minutesEngaged));

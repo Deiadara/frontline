@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import {
   BattleRequestSchema,
-  INFAMY_PER_RAID_WON,
+  DEFAULT_ATTRIBUTES,
   addResources,
   adjustMeter,
   findDistrict,
+  infamyForRaidWon,
   isDistrictAttackable,
   raidTargetOf,
   recordRaidOutcome,
@@ -21,10 +22,10 @@ import { AppError, parseBody } from '../errors.js';
 import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
 
 /**
- * Taking a site by force is the one *infamous* action the game can currently perform (GDD §D7),
- * so it is the only live driver of the infamy meter and the reputation tally (§D8). Losing still
- * goes on the books — a crew that keeps throwing people at doors that do not open earns the
- * `Reckless` label for it.
+ * Taking a site by force is the loudest *infamous* action in the game (GDD §D7) — anti-government
+ * missions move the meter too, but by less (`MISSION_INFAMY_DELTA`). Losing still goes on the
+ * books: a crew that keeps throwing people at doors that do not open earns the `Reckless` label
+ * for it.
  *
  * The district comes in whole rather than just its winner, because §A3 makes *whose* ground it was
  * part of the record: a site taken off the Combine is anti-government action, and one of its two
@@ -37,15 +38,20 @@ function recordRaid(
   winner: 'attacker' | 'defender',
   now: Date,
 ): EconomyState {
+  const target = raidTargetOf(district);
   return {
     ...economy,
     infamy:
-      winner === 'attacker' ? adjustMeter(economy.infamy, INFAMY_PER_RAID_WON) : economy.infamy,
-    reputationTally: recordRaidOutcome(
-      economy.reputationTally,
-      { winner, target: raidTargetOf(district) },
-      now,
-    ),
+      winner === 'attacker'
+        ? adjustMeter(
+            economy.infamy,
+            infamyForRaidWon({
+              fromTheState: target.faction === 'government',
+              seatOfPower: target.isSeatOfPower,
+            }),
+          )
+        : economy.infamy,
+    reputationTally: recordRaidOutcome(economy.reputationTally, { winner, target }, now),
   };
 }
 
@@ -75,10 +81,22 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       throw new AppError('INVALID_TARGET', 'That district cannot be attacked');
     }
 
+    // The raid is led with the player's own sheet (§F1), so the Overseer is read here and the
+    // engine weighs it against the district. A base cannot exist without one, but a read path
+    // must not 500 on a broken row: the recruitment mean stands in, which is a weak crew, not a
+    // free win.
+    const overseer = request.currentUser.overseerId
+      ? app.repos.overseers.findById(request.currentUser.overseerId)
+      : undefined;
+
+    // Minted here and persisted below, so the fight replays from its row rather than from a clock.
+    const seed = randomUUID();
     const result = app.battleEngine.simulate({
       attackerBaseId: base.id,
       attackerBaseName: base.name,
       targetDistrictId: district.id,
+      attackerAttributes: overseer?.attributes ?? DEFAULT_ATTRIBUTES,
+      seed,
     });
 
     // The award stays *inside* the transaction and is lifted out with the resources: a raid that
@@ -95,6 +113,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           winner: result.winner,
           log: result.log,
           rewards: result.rewards,
+          seed,
           createdAt: now.toISOString(),
         });
         app.repos.bases.updateEconomy(

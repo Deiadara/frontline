@@ -5,6 +5,7 @@ import {
   OFFICER_ROLE_LABELS,
   OFFICER_ROLES,
   TRAIT_CATALOG,
+  isFlaw,
   reservationWage,
   type AlignmentBand,
   type BarOfficer,
@@ -32,11 +33,23 @@ const BLOCKER_LABEL: Record<JoinBlocker, string> = {
   reputation: 'Wants no part of you',
 };
 
-function Tag({ label, className }: { label: string; className?: string }) {
+/**
+ * `className` carries the *whole* colour, border included, and replaces the neutral default rather
+ * than layering over it.
+ *
+ * `cn` is `clsx`: it concatenates classes and does not resolve Tailwind conflicts, so a base
+ * `text-steel-400` and a caller's `text-neon-magenta` both land on the element and the generated
+ * stylesheet's order silently picks the winner — which was the base. Every coloured tag on this
+ * page was rendering steel because of it. Keeping the base to layout only makes the override the
+ * only colour in play, so what a caller asks for is what renders.
+ */
+const TAG_NEUTRAL = 'border-steel-700 text-steel-400';
+
+function Tag({ label, className = TAG_NEUTRAL }: { label: string; className?: string }) {
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center border border-steel-700 px-2 py-1 font-display text-[9px] uppercase tracking-[0.18em] text-steel-400',
+        'inline-flex shrink-0 items-center border px-2 py-1 font-display text-[9px] uppercase tracking-[0.18em]',
         className,
       )}
     >
@@ -136,8 +149,17 @@ function RecruitCard({
 
       {recruit.traits.length > 0 && (
         <div className="flex min-w-0 flex-wrap gap-1.5">
+          {/* §B7 — a flaw is a reason *not* to hire, so it must not read as another credential. */}
           {recruit.traits.map((trait) => (
-            <Tag key={trait} label={TRAIT_CATALOG[trait].name} className="border-steel-600" />
+            <Tag
+              key={trait}
+              label={TRAIT_CATALOG[trait].name}
+              className={
+                isFlaw(trait)
+                  ? 'border-neon-magenta/60 text-neon-magenta'
+                  : 'border-steel-600 text-steel-400'
+              }
+            />
           ))}
         </div>
       )}

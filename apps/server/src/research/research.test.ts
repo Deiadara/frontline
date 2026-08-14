@@ -1,5 +1,6 @@
 import {
   CROSS_REFERENCE_IMAGINATION,
+  characterXpForActivity,
   EXTRA_FACT_COMMUNICATION,
   MAX_ATTRIBUTE,
   MAX_PAIRINGS,
@@ -92,13 +93,20 @@ function makeBase(overrides: Partial<Base> = {}): Base {
 /** A repository double: research writes through four calls and the tests assert on what landed. */
 function fakeRepos(): {
   repos: Parameters<typeof settleResearch>[0];
-  written: { research?: ResearchState; caps?: number; morale?: number; attributes?: unknown };
+  written: {
+    research?: ResearchState;
+    caps?: number;
+    morale?: number;
+    attributes?: unknown;
+    commanders?: Commander[];
+  };
 } {
   const written: {
     research?: ResearchState;
     caps?: number;
     morale?: number;
     attributes?: unknown;
+    commanders?: Commander[];
   } = {};
   const repos = {
     bases: {
@@ -110,6 +118,11 @@ function fakeRepos(): {
       },
       updateEconomy: (_id: string, economy: { morale: number }) => {
         written.morale = economy.morale;
+      },
+      // §G6/§H6 — settling an investigation pays its lead officer, so the double has to accept
+      // the write. Captured rather than ignored: the character-XP tests below read it back.
+      updateCommanders: (_id: string, commanders: Commander[]) => {
+        written.commanders = commanders;
       },
     },
     overseers: {
@@ -654,4 +667,95 @@ describe('GET /research and POST /research', () => {
   function userIdOf(app: FastifyInstance, token: string): string {
     return app.jwt.decode<{ sub: string }>(token)!.sub;
   }
+});
+
+/**
+ * INTERFACES §2 R2 / §G6 — the "internal processes" half of where character XP comes from.
+ *
+ * An investigation names a lead officer and runs on a clock, which is the whole of the reading.
+ * A training project has neither: it develops the *Overseer*, who is not a `Commander` and carries
+ * no level of their own.
+ */
+describe('character XP from an internal process (§G6, §H6)', () => {
+  const lead = professor('prof-1', 10, 10);
+  const overseer = makeOverseer();
+  const investigate: ResearchProject = {
+    kind: 'investigation',
+    role: 'head_spy',
+    leadOfficerId: lead.id,
+    crossReference: false,
+  };
+
+  it('pays the lead officer for the minutes the project kept them on it', () => {
+    const { repos, written } = fakeRepos();
+    const base = makeBase({ commanders: [lead] });
+    const started = startResearch(repos, {
+      base,
+      overseer,
+      project: investigate,
+      id: 'r-1',
+      now: NOW,
+    });
+    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
+
+    const settled = settleResearch(
+      repos,
+      started.base,
+      overseer,
+      new Date(NOW.getTime() + RESEARCH_MINUTES.investigation * MINUTE_MS),
+    );
+
+    const paid = settled.base.commanders.find((c) => c.id === lead.id);
+    expect(paid?.xpIntoLevel).toBe(characterXpForActivity(RESEARCH_MINUTES.investigation));
+    // And it was persisted, not just applied to the copy handed back.
+    expect(written.commanders?.find((c) => c.id === lead.id)?.xpIntoLevel).toBe(paid?.xpIntoLevel);
+  });
+
+  it('pays nobody for a training project — the Overseer is not a character on the books', () => {
+    const { repos, written } = fakeRepos();
+    const trainable = makeOverseer();
+    const base = makeBase({ commanders: [lead] });
+    const training: ResearchProject = { kind: 'training', attribute: 'imagination' };
+    const started = startResearch(repos, {
+      base,
+      overseer: trainable,
+      project: training,
+      id: 'r-2',
+      now: NOW,
+    });
+    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
+
+    const settled = settleResearch(
+      repos,
+      started.base,
+      trainable,
+      new Date(NOW.getTime() + RESEARCH_MINUTES.training * MINUTE_MS),
+    );
+
+    expect(settled.base.commanders.find((c) => c.id === lead.id)?.xpIntoLevel).toBe(0);
+    expect(written.commanders).toBeUndefined();
+  });
+
+  it('settles normally when the lead was fired before the result landed', () => {
+    const { repos } = fakeRepos();
+    const base = makeBase({ commanders: [lead] });
+    const started = startResearch(repos, {
+      base,
+      overseer,
+      project: investigate,
+      id: 'r-3',
+      now: NOW,
+    });
+    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
+
+    const settled = settleResearch(
+      repos,
+      { ...started.base, commanders: [] },
+      overseer,
+      new Date(NOW.getTime() + RESEARCH_MINUTES.investigation * MINUTE_MS),
+    );
+
+    expect(settled.discovered.length).toBeGreaterThan(0);
+    expect(settled.base.commanders).toEqual([]);
+  });
 });

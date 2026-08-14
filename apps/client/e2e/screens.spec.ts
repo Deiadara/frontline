@@ -82,8 +82,8 @@ test('assignee placement renders at the §G7 ceiling without clipping', async ({
   await page.goto('/game/assignees');
 
   await expect(page.getByRole('heading', { name: 'ASSIGNEES' })).toBeVisible();
-  // §G7's twelfth row and its `at cap` state, and a decimal bonus rendered without a stray `.0`.
-  await expect(page.getByText('50%', { exact: true })).toBeVisible();
+  // §G7's last row and its `at cap` state, and a decimal bonus rendered without a stray `.0`.
+  await expect(page.getByText('75%', { exact: true })).toBeVisible();
   await expect(page.getByText('at cap')).toBeVisible();
   await expect(page.getByText('14.5%', { exact: true })).toBeVisible();
   // §C4 — a Professor is on the books, so reskilling is offered rather than explained away.

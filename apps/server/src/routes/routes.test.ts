@@ -1,11 +1,18 @@
 import {
   CITY_DISTRICTS,
-  RandomBattleEngine,
+  AttritionBattleEngine,
+  DEFAULT_ATTRIBUTES,
+  INFAMY_PER_GOVERNMENT_SEAT,
+  INFAMY_PER_GOVERNMENT_SITE,
+  INFAMY_PER_RAID_WON,
+  STARTING_INFAMY,
   STARTING_RESOURCES,
   addResources,
   findDistrict,
   isSeatOfGovernmentPower,
+  type Attributes,
   type BattleEngine,
+  type BattleInput,
   type EconomyState,
   type ReputationTally,
 } from '@frontline/shared';
@@ -416,7 +423,7 @@ describe('POST /api/battle', () => {
   });
 
   it('persists a battle row and pays rewards on a forced attacker win', async () => {
-    const { app, db } = await makeApp(new RandomBattleEngine(() => 0)); // 0 < 0.5 -> attacker wins
+    const { app, db } = await makeApp(new AttritionBattleEngine(() => 0)); // below MIN_WIN_CHANCE -> attacker wins
     const { token } = await register(app, 'commander');
     await chooseOverseer(app, token);
 
@@ -435,9 +442,16 @@ describe('POST /api/battle', () => {
     expect(body.result.rewards).toEqual(raid.rewards);
     expect(body.resources).toEqual(addResources(STARTING_RESOURCES, raid.rewards));
 
-    const rows = db.prepare('SELECT winner FROM battles').all() as { winner: string }[];
+    const rows = db.prepare('SELECT winner, seed FROM battles').all() as {
+      winner: string;
+      seed: string | null;
+    }[];
     expect(rows).toHaveLength(1);
     expect(rows[0]?.winner).toBe('attacker');
+    // Without the seed on the row the fight is not replayable, which is the whole reason the
+    // engine stopped rolling against `Math.random()`.
+    expect(rows[0]?.seed).toEqual(expect.any(String));
+    expect(rows[0]?.seed).not.toBe('');
 
     // rewards were persisted to the base too
     const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
@@ -446,8 +460,42 @@ describe('POST /api/battle', () => {
     );
   });
 
+  /**
+   * The engine weighs the attacker's sheet, but only if the route actually hands it over — a route
+   * that always passed the recruitment mean would leave every other test here green while quietly
+   * making the player's Overseer irrelevant. So this reads what the engine was *given*.
+   */
+  it('leads the raid with the player’s own Overseer sheet, not a default one', async () => {
+    const seen: BattleInput[] = [];
+    const spy: BattleEngine = {
+      simulate: (input) => {
+        seen.push(input);
+        return { winner: 'defender', log: ['spied'], rewards: {} };
+      },
+    };
+    const { app } = await makeApp(spy);
+    const { token } = await register(app, 'commander');
+    await chooseOverseer(app, token, 'netrunner');
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/battle',
+      headers: auth(token),
+      payload: { targetDistrictId: raid.id },
+    });
+
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    const mine = me.json<{ overseer: { attributes: Attributes } }>().overseer.attributes;
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.attackerAttributes).toEqual(mine);
+    // The netrunner is not an average recruit, so the fallback cannot masquerade as a pass.
+    expect(mine).not.toEqual(DEFAULT_ATTRIBUTES);
+    expect(seen[0]?.seed).toEqual(expect.any(String));
+  });
+
   it('leaves resources unchanged and records the loss on a forced defender win', async () => {
-    const { app, db } = await makeApp(new RandomBattleEngine(() => 0.99)); // defender wins
+    const { app, db } = await makeApp(new AttritionBattleEngine(() => 0.99)); // defender wins
     const { token } = await register(app, 'commander');
     await chooseOverseer(app, token);
 
@@ -468,14 +516,12 @@ describe('POST /api/battle', () => {
   });
 
   describe('taking a site off the Combine (§A3, §D8)', () => {
-    /** The §D8 tally as the HUD is served it. */
-    async function tallyOf(app: FastifyInstance, token: string): Promise<ReputationTally> {
-      const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
-      return me.json<{ base: { economy: EconomyState } }>().base.economy.reputationTally;
-    }
-
-    async function raidAndRead(districtId: string, random: () => number): Promise<ReputationTally> {
-      const { app } = await makeApp(new RandomBattleEngine(random));
+    /** The §D8 economy — meters and tally together — as the HUD is served it. */
+    async function economyAfterRaid(
+      districtId: string,
+      random: () => number,
+    ): Promise<EconomyState> {
+      const { app } = await makeApp(new AttritionBattleEngine(random));
       const { token } = await register(app, 'commander');
       await chooseOverseer(app, token);
 
@@ -486,8 +532,39 @@ describe('POST /api/battle', () => {
         payload: { targetDistrictId: districtId },
       });
       expect(res.statusCode).toBe(200);
-      return tallyOf(app, token);
+      const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+      return me.json<{ base: { economy: EconomyState } }>().base.economy;
     }
+
+    async function raidAndRead(districtId: string, random: () => number): Promise<ReputationTally> {
+      return (await economyAfterRaid(districtId, random)).reputationTally;
+    }
+
+    /**
+     * §D7/§A3 — the meter, not the tally. Read through the API so a raid that books the stance
+     * counter but forgets the meter (they are set in the same function and are easy to divorce)
+     * cannot pass on the counter alone.
+     */
+    it('pays more infamy for Combine ground, and most for a seat of its power', async () => {
+      const seat = findDistrict('combine-spire');
+      const outpost = findDistrict('undergrid');
+      if (!seat || !outpost) throw new Error('fixture error: a Combine district is missing');
+
+      const street = (await economyAfterRaid(raid.id, () => 0)).infamy;
+      const held = (await economyAfterRaid(outpost.id, () => 0)).infamy;
+      const power = (await economyAfterRaid(seat.id, () => 0)).infamy;
+
+      expect(street).toBe(STARTING_INFAMY + INFAMY_PER_RAID_WON);
+      expect(held).toBe(street + INFAMY_PER_GOVERNMENT_SITE);
+      expect(power).toBe(held + INFAMY_PER_GOVERNMENT_SEAT);
+    });
+
+    it('pays no infamy for a raid that failed, whoever held the ground', async () => {
+      const seat = findDistrict('combine-spire');
+      if (!seat) throw new Error('fixture error: combine-spire district missing');
+
+      expect((await economyAfterRaid(seat.id, () => 0.99)).infamy).toBe(STARTING_INFAMY);
+    });
 
     it('books a won raid on a Combine stronghold as a seat of power taken', async () => {
       const seat = findDistrict('combine-spire');

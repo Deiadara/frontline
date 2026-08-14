@@ -1,4 +1,6 @@
 import {
+  METER_MIN,
+  MORALE_PER_UNPAID_WAGE_WEEK,
   PAY_WEEK_MS,
   STARTING_RESOURCES,
   createCommander,
@@ -159,5 +161,100 @@ describe('settleBaseEconomy', () => {
 
     expect(settled.resources.caps).toBe(STARTING_RESOURCES.caps);
     expect(settled.resources.food).toBe(STARTING_RESOURCES.food - foodUpkeepFor(4));
+  });
+
+  it('leaves morale alone on a payroll the stockpile covered', () => {
+    const repos = openStack();
+    const base = seedBase(repos, 2, 100);
+
+    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
+
+    expect(settled.economy.morale).toBe(base.economy.morale);
+    expect(repos.bases.findById(base.id)?.economy.morale).toBe(base.economy.morale);
+  });
+
+  /**
+   * §D4 — the consequence that makes payroll more than bookkeeping. Asserted through the *persisted*
+   * base, because a penalty computed and then dropped on the way to the database is exactly the
+   * shape of the bug this replaced.
+   */
+  it('costs morale when the crew cannot be paid, and persists the loss', () => {
+    const repos = openStack();
+    const base = seedBase(repos, 3, 100_000);
+
+    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
+
+    expect(settled.resources.caps).toBe(0);
+    expect(settled.economy.morale).toBe(base.economy.morale + MORALE_PER_UNPAID_WAGE_WEEK);
+    expect(repos.bases.findById(base.id)?.economy.morale).toBe(settled.economy.morale);
+  });
+
+  it('charges a week of morale for every week the crew went unpaid', () => {
+    const repos = openStack();
+    const base = seedBase(repos, 3, 100_000);
+    const fourWeeksOn = new Date(NEXT_MONDAY.getTime() + 3 * PAY_WEEK_MS);
+
+    const settled = settleBaseEconomy(repos, base, fourWeeksOn);
+
+    expect(settled.economy.morale).toBe(base.economy.morale + 4 * MORALE_PER_UNPAID_WAGE_WEEK);
+  });
+
+  /**
+   * §D8a — the street's record of whether the wage book was met. Read back off the *persisted*
+   * base for the same reason the morale assertions are: a tally computed and then dropped on the
+   * way to the database looks identical from inside the settle.
+   */
+  it('books a met payday on the reputation tally', () => {
+    const repos = openStack();
+    const base = seedBase(repos, 2, 100);
+
+    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
+
+    expect(settled.economy.reputationTally.paydaysHonoured).toBe(1);
+    expect(settled.economy.reputationTally.paydaysMissed).toBe(0);
+    expect(repos.bases.findById(base.id)?.economy.reputationTally.paydaysHonoured).toBe(1);
+  });
+
+  it('books a missed payday when the crew could not be paid', () => {
+    const repos = openStack();
+    const base = seedBase(repos, 3, 100_000);
+
+    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
+
+    expect(settled.economy.reputationTally.paydaysMissed).toBe(1);
+    expect(settled.economy.reputationTally.paydaysHonoured).toBe(0);
+  });
+
+  it('leaves both payday counters alone when there is no wage book to honour', () => {
+    const repos = openStack();
+    const base = seedBase(repos, 0, 0);
+
+    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
+
+    expect(settled.economy.reputationTally.paydaysHonoured).toBe(0);
+    expect(settled.economy.reputationTally.paydaysMissed).toBe(0);
+  });
+
+  it('splits a mixed absence across both counters', () => {
+    // Wages for four weeks, a stockpile that covers one: one payday met, three missed.
+    const repos = openStack();
+    const base = seedBase(repos, 1, STARTING_RESOURCES.caps);
+    const fourWeeksOn = new Date(NEXT_MONDAY.getTime() + 3 * PAY_WEEK_MS);
+
+    const settled = settleBaseEconomy(repos, base, fourWeeksOn);
+    const { paydaysHonoured, paydaysMissed } = settled.economy.reputationTally;
+
+    expect(paydaysHonoured + paydaysMissed).toBe(4);
+    expect(paydaysMissed).toBe(3);
+  });
+
+  it('never drives morale below the meter floor', () => {
+    const repos = openStack();
+    const base = seedBase(repos, 3, 100_000);
+    const aYearOn = new Date(NEXT_MONDAY.getTime() + 52 * PAY_WEEK_MS);
+
+    const settled = settleBaseEconomy(repos, base, aYearOn);
+
+    expect(settled.economy.morale).toBe(METER_MIN);
   });
 });

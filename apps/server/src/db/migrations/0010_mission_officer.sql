@@ -1,0 +1,13 @@
+-- Who led the run (§G6). Until now the officer was resolved at launch, used to price the mission,
+-- and then forgotten — so nothing downstream could tell which character had actually been out, and
+-- `characterXpForActivity` (INTERFACES §2 R2) had no relation to award against.
+--
+-- Nullable, and deliberately not a foreign key:
+--   * §G6 lets an easy run go out on a delegation of assignees alone, with no officer at all. NULL
+--     is that case, not a missing value.
+--   * Rows written before this migration were led by somebody the row never recorded. NULL reads as
+--     "unknown" there too, and the resolver treats both the same way: nobody to pay.
+--   * Officers live inside `bases.commanders_json`, not in a table, so there is nothing to
+--     reference. A commander dismissed mid-flight leaves an id here that no longer resolves, which
+--     the resolver handles by paying nobody rather than by failing the settle.
+ALTER TABLE missions ADD COLUMN officer_id TEXT;

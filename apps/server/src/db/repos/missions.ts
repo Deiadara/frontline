@@ -12,6 +12,7 @@ interface MissionRow {
   success_chance: number;
   seed: number;
   status: string;
+  officer_id: string | null;
   outcome: string | null;
   rewards_json: string;
   resolved_at: string | null;
@@ -54,6 +55,7 @@ function rowToStored(row: MissionRow): StoredMission {
       travelMinutes: row.travel_minutes,
       durationMinutes: row.duration_minutes,
       status: row.status,
+      officerId: row.officer_id,
       outcome: row.outcome,
       rewards: readJson(row.rewards_json),
       resolvedAt: row.resolved_at,
@@ -67,8 +69,8 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   const insertStmt = db.prepare(
     `INSERT INTO missions
        (id, base_id, template_id, started_at, travel_minutes, duration_minutes,
-        success_chance, seed, status, outcome, rewards_json, resolved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        success_chance, seed, status, officer_id, outcome, rewards_json, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byBaseStmt = db.prepare(
     'SELECT * FROM missions WHERE base_id = ? ORDER BY started_at DESC, id DESC',
@@ -97,6 +99,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         successChance,
         seed,
         mission.status,
+        mission.officerId,
         mission.outcome,
         JSON.stringify(mission.rewards),
         mission.resolvedAt,

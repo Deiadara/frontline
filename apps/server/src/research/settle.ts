@@ -10,6 +10,7 @@ import {
   type DiscoveredFact,
   type Overseer,
 } from '@frontline/shared';
+import { awardCharacterXp } from '../characters/award.js';
 import type { Repositories } from '../db/repos/index.js';
 import { nextPairing, nextRoleFact } from './discover.js';
 
@@ -95,5 +96,19 @@ export function settleResearch(
   repos.bases.updateEconomy(settled.id, settled.economy);
   if (trained !== overseer) repos.overseers.updateAttributes(trained.id, trained.attributes);
 
-  return { base: settled, overseer: trained, discovered };
+  // §G6/§H6 — an investigation is the "internal process" half of INTERFACES R2: a named officer is
+  // assigned to it and it runs on a clock, which is everything the reading needs. The lead is paid
+  // for the time it kept them on it, exactly as a mission officer is.
+  //
+  // Deliberately *after* `investigationYield`: the sheet that decided what this project turned up
+  // is the one the officer had while doing the work, not the one this project's own XP just bought
+  // them. A training project has no lead and pays nobody.
+  const paid = awardCharacterXp(repos, settled, [
+    {
+      officerId: active.project.kind === 'investigation' ? active.project.leadOfficerId : null,
+      minutesEngaged: active.durationMinutes,
+    },
+  ]);
+
+  return { base: paid, overseer: trained, discovered };
 }

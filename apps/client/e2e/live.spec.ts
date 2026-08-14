@@ -153,9 +153,12 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(launch).toBeVisible();
   await shootEveryViewport(page, 'rival-intel');
 
-  // The MVP engine is a coin flip, so retry until the assault lands.
+  // The raid is a weighted roll, not a coin flip: Kane's sheet (§B tactics/leadership/hacking)
+  // against Ashen Terraces at difficulty 4 puts the assault a little under even, and every attempt
+  // is seeded independently. 25 tries makes a spurious failure a one-in-a-million event rather than
+  // the one-in-four-thousand that 15 would leave.
   let won = false;
-  for (let attempt = 0; attempt < 15 && !won; attempt++) {
+  for (let attempt = 0; attempt < 25 && !won; attempt++) {
     await launch.click();
     const outcome = page.getByRole('heading', { name: /VICTORY|DEFEAT/ });
     await expect(outcome).toBeVisible();
@@ -165,7 +168,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(launch).toBeVisible();
   }
-  expect(won, 'attacker should win within 15 coin-flips').toBe(true);
+  expect(won, 'attacker should win within 25 seeded assaults').toBe(true);
 
   // Losses pay nothing, so the first win lifts the starting stockpile by exactly the
   // rival district's rewards.

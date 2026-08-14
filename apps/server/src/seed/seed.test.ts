@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   BOT_DISTRICT_ID,
   MVP_DEV_CREDENTIALS,
-  RandomBattleEngine,
+  AttritionBattleEngine,
   STARTING_RESOURCES,
   addResources,
   findDistrict,
@@ -270,7 +270,7 @@ describe('raiding the bot base', () => {
 
   it('pays the district rewards into the attacker base on a win', async () => {
     // 0 < 0.5 -> the attacker always wins.
-    const { app, db, repos } = await openStack(':memory:', new RandomBattleEngine(() => 0));
+    const { app, db, repos } = await openStack(':memory:', new AttritionBattleEngine(() => 0));
     await seedMvpWorld({ db, repos });
     const { token, baseId } = await landAsDevPlayer(app);
 
@@ -296,7 +296,7 @@ describe('raiding the bot base', () => {
   });
 
   it('leaves the bot base itself untouched (the engine only pays district rewards)', async () => {
-    const { app, db, repos } = await openStack(':memory:', new RandomBattleEngine(() => 0));
+    const { app, db, repos } = await openStack(':memory:', new AttritionBattleEngine(() => 0));
     await seedMvpWorld({ db, repos });
     const { token } = await landAsDevPlayer(app);
     const botBefore = repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);

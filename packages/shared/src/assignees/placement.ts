@@ -32,15 +32,17 @@ export function startingAssignees(): AssigneeState {
  * §G3/§G3a — how many assignees may stand under any one officer, at `level`.
  *
  * This resolves the question W6 handed over in `progression/grants.ts`. §G3a states
- * `max(1, floor(level / 2))` with no ceiling, which passes 12 at level 24; §G7 states that "12
- * assignees at 50% is the maximum". W4 owns the table, so W4 answers it: **placement stops at 12**.
+ * `max(1, floor(level / 2))` with no ceiling and there is no maximum player level, so the formula
+ * grows forever; the §G7 table is finite. Placement therefore stops where the table does.
  *
- * The reason is that the 13th assignee is provably worth 0% — the table has no row for them and
- * `assigneeBonusPercent` saturates. Letting a player park one there would strand a pool grant
- * behind an officer where it does nothing, with no feedback saying so. Capping instead keeps every
- * placed assignee load-bearing, and pushes the surplus somewhere it still pays.
+ * The rule is not "12" — it is **whatever `ASSIGNEE_BONUS_PERCENT` has a row for**, which the board
+ * has since extended to 24. The reason is unchanged and is what makes the cap correct at any table
+ * length: the first assignee past the end is provably worth 0%, so letting a player park one there
+ * would strand a pool grant behind an officer where it does nothing, with no feedback saying so.
+ * Capping keeps every placed assignee load-bearing and pushes the surplus somewhere it still pays.
  *
- * Flagged to the board as cheap to flip: if §G3a's uncapped reading was intended, this becomes
+ * Extending the table is therefore the only edit needed to raise this; nothing here hardcodes a
+ * number. If §G3a's fully uncapped reading is ever wanted instead, this becomes
  * `playerLevelGrants(level).assigneeCapPerOfficer` and the bonus simply plateaus.
  */
 export function assigneeCapPerOfficer(level: number): number {

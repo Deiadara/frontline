@@ -1,21 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import { STARTING_INFAMY } from './meters.js';
+import { PAY_WEEK_MS } from './payroll.js';
 import {
   ANTI_SYSTEMIC_ACTIONS,
   COLLABORATOR_CONTRACTS,
   FEARED_INFAMY,
+  HONORABLE_PAYDAYS,
   LIVE_REPUTATION_LABELS,
+  OPPORTUNIST_JOBS_EACH_WAY,
   RECKLESS_LOSSES,
   REPUTATION_LABELS,
   REPUTATION_LABEL_SPECS,
   RESPECTED_WINS,
   REVOLUTIONARY_SEATS,
+  TREACHEROUS_MISSED_PAYDAYS,
   ReputationTallySchema,
   TALLY_COUNTERS,
   TALLY_HALF_LIFE_MS,
   decayTally,
   deriveReputation,
   recordMissionOutcome,
+  recordPayrollOutcome,
   recordRaidOutcome,
   startingTally,
   type RaidTarget,
@@ -76,6 +81,9 @@ describe('the label set (§D8, §D8a)', () => {
       'Revolutionary',
       'Anti-systemic',
       'Cautious',
+      'Opportunist',
+      'Honorable',
+      'Treacherous',
       'Collaborator',
       'Reckless',
       'Feared',
@@ -105,14 +113,30 @@ describe('the label set (§D8, §D8a)', () => {
         { infamy: 0, tally: stanceOf({ governmentContracts: COLLABORATOR_CONTRACTS }) },
         NOW,
       ),
+      deriveReputation(
+        {
+          infamy: 0,
+          tally: stanceOf({
+            governmentSitesTaken: OPPORTUNIST_JOBS_EACH_WAY,
+            governmentContracts: OPPORTUNIST_JOBS_EACH_WAY,
+          }),
+        },
+        NOW,
+      ),
+      deriveReputation({ infamy: 0, tally: stanceOf({ paydaysHonoured: HONORABLE_PAYDAYS }) }, NOW),
+      deriveReputation(
+        { infamy: 0, tally: stanceOf({ paydaysMissed: TREACHEROUS_MISSED_PAYDAYS }) },
+        NOW,
+      ),
     ]);
     expect([...reachable].sort()).toEqual([...LIVE_REPUTATION_LABELS].sort());
   });
 
   /*
    * The counters the labels above are read off must all be *reachable from a live writer* too,
-   * not merely present on the schema. `recordRaidOutcome` and `recordMissionOutcome` are the only
-   * two writers in the system, so every counter has to be moved by one of them.
+   * not merely present on the schema. `recordRaidOutcome`, `recordMissionOutcome` and
+   * `recordPayrollOutcome` are the only writers in the system, so every counter has to be moved
+   * by one of them.
    */
   it('has a live writer for every counter on the tally', () => {
     const start = startingTally(NOW.toISOString());
@@ -121,6 +145,8 @@ describe('the label set (§D8, §D8a)', () => {
       recordRaidOutcome(start, { winner: 'defender', target: STREET_TARGET }, NOW),
       recordRaidOutcome(start, { winner: 'attacker', target: COMBINE_SEAT }, NOW),
       recordMissionOutcome(start, 'for_government', 'success', NOW),
+      recordPayrollOutcome(start, { honoured: 1, missed: 0 }, NOW),
+      recordPayrollOutcome(start, { honoured: 0, missed: 1 }, NOW),
     ];
 
     for (const counter of TALLY_COUNTERS) {
@@ -242,15 +268,40 @@ describe('where the crew stands on the Combine (§A3, §D8)', () => {
     expect(derive(stanceOf({ governmentContracts: COLLABORATOR_CONTRACTS }))).toBe('Collaborator');
   });
 
-  it('gives no word at all to a crew playing both sides evenly', () => {
-    // Neither ledger dominates, so the politics says nothing and the volume labels answer. That is
-    // `Opportunist`'s territory and no mechanic reaches it yet — see its TODO-LATER.
+  it('calls a crew playing both sides evenly an Opportunist, over its raid record', () => {
+    // Neither ledger dominates, so no side can be named — but working both of them is itself the
+    // answer to "whose side are they on?", and it outranks how loud the crew has been.
     const bothSides = stanceOf({
       governmentSitesTaken: COLLABORATOR_CONTRACTS,
       governmentContracts: COLLABORATOR_CONTRACTS,
       raidsWon: RESPECTED_WINS,
     });
-    expect(derive(bothSides)).toBe('Respected');
+    expect(derive(bothSides)).toBe('Opportunist');
+  });
+
+  it('does not call a crew that has barely touched either side an Opportunist', () => {
+    const dabbled = stanceOf({
+      governmentSitesTaken: OPPORTUNIST_JOBS_EACH_WAY - 1,
+      governmentContracts: OPPORTUNIST_JOBS_EACH_WAY - 1,
+    });
+    expect(derive(dabbled)).toBe('Cautious');
+  });
+
+  it('needs both ledgers worked, not just one', () => {
+    expect(derive(stanceOf({ governmentSitesTaken: OPPORTUNIST_JOBS_EACH_WAY }))).toBe('Cautious');
+    expect(derive(stanceOf({ governmentContracts: OPPORTUNIST_JOBS_EACH_WAY }))).toBe('Cautious');
+  });
+
+  it('still lets a committed side outrank working both', () => {
+    // Enough anti-government action to be a movement, plus some Combine work on the side.
+    expect(
+      derive(
+        stanceOf({
+          governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS,
+          governmentContracts: OPPORTUNIST_JOBS_EACH_WAY,
+        }),
+      ),
+    ).toBe('Anti-systemic');
   });
 
   it('lets the dominant ledger decide when a crew plays both sides unevenly', () => {
@@ -471,5 +522,123 @@ describe('recordMissionOutcome (§A3, §D8)', () => {
 
     expect(recorded.raidsWon).toBeCloseTo(2);
     expect(recorded.updatedAt).toBe(later.toISOString());
+  });
+});
+
+describe('whether the crew’s word holds (§D8a)', () => {
+  const derive = (tally: ReputationTally, infamy = 0) => deriveReputation({ infamy, tally }, NOW);
+
+  it('calls a crew that keeps meeting payroll Honorable', () => {
+    expect(derive(stanceOf({ paydaysHonoured: HONORABLE_PAYDAYS }))).toBe('Honorable');
+  });
+
+  it('does not hand out the word for a single met payday', () => {
+    expect(derive(stanceOf({ paydaysHonoured: HONORABLE_PAYDAYS - 1 }))).toBe('Cautious');
+  });
+
+  it('calls a crew that keeps stiffing its people Treacherous', () => {
+    expect(derive(stanceOf({ paydaysMissed: TREACHEROUS_MISSED_PAYDAYS }))).toBe('Treacherous');
+  });
+
+  it('needs a dominant side — a crew that pays half the time is neither', () => {
+    const evens = stanceOf({
+      paydaysHonoured: HONORABLE_PAYDAYS,
+      paydaysMissed: HONORABLE_PAYDAYS,
+    });
+
+    expect(derive(evens)).toBe('Cautious');
+  });
+
+  it('lets a bad run outweigh an earlier good one', () => {
+    expect(
+      derive(
+        stanceOf({ paydaysHonoured: HONORABLE_PAYDAYS, paydaysMissed: HONORABLE_PAYDAYS + 1 }),
+      ),
+    ).toBe('Treacherous');
+  });
+
+  it('needs the leading counter to reach its own threshold, not merely to lead', () => {
+    // Honoured leads, and nothing was missed often enough to be treacherous — but the crew has
+    // not met enough paydays yet to have earned a word either.
+    expect(
+      derive(
+        stanceOf({ paydaysHonoured: HONORABLE_PAYDAYS - 1, paydaysMissed: HONORABLE_PAYDAYS - 2 }),
+      ),
+    ).toBe('Cautious');
+  });
+
+  it('outranks the volume labels but not where the crew stands on the Combine', () => {
+    const honorable = { paydaysHonoured: HONORABLE_PAYDAYS };
+
+    // A loud, winning crew that also pays on time is read by its word first.
+    expect(derive(stanceOf({ ...honorable, raidsWon: RESPECTED_WINS }), FEARED_INFAMY)).toBe(
+      'Honorable',
+    );
+    // But the politics is still the more specific fact.
+    expect(derive(stanceOf({ ...honorable, governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS }))).toBe(
+      'Anti-systemic',
+    );
+  });
+
+  /**
+   * The constants claim to mean weeks, so this drives the real writer on the real weekly clock —
+   * the only cadence the game can produce paydays at. Both thresholds are pinned from *below* as
+   * well, because the §D8 drift runs before every write: a counter fed once per week decays faster
+   * than it fills, and a threshold set one too high would be a word no crew could ever earn.
+   */
+  const afterWeeklyPaydays = (count: number, met: boolean) => {
+    let tally = startingTally(NOW.toISOString());
+    let at = NOW;
+    for (let i = 0; i < count; i++) {
+      at = new Date(at.getTime() + PAY_WEEK_MS);
+      tally = recordPayrollOutcome(
+        tally,
+        met ? { honoured: 1, missed: 0 } : { honoured: 0, missed: 1 },
+        at,
+      );
+    }
+    return deriveReputation({ infamy: 0, tally }, at);
+  };
+
+  it('earns Honorable on the HONORABLE_PAYDAYS-th weekly payday, and not before', () => {
+    expect(afterWeeklyPaydays(HONORABLE_PAYDAYS - 1, true)).toBe('Cautious');
+    expect(afterWeeklyPaydays(HONORABLE_PAYDAYS, true)).toBe('Honorable');
+  });
+
+  it('earns Treacherous on the TREACHEROUS_MISSED_PAYDAYS-th missed one, and not before', () => {
+    expect(afterWeeklyPaydays(TREACHEROUS_MISSED_PAYDAYS - 1, false)).toBe('Cautious');
+    expect(afterWeeklyPaydays(TREACHEROUS_MISSED_PAYDAYS, false)).toBe('Treacherous');
+  });
+
+  it('keeps both thresholds under the ceiling a weekly counter can actually reach', () => {
+    // 1 / (1 - 0.5^(7/14)) ≈ 3.41 — the most a once-a-week counter can ever hold. `tallyReaches`
+    // asks for `> N - 1`, so any constant above this + 1 names a label that can never be returned.
+    const ceiling = 1 / (1 - Math.pow(0.5, PAY_WEEK_MS / TALLY_HALF_LIFE_MS));
+
+    expect(HONORABLE_PAYDAYS - 1).toBeLessThan(ceiling);
+    expect(TREACHEROUS_MISSED_PAYDAYS - 1).toBeLessThan(ceiling);
+  });
+
+  it('drifts back out of the word once the crew stops having a payroll at all', () => {
+    const tally = recordPayrollOutcome(
+      startingTally(NOW.toISOString()),
+      { honoured: HONORABLE_PAYDAYS, missed: 0 },
+      NOW,
+    );
+    const muchLater = new Date(NOW.getTime() + 8 * TALLY_HALF_LIFE_MS);
+
+    expect(deriveReputation({ infamy: 0, tally }, NOW)).toBe('Honorable');
+    expect(deriveReputation({ infamy: 0, tally }, muchLater)).toBe('Cautious');
+  });
+
+  it('books both sides of a mixed settle in one write', () => {
+    const tally = recordPayrollOutcome(
+      startingTally(NOW.toISOString()),
+      { honoured: 3, missed: 1 },
+      NOW,
+    );
+
+    expect(tally.paydaysHonoured).toBe(3);
+    expect(tally.paydaysMissed).toBe(1);
   });
 });

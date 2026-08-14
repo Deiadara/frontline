@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import type { Resources } from '../resources.js';
+import { MORALE_PER_STARVED_WEEK, MORALE_PER_UNPAID_WAGE_WEEK } from './meters.js';
 
 export const PAY_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -74,11 +75,11 @@ export interface EconomyCycleResult {
   weeksSettled: number;
   capsDue: number;
   capsPaid: number;
-  /** Wages that could not be covered. TODO-LATER: morale penalty — W5/MOU-164 (§H5). */
+  /** Wages that could not be covered. Costs morale — see `moralePenaltyFor`. */
   capsShortfall: number;
   foodDue: number;
   foodConsumed: number;
-  /** Upkeep that could not be covered. TODO-LATER: morale penalty — W5/MOU-164 (§H5). */
+  /** Upkeep that could not be covered. Costs morale — see `moralePenaltyFor`. */
   foodShortfall: number;
   resources: Resources;
   payroll: PayrollState;
@@ -134,4 +135,50 @@ export function runEconomyCycle({
     },
     payroll: { ...payroll, paidThroughAt: new Date(dueThrough).toISOString() },
   };
+}
+
+/**
+ * How many of the settled weeks the stockpile could not cover.
+ *
+ * Rounded up, so a part-paid week still counts as a missed payday: being handed most of your wages
+ * is not the same as being paid, and rounding it away would let a crew be perpetually underpaid at
+ * no cost. A cycle that owed nothing (no officers, no wage book) can never be short.
+ */
+function unpaidWeeks(shortfall: number, due: number, weeksSettled: number): number {
+  if (shortfall <= 0 || due <= 0) return 0;
+  return Math.ceil((shortfall / due) * weeksSettled);
+}
+
+/**
+ * How the settled pay-weeks split between promises kept and promises broken (§D8a).
+ *
+ * Wages only. Food is upkeep the base owes itself, not a number agreed with a named officer, so
+ * starving the stores is a morale problem rather than a broken word.
+ *
+ * A cycle with no wage book yields neither: there was nobody to pay, so nothing was honoured and
+ * nothing was missed. That keeps a crew that has hired no officers off both ledgers instead of
+ * accruing a reputation for reliability by having no obligations.
+ */
+export function payrollWeeksFor(cycle: EconomyCycleResult): {
+  honoured: number;
+  missed: number;
+} {
+  if (cycle.capsDue <= 0) return { honoured: 0, missed: 0 };
+  const missed = unpaidWeeks(cycle.capsShortfall, cycle.capsDue, cycle.weeksSettled);
+  return { honoured: cycle.weeksSettled - missed, missed };
+}
+
+/**
+ * Morale this settled cycle cost the crew (§D4) — always ≤ 0, and 0 when everyone was paid.
+ *
+ * Kept separate from `runEconomyCycle` because the cycle is about the stockpile and this is about
+ * the people: the caller settles resources first and then asks what it did to morale.
+ */
+export function moralePenaltyFor(cycle: EconomyCycleResult): number {
+  const missedPaydays = unpaidWeeks(cycle.capsShortfall, cycle.capsDue, cycle.weeksSettled);
+  const starvedWeeks = unpaidWeeks(cycle.foodShortfall, cycle.foodDue, cycle.weeksSettled);
+  const penalty =
+    missedPaydays * MORALE_PER_UNPAID_WAGE_WEEK + starvedWeeks * MORALE_PER_STARVED_WEEK;
+  // `0 * -3` is `-0`, which is a strange thing to hand a caller or to read back in a log.
+  return penalty === 0 ? 0 : penalty;
 }

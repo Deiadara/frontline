@@ -1,8 +1,14 @@
 import {
   ANTI_SYSTEMIC_ACTIONS,
+  ATTRIBUTE_NAMES,
+  CHARACTER_LEVEL_AUTO_POINTS,
+  CHARACTER_LEVEL_PLAYER_POINTS,
+  MISSION_INFAMY_DELTA,
   MISSION_TEMPLATES,
   PLAYER_XP_AWARDS,
   applyPlayerXp,
+  characterXpForActivity,
+  characterXpToNextLevel,
   createCommander,
   findMissionTemplate,
   missionRewards,
@@ -10,7 +16,9 @@ import {
   reputationOf,
   requiresOfficer,
   templateTimings,
+  type Attributes,
   type Base,
+  type Commander,
   type Mission,
   type MissionStance,
   type MissionTemplate,
@@ -120,6 +128,10 @@ function planted(stack: Stack, template: MissionTemplate, seed: number, startedA
 }
 
 const after = (minutes: number, from: Date = T0) => new Date(from.getTime() + minutes * MINUTE_MS);
+
+/** Every point on a sheet, so a level-up's auto-allocation can be counted without naming targets. */
+const sheetTotal = (attributes: Attributes) =>
+  ATTRIBUTE_NAMES.reduce((total, name) => total + attributes[name], 0);
 
 /**
  * The base as it stands right now. Every route re-reads it per request, so anything simulating
@@ -287,6 +299,47 @@ describe('mission payout (§E1, §E5)', () => {
     expect(resolved[0]?.rewards).toEqual({});
     expect(base.resources).toEqual(before);
     expect(base.economy.morale).toBeLessThan(stack.base.economy.morale);
+  });
+
+  /**
+   * §D7/§A3 — a blow that lands on the state is heard. Asserted on the meter rather than the
+   * stance tally, which `recordMissionOutcome` already covers: the two are written side by side
+   * in the same settle and one can be added without the other.
+   */
+  it('raises infamy for anti-government work that came home', async () => {
+    const stack = await makeStack();
+    const strike = findMissionTemplate('fuel-siphon') as MissionTemplate;
+    expect(strike.stance).toBe('against_government');
+    planted(stack, strike, ALWAYS_SUCCEEDS);
+
+    const { base } = resolveDueMissions(
+      stack.repos,
+      stack.base,
+      after(templateTimings(strike).totalMinutes),
+    );
+
+    expect(base.economy.infamy).toBe(
+      stack.base.economy.infamy + MISSION_INFAMY_DELTA.against_government.success,
+    );
+  });
+
+  it('leaves infamy alone for a failed strike, and for work done for the Combine', async () => {
+    for (const [id, roll] of [
+      ['fuel-siphon', ALWAYS_FAILS],
+      ['courier-contract', ALWAYS_SUCCEEDS],
+    ] as const) {
+      const stack = await makeStack();
+      const template = findMissionTemplate(id) as MissionTemplate;
+      planted(stack, template, roll);
+
+      const { base } = resolveDueMissions(
+        stack.repos,
+        stack.base,
+        after(templateTimings(template).totalMinutes),
+      );
+
+      expect(base.economy.infamy, id).toBe(stack.base.economy.infamy);
+    }
   });
 
   it('records what was actually banked on the mission row', async () => {
@@ -886,5 +939,176 @@ describe('what a mission says about the Combine (§A3, §D8)', () => {
       ANTI_SYSTEMIC_ACTIONS,
     );
     expect(reputationOf(persisted.economy, settledAt)).toBe('Anti-systemic');
+  });
+});
+
+/**
+ * INTERFACES §2 R2 / GDD §H6 — the officer who led a run is paid for the time it kept them engaged.
+ *
+ * Every assertion reads the officer back out of the *repository* rather than off the returned base:
+ * the sheet is persisted inside `bases.commanders_json`, and an award applied to the in-memory copy
+ * but never written would satisfy a check on the return value alone.
+ */
+describe('character XP for a run (§H6, INTERFACES R2)', () => {
+  const OFFICER_ID = 'off-1';
+
+  /** Puts an officer on the books and hands back the base that actually knows about them. */
+  function stackWithOfficer(stack: Stack): { officer: Commander; base: Base } {
+    const officer = createCommander(OFFICER_ID, 'Halvard Nyx', 'field_commander');
+    stack.repos.bases.updateCommanders(stack.base.id, [officer]);
+    return { officer, base: freshBase(stack) };
+  }
+
+  /** Plants a mission with a named officer leading it (§G6). */
+  function plantedUnder(
+    stack: Stack,
+    template: MissionTemplate,
+    seed: number,
+    officer: Commander,
+    startedAt = T0,
+  ): Mission {
+    const stored = launchMission({
+      id: `mission-${seed}-${template.id}`,
+      base: stack.base,
+      template,
+      now: startedAt,
+      officer,
+      seed,
+    });
+    stack.repos.missions.insert(stored);
+    return stored.mission;
+  }
+
+  function officerOf(stack: Stack): Commander {
+    const found = freshBase(stack).commanders.find((c) => c.id === OFFICER_ID);
+    if (!found) throw new Error('officer vanished');
+    return found;
+  }
+
+  it('records who led the run on the mission row, and null for a delegation', async () => {
+    const stack = await makeStack();
+    const { officer } = stackWithOfficer(stack);
+
+    expect(plantedUnder(stack, scrapRun, ALWAYS_SUCCEEDS, officer).officerId).toBe(OFFICER_ID);
+    expect(planted(stack, scrapRun, ALWAYS_FAILS).officerId).toBeNull();
+  });
+
+  it('pays the officer for the minutes the run kept them engaged', async () => {
+    const stack = await makeStack();
+    const { officer, base } = stackWithOfficer(stack);
+    plantedUnder(stack, scrapRun, ALWAYS_SUCCEEDS, officer);
+
+    resolveDueMissions(stack.repos, base, after(templateTimings(scrapRun).totalMinutes));
+
+    expect(officerOf(stack).xpIntoLevel).toBe(
+      characterXpForActivity(templateTimings(scrapRun).totalMinutes),
+    );
+  });
+
+  it('pays a losing crew too — the time was spent either way', async () => {
+    const stack = await makeStack();
+    const { officer, base } = stackWithOfficer(stack);
+    const raid = findMissionTemplate('foundry-raid') as MissionTemplate;
+    plantedUnder(stack, raid, ALWAYS_FAILS, officer);
+
+    const settlement = resolveDueMissions(
+      stack.repos,
+      base,
+      after(templateTimings(raid).totalMinutes),
+    );
+
+    expect(settlement.resolved[0]?.outcome).toBe('failure');
+    expect(officerOf(stack).xpIntoLevel).toBeGreaterThan(0);
+  });
+
+  it('pays nobody for a §G6 delegation that went out unled', async () => {
+    const stack = await makeStack();
+    const { base } = stackWithOfficer(stack);
+    planted(stack, scrapRun, ALWAYS_SUCCEEDS);
+
+    resolveDueMissions(stack.repos, base, after(templateTimings(scrapRun).totalMinutes));
+
+    expect(officerOf(stack)).toMatchObject({ level: 1, xpIntoLevel: 0, unspentPoints: 0 });
+  });
+
+  it('levels an officer up and banks the §H6a points the player must assign', async () => {
+    const stack = await makeStack();
+    const { officer, base } = stackWithOfficer(stack);
+    // 130 minutes clears the 120 needed for level 2 with 10 to spare.
+    const long = findMissionTemplate('courier-contract') as MissionTemplate;
+    plantedUnder(stack, long, ALWAYS_SUCCEEDS, officer);
+
+    resolveDueMissions(stack.repos, base, after(templateTimings(long).totalMinutes));
+
+    const levelled = officerOf(stack);
+    expect(levelled.level).toBe(2);
+    expect(levelled.xpIntoLevel).toBe(
+      characterXpForActivity(templateTimings(long).totalMinutes) - characterXpToNextLevel(1),
+    );
+    expect(levelled.unspentPoints).toBe(CHARACTER_LEVEL_PLAYER_POINTS);
+    // The auto-allocated points landed on the sheet, so the character actually got better (§H6a).
+    expect(sheetTotal(levelled.attributes)).toBe(
+      sheetTotal(officer.attributes) + CHARACTER_LEVEL_AUTO_POINTS,
+    );
+  });
+
+  /**
+   * The reason `awardCharacterXp` folds per officer before it writes anything.
+   *
+   * Two 600-XP runs are worth three levels together but only two apiece, so an implementation that
+   * applied each award to the sheet as it was read — rather than to the running total — would land
+   * on level 3 and lose one. Verified by mutation: this pair of numbers is chosen because folded
+   * (level 4) and per-award-on-a-stale-sheet (level 3) actually disagree here.
+   */
+  it('folds two runs by the same officer into one award', async () => {
+    const stack = await makeStack();
+    const { officer, base } = stackWithOfficer(stack);
+    const long = findMissionTemplate('refinery-assault') as MissionTemplate;
+    plantedUnder(stack, long, ALWAYS_SUCCEEDS, officer);
+    plantedUnder(stack, long, ALWAYS_FAILS, officer);
+
+    resolveDueMissions(stack.repos, base, after(templateTimings(long).totalMinutes));
+
+    const each = characterXpForActivity(templateTimings(long).totalMinutes);
+    const levelled = officerOf(stack);
+    expect(each * 2).toBe(
+      characterXpToNextLevel(1) + characterXpToNextLevel(2) + characterXpToNextLevel(3),
+    );
+    expect(levelled.level).toBe(4);
+    expect(levelled.xpIntoLevel).toBe(0);
+    expect(levelled.unspentPoints).toBe(3 * CHARACTER_LEVEL_PLAYER_POINTS);
+  });
+
+  it('settles normally when the officer was dismissed while the run was out', async () => {
+    const stack = await makeStack();
+    const { officer } = stackWithOfficer(stack);
+    plantedUnder(stack, scrapRun, ALWAYS_SUCCEEDS, officer);
+    stack.repos.bases.updateCommanders(stack.base.id, []);
+
+    const settlement = resolveDueMissions(
+      stack.repos,
+      freshBase(stack),
+      after(templateTimings(scrapRun).totalMinutes),
+    );
+
+    expect(settlement.resolved).toHaveLength(1);
+    expect(freshBase(stack).commanders).toEqual([]);
+  });
+
+  it('leaves an officer who stayed home untouched', async () => {
+    const stack = await makeStack();
+    const led = createCommander(OFFICER_ID, 'Halvard Nyx', 'field_commander');
+    const idle = createCommander('off-2', 'Wren Sable', 'salvager');
+    stack.repos.bases.updateCommanders(stack.base.id, [led, idle]);
+    plantedUnder(stack, scrapRun, ALWAYS_SUCCEEDS, led);
+
+    resolveDueMissions(
+      stack.repos,
+      freshBase(stack),
+      after(templateTimings(scrapRun).totalMinutes),
+    );
+
+    expect(freshBase(stack).commanders.find((c) => c.id === 'off-2')).toEqual(idle);
+    expect(officerOf(stack).xpIntoLevel).toBeGreaterThan(0);
   });
 });

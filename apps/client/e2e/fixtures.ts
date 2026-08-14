@@ -19,6 +19,7 @@ import {
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
   assigneeBonusPercent,
+  MAX_ASSIGNEES_PER_OFFICER,
   assigneeCapPerOfficer,
   assigneePool,
   startingAssignees,
@@ -236,6 +237,8 @@ export const bar: BarResponse = {
     }),
     barRecruit('bar-5', 'Ilse Abara', { hired: true, askingWage: 96 }),
     barRecruit('bar-6', 'Juno Petrosyan', { askingWage: 61, traits: ['silver_tongue'] }),
+    // §B7 — a flaw on the card, so the layout guards cover the state a player must be able to read.
+    barRecruit('bar-7', 'Casimir Adeyemi-Lindqvist', { askingWage: 74, traits: ['marked_face'] }),
   ],
   officers: [
     barOfficer('off-1', 'The Ghost of Sector Nine', 'head_spy', 100, 1240, {
@@ -269,6 +272,8 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     travelMinutes,
     durationMinutes,
     status: 'active',
+    // §G6 — these fixtures send delegations, not officer-led runs.
+    officerId: null,
     outcome: null,
     rewards: {},
     resolvedAt: null,
@@ -585,13 +590,17 @@ export const assigneesStart: AssigneesResponse = assigneesAt(1, []);
 /**
  * The widest this screen ever gets, and the state every layout guard has to survive.
  *
- * Level 24 is where §G3a's `floor(level / 2)` finally reaches the §G7 table's twelfth row, so the
- * cap is 12 — the most pips a row can ever draw — and one officer sits at it, showing the 50%
+ * Level 48 is where §G3a's `floor(level / 2)` finally reaches the end of the extended §G7 table, so
+ * the cap is 24 — the most pips a row can ever draw — and one officer sits at it, showing the 75%
  * ceiling and the `at cap` label. The others cover a decimal bonus (14.5%) and the longest officer
  * name and role label on the board, which is what actually threatens the column.
+ *
+ * This tracks the table: extending `ASSIGNEE_BONUS_PERCENT` again moves the widest row, so the
+ * level here must move with it (`2 * MAX_ASSIGNEES_PER_OFFICER`) or the guard stops covering the
+ * case it claims to.
  */
-export const assigneesFat: AssigneesResponse = assigneesAt(24, [
-  ['off-1', 'The Ghost of Sector Nine', 'instructor_of_the_young', 12],
+export const assigneesFat: AssigneesResponse = assigneesAt(2 * MAX_ASSIGNEES_PER_OFFICER, [
+  ['off-1', 'The Ghost of Sector Nine', 'instructor_of_the_young', MAX_ASSIGNEES_PER_OFFICER],
   ['off-2', 'Wilhelmina Okonkwo-Restrepo', 'head_of_research', 3],
   ['off-3', 'Vela', 'professor', 7],
 ]);

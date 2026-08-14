@@ -40,6 +40,7 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     travelMinutes,
     durationMinutes,
     status: 'active',
+    officerId: null,
     outcome: null,
     rewards: {},
     resolvedAt: null,

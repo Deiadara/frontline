@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { STARTING_RESOURCES, type Resources } from '../resources.js';
+import { MORALE_PER_STARVED_WEEK, MORALE_PER_UNPAID_WAGE_WEEK } from './meters.js';
 import {
   PAY_WEEK_MS,
   foodUpkeepFor,
+  moralePenaltyFor,
   proratedFirstWage,
   runEconomyCycle,
   startOfPayWeek,
@@ -184,5 +186,73 @@ describe('runEconomyCycle', () => {
       now: new Date(SUNDAY_LATE),
     });
     expect(sameWeek.weeksSettled).toBe(0);
+  });
+});
+
+describe('moralePenaltyFor (§D4 — an unpaid crew notices)', () => {
+  const wages = { 'officer-a': 120, 'officer-b': 80 };
+  const cycleFrom = (resources: Partial<Resources>, weeks: number) =>
+    runEconomyCycle({
+      resources: { ...STARTING_RESOURCES, caps: 0, food: 0, ...resources },
+      payroll: { paidThroughAt: MONDAY, wages },
+      officerCount: 2,
+      now: new Date(new Date(MONDAY).getTime() + weeks * PAY_WEEK_MS),
+    });
+
+  it('costs nothing when everyone was paid and fed', () => {
+    const cycle = cycleFrom({ caps: 5000, food: 5000 }, 1);
+
+    expect(cycle.capsShortfall).toBe(0);
+    expect(cycle.foodShortfall).toBe(0);
+    expect(moralePenaltyFor(cycle)).toBe(0);
+  });
+
+  it('costs nothing when no week turned over', () => {
+    expect(moralePenaltyFor(cycleFrom({ caps: 0, food: 0 }, 0))).toBe(0);
+  });
+
+  it('charges wages and rations separately, and wages more', () => {
+    const starved = cycleFrom({ caps: 5000, food: 0 }, 1);
+    const unpaid = cycleFrom({ caps: 0, food: 5000 }, 1);
+
+    expect(moralePenaltyFor(starved)).toBe(MORALE_PER_STARVED_WEEK);
+    expect(moralePenaltyFor(unpaid)).toBe(MORALE_PER_UNPAID_WAGE_WEEK);
+    expect(moralePenaltyFor(unpaid)).toBeLessThan(moralePenaltyFor(starved));
+  });
+
+  it('charges both when the stockpile is empty', () => {
+    expect(moralePenaltyFor(cycleFrom({ caps: 0, food: 0 }, 1))).toBe(
+      MORALE_PER_UNPAID_WAGE_WEEK + MORALE_PER_STARVED_WEEK,
+    );
+  });
+
+  it('costs three weeks of morale for a three-week absence', () => {
+    const cycle = cycleFrom({ caps: 0, food: 0 }, 3);
+
+    expect(cycle.weeksSettled).toBe(3);
+    expect(moralePenaltyFor(cycle)).toBe(
+      3 * (MORALE_PER_UNPAID_WAGE_WEEK + MORALE_PER_STARVED_WEEK),
+    );
+  });
+
+  it('counts a part-paid week as a missed payday rather than rounding it away', () => {
+    // One week owed, all but a single cap covered: the crew was still not paid.
+    const cycle = cycleFrom({ caps: 199, food: 5000 }, 1);
+
+    expect(cycle.capsShortfall).toBe(1);
+    expect(moralePenaltyFor(cycle)).toBe(MORALE_PER_UNPAID_WAGE_WEEK);
+  });
+
+  it('cannot be short when nothing was owed', () => {
+    const noPayroll = runEconomyCycle({
+      resources: { ...STARTING_RESOURCES, caps: 0, food: 0 },
+      payroll: { paidThroughAt: MONDAY, wages: {} },
+      officerCount: 0,
+      now: new Date(new Date(MONDAY).getTime() + PAY_WEEK_MS),
+    });
+
+    expect(noPayroll.capsDue).toBe(0);
+    expect(noPayroll.foodDue).toBe(0);
+    expect(moralePenaltyFor(noPayroll)).toBe(0);
   });
 });

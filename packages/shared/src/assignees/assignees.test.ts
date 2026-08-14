@@ -57,16 +57,46 @@ describe('§G7 — the bonus table', () => {
     expect(assigneeBonusPercent(count)).toBe(percent);
   });
 
-  it('has exactly twelve rows and tops out at 50%', () => {
-    expect(ASSIGNEE_BONUS_PERCENT).toHaveLength(12);
-    expect(MAX_ASSIGNEES_PER_OFFICER).toBe(12);
+  /**
+   * The board's twelve rows are the contract and must survive any extension: the table above this
+   * is checked value-by-value, and this pins that the join did not move the milestone it ends on.
+   */
+  it('keeps the board’s twelve rows intact, ending at 50%', () => {
+    expect(ASSIGNEE_BONUS_PERCENT.slice(0, 12)).toEqual([
+      5, 10, 14.5, 19, 23.5, 29, 33, 37, 40, 43, 45, 50,
+    ]);
     expect(assigneeBonusPercent(12)).toBe(50);
   });
 
-  it('clamps above twelve — 12 assignees at 50% is the hard maximum', () => {
-    for (const count of [13, 14, 20, 100, 1000]) {
-      expect(assigneeBonusPercent(count)).toBe(50);
+  /** The extension rows (13–24), and the block milestones the board's own rhythm implies. */
+  it('continues past twelve on the board’s rhythm, to 75% at 24', () => {
+    expect(ASSIGNEE_BONUS_PERCENT).toHaveLength(24);
+    expect(MAX_ASSIGNEES_PER_OFFICER).toBe(24);
+    expect(assigneeBonusPercent(18)).toBe(65);
+    expect(assigneeBonusPercent(24)).toBe(75);
+
+    // Each block of six is worth less than the one before it: +29, +21, +15, +10.
+    const at = (n: number) => assigneeBonusPercent(n);
+    expect([at(6), at(12) - at(6), at(18) - at(12), at(24) - at(18)]).toEqual([29, 21, 15, 10]);
+  });
+
+  it('clamps past the end of the table — the 25th body is worth nothing', () => {
+    for (const count of [25, 26, 40, 100, 1000]) {
+      expect(assigneeBonusPercent(count)).toBe(75);
     }
+  });
+
+  /**
+   * `assigneeSpeedMultiplier` is `1 - bonus`, so a 100% bonus would make every job take no time.
+   * The table must stay clear of that by construction, not by the caller flooring the result.
+   */
+  it('never reaches a 100% bonus, at any row', () => {
+    for (const percent of ASSIGNEE_BONUS_PERCENT) expect(percent).toBeLessThan(100);
+    expect(assigneeSpeedMultiplier(MAX_ASSIGNEES_PER_OFFICER)).toBeGreaterThan(0);
+  });
+
+  it('is authored at the half-point granularity the board used', () => {
+    for (const percent of ASSIGNEE_BONUS_PERCENT) expect(percent * 2).toBe(Math.round(percent * 2));
   });
 
   it('pays nothing for nobody, and never goes negative', () => {
@@ -125,15 +155,20 @@ describe('§G3/§G3a — the per-officer cap', () => {
   });
 
   /**
-   * W6 states §G3a with no ceiling and handed W4 the question of what happens past 12 (see the
-   * TODO-LATER on `progression/grants.ts`). W4's answer: placement stops at 12, because the 13th
-   * assignee is worth 0% and would otherwise be stranded with no feedback.
+   * §G3a has no ceiling and there is no maximum player level, so the entitlement climbs forever
+   * while the §G7 table is finite. Placement stops where the table does — at whatever length it
+   * has, not at a number written here — because the first assignee past the end is worth 0% and
+   * would be stranded behind an officer with no feedback saying so.
    */
-  it('stops at twelve even though §G3a keeps climbing', () => {
-    expect(playerLevelGrants(24).assigneeCapPerOfficer).toBe(12);
+  it('follows the table’s length, not a hardcoded number', () => {
+    // The grant itself stays uncapped: the two readings are separable on purpose.
     expect(playerLevelGrants(40).assigneeCapPerOfficer).toBe(20);
+    expect(playerLevelGrants(100).assigneeCapPerOfficer).toBe(50);
+
+    // Below the table's end the grant governs; above it, the table does.
     expect(assigneeCapPerOfficer(24)).toBe(12);
-    expect(assigneeCapPerOfficer(40)).toBe(12);
+    expect(assigneeCapPerOfficer(2 * MAX_ASSIGNEES_PER_OFFICER)).toBe(MAX_ASSIGNEES_PER_OFFICER);
+    expect(assigneeCapPerOfficer(500)).toBe(MAX_ASSIGNEES_PER_OFFICER);
   });
 });
 

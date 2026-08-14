@@ -53,15 +53,15 @@ export const REPUTATION_LABEL_SPECS: Readonly<Record<ReputationLabel, Reputation
   },
   Opportunist: {
     description: 'You take the job that pays, whoever is paying.',
-    todo: 'TODO-LATER: contract-selection bias across accepted missions — W3/MOU-162 (Missions)',
+    todo: null,
   },
   Honorable: {
     description: 'Your word holds and your people get paid on time.',
-    todo: 'TODO-LATER: contracts honoured + wages paid on time — W5/MOU-164 (The Bar, salary negotiation)',
+    todo: null,
   },
   Treacherous: {
     description: 'Deals with you are worth what you decide they are worth.',
-    todo: 'TODO-LATER: contracts broken / allies betrayed — W5/MOU-164 (The Bar, salary negotiation)',
+    todo: null,
   },
   Collaborator: {
     description: 'The state finds you useful. The street has noticed.',
@@ -109,6 +109,19 @@ export const ReputationTallySchema = z.object({
   governmentSeatsTaken: z.number().nonnegative().default(0),
   /** §D8 — jobs completed *for* the Combine. Co-operation, and the street counts it. */
   governmentContracts: z.number().nonnegative().default(0),
+  /**
+   * §D8a — pay-weeks the wage book was settled in full, and pay-weeks it was not.
+   *
+   * The wage book *is* a contract (see `PayrollStateSchema`): the base agrees a weekly number with
+   * a named officer and either meets it or does not. That is the only promise the game currently
+   * lets a player make and break, so it is what `Honorable` and `Treacherous` read. A week with no
+   * officers on the books moves neither counter — there was no promise to keep.
+   *
+   * Both default to `0` so a tally written before this landed still parses, exactly as the W10
+   * counters above do: a crew with no payroll history has honoured and broken nothing.
+   */
+  paydaysHonoured: z.number().nonnegative().default(0),
+  paydaysMissed: z.number().nonnegative().default(0),
 });
 export type ReputationTally = z.infer<typeof ReputationTallySchema>;
 
@@ -147,6 +160,27 @@ export const ANTI_SYSTEMIC_ACTIONS = 4;
 export const REVOLUTIONARY_SEATS = 2;
 /** Jobs run for the Combine before the street calls it collaboration. */
 export const COLLABORATOR_CONTRACTS = 4;
+/**
+ * Jobs taken *each way* before working both sides is read as a business model rather than as a
+ * crew that has not picked one yet (§D8a). Two, because one job in each direction is a fortnight
+ * of ordinary play and says nothing — doing it twice each way is a pattern.
+ */
+export const OPPORTUNIST_JOBS_EACH_WAY = 2;
+/**
+ * Paydays met before a crew's word is worth something, and paydays missed before the street stops
+ * taking it (§D8a). Missing is cheaper than earning on purpose: a reputation for paying is built
+ * slowly and a reputation for stiffing people is not.
+ *
+ * **Why these are small.** Unlike raids, which a player can run back-to-back, paydays arrive on a
+ * fixed weekly clock — and the §D8 half-life is 14 days, so a counter fed once a week decays
+ * faster than it fills. Its ceiling is `1 / (1 - 0.5^(7/14))` ≈ **3.41**, whatever the player does.
+ * A threshold of 5 would be a label no crew could ever earn, and 4 would take seven weeks while
+ * claiming to take four. At these values the constants mean what they say at the only cadence the
+ * game can produce them: the 3rd consecutive met payday earns `Honorable`, the 2nd missed one earns
+ * `Treacherous`, and `reputation.test.ts` pins both against the real writer rather than by hand.
+ */
+export const HONORABLE_PAYDAYS = 3;
+export const TREACHEROUS_MISSED_PAYDAYS = 2;
 
 /**
  * Whether a decayed counter still carries `actions` worth of the thing it counts.
@@ -170,6 +204,8 @@ export function startingTally(now: string): ReputationTally {
     governmentSitesTaken: 0,
     governmentSeatsTaken: 0,
     governmentContracts: 0,
+    paydaysHonoured: 0,
+    paydaysMissed: 0,
   };
 }
 
@@ -241,6 +277,34 @@ export function recordMissionOutcome(
     : { ...decayed, governmentContracts: decayed.governmentContracts + 1 };
 }
 
+/** A settled payroll, as the tally reads it (§D8a). Weeks, never caps — see `paydaysHonoured`. */
+export interface PayrollRecord {
+  /** Pay weeks the wage book was met in full. */
+  honoured: number;
+  /** Pay weeks it was not. */
+  missed: number;
+}
+
+/**
+ * Decays to `now`, then books a settled payroll.
+ *
+ * Both counters move on the same settle, because a four-week absence can honour some weeks and
+ * miss others: paying three weeks and stiffing the fourth is exactly the mixed record the
+ * dominance test in `deriveReputation` exists to read.
+ */
+export function recordPayrollOutcome(
+  tally: ReputationTally,
+  { honoured, missed }: PayrollRecord,
+  now: Date,
+): ReputationTally {
+  const decayed = decayTally(tally, now);
+  return {
+    ...decayed,
+    paydaysHonoured: decayed.paydaysHonoured + honoured,
+    paydaysMissed: decayed.paydaysMissed + missed,
+  };
+}
+
 export interface ReputationInputs {
   infamy: Meter;
   tally: ReputationTally;
@@ -257,15 +321,23 @@ export interface ReputationInputs {
  * on?", that is the answer it gives — a crew four raids into a campaign against the state is read
  * as `Anti-systemic` even at maximum infamy, because the politics is the more specific fact.
  *
- * Within the three: `Revolutionary` outranks `Anti-systemic` because its signal is a strict subset
+ * Within the bloc: `Revolutionary` outranks `Anti-systemic` because its signal is a strict subset
  * (a seat taken is also a site taken), so the narrower claim must be tested first or it could never
- * be returned. A crew that plays both sides needs a *dominant* side to get a word at all — with the
- * ledgers level it falls through to the volume labels, which is honest: `Opportunist` is the word
- * for that and no mechanic reaches it yet (see its `TODO-LATER`).
+ * be returned. A crew that plays both sides needs a *dominant* side to earn one of those words —
+ * and once neither ledger leads, working both of them **is** the answer to "whose side are they
+ * on?", so `Opportunist` closes the bloc rather than letting a crew that sells to everyone fall
+ * through to `Cautious` ("nothing on the street says otherwise yet"), which would be a lie.
  */
 export function deriveReputation({ infamy, tally }: ReputationInputs, now: Date): ReputationLabel {
-  const { raidsWon, raidsLost, governmentSitesTaken, governmentSeatsTaken, governmentContracts } =
-    decayTally(tally, now);
+  const {
+    raidsWon,
+    raidsLost,
+    governmentSitesTaken,
+    governmentSeatsTaken,
+    governmentContracts,
+    paydaysHonoured,
+    paydaysMissed,
+  } = decayTally(tally, now);
 
   const againstTheState = governmentSitesTaken > governmentContracts;
   if (againstTheState && tallyReaches(governmentSeatsTaken, REVOLUTIONARY_SEATS)) {
@@ -279,6 +351,27 @@ export function deriveReputation({ infamy, tally }: ReputationInputs, now: Date)
     governmentContracts > governmentSitesTaken
   ) {
     return 'Collaborator';
+  }
+  // Neither ledger leads far enough to name a side, but both are worked: that is a side.
+  if (
+    tallyReaches(governmentSitesTaken, OPPORTUNIST_JOBS_EACH_WAY) &&
+    tallyReaches(governmentContracts, OPPORTUNIST_JOBS_EACH_WAY)
+  ) {
+    return 'Opportunist';
+  }
+
+  // Whether your word holds is a more specific claim than how loud or how successful you are, so
+  // the payroll pair outranks the volume labels for the same reason the government bloc outranks
+  // both. A mixed record needs a dominant side to earn a word at all, exactly as the stance
+  // counters do — a crew that pays half the time is neither, and falls through.
+  // Both sides test strictly, so a crew with a level record falls through to the volume labels
+  // rather than being called treacherous for a tie — the same shape as `Anti-systemic` and
+  // `Collaborator`, which both require their counter to lead the other.
+  if (paydaysMissed > paydaysHonoured && tallyReaches(paydaysMissed, TREACHEROUS_MISSED_PAYDAYS)) {
+    return 'Treacherous';
+  }
+  if (paydaysHonoured > paydaysMissed && tallyReaches(paydaysHonoured, HONORABLE_PAYDAYS)) {
+    return 'Honorable';
   }
 
   // Infamy is a meter, not a decayed tally counter, so it is read directly.

@@ -74,13 +74,26 @@ or client-facing type.
 
 ## Battle engine
 
-`BattleEngine` is an interface so the combat model is swappable.
-**TODO: replace `RandomBattleEngine` with a real deterministic combat model.** The stub is a
-50/50 coin flip regardless of inputs. The real model must: weigh attacker overseer skills
-(tactics/leadership/hacking), defending district difficulty (and later defender base buildings —
-walls/barracks — and commander bonuses), and take an explicit RNG seed so a battle is replayable
-from its persisted row. Server code must depend only on the interface (inject
-`defaultBattleEngine`), so the swap is a one-line change.
+`BattleEngine` is an interface so the combat model is swappable. Server code depends only on the
+interface (it injects `defaultBattleEngine`).
+
+`AttritionBattleEngine` is the live model. One draw decides the raid:
+
+```
+assault    = 0.5·tactics + 0.3·leadership + 0.2·hacking   (the Overseer's effective sheet, 0..100)
+resistance = 8 · district.difficulty                       (difficulty 1..10 on the same scale)
+chance     = clamp(0.5 + (assault − resistance)·0.01, 0.05, 0.95)
+attacker wins ⟺ seededRoll(seed) < chance
+```
+
+The clamp is deliberate: no raid is ever a certainty or a foregone loss. The roll is seeded
+(`battle/rng.ts`, mulberry32 over an FNV-1a hash of the seed string) and the seed is persisted on
+the battle row, so a fight replays exactly. `AttritionBattleEngine`'s constructor takes the roll
+function, which is the seam tests use to pin an outcome.
+
+Still deferred, and marked `TODO-LATER` on the engine: defender base buildings (walls/barracks) and
+commander bonuses — districts are not bases and carry no structures, so there is nothing to read
+until a base itself can be raided.
 
 ## Tooling / gates
 

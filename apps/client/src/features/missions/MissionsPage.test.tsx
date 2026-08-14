@@ -10,6 +10,7 @@ const returned = (id: string, startedAt: string, resolvedAt: string): Mission =>
   startedAt,
   travelMinutes: 5,
   durationMinutes: 3,
+  officerId: null,
   status: 'resolved',
   outcome: 'success',
   rewards: { scrap: 40 },

@@ -1,4 +1,5 @@
 import {
+  MISSION_INFAMY_DELTA,
   MISSION_MORALE_DELTA,
   addResources,
   adjustMeter,
@@ -13,6 +14,7 @@ import {
   type MissionOutcome,
   type ReputationTally,
 } from '@frontline/shared';
+import { awardCharacterXp } from '../characters/award.js';
 import { createRng } from '../characters/rng.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { StoredMission } from '../db/repos/missions.js';
@@ -77,6 +79,9 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       outcome,
       rewards,
       moraleDelta: template ? MISSION_MORALE_DELTA[template.kind][outcome] : 0,
+      // §D7/§A3 — a blow that lands on the state is heard on the street. Keyed off the same
+      // retired-template fallback as the rest: a run whose template is gone comes home silent.
+      infamyDelta: template ? MISSION_INFAMY_DELTA[template.stance][outcome] : 0,
       // §A3/§D8 — which way the job pointed at the Combine. A run whose template has since been
       // retired comes home politically silent for the same reason it comes home empty: there is
       // nothing left on the board to say what it was.
@@ -97,6 +102,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     economy: {
       ...base.economy,
       morale: settlements.reduce((acc, s) => adjustMeter(acc, s.moraleDelta), base.economy.morale),
+      infamy: settlements.reduce((acc, s) => adjustMeter(acc, s.infamyDelta), base.economy.infamy),
       // §D8 — missions are the second live writer of the one reputation tally (the first is
       // POST /battle). Folded in launch order through the shared recorder so the §D8 drift is
       // applied exactly once, by the same function, however many crews came home on this call.
@@ -123,6 +129,19 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     progressed = awarded.base;
     return awarded.award;
   });
+
+  // INTERFACES R2 — §H6 pays the *officer* who led each run, for the time it kept them engaged.
+  // Priced off the clock frozen on the row, like the rewards above, so a retune cannot re-pay a
+  // character for a run that has already happened. Folded in one call because two runs led by the
+  // same officer are one sheet, and paying them separately would drop a level between the two.
+  progressed = awardCharacterXp(
+    repos,
+    progressed,
+    settlements.map((s) => ({
+      officerId: s.mission.officerId,
+      minutesEngaged: missionTimings(s.mission).totalMinutes,
+    })),
+  );
 
   return {
     base: progressed,

@@ -82,6 +82,7 @@ const accepted: LaunchMissionResponse = {
     startedAt: NOW,
     travelMinutes: 5,
     durationMinutes: 3,
+    officerId: null,
     status: 'active',
     outcome: null,
     rewards: {},

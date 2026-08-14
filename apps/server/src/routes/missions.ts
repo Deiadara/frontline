@@ -99,6 +99,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       now,
       overseer,
       terms: crew.terms,
+      officer,
     });
     app.repos.missions.insert(stored);
     // The settle above is the only place this level-up is ever reported: the next `GET /missions`

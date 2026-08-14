@@ -5,6 +5,7 @@ import {
   delegatedSuccessChance,
   modifiedSuccessChance,
   type Base,
+  type Commander,
   type DelegationTerms,
   type MissionTemplate,
   type Overseer,
@@ -54,10 +55,15 @@ export function launchMission(args: {
   overseer?: Overseer | undefined;
   /** §G5/§G6 — the terms the resolved crew earned. Absent means a bare run, no modifier. */
   terms?: DelegationTerms | undefined;
+  /**
+   * §G6 — the officer leading it, absent for a delegation. Recorded on the row so the character
+   * who was actually out can be paid for it when the crew comes home (INTERFACES §2 R2).
+   */
+  officer?: Commander | undefined;
   /** Overridable so tests can pin the roll. */
   seed?: number;
 }): StoredMission {
-  const { id, base, template, now, overseer, terms, seed = randomInt(0, 2 ** 32) } = args;
+  const { id, base, template, now, overseer, terms, officer, seed = randomInt(0, 2 ** 32) } = args;
 
   const afterOverseer = overseer
     ? modifiedSuccessChance(template.successChance, overseer.attributes, template.kind)
@@ -74,6 +80,7 @@ export function launchMission(args: {
         ? delegatedMinutes(template.durationMinutes, terms)
         : template.durationMinutes,
       status: 'active',
+      officerId: officer?.id ?? null,
       outcome: null,
       rewards: {},
       resolvedAt: null,

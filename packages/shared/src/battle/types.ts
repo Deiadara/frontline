@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AttributesSchema } from '../attributes.js';
 import { IdSchema } from '../primitives.js';
 import { PartialResourcesSchema } from '../resources.js';
 
@@ -7,6 +8,17 @@ export const BattleInputSchema = z.object({
   /** Display name of the attacking base. Ids never reach the narration log. */
   attackerBaseName: z.string().min(1),
   targetDistrictId: IdSchema,
+  /**
+   * The attacking Overseer's *effective* sheet (§F1) — traits already folded in, exactly as
+   * `OverseerSchema` stores it. This is what the raid is led with, and the only thing the player
+   * can grow that the engine reads.
+   */
+  attackerAttributes: AttributesSchema,
+  /**
+   * Persisted on the battle row, so the fight replays from it. Opaque to the engine: any stable
+   * string works, and the server mints a fresh one per battle.
+   */
+  seed: z.string().min(1),
 });
 export type BattleInput = z.infer<typeof BattleInputSchema>;
 

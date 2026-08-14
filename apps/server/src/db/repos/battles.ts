@@ -9,6 +9,8 @@ export interface NewBattle {
   winner: BattleWinner;
   log: string[];
   rewards: PartialResources;
+  /** The roll this fight was resolved from — what makes the row replayable. */
+  seed: string;
   createdAt: string;
 }
 
@@ -19,8 +21,8 @@ export interface BattlesRepo {
 export function createBattlesRepo(db: AppDatabase): BattlesRepo {
   const insertStmt = db.prepare(
     `INSERT INTO battles
-       (id, attacker_base_id, target_district_id, winner, log_json, rewards_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (id, attacker_base_id, target_district_id, winner, log_json, rewards_json, seed, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   return {
@@ -32,6 +34,7 @@ export function createBattlesRepo(db: AppDatabase): BattlesRepo {
         battle.winner,
         JSON.stringify(battle.log),
         JSON.stringify(battle.rewards),
+        battle.seed,
         battle.createdAt,
       );
     },

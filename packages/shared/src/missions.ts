@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MissionDifficultySchema } from './assignees/delegation.js';
-import { MissionStanceSchema } from './factions.js';
+import { MissionStanceSchema, type MissionStance } from './factions.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 
@@ -304,6 +304,21 @@ export const MISSION_MORALE_DELTA: Record<MissionKind, Record<MissionOutcome, nu
 };
 
 /**
+ * Infamy moved by a mission coming home (§D7, §A3) — keyed on which way the job pointed at the
+ * Combine rather than on how hard it was, because infamy is about *who you crossed*, not effort.
+ *
+ * Only anti-government work is loud, and only when it lands: a failed run at the state is already
+ * priced in morale and in `Reckless`, and counting it here would let a crew build a reputation out
+ * of things it did not manage to do. Work *for* the Combine moves nothing — collaboration is a
+ * §D8 reputation matter, and being useful to the state does not make the street afraid of you.
+ */
+export const MISSION_INFAMY_DELTA: Record<MissionStance, Record<MissionOutcome, number>> = {
+  against_government: { success: 2, failure: 0 },
+  for_government: { success: 0, failure: 0 },
+  unaligned: { success: 0, failure: 0 },
+};
+
+/**
  * A launched mission.
  *
  * `travelMinutes` and `durationMinutes` are copied off the template at launch and never re-read
@@ -321,6 +336,14 @@ export const MissionSchema = z.object({
   travelMinutes: z.number().int().nonnegative(),
   durationMinutes: z.number().int().positive(),
   status: MissionStatusSchema,
+  /**
+   * §G6 — the officer leading the run, or `null` for a delegation of assignees alone.
+   *
+   * Frozen at launch like the clock and the odds: this records *who went*, so dismissing an
+   * officer or reshuffling placements mid-flight cannot rewrite who was out. It is what
+   * `characterXpForActivity` (INTERFACES §2 R2) pays when the crew comes home.
+   */
+  officerId: IdSchema.nullable(),
   /** Null until the mission resolves. */
   outcome: MissionOutcomeSchema.nullable(),
   /** What was actually banked. Empty until the mission resolves. */

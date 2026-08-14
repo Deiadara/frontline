@@ -29,5 +29,6 @@ export * from './art/hero.js';
 export * from './art/backdrop.js';
 export * from './battle/types.js';
 export * from './battle/engine.js';
+export * from './battle/rng.js';
 export * from './api.js';
 export * from './mvp.js';

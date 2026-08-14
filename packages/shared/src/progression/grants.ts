@@ -30,10 +30,10 @@ function assigneePoolFor(level: number): number {
 /**
  * §G3a — `max(1, floor(level / 2))`: 1 at the start, 2 from level 4.
  *
- * TODO-LATER — §G7's assignee bonus table stops at 12 ("12 assignees at 50% is the maximum"), which
- * this formula reaches at level 24 and then passes. Whether the cap should hold at 12 or the table
- * should extend is a tuning call for the board; §G3a states the formula with no ceiling, so that is
- * what ships. W4/MOU-163 owns the table and inherits the question.
+ * Stated here with no ceiling, exactly as §G3a writes it. The ceiling is applied where it belongs,
+ * in `assignees/placement.js`, which clamps this to the length of the §G7 bonus table — the board
+ * answered the open question by extending that table to 24 rather than by capping the formula.
+ * This grant is still the uncapped entitlement, so the two readings stay separable.
  */
 function assigneeCapPerOfficerFor(level: number): number {
   return Math.max(1, Math.floor(level / 2));
