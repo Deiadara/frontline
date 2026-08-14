@@ -14,7 +14,7 @@ const SPECS: Record<AssetBundleName, readonly AssetSpec[]> = {
   splash: [spec('splash-auth')],
   overseer: [spec('portrait-overseer-1')],
   city: [spec('plate-city'), spec('plane-city-sky')],
-  base: [spec('building-command-center')],
+  base: [spec('building-nexus')],
   ui: [spec('ui-frame-panel')],
 };
 

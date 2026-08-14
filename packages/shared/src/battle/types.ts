@@ -15,6 +15,19 @@ export const BattleInputSchema = z.object({
    */
   attackerAttributes: AttributesSchema,
   /**
+   * What the defender has built on the ground (§A1) — `districtDefense`, the Gate's whole job.
+   *
+   * A plain number rather than the defending base, so the engine never has to know what a
+   * structure is: whoever is holding the target works that out and hands the engine the total.
+   * Zero when nobody has fortified the target, which is every plain map district.
+   */
+  defenderDefense: z.number().nonnegative().default(0),
+  /**
+   * Percentage points on what a won raid brings home (§A1) — the attacker's own Salvage Drones and
+   * Haulage Rigs. Applied to the rewards, never to the odds: better trucks do not win fights.
+   */
+  attackerLootBonus: z.number().nonnegative().default(0),
+  /**
    * Persisted on the battle row, so the fight replays from it. Opaque to the engine: any stable
    * string works, and the server mints a fresh one per battle.
    */

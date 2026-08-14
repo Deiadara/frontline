@@ -1,4 +1,5 @@
 import {
+  populationCapacity,
   assigneeBonusPercent,
   assigneeCapPerOfficer,
   assigneePool,
@@ -13,6 +14,7 @@ import {
   type Commander,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { populationUsed } from '../district/population.js';
 
 /**
  * Reading the assignee layer (GDD §G).
@@ -65,6 +67,8 @@ export function projectAssignees(base: Base): AssigneesResponse {
     maxBonusPercent: assigneeBonusPercent(assigneeCapPerOfficer(base.level)),
     /** §C4/§G4 — whether the player has a Professor, and so whether they can undo a placement. */
     canReskill: canReskill(base.commanders),
+    /** §A1 — the Quarters' ceiling, which is the other thing that can stop a placement. */
+    housing: { used: populationUsed(base), capacity: populationCapacity(base.buildings) },
     officers: base.commanders.map((officer) => projectAssigneeOfficer(base, officer)),
   };
 }

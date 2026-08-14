@@ -12,6 +12,7 @@ import {
 } from '@frontline/shared';
 import { awardCharacterXp } from '../characters/award.js';
 import type { Repositories } from '../db/repos/index.js';
+import { MODIFICATION_ROLE, fitModification } from '../district/modifications.js';
 import { nextPairing, nextRoleFact } from './discover.js';
 
 /**
@@ -62,6 +63,20 @@ function investigationYield(base: Base, active: ActiveResearch): DiscoveredFact[
 }
 
 /**
+ * The officer this project kept busy, or `null` when it kept nobody busy.
+ *
+ * An investigation names its lead on the row. Modification work does not — §C4 makes it the Lead
+ * Engineer's job and the server reads whoever holds the post *now*, which is also the honest
+ * answer: if the engineer who started it left, the one who finished it is the one who earned it.
+ * A training project develops the Overseer, who carries no character level, so it pays nobody.
+ */
+function leadOf(base: Base, active: ActiveResearch): string | null {
+  if (active.project.kind === 'investigation') return active.project.leadOfficerId;
+  if (active.project.kind !== 'modification') return null;
+  return base.commanders.find((officer) => officer.role === MODIFICATION_ROLE)?.id ?? null;
+}
+
+/**
  * Applies the project that just landed and persists it.
  *
  * Writes are ordered so that clearing `active` happens in the same state update as banking the
@@ -86,14 +101,26 @@ export function settleResearch(
   // is where that cashes out. Feeds W2's meter (INTERFACES R5); it does not open a second one.
   const morale = adjustMeter(base.economy.morale, moraleFromLeadership(overseer.attributes));
 
+  // §A1 — modification work ends with the thing bolted on. `fitModification` is a no-op when the
+  // structure or its slot went away while the work was under way, which is why this is a plain
+  // assignment rather than a branch: the project lands either way and never runs twice.
+  const buildings =
+    active.project.kind === 'modification'
+      ? fitModification(base.buildings, active.project.modificationId)
+      : base.buildings;
+
   const settled: Base = {
     ...base,
+    buildings,
     economy: { ...base.economy, morale },
     research: { ...recordFacts(base.research, discovered), active: null },
   };
 
   repos.bases.updateResearch(settled.id, settled.research);
   repos.bases.updateEconomy(settled.id, settled.economy);
+  if (buildings !== base.buildings) {
+    repos.bases.updateDistrict(settled.id, settled.buildings, settled.buildQueue);
+  }
   if (trained !== overseer) repos.overseers.updateAttributes(trained.id, trained.attributes);
 
   // §G6/§H6 — an investigation is the "internal process" half of INTERFACES R2: a named officer is
@@ -104,10 +131,7 @@ export function settleResearch(
   // is the one the officer had while doing the work, not the one this project's own XP just bought
   // them. A training project has no lead and pays nobody.
   const paid = awardCharacterXp(repos, settled, [
-    {
-      officerId: active.project.kind === 'investigation' ? active.project.leadOfficerId : null,
-      minutesEngaged: active.durationMinutes,
-    },
+    { officerId: leadOf(settled, active), minutesEngaged: active.durationMinutes },
   ]);
 
   return { base: paid, overseer: trained, discovered };

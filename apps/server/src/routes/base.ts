@@ -1,33 +1,34 @@
 import { randomUUID } from 'node:crypto';
 import {
+  BUILDING_CATALOG,
+  BUILDING_MAX_LEVEL,
   BuildStructureRequestSchema,
+  MAX_BUILD_QUEUE,
+  RenameFactionRequestSchema,
   type BaseDetailResponse,
   type BuildStructureResponse,
+  type RenameFactionResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { buildStructure, type BuildRefusal } from '../base/build.js';
-import { settleBaseEconomy } from '../economy/settle.js';
+import { nexusGate, queueBuild, type BuildRefusal } from '../district/build.js';
+import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { levelUpFrom } from '../progression/award.js';
 
 /**
- * Every refusal is a 409 — none of them is a malformed request, they are all the hideout saying
- * "not yet". The client can pre-empt all three from the base it already holds, so these are the
+ * Every refusal is a 409 — none of them is a malformed request, they are all the district saying
+ * "not yet". The client can pre-empt all five from the base it already holds, so these are the
  * honest last word on a stale tab rather than the primary way a player learns the rules.
+ *
+ * Two of the five are parameterised, because "raise the Nexus first" is only useful advice when it
+ * says how far. `nexusGate` supplies both numbers.
  */
-const REFUSAL_ERRORS: Record<BuildRefusal, { code: ErrorCode; message: string }> = {
-  at_max_level: {
-    code: 'STRUCTURE_AT_MAX_LEVEL',
-    message: 'That structure is as good as it gets',
-  },
-  command_center_cap: {
-    code: 'COMMAND_CENTER_CAP',
-    message: 'Nothing outgrows the Command Center — raise that first',
-  },
-  cannot_afford: {
-    code: 'INSUFFICIENT_RESOURCES',
-    message: 'You cannot cover the materials',
-  },
+const REFUSAL_ERRORS: Record<BuildRefusal, ErrorCode> = {
+  locked: 'STRUCTURE_LOCKED',
+  at_max_level: 'STRUCTURE_AT_MAX_LEVEL',
+  nexus_cap: 'NEXUS_CAP',
+  queue_full: 'BUILD_QUEUE_FULL',
+  cannot_afford: 'INSUFFICIENT_RESOURCES',
 };
 
 export function registerBaseRoutes(app: FastifyInstance): void {
@@ -42,32 +43,78 @@ export function registerBaseRoutes(app: FastifyInstance): void {
       if (base.ownerId !== request.currentUser.id) {
         throw new AppError('FORBIDDEN', 'You do not have access to this base');
       }
-      return { base: settleBaseEconomy(app.repos, base, new Date()) };
+      return { base: settleBase(app.repos, base, new Date()).base };
     },
   );
 
   /**
-   * Raise one structure by one level in your own hideout (GDD §A1, §D3).
+   * Put one structure's next level into the build queue (GDD §A1, §D3).
    *
    * The base comes from the caller's own account rather than the path: a player has exactly one
-   * hideout, so an id here would be a second way to say "mine" and a first way to try someone
-   * else's. Payroll settles first, because caps that left this morning are not caps you can spend
-   * on a wall this afternoon.
+   * district, so an id here would be a second way to say "mine" and a first way to try someone
+   * else's. Everything settles first — caps that left this morning are not caps you can spend on a
+   * Gate this afternoon, and an order that finished while the tab was open has to land before the
+   * queue is measured against its six-slot limit.
    */
   app.post('/base/build', { preHandler: app.authenticate }, (request): BuildStructureResponse => {
     const { kind } = parseBody(BuildStructureRequestSchema, request.body);
     const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
 
-    const base = settleBaseEconomy(app.repos, owned, new Date());
+    const settled = settleBase(app.repos, owned, new Date());
     const result = app.db.transaction(() =>
-      buildStructure(app.repos, { base, structure: kind, id: randomUUID() }),
+      queueBuild(app.repos, {
+        base: settled.base,
+        structure: kind,
+        id: randomUUID(),
+        now: new Date(),
+      }),
     )();
 
     if (result.kind === 'refused') {
-      const { code, message } = REFUSAL_ERRORS[result.reason];
-      throw new AppError(code, message);
+      throw new AppError(
+        REFUSAL_ERRORS[result.reason],
+        refusalMessage(result.reason, kind, settled.base),
+        // A refusal can still have banked a level-up on its way to refusing (MOU-280): the settle
+        // above is a write, and no later read re-resolves it.
+        levelUpFrom(settled.awards),
+      );
     }
-    return { base: result.base, levelUp: levelUpFrom([result.award]) };
+    return { base: result.base, levelUp: levelUpFrom(settled.awards) };
   });
+
+  /** §A1 — name the faction. */
+  app.post('/base/faction', { preHandler: app.authenticate }, (request): RenameFactionResponse => {
+    const { name } = parseBody(RenameFactionRequestSchema, request.body);
+    const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
+    if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
+
+    app.repos.bases.updateName(owned.id, name);
+    return { base: { ...settleBase(app.repos, owned, new Date()).base, name } };
+  });
+}
+
+/** What to tell the player, with the numbers that make the advice actionable. */
+function refusalMessage(
+  reason: BuildRefusal,
+  kind: Parameters<typeof nexusGate>[0],
+  base: Parameters<typeof nexusGate>[1],
+): string {
+  const spec = BUILDING_CATALOG[kind];
+  switch (reason) {
+    case 'locked': {
+      const { needs } = nexusGate(kind, base);
+      return `${spec.name} needs the Nexus at level ${needs}`;
+    }
+    case 'at_max_level':
+      return `${spec.name} is as good as it gets at level ${BUILDING_MAX_LEVEL}`;
+    case 'nexus_cap': {
+      const { at } = nexusGate(kind, base);
+      return `Nothing outgrows the Nexus — raise it past level ${at} first`;
+    }
+    case 'queue_full':
+      return `All ${MAX_BUILD_QUEUE} build slots are working`;
+    case 'cannot_afford':
+      return 'You cannot cover the materials';
+  }
 }

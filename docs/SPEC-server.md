@@ -70,7 +70,8 @@ Body: `CreateOverseerRequestSchema` `{presetId}`.
 - In one transaction: create the overseer from the preset (fresh id, copy name/archetype/
   portraitId/bio/attributes/traits), set `users.overseer_id`, and create the starting base:
   district `STARTER_DISTRICT_ID`, level 1, `STARTING_RESOURCES`, buildings =
-  `[command_center L1, reactor L1]` (fresh ids), name `"<username>'s Foothold"`.
+  `[nexus L1, generator L1]` (fresh ids, empty `modifications`), an empty `buildQueue`, and the
+  faction name `"<username>'s Crew"` truncated to `FACTION_NAME_MAX`.
 - `201` → `CreateOverseerResponseSchema` `{user, overseer, base}`.
 
 ### `GET /api/city` (auth)
@@ -84,6 +85,45 @@ or buildings of other players).
 - No such base → `404 NOT_FOUND`.
 - Base not owned by the caller → `403 FORBIDDEN` (owner-only in this milestone).
 - `200` → `BaseDetailResponseSchema` `{base}`.
+
+### `POST /api/base/build` (auth)
+
+Body: `BuildStructureRequestSchema` `{kind}`. Puts one structure's **next level** into the build
+queue (GDD §A1) — it does not raise anything. `settleBase` runs first, so an order that finished
+while the tab was open lands before the queue is measured against its limit.
+
+Refusals, all `409`, in the order they are checked:
+
+| Reason                                          | Code                     |
+| ----------------------------------------------- | ------------------------ |
+| Nexus too low to authorise the structure at all | `STRUCTURE_LOCKED`       |
+| Already at `BUILDING_MAX_LEVEL`                 | `STRUCTURE_AT_MAX_LEVEL` |
+| Held down by the Nexus's own level              | `NEXUS_CAP`              |
+| All `MAX_BUILD_QUEUE` slots working             | `BUILD_QUEUE_FULL`       |
+| Materials short                                 | `INSUFFICIENT_RESOURCES` |
+
+Materials are taken at order time. Price and duration are read off the district **as it stands**
+and frozen onto the entry; only the _level_ comes from the queue's projection, so a player may
+queue the Nexus and the structure it unlocks together.
+
+`200` → `BuildStructureResponseSchema` `{base, levelUp?}`.
+
+### `POST /api/base/faction` (auth)
+
+Body: `RenameFactionRequestSchema` `{name}` — trimmed and bounded by `FactionNameSchema`.
+`200` → `RenameFactionResponseSchema` `{base}`.
+
+### Lazy settlement
+
+Every read path that touches a base calls `settleBase`, which runs **the district first and
+payroll second**. The order is load-bearing in both directions: a Greenhouse has to have grown
+this week's rations before the upkeep is taken, and the Infirmary that softens a missed payday has
+to be standing before the payday is missed.
+
+The district settle walks the window rather than multiplying it — it is cut at each completed
+build so a structure that finished an hour ago is not paid for the three days the district went
+unread. It skips windows shorter than `PRODUCTION_MIN_STEP_MS` **without advancing the clock**, so
+nothing is lost to a fast-polling client.
 
 ### `POST /api/battle` (auth)
 

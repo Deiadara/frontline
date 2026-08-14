@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { IsoDateTimeSchema } from '../primitives.js';
 import { MeterSchema, STARTING_INFAMY, STARTING_MORALE } from './meters.js';
 import { PayrollStateSchema, startingPayroll } from './payroll.js';
 import {
@@ -20,6 +21,14 @@ export const EconomyStateSchema = z.object({
   infamy: MeterSchema,
   reputationTally: ReputationTallySchema,
   payroll: PayrollStateSchema,
+  /**
+   * When the district's structures last paid out (§A1) — the one stored clock behind lazy
+   * production, morale drift and the Generator's fuel burn.
+   *
+   * Nullable, and null means "start counting now" rather than "the epoch": a base minted before
+   * production existed must not be handed three weeks of back pay the first time it is opened.
+   */
+  productionSettledAt: IsoDateTimeSchema.nullable().default(null),
 });
 export type EconomyState = z.infer<typeof EconomyStateSchema>;
 
@@ -29,6 +38,7 @@ export function startingEconomy(now: string): EconomyState {
     infamy: STARTING_INFAMY,
     reputationTally: startingTally(now),
     payroll: startingPayroll(now),
+    productionSettledAt: now,
   };
 }
 

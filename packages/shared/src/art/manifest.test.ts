@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BUILDING_KINDS } from '../building.js';
+import { BUILDING_KINDS } from '../building/index.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS } from '../city.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS } from '../overseer.js';
 import { RESOURCE_KEYS } from '../resources.js';
@@ -49,12 +49,19 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plane-city-far', 'plane-city-far.webp', 130003],
   ['plane-city-fore', 'plane-city-fore.webp', 130004],
   ['splash-auth', 'splash-auth.webp', 130005],
-  ['building-command-center', 'building-command-center.webp', 140001],
-  ['building-reactor', 'building-reactor.webp', 140002],
-  ['building-data-hub', 'building-data-hub.webp', 140003],
-  ['building-foundry', 'building-foundry.webp', 140004],
-  ['building-barracks', 'building-barracks.webp', 140005],
-  ['building-wall', 'building-wall.webp', 140006],
+  ['building-nexus', 'building-nexus.webp', 140001],
+  ['building-quarters', 'building-quarters.webp', 140002],
+  ['building-greenhouse', 'building-greenhouse.webp', 140003],
+  ['building-generator', 'building-generator.webp', 140004],
+  ['building-scrapyard', 'building-scrapyard.webp', 140005],
+  ['building-cistern', 'building-cistern.webp', 140006],
+  ['building-apothecary', 'building-apothecary.webp', 140007],
+  ['building-gate', 'building-gate.webp', 140008],
+  ['building-commons', 'building-commons.webp', 140009],
+  ['building-lab', 'building-lab.webp', 140010],
+  ['building-gauntlet', 'building-gauntlet.webp', 140011],
+  ['building-infirmary', 'building-infirmary.webp', 140012],
+  ['building-garage', 'building-garage.webp', 140013],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -133,8 +140,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 45 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(45);
+  it('holds the 52 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(52);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -535,9 +542,7 @@ describe('resolveAssetKey', () => {
     expect(resolveAssetKey({ type: 'district', districtId: 'neon-docks' })).toBe(
       'district-neon-docks',
     );
-    expect(resolveAssetKey({ type: 'building', building: 'command_center' })).toBe(
-      'building-command-center',
-    );
+    expect(resolveAssetKey({ type: 'building', building: 'scrapyard' })).toBe('building-scrapyard');
     expect(resolveAssetKey({ type: 'portrait', portraitId: 'overseer-2' })).toBe(
       'portrait-overseer-2',
     );

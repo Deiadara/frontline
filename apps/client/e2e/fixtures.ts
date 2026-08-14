@@ -1,4 +1,7 @@
 import {
+  BAR_HIRES_PER_DAY,
+  MODIFICATIONS,
+  populationCapacity,
   addResources,
   alignedAttributes,
   MAX_PAIRINGS,
@@ -75,7 +78,7 @@ export const overseer: Overseer = {
 export const base: Base = {
   id: 'base-1',
   ownerId: 'user-1',
-  name: "Operator's Foothold",
+  name: 'The Ninth Street Crew',
   districtId: 'neon-docks',
   level: 1,
   isBot: false,
@@ -85,9 +88,10 @@ export const base: Base = {
   research: startingResearch(),
   assignees: startingAssignees(),
   buildings: [
-    { id: 'b1', kind: 'command_center', level: 1 },
-    { id: 'b2', kind: 'reactor', level: 1 },
+    { id: 'b1', kind: 'nexus', level: 1, modifications: [] },
+    { id: 'b2', kind: 'generator', level: 1, modifications: [] },
   ],
+  buildQueue: [],
   commanders: [],
   createdAt: NOW,
 };
@@ -254,6 +258,8 @@ export const bar: BarResponse = {
   reputation: 'Feared',
   caps: 125000,
   filledRoles: ['head_spy', 'finance_officer', 'raid_boss'],
+  /** §H2b — this crew has not signed anybody today, so the offer buttons are live. */
+  hiresLeftToday: BAR_HIRES_PER_DAY,
 };
 
 const minutesBefore = (now: Date, minutes: number) =>
@@ -479,6 +485,19 @@ const researchBase = {
   overseerAttributes: overseer.attributes,
   caps: 125000,
   costs: RESEARCH_COST_CAPS,
+  // §A1 — a crew with no Lead Engineer, so every modification reports the same blocker. The
+  // structures themselves are unbuilt in this fixture, which is the blocker the player sees first.
+  canModify: false,
+  modifications: MODIFICATIONS.map((mod) => ({
+    id: mod.id,
+    building: mod.building,
+    name: mod.name,
+    description: mod.description,
+    effect: mod.effect,
+    magnitude: mod.magnitude,
+    installed: false,
+    blocker: 'not_built' as const,
+  })),
 };
 
 /** Nothing running: the start forms, both of them, over a crew that already knows a lot. */
@@ -578,6 +597,7 @@ function assigneesAt(
     placed: total,
     unplaced: assigneePool(level) - total,
     capPerOfficer: assigneeCapPerOfficer(level),
+    housing: { used: officers.length + total, capacity: populationCapacity(base.buildings) },
     maxBonusPercent: assigneeBonusPercent(assigneeCapPerOfficer(level)),
     canReskill: officers.some((officer) => officer.role === 'professor'),
     officers,

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   ALIGNMENT_START,
   CHARACTER_LEVEL_MIN,
@@ -5,6 +6,7 @@ import {
   assessJoin,
   negotiateWage,
   playerLevelGrants,
+  populationCapacity,
   proratedFirstWage,
   reputationOf,
   type Base,
@@ -13,7 +15,8 @@ import {
   type OfficerRole,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import type { BarCharacter } from './roster.js';
+import { populationUsed } from '../district/population.js';
+import { BAR_HIRES_PER_DAY, barDay, type BarCharacter } from './roster.js';
 
 /**
  * Hiring out of the Bar (GDD §H3, §H4, §H7, §H8) — every gate between "that one" and a signed
@@ -26,6 +29,10 @@ import type { BarCharacter } from './roster.js';
 
 export interface HireInput {
   base: Base;
+  /** The account signing them. Needed for the §H2b daily limit and for the shared hire log. */
+  userId: string;
+  /** §H2b — which seat of the shared room they are sitting in, so it can be turned over. */
+  seat: number;
   recruit: BarCharacter;
   /** §C2 — the role the player is hiring them *into*. A character has none until now. */
   role: OfficerRole;
@@ -37,6 +44,8 @@ export interface HireInput {
 /** Why the hire cannot proceed at all — as opposed to §H7's counter-offer, which is a negotiation. */
 export const HIRE_REFUSALS = [
   'already_hired',
+  'daily_limit',
+  'no_housing',
   'no_slots',
   'role_taken',
   'requirement',
@@ -73,7 +82,14 @@ export function wageAskedOf(recruit: BarCharacter, stance: number): number {
  * Returns the first reason it is not, or `null` when the character will talk terms.
  */
 function refusalFor(
-  { base, recruit, role }: Omit<HireInput, 'offerWage' | 'now'>,
+  {
+    base,
+    recruit,
+    role,
+    hiresToday,
+  }: Omit<HireInput, 'offerWage' | 'now' | 'userId' | 'seat'> & {
+    hiresToday: number;
+  },
   blockers: readonly JoinBlocker[],
 ): HireRefusal | null {
   if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
@@ -81,6 +97,16 @@ function refusalFor(
   if (base.commanders.length >= playerLevelGrants(base.level).recruitSlots) return 'no_slots';
   // §C3 — a role is either filled or empty, so an occupied one cannot take a second officer.
   if (base.commanders.some((officer) => officer.role === role)) return 'role_taken';
+
+  // The two limits that are about the crew's *capacity* rather than about this request being
+  // nonsense, so they come after the three above: a player asking to fill a post that is already
+  // held should be told that, not told to come back tomorrow.
+  //
+  // §H2b — the shared room's stock is finite, so one signing per player per UTC day.
+  if (hiresToday >= BAR_HIRES_PER_DAY) return 'daily_limit';
+  // §A1 — an officer needs a bed like anyone else. Counted against the whole district population,
+  // assignees included, because the Quarters do not care what somebody's job title is.
+  if (populationUsed(base) + 1 > populationCapacity(base.buildings)) return 'no_housing';
 
   if (blockers.includes('infamy')) return 'requirement';
   if (blockers.includes('reputation')) return 'reputation';
@@ -97,10 +123,14 @@ function refusalFor(
  * here.
  */
 export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
-  const { base, recruit, role, offerWage, now } = input;
+  const { base, userId, seat, recruit, role, offerWage, now } = input;
+  const day = barDay(now);
 
   const { stance, blockers } = assessAgainst(base, recruit, now);
-  const refusal = refusalFor(input, blockers);
+  const refusal = refusalFor(
+    { base, recruit, role, hiresToday: repos.bar.hiresBy(userId, day) },
+    blockers,
+  );
   if (refusal) return { kind: 'refused', reason: refusal };
 
   const negotiation = negotiateWage(offerWage, wageAskedOf(recruit, stance));
@@ -142,6 +172,12 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
   repos.bases.updateResources(hired.id, hired.resources);
   repos.bases.updateEconomy(hired.id, hired.economy);
   repos.bases.updateCommanders(hired.id, hired.commanders);
+  // §H2b — and they walk out of the room. Somebody else takes the seat on the next read, for
+  // everyone, which is what makes the Bar a shop rather than a catalogue.
+  repos.bar.recordHire(
+    { id: randomUUID(), day, userId, recruitId: recruit.id, hiredAt: now.toISOString() },
+    seat,
+  );
 
   return { kind: 'hired', base: hired, officer, wage: negotiation.wage, firstPayment };
 }

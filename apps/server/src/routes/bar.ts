@@ -14,8 +14,15 @@ import type { FastifyInstance } from 'fastify';
 import { hireRecruit, type HireRefusal } from '../bar/hire.js';
 import { settleOfficerAlignment } from '../bar/officers.js';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
-import { barDay, barRoster, findBarRecruit } from '../bar/roster.js';
-import { settleBaseEconomy } from '../economy/settle.js';
+import {
+  BAR_HIRES_PER_DAY,
+  BAR_ROSTER_SIZE,
+  barDay,
+  barRoster,
+  findBarRecruit,
+  seatOf,
+} from '../bar/roster.js';
+import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 
 /**
@@ -40,7 +47,7 @@ function requireOwnBase(app: FastifyInstance, ownerId: string): Base {
  */
 function settledBase(app: FastifyInstance, ownerId: string, now: Date): Base {
   const own = requireOwnBase(app, ownerId);
-  return settleOfficerAlignment(app.repos, settleBaseEconomy(app.repos, own, now), now);
+  return settleOfficerAlignment(app.repos, settleBase(app.repos, own, now).base, now);
 }
 
 /**
@@ -50,6 +57,14 @@ function settledBase(app: FastifyInstance, ownerId: string, now: Date): Base {
  */
 const REFUSAL_ERRORS: Record<HireRefusal, { code: ErrorCode; message: string }> = {
   already_hired: { code: 'RECRUIT_UNAVAILABLE', message: 'They already work for you' },
+  daily_limit: {
+    code: 'DAILY_HIRE_LIMIT',
+    message: 'You have already signed someone today — the room restocks tomorrow',
+  },
+  no_housing: {
+    code: 'NO_HOUSING',
+    message: 'Nowhere to put them — raise the Quarters first',
+  },
   no_slots: { code: 'NO_RECRUIT_SLOTS', message: 'You have no room for another recruit' },
   role_taken: { code: 'ROLE_TAKEN', message: 'Someone already holds that position' },
   requirement: {
@@ -68,11 +83,14 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const now = new Date();
     const base = settledBase(app, request.currentUser.id, now);
     const day = barDay(now);
+    // §H2 — the room as it stands for everyone, including whoever has walked in to replace the
+    // people already hired out of it today.
+    const generations = app.repos.bar.generations(day, BAR_ROSTER_SIZE);
 
     return {
       day,
       serverNow: now.toISOString(),
-      recruits: barRoster(day).map((recruit) => projectRecruit(base, recruit, now)),
+      recruits: barRoster(day, generations).map((recruit) => projectRecruit(base, recruit, now)),
       officers: base.commanders.map((officer) => projectOfficer(base, officer)),
       slotsUsed: base.commanders.length,
       slotsTotal: playerLevelGrants(base.level).recruitSlots,
@@ -80,6 +98,10 @@ export function registerBarRoutes(app: FastifyInstance): void {
       reputation: reputationOf(base.economy, now),
       caps: base.resources.caps,
       filledRoles: base.commanders.map((officer) => officer.role),
+      hiresLeftToday: Math.max(
+        0,
+        BAR_HIRES_PER_DAY - app.repos.bar.hiresBy(request.currentUser.id, day),
+      ),
     };
   });
 
@@ -88,14 +110,29 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const now = new Date();
     const base = settledBase(app, request.currentUser.id, now);
 
-    const recruit = findBarRecruit(barDay(now), recruitId);
-    if (!recruit) {
-      // The roster turns over at midnight UTC (§H2), so a stale tab offering yesterday's people
-      // lands here rather than hiring someone who is no longer in the room.
+    const day = barDay(now);
+    const generations = app.repos.bar.generations(day, BAR_ROSTER_SIZE);
+    const recruit = findBarRecruit(day, recruitId, generations);
+    const seat = seatOf(day, recruitId);
+    if (!recruit || seat === null) {
+      // Two ways to land here and one honest answer for both: the roster turned over at midnight
+      // UTC (§H2), or somebody else signed this person and their seat has already moved on
+      // (§H2b). A stale tab must not be able to hire the replacement by accident, which is why
+      // the generation is part of the id it sends back.
       throw new AppError('NOT_FOUND', 'They are not at the Bar today');
     }
 
-    const result = hireRecruit(app.repos, { base, recruit, role, offerWage, now });
+    const result = app.db.transaction(() =>
+      hireRecruit(app.repos, {
+        base,
+        userId: request.currentUser.id,
+        seat,
+        recruit,
+        role,
+        offerWage,
+        now,
+      }),
+    )();
     if (result.kind === 'refused') {
       const { code, message } = REFUSAL_ERRORS[result.reason];
       throw new AppError(code, message);

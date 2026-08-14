@@ -28,11 +28,21 @@ const [DEFAULT_VIEWPORT] = VIEWPORTS;
 const botDistrict = findDistrict(BOT_DISTRICT_ID);
 if (!botDistrict) throw new Error('fixture error: the bot district is missing from the city map');
 
-/** What standing up the Foundry costs (GDD §D3) — spent in STEP 4, before the raid. */
-const FOUNDRY = buildingCost('foundry', 1);
+/**
+ * What ordering the Quarters costs (GDD §D3) — spent in STEP 4, before the raid.
+ *
+ * The Quarters because they are the cheapest thing a level-1 Nexus authorises, and the shortest:
+ * this is the one test that waits for a real build to land against a real server clock, and the
+ * bottom of the curve is where that wait is measured in seconds rather than hours.
+ */
+const STARTING_DISTRICT = [
+  { id: 'b1', kind: 'nexus' as const, level: 1, modifications: [] },
+  { id: 'b2', kind: 'generator' as const, level: 1, modifications: [] },
+];
+const QUARTERS = buildingCost('quarters', 1, STARTING_DISTRICT);
 
-/** Stockpile after the Foundry is paid for and the first raid on the rival is won. */
-const AFTER_BUILD = spendResources(STARTING_RESOURCES, FOUNDRY);
+/** Stockpile after the Quarters are paid for and the first raid on the rival is won. */
+const AFTER_BUILD = spendResources(STARTING_RESOURCES, QUARTERS);
 const AFTER_RAID = addResources(AFTER_BUILD, botDistrict.rewards);
 
 /** External noise we never treat as an app bug. */
@@ -115,28 +125,41 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
 
   // --- STEP 4: the hideout, and building in it against the real server (GDD §A1, §D3) ---
   await page.getByRole('link', { name: 'Base', exact: true }).click();
-  await expect(page.getByRole('heading', { name: /Foothold/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Command Center —/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Fusion Reactor —/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Crew/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^The Nexus —/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^The Generator —/ })).toBeVisible();
   await shootEveryViewport(page, 'base');
 
   /*
    * The one place `POST /api/base/build` is exercised end to end: real route, real ledger, real
    * §I1 award. Every other build test stubs the response, so this is what would catch a spend the
-   * server refuses for a reason the client mirrored wrongly — the village says it can afford the
-   * Foundry, so the server must agree.
+   * server refuses for a reason the client mirrored wrongly — the district says it can afford the
+   * Quarters, so the server must agree.
    */
-  const foundry = page.getByRole('button', { name: /^Foundry —/ });
-  await expect(foundry).toHaveAttribute('aria-label', /vacant plot/);
-  await foundry.click();
+  const quarters = page.getByRole('button', { name: /^The Quarters —/ });
+  await expect(quarters).toHaveAttribute('aria-label', /vacant plot/);
+  await quarters.click();
   const plotDialog = page.getByRole('dialog');
-  await plotDialog.getByRole('button', { name: 'Build' }).click();
-  await expect(foundry).toHaveAttribute('aria-label', /level 1/);
+  await plotDialog.getByRole('button', { name: 'Queue build' }).click();
+  // The order is placed, not finished — which is the whole contract of the queue.
+  await expect(quarters).toHaveAttribute('aria-label', /under construction/);
   await plotDialog.getByRole('button', { name: 'Close' }).click();
-  // §D3: the oil left the HUD's ledger, not a second counter of the hideout's own. Matched as a
-  // whole chip value, so it cannot pass on some other resource that happens to contain the digits.
+  await expect(page.getByTestId('build-queue')).toContainText('The Quarters');
+  // §D3: the oil left the HUD's ledger *at order time*, not a second counter of the district's
+  // own. Matched as a whole chip value, so it cannot pass on some other resource that happens to
+  // contain the digits.
   await expect(hud.getByText(String(AFTER_BUILD.oil), { exact: true })).toBeVisible();
-  await shootEveryViewport(page, 'hideout-built');
+  await shootEveryViewport(page, 'district-queued');
+
+  /*
+   * And then it lands — the one place the lazy build settle runs against a real clock and a real
+   * database rather than a stubbed response. `buildingBuildSeconds` at the bottom of the tree is
+   * tens of seconds, and the page polls every five, so the timeout is that plus a wide margin for
+   * a loaded CI box rather than a number picked to be comfortable.
+   */
+  await expect(quarters).toHaveAttribute('aria-label', /level 1/, { timeout: 90_000 });
+  await expect(page.getByTestId('build-queue')).toHaveCount(0);
+  await shootEveryViewport(page, 'district-built');
 
   // --- STEP 5: raid the AI rival ---
   await page.getByRole('link', { name: 'Map', exact: true }).click();
@@ -177,7 +200,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(dialog).toContainText(String(AFTER_RAID.caps));
   await expect(dialog).toContainText(String(AFTER_RAID.scrap));
   // A player never sees a UUID: the narration names the base it deployed from.
-  await expect(dialog).toContainText("Nikos's Foothold");
+  await expect(dialog).toContainText("Nikos's Crew");
   expect(await dialog.innerText()).not.toMatch(
     /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
   );

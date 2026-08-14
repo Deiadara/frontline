@@ -1,4 +1,5 @@
 import type { AppDatabase } from '../index.js';
+import { createBarRepo, type BarRepo } from './bar.js';
 import { createBasesRepo, type BasesRepo } from './bases.js';
 import { createBattlesRepo, type BattlesRepo } from './battles.js';
 import { createMissionsRepo, type MissionsRepo } from './missions.js';
@@ -12,6 +13,8 @@ export interface Repositories {
   bases: BasesRepo;
   battles: BattlesRepo;
   missions: MissionsRepo;
+  /** The Bar's shared seat turnover and hire log (GDD §H2, §H2b). */
+  bar: BarRepo;
 }
 
 export function createRepositories(db: AppDatabase): Repositories {
@@ -21,5 +24,6 @@ export function createRepositories(db: AppDatabase): Repositories {
     bases: createBasesRepo(db),
     battles: createBattlesRepo(db),
     missions: createMissionsRepo(db),
+    bar: createBarRepo(db),
   };
 }

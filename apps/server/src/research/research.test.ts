@@ -1,4 +1,5 @@
 import {
+  OFFICER_ROLES,
   CROSS_REFERENCE_IMAGINATION,
   characterXpForActivity,
   EXTRA_FACT_COMMUNICATION,
@@ -84,6 +85,7 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     assignees: startingAssignees(),
     research: startingResearch(),
     buildings: [],
+    buildQueue: [],
     commanders: [],
     createdAt: NOW.toISOString(),
     ...overrides,
@@ -656,12 +658,62 @@ describe('GET /research and POST /research', () => {
     expect(pairingsIn(settled.facts)).toHaveLength(1);
 
     // The response-body half of INTERFACES R4, over the real route: nothing but facts.
-    const serialized = JSON.stringify(settled);
+    //
+    // The §A1 modification catalogue is lifted out first. It is authored English about *buildings*,
+    // byte-identical for every crew and derived from nothing a crew has learnt, so it cannot carry
+    // role knowledge — but a substring scan over English collides with it on sight ("graFFITi"
+    // contains "fit"). Excluding it keeps this scan meaningful instead of forcing the prose to
+    // avoid seven letter sequences; the test below is the catalogue's own guard.
+    const { modifications: _catalogue, ...roleReachable } = settled;
+    const serialized = JSON.stringify(roleReachable);
     for (const banned of ['affinity', 'weight', 'fit', 'suitability', 'star', 'score', 'rank']) {
       expect(serialized.toLowerCase(), `the research response mentions "${banned}"`).not.toContain(
         banned,
       );
     }
+  });
+
+  it('§A1 — the modification catalogue names no role, and is the same for every crew', async () => {
+    const app = await makeApp();
+    const novice = await read(app, await makePlayer(app, 'mod_novice'));
+
+    // Structural, not lexical. Scanning the prose for the nineteen role words is what the rest of
+    // this suite does and it cannot work here: the board's own "Precision Fabricators" contains
+    // `fabricator`, and it is a machine tool, not the officer post. What matters is not which
+    // English words appear — it is that no *field* is keyed by a role and that nothing in the
+    // catalogue moves with what a crew has learnt. Both are checked directly.
+    const ROLE_VALUES = new Set<string>(OFFICER_ROLES);
+    for (const option of novice.modifications) {
+      // Every key is from the fixed DTO, and none of them is `role`.
+      expect(Object.keys(option).sort()).toEqual([
+        'blocker',
+        'building',
+        'description',
+        'effect',
+        'id',
+        'installed',
+        'magnitude',
+        'name',
+      ]);
+      // And no value *is* a role id, which is the shape a leak would actually take.
+      for (const value of Object.values(option)) {
+        expect(ROLE_VALUES.has(String(value)), `${option.id} carries a role id`).toBe(false);
+      }
+    }
+
+    // It does not move with what a crew knows: a fresh account and one that has researched see
+    // the same sixty-five entries, differing only in the two per-crew fields.
+    const veteran = await makePlayer(app, 'mod_veteran');
+    const veteranId = userIdOf(app, veteran);
+    const baseId = app.repos.bases.findByOwnerId(veteranId)!.id;
+    app.repos.bases.updateResearch(baseId, {
+      active: null,
+      facts: [{ kind: 'role_attribute', role: 'head_spy', attribute: 'stealth' }],
+    });
+
+    const shape = (options: typeof novice.modifications) =>
+      options.map(({ blocker: _b, installed: _i, ...rest }) => rest);
+    expect(shape((await read(app, veteran)).modifications)).toEqual(shape(novice.modifications));
   });
 
   function userIdOf(app: FastifyInstance, token: string): string {

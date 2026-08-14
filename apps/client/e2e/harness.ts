@@ -63,17 +63,44 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
     const SLACK = 1;
     const bad = new Set<string>();
 
+    /**
+     * Does this element establish a containing block for `position: fixed` descendants?
+     *
+     * The list is the spec's: a transform, a perspective, a filter or backdrop-filter, a
+     * `will-change` naming one of those, or paint containment. Any of them re-parents a fixed
+     * descendant onto this box — so it clips again, and the walk below has to notice.
+     */
+    const containsFixed = (style: CSSStyleDeclaration): boolean =>
+      style.transform !== 'none' ||
+      style.perspective !== 'none' ||
+      style.filter !== 'none' ||
+      style.backdropFilter !== 'none' ||
+      /transform|filter|perspective/.test(style.willChange) ||
+      /paint|layout|strict|content/.test(style.contain);
+
     /** The band of `el` that survives every clipping ancestor, in viewport coordinates. */
     const visibleBand = (el: HTMLElement) => {
       const at = el.getBoundingClientRect();
       let [top, bottom] = [at.top, at.bottom];
+
+      // A `position: fixed` box is laid out against the viewport, not against its DOM parents, so
+      // the overflow of the ancestors above it does not cut it. Walking past that — as this did
+      // until MOU-4xx — reports every modal rendered inside a scrolling page as clipped, which is
+      // both wrong and exactly the kind of false red that gets a gate switched off. The escape
+      // ends at an ancestor that establishes a containing block for fixed descendants, because
+      // that one really does clip it again.
+      let escaped = getComputedStyle(el).position === 'fixed';
+
       for (let node = el.parentElement; node; node = node.parentElement) {
         const style = getComputedStyle(node);
-        if (style.overflowY === 'visible') continue;
-        const box = node.getBoundingClientRect();
-        // Overflow is clipped at the padding box, so the border sits outside the cut.
-        top = Math.max(top, box.top + parseFloat(style.borderTopWidth));
-        bottom = Math.min(bottom, box.bottom - parseFloat(style.borderBottomWidth));
+        if (escaped && containsFixed(style)) escaped = false;
+        if (!escaped && style.overflowY !== 'visible') {
+          const box = node.getBoundingClientRect();
+          // Overflow is clipped at the padding box, so the border sits outside the cut.
+          top = Math.max(top, box.top + parseFloat(style.borderTopWidth));
+          bottom = Math.min(bottom, box.bottom - parseFloat(style.borderBottomWidth));
+        }
+        if (style.position === 'fixed') escaped = true;
       }
       return { height: at.height, visible: bottom - top };
     };

@@ -5,7 +5,7 @@ import type {
   MeResponse,
 } from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ApiRequestError } from './api';
 import {
   assignPoint,
@@ -22,6 +22,7 @@ import {
   getMissions,
   hireRecruit,
   launchMission,
+  renameFaction,
   getResearch,
   startResearch,
 } from './api';
@@ -66,6 +67,16 @@ const MISSION_POLL_MS = 15_000;
 /** Same idea for research: the settle happens on the read, and the clock is minutes long. */
 const RESEARCH_POLL_MS = 15_000;
 
+/**
+ * And for the district (§A1). The build queue settles on this read, so the poll is what turns a
+ * finished countdown into a standing structure while the page is open.
+ *
+ * Faster than the other two because the bottom of the build tree is measured in *seconds* — a
+ * fifteen-second poll would leave a twenty-second build looking stuck for most of its life, which
+ * is the first thing a new player builds.
+ */
+const DISTRICT_POLL_MS = 5_000;
+
 /** Authenticated session snapshot: user + overseer + base. */
 export function useMe() {
   const token = useSession((s) => s.token);
@@ -78,12 +89,50 @@ export function useCity() {
   return useQuery({ queryKey: queryKeys.city, queryFn: getCity, enabled: token !== null });
 }
 
-/** Detail for a single owned base. */
+/** Detail for a single owned base — the district, its queue and its stockpile (§A1). */
 export function useBase(id: string | undefined) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
     queryKey: queryKeys.base(id ?? ''),
     queryFn: () => getBase(id ?? ''),
     enabled: id !== undefined,
+    refetchInterval: DISTRICT_POLL_MS,
+  });
+
+  /*
+   * A build lands on the *poll*, not on anything the player did, and the level it may have crossed
+   * (§I1) moves the §G layer with it. Keyed on the queue shrinking rather than on the fetch, so a
+   * poll that changed nothing costs nothing.
+   */
+  const queued = query.data?.base.buildQueue.length ?? 0;
+  const previous = useRef(queued);
+  useEffect(() => {
+    const landed = queued < previous.current;
+    previous.current = queued;
+    if (landed) invalidateLevelSensitive(queryClient);
+  }, [queued, queryClient]);
+
+  return query;
+}
+
+/**
+ * §A1 — name the faction.
+ *
+ * Writes the response into both caches rather than invalidating: the name is on the HUD, on the
+ * district page and on the city map, and a player who has just typed it should not watch it flicker
+ * back to the old one while a refetch lands.
+ */
+export function useRenameFaction(baseId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: renameFaction,
+    onSuccess: (data) => {
+      if (baseId !== undefined) {
+        queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), { base: data.base });
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.city });
+    },
   });
 }
 

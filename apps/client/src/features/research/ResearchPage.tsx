@@ -1,4 +1,12 @@
 import {
+  BUILDING_CATALOG,
+  BUILDING_KINDS,
+  MAX_MODIFICATION_SLOTS,
+  MODIFICATION_SLOT_LEVELS,
+  findModification,
+  type ActiveResearch,
+  type BuildingKind,
+  type ModificationBlocker,
   ATTRIBUTES_BY_GROUP,
   ATTRIBUTE_GROUPS,
   CROSS_REFERENCE_IMAGINATION,
@@ -62,6 +70,18 @@ function useTick(active: boolean): number {
   return now;
 }
 
+/** What the crew is on, in one line — the three project kinds each read differently. */
+function titleOf(project: ActiveResearch['project']): string {
+  switch (project.kind) {
+    case 'investigation':
+      return `Investigating the ${OFFICER_ROLE_LABELS[project.role]} position`;
+    case 'training':
+      return `Training — ${labelOf(project.attribute)}`;
+    case 'modification':
+      return `Fitting — ${findModification(project.modificationId)?.name ?? 'a modification'}`;
+  }
+}
+
 function ActiveProject({ data, now }: { data: ResearchResponse; now: number }) {
   const active = data.active;
   if (!active) return null;
@@ -69,10 +89,7 @@ function ActiveProject({ data, now }: { data: ResearchResponse; now: number }) {
   const at = new Date(now);
   const progress = researchProgressAt(active, at);
   const remaining = researchRemainingMs(active, at);
-  const title =
-    active.project.kind === 'investigation'
-      ? `Investigating the ${OFFICER_ROLE_LABELS[active.project.role]} position`
-      : `Training — ${labelOf(active.project.attribute)}`;
+  const title = titleOf(active.project);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -113,7 +130,8 @@ function StartForm({ data, pending, onStart }: StartFormProps) {
   const canCrossReference = (lead?.crossReference ?? false) && !data.pairingsExhausted;
   const chosenRole = role === '' ? data.openRoles[0] : role;
 
-  const affordable = (kind: 'investigation' | 'training') => data.caps >= data.costs[kind];
+  const affordable = (kind: 'investigation' | 'training' | 'modification') =>
+    data.caps >= data.costs[kind];
   const trainable = data.overseerAttributes[attribute] < MAX_ATTRIBUTE;
 
   return (
@@ -283,7 +301,101 @@ function StartForm({ data, pending, onStart }: StartFormProps) {
           {affordable('training') ? 'Begin training' : 'Not enough caps'}
         </Button>
       </section>
+
+      <ModificationsSection data={data} pending={pending} onStart={onStart} />
     </div>
+  );
+}
+
+/** Why a modification cannot be started, in the words the player needs to act on it. */
+const BLOCKER_TEXT: Record<ModificationBlocker, string> = {
+  not_built: 'Not built',
+  no_slot: 'No free slot',
+  no_lead_engineer: 'Needs a Lead Engineer',
+  research_busy: 'Bench busy',
+  cannot_afford: 'Cannot afford',
+};
+
+/**
+ * §A1 — the sixty-five modifications, grouped by the structure they go in.
+ *
+ * The whole catalogue is shown, not just the startable ones: what raising the Lab would unlock is
+ * exactly the information a player needs *before* they raise it, and a list that hid everything
+ * unavailable would hide precisely that. `blocker` comes from the server, so the reason a row is
+ * dead is by construction the reason the route would give.
+ */
+function ModificationsSection({ data, pending, onStart }: StartFormProps) {
+  const [kind, setKind] = useState<BuildingKind>('nexus');
+  const shown = data.modifications.filter((option) => option.building === kind);
+
+  return (
+    <section className="flex min-w-0 flex-col gap-3 border border-steel-800 p-3 lg:col-span-2">
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="font-display text-[11px] uppercase tracking-[0.2em] text-steel-200">
+          Fit a modification
+        </h3>
+        <span className="shrink-0 font-display text-[10px] tabular-nums text-steel-500">
+          {data.costs.modification}c + materials · {formatDuration(RESEARCH_MINUTES.modification)}
+        </span>
+      </header>
+      <p className="text-[11px] leading-relaxed text-steel-500">
+        Permanent, and limited to {MAX_MODIFICATION_SLOTS} per structure — slots open at levels{' '}
+        {MODIFICATION_SLOT_LEVELS.join(', ')}. Your Lead Engineer does the work.
+      </p>
+
+      {!data.canModify && (
+        <p className="text-[11px] text-warning">
+          Nobody on your books can run this. Hire a Lead Engineer.
+        </p>
+      )}
+
+      <label className="flex flex-col gap-1">
+        <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
+          Structure
+        </span>
+        <select
+          value={kind}
+          onChange={(event) => setKind(event.target.value as BuildingKind)}
+          className="min-w-0 border border-steel-700 bg-night px-2 py-1.5 text-[11px] text-steel-200"
+        >
+          {BUILDING_KINDS.map((option) => (
+            <option key={option} value={option}>
+              {BUILDING_CATALOG[option].name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <ul className="flex flex-col gap-2" data-testid="modification-options">
+        {shown.map((option) => (
+          <li
+            key={option.id}
+            className="flex flex-wrap items-center justify-between gap-2 border border-steel-800 p-2"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="font-display text-[11px] uppercase tracking-[0.14em] text-steel-200">
+                {option.name}{' '}
+                <span className="tabular-nums text-neon-cyan">+{option.magnitude}</span>
+              </p>
+              <p className="text-[11px] leading-relaxed text-steel-500">{option.description}</p>
+            </div>
+            {option.installed ? (
+              <span className="shrink-0 border border-neon-cyan/40 px-2 py-1 font-display text-[9px] uppercase tracking-[0.16em] text-neon-cyan">
+                Fitted
+              </span>
+            ) : (
+              <Button
+                size="sm"
+                disabled={pending || option.blocker !== null}
+                onClick={() => onStart({ kind: 'modification', modificationId: option.id })}
+              >
+                {option.blocker === null ? 'Fit it' : BLOCKER_TEXT[option.blocker]}
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

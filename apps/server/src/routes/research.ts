@@ -14,7 +14,8 @@ import {
   type StartResearchResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { settleBaseEconomy } from '../economy/settle.js';
+import { settleBase } from '../district/settle.js';
+import { hasLeadEngineer, modificationOptions } from '../district/modifications.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { pairingsExhausted } from '../research/discover.js';
 import { settleResearch } from '../research/settle.js';
@@ -54,12 +55,7 @@ function settledPlayer(
   const chosen = overseerId ? app.repos.overseers.findById(overseerId) : undefined;
   if (!chosen) throw new AppError('NO_BASE', 'You have not chosen an Overseer yet');
 
-  const settlement = settleResearch(
-    app.repos,
-    settleBaseEconomy(app.repos, owned, now),
-    chosen,
-    now,
-  );
+  const settlement = settleResearch(app.repos, settleBase(app.repos, owned, now).base, chosen, now);
   return {
     base: settlement.base,
     overseer: settlement.overseer,
@@ -98,6 +94,22 @@ const REFUSAL_ERRORS: Record<ResearchRefusal, { code: ErrorCode; message: string
     code: 'RESEARCH_EXHAUSTED',
     message: 'There is nothing further to be learned there',
   },
+  unknown_modification: {
+    code: 'MODIFICATION_UNAVAILABLE',
+    message: 'No such modification',
+  },
+  modification_unavailable: {
+    code: 'MODIFICATION_UNAVAILABLE',
+    message: 'That structure is not standing yet',
+  },
+  no_modification_slot: {
+    code: 'NO_MODIFICATION_SLOT',
+    message: 'That structure has no free slot — raise it further first',
+  },
+  no_lead_engineer: {
+    code: 'NO_LEAD_ENGINEER',
+    message: 'Modification work needs a Lead Engineer on the books',
+  },
   cannot_afford: { code: 'INSUFFICIENT_CAPS', message: 'You cannot cover the costs' },
 };
 
@@ -120,6 +132,8 @@ export function registerResearchRoutes(app: FastifyInstance): void {
       overseerAttributes: overseer.attributes,
       caps: base.resources.caps,
       costs: RESEARCH_COST_CAPS,
+      canModify: hasLeadEngineer(base),
+      modifications: modificationOptions(base),
     };
   });
 

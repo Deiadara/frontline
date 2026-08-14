@@ -18,6 +18,9 @@ const attacker = {
   attackerBaseId: 'b5601950-0e4d-4862-af9a-dbf0ede0b4c0',
   attackerBaseName: 'Ashfall Foundry',
   attackerAttributes: makeAttributes(20),
+  /** Bare ground and no haulage — the baseline every case below varies one thing off. */
+  defenderDefense: 0,
+  attackerLootBonus: 0,
   seed: 'fixture-seed',
 };
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;

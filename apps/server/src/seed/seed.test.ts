@@ -203,7 +203,7 @@ describe('seedMvpWorld', () => {
     expect(base?.name).toBe(MVP_BOT.baseName);
     expect(base?.districtId).toBe('ashen-terraces');
     expect(base?.buildings.map((b) => b.kind)).toEqual(
-      expect.arrayContaining(['wall', 'barracks', 'command_center']),
+      expect.arrayContaining(['gate', 'gauntlet', 'nexus']),
     );
     expect(base?.commanders.length).toBeGreaterThan(0);
     expect(base?.resources.caps).toBeGreaterThan(STARTING_RESOURCES.caps);

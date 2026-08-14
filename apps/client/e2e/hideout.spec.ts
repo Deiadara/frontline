@@ -1,5 +1,5 @@
 /**
- * MOU-167 / GDD §A1 acceptance gate: the hideout as a village, with zero visual bugs.
+ * MOU-167 / GDD §A1 acceptance gate: the district as a place, with zero visual bugs.
  *
  * The board's bar is "no cut text or images, no overflow, no overlapping elements, at every
  * supported viewport". The plots are placed in *percentages* of a scene box, so the failure mode
@@ -24,15 +24,16 @@ import {
  * A hideout with every plot standing at `level`, over `lateGame`'s late-game stockpile.
  *
  * Both fat cases only exist at the top of the curve: the widest name plate the catalogue can
- * produce is `Data Hub Lv 10` — the only two-digit one — and the widest cost line is the level-10
- * Command Center, five figures across three materials. `lateGame` on its own is a *rich* base
- * still wearing the starting village, so it renders neither.
+ * produce is `Apothecary Lv 20` — two digits under the longest short name — and the widest cost
+ * line is the level-20 Garage, five figures across four materials. `lateGame` on its own is a
+ * *rich* base still wearing the starting two structures, so it renders neither.
  */
-function villageAt(level: number): typeof lateGame {
+function districtAt(level: number): typeof lateGame {
   const buildings: Building[] = BUILDING_KINDS.map((kind, index) => ({
     id: `b${index + 1}`,
     kind,
     level,
+    modifications: [],
   }));
   return { ...lateGame, base: { ...lateGameBase, buildings } };
 }
@@ -106,15 +107,17 @@ function expectNoPairOverlaps(rects: Box[], what: string): void {
  * in* when the font lands, and it would then be silently cut by the scene's `overflow-hidden`
  * rather than pushing the document out.
  */
-async function expectVillageLaidOutCleanly(page: Page): Promise<void> {
-  const [scene] = await boxes(page, '[data-testid="village-scene"]');
-  expect(scene, 'the village scene must be rendered').toBeDefined();
+async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
+  const [scene] = await boxes(page, '[data-testid="district-scene"]');
+  expect(scene, 'the district scene must be rendered').toBeDefined();
   if (!scene) return;
 
-  const plots = await boxes(page, '[data-testid="village-scene"] > button');
-  expect(plots, 'every structure in the catalogue stands on a plot').toHaveLength(6);
+  const plots = await boxes(page, '[data-testid="district-scene"] > button');
+  expect(plots, 'every structure in the catalogue stands on a plot').toHaveLength(
+    BUILDING_KINDS.length,
+  );
   const plates = await boxes(page, '[data-testid^="plot-label-"]');
-  expect(plates).toHaveLength(6);
+  expect(plates).toHaveLength(BUILDING_KINDS.length);
 
   for (const box of [...plots, ...plates]) {
     expect(box.left, `${box.label} runs off the left of the scene`).toBeGreaterThanOrEqual(
@@ -137,7 +140,7 @@ async function expectVillageLaidOutCleanly(page: Page): Promise<void> {
   // ...and the silhouette standing on each plot is actually drawn. Everything above measures
   // *buttons and plates*; a sprite's own span is `min-h-0 w-full flex-1`, so it takes whatever the
   // plate leaves it, and a sprite squeezed to nothing leaves every assertion so far untouched.
-  await expectNoImagesClipped(page, '[data-testid="village-scene"]');
+  await expectNoImagesClipped(page, '[data-testid="district-scene"]');
 }
 
 async function expectNoDocumentOverflow(page: Page): Promise<void> {
@@ -158,12 +161,12 @@ for (const size of VIEWPORTS) {
   test.describe(`hideout ${tag}`, () => {
     test.use({ viewport: size });
 
-    test(`the village lays out cleanly at ${tag}`, async ({ page }) => {
+    test(`the district lays out cleanly at ${tag}`, async ({ page }) => {
       await installApi(page, me);
       await page.goto('/game/base');
-      await expect(page.getByRole('heading', { name: "Operator's Foothold" })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
 
-      await expectVillageLaidOutCleanly(page);
+      await expectDistrictLaidOutCleanly(page);
       await expectNoDocumentOverflow(page);
       // The HUD's resource glyphs and the nav's icons, at the width that squeezes them hardest.
       // Both are fixed bars rather than scrollers, so nothing here is cut by design.
@@ -172,51 +175,76 @@ for (const size of VIEWPORTS) {
       // Scoped to the scene: this page is a document scroller, so its own fold cuts the last row
       // of the panels below by design (the same argument `visual.spec.ts` makes for the base view).
       // The scene is `overflow-hidden` and fixed-aspect, so a cut inside it is always a real bug.
-      await expectNothingClippedVertically(page, '[data-testid="village-scene"]');
-      await page.screenshot({ path: `screenshots/hideout/village-${tag}.png` });
+      await expectNothingClippedVertically(page, '[data-testid="district-scene"]');
+      await page.screenshot({ path: `screenshots/hideout/district-${tag}.png` });
     });
 
     /*
-     * The dialog is the fat case: the widest cost line the game has (a level-10 Command Center,
+     * The dialog is the fat case: the widest cost line the game has (a level-20 Garage,
      * five figures in three materials) over the longest refusal copy. Its own screenshot, because
-     * a modal is drawn over the page and a `fullPage` shot of the village cannot show it.
+     * a modal is drawn over the page and a `fullPage` shot of the district cannot show it.
      */
     test(`the plot dialog lays out cleanly at ${tag}`, async ({ page }) => {
-      // One level below the ceiling, so the dialog quotes the level-10 price rather than level 2's.
-      await installApi(page, villageAt(9));
+      // One level below the ceiling, so the dialog quotes the level-20 price rather than level 2's.
+      await installApi(page, districtAt(19));
       await page.goto('/game/base');
-      await page.getByRole('button', { name: /^Command Center —/ }).click();
+      await page.getByRole('button', { name: /^The Garage —/ }).click();
 
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole('heading', { name: 'Command Center' })).toBeInViewport({
+      await expect(dialog.getByRole('heading', { name: 'The Garage' })).toBeInViewport({
         ratio: 1,
       });
-      await expect(dialog.getByRole('button', { name: 'Upgrade' })).toBeInViewport({ ratio: 1 });
+      await expect(dialog.getByRole('button', { name: 'Queue upgrade' })).toBeInViewport({
+        ratio: 1,
+      });
       await expectNoDocumentOverflow(page);
       await expectNothingClippedVertically(page, '[role="dialog"]');
       await page.screenshot({ path: `screenshots/hideout/dialog-${tag}.png` });
+    });
+
+    /**
+     * Positive control for the assertion above.
+     *
+     * `expectNothingClippedVertically` walks clipping ancestors, and it was taught to stop at a
+     * `position: fixed` box — which is correct (a modal is laid out against the viewport, not
+     * against the scrolling page it happens to sit inside) and is also exactly the kind of change
+     * that can quietly turn a gate off. So: cut the dialog for real, and check it goes red.
+     */
+    test(`the dialog clipping gate goes red on a real cut at ${tag}`, async ({ page }) => {
+      await installApi(page, districtAt(19));
+      await page.goto('/game/base');
+      await page.getByRole('button', { name: /^The Garage —/ }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+
+      // The dialog's own overflow, so the cut is one a fixed box genuinely suffers.
+      await page.addStyleTag({
+        content: '[role="dialog"] { max-height: 120px !important; overflow-y: hidden !important; }',
+      });
+      await expect(expectNothingClippedVertically(page, '[role="dialog"]')).rejects.toThrow(
+        /sliced/,
+      );
     });
   });
 }
 
 /**
- * The village with every plot standing — what the hideout looks like once it has been played, and
- * the only state that shows all six silhouettes at once. Screenshot-only: the geometry gates above
- * already run over the six *plots*, which are in the same place whether or not they are built.
+ * The district with every plot standing — what it looks like once it has been played, and the only
+ * state that shows all thirteen silhouettes at once. Screenshot-only: the geometry gates above
+ * already run over the thirteen *plots*, which are in the same place whether or not they are built.
  */
-test.describe('a hideout that has been played', () => {
+test.describe('a district that has been played', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test('renders every structure standing', async ({ page }) => {
     // At the ceiling, not mid-curve: this is the only fixture that lays out a two-digit name plate
-    // (`Data Hub Lv 10`), which is the widest string a plate can ever hold.
-    await installApi(page, villageAt(10));
+    // (`Apothecary Lv 20`), which is the widest string a plate can ever hold.
+    await installApi(page, districtAt(20));
     await page.goto('/game/base');
 
-    await expectVillageLaidOutCleanly(page);
-    await expectNothingClippedVertically(page, '[data-testid="village-scene"]');
-    await page.screenshot({ path: 'screenshots/hideout/village-built.png' });
+    await expectDistrictLaidOutCleanly(page);
+    await expectNothingClippedVertically(page, '[data-testid="district-scene"]');
+    await page.screenshot({ path: 'screenshots/hideout/district-built.png' });
   });
 
   /**
@@ -224,21 +252,21 @@ test.describe('a hideout that has been played', () => {
    * not a guard, and this family has a long record of looking covered and not being.
    *
    * Both halves are injected as CSS rather than by editing the component, so the control tests the
-   * *gate* and leaves the shipped village exactly as the assertions above just found it. The two
+   * *gate* and leaves the shipped district exactly as the assertions above just found it. The two
    * mutations are the two ways a sprite is lost: squeezed to no height by its `flex-1` span, and
    * pushed past the scene's `overflow-hidden` edge.
    */
   test('the image gate goes red on a sprite that is not drawn whole', async ({ page }) => {
-    await installApi(page, villageAt(10));
+    await installApi(page, districtAt(20));
     await page.goto('/game/base');
-    const scene = '[data-testid="village-scene"]';
+    const scene = '[data-testid="district-scene"]';
     const rejection = async (): Promise<string> =>
       expectNoImagesClipped(page, scene).then(
         () => 'the gate passed',
         (error: Error) => error.message,
       );
 
-    /** Install one mutation, replacing any previous one; `''` puts the village back. */
+    /** Install one mutation, replacing any previous one; `''` puts the district back. */
     const mutate = (css: string) =>
       page.evaluate((rule) => {
         const ID = 'mou-365-mutation';
@@ -250,7 +278,7 @@ test.describe('a hideout that has been played', () => {
         document.head.append(style);
       }, css);
 
-    // Baseline: the gate is quiet on the village the assertions above just approved.
+    // Baseline: the gate is quiet on the district the assertions above just approved.
     await expectNoImagesClipped(page, scene);
 
     await mutate(
@@ -268,12 +296,12 @@ test.describe('a hideout that has been played', () => {
 });
 
 /**
- * The whole §D3 loop through the real client: pick an empty plot, pay for it, watch the village
- * change. The build response is what the page re-renders from, so a client that dropped the body
- * would leave a vacant plot vacant here — which no unit test mocking the hook can see.
+ * The whole §A1/§D3 loop through the real client: pick an empty plot, pay for it, watch the order
+ * appear in the queue. The build response is what the page re-renders from, so a client that
+ * dropped the body would leave the queue empty here — which no unit test mocking the hook can see.
  */
-test.describe('building in the hideout (§D3)', () => {
-  test('an empty plot becomes a standing structure', async ({ page }) => {
+test.describe('building in the district (§A1, §D3)', () => {
+  test('an empty plot becomes an order in the queue', async ({ page }) => {
     await installApi(page, me);
     // Registered after `installApi`, so Playwright's reverse-order matching gives it priority.
     await page.route('**/api/base/build', (route) =>
@@ -283,35 +311,55 @@ test.describe('building in the hideout (§D3)', () => {
         body: JSON.stringify({
           base: {
             ...base,
-            resources: { ...base.resources, oil: base.resources.oil - 50 },
-            buildings: [...base.buildings, { id: 'b-foundry', kind: 'foundry', level: 1 }],
+            resources: { ...base.resources, oil: base.resources.oil - 10 },
+            buildQueue: [
+              {
+                id: 'q1',
+                kind: 'quarters',
+                level: 1,
+                startedAt: new Date().toISOString(),
+                durationSeconds: 20,
+              },
+            ],
           },
         }),
       }),
     );
     await page.goto('/game/base');
 
-    const foundry = page.getByRole('button', { name: /^Foundry —/ });
-    await expect(foundry).toHaveAttribute('aria-label', /vacant plot/);
-    await foundry.click();
+    const quarters = page.getByRole('button', { name: /^The Quarters —/ });
+    await expect(quarters).toHaveAttribute('aria-label', /vacant plot/);
+    await quarters.click();
 
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByText('Vacant plot')).toBeVisible();
-    await dialog.getByRole('button', { name: 'Build' }).click();
+    await dialog.getByRole('button', { name: 'Queue build' }).click();
 
-    await expect(foundry).toHaveAttribute('aria-label', /level 1/);
+    await expect(quarters).toHaveAttribute('aria-label', /under construction/);
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(page.getByTestId('build-queue')).toContainText('The Quarters → Lv 1');
     await page.screenshot({ path: 'screenshots/hideout/after-build.png' });
   });
 
-  test('a plot the Command Center is holding down says so instead of offering an upgrade', async ({
+  test('a plot the Nexus is holding down says so instead of offering an upgrade', async ({
     page,
   }) => {
     await installApi(page, me);
     await page.goto('/game/base');
 
-    await page.getByRole('button', { name: /^Fusion Reactor —/ }).click();
+    await page.getByRole('button', { name: /^The Generator —/ }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByText(/CAPPED BY THE COMMAND CENTER/)).toBeInViewport({ ratio: 1 });
-    await expect(dialog.getByRole('button', { name: 'Upgrade' })).toBeDisabled();
+    await expect(dialog.getByText(/CAPPED BY THE NEXUS/)).toBeInViewport({ ratio: 1 });
+    await expect(dialog.getByRole('button', { name: 'Queue upgrade' })).toBeDisabled();
+  });
+
+  test('a plot the Nexus has not unlocked yet says what would unlock it', async ({ page }) => {
+    await installApi(page, me);
+    await page.goto('/game/base');
+
+    await page.getByRole('button', { name: /^The Garage —/ }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText(/NEEDS THE NEXUS AT LEVEL 12/)).toBeInViewport({ ratio: 1 });
+    await expect(dialog.getByRole('button', { name: 'Queue build' })).toBeDisabled();
   });
 });

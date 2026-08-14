@@ -626,7 +626,7 @@ describe('validateRun', () => {
     );
   });
 
-  /** MOU-123 acceptance: whichever backend the operator picks, all 45 assets are producible. */
+  /** MOU-123 acceptance: whichever backend the operator picks, all 52 assets are producible. */
   it('passes on the whole manifest under either backend', () => {
     expect(validateRun(ART_MANIFEST, OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
     expect(validateRun(ART_MANIFEST, OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
@@ -676,7 +676,7 @@ describe('main --dry-run', () => {
     await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(output.stdout.join('')).toContain('45 asset(s) validated');
+    expect(output.stdout.join('')).toContain('52 asset(s) validated');
     expect(output.stdout.join('')).toContain(`${OUT}/district-neon-docks.png`);
   });
 

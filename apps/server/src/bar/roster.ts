@@ -1,6 +1,7 @@
 import {
   AMBITIONS,
   MORAL_COMPASSES,
+  BAR_HIRES_PER_DAY,
   RECRUIT_MAX_MIN_INFAMY,
   hearsAnyCrewOut,
   type Ambition,
@@ -13,13 +14,19 @@ import { generateCharacter } from '../characters/generate.js';
 import { createRng, randomInt, type Rng } from '../characters/rng.js';
 import { rollName } from './names.js';
 
+export { BAR_HIRES_PER_DAY };
+
 /**
- * The Bar's daily roster (GDD §H1, §H2, §H2a).
+ * The Bar's shared roster (GDD §H1, §H2, §H2a, §H2b).
  *
- * §H2 makes this "the same for every player", and §H2a spells out the consequence: it is a pure
- * function of the UTC date. There is no roster table, no per-player roll, and no scheduled job
- * that refreshes anything — two accounts asking on the same UTC day compute the same eight people
- * because they run the same arithmetic on the same seed. INTERFACES R9 records that decision.
+ * §H2 makes this "the same for every player": one room, not a private roll per account. It is still
+ * a pure function with no roster table and no scheduled job — what it is a function *of* is now the
+ * UTC date **and** the per-seat turnover counts, because the room is no longer read-only.
+ *
+ * Hiring somebody takes them out of the room for everybody, and the seat immediately produces
+ * somebody else (§H2b). That is what `generation` is: how many people have already been hired out
+ * of this seat today. It goes into the seed, so seat 3's second occupant is a different person from
+ * their first, deterministically, and every player sees the same replacement.
  *
  * Note what is *not* generated here: a role. A character at the Bar has not been hired into
  * anything yet (§C2), and the affinity that shaped their sheet is dropped by `generateCharacter`
@@ -98,15 +105,19 @@ export interface BarCharacter {
 }
 
 /**
- * The recruit in slot `index` of `day`'s roster.
+ * The recruit sitting in seat `index` of `day`'s roster, after `generation` people have already
+ * been hired out of that seat.
  *
  * Two independent seeds on purpose. `generateCharacter` consumes a whole rng stream and its draw
  * order is W1's to change; drawing the name and disposition from a *separate* stream means a
- * retune of the attribute roll cannot silently rename everyone.
+ * retune of the attribute roll cannot silently rename everyone. Both carry the generation, so a
+ * seat's replacement differs on every axis rather than being the same person under a new name.
  */
-function recruitAt(day: string, index: number): BarCharacter {
-  const { attributes, traits } = generateCharacter(seedFrom(`${day}:${index}:sheet`));
-  const rng = createRng(seedFrom(`${day}:${index}:disposition`));
+function recruitAt(day: string, index: number, generation: number): BarCharacter {
+  const { attributes, traits } = generateCharacter(seedFrom(`${day}:${index}:${generation}:sheet`));
+  const rng = createRng(seedFrom(`${day}:${index}:${generation}:disposition`));
+  // The floor is a property of the *seat*, not of the person in it — otherwise the first three
+  // hires of the day would close the only doors a new crew can walk through.
   const openDoor = index < BAR_OPEN_DOOR_FLOOR;
 
   const name = rollName(rng);
@@ -114,7 +125,7 @@ function recruitAt(day: string, index: number): BarCharacter {
   const drawn = pick(rng, MORAL_COMPASSES);
 
   return {
-    id: `bar-${day}-${index}`,
+    id: recruitId(day, index, generation),
     name,
     attributes,
     traits,
@@ -136,12 +147,53 @@ function compassThatHearsAnyoneOut(ambition: Ambition): MoralCompass {
   return found;
 }
 
-/** §H2 — the whole roster for a UTC day. Identical for every player, every time it is asked. */
-export function barRoster(day: string): BarCharacter[] {
-  return Array.from({ length: BAR_ROSTER_SIZE }, (_, index) => recruitAt(day, index));
+/**
+ * The id grammar, authored here and nowhere else.
+ *
+ * The generation is *in* the id, which is what makes a stale tab safe: an id naming a generation
+ * the seat has moved past cannot be found on the current roster, so hiring somebody who has
+ * already left with somebody else fails with "not at the Bar today" rather than signing the
+ * replacement by accident.
+ */
+export function recruitId(day: string, index: number, generation: number): string {
+  return `bar-${day}-${index}-${generation}`;
 }
 
-/** The one recruit with this id on `day`'s roster, or `undefined` if it names no slot of it. */
-export function findBarRecruit(day: string, recruitId: string): BarCharacter | undefined {
-  return barRoster(day).find((recruit) => recruit.id === recruitId);
+/**
+ * §H2 — the whole room for a UTC day, given how far each seat has turned over.
+ *
+ * `generations` is indexed by seat; a short or missing entry reads as an untouched seat, so a
+ * caller that has not written a single row yet gets exactly the roster §H2a always produced.
+ */
+export function barRoster(day: string, generations: readonly number[] = []): BarCharacter[] {
+  return Array.from({ length: BAR_ROSTER_SIZE }, (_, index) =>
+    recruitAt(day, index, generations[index] ?? 0),
+  );
+}
+
+/**
+ * Which seat this recruit id names, or `null` when it names none of `day`'s.
+ *
+ * Parsed rather than searched, because the caller needs the seat number in order to turn that seat
+ * over — and it needs it for an id it has already matched against the live roster, so there is
+ * nothing left to validate here beyond the grammar itself.
+ */
+export function seatOf(day: string, id: string): number | null {
+  const match = new RegExp(`^bar-${day}-(\\d+)-(\\d+)$`).exec(id);
+  const seat = match?.[1];
+  return seat === undefined ? null : Number(seat);
+}
+
+/**
+ * The one recruit with this id in the room right now, or `undefined`.
+ *
+ * `undefined` covers both "no such seat" and "that seat has moved on", and the caller wants the
+ * same answer for both: the person named is not here.
+ */
+export function findBarRecruit(
+  day: string,
+  recruitId: string,
+  generations: readonly number[] = [],
+): BarCharacter | undefined {
+  return barRoster(day, generations).find((recruit) => recruit.id === recruitId);
 }

@@ -37,6 +37,7 @@ const myBase: Base = {
   research: startingResearch(),
   assignees: startingAssignees(),
   buildings: [],
+  buildQueue: [],
   commanders: [],
   createdAt: '2026-08-13T09:30:00.000Z',
 };

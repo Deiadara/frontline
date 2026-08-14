@@ -1,5 +1,6 @@
 import {
   PlaceAssigneesRequestSchema,
+  populationCapacity,
   ReskillRequestSchema,
   placeAssignees,
   reskillAssignees,
@@ -11,6 +12,7 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { projectAssignees, settleAssignees } from '../assignees/roster.js';
+import { housingSpare } from '../district/population.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 
 /**
@@ -70,6 +72,18 @@ export function registerAssigneeRoutes(app: FastifyInstance): void {
       if (result.kind === 'refused') {
         const { code, message } = PLACEMENT_ERRORS[result.reason];
         throw new AppError(code, message);
+      }
+
+      // §A1 — the Quarters put a ceiling on the whole district, officers and assignees alike.
+      // Checked *after* the §G rules on purpose: the pool and the per-officer cap are what the
+      // player is entitled to, and housing is the district's own limit on top of that. Told the
+      // other way round, a player short of beds would be told to build even when the placement
+      // was never legal in the first place.
+      if (count > housingSpare(base)) {
+        throw new AppError(
+          'NO_HOUSING',
+          `Your district houses ${populationCapacity(base.buildings)} — raise the Quarters`,
+        );
       }
 
       app.repos.bases.updateAssignees(base.id, result.state);

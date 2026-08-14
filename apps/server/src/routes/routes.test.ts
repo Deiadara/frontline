@@ -238,7 +238,7 @@ describe('GET /api/me', () => {
     }>();
     expect(body.user.overseerId).toBeTruthy();
     expect(body.overseer?.archetype).toBe('enforcer');
-    expect(body.base?.name).toBe("commander's Foothold");
+    expect(body.base?.name).toBe("commander's Crew");
   });
 });
 
@@ -271,7 +271,7 @@ describe('POST /api/overseer', () => {
     expect(body.base.districtId).toBe('neon-docks');
     expect(body.base.level).toBe(1);
     expect(body.base.resources).toEqual(STARTING_RESOURCES);
-    expect(body.base.buildings.map((b) => b.kind)).toEqual(['command_center', 'reactor']);
+    expect(body.base.buildings.map((b) => b.kind)).toEqual(['nexus', 'generator']);
     expect(body.base.buildings.every((b) => b.level === 1)).toBe(true);
   });
 

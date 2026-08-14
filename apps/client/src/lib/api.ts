@@ -8,6 +8,7 @@ import {
   BaseDetailResponseSchema,
   BattleResponseSchema,
   BuildStructureResponseSchema,
+  RenameFactionResponseSchema,
   CityResponseSchema,
   CreateOverseerResponseSchema,
   HireRecruitResponseSchema,
@@ -21,6 +22,7 @@ import {
   type ReskillRequest,
   type BattleRequest,
   type BuildStructureRequest,
+  type RenameFactionRequest,
   type CreateOverseerRequest,
   type HireRecruitRequest,
   type LaunchMissionRequest,
@@ -105,6 +107,9 @@ export const getBase = (id: string) => apiFetch(`/base/${id}`, BaseDetailRespons
 
 export const buildStructure = (body: BuildStructureRequest) =>
   apiFetch('/base/build', BuildStructureResponseSchema, jsonBody(body));
+
+export const renameFaction = (body: RenameFactionRequest) =>
+  apiFetch('/base/faction', RenameFactionResponseSchema, jsonBody(body));
 
 export const attack = (body: BattleRequest) =>
   apiFetch('/battle', BattleResponseSchema, jsonBody(body));

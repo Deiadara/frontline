@@ -173,12 +173,15 @@ export function payrollWeeksFor(cycle: EconomyCycleResult): {
  *
  * Kept separate from `runEconomyCycle` because the cycle is about the stockpile and this is about
  * the people: the caller settles resources first and then asks what it did to morale.
+ *
+ * `hardshipReductionPercent` is what the district takes off the blow — the Infirmary's whole job
+ * (§A1), passed in as a plain number so this module never has to know what a building is.
  */
-export function moralePenaltyFor(cycle: EconomyCycleResult): number {
+export function moralePenaltyFor(cycle: EconomyCycleResult, hardshipReductionPercent = 0): number {
   const missedPaydays = unpaidWeeks(cycle.capsShortfall, cycle.capsDue, cycle.weeksSettled);
   const starvedWeeks = unpaidWeeks(cycle.foodShortfall, cycle.foodDue, cycle.weeksSettled);
-  const penalty =
-    missedPaydays * MORALE_PER_UNPAID_WAGE_WEEK + starvedWeeks * MORALE_PER_STARVED_WEEK;
+  const raw = missedPaydays * MORALE_PER_UNPAID_WAGE_WEEK + starvedWeeks * MORALE_PER_STARVED_WEEK;
+  const softened = raw * (1 - Math.min(100, Math.max(0, hardshipReductionPercent)) / 100);
   // `0 * -3` is `-0`, which is a strange thing to hand a caller or to read back in a log.
-  return penalty === 0 ? 0 : penalty;
+  return softened === 0 ? 0 : softened;
 }

@@ -812,8 +812,8 @@ describe('main', () => {
     await withTempDir(async (dir) => {
       const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
       expect(await main(['--dry-run', '--masters', dir, '--out', dir])).toBe(0);
-      expect(captured(out)).toContain('45 asset(s) validated');
-      expect(captured(out)).toContain('45 master(s) not generated yet');
+      expect(captured(out)).toContain('52 asset(s) validated');
+      expect(captured(out)).toContain('52 master(s) not generated yet');
     });
   });
 
@@ -902,7 +902,7 @@ describe('main', () => {
       expect(await main(['--landed', '--masters', dir, '--out', dir])).toBe(0);
 
       await expect(readFile(path.join(dir, DISTRICT.file))).resolves.toBeInstanceOf(Buffer);
-      expect(captured(out)).toContain('1/45 master(s) landed');
+      expect(captured(out)).toContain('1/52 master(s) landed');
       expect(captured(out)).toContain('still waiting on');
       expect(captured(err)).toBe('');
     });

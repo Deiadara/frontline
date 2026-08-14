@@ -22,7 +22,12 @@ export function GameScreen() {
   return (
     <div className="scanlines relative flex h-screen flex-col overflow-hidden bg-night">
       <div className="grain pointer-events-none absolute inset-0 z-0" />
-      <TopHud overseer={overseer} resources={base.resources} economy={base.economy} />
+      <TopHud
+        overseer={overseer}
+        faction={base.name}
+        resources={base.resources}
+        economy={base.economy}
+      />
       <div className="relative z-10 flex min-h-0 min-w-0 flex-1">
         <LeftNav />
         <Outlet />

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AssigneeStateSchema } from './assignees/placement.js';
-import { BuildingSchema } from './building.js';
+import { BuildQueueSchema, BuildingSchema } from './building/index.js';
 import { CommanderSchema } from './commander.js';
 import { EconomyStateSchema } from './economy/state.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
@@ -8,11 +8,26 @@ import { ProgressionStateSchema } from './progression/state.js';
 import { ResearchStateSchema } from './research/state.js';
 import { ResourcesSchema } from './resources.js';
 
-/** A player's base, anchored to a city district. */
+/**
+ * How long a faction's name may be.
+ *
+ * Long enough for "The Ninth Street Reclamation Company", short enough that the HUD's identity
+ * line and the city map's marker can both render it whole at 1024px — the board's zero-cut-text
+ * bar is a layout constraint, so the length that satisfies it belongs in the schema rather than
+ * in a CSS truncation nobody can see coming.
+ */
+export const FACTION_NAME_MAX = 40;
+export const FactionNameSchema = z.string().trim().min(2).max(FACTION_NAME_MAX);
+
+/** A player's faction and the district it holds (GDD §A1). */
 export const BaseSchema = z.object({
   id: IdSchema,
   ownerId: IdSchema,
-  name: z.string().min(1),
+  /**
+   * The faction's name — the crew, not the place. Player-chosen and renameable, and the one label
+   * every other player sees on the city map.
+   */
+  name: FactionNameSchema,
   districtId: IdSchema,
   level: z.number().int().min(1),
   /** AI-controlled rival base. Bot bases are raidable; human bases are not. */
@@ -30,6 +45,8 @@ export const BaseSchema = z.object({
    */
   assignees: AssigneeStateSchema,
   buildings: z.array(BuildingSchema),
+  /** Up to six orders in flight (§A1). Owner-only, and settled lazily like everything else. */
+  buildQueue: BuildQueueSchema,
   commanders: z.array(CommanderSchema),
   createdAt: IsoDateTimeSchema,
 });

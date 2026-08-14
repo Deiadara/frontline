@@ -56,6 +56,7 @@ function seedBase(db: AppDatabase, repos: Repositories, level: number): Base {
     research: startingResearch(),
     assignees: startingAssignees(),
     buildings: [],
+    buildQueue: [],
     commanders: [],
     createdAt: NOW,
   };

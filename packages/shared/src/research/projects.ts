@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ATTRIBUTE_NAMES } from '../attributes.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import type { PartialResources } from '../resources.js';
 import { OfficerRoleSchema } from '../roles.js';
 
 /**
@@ -37,6 +38,23 @@ export const TrainingProjectSchema = z.object({
 export type TrainingProject = z.infer<typeof TrainingProjectSchema>;
 
 /**
+ * §A1 — modification work: designing and fitting one of a structure's five upgrades.
+ *
+ * It sits in the research queue rather than in the build queue on purpose. A modification is not
+ * bought and it is not a level; it is *worked out*, which is the same crew and the same bench the
+ * Lab already occupies — and it means a district cannot fit three modifications at once any more
+ * than it can run three investigations at once.
+ *
+ * Unlike an investigation, the lead is not chosen: §C4 makes this the Lead Engineer's work, and
+ * the server reads which officer holds that role rather than taking one on the request.
+ */
+export const ModificationProjectSchema = z.object({
+  kind: z.literal('modification'),
+  modificationId: z.string().min(1),
+});
+export type ModificationProject = z.infer<typeof ModificationProjectSchema>;
+
+/**
  * A discriminated union rather than one wide object with nullable fields: an investigation always
  * has a lead and never an attribute, and a training project is the other way round. Neither state
  * can be written down wrong.
@@ -44,6 +62,7 @@ export type TrainingProject = z.infer<typeof TrainingProjectSchema>;
 export const ResearchProjectSchema = z.discriminatedUnion('kind', [
   InvestigationProjectSchema,
   TrainingProjectSchema,
+  ModificationProjectSchema,
 ]);
 export type ResearchProject = z.infer<typeof ResearchProjectSchema>;
 export type ResearchProjectKind = ResearchProject['kind'];
@@ -52,13 +71,33 @@ export type ResearchProjectKind = ResearchProject['kind'];
 export const RESEARCH_MINUTES: Record<ResearchProjectKind, number> = {
   investigation: 45,
   training: 90,
+  /** The longest of the three: a modification is permanent, and permanence is priced in hours. */
+  modification: 180,
 };
 
 /** What each kind costs up front, in caps (§D2). Charged at launch, never refunded. */
 export const RESEARCH_COST_CAPS: Record<ResearchProjectKind, number> = {
   investigation: 120,
   training: 200,
+  modification: 350,
 };
+
+/**
+ * Materials a modification needs on top of its caps — the only research project that builds
+ * anything physical, and the reason the Garage's high-quality metal has somewhere to go.
+ */
+export const MODIFICATION_MATERIALS: PartialResources = {
+  scrap: 220,
+  oil: 60,
+  highQualityMetal: 45,
+};
+
+/** The whole bill for a project, caps and materials together. */
+export function researchCost(kind: ResearchProjectKind): PartialResources {
+  return kind === 'modification'
+    ? { ...MODIFICATION_MATERIALS, caps: RESEARCH_COST_CAPS[kind] }
+    : { caps: RESEARCH_COST_CAPS[kind] };
+}
 
 /**
  * A project in flight.

@@ -73,3 +73,18 @@ export function assessJoin(
 
   return { meetsRequirement, stance, interested: blockers.length === 0, blockers };
 }
+
+/**
+ * §H2b — how many people one crew may sign in a UTC day.
+ *
+ * One. The Bar is a shared room (§H2) and its stock is finite: hiring somebody takes them out of it
+ * for every player, and a seat produces a replacement rather than staying empty. Without a
+ * per-player limit the first account awake each day works through the whole roster and every
+ * replacement behind it, and nobody else ever meets anybody. The limit is what makes a shared shop
+ * shared rather than a race.
+ *
+ * It lives here rather than beside the roster generator because both sides of the wire need it: the
+ * server refuses the second hire, and the Bar screen has to be able to say why before the player
+ * tries.
+ */
+export const BAR_HIRES_PER_DAY = 1;

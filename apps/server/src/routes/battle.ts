@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   BattleRequestSchema,
   DEFAULT_ATTRIBUTES,
+  districtDefense,
+  raidLootBonus,
   addResources,
   adjustMeter,
   findDistrict,
@@ -17,7 +19,7 @@ import {
   type Resources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { settleBaseEconomy } from '../economy/settle.js';
+import { settleBase } from '../district/settle.js';
 import { AppError, parseBody } from '../errors.js';
 import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
 
@@ -74,7 +76,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     // Wages and upkeep come off the stockpile before the raid pays into it, so a player cannot
     // outrun an overdue payroll by spending the caps first.
     const now = new Date();
-    const base = settleBaseEconomy(app.repos, owned, now);
+    const base = settleBase(app.repos, owned, now).base;
 
     const district = findDistrict(targetDistrictId);
     if (!district || !isAttackable(app, district, base)) {
@@ -89,6 +91,11 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       ? app.repos.overseers.findById(request.currentUser.overseerId)
       : undefined;
 
+    // §A1 — what the defender built. Only a rival *base* has structures; a plain map district is
+    // bare ground and contributes nothing but its own difficulty, which the engine already reads.
+    const garrison = app.repos.bases.findBotByDistrictId(district.id);
+    const defenderDefense = garrison ? districtDefense(garrison.buildings) : 0;
+
     // Minted here and persisted below, so the fight replays from its row rather than from a clock.
     const seed = randomUUID();
     const result = app.battleEngine.simulate({
@@ -96,6 +103,8 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       attackerBaseName: base.name,
       targetDistrictId: district.id,
       attackerAttributes: overseer?.attributes ?? DEFAULT_ATTRIBUTES,
+      defenderDefense,
+      attackerLootBonus: raidLootBonus(base.buildings),
       seed,
     });
 

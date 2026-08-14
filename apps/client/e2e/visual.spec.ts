@@ -205,7 +205,7 @@ for (const size of VIEWPORTS) {
     test(`base view at ${tag}`, async ({ page }) => {
       await installApi(page, me);
       await page.goto('/game/base');
-      await expect(page.getByRole('heading', { name: "Operator's Foothold" })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       /*
@@ -321,7 +321,7 @@ for (const size of VIEWPORTS) {
     test(`late-game progression readout at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/base');
-      await expect(page.getByRole('heading', { name: "Operator's Foothold" })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
 

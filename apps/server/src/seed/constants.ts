@@ -44,13 +44,19 @@ export const MVP_BOT: BotBlueprint = {
   overseerPresetId: 'fixer',
   level: 4,
   resources: { caps: 4200, food: 2400, oil: 1600, scrap: 3800, highQualityMetal: 900 },
+  /**
+   * A district built the way a rival would build one: the Nexus high enough to authorise a Gate,
+   * and then the Gate raised to the cap. `districtDefense` reads that Gate when the player raids
+   * here, so the rival is measurably harder to take than bare ground — which is the point of
+   * seeding a rival with structures at all.
+   */
   buildings: [
-    { id: 'vex-command-center', kind: 'command_center', level: 4 },
-    { id: 'vex-wall', kind: 'wall', level: 4 },
-    { id: 'vex-barracks', kind: 'barracks', level: 3 },
-    { id: 'vex-reactor', kind: 'reactor', level: 3 },
-    { id: 'vex-foundry', kind: 'foundry', level: 2 },
-    { id: 'vex-data-hub', kind: 'data_hub', level: 2 },
+    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [] },
+    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [] },
+    { id: 'vex-gauntlet', kind: 'gauntlet', level: 3, modifications: [] },
+    { id: 'vex-generator', kind: 'generator', level: 3, modifications: [] },
+    { id: 'vex-scrapyard', kind: 'scrapyard', level: 2, modifications: [] },
+    { id: 'vex-quarters', kind: 'quarters', level: 2, modifications: [] },
   ],
   /* Four of the 19 officer positions (GDD §C1), on the 0..100 attribute scale. */
   commanders: [

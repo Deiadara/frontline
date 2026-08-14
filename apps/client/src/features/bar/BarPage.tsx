@@ -93,6 +93,8 @@ interface RecruitCardProps {
   caps: number;
   /** §H8 — every slot is taken, so no offer can be made however willing the character is. */
   full: boolean;
+  /** §H2b — this crew has already signed somebody today. Same effect, different reason. */
+  signedToday: boolean;
   pending: boolean;
   counter: number | null;
   onOffer: (recruitId: string, role: OfficerRole, offerWage: number) => void;
@@ -109,6 +111,7 @@ function RecruitCard({
   filledRoles,
   caps,
   full,
+  signedToday,
   pending,
   counter,
   onOffer,
@@ -214,10 +217,10 @@ function RecruitCard({
             </label>
             <Button
               size="sm"
-              disabled={!canOffer || pending}
+              disabled={!canOffer || signedToday || pending}
               onClick={() => onOffer(recruit.id, role, Math.round(proposed))}
             >
-              {pending ? 'Talking…' : 'Offer'}
+              {pending ? 'Talking…' : signedToday ? 'Not today' : 'Offer'}
             </Button>
           </div>
           {asking !== null && (
@@ -310,6 +313,9 @@ export function BarPage() {
   const recruits = data?.recruits ?? [];
   const officers = data?.officers ?? [];
   const full = data !== undefined && data.slotsUsed >= data.slotsTotal;
+  // §H2b — the shared room's other limit. Distinct from `full`: one is about the crew's own
+  // recruit slots, the other about how many people the whole city may take out of the room today.
+  const signedToday = data !== undefined && data.hiresLeftToday === 0;
 
   const onOffer = (recruitId: string, role: OfficerRole, offerWage: number) => {
     hire.mutate(
@@ -338,9 +344,10 @@ export function BarPage() {
             The Bar
           </h1>
           <p className="mt-2 max-w-2xl text-xs leading-relaxed text-steel-500">
-            The same people drink here whoever you are — the room turns over at midnight UTC, and
-            every crew in the city is looking at this list. Whether they will work for{' '}
-            <em className="not-italic text-steel-300">you</em> is another question.
+            The same people drink here whoever you are, and every crew in the city is looking at
+            this list. Sign somebody and they leave — for everyone — and a stranger takes their
+            chair. You get <em className="not-italic text-steel-300">one</em> a day. Whether they
+            will work for <em className="not-italic text-steel-300">you</em> is another question.
           </p>
         </header>
 
@@ -374,6 +381,10 @@ export function BarPage() {
             <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.16em] text-steel-500">
               {full ? (
                 <span className="text-warning">No room for another</span>
+              ) : signedToday ? (
+                <span className="text-warning" data-testid="daily-hire-limit">
+                  Signed someone today — back tomorrow
+                </span>
               ) : (
                 <>
                   Street reads <span className="text-steel-300">{data?.reputation ?? '—'}</span>
@@ -397,6 +408,7 @@ export function BarPage() {
                   key={recruit.id}
                   recruit={recruit}
                   filledRoles={data?.filledRoles ?? []}
+                  signedToday={signedToday}
                   caps={data?.caps ?? 0}
                   full={full}
                   pending={hire.isPending && hire.variables?.recruitId === recruit.id}

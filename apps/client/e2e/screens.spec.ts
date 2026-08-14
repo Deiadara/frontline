@@ -132,11 +132,11 @@ test('the hideout stands its structures on clickable plots', async ({ page }) =>
   await installApi(page, me);
   await page.goto('/game/base');
 
-  await expect(page.getByRole('heading', { name: "Operator's Foothold" })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
   // §A1 — the structures are plots in a place now, not rows in a list, so they are found by the
   // control you click rather than by a name printed somewhere on the page.
-  await expect(page.getByRole('button', { name: /^Command Center —/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^Fusion Reactor —/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^The Nexus —/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^The Generator —/ })).toBeVisible();
 
   await page.screenshot({ path: 'screenshots/base.png', fullPage: false });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { RegisterRequestSchema } from './api.js';
-import { BUILDING_CATALOG, BUILDING_KINDS } from './building.js';
+import { BUILDING_CATALOG, BUILDING_KINDS } from './building/index.js';
 import {
   BOT_DISTRICT_ID,
   CITY_DISTRICTS,

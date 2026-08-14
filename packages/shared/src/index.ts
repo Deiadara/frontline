@@ -16,7 +16,7 @@ export * from './progression/index.js';
 export * from './assignees/index.js';
 export * from './bar/index.js';
 export * from './research/index.js';
-export * from './building.js';
+export * from './building/index.js';
 export * from './overseer.js';
 export * from './commander.js';
 export * from './base.js';

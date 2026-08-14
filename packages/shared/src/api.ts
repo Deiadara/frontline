@@ -10,9 +10,13 @@ import {
   STANCE_MAX,
   STANCE_MIN,
 } from './bar/index.js';
-import { BaseSchema, BaseSummarySchema } from './base.js';
+import { BaseSchema, BaseSummarySchema, FactionNameSchema } from './base.js';
 import { BattleResultSchema } from './battle/types.js';
-import { BuildingKindSchema } from './building.js';
+import {
+  BuildingKindSchema,
+  ModificationBlockerSchema,
+  ModificationEffectSchema,
+} from './building/index.js';
 import { DistrictSchema } from './city.js';
 import { CommanderSchema } from './commander.js';
 import { ReputationLabelSchema } from './economy/reputation.js';
@@ -107,6 +111,15 @@ export const MeResponseSchema = z.object({
   user: UserSchema,
   overseer: OverseerSchema.nullable(),
   base: BaseSchema.nullable(),
+  /**
+   * Set when *this read's* settlement crossed a level (§I1).
+   *
+   * `/me` is the call the game shell polls, so it is where a build that finished while the player
+   * was looking at another page gets announced. Without it the XP is banked and the level-up is
+   * silently lost — MOU-227's rule is that presence is the whole signal, and a settle nobody
+   * announces has no second chance to.
+   */
+  levelUp: LevelUpSchema.optional(),
 });
 export type MeResponse = z.infer<typeof MeResponseSchema>;
 
@@ -136,14 +149,18 @@ export const BaseDetailResponseSchema = z.object({
 });
 export type BaseDetailResponse = z.infer<typeof BaseDetailResponseSchema>;
 
-// --- the hideout (GDD §A1, §D3) ---
+// --- the district (GDD §A1, §D3) ---
 
 /**
- * Raise one structure by one level — construction when the plot is empty, an upgrade when it is
- * not. One request for both, because the village has one action per plot: the level goes up and
- * the resources come out (§D3, oil among them on every structure). The structure is named by
- * `kind` rather than by id since a hideout holds at most one of each, and an id the client had to
- * look up first would only be a second way to say the same thing.
+ * Put one structure's next level into the build queue — construction when the plot is empty, an
+ * upgrade when it is not. One request for both, because the district has one action per plot: the
+ * order is placed, the materials come out immediately (§D3, oil among them on every structure) and
+ * the level lands when the clock runs out.
+ *
+ * The structure is named by `kind` rather than by id since a district holds at most one of each,
+ * and an id the client had to look up first would only be a second way to say the same thing. Note
+ * there is no level on the request either: what a repeat order produces is the queue's business
+ * (`nextQueuedLevel`), and letting the client name a level would be letting it name the wrong one.
  */
 export const BuildStructureRequestSchema = z.object({
   kind: BuildingKindSchema,
@@ -151,12 +168,29 @@ export const BuildStructureRequestSchema = z.object({
 export type BuildStructureRequest = z.infer<typeof BuildStructureRequestSchema>;
 
 export const BuildStructureResponseSchema = z.object({
-  /** The whole base after the spend — the village, the stockpile and the level all moved. */
+  /** The whole base after the order — the queue, the stockpile and anything that just landed. */
   base: BaseSchema,
-  /** §I1 pays for building things: set when this build's XP crossed a level. */
+  /** §I1 pays for building things: set when a *completed* build's XP crossed a level. */
   levelUp: LevelUpSchema.optional(),
 });
 export type BuildStructureResponse = z.infer<typeof BuildStructureResponseSchema>;
+
+/**
+ * Name the faction (§A1).
+ *
+ * The name is the crew's, not the district's, and it is the one thing about a player every other
+ * player sees. Trimmed and length-bounded by `FactionNameSchema` rather than by the input control,
+ * so a name that came from anywhere other than the form is held to the same rule.
+ */
+export const RenameFactionRequestSchema = z.object({
+  name: FactionNameSchema,
+});
+export type RenameFactionRequest = z.infer<typeof RenameFactionRequestSchema>;
+
+export const RenameFactionResponseSchema = z.object({
+  base: BaseSchema,
+});
+export type RenameFactionResponse = z.infer<typeof RenameFactionResponseSchema>;
 
 // --- battle ---
 export const BattleRequestSchema = z.object({
@@ -287,6 +321,10 @@ export const BarResponseSchema = z.object({
   caps: z.number(),
   /** Roles §C3 says are already filled, so the hire form cannot offer them. */
   filledRoles: z.array(OfficerRoleSchema),
+  /** §H2b — how many hires this player has left today, and when the limit resets. */
+  hiresLeftToday: z.number().int().nonnegative(),
+  /** Set when this read's settlement crossed a level (§I1). */
+  levelUp: LevelUpSchema.optional(),
 });
 export type BarResponse = z.infer<typeof BarResponseSchema>;
 
@@ -345,6 +383,27 @@ export const ResearchLeadSchema = z.object({
 export type ResearchLead = z.infer<typeof ResearchLeadSchema>;
 
 /**
+ * One of the sixty-five modifications, as the research screen shows it (§A1).
+ *
+ * The whole catalogue is shipped every read rather than only the startable ones: a player deciding
+ * which structure to raise next needs to see what raising it would unlock, and a list that hid
+ * everything unavailable would hide exactly that. `blocker` is why this one is not startable, or
+ * null when it is.
+ */
+export const ModificationOptionSchema = z.object({
+  id: z.string().min(1),
+  building: BuildingKindSchema,
+  name: z.string().min(1),
+  description: z.string().min(1),
+  effect: ModificationEffectSchema,
+  magnitude: z.number(),
+  /** Already fitted to the structure. */
+  installed: z.boolean(),
+  blocker: ModificationBlockerSchema.nullable(),
+});
+export type ModificationOption = z.infer<typeof ModificationOptionSchema>;
+
+/**
  * The research screen in one call.
  *
  * Note what is *not* here: no fit score, no weight, no ordering, nothing keyed by role id. Every
@@ -371,7 +430,14 @@ export const ResearchResponseSchema = z.object({
   costs: z.object({
     investigation: z.number().int().nonnegative(),
     training: z.number().int().nonnegative(),
+    modification: z.number().int().nonnegative(),
   }),
+  /** §A1 — modification work needs a Lead Engineer on the books to run it. */
+  canModify: z.boolean(),
+  /** Every modification this district could start right now, with why it can or cannot. */
+  modifications: z.array(ModificationOptionSchema),
+  /** Set when this read's settlement crossed a level (§I1). */
+  levelUp: LevelUpSchema.optional(),
 });
 export type ResearchResponse = z.infer<typeof ResearchResponseSchema>;
 
@@ -421,6 +487,16 @@ export const AssigneesResponseSchema = z.object({
   maxBonusPercent: z.number().nonnegative(),
   /** §C4/§G4 — whether a Professor is on the books to run reskilling. */
   canReskill: z.boolean(),
+  /**
+   * §A1 — the Quarters' ceiling and what is standing under it, officers included.
+   *
+   * Reported rather than derived client-side because the same two numbers gate hiring at the Bar,
+   * and a screen that computed its own would be the second place the rule lives.
+   */
+  housing: z.object({
+    used: z.number().int().nonnegative(),
+    capacity: z.number().int().nonnegative(),
+  }),
   officers: z.array(AssigneeOfficerSchema),
 });
 export type AssigneesResponse = z.infer<typeof AssigneesResponseSchema>;

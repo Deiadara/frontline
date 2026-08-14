@@ -7,7 +7,7 @@
  * Resolutions and aspects come from the ART-BIBLE §6 table; prompts come from `./prompts.js`.
  */
 import { z } from 'zod';
-import { BUILDING_KINDS, type BuildingKind } from '../building.js';
+import { BUILDING_KINDS, type BuildingKind } from '../building/index.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS, type DistrictKind } from '../city.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS, type OverseerArchetype } from '../overseer.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';

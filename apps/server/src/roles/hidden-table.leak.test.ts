@@ -236,6 +236,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     research: startingResearch(),
     assignees: startingAssignees(),
     buildings: [],
+    buildQueue: [],
     commanders: [
       createCommander(
         'held-1',

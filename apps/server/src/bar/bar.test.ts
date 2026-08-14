@@ -39,6 +39,7 @@ import { assessAgainst, hireRecruit, wageAskedOf } from './hire.js';
 import { alignmentAt, settleOfficerAlignment } from './officers.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
+  BAR_HIRES_PER_DAY,
   BAR_ROSTER_SIZE,
   barDay,
   barRoster,
@@ -110,18 +111,28 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     research: startingResearch(),
     assignees: startingAssignees(),
     buildings: [],
+    buildQueue: [],
     commanders: [],
     createdAt: NOW.toISOString(),
     ...overrides,
   };
 }
 
-/** A repository double: hiring writes through three calls and the tests assert on what landed. */
-function fakeRepos(): {
+interface Written {
+  commanders?: Commander[];
+  caps?: number;
+  wages?: Record<string, number>;
+  /** §H2b — the seat the hire turned over, and how many times this player has signed today. */
+  turnedOver?: number;
+  hiresToday: number;
+}
+
+/** A repository double: hiring writes through four calls and the tests assert on what landed. */
+function fakeRepos(hiresToday = 0): {
   repos: Parameters<typeof hireRecruit>[0];
-  written: { commanders?: Commander[]; caps?: number; wages?: Record<string, number> };
+  written: Written;
 } {
-  const written: { commanders?: Commander[]; caps?: number; wages?: Record<string, number> } = {};
+  const written: Written = { hiresToday };
   const bases = {
     updateResources: (_id: string, resources: { caps: number }) => {
       written.caps = resources.caps;
@@ -133,8 +144,18 @@ function fakeRepos(): {
       written.commanders = commanders;
     },
   };
-  return { repos: { bases } as unknown as Parameters<typeof hireRecruit>[0], written };
+  const bar = {
+    hiresBy: () => written.hiresToday,
+    recordHire: (_hire: unknown, slot: number) => {
+      written.turnedOver = slot;
+      written.hiresToday += 1;
+    },
+  };
+  return { repos: { bases, bar } as unknown as Parameters<typeof hireRecruit>[0], written };
 }
+
+/** The two §H2b fields every `hireRecruit` call needs, defaulted so cases can ignore them. */
+const SIGNER = { userId: 'user-1', seat: 0 };
 
 describe('§H2/§H2a — one global roster, generated from the UTC date', () => {
   it('serves two different accounts the identical roster on the same UTC day', async () => {
@@ -291,6 +312,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
     const asking = wageAskedOf(hire, assessAgainst(base, hire, NOW).stance);
 
     const result = hireRecruit(repos, {
+      ...SIGNER,
       base,
       recruit: hire,
       role: 'head_spy',
@@ -317,6 +339,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
 
     // Exactly on the boundary: a full week.
     const onBoundary = hireRecruit(fakeRepos().repos, {
+      ...SIGNER,
       base: makeBase(),
       recruit: hire,
       role: 'head_spy',
@@ -331,6 +354,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
     // An hour before the next boundary: an hour's worth.
     const hourLeft = new Date(monday.getTime() + PAY_WEEK_MS - 60 * 60 * 1000);
     const lateHire = hireRecruit(fakeRepos().repos, {
+      ...SIGNER,
       base: makeBase(),
       recruit: hire,
       role: 'head_spy',
@@ -348,6 +372,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
     const base = makeBase();
     const hire = recruit();
     const result = hireRecruit(repos, {
+      ...SIGNER,
       base,
       recruit: hire,
       role: 'head_spy',
@@ -369,6 +394,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
       resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 },
     });
     const result = hireRecruit(repos, {
+      ...SIGNER,
       base: broke,
       recruit: recruit(),
       role: 'head_spy',
@@ -391,6 +417,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
     });
     expect(
       hireRecruit(fakeRepos().repos, {
+        ...SIGNER,
         base: full,
         recruit: recruit(),
         role: 'head_spy',
@@ -403,6 +430,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
     const levelled = { ...full, level: 2 };
     expect(
       hireRecruit(fakeRepos().repos, {
+        ...SIGNER,
         base: levelled,
         recruit: recruit(),
         role: 'head_spy',
@@ -418,6 +446,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
     });
     expect(
       hireRecruit(fakeRepos().repos, {
+        ...SIGNER,
         base: taken,
         recruit: recruit(),
         role: 'head_spy',
@@ -436,6 +465,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
     });
     expect(
       hireRecruit(fakeRepos().repos, {
+        ...SIGNER,
         base: already,
         recruit: hire,
         role: 'head_spy',
@@ -582,8 +612,44 @@ describe('the Bar over HTTP', () => {
     expect(after.filledRoles).toEqual(['head_spy']);
     expect(after.officers[0]?.commander.name).toBe(target.name);
     expect(after.officers[0]?.weeklyWage).toBe(hired.wage);
-    expect(after.recruits.find((r) => r.id === target.id)?.hired).toBe(true);
     expect(after.caps).toBe(bar.caps - hired.firstPayment);
+
+    // §H2b — they have left the room, and somebody else is in their seat. Both halves matter: a
+    // roster that merely greyed them out would still be a private catalogue, and one that emptied
+    // the seat would shrink the shared room every time anybody hired.
+    expect(after.recruits.map((r) => r.id)).not.toContain(target.id);
+    expect(after.recruits).toHaveLength(BAR_ROSTER_SIZE);
+    const seat = bar.recruits.findIndex((r) => r.id === target.id);
+    expect(after.recruits[seat]?.name).not.toBe(target.name);
+    // And they left for everybody, not just for the crew that signed them.
+    const bystander = await readBar(app, await makePlayer(app, 'bar_bystander'));
+    expect(bystander.recruits.map((r) => r.id)).not.toContain(target.id);
+    expect(bystander.recruits[seat]?.id).toBe(after.recruits[seat]?.id);
+  });
+
+  it('§H2b — allows one hire a day and refuses the second', async () => {
+    const { app } = await makeApp();
+    const token = await makePlayer(app, 'eager_operator');
+    const bar = await readBar(app, token);
+    expect(bar.hiresLeftToday).toBe(BAR_HIRES_PER_DAY);
+
+    const [first, second] = bar.recruits.filter((r) => r.askingWage !== null);
+    if (!first?.askingWage || !second?.askingWage) throw new Error('need two interested recruits');
+    const hire = (recruitId: string, offerWage: number, role: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/bar/hire',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { recruitId, role, offerWage },
+      });
+
+    expect((await hire(first.id, first.askingWage, 'head_spy')).statusCode).toBe(200);
+    expect((await readBar(app, token)).hiresLeftToday).toBe(0);
+
+    // A *different* role, so this can only be the daily limit and not §C3.
+    const again = await hire(second.id, second.askingWage, 'trader');
+    expect(again.statusCode).toBe(409);
+    expect(again.json<{ error: { code: string } }>().error.code).toBe('DAILY_HIRE_LIMIT');
   });
 
   it('rejects a hire into a role that is already filled', async () => {
@@ -610,16 +676,51 @@ describe('the Bar over HTTP', () => {
   it('404s a recruit who is not at the Bar today (§H2)', async () => {
     const { app } = await makeApp();
     const token = await makePlayer(app, 'stale_operator');
-    const yesterday = findBarRecruit('1999-01-01', 'bar-1999-01-01-0');
+    const yesterday = findBarRecruit('1999-01-01', 'bar-1999-01-01-0-0');
     expect(yesterday, 'the helper only finds a recruit on its own day').toBeDefined();
 
     const res = await app.inject({
       method: 'POST',
       url: '/api/bar/hire',
       headers: { authorization: `Bearer ${token}` },
-      payload: { recruitId: 'bar-1999-01-01-0', role: 'head_spy', offerWage: 50 },
+      payload: { recruitId: 'bar-1999-01-01-0-0', role: 'head_spy', offerWage: 50 },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('§H2b — 404s a recruit whose seat has already turned over', async () => {
+    const { app } = await makeApp();
+    const quick = await makePlayer(app, 'quick_operator');
+    const slow = await makePlayer(app, 'slow_operator');
+
+    // Both tabs are looking at the same room. One of them signs first.
+    const staleView = await readBar(app, slow);
+    const target = (await readBar(app, quick)).recruits.find(
+      (r) => r.assessment.interested && r.askingWage !== null,
+    );
+    if (!target?.askingWage) throw new Error('expected an interested recruit');
+    expect(staleView.recruits.map((r) => r.id)).toContain(target.id);
+
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/bar/hire',
+          headers: { authorization: `Bearer ${quick}` },
+          payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    // The stale tab now holds an id naming a generation that seat has moved past. It must not
+    // sign the replacement by accident — the generation is in the id precisely so it cannot.
+    const stale = await app.inject({
+      method: 'POST',
+      url: '/api/bar/hire',
+      headers: { authorization: `Bearer ${slow}` },
+      payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
+    });
+    expect(stale.statusCode).toBe(404);
   });
 
   it('assigns a §H6 point by hand and refuses when none are banked', async () => {

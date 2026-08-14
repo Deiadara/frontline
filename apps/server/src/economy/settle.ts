@@ -1,5 +1,6 @@
 import {
   adjustMeter,
+  hardshipReduction,
   moralePenaltyFor,
   payrollWeeksFor,
   recordPayrollOutcome,
@@ -35,7 +36,12 @@ export function settleBaseEconomy(repos: Repositories, base: Base, now: Date): B
     economy: {
       ...base.economy,
       payroll: cycle.payroll,
-      morale: adjustMeter(base.economy.morale, moralePenaltyFor(cycle)),
+      // §A1 — the Infirmary takes the edge off. Read off the structures standing at the moment the
+      // week turned over, which is what `settleDistrict` has just brought up to date.
+      morale: adjustMeter(
+        base.economy.morale,
+        moralePenaltyFor(cycle, hardshipReduction(base.buildings)),
+      ),
       reputationTally: recordPayrollOutcome(
         base.economy.reputationTally,
         payrollWeeksFor(cycle),

@@ -5,6 +5,8 @@ import { OverseerPortrait } from '../overseer/OverseerPortrait';
 
 interface TopHudProps {
   overseer: Overseer;
+  /** §A1 — the faction's name. The one label every other player sees, so it leads the bar. */
+  faction: string;
   resources: Resources;
   economy: EconomyState;
 }
@@ -18,16 +20,23 @@ interface TopHudProps {
  * header over a `flex-1 min-h-0` body, so a second row costs the map some height and clips
  * nothing.
  */
-export function TopHud({ overseer, resources, economy }: TopHudProps) {
+export function TopHud({ overseer, faction, resources, economy }: TopHudProps) {
   const reputation = reputationOf(economy, new Date());
 
   return (
     <header className="flex shrink-0 flex-col border-b border-neon-cyan/20 bg-night-raised">
       <div className="flex h-14 items-center justify-between gap-4 px-4">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="text-glow-cyan hidden font-display text-lg font-black tracking-[0.2em] text-steel-100 sm:block">
-            FRONTLINE
-          </span>
+          {/* `truncate` on a `min-w-0` flex child rather than a fixed width: the name is bounded at
+              40 characters by `FactionNameSchema`, and at 1024px a 40-character display-font name
+              still has to give way to the reputation chip beside it rather than push it off. */}
+          <p
+            data-testid="faction-name"
+            className="text-glow-cyan min-w-0 truncate font-display text-lg font-black tracking-[0.2em] text-steel-100"
+            title={faction}
+          >
+            {faction}
+          </p>
           <ReputationChip label={reputation} />
         </div>
 

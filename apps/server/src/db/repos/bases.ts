@@ -5,6 +5,7 @@ import {
   type Base,
   type BaseSummary,
   type Building,
+  type BuildQueue,
   type Commander,
   type EconomyState,
   type ProgressionState,
@@ -27,6 +28,7 @@ interface BaseRow {
   research_json: string;
   assignees_json: string;
   buildings_json: string;
+  build_queue_json: string;
   commanders_json: string;
   created_at: string;
 }
@@ -64,8 +66,18 @@ export interface BasesRepo {
   updateCommanders(baseId: string, commanders: Commander[]): void;
   /** The research project in flight and the facts it has produced (GDD §B9). */
   updateResearch(baseId: string, research: ResearchState): void;
-  /** The structures standing in the hideout (GDD §A1, §D3). One JSON column, rewritten whole. */
+  /** The structures standing in the district (GDD §A1, §D3). One JSON column, rewritten whole. */
   updateBuildings(baseId: string, buildings: Building[]): void;
+  /**
+   * The structures and the queue behind them, as one statement (§A1).
+   *
+   * They move together or not at all: a settle that stood a building up and failed to drop its
+   * queue entry would build it again on the next read, and one that dropped the entry without
+   * standing the building up would charge for a level nobody got.
+   */
+  updateDistrict(baseId: string, buildings: Building[], queue: BuildQueue): void;
+  /** §A1 — the faction's name. The only field on a base a player types. */
+  updateName(baseId: string, name: string): void;
 }
 
 function rowToBase(row: BaseRow): Base {
@@ -82,6 +94,7 @@ function rowToBase(row: BaseRow): Base {
     research: readJson(row.research_json),
     assignees: readJson(row.assignees_json),
     buildings: readJson(row.buildings_json),
+    buildQueue: readJson(row.build_queue_json),
     commanders: readJson(row.commanders_json),
     createdAt: row.created_at,
   });
@@ -103,8 +116,8 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     `INSERT INTO bases
        (id, owner_id, name, district_id, level, is_bot,
         resources_json, economy_json, progression_json, research_json, assignees_json,
-        buildings_json, commanders_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        buildings_json, build_queue_json, commanders_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
@@ -121,6 +134,10 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const updateCommandersStmt = db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?');
   const updateResearchStmt = db.prepare('UPDATE bases SET research_json = ? WHERE id = ?');
   const updateBuildingsStmt = db.prepare('UPDATE bases SET buildings_json = ? WHERE id = ?');
+  const updateDistrictStmt = db.prepare(
+    'UPDATE bases SET buildings_json = ?, build_queue_json = ? WHERE id = ?',
+  );
+  const updateNameStmt = db.prepare('UPDATE bases SET name = ? WHERE id = ?');
 
   return {
     insert(base) {
@@ -137,6 +154,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.research),
         JSON.stringify(base.assignees),
         JSON.stringify(base.buildings),
+        JSON.stringify(base.buildQueue),
         JSON.stringify(base.commanders),
         base.createdAt,
       );
@@ -177,6 +195,12 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateBuildings(baseId, buildings) {
       updateBuildingsStmt.run(JSON.stringify(buildings), baseId);
+    },
+    updateDistrict(baseId, buildings, queue) {
+      updateDistrictStmt.run(JSON.stringify(buildings), JSON.stringify(queue), baseId);
+    },
+    updateName(baseId, name) {
+      updateNameStmt.run(name, baseId);
     },
   };
 }

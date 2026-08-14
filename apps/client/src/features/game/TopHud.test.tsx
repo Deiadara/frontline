@@ -31,6 +31,7 @@ const renderHud = (override: Partial<EconomyState> = {}) =>
   render(
     <TopHud
       overseer={overseer}
+      faction="The Ninth Street Reclamation Company"
       resources={STARTING_RESOURCES}
       economy={{ ...economy, ...override }}
     />,

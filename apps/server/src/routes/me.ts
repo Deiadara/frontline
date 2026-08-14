@@ -1,6 +1,6 @@
 import type { MeResponse } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { settleBaseEconomy } from '../economy/settle.js';
+import { settleBase } from '../district/settle.js';
 
 export function registerMeRoutes(app: FastifyInstance): void {
   app.get('/me', { preHandler: app.authenticate }, (request): MeResponse => {
@@ -9,7 +9,7 @@ export function registerMeRoutes(app: FastifyInstance): void {
       ? (app.repos.overseers.findById(user.overseerId) ?? null)
       : null;
     const owned = app.repos.bases.findByOwnerId(user.id);
-    const base = owned ? settleBaseEconomy(app.repos, owned, new Date()) : null;
+    const base = owned ? settleBase(app.repos, owned, new Date()).base : null;
     return { user, overseer, base };
   });
 }

@@ -40,6 +40,7 @@ const staffed: AssigneesResponse = {
   capPerOfficer: 3,
   maxBonusPercent: assigneeBonusPercent(3),
   canReskill: false,
+  housing: { used: 0, capacity: 8 },
   officers: [
     {
       officerId: 'off-1',

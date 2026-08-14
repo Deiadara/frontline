@@ -1,16 +1,22 @@
 import {
   HIRING_INSIGHT_ROLES,
-  RESEARCH_COST_CAPS,
   RESEARCH_MINUTES,
+  canAfford,
   canDevelop,
+  findModification,
+  researchCost,
+  researchTimeReduction,
   roleFullyResearched,
+  spendResources,
   unlocksCrossReference,
+  withReduction,
   type ActiveResearch,
   type Base,
   type Overseer,
   type ResearchProject,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { modificationBlocker } from '../district/modifications.js';
 import { pairingsExhausted } from './discover.js';
 
 /**
@@ -35,6 +41,11 @@ export const RESEARCH_REFUSALS = [
   'no_lead',
   'option_locked',
   'nothing_to_learn',
+  // §A1 modification work adds three of its own — the structure, the slot and the engineer.
+  'unknown_modification',
+  'modification_unavailable',
+  'no_modification_slot',
+  'no_lead_engineer',
   'cannot_afford',
 ] as const;
 export type ResearchRefusal = (typeof RESEARCH_REFUSALS)[number];
@@ -66,11 +77,35 @@ function refusalFor(input: StartInput): ResearchRefusal | null {
     if (roleDone && (!project.crossReference || pairingsExhausted(base.research.facts))) {
       return 'nothing_to_learn';
     }
-  } else if (!canDevelop(overseer.attributes, project.attribute)) {
-    return 'nothing_to_learn';
+  } else if (project.kind === 'training') {
+    if (!canDevelop(overseer.attributes, project.attribute)) return 'nothing_to_learn';
+  } else {
+    const refusal = modificationRefusal(base, project.modificationId);
+    if (refusal) return refusal;
   }
 
-  return base.resources.caps < RESEARCH_COST_CAPS[project.kind] ? 'cannot_afford' : null;
+  return canAfford(base.resources, researchCost(project.kind)) ? null : 'cannot_afford';
+}
+
+/**
+ * The §A1 gates, mapped from the blocker the district screen already reports onto this module's
+ * own refusal list. One translation, so the two screens can never disagree about why.
+ */
+function modificationRefusal(base: Base, id: string): ResearchRefusal | null {
+  const spec = findModification(id);
+  if (!spec) return 'unknown_modification';
+  switch (modificationBlocker(base, spec)) {
+    case 'not_built':
+      return 'modification_unavailable';
+    case 'no_slot':
+      return 'no_modification_slot';
+    case 'no_lead_engineer':
+      return 'no_lead_engineer';
+    // `research_busy` is already refused above as `already_running`, and `cannot_afford` is the
+    // shared check below — neither needs a second home here.
+    default:
+      return null;
+  }
 }
 
 /**
@@ -89,11 +124,19 @@ export function startResearch(repos: Repositories, input: StartInput): StartResu
     id,
     project,
     startedAt: now.toISOString(),
-    durationMinutes: RESEARCH_MINUTES[project.kind],
+    // §A1 — the Lab is what makes research quick, and its cut is frozen onto the row with
+    // everything else. Floored at a minute: a project that lands the instant it starts has no
+    // clock, and the whole screen is built around one.
+    durationMinutes: Math.max(
+      1,
+      Math.round(
+        withReduction(RESEARCH_MINUTES[project.kind], researchTimeReduction(base.buildings)),
+      ),
+    ),
   };
   const started: Base = {
     ...base,
-    resources: { ...base.resources, caps: base.resources.caps - RESEARCH_COST_CAPS[project.kind] },
+    resources: spendResources(base.resources, researchCost(project.kind)),
     research: { ...base.research, active },
   };
 
