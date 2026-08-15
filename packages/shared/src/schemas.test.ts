@@ -9,11 +9,16 @@ import {
   STARTER_DISTRICT_ID,
   findDistrict,
   garrisonOf,
-  isDistrictAttackable,
+  isDistrictRaidable,
+  CITY_PLACES,
+  CONTESTED_DISTRICTS,
+  RESIDENTIAL_DISTRICTS,
+  findPlace,
+  unifiedBonusFor,
   isSeatOfGovernmentPower,
   raidTargetOf,
   type District,
-} from './city.js';
+} from './city/index.js';
 import { REVOLUTIONARY_SEATS } from './economy/reputation.js';
 import { GOVERNMENT_GARRISONS, governmentGarrisonFor } from './factions.js';
 
@@ -29,7 +34,8 @@ const district = (id: string): District => {
 describe('CITY_DISTRICTS', () => {
   it('is a valid map with a starter district', () => {
     expect(() => z.array(DistrictSchema).min(10).parse(CITY_DISTRICTS)).not.toThrow();
-    expect(findDistrict(STARTER_DISTRICT_ID)?.kind).toBe('player_base');
+    expect(CITY_DISTRICTS).toHaveLength(10);
+    expect(findDistrict(STARTER_DISTRICT_ID)?.kind).toBe('residential');
   });
 
   it('settles the player and the AI rival in two different, real districts', () => {
@@ -62,22 +68,20 @@ describe('CITY_DISTRICTS', () => {
 });
 
 describe('who holds the map (§A3)', () => {
-  const attackable = CITY_DISTRICTS.filter((d) =>
-    isDistrictAttackable(d, { isOwnBase: false, hasBotBase: false }),
-  );
+  const contested = CONTESTED_DISTRICTS;
 
   it('makes the Combine the main enemy without making it the only one', () => {
-    const combine = attackable.filter((d) => d.faction === 'government');
-    expect(combine.length).toBeGreaterThan(attackable.length - combine.length);
-    expect(combine.length).toBeLessThan(attackable.length);
+    const combine = contested.filter((d) => d.faction === 'government');
+    expect(combine.length).toBeGreaterThan(contested.length - combine.length);
+    expect(combine.length).toBeLessThan(contested.length);
   });
 
-  it('leaves every stronghold in Combine hands — a stronghold is a seat of its power', () => {
-    const strongholds = CITY_DISTRICTS.filter((d) => d.kind === 'npc_stronghold');
-    expect(strongholds.length).toBeGreaterThan(0);
-    for (const stronghold of strongholds) {
-      expect(stronghold.faction, stronghold.id).toBe('government');
-      expect(isSeatOfGovernmentPower(stronghold), stronghold.id).toBe(true);
+  it('leaves every seat of power in Combine hands', () => {
+    const seats = CITY_DISTRICTS.filter((d) => d.seatOfPower);
+    expect(seats.length).toBeGreaterThan(0);
+    for (const seat of seats) {
+      expect(seat.faction, seat.id).toBe('government');
+      expect(isSeatOfGovernmentPower(seat), seat.id).toBe(true);
     }
   });
 
@@ -89,12 +93,22 @@ describe('who holds the map (§A3)', () => {
     );
   });
 
-  it('calls no player base or market Combine ground', () => {
-    for (const district of CITY_DISTRICTS.filter(
-      (d) => d.kind === 'player_base' || d.kind === 'market',
-    )) {
+  it('calls no residential district Combine ground', () => {
+    for (const district of RESIDENTIAL_DISTRICTS) {
       expect(district.faction, district.id).toBe('independent');
       expect(isSeatOfGovernmentPower(district), district.id).toBe(false);
+      // And nobody lives on ground that can be taken out from under them.
+      expect(district.places, district.id).toEqual([]);
+    }
+  });
+
+  it('lets a crew raid anybody’s home but its own, and capture none of them', () => {
+    const home = district(STARTER_DISTRICT_ID);
+    expect(isDistrictRaidable(home, true)).toBe(false);
+    expect(isDistrictRaidable(home, false)).toBe(true);
+    // Contested ground is taken a place at a time, never raided as a whole.
+    for (const contestedDistrict of CONTESTED_DISTRICTS) {
+      expect(isDistrictRaidable(contestedDistrict, false), contestedDistrict.id).toBe(false);
     }
   });
 
@@ -133,34 +147,32 @@ describe('who holds the map (§A3)', () => {
   });
 });
 
-describe('isDistrictAttackable', () => {
-  const EMPTY = { isOwnBase: false, hasBotBase: false };
-
-  it('offers raid sites and NPC strongholds', () => {
-    expect(isDistrictAttackable(district('rustyard'), EMPTY)).toBe(true);
-    expect(isDistrictAttackable(district('blacksite-7'), EMPTY)).toBe(true);
+describe('the places inside a district (§A4)', () => {
+  it('gives every contested district something to take, and a unified bonus for taking it all', () => {
+    for (const contested of CONTESTED_DISTRICTS) {
+      expect(contested.places.length, contested.id).toBeGreaterThan(0);
+      expect(unifiedBonusFor(contested.id), contested.id).not.toBeNull();
+    }
   });
 
-  it('holds the line at markets', () => {
-    expect(isDistrictAttackable(district('sprawl-exchange'), EMPTY)).toBe(false);
+  it('gives every place a unique id that names the district it is in', () => {
+    const ids = CITY_PLACES.map((place) => place.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const place of CITY_PLACES) {
+      expect(place.id.startsWith(place.districtId), place.id).toBe(true);
+      expect(findPlace(place.id)).toEqual(place);
+    }
   });
 
-  it('never targets your own base', () => {
-    expect(
-      isDistrictAttackable(district(STARTER_DISTRICT_ID), { isOwnBase: true, hasBotBase: false }),
-    ).toBe(false);
+  it('spreads the city across enough kinds of place to make holdings differ', () => {
+    const kinds = new Set(CITY_PLACES.map((place) => place.kind));
+    expect(kinds.size).toBeGreaterThanOrEqual(15);
+    expect(CITY_PLACES.length).toBeGreaterThanOrEqual(25);
   });
 
-  it('never targets another human player', () => {
-    expect(isDistrictAttackable(district(STARTER_DISTRICT_ID), EMPTY)).toBe(false);
-  });
-
-  it('targets the AI rival garrisoning a district', () => {
-    // Empty, the rival's district is an ordinary player_base node; the bot makes it hostile.
-    expect(isDistrictAttackable(district(BOT_DISTRICT_ID), EMPTY)).toBe(false);
-    expect(
-      isDistrictAttackable(district(BOT_DISTRICT_ID), { isOwnBase: false, hasBotBase: true }),
-    ).toBe(true);
+  it('offers all three grades of ground to dig into', () => {
+    const grades = new Set(CITY_PLACES.map((place) => place.fortifyDifficulty));
+    expect(grades).toEqual(new Set(['easy', 'medium', 'hard']));
   });
 });
 

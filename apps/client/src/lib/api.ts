@@ -6,7 +6,12 @@ import {
   AuthResponseSchema,
   BarResponseSchema,
   BaseDetailResponseSchema,
-  BattleResponseSchema,
+  AttackPlaceResponseSchema,
+  CityMutationResponseSchema,
+  DistrictDetailResponseSchema,
+  RaidDistrictResponseSchema,
+  TrainUnitsResponseSchema,
+  UnitsResponseSchema,
   BuildStructureResponseSchema,
   RenameFactionResponseSchema,
   CityResponseSchema,
@@ -20,7 +25,12 @@ import {
   type AssignPointRequest,
   type PlaceAssigneesRequest,
   type ReskillRequest,
-  type BattleRequest,
+  type AttackPlaceRequest,
+  type FortifyRequest,
+  type GarrisonRequest,
+  type RaidDistrictRequest,
+  type ScoutRequest,
+  type TrainUnitsRequest,
   type BuildStructureRequest,
   type RenameFactionRequest,
   type CreateOverseerRequest,
@@ -111,8 +121,27 @@ export const buildStructure = (body: BuildStructureRequest) =>
 export const renameFaction = (body: RenameFactionRequest) =>
   apiFetch('/base/faction', RenameFactionResponseSchema, jsonBody(body));
 
-export const attack = (body: BattleRequest) =>
-  apiFetch('/battle', BattleResponseSchema, jsonBody(body));
+export const getDistrict = (id: string) => apiFetch(`/city/${id}`, DistrictDetailResponseSchema);
+
+export const scoutDistrict = (body: ScoutRequest) =>
+  apiFetch('/city/scout', CityMutationResponseSchema, jsonBody(body));
+
+export const attackPlace = (body: AttackPlaceRequest) =>
+  apiFetch('/city/attack', AttackPlaceResponseSchema, jsonBody(body));
+
+export const raidDistrict = (body: RaidDistrictRequest) =>
+  apiFetch('/city/raid', RaidDistrictResponseSchema, jsonBody(body));
+
+export const setGarrison = (body: GarrisonRequest) =>
+  apiFetch('/city/garrison', CityMutationResponseSchema, jsonBody(body));
+
+export const fortifyPlace = (body: FortifyRequest) =>
+  apiFetch('/city/fortify', CityMutationResponseSchema, jsonBody(body));
+
+export const getUnits = () => apiFetch('/units', UnitsResponseSchema);
+
+export const trainUnits = (body: TrainUnitsRequest) =>
+  apiFetch('/units/train', TrainUnitsResponseSchema, jsonBody(body));
 
 export const getMissions = () => apiFetch('/missions', MissionsResponseSchema);
 

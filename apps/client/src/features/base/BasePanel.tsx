@@ -30,7 +30,7 @@ import { useBase, useBuildStructure, useMe, useRenameFaction } from '../../lib/q
 import { useServerClock } from '../missions/useServerClock';
 import { StructureDialog } from './StructureDialog';
 import { DistrictScene } from './DistrictScene';
-import { DISTRICT_PLOTS } from './plots';
+import { DISTRICT_SITES } from './plots';
 import { formatRate, formatRemaining } from './format';
 
 /**
@@ -82,7 +82,7 @@ export function BasePanel() {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Tag label={`Level ${base.level}`} />
             <Tag label={districtName} />
-            <Tag label={`${base.buildings.length} / ${DISTRICT_PLOTS.length} Structures`} />
+            <Tag label={`${base.buildings.length} / ${DISTRICT_SITES.length} Structures`} />
           </div>
         </div>
 

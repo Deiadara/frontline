@@ -15,6 +15,7 @@ const SPECS: Record<AssetBundleName, readonly AssetSpec[]> = {
   overseer: [spec('portrait-overseer-1')],
   city: [spec('plate-city'), spec('plane-city-sky')],
   base: [spec('building-nexus')],
+  units: [spec('unit-razors')],
   ui: [spec('ui-frame-panel')],
 };
 

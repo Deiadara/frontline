@@ -1,9 +1,11 @@
 # SPEC — Client (`apps/client`)
 
-The UI contract the client dev implements. The scaffold already boots to a themed splash with
-Tailwind tokens, fonts, the `/api` dev proxy, vitest + Playwright. Replace the splash in
-`App.tsx` with the router and screens below. Import every domain type/schema/constant from
-`@frontline/shared`; never redeclare them.
+The UI contract. Import every domain type/schema/constant from `@frontline/shared`; never
+redeclare them.
+
+**This document is the contract, not a progress report** — `STATUS.md` says what is actually
+built. The screens below are all shipped; the layout rules at the bottom are the ones that keep
+being worth re-reading.
 
 ## API client (`src/lib/api.ts`)
 
@@ -25,20 +27,31 @@ message}`; on `401` also clear the session (logout).
 - **zustand** (`src/store/session.ts`): `{token: string | null, user: User | null}` +
   `login/logout` actions. Persist ONLY the token to `localStorage` (key `frontline.token`);
   rehydrate on boot and refetch the user via `GET /api/me`.
-- **react-query** for ALL server data — no server state copied into zustand. Query keys:
-  `['me']`, `['city']`, `['base', id]`. After `POST /api/overseer` invalidate `['me']` +
-  `['city']`; after `POST /api/battle` invalidate `['me']`, `['city']`, `['base', myBaseId]`.
-  Mount one `QueryClientProvider` in `main.tsx`.
+- **react-query** for ALL server data — no server state copied into zustand. Query keys live in
+  one place (`lib/queries.ts`): `['me']`, `['city']`, `['base', id]`, `['missions']`, `['bar']`,
+  `['research']`, `['assignees']`. Mount one `QueryClientProvider` in `main.tsx`.
+- **Invalidate on `onSettled`, not `onSuccess`, for any write that settles first.** The write
+  routes settle lazily _before_ they validate, so a refusal can already have moved the stockpile,
+  the meters and the level. Refreshing only on success leaves the HUD contradicting the banner
+  beside it (MOU-280).
+- **A level-up is announced by presence, never by comparing two numbers.** Every response whose
+  call can award XP carries an optional `levelUp`; it is set only when a level was actually
+  crossed — including on the _error_ envelope, because a refusal can be the only response that
+  ever carries one.
 
 ## Routes (react-router-dom)
 
-| Path         | Screen                                                  | Guard                                                                 |
-| ------------ | ------------------------------------------------------- | --------------------------------------------------------------------- |
-| `/auth`      | Auth (login/register)                                   | Redirect to `/game` if authenticated                                  |
-| `/overseer`  | Character Select                                        | Requires session; redirect to `/game` if user already has an overseer |
-| `/game`      | Game shell (city map)                                   | Requires session; redirect to `/overseer` if no overseer yet          |
-| `/game/base` | Base panel (inside shell context panel or as sub-route) | as `/game`                                                            |
-| `*`          | Redirect to `/game`                                     |                                                                       |
+| Path              | Screen                | Guard                                                                 |
+| ----------------- | --------------------- | --------------------------------------------------------------------- |
+| `/auth`           | Auth (login/register) | Redirect to `/game` if authenticated                                  |
+| `/overseer`       | Character Select      | Requires session; redirect to `/game` if user already has an overseer |
+| `/game`           | Game shell (city map) | Requires session; redirect to `/overseer` if no overseer yet          |
+| `/game/base`      | The district (§A1)    | as `/game`                                                            |
+| `/game/missions`  | Mission board (§E)    | as `/game`                                                            |
+| `/game/bar`       | The Bar (§H)          | as `/game`                                                            |
+| `/game/research`  | Research (§B9, §F2)   | as `/game`                                                            |
+| `/game/assignees` | Assignees (§G)        | as `/game`                                                            |
+| `*`               | Redirect to `/game`   |                                                                       |
 
 ## Screens
 
@@ -63,9 +76,18 @@ message}`; on `401` also clear the session (logout).
    - **Right context panel** (fixed width, own scroll): selected district details (name, kind,
      difficulty, rewards) + ATTACK button (`POST /api/battle`), or base summary when own base
      selected.
-4. **Base panel** — own base: name, level, district; resources; buildings list (join base
-   `buildings` against `BUILDING_CATALOG` for display name/description/output). Read-only this
-   milestone (no construction UI).
+4. **The district** (§A1) — a place you look at and click, not a list of rows. Thirteen plots in
+   three rows on a fixed-aspect scene; each is in exactly one of four states (standing, being
+   worked on, vacant, locked) and the name plate carries all four, because it is the only part of
+   a plot guaranteed to be readable at the smallest supported size. Clicking a plot opens its
+   dialog — the Grepolis move — so the scene never has to make room for a detail column.
+
+   Under it: the build queue, the power grid, production rates, the stockpile with its ceiling,
+   standing, payroll and progression. **Nothing on this page computes a game rule.** Every figure
+   comes from a shared function the server calls too (`districtProduction`, `powerGrid`,
+   `storageCapacity`, `populationCapacity`, `buildingCost`, `buildingBuildSeconds`), which is what
+   keeps a dead button's _reason_ identical to the server's refusal.
+
 5. **Battle result modal** — opens on `POST /api/battle` response: WIN/DEFEAT banner (cyan glow
    vs magenta glow), the `result.log` lines rendered as a terminal-style feed, rewards line, and
    updated resource totals. Dismiss → HUD resources already refreshed via query invalidation.
@@ -82,8 +104,12 @@ message}`; on `401` also clear the session (logout).
 - The Pixi canvas mounts in a dedicated container `div` sized by a **ResizeObserver**; the
   renderer resizes to the container (`app.renderer.resize(w, h)`), and the container has
   `overflow-hidden` so the canvas can never overflow its panel. Destroy the Pixi app on unmount.
-- Responsive down to **1280x800** with no overflow/overlap; below that, don't bother this
-  milestone.
+- Responsive down to **1024x768** with no overflow/overlap. The e2e layout gates run at five
+  viewports and assert: no two plots or plates overlap, nothing is clipped by a scrolling edge, no
+  image is drawn squeezed, and the document never scrolls horizontally.
+- **A `max-h` flex column needs `shrink-0` on everything that is not the scroll body.** Otherwise
+  flexbox takes the space out of whichever child will give, and a header that gives up four pixels
+  clips its own text — which no assertion about the _body_ can see.
 
 ## Aesthetic
 
@@ -100,5 +126,9 @@ minimal radius. All colors come from `src/theme/tokens.ts` / Tailwind theme — 
 - Vitest + Testing Library (configured; see `App.test.tsx`): cover the auth form validation, the
   character-select rendering of all 4 presets, and the api client's parse/error paths (mock
   `fetch`).
-- Playwright (configured, chromium, 1280x800, dev-server auto-start): keep `e2e/splash.spec.ts`
-  green by updating it to the auth screen, and add a screenshot spec per screen as it lands.
+- Playwright (chromium, dev-server auto-start): a screenshot spec per screen, the layout gates
+  above at five viewports, and `live.spec.ts` — the one spec that runs against a **real** server
+  and a throwaway database, end to end from registration through ordering a build and waiting for
+  the lazy settle to stand it up.
+- **Every visual gate has a positive control.** A gate that cannot fail proves nothing, and the
+  ones here are exactly the kind that get quietly switched off by a well-meaning fix.

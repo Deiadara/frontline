@@ -41,6 +41,13 @@ export type ErrorCode =
   | 'NO_LEAD_ENGINEER'
   | 'NO_HOUSING'
   | 'DAILY_HIRE_LIMIT'
+  // the city and its units (GDD §A4, §A5)
+  | 'DISTRICT_UNSCOUTED'
+  | 'NO_FORCE'
+  | 'PLACE_UNAVAILABLE'
+  | 'UNIT_LOCKED'
+  | 'TRAINING_QUEUE_FULL'
+  | 'NO_SUPPLY'
   | 'INTERNAL';
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
@@ -78,6 +85,12 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   NO_LEAD_ENGINEER: 409,
   NO_HOUSING: 409,
   DAILY_HIRE_LIMIT: 409,
+  DISTRICT_UNSCOUTED: 409,
+  NO_FORCE: 409,
+  PLACE_UNAVAILABLE: 409,
+  UNIT_LOCKED: 409,
+  TRAINING_QUEUE_FULL: 409,
+  NO_SUPPLY: 409,
   INTERNAL: 500,
 };
 

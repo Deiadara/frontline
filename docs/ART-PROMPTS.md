@@ -142,36 +142,35 @@ into #1b2233 haze with one warm #8a5209 inspection lamp.
 
 ---
 
-## 2. District illustrations — 11 assets
+## 2. District illustrations — 10 assets
 
 **Class framing** (append to each):
 
 ```
 Oblique three-quarter aerial view looking down at roughly 40 degrees, horizon at forty percent
-height. Square 1:1 composition, focal subject within the central eighty percent. One dominant mass,
-two or three secondary forms, a scatter of small interrupts — antennae, cables, signage, laundry
-lines. Something breaks the frame edge. Human-scale markers visible: doorways, walkways, a figure,
-a parked vehicle. Atmospheric perspective: every quarter of the depth shifts twenty percent toward
-#3d4761 and loses fifteen percent contrast.
+height. Square 1:1 composition, focal subject within the central eighty percent. One dominant
+mass, two or three secondary forms, a scatter of small interrupts — antennae, cables, signage,
+laundry lines. Something breaks the frame edge. Human-scale markers visible: doorways, walkways, a
+figure, a parked vehicle. Atmospheric perspective: every quarter of the depth shifts twenty
+percent toward #3d4761 and loses fifteen percent contrast.
 ```
 
-Ids match `District.id` in `@frontline/shared`. **One accent ramp per district** — listed.
+Ids match `District.id` in `@frontline/shared`.
 
-| Key                          | District             | Accent         | Seed     |
-| ---------------------------- | -------------------- | -------------- | -------- |
-| `district-neon-docks`        | Neon Docks           | hextech (cyan) | `120001` |
-| `district-ashen-terraces`    | Ashen Terraces       | ember (amber)  | `120002` |
-| `district-rustyard`          | The Rustyard         | ember          | `120003` |
-| `district-chrome-row`        | Chrome Row           | hextech        | `120004` |
-| `district-undergrid`         | The Undergrid        | bile (green)   | `120005` |
-| `district-datavault-sigma`   | Datavault Sigma      | hextech        | `120006` |
-| `district-glasshouse-fields` | Glasshouse Fields    | bile           | `120007` |
-| `district-sprawl-exchange`   | Sprawl Exchange      | ember          | `120008` |
-| `district-halcyon-plaza`     | Halcyon Plaza        | ember          | `120009` |
-| `district-blacksite-7`       | Blacksite 7          | sear (magenta) | `120010` |
-| `district-combine-spire`     | Spire of the Combine | sear           | `120011` |
+| Key                          | District             | Kind        | Seed     |
+| ---------------------------- | -------------------- | ----------- | -------- |
+| `district-neon-docks`        | Neon Docks           | residential | `120001` |
+| `district-ashen-terraces`    | Ashen Terraces       | residential | `120002` |
+| `district-kettle-row`        | Kettle Row           | residential | `120003` |
+| `district-rustyard`          | The Rustyard         | contested   | `120004` |
+| `district-chrome-row`        | Chrome Row           | contested   | `120005` |
+| `district-undergrid`         | The Undergrid        | contested   | `120006` |
+| `district-datavault-sigma`   | Datavault Sigma      | contested   | `120007` |
+| `district-glasshouse-fields` | Glasshouse Fields    | contested   | `120008` |
+| `district-blacksite-7`       | Blacksite 7          | contested   | `120009` |
+| `district-combine-spire`     | Spire of the Combine | contested   | `120010` |
 
-### 2.1 `district-neon-docks` — player home, difficulty 1
+### 2.1 `district-neon-docks` — residential, difficulty 1
 
 ```
 SUBJECT: A working freight dock built into a flooded canal trench under a raised motorway. Stacked
@@ -182,26 +181,38 @@ with life at the small scale even as the structure fails. One tug boat moored, o
 quay.
 ```
 
-### 2.2 `district-ashen-terraces` — rival home, difficulty 1
+### 2.2 `district-ashen-terraces` — residential, difficulty 4
 
 ```
 SUBJECT: A hillside of stepped concrete tenements under a permanent fall of pale ash, terraces
 planted with dead and dying greenery. Amber #f59e0b sodium lamps burning through the ashfall in
-soft haloes; laundry grey with fallout. Retaining walls buttressed with scavenged steel. A funicular
-track climbs the slope. Quiet, elegiac, almost beautiful — a place that used to be desirable. Two
-figures on separate terraces, not looking at each other.
+soft haloes; laundry grey with fallout. Retaining walls buttressed with scavenged steel. A
+funicular track climbs the slope. Quiet, elegiac, almost beautiful — a place that used to be
+desirable. Two figures on separate terraces, not looking at each other.
 ```
 
-### 2.3 `district-rustyard` — raid, difficulty 2
+### 2.3 `district-kettle-row` — residential, difficulty 2
+
+```
+SUBJECT: A long residential terrace along a southern cut, boiler houses venting between every
+third building so the whole street sits under drifting warm-lit steam. Washing strung across the
+gap at three storeys. Front steps in constant use — this is the one district rendered as
+*inhabited* rather than as infrastructure: figures on the steps, a game in the road, a repaired
+door standing open. Warm #f59e0b sodium led, the cyan key arriving only down the length of the
+cut.
+```
+
+### 2.4 `district-rustyard` — contested, difficulty 2
 
 ```
 SUBJECT: A ship-breaking yard of beached hulls half-dismantled in orange mud, ribs of vessels
 standing like cathedral vaulting. Cutting torches throwing small hot #ffd166 pools against the
 enormous cold mass of the hulls. Slag heaps, chained dogs, a crane made from three other cranes.
-Rust in every value from #4a2a05 to #c47c0d. Scale enforced by tiny figures walking a hull's spine.
+Rust in every value from #4a2a05 to #c47c0d. Scale enforced by tiny figures walking a hull's
+spine.
 ```
 
-### 2.4 `district-chrome-row` — raid, difficulty 4
+### 2.5 `district-chrome-row` — contested, difficulty 4
 
 ```
 SUBJECT: A narrow canyon street of clinic frontages and body-modification parlours, every window a
@@ -211,7 +222,7 @@ and they are all scratched, taped and patched. Vertical smeared reflections down
 Predatory, clinical, expensive.
 ```
 
-### 2.5 `district-undergrid` — raid, difficulty 5
+### 2.6 `district-undergrid` — contested, difficulty 5
 
 ```
 SUBJECT: A vast subterranean utility cavern below the city — the old power grid, still live.
@@ -221,47 +232,27 @@ coolant seams and inspection ports, with the cyan key entering as a single dista
 grate far above. Catwalks at three levels. Oppressive, immense, wet, humming.
 ```
 
-### 2.6 `district-datavault-sigma` — raid, difficulty 6
+### 2.7 `district-datavault-sigma` — contested, difficulty 6
 
 ```
 SUBJECT: A windowless black monolith of a data fortress, its face broken only by cooling louvres
 exhaling white vapour lit cold #22d3ee from within. Set in a cleared exclusion zone of cracked
-concrete and dead lighting columns. A single armoured entry ramp. Fibre trunking as thick as
-tree roots enters the ground at its base. Absolutely no human warmth: the one human-scale marker
-is a lone sentry booth dwarfed at the ramp foot.
+concrete and dead lighting columns. A single armoured entry ramp. Fibre trunking as thick as tree
+roots enters the ground at its base. Absolutely no human warmth: the one human-scale marker is a
+lone sentry booth dwarfed at the ramp foot.
 ```
 
-### 2.7 `district-glasshouse-fields` — raid, difficulty 3
+### 2.8 `district-glasshouse-fields` — contested, difficulty 3
 
 ```
 SUBJECT: Kilometres of cracked hydroponic glasshouses on a rooftop plateau, half their panes gone,
 mutated green #2f8551 growth spilling out and climbing the frames. Grow-lamps still running inside
-a few intact bays, throwing a sick green glow up into the smog ceiling. Irrigation pipework leaking
-into rust runs. A collapsed section reveals the city drop below. Overgrown, abandoned, strangely
-serene.
+a few intact bays, throwing a sick green glow up into the smog ceiling. Irrigation pipework
+leaking into rust runs. A collapsed section reveals the city drop below. Overgrown, abandoned,
+strangely serene.
 ```
 
-### 2.8 `district-sprawl-exchange` — market, difficulty 1
-
-```
-SUBJECT: A chaotic covered bazaar filling a collapsed transit interchange — stalls built into the
-carcasses of train carriages, tarpaulins strung across the ruined vaulted roof, warm #f59e0b lamp
-strings threading the whole volume. Dense crowd rendered as suggestion, not detail: values and
-silhouettes only. Smoke from cooking fires catching the light shafts. The one genuinely alive place
-in the city. Warm-led, with the cyan key entering only through the broken roof.
-```
-
-### 2.9 `district-halcyon-plaza` — market, difficulty 2
-
-```
-SUBJECT: A former civic plaza of pale stone colonnades, now an upmarket night market under strings
-of warm #ffd166 lanterns. A monumental fountain long dry, its basin used for stalls. Elegant
-proportions gone slightly shabby: chipped stone, cable runs stapled to columns, a corporate banner
-sun-bleached to illegibility. Better dressed crowd, wider spacing than Sprawl Exchange. Nostalgic,
-faded, faintly sad.
-```
-
-### 2.10 `district-blacksite-7` — npc stronghold, difficulty 8
+### 2.9 `district-blacksite-7` — contested, difficulty 8
 
 ```
 SUBJECT: A hardened military compound sunk into a bomb crater — sloped ferrocrete revetments,
@@ -271,25 +262,25 @@ no windows, no invitation. Searchlight beams sweeping the crater walls. The mage
 saturated colour in frame and it reads as a warning.
 ```
 
-### 2.11 `district-combine-spire` — npc stronghold, difficulty 10
+### 2.10 `district-combine-spire` — contested, difficulty 10
 
 ```
-SUBJECT: The single tallest structure in the city — a corporate megaspire punching through the smog
-ceiling into clear air, its lower two thirds lost in haze so only the crowning arcology is legible.
-Buttressed, ribbed, cathedral-like, deliberately intimidating. Magenta #e11d8f beacon light bleeding
-down the ribs; the summit catches an ambient dawn that never reaches the streets. Skybridges
-radiate outward and end in nothing. Seen from below and far away. The most beautiful and the most
-hostile image in the set.
+SUBJECT: The single tallest structure in the city — a corporate megaspire punching through the
+smog ceiling into clear air, its lower two thirds lost in haze so only the crowning arcology is
+legible. Buttressed, ribbed, cathedral-like, deliberately intimidating. Magenta #e11d8f beacon
+light bleeding down the ribs; the summit catches an ambient dawn that never reaches the streets.
+Skybridges radiate outward and end in nothing. Seen from below and far away. The most beautiful
+and the most hostile image in the set.
 ```
 
 ---
 
-## 3. Map plates and parallax planes — 5 assets
+## 3. Map plates and parallax planes — 6 assets
 
 **Class framing:**
 
 ```
-Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 degrees. Rendered as
+Wide 16:9 cinematic composition, high oblique view at roughly 35 degrees. Rendered as
 a single continuous painted illustration, not a tiled texture. No focal subject — this is a stage,
 and the readable action sits on top of it.
 ```
@@ -361,9 +352,29 @@ by fifty percent of the canvas low-contrast, quiet and free of detail — a logi
 The most romantic and most haunting image in the game.
 ```
 
+### 3.6 `plate-district` — the district ground (§A1)
+
+```
+SUBJECT: A crew's own walled compound seen from directly above and slightly forward, a town-view
+camera with **no sky and no horizon** — the whole frame is ground. Drawn as the ground *only*:
+the structures are painted separately and dropped on top, so every place one would stand is an
+empty, flat, quiet pad. Thirteen such pads in three staggered rows of four, five and four,
+spread wide apart, with broad dirt roads and duckboard walkways running between them in both
+directions and off all four edges — the lanes between the pads are the whole composition, and
+they must read as somewhere people walk. Ground is packed dirt, cracked slab, gravel and puddled
+standing water, patched with steel plate and old rail. The top edge of the frame is the
+compound's back wall: gabion baskets, sheet pile, stacked containers and a lit guard post, not
+open country. Scatter lives beside the roads and never on a pad — spoil heaps, oil drums, pallet
+stacks, a burnt-out chassis, cable runs pinned along the wall, drying laundry strung between
+poles. Value kept in the middle range (#1e293b to #55617e), the ground reading a step warmer and
+darker as it comes toward the viewer. Cold #22d3ee key from upper left, weak sodium #f59e0b
+bounce. Emissives are small, sparse and at ground level: a strung bulb line, a marker lamp, a
+brazier. No buildings. Nothing on the pads. No text.
+```
+
 ---
 
-## 4. District building sprites — 13 assets
+## 4. District building sprites — 12 assets
 
 **Class framing:**
 
@@ -387,7 +398,6 @@ Ids match `BuildingKind` in `@frontline/shared`.
 | `building-cistern`    | The Cistern    | `140006` |
 | `building-apothecary` | The Apothecary | `140007` |
 | `building-gate`       | The Gate       | `140008` |
-| `building-commons`    | The Commons    | `140009` |
 | `building-lab`        | The Lab        | `140010` |
 | `building-gauntlet`   | The Gauntlet   | `140011` |
 | `building-infirmary`  | The Infirmary  | `140012` |
@@ -466,16 +476,7 @@ hasty patch-plates across the face. Lowest and widest silhouette; must read as h
 everything else.
 ```
 
-### 4.9 `building-commons`
-
-```
-SUBJECT: A crew hall — a wide single-storey shed with a full-width awning over mismatched tables,
-a lit bar counter along the back wall, a screen flickering cold #22d3ee over the room, and every
-exterior surface covered in layered graffiti. Warm interior light spilling out under the awning.
-The only welcoming silhouette in the district.
-```
-
-### 4.10 `building-lab`
+### 4.9 `building-lab`
 
 ```
 SUBJECT: A research stack — a vertical black slab of racked datacores behind a louvred skin, cold
@@ -484,7 +485,7 @@ through one lit ground-floor window. A dense fan of fibre trunking sweeps out of
 shimmer above. The tallest and thinnest silhouette.
 ```
 
-### 4.11 `building-gauntlet`
+### 4.10 `building-gauntlet`
 
 ```
 SUBJECT: A training ground — an open run of welded obstacles, a climbing frame of scaffold pipe, a
@@ -493,7 +494,7 @@ on a pole throwing hard white light across the course. Mostly open ground: the o
 as an *area* rather than a structure.
 ```
 
-### 4.12 `building-infirmary`
+### 4.11 `building-infirmary`
 
 ```
 SUBJECT: A clinic — a small clean-walled prefab with a red-cross panel repainted over something
@@ -502,7 +503,7 @@ stack of gas cylinders chained beside the door. An air handler grumbling on the 
 building on the ground, deliberately at odds with everything around it.
 ```
 
-### 4.13 `building-garage`
+### 4.12 `building-garage`
 
 ```
 SUBJECT: A motor pool — a deep-mouthed open bay tall enough for a mast, a gantry crane on rails
@@ -585,50 +586,350 @@ the central horizontal eighth of the canvas; the rest is fully transparent.
 
 ---
 
-## 6. Icons — 13 assets
+## 6. Icons — 31 assets
 
 **Class framing:**
 
 ```
-Single centred icon on a fully transparent background, painted with visible brushwork but radically
-simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue. No text, no
-outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the central
-seventy percent. Consistent implied light from upper-left across the whole set.
+Single centred icon on a fully transparent background, painted with visible brushwork but
+radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue.
+No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the
+central seventy percent. Consistent implied light from upper-left across the whole set.
 ```
 
 ### 6.1 Resource icons — ids are the kebab-cased `Resources` keys
 
-| Key                       | Accent            | Seed     | Subject                                                                                                                                                                                                                        |
-| ------------------------- | ----------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `icon-caps`               | ember `#f59e0b`   | `160001` | `SUBJECT: A loose handful of crimped bottle caps, painted faces scratched back to bare steel, one standing on edge against the pile, warm amber #f59e0b catching the ridged rims.`                                             |
-| `icon-food`               | ember `#ffd166`   | `160002` | `SUBJECT: A dented ration tin with its lid peeled half back on a torn hinge of metal, a scorched crust of pressed protein inside, the paper label stripped to a pale ghost, warm amber #ffd166 glancing off the peeled edge.`  |
-| `icon-oil`                | hextech `#22d3ee` | `160003` | `SUBJECT: A squat riveted fuel drum with a hand-cranked spigot, a black bead swelling at the nozzle and a thin slick pooling beneath it, seams weeping rust, cyan #22d3ee iridescence riding the surface of the slick.`        |
-| `icon-scrap`              | ferrite `#94a3b8` | `160004` | `SUBJECT: A bundle of salvaged offcuts wired together at the middle — bent rebar, a torn hull plate, a coiled length of stripped cable — cold #94a3b8 light along the freshly broken edges, dull and powdery everywhere else.` |
-| `icon-high-quality-metal` | hextech `#22d3ee` | `160005` | `SUBJECT: Three stacked machined ingots with clean milled faces and a cast foundry stamp still legible on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to show bright grain.`         |
+| Key                       | Seed     | Subject                                                                                                                                                                                                                        |
+| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `icon-caps`               | `160001` | `SUBJECT: A loose handful of crimped bottle caps, painted faces scratched back to bare steel, one standing on edge against the pile, warm amber #f59e0b catching the ridged rims.`                                             |
+| `icon-food`               | `160002` | `SUBJECT: A dented ration tin with its lid peeled half back on a torn hinge of metal, a scorched crust of pressed protein inside, the paper label stripped to a pale ghost, warm amber #ffd166 glancing off the peeled edge.`  |
+| `icon-oil`                | `160003` | `SUBJECT: A squat riveted fuel drum with a hand-cranked spigot, a black bead swelling at the nozzle and a thin slick pooling beneath it, seams weeping rust, cyan #22d3ee iridescence riding the surface of the slick.`        |
+| `icon-scrap`              | `160004` | `SUBJECT: A bundle of salvaged offcuts wired together at the middle — bent rebar, a torn hull plate, a coiled length of stripped cable — cold #94a3b8 light along the freshly broken edges, dull and powdery everywhere else.` |
+| `icon-high-quality-metal` | `160005` | `SUBJECT: Three stacked machined ingots with clean milled faces and a cast foundry stamp still legible on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to show bright grain.`         |
 
 ### 6.2 Archetype icons — ids match `OverseerArchetype`
 
-| Key                         | Accent            | Seed     | Subject                                                                                                                                               |
-| --------------------------- | ----------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `icon-archetype-enforcer`   | sear `#e11d8f`    | `160011` | `SUBJECT: A battered riot shield seen at a slight angle, one corner deformed by impact, a single magenta #e11d8f warning band across it.`             |
-| `icon-archetype-netrunner`  | hextech `#22d3ee` | `160012` | `SUBJECT: A dermal interface jack plug trailing a coiled lead, contact pins catching cyan #22d3ee light, lead disappearing off the lower edge.`       |
-| `icon-archetype-fixer`      | ember `#f59e0b`   | `160013` | `SUBJECT: An old brass-bodied key card held between the implied thumb and finger of no visible hand, worn to a shine, warm amber #f59e0b edge light.` |
-| `icon-archetype-technocrat` | bile `#43b56e`    | `160014` | `SUBJECT: A machined gear-and-caliper pairing, teeth worn unevenly, a green #43b56e calibration filament between the caliper jaws.`                   |
+| Key                         | Seed     | Subject                                                                                                                                               |
+| --------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon-archetype-enforcer`   | `160011` | `SUBJECT: A battered riot shield seen at a slight angle, one corner deformed by impact, a single magenta #e11d8f warning band across it.`             |
+| `icon-archetype-netrunner`  | `160012` | `SUBJECT: A dermal interface jack plug trailing a coiled lead, contact pins catching cyan #22d3ee light, lead disappearing off the lower edge.`       |
+| `icon-archetype-fixer`      | `160013` | `SUBJECT: An old brass-bodied key card held between the implied thumb and finger of no visible hand, worn to a shine, warm amber #f59e0b edge light.` |
+| `icon-archetype-technocrat` | `160014` | `SUBJECT: A machined gear-and-caliper pairing, teeth worn unevenly, a green #43b56e calibration filament between the caliper jaws.`                   |
 
 ### 6.3 District-kind map icons — ids match `DistrictKind`
 
-| Key                        | Accent            | Seed     | Subject                                                                                                                                            |
-| -------------------------- | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `icon-kind-player-base`    | hextech `#22d3ee` | `160021` | `SUBJECT: A small fortified compound seen from above — a walled square with a central drum and a gate notch, cyan #22d3ee light in the courtyard.` |
-| `icon-kind-raid`           | ember `#f59e0b`   | `160022` | `SUBJECT: A breached wall segment with rubble spilling through the gap and one amber #f59e0b ember glow at the break.`                             |
-| `icon-kind-market`         | ferrite `#94a3b8` | `160023` | `SUBJECT: A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp point between them.`                           |
-| `icon-kind-npc-stronghold` | sear `#e11d8f`    | `160024` | `SUBJECT: A blunt hexagonal bunker seen from above with sloped revetments on every face and a magenta #e11d8f slit aperture at the centre.`        |
+| Key                     | Seed     | Subject                                                                                                                                                  |
+| ----------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon-kind-residential` | `160021` | `SUBJECT: A small fortified compound seen from above — a walled square with a central drum and a gate notch, cyan #22d3ee light in the courtyard.`       |
+| `icon-kind-contested`   | `160022` | `SUBJECT: Four small blocks around a crossroads seen from above, one of them breached and spilling rubble, a single magenta #e11d8f ember at the break.` |
+
+### 6.4 Place map icons — ids match `PlaceKind`
+
+One marker per _kind_ of place, not per place: thirty-one places share twenty kinds, and a player reads the kind off the map.
+
+| Key                                | Seed     | Subject                                                                                                                                             |
+| ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon-place-scrap-press`           | `160031` | `SUBJECT: A baling press seen from above with a squared bale on the outfeed and a scatter of loose swarf, warm #f59e0b rust tones.`                 |
+| `icon-place-chemical-plant`        | `160032` | `SUBJECT: Three cracking towers of descending height joined by a pipe run, one venting a pale #86e6a8 plume.`                                       |
+| `icon-place-power-station`         | `160033` | `SUBJECT: A transformer bank of four ribbed cylinders behind a mesh fence, cold #22d3ee arc light between two of them.`                             |
+| `icon-place-water-works`           | `160034` | `SUBJECT: Two circular settling beds seen from above with a radial sweep arm on each, water reading as flat #12a2bd.`                               |
+| `icon-place-foundry`               | `160035` | `SUBJECT: A cupola furnace with a tapping spout, the pour glowing #ffd166 across the floor plate beneath it.`                                       |
+| `icon-place-market`                | `160036` | `SUBJECT: A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp point between them.`                            |
+| `icon-place-pawn-shop`             | `160037` | `SUBJECT: A barred serving hatch in a blank wall with three hanging balls above it, one warm #f59e0b lamp inside the bars.`                         |
+| `icon-place-high-ground`           | `160038` | `SUBJECT: A water tower on lattice legs above a rooftop parapet, seen at a low angle, cold rim light along the tank.`                               |
+| `icon-place-barricade`             | `160039` | `SUBJECT: A staggered line of sea containers and rubble with rebar teeth, seen from above, one narrow gap left through it.`                         |
+| `icon-place-armory`                | `160040` | `SUBJECT: A heavy vault door standing ajar in a blank concrete face, weapon racks visible as silhouettes in the #f59e0b light beyond.`              |
+| `icon-place-war-machine-graveyard` | `160041` | `SUBJECT: Three dead armoured hulls half sunk in mud, tracks shed, one turret canted skyward, cold smog between them.`                              |
+| `icon-place-university`            | `160042` | `SUBJECT: A colonnaded facade with a broken pediment, one lit window in an upper storey, cyan #22d3ee light behind the glass.`                      |
+| `icon-place-satellite-uplink`      | `160043` | `SUBJECT: A parabolic dish on a guyed mast, hand-aligned and slightly off true, cold #7ff0ff light at the feed horn.`                               |
+| `icon-place-gene-clinic`           | `160044` | `SUBJECT: A sealed theatre door with a porthole and a cold-storage cabinet beside it, sterile white light through the port.`                        |
+| `icon-place-fight-pit`             | `160045` | `SUBJECT: A sunken circular ring seen from above with a standing crowd ringing it, warm #f59e0b lamps on poles around the rim.`                     |
+| `icon-place-skate-ground`          | `160046` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.` |
+| `icon-place-hospital`              | `160047` | `SUBJECT: A four-bay ambulance canopy with a repainted cross panel above it, warm light spilling from the entrance.`                                |
+| `icon-place-rail-yard`             | `160048` | `SUBJECT: Converging sidings around a turntable seen from above, two flatbeds parked off-centre, cold light along the rail heads.`                  |
+| `icon-place-broadcast-tower`       | `160049` | `SUBJECT: A lattice transmitter mast with three stacked dipole arrays, a single #e11d8f obstruction light at the top.`                              |
+| `icon-place-sewer-junction`        | `160050` | `SUBJECT: A brick chamber where six storm drains meet, seen from above, standing water reading as dark #12a2bd with one shaft of light.`            |
 
 ---
 
-## 7. Consistency protocol
+## 7. Unit roster portraits — 27 assets
 
-Generating 45 assets independently will drift. Counter it in this order:
+**Class framing:**
+
+```
+Half-length figure study of one representative fighter, three-quarter view, weight on the back
+foot, weapon or tool held rather than posed with. Vertical 3:4 composition, head in the upper
+quarter, cropped mid-thigh. Painted on an abstracted plaster-and-soot ground with no readable
+architecture — the card behind it carries the information, so the frame must stay quiet.
+Unhelmeted or visor-up wherever the unit's own description allows it, so the roster reads as
+people. No group shots, no insignia the player has not earned, no text.
+```
+
+Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
+`unit-road-reavers`).
+
+| Key                     | Unit             | Tier        | Seed     |
+| ----------------------- | ---------------- | ----------- | -------- |
+| `unit-razors`           | Razors           | Rabble      | `145001` |
+| `unit-sparks`           | Sparks           | Rabble      | `145002` |
+| `unit-scrapers`         | Scrapers         | Rabble      | `145003` |
+| `unit-muckrakers`       | Muckrakers       | Rabble      | `145004` |
+| `unit-breakers`         | Breakers         | Regulars    | `145005` |
+| `unit-wardens`          | Wardens          | Regulars    | `145006` |
+| `unit-ghosts`           | Ghosts           | Regulars    | `145007` |
+| `unit-road-reavers`     | Road Reavers     | Regulars    | `145008` |
+| `unit-ironsides`        | Ironsides        | Regulars    | `145009` |
+| `unit-ash-walkers`      | Ash Walkers      | Regulars    | `145010` |
+| `unit-snipers`          | Snipers          | Specialists | `145011` |
+| `unit-stitchers`        | Stitchers        | Specialists | `145012` |
+| `unit-demolishers`      | Demolishers      | Specialists | `145013` |
+| `unit-jammers`          | Jammers          | Specialists | `145014` |
+| `unit-kite-crews`       | Kite Crews       | Specialists | `145015` |
+| `unit-netrunners`       | Netrunners       | Specialists | `145016` |
+| `unit-sleepers`         | Sleepers         | Specialists | `145017` |
+| `unit-bell-ringers`     | Bell-Ringers     | Specialists | `145018` |
+| `unit-wrecking-crew`    | Wrecking Crew    | Specialists | `145019` |
+| `unit-juggernauts`      | Juggernauts      | Heavy       | `145020` |
+| `unit-hollow-men`       | Hollow Men       | Heavy       | `145021` |
+| `unit-the-condemned`    | The Condemned    | Heavy       | `145022` |
+| `unit-the-specter`      | The Specter      | Legendary   | `145023` |
+| `unit-the-abomination`  | The Abomination  | Legendary   | `145024` |
+| `unit-the-colossus`     | The Colossus     | Legendary   | `145025` |
+| `unit-the-saint`        | The Saint        | Legendary   | `145026` |
+| `unit-the-cartographer` | The Cartographer | Legendary   | `145027` |
+
+### 7.1 `unit-razors`
+
+```
+SUBJECT: A lean street fighter in a cut-down jacket over bare arms, holding a ground-down
+machete low and away from the body. Cloth wrapped from knuckle to elbow in place of armour, one
+shoulder taped. Expression flat and unbothered; cold #22d3ee key along the blade edge, warm
+#f59e0b bounce off the wrapped forearm.
+```
+
+### 7.2 `unit-sparks`
+
+```
+SUBJECT: A teenager holding a home-made electrical lance — a scaffold pole with a capacitor bank
+taped along it and two bare contacts at the tip. Welding goggles pushed up on the forehead,
+hands gloved in mismatched rubber. A single #7ff0ff arc crawling between the contacts is the
+brightest thing in frame, and it lights the face from below.
+```
+
+### 7.3 `unit-scrapers`
+
+```
+SUBJECT: A wiry scavenger in a patched canvas coat with a salvage hook over one shoulder and a
+strap of pouches across the chest, goggles up on the brow. Light plate lashed to one shoulder
+with rope. Half-turned as if already leaving, warm ochre midtones against a cold rim.
+```
+
+### 7.4 `unit-muckrakers`
+
+```
+SUBJECT: A stooped figure in a slick waders-and-oilcloth rig, hood back, carrying a bulging
+drag-sack roped shut at the neck and a short gaff. Chest-high tide line of grey silt dried on
+the rubber. Pale #86e6a8 light from a lamp clipped at the hip, everything above it in shadow.
+```
+
+### 7.5 `unit-breakers`
+
+```
+SUBJECT: A heavyset door-breacher braced behind a scuffed steel ram held two-handed across the
+body, forearms and shins plated in bolted scrap. Face guard hinged up to show a broken nose and
+a jaw set for the next one. Hard cold key across the ram face, warm bounce under the plates.
+```
+
+### 7.6 `unit-wardens`
+
+```
+SUBJECT: A defender behind a tall salvaged shield planted on the ground, one hand on its rim and
+a short spear upright in the other. Layered plate over a padded coat, everything scuffed at the
+front and clean at the back. Composed, unhurried, watching past the viewer.
+```
+
+### 7.7 `unit-ghosts`
+
+```
+SUBJECT: A slight figure in a matte grey wrap suit with a soft hood and a scarf over the mouth,
+holding a suppressed carbine down along the leg. No hard edges and no shine anywhere on the
+fabric — the only speculars are the eyes and a thin #22d3ee line along the optic.
+```
+
+### 7.8 `unit-road-reavers`
+
+```
+SUBJECT: A rider in a studded leather cut over a fuel-stained undersuit, one arm through a
+scavenged fairing used as a shield, a length of chain looped at the belt. Riding goggles down,
+hair and scarf still moving. Warm #f59e0b headlamp glare from below and behind the shoulder.
+```
+
+### 7.9 `unit-ironsides`
+
+```
+SUBJECT: A soldier encased front-on in overlapping salvaged plate — road sign, hull steel, a car
+door panel — strapped over a padded frame, with a slit visor and a short blade held close. Wide,
+immovable stance. Cold light rakes across the mismatched plates and finds a different colour in
+each.
+```
+
+### 7.10 `unit-ash-walkers`
+
+```
+SUBJECT: A trooper in a taped chemical suit and full-face respirator with two round filter drums
+at the cheeks, one gloved hand steadying a hose that runs into the pack. Suit fabric bleached
+and stiffened by exposure. Lens glass takes a flat #12a2bd reflection and shows nothing behind
+it.
+```
+
+### 7.11 `unit-snipers`
+
+```
+SUBJECT: A marksman kneeling with a long bolt-action rifle across the raised knee, wrapped in a
+ghillie of shredded grey rag, hood down and hair flattened by it. Face bare and very still. One
+narrow cold highlight down the barrel; everything else sinks into the ground tone.
+```
+
+### 7.12 `unit-stitchers`
+
+```
+SUBJECT: A field medic in a rolled-sleeve coat with a heavy satchel across the body and a strip
+of surgical tape on the forearm holding a spare line in place. Both hands busy — one clamping a
+dressing, one reaching. Warm #ffd166 light from a headband lamp turned down onto the work.
+```
+
+### 7.13 `unit-demolishers`
+
+```
+SUBJECT: A sapper in a heavy apron over reinforced overalls, a bandolier of shaped charges
+across the chest and a spool of det cord hooked at the hip. Ear defenders around the neck, hands
+blackened to the wrist. Amber #f59e0b light and a haze of masonry dust in the air around the
+shoulders.
+```
+
+### 7.14 `unit-jammers`
+
+```
+SUBJECT: An operator with a backpack transmitter and a folding directional antenna raised in one
+hand, the other on a dial at the chest harness. Headset over one ear only. Faint #e11d8f
+indicator lamps down the pack's spine are the only saturated colour in frame.
+```
+
+### 7.15 `unit-kite-crews`
+
+```
+SUBJECT: A drone pilot crouched over a hinged control slate held at chest height, a rotor craft
+hovering just off the shoulder at the frame edge. Padded vest, cable running from slate to belt,
+eyes on the screen. Cold #22d3ee screen light fills the face from below.
+```
+
+### 7.16 `unit-netrunners`
+
+```
+SUBJECT: A combat hacker with a deck strapped along the forearm and three fibre leads run from a
+dermal port behind the ear into a shoulder loom. Coat open over a mesh underlayer, one hand
+raised mid-gesture. Cyan #7ff0ff runs along the leads and reflects in a wet-looking eye.
+```
+
+### 7.17 `unit-sleepers`
+
+```
+SUBJECT: An unremarkable person in ordinary work clothes — coveralls, a laminated pass on a
+lanyard, a canvas bag — standing squarely and looking directly at the viewer. No visible weapon.
+The only thing wrong is the stillness, and one hand already inside the bag.
+```
+
+### 7.18 `unit-bell-ringers`
+
+```
+SUBJECT: A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one
+arm and holding heavy ear defenders in the other. Four stacked horn drivers fill the frame
+behind the shoulder. Air distorts in a visible ring; the ground tone smears where it passes.
+```
+
+### 7.19 `unit-wrecking-crew`
+
+```
+SUBJECT: A siege worker in a heavy harness with a wrecking chain over the shoulder and a spiked
+pry bar grounded at the feet, hard hat scarred to bare metal. Behind the shoulder, the top of a
+jack frame. Broad, planted, patient; warm bounce from a work lamp out of frame.
+```
+
+### 7.20 `unit-juggernauts`
+
+```
+SUBJECT: A fully augmented heavy assault trooper — a human silhouette only at the head, with the
+arms and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts.
+A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm
+#8a5209 leaks from the joint seams.
+```
+
+### 7.21 `unit-hollow-men`
+
+```
+SUBJECT: A shock trooper standing too straight in matte assault plate, faceplate open on an
+expression of complete calm, pupils blown wide. Surgical scarring in a neat arc above one
+temple. Blood on the gauntlets, none anywhere else. Even flat light, almost no shadow — nothing
+to read.
+```
+
+### 7.22 `unit-the-condemned`
+
+```
+SUBJECT: A convict fighter in a stripped prison coverall with the sleeves torn away, a welded
+collar at the throat and a heavy chain-wrapped blade held in both hands. Fresh brand on the
+shoulder, older scars beneath it. Head lifted, grinning; harsh cold key from directly above.
+```
+
+### 7.23 `unit-the-specter`
+
+```
+SUBJECT: A figure caught mid-decloak — the outline is complete but the body is only present in
+patches, the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is
+solid is a matte infiltration suit and one long knife. No face resolves.
+```
+
+### 7.24 `unit-the-abomination`
+
+```
+SUBJECT: A failed experiment: a mass of grafted muscle and salvaged plate on a frame that no
+longer agrees on how many limbs it has, restraint bolts still through the shoulders and one
+trailing cable. Half a human face is set into the upper mass at the wrong angle. Sickly #86e6a8
+fluid light from within the seams.
+```
+
+### 7.25 `unit-the-colossus`
+
+```
+SUBJECT: A walking fortress seen from the ground looking up, so only its lower hull, one
+tread-footed leg and the underside of a gun sponson fit the frame. Rivet lines the size of a
+person, hatch ladders, and a tiny crew figure on a walkway for scale. Cold sky behind, warm
+exhaust glow beneath.
+```
+
+### 7.26 `unit-the-saint`
+
+```
+SUBJECT: An older fighter in a long weathered coat over plain plate, unarmed hands open at the
+sides, a sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely
+calm. The one portrait lit warmly from the front — amber #ffd166 across the face, cold #22d3ee
+only as a thin rim.
+```
+
+### 7.27 `unit-the-cartographer`
+
+```
+SUBJECT: A traveller in a layered dust coat hung with rolled charts, a brass sighting compass on
+a thong and a chalk stub behind the ear, one hand flat on a map board marked over many times in
+different hands. Eyes on the viewer rather than the map. Warm lamp light on the paper, cold
+light on everything else.
+```
+
+---
+
+## 8. Consistency protocol
+
+Generating 96 assets independently will drift. Counter it in this order:
 
 1. **Generate the four parallax/plate assets first** (§3). They set the world's value key. If the
    plate is wrong, everything downstream is wrong.

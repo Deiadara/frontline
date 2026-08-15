@@ -303,9 +303,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   },
   {
     building: 'cistern',
-    name: 'Clean Line to the Commons',
+    name: 'Clean Line to the Quarters',
     description:
-      'Drinkable water on tap where the crew drinks. The Combine charges for this upstairs.',
+      'Drinkable water on tap where the crew sleeps. The Combine charges for this upstairs.',
     effect: 'morale_flat',
     magnitude: 5,
   },
@@ -386,47 +386,6 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description: 'Rubble goes back into the mixer. Every wall in the district costs less to raise.',
     effect: 'build_cost_reduction',
     magnitude: 7,
-  },
-
-  // --- The Commons ---
-  {
-    building: 'commons',
-    name: 'Arcades',
-    description:
-      'Entertainment machines, mostly working. Morale goes up significantly and stays there.',
-    effect: 'morale_flat',
-    magnitude: 8,
-  },
-  {
-    building: 'commons',
-    name: 'Graffiti Walls',
-    description:
-      'Designated art space. Increases faction identity and pride — the district starts looking like itself.',
-    effect: 'morale_flat',
-    magnitude: 6,
-  },
-  {
-    building: 'commons',
-    name: 'Shared Kitchens',
-    description:
-      'Everyone eats the same food at the same table, including in the weeks there is not much of it.',
-    effect: 'hardship_reduction',
-    magnitude: 20,
-  },
-  {
-    building: 'commons',
-    name: 'Notice Board',
-    description:
-      'Who needs what, posted where everyone drinks. Work finds hands without going through an officer.',
-    effect: 'build_time_reduction',
-    magnitude: 8,
-  },
-  {
-    building: 'commons',
-    name: 'Sparring Circle',
-    description: 'Friendly, mostly. People learn more here than they do being told things.',
-    effect: 'character_xp_percent',
-    magnitude: 10,
   },
 
   // --- The Lab ---

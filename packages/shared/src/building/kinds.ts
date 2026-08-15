@@ -21,7 +21,6 @@ export const BUILDING_KINDS = [
   'cistern',
   'apothecary',
   'gate',
-  'commons',
   'lab',
   'gauntlet',
   'infirmary',
@@ -162,17 +161,6 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     requiresNexusLevel: 4,
     baseCost: { caps: 100, scrap: 220, oil: 30 },
     baseSeconds: 30,
-    basePowerDraw: 3,
-  },
-  commons: {
-    name: 'The Commons',
-    shortName: 'Commons',
-    description:
-      'Long tables, a working bar and a screen showing whatever somebody pirated. The room the crew is in when it is not working.',
-    role: 'Keeps morale up. A crew with somewhere to be at the end of a shift holds together through a bad week.',
-    requiresNexusLevel: 5,
-    baseCost: { caps: 200, scrap: 120, food: 60, oil: 20 },
-    baseSeconds: 40,
     basePowerDraw: 3,
   },
   lab: {

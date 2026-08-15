@@ -7,6 +7,7 @@ import {
 import { useMutation } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { ApiRequestError, login, register } from '../lib/api';
+import { Wordmark } from '../brand/Wordmark';
 import { cn } from '../lib/cn';
 import { Button } from '../components/ui/Button';
 import { useSession } from '../store/session';
@@ -73,8 +74,9 @@ export function AuthScreen() {
           <p className="font-display text-[10px] tracking-[0.5em] text-neon-cyan/70">
             // ACCESS TERMINAL //
           </p>
-          <h1 className="text-glow-cyan mt-2 font-display text-4xl font-black tracking-[0.2em] text-steel-100">
-            FRONTLINE
+          {/* The wordmark carries the name; the h1 stays for the document outline and for AT. */}
+          <h1 className="mt-3">
+            <Wordmark className="mx-auto w-64" />
           </h1>
         </div>
 

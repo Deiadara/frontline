@@ -6,7 +6,10 @@ import {
   authResponse,
   bar,
   baseDetail,
+  attackResult,
   battle,
+  districtDetail,
+  unitsResponse,
   city,
   createOverseerResponse,
   launchResponse,
@@ -249,6 +252,19 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // base — so the detail follows whichever session was installed.
     if (pathname.includes('/api/base/')) return json({ base: meResponse.base ?? baseDetail.base });
     if (pathname.endsWith('/api/battle')) return json(battle);
+    // §A4 — the city writes all answer with the district they touched, so one handler covers the
+    // four of them. `/api/city/attack` is the exception: it answers with a battle report.
+    if (pathname.endsWith('/api/city/attack')) return json(attackResult);
+    if (pathname.endsWith('/api/city/raid')) return json(attackResult);
+    if (
+      pathname.endsWith('/api/city/scout') ||
+      pathname.endsWith('/api/city/garrison') ||
+      pathname.endsWith('/api/city/fortify')
+    ) {
+      return json({ district: districtDetail, base: meResponse.base ?? baseDetail.base });
+    }
+    if (pathname.includes('/api/city/')) return json(districtDetail);
+    if (pathname.endsWith('/api/units')) return json(unitsResponse);
     /*
      * Method-aware, deliberately. Fulfilling `/api/missions` for *any* method served the board
      * payload to a launch too — a shape `LaunchMissionResponseSchema` cannot even parse — so no

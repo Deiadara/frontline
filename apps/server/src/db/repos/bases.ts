@@ -5,7 +5,9 @@ import {
   type Base,
   type BaseSummary,
   type Building,
+  type Army,
   type BuildQueue,
+  type TrainingQueue,
   type Commander,
   type EconomyState,
   type ProgressionState,
@@ -29,6 +31,8 @@ interface BaseRow {
   assignees_json: string;
   buildings_json: string;
   build_queue_json: string;
+  army_json: string;
+  training_queue_json: string;
   commanders_json: string;
   created_at: string;
 }
@@ -78,6 +82,13 @@ export interface BasesRepo {
   updateDistrict(baseId: string, buildings: Building[], queue: BuildQueue): void;
   /** §A1 — the faction's name. The only field on a base a player types. */
   updateName(baseId: string, name: string): void;
+  /**
+   * The units at home and the training queue behind them (§A5), as one statement.
+   *
+   * They move together for the same reason the district and its queue do: a settle that added the
+   * units and failed to drop the order would train them again on the next read.
+   */
+  updateArmy(baseId: string, army: Army, queue: TrainingQueue): void;
 }
 
 function rowToBase(row: BaseRow): Base {
@@ -95,6 +106,8 @@ function rowToBase(row: BaseRow): Base {
     assignees: readJson(row.assignees_json),
     buildings: readJson(row.buildings_json),
     buildQueue: readJson(row.build_queue_json),
+    army: readJson(row.army_json),
+    trainingQueue: readJson(row.training_queue_json),
     commanders: readJson(row.commanders_json),
     createdAt: row.created_at,
   });
@@ -116,8 +129,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     `INSERT INTO bases
        (id, owner_id, name, district_id, level, is_bot,
         resources_json, economy_json, progression_json, research_json, assignees_json,
-        buildings_json, build_queue_json, commanders_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        buildings_json, build_queue_json, army_json, training_queue_json,
+        commanders_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
@@ -138,6 +152,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     'UPDATE bases SET buildings_json = ?, build_queue_json = ? WHERE id = ?',
   );
   const updateNameStmt = db.prepare('UPDATE bases SET name = ? WHERE id = ?');
+  const updateArmyStmt = db.prepare(
+    'UPDATE bases SET army_json = ?, training_queue_json = ? WHERE id = ?',
+  );
 
   return {
     insert(base) {
@@ -155,6 +172,8 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.assignees),
         JSON.stringify(base.buildings),
         JSON.stringify(base.buildQueue),
+        JSON.stringify(base.army),
+        JSON.stringify(base.trainingQueue),
         JSON.stringify(base.commanders),
         base.createdAt,
       );
@@ -201,6 +220,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateName(baseId, name) {
       updateNameStmt.run(name, baseId);
+    },
+    updateArmy(baseId, army, queue) {
+      updateArmyStmt.run(JSON.stringify(army), JSON.stringify(queue), baseId);
     },
   };
 }

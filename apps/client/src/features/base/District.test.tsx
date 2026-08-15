@@ -47,6 +47,8 @@ const base: Base = {
     { id: 'b-generator', kind: 'generator', level: 1, modifications: [] },
   ],
   buildQueue: [],
+  army: {},
+  trainingQueue: [],
   commanders: [],
   createdAt: NOW,
 };

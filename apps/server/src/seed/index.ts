@@ -147,6 +147,8 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
       assignees: startingAssignees(),
       buildings: MVP_BOT.buildings,
       buildQueue: [],
+      army: MVP_BOT.army,
+      trainingQueue: [],
       commanders: MVP_BOT.commanders,
       createdAt: now,
     };

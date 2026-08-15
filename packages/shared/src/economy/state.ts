@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IsoDateTimeSchema } from '../primitives.js';
+import { DisruptionSchema, noDisruption } from '../raid.js';
 import { MeterSchema, STARTING_INFAMY, STARTING_MORALE } from './meters.js';
 import { PayrollStateSchema, startingPayroll } from './payroll.js';
 import {
@@ -29,6 +30,13 @@ export const EconomyStateSchema = z.object({
    * production existed must not be handed three weeks of back pay the first time it is opened.
    */
   productionSettledAt: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * §A4 — what a raid left behind. A home district cannot be captured, but it can be robbed and
+   * left running at reduced effectiveness for a while afterwards.
+   *
+   * Defaulted so a base written before raiding existed parses as undisrupted.
+   */
+  disruption: DisruptionSchema.default({ until: null, percent: 0 }),
 });
 export type EconomyState = z.infer<typeof EconomyStateSchema>;
 
@@ -39,6 +47,7 @@ export function startingEconomy(now: string): EconomyState {
     reputationTally: startingTally(now),
     payroll: startingPayroll(now),
     productionSettledAt: now,
+    disruption: noDisruption(),
   };
 }
 

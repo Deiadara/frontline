@@ -1,6 +1,11 @@
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
-import { UserSchema, defaultBattleEngine, type BattleEngine, type User } from '@frontline/shared';
+import {
+  UserSchema,
+  defaultSkirmishEngine,
+  type SkirmishEngine,
+  type User,
+} from '@frontline/shared';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { AppConfig } from './config.js';
 import type { AppDatabase } from './db/index.js';
@@ -10,8 +15,8 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerAssigneeRoutes } from './routes/assignees.js';
 import { registerBarRoutes } from './routes/bar.js';
 import { registerBaseRoutes } from './routes/base.js';
-import { registerBattleRoutes } from './routes/battle.js';
 import { registerCityRoutes } from './routes/city.js';
+import { registerUnitRoutes } from './routes/units.js';
 import { registerMeRoutes } from './routes/me.js';
 import { registerMissionRoutes } from './routes/missions.js';
 import { registerOverseerRoutes } from './routes/overseer.js';
@@ -23,7 +28,7 @@ declare module 'fastify' {
     config: AppConfig;
     db: AppDatabase;
     repos: Repositories;
-    battleEngine: BattleEngine;
+    skirmishEngine: SkirmishEngine;
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
@@ -43,7 +48,7 @@ export interface BuildAppOptions {
   config: AppConfig;
   db: AppDatabase;
   /** Overridable so tests can inject a deterministic engine. */
-  battleEngine?: BattleEngine;
+  skirmishEngine?: SkirmishEngine;
   logger?: boolean;
 }
 
@@ -51,7 +56,7 @@ export interface BuildAppOptions {
 export async function buildApp({
   config,
   db,
-  battleEngine = defaultBattleEngine,
+  skirmishEngine = defaultSkirmishEngine,
   logger = true,
 }: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger });
@@ -59,7 +64,7 @@ export async function buildApp({
   app.decorate('config', config);
   app.decorate('db', db);
   app.decorate('repos', createRepositories(db));
-  app.decorate('battleEngine', battleEngine);
+  app.decorate('skirmishEngine', skirmishEngine);
 
   await app.register(cors, { origin: config.corsOrigin });
   await app.register(jwt, { secret: config.jwtSecret });
@@ -118,7 +123,7 @@ export async function buildApp({
       registerOverseerRoutes(api);
       registerCityRoutes(api);
       registerBaseRoutes(api);
-      registerBattleRoutes(api);
+      registerUnitRoutes(api);
       registerMissionRoutes(api);
       registerBarRoutes(api);
       registerResearchRoutes(api);

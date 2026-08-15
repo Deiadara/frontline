@@ -62,6 +62,8 @@ function seedBase(repos: Repositories, officerCount: number, weeklyWage: number)
     assignees: startingAssignees(),
     buildings: [],
     buildQueue: [],
+    army: {},
+    trainingQueue: [],
     commanders: officers.map((id) => createCommander(id, id, 'head_spy')),
     createdAt: FOUNDED,
   };

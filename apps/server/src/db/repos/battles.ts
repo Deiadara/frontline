@@ -6,6 +6,8 @@ export interface NewBattle {
   id: string;
   attackerBaseId: string;
   targetDistrictId: string;
+  /** The place taken or defended, when the fight was over one. Null for a raid on a district. */
+  targetPlaceId: string | null;
   winner: BattleWinner;
   log: string[];
   rewards: PartialResources;
@@ -21,8 +23,9 @@ export interface BattlesRepo {
 export function createBattlesRepo(db: AppDatabase): BattlesRepo {
   const insertStmt = db.prepare(
     `INSERT INTO battles
-       (id, attacker_base_id, target_district_id, winner, log_json, rewards_json, seed, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, attacker_base_id, target_district_id, target_place_id, winner,
+        log_json, rewards_json, seed, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   return {
@@ -31,6 +34,7 @@ export function createBattlesRepo(db: AppDatabase): BattlesRepo {
         battle.id,
         battle.attackerBaseId,
         battle.targetDistrictId,
+        battle.targetPlaceId,
         battle.winner,
         JSON.stringify(battle.log),
         JSON.stringify(battle.rewards),

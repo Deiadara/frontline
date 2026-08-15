@@ -49,6 +49,21 @@ const ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Units',
+    to: '/game/units',
+    icon: icon(
+      <>
+        <path
+          d="M6 15V8l4-3 4 3v7"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+        />
+        <path d="M4 15h12M10 5v10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </>,
+    ),
+  },
+  {
     label: 'Missions',
     to: '/game/missions',
     icon: icon(

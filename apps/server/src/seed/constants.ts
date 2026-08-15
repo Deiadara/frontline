@@ -1,6 +1,7 @@
 import {
   MVP_DEV_CREDENTIALS,
   createCommander,
+  type Army,
   type Building,
   type Commander,
   type Resources,
@@ -36,6 +37,8 @@ interface BotBlueprint {
   /** Defensive structures plus the economy that pays for them. */
   buildings: Building[];
   commanders: Commander[];
+  /** §A5 — what the rival can put on the ground. Enough to be a real defence, not a wall. */
+  army: Army;
 }
 
 export const MVP_BOT: BotBlueprint = {
@@ -58,6 +61,7 @@ export const MVP_BOT: BotBlueprint = {
     { id: 'vex-scrapyard', kind: 'scrapyard', level: 2, modifications: [] },
     { id: 'vex-quarters', kind: 'quarters', level: 2, modifications: [] },
   ],
+  army: { razors: 12, wardens: 6, breakers: 4 },
   /* Four of the 19 officer positions (GDD §C1), on the 0..100 attribute scale. */
   commanders: [
     createCommander(

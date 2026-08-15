@@ -8,6 +8,8 @@ import { GameScreen } from './screens/GameScreen';
 import { AssigneesPage } from './features/assignees/AssigneesPage';
 import { BarPage } from './features/bar/BarPage';
 import { BasePanel } from './features/base/BasePanel';
+import { DistrictView } from './features/city/DistrictView';
+import { UnitsPage } from './features/units/UnitsPage';
 import { MapView } from './features/game/MapView';
 import { MissionsPage } from './features/missions/MissionsPage';
 import { ResearchPage } from './features/research/ResearchPage';
@@ -74,6 +76,8 @@ export default function App() {
         >
           <Route index element={<MapView />} />
           <Route path="base" element={<BasePanel />} />
+          <Route path="city/:districtId" element={<DistrictView />} />
+          <Route path="units" element={<UnitsPage />} />
           <Route path="missions" element={<MissionsPage />} />
           <Route path="bar" element={<BarPage />} />
           <Route path="research" element={<ResearchPage />} />

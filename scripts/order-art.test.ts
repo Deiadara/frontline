@@ -34,15 +34,26 @@ describe('sections', () => {
     expect([...grouped].sort()).toEqual(ART_MANIFEST.map((s) => s.key).sort());
   });
 
-  it('puts the 15 hero assets first, then the two 16:9 opaque assets, then alpha, then occluded', () => {
-    const [hero, wide, alpha, occluded] = groupIntoSections();
+  it('puts the hero assets first, then the two 16:9 opaque assets, then roster, alpha, occluded', () => {
+    const [hero, wide, roster, alpha, occluded] = groupIntoSections();
     expect(hero!.specs.map((s) => s.key)).toEqual(HERO_ASSETS.map((s) => s.key));
+    // Named rather than derived: joining this set means asking the board for a 2048×1152
+    // render, which is the one size a plain ChatGPT download may not reach (§3 guidance).
+    // `plate-district` is deliberately absent — it is delivered at the size it was painted
+    // (1376×768, aspect 43:24), so it never needed that render and asking for one would be asking
+    // the board to repaint a map twelve building sites are already positioned on.
     expect(wide!.specs.map((s) => s.key)).toEqual(['plate-city', 'splash-auth']);
+    // Opaque and croppable, but not at a size ChatGPT hands back — the unit roster, plus the one
+    // plate delivered off the §6 size table.
+    expect(roster!.specs.every((s) => !s.alpha && s.aspect !== '16:9')).toBe(true);
+    expect(roster!.specs.map((s) => s.key).filter((key) => !key.startsWith('unit-'))).toEqual([
+      'plate-district',
+    ]);
     expect(alpha!.specs.every((s) => s.alpha)).toBe(true);
     expect(occluded!.specs.map((s) => s.key)).toEqual([...OCCLUDED_BACKDROP_KEYS]);
-    expect(
-      hero!.specs.length + wide!.specs.length + alpha!.specs.length + occluded!.specs.length,
-    ).toBe(ART_MANIFEST.length);
+    expect(groupIntoSections().reduce((total, { specs }) => total + specs.length, 0)).toBe(
+      ART_MANIFEST.length,
+    );
   });
 
   /**
@@ -66,6 +77,7 @@ describe('sections', () => {
     expect(SECTIONS.map((s) => s.title)).toEqual([
       'Hero set — do these',
       '16:9 set — only if your download measures at least 2048×1152',
+      'Roster set — any download at or above the listed minimum works',
       'Alpha set — not requested yet',
       'Occluded backdrop — nothing to draw',
     ]);

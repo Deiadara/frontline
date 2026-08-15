@@ -4,11 +4,13 @@ import path from 'node:path';
 import {
   BOT_DISTRICT_ID,
   MVP_DEV_CREDENTIALS,
-  AttritionBattleEngine,
   STARTING_RESOURCES,
-  addResources,
   findDistrict,
-  type BattleEngine,
+  MAX_RAID_SHARE,
+  type CityResponse,
+  type RaidDistrictResponse,
+  type SkirmishEngine,
+  skirmishOutcome,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -37,12 +39,12 @@ afterEach(async () => {
 });
 
 /** A migrated app over `databasePath`. Pass a file path to survive a close/reopen cycle. */
-async function openStack(databasePath: string, battleEngine?: BattleEngine): Promise<Stack> {
+async function openStack(databasePath: string, skirmishEngine?: SkirmishEngine): Promise<Stack> {
   const config = loadConfig({ DATABASE_PATH: databasePath, JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
-  const app = battleEngine
-    ? await buildApp({ config, db, battleEngine, logger: false })
+  const app = skirmishEngine
+    ? await buildApp({ config, db, skirmishEngine, logger: false })
     : await buildApp({ config, db, logger: false });
   const stack: Stack = { app, db, repos: createRepositories(db) };
   stacks.push(stack);
@@ -216,9 +218,10 @@ describe('seedMvpWorld', () => {
 
     const res = await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) });
     expect(res.statusCode).toBe(200);
-    const { bases } = res.json<{
-      bases: { districtId: string; isBot: boolean; name: string }[];
-    }>();
+    // §A4 — crews live on residential ground, and the map carries them on their own district.
+    const bases = res
+      .json<CityResponse>()
+      .districts.flatMap((entry) => (entry.base ? [entry.base] : []));
 
     expect(bases.filter((b) => b.isBot)).toHaveLength(1);
     const bot = bases.find((b) => b.isBot);
@@ -264,69 +267,90 @@ describe('seeded dev login', () => {
   });
 });
 
-describe('raiding the bot base', () => {
+describe('raiding the bot crew (§A4)', () => {
   const botDistrict = findDistrict(BOT_DISTRICT_ID);
   if (!botDistrict) throw new Error('fixture error: bot district missing from the city map');
 
-  it('pays the district rewards into the attacker base on a win', async () => {
-    // 0 < 0.5 -> the attacker always wins.
-    const { app, db, repos } = await openStack(':memory:', new AttritionBattleEngine(() => 0));
+  const alwaysWins: SkirmishEngine = {
+    resolve: () => skirmishOutcome({ winner: 'attacker', log: ['robbed'] }),
+  };
+
+  /**
+   * §A4 — a home district cannot be taken, only robbed.
+   *
+   * What leaves is bounded by what the raiders can physically *carry*, which is the whole reason
+   * `lootCapacity` is measured in kilograms. Four Razors carry very little, so this asserts the
+   * shape of the transfer rather than a magic number: something left the victim, the same thing
+   * arrived at the raider, and the victim still has a district.
+   */
+  it('moves a share of the victim’s stockpile to the raider, and leaves them disrupted', async () => {
+    const { app, db, repos } = await openStack(':memory:', alwaysWins);
     await seedMvpWorld({ db, repos });
     const { token, baseId } = await landAsDevPlayer(app);
 
+    const bot = repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);
+    if (!bot) throw new Error('fixture error: no bot base in the bot district');
+    const before = { ...bot.resources };
+
     const res = await app.inject({
       method: 'POST',
-      url: '/api/battle',
+      url: '/api/city/raid',
       headers: auth(token),
-      payload: { targetDistrictId: BOT_DISTRICT_ID },
+      payload: { districtId: BOT_DISTRICT_ID, force: { razors: 4 } },
     });
-
     expect(res.statusCode).toBe(200);
-    const body = res.json<{
-      result: { winner: string; rewards: Record<string, number> };
-      resources: typeof STARTING_RESOURCES;
-    }>();
+
+    const body = res.json<RaidDistrictResponse>();
     expect(body.result.winner).toBe('attacker');
-    expect(body.result.rewards).toEqual(botDistrict.rewards);
-    expect(body.resources).toEqual(addResources(STARTING_RESOURCES, botDistrict.rewards));
-    // …and the reward is persisted, not just echoed.
-    expect(repos.bases.findById(baseId)?.resources).toEqual(
-      addResources(STARTING_RESOURCES, botDistrict.rewards),
-    );
-  });
+    expect(body.carriedKg).toBeGreaterThan(0);
 
-  it('leaves the bot base itself untouched (the engine only pays district rewards)', async () => {
-    const { app, db, repos } = await openStack(':memory:', new AttritionBattleEngine(() => 0));
-    await seedMvpWorld({ db, repos });
-    const { token } = await landAsDevPlayer(app);
-    const botBefore = repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);
+    const taken = body.result.rewards;
+    expect(Object.keys(taken).length).toBeGreaterThan(0);
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/battle',
-      headers: auth(token),
-      payload: { targetDistrictId: BOT_DISTRICT_ID },
-    });
-
-    expect(repos.bases.findBotByDistrictId(BOT_DISTRICT_ID)?.resources).toEqual(
-      botBefore?.resources,
-    );
-  });
-
-  it('still rejects non-hostile districts once the bot exists', async () => {
-    const { app, db, repos } = await openStack(':memory:');
-    await seedMvpWorld({ db, repos });
-    const { token } = await landAsDevPlayer(app);
-
-    for (const targetDistrictId of ['sprawl-exchange', 'halcyon-plaza', 'neon-docks']) {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/battle',
-        headers: auth(token),
-        payload: { targetDistrictId },
-      });
-      expect(res.statusCode, `${targetDistrictId} must not be attackable`).toBe(400);
-      expect(res.json<{ error: { code: string } }>().error.code).toBe('INVALID_TARGET');
+    const victim = repos.bases.findById(bot.id);
+    const raider = repos.bases.findById(baseId);
+    for (const [key, amount] of Object.entries(taken)) {
+      const resource = key as keyof typeof before;
+      expect(victim?.resources[resource]).toBe(before[resource] - (amount ?? 0));
+      expect(raider?.resources[resource]).toBe(STARTING_RESOURCES[resource] + (amount ?? 0));
     }
+
+    // The district itself never changes hands — that is the whole rule.
+    expect(victim?.districtId).toBe(BOT_DISTRICT_ID);
+    // And it is left running at reduced effectiveness for a while.
+    expect(victim?.economy.disruption.until).not.toBeNull();
+    expect(victim?.economy.disruption.percent).toBeGreaterThan(0);
+  });
+
+  it('never takes more than a quarter of any one line, however big the force', async () => {
+    const { app, db, repos } = await openStack(':memory:', alwaysWins);
+    await seedMvpWorld({ db, repos });
+    const { token, baseId } = await landAsDevPlayer(app);
+
+    // A force that can carry the whole city home.
+    const hauler = repos.bases.findById(baseId);
+    if (!hauler) throw new Error('fixture error: no raider base');
+    repos.bases.updateArmy(baseId, { muckrakers: 400 }, []);
+
+    const bot = repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);
+    if (!bot) throw new Error('fixture error: no bot base');
+    const before = { ...bot.resources };
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/raid',
+      headers: auth(token),
+      payload: { districtId: BOT_DISTRICT_ID, force: { muckrakers: 400 } },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const taken = res.json<RaidDistrictResponse>().result.rewards;
+    for (const [key, amount] of Object.entries(taken)) {
+      const resource = key as keyof typeof before;
+      expect(amount ?? 0, key).toBeLessThanOrEqual(Math.floor(before[resource] * MAX_RAID_SHARE));
+    }
+    // A player who logs in to nothing has no move to make, so something always survives.
+    const victim = repos.bases.findById(bot.id);
+    expect(victim?.resources.caps).toBeGreaterThan(0);
   });
 });

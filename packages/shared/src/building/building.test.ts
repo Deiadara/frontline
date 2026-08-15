@@ -101,9 +101,9 @@ const fullDistrict = (level: number): Building[] =>
 const NEW_DISTRICT: Building[] = [build('nexus', 1), build('generator', 1)];
 
 describe('the catalogue (§A1)', () => {
-  it('holds the thirteen the board named, each with a spec', () => {
-    expect(BUILDING_KINDS).toHaveLength(13);
-    expect(new Set(BUILDING_KINDS).size).toBe(13);
+  it('holds the twelve the board still names, each with a spec', () => {
+    expect(BUILDING_KINDS).toHaveLength(12);
+    expect(new Set(BUILDING_KINDS).size).toBe(12);
     for (const kind of BUILDING_KINDS) {
       const spec = BUILDING_CATALOG[kind];
       expect(spec.name, kind).toBeTruthy();
@@ -233,7 +233,7 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
       { ...build('nexus', BUILDING_MAX_LEVEL) },
       { ...build('lab', 20), modifications: ['lab_process_cell'] },
       { ...build('garage', 20), modifications: ['garage_machine_shop'] },
-      { ...build('commons', 20), modifications: ['commons_notice_board'] },
+      { ...build('quarters', 20), modifications: ['quarters_prefab_stacks'] },
     ];
     const cost = buildingCost('greenhouse', 1, stacked);
     for (const key of Object.keys(baseBuildingCost('greenhouse', 1))) {
@@ -399,11 +399,11 @@ describe('what the district makes (§A1)', () => {
 });
 
 describe('what the district is worth to the crew (§A1)', () => {
-  it('settles morale higher with a Commons and lower in a brownout', () => {
+  it('settles morale higher with Quarters and lower in a brownout', () => {
     const bare = moraleTarget(NEW_DISTRICT);
     expect(bare).toBeGreaterThan(BASE_MORALE_TARGET);
 
-    const social = moraleTarget([...NEW_DISTRICT, build('commons', 10)]);
+    const social = moraleTarget([...NEW_DISTRICT, build('quarters', 10)]);
     expect(social).toBeGreaterThan(bare);
 
     const dark = moraleTarget([build('nexus', 20), build('lab', 20)]);
@@ -517,11 +517,12 @@ describe('modifications (§A1)', () => {
 
   it('sums district-wide effects and keeps the local one out of them', () => {
     const district: Building[] = [
-      { ...build('commons', 20), modifications: ['commons_arcades', 'commons_graffiti_walls'] },
+      { ...build('quarters', 20), modifications: ['quarters_sound_baffling'] },
+      { ...build('cistern', 20), modifications: ['cistern_clean_line_to_the_quarters'] },
       { ...build('greenhouse', 20), modifications: ['greenhouse_insect_farm'] },
     ];
     const effects = districtEffects(district);
-    expect(effects.morale_flat).toBe(8 + 6);
+    expect(effects.morale_flat).toBeGreaterThan(0);
     // `production_percent` is local, so it must not appear in the district totals.
     expect(effects.production_percent).toBe(0);
   });

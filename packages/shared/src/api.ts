@@ -12,12 +12,13 @@ import {
 } from './bar/index.js';
 import { BaseSchema, BaseSummarySchema, FactionNameSchema } from './base.js';
 import { BattleResultSchema } from './battle/types.js';
+import { ArmySchema, TrainingQueueSchema, UnitStatsSchema, UnitTierSchema } from './units/index.js';
 import {
   BuildingKindSchema,
   ModificationBlockerSchema,
   ModificationEffectSchema,
 } from './building/index.js';
-import { DistrictSchema } from './city.js';
+import { DistrictSchema, PlaceHolderSchema, PlaceSchema } from './city/index.js';
 import { CommanderSchema } from './commander.js';
 import { ReputationLabelSchema } from './economy/reputation.js';
 import { MissionSchema } from './missions.js';
@@ -29,7 +30,7 @@ import {
   DiscoveredFactSchema,
   ResearchProjectSchema,
 } from './research/index.js';
-import { ResourcesSchema } from './resources.js';
+import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
 import { OfficerRoleSchema } from './roles.js';
 import { TraitsSchema } from './traits.js';
 import { UserSchema } from './user.js';
@@ -136,12 +137,191 @@ export const CreateOverseerResponseSchema = z.object({
 });
 export type CreateOverseerResponse = z.infer<typeof CreateOverseerResponseSchema>;
 
-// --- city map ---
+// --- the city (GDD §A4) ---
+
+/**
+ * One district as the map shows it *to this crew*.
+ *
+ * The fog is the interesting field. `scouted` is false until the crew has been there, and while it
+ * is false every count below is null — not zero. Zero is a fact about the world; null is a fact
+ * about what you know, and a map that reported "0 / 4 held" for ground nobody has walked into
+ * would be telling the player something it has no business knowing.
+ */
+export const DistrictSummarySchema = z.object({
+  district: DistrictSchema,
+  scouted: z.boolean(),
+  /** Minutes from this crew's home district, with their travel bonuses already applied. */
+  travelMinutes: z.number().int().nonnegative(),
+  /** Who holds the whole district, if anyone does. Null when it is split — or unscouted. */
+  holder: PlaceHolderSchema.nullable(),
+  /** How many places here this crew holds, of how many there are. Null until scouted. */
+  held: z
+    .object({ mine: z.number().int().nonnegative(), total: z.number().int().nonnegative() })
+    .nullable(),
+  /** The crew living here, for residential ground. Null for contested ground. */
+  base: BaseSummarySchema.nullable(),
+  /** This crew's own home. Exactly one district on the map has this set. */
+  isHome: z.boolean(),
+});
+export type DistrictSummary = z.infer<typeof DistrictSummarySchema>;
+
 export const CityResponseSchema = z.object({
-  districts: z.array(DistrictSchema),
-  bases: z.array(BaseSummarySchema),
+  districts: z.array(DistrictSummarySchema),
+  homeDistrictId: IdSchema,
+  serverNow: IsoDateTimeSchema,
 });
 export type CityResponse = z.infer<typeof CityResponseSchema>;
+
+/** One place inside a district, as the district view shows it. */
+export const PlaceViewSchema = z.object({
+  place: PlaceSchema,
+  holder: PlaceHolderSchema,
+  /** Who that is in words — a crew's name, or "The Combine". */
+  holderName: z.string().min(1),
+  fortification: z.number().int().min(0),
+  fortifyingUntil: IsoDateTimeSchema.nullable(),
+  /** What an attacker has to beat: the ground, the digging and whoever is standing on it. */
+  defense: z.number().nonnegative(),
+  garrisonSize: z.number().int().nonnegative(),
+  /**
+   * Exactly who is standing here — **only** for places this crew holds. Null otherwise, because
+   * the composition of somebody else's garrison is the thing scouting would be for.
+   */
+  garrison: ArmySchema.nullable(),
+  /** The hold bonus in one line, and the authored sentence saying why it is worth having. */
+  bonus: z.string().min(1),
+  reward: z.string().min(1),
+  /** Names of units holding this kind of place would unlock. Usually empty. */
+  unlocks: z.array(z.string()),
+});
+export type PlaceView = z.infer<typeof PlaceViewSchema>;
+
+export const DistrictDetailResponseSchema = z.object({
+  district: DistrictSchema,
+  scouted: z.boolean(),
+  travelMinutes: z.number().int().nonnegative(),
+  /** Empty when the district has not been scouted — the fog is enforced server-side. */
+  places: z.array(PlaceViewSchema),
+  holder: PlaceHolderSchema.nullable(),
+  /** The §A4 unified bonus for taking every place here, named and described. */
+  unified: z.object({ title: z.string(), effect: z.string() }).nullable(),
+  /** Set on residential ground: the crew that lives here, and whether they can be raided. */
+  base: BaseSummarySchema.nullable(),
+  raidable: z.boolean(),
+  serverNow: IsoDateTimeSchema,
+});
+export type DistrictDetailResponse = z.infer<typeof DistrictDetailResponseSchema>;
+
+/** Send a force at a place. An empty force is refused — you cannot take ground by looking at it. */
+export const AttackPlaceRequestSchema = z.object({
+  placeId: z.string().min(1),
+  force: ArmySchema,
+});
+export type AttackPlaceRequest = z.infer<typeof AttackPlaceRequestSchema>;
+
+export const AttackPlaceResponseSchema = z.object({
+  result: BattleResultSchema,
+  /** True when the place changed hands. */
+  captured: z.boolean(),
+  /** The survivors that came home. Units left holding the place are not in here. */
+  returned: ArmySchema,
+  base: BaseSchema,
+  levelUp: LevelUpSchema.optional(),
+});
+export type AttackPlaceResponse = z.infer<typeof AttackPlaceResponseSchema>;
+
+/** §A4 — rob a crew's home district. It can never be taken, only emptied and left limping. */
+export const RaidDistrictRequestSchema = z.object({
+  districtId: IdSchema,
+  force: ArmySchema,
+});
+export type RaidDistrictRequest = z.infer<typeof RaidDistrictRequestSchema>;
+
+export const RaidDistrictResponseSchema = z.object({
+  result: BattleResultSchema,
+  returned: ArmySchema,
+  /** How much of what they carried off, in kilograms — the number `lootCapacity` is measured in. */
+  carriedKg: z.number().nonnegative(),
+  base: BaseSchema,
+  levelUp: LevelUpSchema.optional(),
+});
+export type RaidDistrictResponse = z.infer<typeof RaidDistrictResponseSchema>;
+
+/** Leave units on a place you hold, or take them home again. */
+export const GarrisonRequestSchema = z.object({
+  placeId: z.string().min(1),
+  /** Positive leaves units there; negative brings them back. */
+  changes: z.record(z.string(), z.number().int()),
+});
+export type GarrisonRequest = z.infer<typeof GarrisonRequestSchema>;
+
+export const FortifyRequestSchema = z.object({
+  placeId: z.string().min(1),
+});
+export type FortifyRequest = z.infer<typeof FortifyRequestSchema>;
+
+export const ScoutRequestSchema = z.object({
+  districtId: IdSchema,
+});
+export type ScoutRequest = z.infer<typeof ScoutRequestSchema>;
+
+/** Every city write answers with the district it touched, so the client never re-derives state. */
+export const CityMutationResponseSchema = z.object({
+  district: DistrictDetailResponseSchema,
+  base: BaseSchema,
+});
+export type CityMutationResponse = z.infer<typeof CityMutationResponseSchema>;
+
+// --- units (GDD §A5) ---
+
+/** One unit as the roster shows it: the sheet, and whether this crew can field it. */
+export const UnitOptionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  tier: UnitTierSchema,
+  blurb: z.string().min(1),
+  trainedAt: BuildingKindSchema,
+  unique: z.boolean(),
+  stats: UnitStatsSchema,
+  modifiers: z.array(z.object({ label: z.string(), description: z.string(), when: z.string() })),
+  cost: PartialResourcesSchema,
+  trainSeconds: z.number().int().positive(),
+  supply: z.number().int().positive(),
+  unlocked: z.boolean(),
+  /** The clauses this crew has not met, in the player's words. Empty when unlocked. */
+  missing: z.array(z.string()),
+  /** How many are at home. Garrisoned units are counted separately. */
+  owned: z.number().int().nonnegative(),
+});
+export type UnitOption = z.infer<typeof UnitOptionSchema>;
+
+export const UnitsResponseSchema = z.object({
+  serverNow: IsoDateTimeSchema,
+  units: z.array(UnitOptionSchema),
+  army: ArmySchema,
+  /** Units standing on captured places, summed across the city. */
+  garrisoned: ArmySchema,
+  supplyUsed: z.number().int().nonnegative(),
+  supplyCap: z.number().int().nonnegative(),
+  queue: TrainingQueueSchema,
+  resources: ResourcesSchema,
+  /** Everything territory is doing to training right now, so the page can explain a price. */
+  trainingCostReduction: z.number(),
+  trainingSpeedBonus: z.number(),
+});
+export type UnitsResponse = z.infer<typeof UnitsResponseSchema>;
+
+export const TrainUnitsRequestSchema = z.object({
+  unitId: z.string().min(1),
+  count: z.number().int().positive().max(50),
+});
+export type TrainUnitsRequest = z.infer<typeof TrainUnitsRequestSchema>;
+
+export const TrainUnitsResponseSchema = z.object({
+  base: BaseSchema,
+  queue: TrainingQueueSchema,
+});
+export type TrainUnitsResponse = z.infer<typeof TrainUnitsResponseSchema>;
 
 // --- base detail ---
 export const BaseDetailResponseSchema = z.object({

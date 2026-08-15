@@ -11,7 +11,8 @@
     "contact-sheet": "tsx contact-sheet.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "district-template": "tsx district-template.ts"
   },
   "dependencies": {
     "@frontline/shared": "workspace:*",

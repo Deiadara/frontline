@@ -47,6 +47,12 @@ const spec = (key: string): AssetSpec => {
 
 /** The two shapes no backend renders directly — the whole reason `postProcess` exists. */
 const ICON = spec('icon-scrap');
+
+/** Decoded dimensions of an encoded delivery. */
+const size = async (bytes: Uint8Array) => {
+  const meta = await sharp(bytes).metadata();
+  return { width: meta.width, height: meta.height };
+};
 const FORE_PLANE = spec('plane-city-fore');
 const FAR_PLANE = spec('plane-city-far');
 /** A master that already is its delivery image. */
@@ -294,11 +300,26 @@ describe('post-process registry', () => {
     ]);
   });
 
-  it('covers exactly the 15 assets MOU-123 left post-processed', () => {
+  /**
+   * Which assets need work after the download, expressed as the rule rather than as a count.
+   *
+   * A count goes stale on every content drop and teaches nobody anything; the rule it stands in
+   * for is that only the icons are downscaled and only the two matted planes are keyed. A district
+   * or a portrait growing a post-process would be a pipeline change, and this is what catches it.
+   */
+  it('post-processes exactly the icons, the buildings and the two matted planes', () => {
     const pending = ART_MANIFEST.filter((s) => s.postProcess.length > 0);
-    expect(pending).toHaveLength(15);
-    expect(pending.filter((s) => s.postProcess.includes('downscale'))).toHaveLength(13);
-    expect(pending.filter((s) => s.postProcess.includes('matte'))).toHaveLength(2);
+    const inClass = (name: string) =>
+      ART_MANIFEST.filter((s) => s.class === name).map((s) => s.key);
+
+    expect(pending.filter((s) => s.postProcess.includes('downscale')).map((s) => s.key)).toEqual(
+      inClass('icon'),
+    );
+    expect(pending.filter((s) => s.postProcess.includes('matte')).map((s) => s.key)).toEqual([
+      'plane-city-far',
+      'plane-city-fore',
+      ...inClass('building'),
+    ]);
   });
 });
 
@@ -662,10 +683,21 @@ describe('encodeAsset', () => {
     expect((await sharp(await encodeDelivery(image, DISTRICT)).metadata()).hasAlpha).toBe(false);
   });
 
-  it('refuses a master that is not the resolution the manifest declared', async () => {
-    await expect(encodeAsset(await skyline(512, 512, 0.5), ICON)).rejects.toThrow(
-      /master is 512×512, which centre-crops to 512×512 .* upscaling invents detail/s,
+  it('refuses a master smaller than the delivery', async () => {
+    await expect(encodeAsset(await skyline(256, 256, 0.5), ICON)).rejects.toThrow(
+      /master is 256×256, which centre-crops to 256×256 .* upscaling invents detail/s,
     );
+  });
+
+  /**
+   * An icon's 1024² source is a statement about a *backend* — nothing renders 512² with alpha — so
+   * refusing a hand-drawn master that already is the 512² delivery would be the pipeline enforcing
+   * a generator's limitation on a human. The declared `downscale` no-ops rather than resampling an
+   * image to the size it already is.
+   */
+  it('accepts a master that is the delivery size even when the source is larger', async () => {
+    const { bytes } = await encodeAsset(await skyline(512, 512, 0.5), ICON);
+    expect(await size(bytes)).toEqual({ width: 512, height: 512 });
   });
 });
 
@@ -675,11 +707,6 @@ describe('encodeAsset', () => {
  * exact (MOU-229 D1).
  */
 describe('normalizeMaster', () => {
-  const size = async (bytes: Uint8Array) => {
-    const meta = await sharp(bytes).metadata();
-    return { width: meta.width, height: meta.height };
-  };
-
   it('takes the largest centred rectangle of the declared aspect', () => {
     // Master wider than 1:1 → the full height survives and the sides are trimmed evenly.
     expect(centredCrop({ width: 1600, height: 1000 }, { width: 512, height: 512 })).toEqual({
@@ -731,7 +758,7 @@ describe('normalizeMaster', () => {
   it('refuses to upscale, naming the file, its size and the size it needs', async () => {
     // 1600×900 crops to 1600×900 (already 16:9) — short of the 2048×1152 source in both axes.
     await expect(encodeAsset(await skyline(1600, 900, 0.3), FORE_PLANE)).rejects.toThrow(
-      /plane-city-fore: master is 1600×900, which centre-crops to 1600×900 at the manifest's 2048×1152 source aspect .* smallest one that works is 2048×1152\./s,
+      /plane-city-fore: master is 1600×900, which centre-crops to 1600×900 at the manifest's 2048×1152 aspect .* smallest one that works is 2048×1152\./s,
     );
   });
 
@@ -812,8 +839,8 @@ describe('main', () => {
     await withTempDir(async (dir) => {
       const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
       expect(await main(['--dry-run', '--masters', dir, '--out', dir])).toBe(0);
-      expect(captured(out)).toContain('52 asset(s) validated');
-      expect(captured(out)).toContain('52 master(s) not generated yet');
+      expect(captured(out)).toContain(`${ART_MANIFEST.length} asset(s) validated`);
+      expect(captured(out)).toContain(`${ART_MANIFEST.length} master(s) not generated yet`);
     });
   });
 
@@ -902,7 +929,7 @@ describe('main', () => {
       expect(await main(['--landed', '--masters', dir, '--out', dir])).toBe(0);
 
       await expect(readFile(path.join(dir, DISTRICT.file))).resolves.toBeInstanceOf(Buffer);
-      expect(captured(out)).toContain('1/52 master(s) landed');
+      expect(captured(out)).toContain(`1/${ART_MANIFEST.length} master(s) landed`);
       expect(captured(out)).toContain('still waiting on');
       expect(captured(err)).toBe('');
     });

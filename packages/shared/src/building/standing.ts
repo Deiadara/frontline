@@ -6,10 +6,12 @@ import { buildingLevel, type Building } from './state.js';
 /**
  * What the district is worth to the crew standing in it (§A1).
  *
- * Six structures do their whole job through this module: the Commons and the Generator set what
- * morale settles at, the Gate sets what a raider has to beat, the Lab shortens research, the
- * Gauntlet pays officers more for the same work, and the Infirmary takes the edge off a bad week.
- * Each is one exported function, so "what does the Infirmary actually do" has exactly one answer.
+ * Six structures reach the crew through this module: the Quarters and the Generator set what morale
+ * settles at, the Gate sets what a raider has to beat, the Lab shortens research, the Gauntlet pays
+ * officers more for the same work, and the Infirmary takes the edge off a bad week. Five of them do
+ * their *whole* job here — the Quarters is the exception, because it also houses people, and that
+ * is `population.ts`. Everything else is one exported function, so "what does the Infirmary actually
+ * do" has exactly one answer.
  */
 
 // --- morale (§D4): a level the district holds, not an event ---
@@ -25,10 +27,10 @@ import { buildingLevel, type Building } from './state.js';
  *
  * Events still move morale directly: a mission comes home (`MISSION_MORALE_DELTA`), a payday is
  * missed (`moralePenaltyFor`). The drift is what pulls the meter back towards whatever the district
- * can actually sustain, which is what the Commons is buying.
+ * can actually sustain, which is what the Quarters is buying.
  */
 export const BASE_MORALE_TARGET = 55;
-export const MORALE_PER_COMMONS_LEVEL = 2;
+export const MORALE_PER_QUARTERS_LEVEL = 2;
 /** Lit, warm and with power to spare. */
 export const POWER_SURPLUS_MORALE = 6;
 /** Cold and dark, scaled by how far short the grid is falling. */
@@ -44,7 +46,7 @@ export function moraleTarget(buildings: readonly Building[]): Meter {
 
   return clampMeter(
     BASE_MORALE_TARGET +
-      buildingLevel(buildings, 'commons') * MORALE_PER_COMMONS_LEVEL +
+      buildingLevel(buildings, 'quarters') * MORALE_PER_QUARTERS_LEVEL +
       effects.morale_flat +
       power,
   );

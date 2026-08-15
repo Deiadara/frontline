@@ -1,168 +1,158 @@
-import {
-  FACTION_IDENTITIES,
-  GOVERNMENT,
-  isDistrictAttackable,
-  isSeatOfGovernmentPower,
-  type Base,
-  type BaseSummary,
-  type District,
-  type DistrictKind,
-} from '@frontline/shared';
-import { Link } from 'react-router-dom';
-import { deliveredUrl } from '../../assets/delivered';
-import { RewardLine, ResourceGrid } from '../../components/Resources';
+import { HOLDER_LABELS, garrisonOf, type DistrictSummary } from '@frontline/shared';
 import { Button } from '../../components/ui/Button';
-import { Panel } from '../../components/ui/Panel';
+import { cn } from '../../lib/cn';
 
-const KIND_LABEL: Record<DistrictKind, string> = {
-  player_base: 'Player Base',
-  raid: 'Raid Site',
-  market: 'Market',
-  // §A3 — a stronghold is a seat of the government's power, and the panel says so.
-  npc_stronghold: 'Seat of Power',
-};
-
-/** Whose ground the selected node is, in the words the fiction uses (§A3). */
-function holdingLine(district: District): string {
-  if (district.faction !== 'government') return FACTION_IDENTITIES.independent.description;
-  return isSeatOfGovernmentPower(district)
-    ? `Held by ${GOVERNMENT.name}. Taking this is not a raid — it is a claim on the state itself.`
-    : `Held by ${GOVERNMENT.name}. A tyranny keeps what it meters, and it will come looking.`;
-}
+/**
+ * The right-hand panel: whichever district is selected on the map (GDD §A4).
+ *
+ * It answers three questions and stops: whose is it, how far away is it, and what can I do about
+ * it. Anything about the *inside* of a district belongs to the district view — this panel is the
+ * map's caption, not a second screen.
+ */
 
 interface ContextPanelProps {
-  selected: District | null;
-  myBase: Base;
-  /** Public base summaries from `/city` — used to spot an AI rival on the selected node. */
-  bases: readonly BaseSummary[];
-  onAttack: (district: District) => void;
-  isAttacking: boolean;
+  entry: DistrictSummary | null;
+  myBaseId: string | null;
+  pending: boolean;
+  onScout: (districtId: string) => void;
+  onEnter: (districtId: string) => void;
+  onRaid: (districtId: string) => void;
 }
 
-/** Right-hand detail panel: own base summary, hostile target intel, or a prompt. */
 export function ContextPanel({
-  selected,
-  myBase,
-  bases,
-  onAttack,
-  isAttacking,
+  entry,
+  myBaseId,
+  pending,
+  onScout,
+  onEnter,
+  onRaid,
 }: ContextPanelProps) {
-  if (!selected) {
+  if (!entry) {
     return (
-      <Panel title="Intel" className="h-full">
-        <div className="flex flex-1 items-center justify-center p-6 text-center">
-          <p className="font-body text-xs leading-relaxed text-steel-500">
-            Select a district on the map to inspect it. Most of what is worth taking is held by{' '}
-            {GOVERNMENT.name}; markets and rival players hold the line.
-          </p>
-        </div>
-      </Panel>
+      <aside className="w-80 shrink-0 border-l border-neon-cyan/20 bg-night-raised p-4">
+        <p className="font-display text-[10px] uppercase tracking-[0.2em] text-steel-500">
+          Pick somewhere on the map
+        </p>
+      </aside>
     );
   }
 
-  const isMyBase = selected.id === myBase.districtId;
-  const art = deliveredUrl({ type: 'district', districtId: selected.id });
-  const botBase = bases.find((b) => b.isBot && b.districtId === selected.id) ?? null;
-  // Same rule the server enforces on POST /battle — see @frontline/shared.
-  const attackable = isDistrictAttackable(selected, {
-    isOwnBase: isMyBase,
-    hasBotBase: botBase !== null,
-  });
+  const { district, scouted, held, holder, base, isHome, travelMinutes } = entry;
+  const mine = holder?.kind === 'faction' && holder.baseId === myBaseId;
+  const raidable = base !== null && base.id !== myBaseId && district.kind === 'residential';
 
   return (
-    <Panel title="Intel" className="h-full">
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-        <div>
-          {art && (
-            // The 1:1 delivery keeps its horizon at 40% height, so a 4:3 crop holds the skyline
-            // while leaving the panel room for the intel below it.
-            <img
-              src={art}
-              alt=""
-              className="mb-3 aspect-[4/3] w-full border border-neon-cyan/20 object-cover"
-            />
-          )}
-          <h3 className="text-glow-cyan font-display text-lg font-bold tracking-wide text-steel-100">
-            {selected.name}
-          </h3>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span
-              className={
-                botBase
-                  ? 'border border-neon-magenta/40 px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.2em] text-neon-magenta'
-                  : 'border border-neon-cyan/30 px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.2em] text-neon-cyan'
-              }
-            >
-              {botBase ? 'Rival Base' : KIND_LABEL[selected.kind]}
-            </span>
-            {!botBase && selected.faction === 'government' && (
-              <span className="border border-warning/40 px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.2em] text-warning">
-                {GOVERNMENT.adjective}
-              </span>
-            )}
-            <span className="font-display text-[10px] uppercase tracking-[0.2em] text-steel-400">
-              Difficulty {selected.difficulty}/10
-            </span>
-          </div>
-          {!isMyBase && !botBase && (
-            <p className="mt-2 font-body text-[11px] leading-relaxed text-steel-400">
-              {holdingLine(selected)}
-            </p>
-          )}
+    <aside
+      className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-neon-cyan/20 bg-night-raised p-4"
+      data-testid="district-panel"
+    >
+      <div>
+        <p className="font-display text-[10px] uppercase tracking-[0.3em] text-neon-cyan/70">
+          {district.nickname ?? (district.kind === 'residential' ? 'Residential' : 'Contested')}
+        </p>
+        <h2 className="text-glow-cyan mt-1 font-display text-lg font-bold tracking-[0.1em] text-steel-100">
+          {district.name}
+        </h2>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <Tag label={`Difficulty ${district.difficulty}`} />
+          <Tag label={`${travelMinutes} min away`} />
+          {isHome && <Tag label="Home" tone="mine" />}
+          {district.seatOfPower && <Tag label="Seat of power" tone="hostile" />}
         </div>
-
-        {isMyBase ? (
-          <div className="flex flex-col gap-3">
-            <div className="border border-neon-cyan/20 bg-night p-3">
-              <p className="font-display text-xs font-semibold tracking-[0.15em] text-neon-cyan">
-                {myBase.name}
-              </p>
-              <p className="mt-0.5 font-body text-[11px] text-steel-400">
-                Level {myBase.level} · Your stronghold
-              </p>
-            </div>
-            <ResourceGrid resources={myBase.resources} />
-            <Link to="/game/base" className="w-full">
-              <Button className="w-full justify-center">Manage Base</Button>
-            </Link>
-          </div>
-        ) : attackable ? (
-          <div className="flex flex-col gap-3">
-            {botBase && (
-              <div className="border border-neon-magenta/25 bg-night p-3">
-                <p className="font-display text-xs font-semibold tracking-[0.15em] text-neon-magenta">
-                  {botBase.name}
-                </p>
-                <p className="mt-0.5 font-body text-[11px] text-steel-400">
-                  Level {botBase.level} · Hostile
-                </p>
-              </div>
-            )}
-            <div>
-              <p className="mb-1.5 font-display text-[10px] uppercase tracking-[0.25em] text-steel-400">
-                Projected Salvage
-              </p>
-              <div className="border border-warning/25 bg-night p-3">
-                <RewardLine rewards={selected.rewards} />
-              </div>
-            </div>
-            <Button
-              variant="danger"
-              disabled={isAttacking}
-              onClick={() => onAttack(selected)}
-              className="w-full justify-center"
-            >
-              {isAttacking ? 'Engaging…' : 'Launch Attack'}
-            </Button>
-          </div>
-        ) : (
-          <p className="border border-steel-700 bg-night p-3 font-body text-xs leading-relaxed text-steel-400">
-            {selected.kind === 'market'
-              ? 'A neutral trading hub. Market operations arrive in a later milestone.'
-              : 'Rival territory. Player-versus-player sieges are not open this milestone.'}
-          </p>
-        )}
       </div>
-    </Panel>
+
+      <p className="font-body text-xs leading-relaxed text-steel-400">{district.blurb}</p>
+
+      {!scouted ? (
+        <div className="flex flex-col gap-3 border-t border-steel-800 pt-3">
+          <p className="font-body text-xs leading-relaxed text-steel-500">
+            Nobody from this crew has been here. You do not know what is inside, who is holding it,
+            or how hard it would be to take.
+          </p>
+          <Button size="sm" disabled={pending} onClick={() => onScout(district.id)}>
+            {pending ? 'Working…' : 'Send scouts'}
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 border-t border-steel-800 pt-3">
+          {district.kind === 'contested' ? (
+            <>
+              <Row label="Places held">
+                <span
+                  data-testid="places-held"
+                  className={cn(
+                    'font-display text-sm font-semibold tabular-nums',
+                    mine ? 'text-neon-cyan' : 'text-steel-100',
+                  )}
+                >
+                  {held?.mine ?? 0} / {held?.total ?? 0}
+                </span>
+              </Row>
+              <Row label="District held by">
+                <span className="font-display text-xs tracking-[0.1em] text-steel-300">
+                  {holder === null
+                    ? 'Nobody — it is split'
+                    : holder.kind === 'faction'
+                      ? mine
+                        ? 'You'
+                        : 'Another crew'
+                      : HOLDER_LABELS[holder.kind]}
+                </span>
+              </Row>
+              <Button size="sm" onClick={() => onEnter(district.id)}>
+                Enter the district
+              </Button>
+            </>
+          ) : (
+            <>
+              <Row label="Crew">
+                <span className="font-display text-xs tracking-[0.1em] text-steel-300">
+                  {base?.name ?? 'Nobody lives here'}
+                </span>
+              </Row>
+              <p className="font-body text-xs leading-relaxed text-steel-500">
+                {isHome
+                  ? 'Your own ground. It cannot be taken off you — but it can be robbed.'
+                  : 'A crew lives here. Home ground can never be captured, only raided.'}
+              </p>
+              {raidable && (
+                <Button size="sm" variant="danger" onClick={() => onRaid(district.id)}>
+                  Plan a raid
+                </Button>
+              )}
+            </>
+          )}
+          <p className="font-body text-[11px] leading-relaxed text-steel-600">
+            Garrison: {garrisonOf(district)}.
+          </p>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="font-display text-[10px] uppercase tracking-[0.18em] text-steel-500">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function Tag({ label, tone = 'plain' }: { label: string; tone?: 'plain' | 'mine' | 'hostile' }) {
+  return (
+    <span
+      className={cn(
+        'border px-2 py-0.5 font-display text-[9px] uppercase tracking-[0.16em]',
+        tone === 'mine' && 'border-neon-cyan/50 text-neon-cyan',
+        tone === 'hostile' && 'border-neon-magenta/50 text-neon-magenta',
+        tone === 'plain' && 'border-steel-700 text-steel-400',
+      )}
+    >
+      {label}
+    </span>
   );
 }

@@ -179,7 +179,7 @@ Explicitly ruled out by the board: "Placeholder-looking flat rectangles are not 
 ```
 packages/shared/src/art/
   manifest.ts     ArtManifest + AssetKey Zod schemas — single source of asset-key truth
-  atlas.ts        bundle definitions (splash / city / base / ui) for lazy loading
+  atlas.ts        bundle definitions (splash / overseer / city / base / units / ui) for lazy loading
 apps/client/src/render/
   viewport.ts     pixi-viewport factory: clamp to map bounds, zoom 1.0–2.4 (§8.1), decelerate
   grade.ts        the post FX chain, built once, applied to the scene root

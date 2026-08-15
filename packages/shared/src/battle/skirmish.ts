@@ -1,0 +1,225 @@
+import { z } from 'zod';
+import type { TerritoryEffects } from '../city/index.js';
+import type { Army } from '../units/training.js';
+import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
+import { simulate, type Simulation } from './engine.js';
+import {
+  BattleFindingSchema,
+  findingsFor,
+  narrate,
+  standingReport,
+  type BattleFinding,
+} from './report.js';
+import { mulberry32, seedFrom } from './rng.js';
+import { pursuitSpeed, routSurvivors, winnerCasualties } from './rout.js';
+
+/**
+ * Taking a place (GDD §A4) — the seam every caller depends on.
+ *
+ * `SkirmishEngine` is an interface and the result shape is stable, so the model behind it can be
+ * replaced without touching a route, a repository or a screen. It has been replaced once already:
+ * the coin flip the board asked for first is still here as {@link CoinFlipSkirmishEngine}, kept
+ * because a test that wants a decided outcome should not have to construct a whole army to get one.
+ *
+ * The real model is {@link TacticalSkirmishEngine}, and it lives in the modules beside this file.
+ * Everything that matters is seeded from `input.seed`, so a fight replays from the string on its
+ * battle row.
+ */
+
+export const SkirmishSideSchema = z.enum(['attacker', 'defender']);
+export type SkirmishSide = z.infer<typeof SkirmishSideSchema>;
+
+/** The board's coin flip. Still the middle of the range `rout.ts` tilts around. */
+export const UNIT_FLEE_CHANCE = 0.5;
+
+export interface SkirmishInput {
+  /** Persisted on the row, so the fight replays from it. */
+  seed: string;
+  attackerName: string;
+  defenderName: string;
+  placeName: string;
+  attacking: Army;
+  defending: Army;
+  /** The ground. Omitted means open ground and nothing dug in. */
+  battlefield?: Battlefield;
+  /** What each side's held territory is worth to its units (§A4). */
+  attackerTerritory?: TerritoryEffects;
+  defenderTerritory?: TerritoryEffects;
+}
+
+export const SkirmishOutcomeSchema = z.object({
+  winner: SkirmishSideSchema,
+  log: z.array(z.string()),
+  /** Losing units that ran. They go back to their owner's army. */
+  fled: z.record(z.string(), z.number().int().nonnegative()),
+  /** Losing units that did not. They are gone. */
+  killed: z.record(z.string(), z.number().int().nonnegative()),
+  /** What the *winner* paid. Dead outright — a winner does not rout. */
+  winnerLosses: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  /** How many rounds it took. One means it was over before it started. */
+  rounds: z.number().int().nonnegative().default(0),
+  /** Per-side, per-visibility notes — see `report.ts`. */
+  findings: z.array(BattleFindingSchema).default([]),
+  /** What each side had left standing, and what state it was in. */
+  standing: z
+    .object({
+      attacker: z.array(z.object({ name: z.string(), state: z.string(), left: z.number().int() })),
+      defender: z.array(z.object({ name: z.string(), state: z.string(), left: z.number().int() })),
+    })
+    .default({ attacker: [], defender: [] }),
+  battlefield: BattlefieldSchema.optional(),
+});
+export type SkirmishOutcome = z.infer<typeof SkirmishOutcomeSchema>;
+
+export interface SkirmishEngine {
+  resolve(input: SkirmishInput): SkirmishOutcome;
+}
+
+/**
+ * A complete outcome from whichever fields a caller cares about.
+ *
+ * For test doubles. The outcome grew five fields when the coin flip was replaced, and every stub
+ * engine in the server suite had to be edited to say `winnerLosses: {}` — which is noise that
+ * teaches nothing and will have to be done again on the next field. A stub says what it is testing
+ * and this fills in the rest.
+ */
+export function skirmishOutcome(partial: Partial<SkirmishOutcome> = {}): SkirmishOutcome {
+  return {
+    winner: 'attacker',
+    log: [],
+    fled: {},
+    killed: {},
+    winnerLosses: {},
+    rounds: 1,
+    findings: [],
+    standing: { attacker: [], defender: [] },
+    ...partial,
+  };
+}
+
+const total = (force: Army): number => Object.values(force).reduce((sum, count) => sum + count, 0);
+
+/**
+ * The real model.
+ *
+ * Runs the round simulation in `engine.ts`, then resolves the losers into those who ran and those
+ * who did not. The two use the **same** stream in a fixed order — simulation first, rout second —
+ * so the seed reproduces the whole thing and not just the first half.
+ */
+export class TacticalSkirmishEngine implements SkirmishEngine {
+  resolve(input: SkirmishInput): SkirmishOutcome {
+    const battlefield = input.battlefield ?? bareBattlefield(input.placeName);
+    const simulation = simulate({
+      seed: input.seed,
+      battlefield: { ...battlefield, placeName: input.placeName },
+      attacker: {
+        name: input.attackerName,
+        army: input.attacking,
+        defending: false,
+        ...(input.attackerTerritory ? { territory: input.attackerTerritory } : {}),
+      },
+      defender: {
+        name: input.defenderName,
+        army: input.defending,
+        defending: true,
+        ...(input.defenderTerritory ? { territory: input.defenderTerritory } : {}),
+      },
+    });
+
+    return outcomeFrom(simulation, input);
+  }
+}
+
+/**
+ * The rout roll and the report, from a finished simulation.
+ *
+ * Split out from the engine class so a test can drive a simulation directly and still get the
+ * shape a caller sees — and so the two halves stay separately reviewable.
+ */
+export function outcomeFrom(simulation: Simulation, input: SkirmishInput): SkirmishOutcome {
+  // A second stream, seeded from the same string with a suffix. Reusing the simulation's stream
+  // would make the rout depend on exactly how many draws the round loop happened to take, so any
+  // tuning pass would silently change every historical fight's survivors.
+  const next = mulberry32(seedFrom(`${input.seed}:rout`));
+
+  const winnerSide = simulation.winner === 'attacker' ? simulation.attacker : simulation.defender;
+  const loserSide = simulation.winner === 'attacker' ? simulation.defender : simulation.attacker;
+  const lastRound = simulation.rounds.length;
+
+  const { fled, killed } = routSurvivors(
+    loserSide,
+    {
+      pursuit: pursuitSpeed(winnerSide),
+      lastRound,
+      away: simulation.winner === 'defender',
+      luck: loserSide.luck,
+    },
+    next,
+  );
+
+  const findings: BattleFinding[] = findingsFor(simulation);
+  return {
+    winner: simulation.winner,
+    log: [...narrate(simulation, findings), lossLine(fled, killed)],
+    fled,
+    killed,
+    winnerLosses: winnerCasualties(winnerSide),
+    rounds: lastRound,
+    findings,
+    standing: {
+      attacker: standingReport(simulation.attacker),
+      defender: standingReport(simulation.defender),
+    },
+    battlefield: simulation.battlefield,
+  };
+}
+
+function lossLine(fled: Army, killed: Army): string {
+  const ran = total(fled);
+  const dead = total(killed);
+  if (ran === 0 && dead === 0) return 'Nobody was lost on the ground.';
+  if (ran === 0) return `${dead} did not make it out.`;
+  return `${ran} broke and ran; ${dead} did not.`;
+}
+
+/**
+ * The board's original coin flip, kept.
+ *
+ * It reads none of the sheet and is not a model of anything — what it is good for is a test that
+ * needs a decided outcome without an army behind it, and a fallback that cannot fail.
+ */
+export class CoinFlipSkirmishEngine implements SkirmishEngine {
+  resolve(input: SkirmishInput): SkirmishOutcome {
+    const next = mulberry32(seedFrom(input.seed));
+    const attackerWins = next() < 0.5;
+    const losers = attackerWins ? input.defending : input.attacking;
+
+    const fled: Army = {};
+    const killed: Army = {};
+    for (const [unitId, count] of Object.entries(losers)) {
+      let ran = 0;
+      for (let i = 0; i < count; i += 1) if (next() < UNIT_FLEE_CHANCE) ran += 1;
+      if (ran > 0) fled[unitId] = ran;
+      if (count - ran > 0) killed[unitId] = count - ran;
+    }
+
+    return {
+      winner: attackerWins ? 'attacker' : 'defender',
+      log: [
+        attackerWins
+          ? `${input.placeName} changes hands. ${input.attackerName} holds it.`
+          : `The push on ${input.placeName} breaks. ${input.defenderName} still holds it.`,
+        lossLine(fled, killed),
+      ],
+      fled,
+      killed,
+      winnerLosses: {},
+      rounds: 1,
+      findings: [],
+      standing: { attacker: [], defender: [] },
+    };
+  }
+}
+
+/** The engine the server injects. Depend on the interface, never on this. */
+export const defaultSkirmishEngine: SkirmishEngine = new TacticalSkirmishEngine();

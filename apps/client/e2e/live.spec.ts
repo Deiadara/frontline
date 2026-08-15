@@ -4,7 +4,6 @@ import {
   STARTING_RESOURCES,
   buildingCost,
   spendResources,
-  addResources,
   findDistrict,
 } from '@frontline/shared';
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
@@ -41,9 +40,8 @@ const STARTING_DISTRICT = [
 ];
 const QUARTERS = buildingCost('quarters', 1, STARTING_DISTRICT);
 
-/** Stockpile after the Quarters are paid for and the first raid on the rival is won. */
+/** Stockpile after the Quarters are paid for. */
 const AFTER_BUILD = spendResources(STARTING_RESOURCES, QUARTERS);
-const AFTER_RAID = addResources(AFTER_BUILD, botDistrict.rewards);
 
 /** External noise we never treat as an app bug. */
 function isBenign(text: string): boolean {
@@ -87,7 +85,13 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // has to be watched for by origin. `visual.spec.ts` guards `/overseer`; this is the whole flow.
   const offOrigin: string[] = [];
   page.on('request', (req) => {
-    if (!LOCAL_HOSTS.has(new URL(req.url()).hostname)) offOrigin.push(req.url());
+    const url = new URL(req.url());
+    // `blob:` and `data:` are the page handing bytes to itself — Pixi builds its image-decode
+    // workers that way, two per session. They have no hostname, so an origin test reads them as
+    // off-origin, and the guard would then fail on the renderer starting up rather than on anything
+    // being fetched from a third party. Nothing leaves the machine either way.
+    if (url.protocol === 'blob:' || url.protocol === 'data:') return;
+    if (!LOCAL_HOSTS.has(url.hostname)) offOrigin.push(req.url());
   });
   page.on('pageerror', (err) => {
     if (!isBenign(err.message)) pageErrors.push(err.message);
@@ -161,55 +165,81 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(page.getByTestId('build-queue')).toHaveCount(0);
   await shootEveryViewport(page, 'district-built');
 
-  // --- STEP 5: raid the AI rival ---
+  // --- STEP 5: walk into the city and take a place off the looters (§A4) ---
   await page.getByRole('link', { name: 'Map', exact: true }).click();
   await expect(page.locator('canvas')).toBeVisible();
   await page.waitForTimeout(800);
-  await clickDistrict(page, botDistrict.position);
 
-  // Selecting the rival's district surfaces its intel and the attack action.
-  await expect(page.getByRole('heading', { name: botDistrict.name })).toBeVisible();
-  await expect(page.getByText('Rival Base')).toBeVisible();
-  await expect(page.getByText('Vex Holdings')).toBeVisible();
-  await expect(page.getByText(/Hostile/)).toBeVisible();
-  const launch = page.getByRole('button', { name: 'Launch Attack' });
-  await expect(launch).toBeVisible();
-  await shootEveryViewport(page, 'rival-intel');
+  const scrapfields = findDistrict('rustyard');
+  if (!scrapfields) throw new Error('fixture error: the Rustyard is missing from the city map');
+  await clickDistrict(page, scrapfields.position);
 
-  // The raid is a weighted roll, not a coin flip: Kane's sheet (§B tactics/leadership/hacking)
-  // against Ashen Terraces at difficulty 4 puts the assault a little under even, and every attempt
-  // is seeded independently. 25 tries makes a spurious failure a one-in-a-million event rather than
-  // the one-in-four-thousand that 15 would leave.
-  let won = false;
-  for (let attempt = 0; attempt < 25 && !won; attempt++) {
-    await launch.click();
+  // Fog first: a district nobody has been to says nothing about what is inside it.
+  const panel = page.getByTestId('district-panel');
+  await expect(panel.getByRole('heading', { name: scrapfields.name })).toBeVisible();
+  await expect(panel.getByTestId('places-held')).toHaveCount(0);
+  await shootEveryViewport(page, 'city-fog');
+
+  await panel.getByRole('button', { name: 'Send scouts' }).click();
+  await expect(panel.getByTestId('places-held')).toBeVisible();
+
+  await panel.getByRole('button', { name: 'Enter the district' }).click();
+  await expect(page.getByRole('heading', { name: scrapfields.name })).toBeVisible();
+  await expect(page.getByTestId('places')).toBeVisible();
+  await shootEveryViewport(page, 'district-places');
+
+  /*
+   * The one place `POST /api/city/attack` runs end to end: real route, real control table, real
+   * §I1 award.
+   *
+   * It used to send **one** Razor and retry ten times, which was right when the engine was a coin
+   * flip and every place was garrisoned by nobody. Neither is true now: the Rustyard's easiest
+   * place holds four looters and the engine reads the sheets, so one Razor loses every time and
+   * ten attempts is just ten ways to arrive with an empty army. Send what the crew has.
+   */
+  const firstPlace = scrapfields.places[0];
+  if (!firstPlace) throw new Error('fixture error: the Rustyard has no places');
+  const card = page.getByTestId(`place-${firstPlace.id}`);
+  await expect(card).toBeVisible();
+
+  let captured = false;
+  for (let attempt = 0; attempt < 3 && !captured; attempt += 1) {
+    const take = card.getByRole('button', { name: 'Take it' });
+    if ((await take.count()) === 0) {
+      captured = true;
+      break;
+    }
+    await take.click();
+    const picker = page.getByRole('dialog');
+    await expect(
+      picker.getByRole('heading', { name: new RegExp(`Take ${firstPlace.name}`) }),
+    ).toBeVisible();
+    await picker.getByLabel('How many Razors').fill('8');
+    await picker.getByRole('button', { name: 'Send them in' }).click();
+
     const outcome = page.getByRole('heading', { name: /VICTORY|DEFEAT/ });
     await expect(outcome).toBeVisible();
-    won = ((await outcome.textContent()) ?? '').includes('VICTORY');
-    if (won) break;
+    captured = ((await outcome.textContent()) ?? '').includes('VICTORY');
     await page.getByRole('button', { name: 'Dismiss' }).click();
     await expect(page.getByRole('dialog')).toBeHidden();
-    await expect(launch).toBeVisible();
   }
-  expect(won, 'attacker should win within 25 seeded assaults').toBe(true);
+  expect(captured, 'eight Razors should take a four-body looter garrison').toBe(true);
 
-  // Losses pay nothing, so the first win lifts the starting stockpile by exactly the
-  // rival district's rewards.
-  const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: 'VICTORY' })).toBeVisible();
-  await expect(dialog).toContainText(String(AFTER_RAID.caps));
-  await expect(dialog).toContainText(String(AFTER_RAID.scrap));
-  // A player never sees a UUID: the narration names the base it deployed from.
-  await expect(dialog).toContainText("Nikos's Crew");
-  expect(await dialog.innerText()).not.toMatch(
-    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
-  );
-  await shootEveryViewport(page, 'raid-result');
+  // Taken ground says so, and offers the two things you can only do to ground you hold.
+  await expect(card.getByText('Yours')).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Dig in' })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Garrison' })).toBeVisible();
+  await shootEveryViewport(page, 'place-taken');
 
-  // The salvage is also reflected in the persistent HUD after the refetch.
-  await page.getByRole('button', { name: 'Dismiss' }).click();
-  await expect(dialog).toBeHidden();
-  await expect(hud).toContainText(String(AFTER_RAID.caps));
+  // --- STEP 6: the roster reflects what the city has opened up (§A5) ---
+  await page.getByRole('link', { name: 'Units', exact: true }).click();
+  await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+  await expect(page.getByTestId('supply')).toBeVisible();
+  // Razors need nothing at all, so a crew on its first day can always train more.
+  await expect(
+    page.getByTestId('unit-razors').getByRole('button', { name: 'Train' }),
+  ).toBeEnabled();
+  await shootEveryViewport(page, 'units');
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);

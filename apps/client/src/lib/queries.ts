@@ -9,7 +9,14 @@ import { useEffect, useRef } from 'react';
 import type { ApiRequestError } from './api';
 import {
   assignPoint,
-  attack,
+  attackPlace,
+  fortifyPlace,
+  getDistrict,
+  getUnits,
+  raidDistrict,
+  scoutDistrict,
+  setGarrison,
+  trainUnits,
   buildStructure,
   getAssignees,
   placeAssignees,
@@ -35,6 +42,8 @@ export const queryKeys = {
   base: (id: string) => ['base', id] as const,
   missions: ['missions'] as const,
   bar: ['bar'] as const,
+  district: (id: string) => ['district', id] as const,
+  units: ['units'] as const,
   research: ['research'] as const,
   assignees: ['assignees'] as const,
 };
@@ -340,14 +349,82 @@ export function useBuildStructure(baseId: string | undefined) {
   });
 }
 
-/** Resolve a battle and refresh everything its rewards touched. */
-export function useAttack(baseId: string | undefined) {
+/**
+ * The city writes (GDD §A4).
+ *
+ * All five refresh the same three things, because all five can move them: the map (ownership and
+ * fog), the district that was touched, and the crew itself (its army, its stockpile, its level).
+ * Said once rather than five times — the reason is identical every time.
+ */
+function useCityWrite<Body, Result>(
+  mutationFn: (body: Body) => Promise<Result>,
+  baseId: string | undefined,
+  districtOf: (body: Body) => string | null,
+) {
+  const queryClient = useQueryClient();
+  return useMutation<Result, ApiRequestError, Body>({
+    mutationFn,
+    onSettled: (_result, _error, body) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.city });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      const districtId = districtOf(body);
+      if (districtId !== null) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.district(districtId) });
+      }
+      if (baseId !== undefined) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
+      }
+      invalidateLevelSensitive(queryClient);
+    },
+  });
+}
+
+/** One district's places, who holds them, and what they are worth. */
+export function useDistrict(districtId: string | undefined) {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.district(districtId ?? ''),
+    queryFn: () => getDistrict(districtId ?? ''),
+    enabled: token !== null && districtId !== undefined,
+  });
+}
+
+export const useScout = () => useCityWrite(scoutDistrict, undefined, (body) => body.districtId);
+
+export const useAttackPlace = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(attackPlace, baseId, () => districtId ?? null);
+
+export const useRaidDistrict = (baseId: string | undefined) =>
+  useCityWrite(raidDistrict, baseId, (body) => body.districtId);
+
+export const useSetGarrison = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(setGarrison, baseId, () => districtId ?? null);
+
+export const useFortify = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(fortifyPlace, baseId, () => districtId ?? null);
+
+/**
+ * The unit roster (GDD §A5). Polled for the same reason the district page is: a training batch
+ * lands on this read, so the poll is what turns a finished clock into units while the page is open.
+ */
+export function useUnits() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.units,
+    queryFn: getUnits,
+    enabled: token !== null,
+    refetchInterval: DISTRICT_POLL_MS,
+  });
+}
+
+/** Put a batch on the bench. Costs resources, so the HUD refreshes with the roster. */
+export function useTrainUnits(baseId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: attack,
+    mutationFn: trainUnits,
     onSuccess: () => {
-      invalidateLevelSensitive(queryClient);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.city });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       if (baseId !== undefined) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
       }

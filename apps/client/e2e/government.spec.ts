@@ -1,7 +1,7 @@
 import {
   CITY_DISTRICTS,
-  GOVERNMENT,
   MISSION_STANCE_SPECS,
+  garrisonOf,
   isSeatOfGovernmentPower,
 } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
@@ -156,7 +156,9 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
   const outpost = CITY_DISTRICTS.find(
     (d) => d.faction === 'government' && !isSeatOfGovernmentPower(d),
   );
-  const street = CITY_DISTRICTS.find((d) => d.kind === 'raid' && d.faction !== 'government');
+  const street = CITY_DISTRICTS.find(
+    (d) => d.kind === 'contested' && d.faction !== 'government' && d.id !== 'chrome-row',
+  );
   if (!seat || !outpost || !street)
     throw new Error('fixture error: city map is missing a faction case');
 
@@ -177,8 +179,9 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
       await select(page, seat.position);
 
       await expect(page.getByRole('heading', { name: seat.name })).toBeVisible();
-      await expect(page.getByText(GOVERNMENT.adjective, { exact: true })).toBeInViewport();
-      await expect(page.getByText(/claim on the state/)).toBeInViewport();
+      // §A3 — a seat of the Combine's power says so, and names what is standing on it.
+      await expect(page.getByText('Seat of power')).toBeInViewport();
+      await expect(page.getByText(new RegExp(garrisonOf(seat)))).toBeInViewport();
 
       await settleFonts(page);
 
@@ -188,18 +191,21 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
     });
   }
 
-  test('reads a Combine outpost as held, and independent ground as neither', async ({ page }) => {
+  test('names a Combine garrison on state ground, and nobody in particular elsewhere', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await installApi(page, me);
     await page.goto('/game');
 
     await select(page, outpost.position);
-    await expect(page.getByText(new RegExp(`Held by ${GOVERNMENT.name}`))).toBeInViewport();
-    await expect(page.getByText(/claim on the state/)).toHaveCount(0);
+    await expect(page.getByText(new RegExp(garrisonOf(outpost)))).toBeInViewport();
+    // An outpost is Combine ground but not a seat of its power — the two must read apart.
+    await expect(page.getByText('Seat of power')).toHaveCount(0);
 
     await select(page, street.position);
     await expect(page.getByRole('heading', { name: street.name })).toBeVisible();
-    await expect(page.getByText(new RegExp(`Held by ${GOVERNMENT.name}`))).toHaveCount(0);
-    await expect(page.getByText(GOVERNMENT.adjective, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(new RegExp(garrisonOf(street)))).toBeInViewport();
+    await expect(page.getByText('Seat of power')).toHaveCount(0);
   });
 });

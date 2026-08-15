@@ -91,6 +91,8 @@ function seedBase(repos: Repositories, options: SeedOptions = {}): Base {
     assignees: startingAssignees(),
     buildings: options.buildings ?? [build('nexus', 1), build('generator', 1)],
     buildQueue: options.buildQueue ?? [],
+    army: {},
+    trainingQueue: [],
     commanders: options.officers ?? [],
     createdAt: NOW.toISOString(),
   };
@@ -315,7 +317,7 @@ describe('settling the district (§A1)', () => {
 
   it('drifts morale towards what the district can sustain', () => {
     const repos = openStack();
-    const social = [build('nexus', 1), build('generator', 2), build('commons', 10)];
+    const social = [build('nexus', 1), build('generator', 2), build('quarters', 10)];
     const start = new Date(NOW.getTime() - 48 * HOUR_MS);
     const base = seedBase(repos, { buildings: social, settledAt: start.toISOString() });
 
@@ -386,8 +388,17 @@ describe('modifications (§A1, §C4)', () => {
     const options = modificationOptions(base);
 
     expect(options).toHaveLength(MODIFICATIONS.length);
-    // A brand-new district has built almost nothing, so almost everything reports `not_built`.
-    expect(options.filter((o) => o.blocker === 'not_built').length).toBeGreaterThan(50);
+    // A brand-new district has built almost nothing, so everything belonging to a structure that is
+    // not standing reports `not_built` — exactly that many, no more and no fewer. Counted off the
+    // catalogue rather than written down, because a magic number here is a number that goes stale
+    // the next time a structure joins or leaves the game and reports nothing when it does.
+    const standing = MODIFICATIONS.filter(
+      (spec) => buildingLevel(base.buildings, spec.building) > 0,
+    );
+    expect(standing.length, 'a brand-new district has something built').toBeGreaterThan(0);
+    expect(options.filter((o) => o.blocker === 'not_built')).toHaveLength(
+      MODIFICATIONS.length - standing.length,
+    );
     expect(options.every((o) => !o.installed)).toBe(true);
   });
 

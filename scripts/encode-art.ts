@@ -38,6 +38,7 @@ import {
   validateAssetSpec,
   type AssetClass,
   type AssetKey,
+  type AssetSource,
   type AssetSpec,
   type PostProcessStep,
 } from '@frontline/shared';
@@ -628,24 +629,82 @@ export function centredCrop(
  * crop as cropping to the delivery's: `validateAssetSpec` refuses a spec whose source and delivery
  * disagree on aspect, and `validateRun` runs it before any of this.
  *
- * **It will not upscale.** A master that centre-crops to less than `spec.source` in either axis is
+ * **It will not upscale.** A master that centre-crops to less than the delivery in either axis is
  * refused, naming the size it would need — inventing detail to fill a delivery is the one failure
  * that looks fine on disk and mushy in the browser.
+ *
+ * Between the two sits the human-delivered case. `spec.source` is a statement about a *backend* —
+ * icons are declared at 1024² because nothing renders 512² with alpha, not because 512² is too
+ * little art. A hand-drawn 512² icon master is exactly the delivery and refusing it would be the
+ * pipeline enforcing a generator's limitation on a human, so a master that clears the delivery but
+ * not the source normalizes to the delivery instead and the declared `downscale` no-ops.
+ *
+ * That relaxation is safe only because it cannot collide with `matte`: a class needing both a key
+ * and a downscale would run the key on the smaller canvas, where `MIN_OPAQUE_ISLAND` and
+ * `MAX_ERASED_ARTWORK` mean different fractions than the numbers were measured at. No class
+ * declares both today, and {@link normalizeTarget} refuses rather than guessing if one ever does.
+ *
+ * A `contain` class skips all of that: its declared size is a bound, so there is no aspect to crop
+ * to and {@link containedSize} scales the master whole. See {@link AssetFit}.
  */
-export async function normalizeMaster(image: RgbaImage, spec: AssetSpec): Promise<RgbaImage> {
+export function normalizeTarget(image: RgbaImage, spec: AssetSpec): AssetSource {
   const { source } = spec;
-  // The generator-shaped case, and the one every existing master takes: nothing to do, and no
-  // resample to soften an already-exact master.
-  if (image.width === source.width && image.height === source.height) return image;
+  const delivery: AssetSource = { width: spec.width, height: spec.height, alpha: spec.alpha };
+  if (spec.fit === 'contain') return { ...containedSize(image, spec), alpha: source.alpha };
+  if (source.width === spec.width && source.height === spec.height) return source;
 
   const crop = centredCrop(image, source);
-  if (crop.width < source.width || crop.height < source.height) {
-    // The scale that makes the master cover the source box. Taken off the master's own dimensions
+  if (crop.width >= source.width && crop.height >= source.height) return source;
+  if (spec.postProcess.includes('matte')) return source;
+  return delivery;
+}
+
+/**
+ * The largest whole-image size that fits inside a `contain` class's bound.
+ *
+ * Rounded rather than floored so the longest side lands exactly on the bound: a `Math.floor` here
+ * puts it one pixel under, and `deliveryProblems` reads "neither side meets the bound" as a master
+ * that was never scaled at all.
+ */
+export function containedSize(
+  image: Pick<RgbaImage, 'width' | 'height'>,
+  bound: { width: number; height: number },
+): { width: number; height: number } {
+  const scale = Math.min(bound.width / image.width, bound.height / image.height);
+  return {
+    width: Math.min(bound.width, Math.round(image.width * scale)),
+    height: Math.min(bound.height, Math.round(image.height * scale)),
+  };
+}
+
+export async function normalizeMaster(image: RgbaImage, spec: AssetSpec): Promise<RgbaImage> {
+  const target = normalizeTarget(image, spec);
+  // The generator-shaped case, and the one every existing master takes: nothing to do, and no
+  // resample to soften an already-exact master.
+  if (image.width === target.width && image.height === target.height) return image;
+
+  if (spec.fit === 'contain') {
+    if (target.width > image.width || target.height > image.height) {
+      throw new Error(
+        `${spec.key}: master is ${image.width}×${image.height}, which scales up to ` +
+          `${target.width}×${target.height} inside the manifest's ${spec.width}×${spec.height} ` +
+          `bound — upscaling invents detail. Re-export it with its longest side at least ` +
+          `${Math.max(spec.width, spec.height)}px.`,
+      );
+    }
+    return toRgba(
+      sharpFrom(image).resize(target.width, target.height, { fit: 'fill', kernel: 'lanczos3' }),
+    );
+  }
+
+  const crop = centredCrop(image, target);
+  if (crop.width < target.width || crop.height < target.height) {
+    // The scale that makes the master cover the target box. Taken off the master's own dimensions
     // rather than off `crop`, whose floor would round the answer up past the sizes that do work.
-    const scale = Math.max(source.width / image.width, source.height / image.height);
+    const scale = Math.max(target.width / image.width, target.height / image.height);
     throw new Error(
       `${spec.key}: master is ${image.width}×${image.height}, which centre-crops to ` +
-        `${crop.width}×${crop.height} at the manifest's ${source.width}×${source.height} source ` +
+        `${crop.width}×${crop.height} at the manifest's ${target.width}×${target.height} ` +
         `aspect — short of it, and upscaling invents detail. At this master's aspect ratio the ` +
         `smallest one that works is ${Math.ceil(image.width * scale)}×${Math.ceil(image.height * scale)}.`,
     );
@@ -654,13 +713,17 @@ export async function normalizeMaster(image: RgbaImage, spec: AssetSpec): Promis
   return toRgba(
     sharpFrom(image)
       .extract(crop)
-      .resize(source.width, source.height, { fit: 'fill', kernel: 'lanczos3' }),
+      .resize(target.width, target.height, { fit: 'fill', kernel: 'lanczos3' }),
   );
 }
 
 const downscale: PostProcessor = async (image, spec) =>
-  // libvips premultiplies alpha across a resize, so a matted edge does not fringe on the way down.
-  toRgba(sharpFrom(image).resize(spec.width, spec.height, { fit: 'fill', kernel: 'lanczos3' }));
+  // A master that already arrived at delivery size skips the resample entirely — see
+  // `normalizeTarget`. Resampling to the size it already is only softens it.
+  image.width === spec.width && image.height === spec.height
+    ? image
+    : // libvips premultiplies alpha across a resize, so a matted edge does not fringe on the way down.
+      toRgba(sharpFrom(image).resize(spec.width, spec.height, { fit: 'fill', kernel: 'lanczos3' }));
 
 const matte: PostProcessor = async (image, spec, options) => {
   if (transparencyOf(image) >= HUMAN_MATTE_FLOOR) return image;
@@ -687,10 +750,57 @@ const matte: PostProcessor = async (image, spec, options) => {
 };
 
 /**
+ * Alpha at or above which a pixel counts as artwork for {@link trim}.
+ *
+ * Well under half: a keyed edge feathers, and cropping at 50% would shave the soft rim off every
+ * silhouette. The job here is to find where the drawing *stops*, not where it becomes solid.
+ */
+const TRIM_ALPHA_FLOOR = 8;
+
+/** The tight bounding box of everything at or above {@link TRIM_ALPHA_FLOOR}, or null if empty. */
+export function alphaBox(
+  image: RgbaImage,
+): { left: number; top: number; width: number; height: number } | null {
+  let x0 = image.width;
+  let y0 = image.height;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      if ((image.data[(y * image.width + x) * 4 + 3] ?? 0) < TRIM_ALPHA_FLOOR) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  return x1 < 0 ? null : { left: x0, top: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 };
+}
+
+/**
+ * Crops a keyed cutout to its own artwork.
+ *
+ * A fully transparent image is refused rather than cropped to nothing: it means the matte took
+ * everything, and a 1×1 delivery would sail through every later gate as a valid file.
+ */
+const trim: PostProcessor = async (image, spec) => {
+  const box = alphaBox(image);
+  if (box === null) {
+    throw new Error(`${spec.key}: nothing survived the matte — the delivery would be empty.`);
+  }
+  if (box.width === image.width && box.height === image.height) return image;
+  return toRgba(sharpFrom(image).extract(box));
+};
+
+/**
  * Every step the manifest can declare. Typed as a total `Record`, so adding a member to
  * `POST_PROCESS_STEPS` without an implementation fails to compile rather than at the paywall.
  */
-const POST_PROCESSORS: Readonly<Record<PostProcessStep, PostProcessor>> = { matte, downscale };
+const POST_PROCESSORS: Readonly<Record<PostProcessStep, PostProcessor>> = {
+  matte,
+  downscale,
+  trim,
+};
 
 /** The implementation of `step`. Throws for a step that reached us without one. */
 export function postProcessorFor(step: PostProcessStep): PostProcessor {
@@ -753,13 +863,43 @@ export function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffe
  * (`postProcessFor`), so both checks above are inert on exactly the keys the board's masters land
  * on (MOU-374).
  */
+/**
+ * The delivery is the size ART-BIBLE §6 declares — exactly, or within the bound for a `contain`
+ * class. `contain` still requires the longest side to *meet* the bound: a master half the size
+ * would otherwise satisfy "fits inside it" and ship at half resolution.
+ */
+function sizeProblems(image: RgbaImage, spec: AssetSpec): string[] {
+  const declared = `${spec.width}×${spec.height}`;
+  const actual = `${image.width}×${image.height}`;
+  if (spec.fit === 'contain') {
+    if (image.width > spec.width || image.height > spec.height) {
+      return [`post-process left it ${actual}, outside the ART-BIBLE §6 ${declared} bound`];
+    }
+    // A trimmed cutout legitimately sits inside the bound on both axes: `normalizeMaster` scaled
+    // the master until it met the bound, and `trim` then removed the empty canvas around the
+    // artwork. Demanding it still touch the bound would mean upscaling the drawing to refill the
+    // margin that was just cropped off. The undersized-master case this check exists for is caught
+    // earlier and harder — `normalizeMaster` refuses to scale a `contain` master *up* at all.
+    if (
+      !spec.postProcess.includes('trim') &&
+      image.width !== spec.width &&
+      image.height !== spec.height
+    ) {
+      return [
+        `post-process left it ${actual}, inside the ART-BIBLE §6 ${declared} bound but touching ` +
+          `neither side of it — the master was never scaled up to the bound`,
+      ];
+    }
+    return [];
+  }
+  return image.width === spec.width && image.height === spec.height
+    ? []
+    : [`post-process left it ${actual}, ART-BIBLE §6 delivers ${declared}`];
+}
+
 function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: number): string[] {
   const problems: string[] = [];
-  if (image.width !== spec.width || image.height !== spec.height) {
-    problems.push(
-      `post-process left it ${image.width}×${image.height}, ART-BIBLE §6 delivers ${spec.width}×${spec.height}`,
-    );
-  }
+  problems.push(...sizeProblems(image, spec));
   if (spec.postProcess.includes('matte') && (transparency === 0 || transparency === 1)) {
     // Both ends are the same failure: the master had no background the key could tell from the
     // artwork, so it either kept everything or erased the city. That needs a human, not a retry.

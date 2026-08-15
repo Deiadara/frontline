@@ -179,8 +179,10 @@ Aspect ratios are **fixed** — they are baked into the layout and changing one 
 | Overseer avatar (derived)         | 512 × 512         | **1:1**  | WebP q88              | opaque                         | Centre-crop of the portrait, **not** a separate generation.                                      |
 | District illustration             | 1024 × 1024       | **1:1**  | WebP q90              | opaque                         | Shown in the context panel. Oblique 3/4 view, horizon at 40% height.                             |
 | City map base plate               | 2048 × 1152       | **16:9** | WebP q92              | opaque                         | Plane 2. Districts sit on it at normalised coords.                                               |
+| District ground plate             | 2048 × 1152       | **16:9** | WebP q92              | opaque                         | `plate-district` — the §A1 compound seen from above. **Ground only.** See §6.1.                  |
 | Parallax plane (sky / far / fore) | 2048 × 1152       | **16:9** | WebP q90              | sky opaque, far/fore **alpha** | Fore plane must be ≥55% transparent or it smothers the map; far plane ≥30% — see the note below. |
-| Base building sprite              | 1024 × 1024       | **1:1**  | WebP q90              | **alpha**                      | Ground contact at the bottom-centre 20%; drop shadow **not** baked in.                           |
+| Base building sprite              | 1024 × 1024       | **1:1**  | WebP q90              | **alpha**, keyed from white    | Ground contact at the bottom-centre 20%; drop shadow **not** baked in. See §6.3 on the field.    |
+| Unit roster portrait              | 768 × 1024        | **3:4**  | WebP q90              | opaque                         | Half-length figure, cropped mid-thigh. Twenty-seven of these render in one grid.                 |
 | UI frame / HUD element            | 1024 × 1024       | **1:1**  | PNG (9-slice)         | **alpha**                      | Corners must survive 9-slice: no detail in the stretchable middle bands.                         |
 | Icon                              | 512 × 512         | **1:1**  | WebP q88              | **alpha**                      | Must read at 24 px. Two values + one accent, maximum.                                            |
 | Splash / auth backdrop            | 2048 × 1152       | **16:9** | WebP q90              | opaque                         | Centre 40% must stay low-contrast — the login form sits there.                                   |
@@ -203,14 +205,15 @@ re-admits them automatically if the plate ever stops being opaque.
 
 ### 6.1 Safe areas
 
-| Surface                 | Rule                                                                                                                                                                                         |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Overseer portrait       | Face inside the central **70%**; nothing load-bearing in the bottom **18%** (the archetype tag overlays there).                                                                              |
-| District illustration   | Focal subject inside the central **80%**; outer 10% may be cropped by the panel at narrow widths.                                                                                            |
-| City map base plate     | All 11 district anchor points fall inside **x ∈ [0.08, 0.92], y ∈ [0.06, 0.94]** — verified against `CITY_DISTRICTS` in `@frontline/shared`. Nothing narratively essential outside that box. |
-| Splash backdrop         | Central **40% × 50%** kept under 25% contrast and free of detail.                                                                                                                            |
-| UI 9-slice frame        | Outer **96 px** is the corner/edge region; the inner region must be a flat tileable field.                                                                                                   |
-| All text baked into art | **None.** Never bake text into an asset — it cannot be localised and it will not survive scaling. Type is rendered by the app.                                                               |
+| Surface                 | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overseer portrait       | Face inside the central **70%**; nothing load-bearing in the bottom **18%** (the archetype tag overlays there).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| District illustration   | Focal subject inside the central **80%**; outer 10% may be cropped by the panel at narrow widths.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| City map base plate     | All 11 district anchor points fall inside **x ∈ [0.08, 0.92], y ∈ [0.06, 0.94]** — verified against `CITY_DISTRICTS` in `@frontline/shared`. Nothing narratively essential outside that box.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| District ground plate   | **No sky and no horizon — the whole frame is ground**, seen from above; the top edge is the compound's back wall. The thirteen structures are dropped on afterwards, so every **pad** in `docs/art/district-template.png` must be flat, quiet, unoccupied ground: no building on a pad, and no wall, ramp or drop through one. The lanes _between_ the pads are the roads and are the composition. The template composites the delivered masters at the exact size and place the client renders them, and is regenerated from the layout itself with `pnpm --filter @frontline/scripts district-template`, so it is never out of date. |
+| Splash backdrop         | Central **40% × 50%** kept under 25% contrast and free of detail.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| UI 9-slice frame        | Outer **96 px** is the corner/edge region; the inner region must be a flat tileable field.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| All text baked into art | **None.** Never bake text into an asset — it cannot be localised and it will not survive scaling. Type is rendered by the app.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### 6.2 Minimum stroke weight
 
@@ -239,10 +242,17 @@ connected-component _area_ test, not a bounding box: a detached 8×8 open strut 
 60 px² drawn and is swept, while a 4×20 pipe segment is 80 px² and survives with 76.
 
 Keyed means the master arrives opaque and the encode step cuts the background out of it: today that
-is `plane-city-far` and `plane-city-fore`, and in general any asset whose `postProcess` includes
-`matte`. An asset the backend delivers with its own alpha never meets the keyer, so §3.2's 2–4 px rim
-stands unchanged there — and on a 2048-wide plane that same rim is 4–8 px, already clear of this
-floor.
+is `plane-city-far`, `plane-city-fore` and **the thirteen `building-*` sprites**, and in general any
+asset whose `postProcess` includes `matte`. An asset that arrives carrying its own alpha never meets
+the keyer — `matte` returns it untouched above `HUMAN_MATTE_FLOOR` — so §3.2's 2–4 px rim stands
+unchanged there, and on a 2048-wide plane that same rim is 4–8 px, already clear of this floor.
+
+The building class is keyed because that is the form the art actually arrives in: an illustrator
+hands over a structure painted on a flat white field, and so does every backend asked for a
+transparent background. Declaring the class source opaque makes that the normal path rather than a
+per-file exception, and costs a master that _does_ carry alpha nothing. At 1024² a building's rim is
+2–4 px — half a plane's, and the reason the 3 px floor is stated at source resolution rather than as
+a fraction of the frame.
 
 The keyer that cuts the transparent background out of a master (`scripts/encode-art.ts`) decides the
 mask on a 3×3 median, and a median cannot represent a structure thinner than its own window: a 1-px
@@ -296,8 +306,19 @@ a master authored against the default stops satisfying the rule.
 "transparent background" is always delivered as some painted field of the model's choosing — and for
 `plane-city-fore`, whose artwork is specified at `#05070d`–`#1e293b`, a model that paints that field
 as night sky lands within a handful of levels of the artwork and no separation rule is satisfiable at
-all. So the two keyed prompts **name the field**: a flat unshaded magenta `#ff00ff` chroma-key,
-removed before anything composites. The §2.3 ban on channel extremes is about _art_; the key field is
+all. So the two keyed **plane** prompts name the field: a flat unshaded magenta `#ff00ff` chroma-key,
+removed before anything composites.
+
+The building sprites key against **white**, because that is what a hand-delivered master is painted
+on and asking an illustrator for a magenta field would be asking them to work in a colour they
+cannot judge the artwork against. White is the weaker field of the two: a sunlit render surface or a
+bleached wall can sit inside 80 levels of it, where nothing in the palette comes near `#ff00ff`. It
+is therefore the one keyed class where §6.3 has to be _measured_ rather than assumed. Measured
+across the ten delivered building masters — cleared pixels classified by their distance from the
+field in the master — the key took between 0 and 185 pixels that sit ≥80 levels off white, against
+280k–560k pixels of field, i.e. edge antialiasing and nothing else. A master that fails this shows
+up as a hole in a pale wall, so re-run that measurement on any building master with large white or
+near-white surfaces before shipping it. The §2.3 ban on channel extremes is about _art_; the key field is
 not art, and never survives the encode step. `#ff00ff` is not free of the palette — **sear** is a
 magenta ramp, and its brightest stop `sear.100` (`#ff6cc0`) sits 108 levels off it. That clears the
 floor, but it is the margin to check first if a third asset is ever keyed: neither of these two planes
@@ -338,10 +359,10 @@ master that breaks it does not fail loudly, it goes quiet.
 <class>-<subject>[-<variant>][@2x].<ext>
 ```
 
-- `class` ∈ `portrait` | `district` | `plate` | `plane` | `building` | `ui` | `icon` | `splash` | `lut`
+- `class` ∈ `portrait` | `district` | `plate` | `plane` | `building` | `unit` | `ui` | `icon` | `splash` | `lut`
 - `subject` is the **domain id**, kebab-case, and must match `@frontline/shared` exactly:
   `portraitId` for portraits, `District.id` for districts, `BuildingKind` for buildings,
-  `Resources` keys for resource icons.
+  `UnitSpec.id` for unit portraits, `Resources` keys for resource icons.
 - `variant` ∈ `damaged` | `selected` | `night` | `alt1..n` — omit for the default.
 
 Examples:
@@ -395,9 +416,28 @@ the 1× row — two densities of one artwork are one licence. A row is the only 
 ownership itself unresolved (ADR 0001 §6.4) — and not a grant for that file, and §9.1 wants a row for
 generated art too.
 
-| File         | Source | Author | Licence | Commercial OK | Attribution required | Added | Notes                                                 |
-| ------------ | ------ | ------ | ------- | ------------- | -------------------- | ----- | ----------------------------------------------------- |
-| _(none yet)_ |        |        |         |               |                      |       | The current build is 100% procedural + code-authored. |
+| File                           | Source                                 | Author          | Licence             | Commercial OK | Attribution required | Added      | Notes                                                                                                                                                               |
+| ------------------------------ | -------------------------------------- | --------------- | ------------------- | ------------- | -------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `building-apothecary.webp`     | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-cistern.webp`        | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-garage.webp`         | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-gate.webp`           | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-gauntlet.webp`       | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-generator.webp`      | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-greenhouse.webp`     | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-infirmary.webp`      | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-lab.webp`            | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-nexus.webp`          | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-quarters.webp`       | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `building-scrapyard.webp`      | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Keyed from a flat white field by `encode-art`; `contain` fit, so it keeps its own aspect.                                                                           |
+| `icon-caps.webp`               | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Downscaled to the 512² delivery.                                                                                                                                    |
+| `plate-district.webp`          | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-15 | The district ground. Ships at the painted 1376×768 rather than the 2048×1152 plate size — the twelve sites are positions on this image, so a crop moves all twelve. |
+| `icon-food.webp`               | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Downscaled to the 512² delivery.                                                                                                                                    |
+| `icon-high-quality-metal.webp` | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Downscaled to the 512² delivery.                                                                                                                                    |
+| `icon-oil.webp`                | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Upscaled from a 256² master at the board’s instruction; re-export at 512² to sharpen.                                                                               |
+| `icon-scrap.webp`              | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Upscaled from a 128² master at the board’s instruction; re-export at 512² to sharpen.                                                                               |
+| `unit-scrapers.webp`           | Board delivery, `art-src/`             | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Cropped 928×1152 → 3:4, no key.                                                                                                                                     |
+| `wordmark.webp`                | Board delivery, `images/frontline.png` | Frontline board | Proprietary — owned | Yes           | No                   | 2026-08-14 | Brand plate; ships from `apps/client/src/brand/`, not `assets/`.                                                                                                    |
 
 ### 9.1 Rules for adding a row
 

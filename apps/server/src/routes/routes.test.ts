@@ -1,20 +1,12 @@
 import {
   CITY_DISTRICTS,
-  AttritionBattleEngine,
-  DEFAULT_ATTRIBUTES,
-  INFAMY_PER_GOVERNMENT_SEAT,
-  INFAMY_PER_GOVERNMENT_SITE,
-  INFAMY_PER_RAID_WON,
-  STARTING_INFAMY,
   STARTING_RESOURCES,
-  addResources,
   findDistrict,
-  isSeatOfGovernmentPower,
-  type Attributes,
-  type BattleEngine,
-  type BattleInput,
-  type EconomyState,
-  type ReputationTally,
+  type AttackPlaceResponse,
+  type CityResponse,
+  type DistrictDetailResponse,
+  type SkirmishEngine,
+  skirmishOutcome,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -34,13 +26,13 @@ afterEach(async () => {
 });
 
 async function makeApp(
-  battleEngine?: BattleEngine,
+  skirmishEngine?: SkirmishEngine,
 ): Promise<{ app: FastifyInstance; db: AppDatabase }> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
-  const app = battleEngine
-    ? await buildApp({ config, db, battleEngine, logger: false })
+  const app = skirmishEngine
+    ? await buildApp({ config, db, skirmishEngine, logger: false })
     : await buildApp({ config, db, logger: false });
   const handle = { app, db };
   instances.push(handle);
@@ -315,18 +307,79 @@ describe('GET /api/city', () => {
 
     const res = await app.inject({ method: 'GET', url: '/api/city', headers: auth(alice.token) });
     expect(res.statusCode).toBe(200);
-    const body = res.json<{ districts: unknown[]; bases: Record<string, unknown>[] }>();
+    const body = res.json<CityResponse>();
     expect(body.districts).toHaveLength(CITY_DISTRICTS.length);
-    expect(body.bases).toHaveLength(2);
-    for (const summary of body.bases) {
+
+    // A crew on the map is shown as a public summary and nothing more.
+    const residents = body.districts.flatMap((entry) => (entry.base ? [entry.base] : []));
+    expect(residents.length).toBeGreaterThan(0);
+    for (const summary of residents) {
       expect(Object.keys(summary).sort()).toEqual(
         ['districtId', 'id', 'isBot', 'level', 'name', 'ownerId'].sort(),
       );
-      expect(summary.isBot).toBe(false);
       expect(summary).not.toHaveProperty('resources');
-      expect(summary).not.toHaveProperty('buildings');
-      expect(summary).not.toHaveProperty('commanders');
+      expect(summary).not.toHaveProperty('army');
     }
+  });
+
+  /**
+   * §A4's fog, over the real route.
+   *
+   * The important half is that unscouted ground reports `null` rather than `0 / 4`: zero is a fact
+   * about the world and null is a fact about what this crew knows, and a map that confused the two
+   * would be telling a player something they have not earned.
+   */
+  it('hides what is inside a district until the crew has looked', async () => {
+    const { app } = await makeApp();
+    const { token } = await register(app, 'scout');
+    await chooseOverseer(app, token);
+
+    const before = await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) });
+    const contested = before
+      .json<CityResponse>()
+      .districts.find((entry) => entry.district.kind === 'contested');
+    expect(contested?.scouted).toBe(false);
+    expect(contested?.held).toBeNull();
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/city/${contested?.district.id ?? ''}`,
+      headers: auth(token),
+    });
+    expect(detail.json<DistrictDetailResponse>().places).toEqual([]);
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/city/scout',
+      headers: auth(token),
+      payload: { districtId: contested?.district.id },
+    });
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/api/city/${contested?.district.id ?? ''}`,
+      headers: auth(token),
+    });
+    const seen = after.json<DistrictDetailResponse>();
+    expect(seen.scouted).toBe(true);
+    expect(seen.places.length).toBeGreaterThan(0);
+    // And a place nobody holds still reports who is standing on it.
+    expect(seen.places[0]?.holderName).toBeTruthy();
+    // Somebody else's garrison composition is never on the wire.
+    expect(seen.places[0]?.garrison).toBeNull();
+  });
+
+  it('always shows the crew its own district, without scouting it', async () => {
+    const { app } = await makeApp();
+    const { token } = await register(app, 'homebody');
+    await chooseOverseer(app, token);
+
+    const body = (
+      await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) })
+    ).json<CityResponse>();
+    const home = body.districts.find((entry) => entry.isHome);
+    expect(home?.scouted).toBe(true);
+    expect(home?.district.id).toBe(body.homeDistrictId);
   });
 });
 
@@ -374,241 +427,391 @@ describe('GET /api/base/:id', () => {
   });
 });
 
-describe('POST /api/battle', () => {
-  const raid = findDistrict('rustyard');
-  if (!raid) throw new Error('fixture error: rustyard district missing');
+describe('POST /api/city/attack (§A4)', () => {
+  /** What a fresh crew is issued — see the rationale on `routes/overseer.ts`. */
+  const STARTING_RAZORS = 8;
 
-  it('rejects an attack before the player has a base', async () => {
+  const raidDistrict = findDistrict('rustyard');
+  if (!raidDistrict) throw new Error('fixture error: rustyard district missing');
+  const raid = raidDistrict;
+  const target = raid.places[0];
+  if (!target) throw new Error('fixture error: the Rustyard has no places');
+
+  const alwaysWins: SkirmishEngine = {
+    resolve: () => skirmishOutcome({ winner: 'attacker', log: ['taken'] }),
+  };
+  const alwaysLoses: SkirmishEngine = {
+    resolve: () =>
+      skirmishOutcome({
+        winner: 'defender',
+        log: ['broke'],
+        fled: { razors: 1 },
+        killed: { razors: 3 },
+      }),
+  };
+
+  async function crew(app: FastifyInstance, name: string): Promise<string> {
+    const { token } = await register(app, name);
+    await chooseOverseer(app, token);
+    await app.inject({
+      method: 'POST',
+      url: '/api/city/scout',
+      headers: auth(token),
+      payload: { districtId: raid.id },
+    });
+    return token;
+  }
+
+  /**
+   * The real engine, through the real route.
+   *
+   * Every other test in this block injects a stub, which is right for asserting what the route does
+   * with an outcome — and blind to whether the route builds an *input* the engine can use. This is
+   * the one that would catch the battlefield being dropped on the way in: the log names the ground,
+   * and the ground can only be named if `battlefieldFor` reached the engine with the place's kind
+   * and its fortification on it.
+   */
+  it('fights on the ground the place is actually made of', async () => {
+    const { app } = await makeApp();
+    const token = await crew(app, 'groundtruth');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: { razors: 4 } },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const log = res.json<{ result: { log: string[] } }>().result.log.join(' ');
+
+    expect(log).toContain(target.name);
+    // The assertion that catches a dropped battlefield: Kessler Press is a scrap press, which
+    // fights `urban`. A default `bareBattlefield` would say "in the open" instead, and a route that
+    // passed no ground at all would print no such line.
+    expect(log).toContain('in built-up ground');
+  });
+
+  /**
+   * Winning has to cost something.
+   *
+   * `outcome.winnerLosses` was computed by the engine and read by nobody, so a successful attack
+   * returned the *whole* force including its dead — the attrition the engine spends six modules
+   * calculating never reached a single army row. A player could take the map with one squad and
+   * never rebuild.
+   *
+   * The crew is armed directly rather than trained up: a new crew has four Razors and every place
+   * is now garrisoned, so nothing a fresh account can field reaches the winning branch at all.
+   */
+  it('does not hand a winning attacker back the people it lost', async () => {
+    const { app } = await makeApp();
+    const token = await crew(app, 'butcher');
+
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    const base = me.json<{ base: { id: string; trainingQueue: [] } }>().base;
+    // Eight against the press's four looters: measured at 30 wins in 30, and **not one** of two
+    // hundred of those wins cost nothing. Bigger is not safer here — twenty wins so easily it can
+    // come home whole, which would make this assertion pass against the bug it exists to catch.
+    const sent = 8;
+    app.repos.bases.updateArmy(base.id, { razors: sent + 10 }, base.trainingQueue);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: { razors: sent } },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const body = res.json<{
+      captured: boolean;
+      returned: Record<string, number>;
+      base: { army: Record<string, number> };
+    }>();
+
+    expect(body.captured, 'eight Razors must take a four-body looter garrison').toBe(true);
+    // The place was held by somebody, so taking it cost somebody.
+    expect(body.returned.razors ?? 0).toBeLessThan(sent);
+    // ...and the books balance: what is at home is what stayed plus what walked back.
+    expect(body.base.army.razors ?? 0).toBe(10 + (body.returned.razors ?? 0));
+  });
+
+  /**
+   * ...and a garrison that turns an assault back pays for it too. Without this a defender could
+   * break any number of attacks at no cost at all, which is the same dead wiring in reverse.
+   */
+  it('takes losses off a garrison that held', async () => {
+    const { app } = await makeApp();
+    const token = await crew(app, 'holder');
+
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    const base = me.json<{ base: { id: string; trainingQueue: [] } }>().base;
+    // Eight, matching the measurement below — six turns the place back too but often without
+    // touching anybody, which is a hold this test cannot tell from the bug.
+    app.repos.bases.updateArmy(base.id, { razors: 8 }, base.trainingQueue);
+
+    // The Bonefield, not the Press: it garrisons eight, turns eight Razors back 143 times in 150,
+    // and in every one of those holds it lost somebody. The Press garrisons four and is simply
+    // taken.
+    const held = raid.places[1];
+    if (!held) throw new Error('fixture error: the Rustyard has only one place');
+
+    const before = app.repos.city.control(held.id);
+    const garrisoned = Object.values(before?.garrison ?? {}).reduce((sum, n) => sum + n, 0);
+    expect(garrisoned, 'the place must start with somebody on it').toBeGreaterThan(0);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: held.id, force: { razors: 8 } },
+    });
+    expect(res.statusCode).toBe(200);
+
+    // Server fights seed from `randomUUID()`, so this is not a deterministic test: six Razors turn
+    // back the Bonefield about nineteen times in twenty. Rather than pick a force so small it
+    // cannot hurt anybody, both branches assert what is true of them — a hold costs the holder
+    // bodies, a capture clears the place. An earlier version demanded a hold and flaked at 5%.
+    const captured = res.json<{ captured: boolean }>().captured;
+    const after = app.repos.city.control(held.id);
+    const left = Object.values(after?.garrison ?? {}).reduce((sum, n) => sum + n, 0);
+
+    if (captured) expect(after?.garrison, 'a taken place is cleared').toEqual({});
+    else expect(left, 'the holder held, and paid for it').toBeLessThan(garrisoned);
+  });
+
+  it('rejects an attack before the crew has a base', async () => {
     const { app } = await makeApp();
     const { token } = await register(app, 'commander');
 
     const res = await app.inject({
       method: 'POST',
-      url: '/api/battle',
+      url: '/api/city/attack',
       headers: auth(token),
-      payload: { targetDistrictId: raid.id },
+      payload: { placeId: target.id, force: { razors: 1 } },
     });
     expect(res.statusCode).toBe(409);
     expect(errorCode(res)).toBe('NO_BASE');
   });
 
-  it('rejects a non-attackable target with 400 INVALID_TARGET', async () => {
-    const { app } = await makeApp();
-    const { token } = await register(app, 'commander');
-    await chooseOverseer(app, token);
-
-    const market = await app.inject({
-      method: 'POST',
-      url: '/api/battle',
-      headers: auth(token),
-      payload: { targetDistrictId: 'sprawl-exchange' },
-    });
-    const unknown = await app.inject({
-      method: 'POST',
-      url: '/api/battle',
-      headers: auth(token),
-      payload: { targetDistrictId: 'nowhere' },
-    });
-    // Your own base sits here — a human base is never a valid target.
-    const ownBase = await app.inject({
-      method: 'POST',
-      url: '/api/battle',
-      headers: auth(token),
-      payload: { targetDistrictId: 'neon-docks' },
-    });
-    for (const res of [market, unknown, ownBase]) {
-      expect(res.statusCode).toBe(400);
-      expect(errorCode(res)).toBe('INVALID_TARGET');
-    }
-  });
-
-  it('persists a battle row and pays rewards on a forced attacker win', async () => {
-    const { app, db } = await makeApp(new AttritionBattleEngine(() => 0)); // below MIN_WIN_CHANCE -> attacker wins
-    const { token } = await register(app, 'commander');
+  it('refuses ground the crew has never looked at', async () => {
+    const { app } = await makeApp(alwaysWins);
+    const { token } = await register(app, 'blind');
     await chooseOverseer(app, token);
 
     const res = await app.inject({
       method: 'POST',
-      url: '/api/battle',
+      url: '/api/city/attack',
       headers: auth(token),
-      payload: { targetDistrictId: raid.id },
+      payload: { placeId: target.id, force: { razors: 1 } },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(errorCode(res)).toBe('DISTRICT_UNSCOUTED');
+  });
+
+  it('refuses an attack with nobody in it', async () => {
+    const { app } = await makeApp(alwaysWins);
+    const token = await crew(app, 'empty_handed');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: {} },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(errorCode(res)).toBe('NO_FORCE');
+  });
+
+  it('refuses to send units the crew does not have', async () => {
+    const { app } = await makeApp(alwaysWins);
+    const token = await crew(app, 'overreacher');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: { juggernauts: 40 } },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(errorCode(res)).toBe('NO_FORCE');
+  });
+
+  it('takes the place on a win, and records the fight against it', async () => {
+    const { app, db } = await makeApp(alwaysWins);
+    const token = await crew(app, 'winner');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: { razors: 2 } },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json<{
-      result: { winner: string; rewards: Record<string, number> };
-      resources: typeof STARTING_RESOURCES;
-    }>();
-    expect(body.result.winner).toBe('attacker');
-    expect(body.result.rewards).toEqual(raid.rewards);
-    expect(body.resources).toEqual(addResources(STARTING_RESOURCES, raid.rewards));
+    const body = res.json<AttackPlaceResponse>();
+    expect(body.captured).toBe(true);
+    // This stub reports no losses, so the whole force comes home; garrisoning is a separate
+    // decision. A *real* win costs bodies — see 'does not hand a winning attacker back' above.
+    expect(body.returned).toEqual({ razors: 2 });
+    expect(body.base.army.razors).toBe(STARTING_RAZORS);
 
-    const rows = db.prepare('SELECT winner, seed FROM battles').all() as {
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/city/${raid.id}`,
+      headers: auth(token),
+    });
+    const place = detail
+      .json<DistrictDetailResponse>()
+      .places.find((p) => p.place.id === target.id);
+    expect(place?.holder).toEqual({ kind: 'faction', baseId: body.base.id });
+    // A captured position is not a captured position plus the enemy's diggings.
+    expect(place?.fortification).toBe(0);
+    expect(place?.garrison).toEqual({});
+
+    const rows = db.prepare('SELECT target_place_id, winner FROM battles').all() as {
+      target_place_id: string | null;
       winner: string;
-      seed: string | null;
     }[];
     expect(rows).toHaveLength(1);
+    expect(rows[0]?.target_place_id).toBe(target.id);
     expect(rows[0]?.winner).toBe('attacker');
-    // Without the seed on the row the fight is not replayable, which is the whole reason the
-    // engine stopped rolling against `Math.random()`.
-    expect(rows[0]?.seed).toEqual(expect.any(String));
-    expect(rows[0]?.seed).not.toBe('');
+  });
 
-    // rewards were persisted to the base too
-    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
-    expect(me.json<{ base: { resources: typeof STARTING_RESOURCES } }>().base.resources).toEqual(
-      addResources(STARTING_RESOURCES, raid.rewards),
-    );
+  it('routs the attacker on a loss — the runners come home, the rest do not', async () => {
+    const { app } = await makeApp(alwaysLoses);
+    const token = await crew(app, 'loser');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: { razors: 4 } },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<AttackPlaceResponse>();
+    expect(body.captured).toBe(false);
+    expect(body.returned).toEqual({ razors: 1 });
+    // Four went out, one came back. The other three are gone, not merely elsewhere.
+    expect(body.base.army.razors ?? 0).toBe(STARTING_RAZORS - 4 + 1);
   });
 
   /**
-   * The engine weighs the attacker's sheet, but only if the route actually hands it over — a route
-   * that always passed the recruitment mean would leave every other test here green while quietly
-   * making the player's Overseer irrelevant. So this reads what the engine was *given*.
+   * §D7 and §D8, restored with the fight that moved from the district to the place.
+   *
+   * Taking ground by force is the loudest infamous action the game has, and *whose* ground it was
+   * decides whether it counts as anti-systemic. Both are asserted here because both are silent
+   * failures: an infamy meter that never moves and a tally that never fills look exactly like a
+   * game where nobody has done anything yet.
    */
-  it('leads the raid with the player’s own Overseer sheet, not a default one', async () => {
-    const seen: BattleInput[] = [];
-    const spy: BattleEngine = {
-      simulate: (input) => {
-        seen.push(input);
-        return { winner: 'defender', log: ['spied'], rewards: {} };
-      },
+  it('moves infamy and the §D8 tally, by more when the ground was the state’s', async () => {
+    const combineGround = findDistrict('undergrid');
+    if (!combineGround) throw new Error('fixture error: the Undergrid is missing');
+    const combinePlace = combineGround.places[0];
+    if (!combinePlace) throw new Error('fixture error: the Undergrid has no places');
+
+    const infamyAfter = async (districtId: string, placeId: string): Promise<number> => {
+      const { app } = await makeApp(alwaysWins);
+      const { token } = await register(app, `taker_${districtId}`);
+      await chooseOverseer(app, token);
+      await app.inject({
+        method: 'POST',
+        url: '/api/city/scout',
+        headers: auth(token),
+        payload: { districtId },
+      });
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/city/attack',
+        headers: auth(token),
+        payload: { placeId, force: { razors: 1 } },
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json<AttackPlaceResponse>().base.economy.infamy;
     };
-    const { app } = await makeApp(spy);
-    const { token } = await register(app, 'commander');
-    await chooseOverseer(app, token, 'netrunner');
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/battle',
-      headers: auth(token),
-      payload: { targetDistrictId: raid.id },
-    });
+    const street = await infamyAfter(raid.id, target.id);
+    const state = await infamyAfter(combineGround.id, combinePlace.id);
 
-    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
-    const mine = me.json<{ overseer: { attributes: Attributes } }>().overseer.attributes;
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0]?.attackerAttributes).toEqual(mine);
-    // The netrunner is not an average recruit, so the fallback cannot masquerade as a pass.
-    expect(mine).not.toEqual(DEFAULT_ATTRIBUTES);
-    expect(seen[0]?.seed).toEqual(expect.any(String));
+    expect(street).toBeGreaterThan(0);
+    // §D7 — robbing the Combine is the kind of thing the street repeats.
+    expect(state).toBeGreaterThan(street);
   });
 
-  it('leaves resources unchanged and records the loss on a forced defender win', async () => {
-    const { app, db } = await makeApp(new AttritionBattleEngine(() => 0.99)); // defender wins
-    const { token } = await register(app, 'commander');
+  it('records the raid against the §D8 stance counters, win or lose', async () => {
+    const { app } = await makeApp(alwaysLoses);
+    const token = await crew(app, 'stubborn');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: { razors: 4 } },
+    });
+    expect(res.statusCode).toBe(200);
+
+    // A loss earns no infamy but still goes on the books — a crew that keeps throwing people at
+    // doors that do not open is telling the street something about itself.
+    const economy = res.json<AttackPlaceResponse>().base.economy;
+    expect(economy.infamy).toBe(0);
+    expect(economy.reputationTally.raidsLost).toBeGreaterThan(0);
+  });
+
+  it('refuses a place the crew already holds', async () => {
+    const { app } = await makeApp(alwaysWins);
+    const token = await crew(app, 'greedy');
+    await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: { razors: 1 } },
+    });
+
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/city/attack',
+      headers: auth(token),
+      payload: { placeId: target.id, force: { razors: 1 } },
+    });
+    expect(again.statusCode).toBe(409);
+    expect(errorCode(again)).toBe('PLACE_UNAVAILABLE');
+  });
+});
+
+describe('POST /api/city/raid (§A4)', () => {
+  const alwaysWins: SkirmishEngine = {
+    resolve: () => skirmishOutcome({ winner: 'attacker', log: ['robbed'] }),
+  };
+
+  it('refuses to raid the crew’s own home', async () => {
+    const { app } = await makeApp(alwaysWins);
+    const { token } = await register(app, 'selfraider');
+    await chooseOverseer(app, token);
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    const home = me.json<{ base: { districtId: string } }>().base.districtId;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/city/raid',
+      headers: auth(token),
+      payload: { districtId: home, force: { razors: 1 } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(errorCode(res)).toBe('INVALID_TARGET');
+  });
+
+  it('refuses to raid contested ground — that is taken a place at a time', async () => {
+    const { app } = await makeApp(alwaysWins);
+    const { token } = await register(app, 'confused');
     await chooseOverseer(app, token);
 
     const res = await app.inject({
       method: 'POST',
-      url: '/api/battle',
+      url: '/api/city/raid',
       headers: auth(token),
-      payload: { targetDistrictId: raid.id },
+      payload: { districtId: 'rustyard', force: { razors: 1 } },
     });
-    expect(res.statusCode).toBe(200);
-    const body = res.json<{ result: { winner: string }; resources: typeof STARTING_RESOURCES }>();
-    expect(body.result.winner).toBe('defender');
-    expect(body.resources).toEqual(STARTING_RESOURCES);
-
-    const rows = db.prepare('SELECT winner FROM battles').all() as { winner: string }[];
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.winner).toBe('defender');
-  });
-
-  describe('taking a site off the Combine (§A3, §D8)', () => {
-    /** The §D8 economy — meters and tally together — as the HUD is served it. */
-    async function economyAfterRaid(
-      districtId: string,
-      random: () => number,
-    ): Promise<EconomyState> {
-      const { app } = await makeApp(new AttritionBattleEngine(random));
-      const { token } = await register(app, 'commander');
-      await chooseOverseer(app, token);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/battle',
-        headers: auth(token),
-        payload: { targetDistrictId: districtId },
-      });
-      expect(res.statusCode).toBe(200);
-      const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
-      return me.json<{ base: { economy: EconomyState } }>().base.economy;
-    }
-
-    async function raidAndRead(districtId: string, random: () => number): Promise<ReputationTally> {
-      return (await economyAfterRaid(districtId, random)).reputationTally;
-    }
-
-    /**
-     * §D7/§A3 — the meter, not the tally. Read through the API so a raid that books the stance
-     * counter but forgets the meter (they are set in the same function and are easy to divorce)
-     * cannot pass on the counter alone.
-     */
-    it('pays more infamy for Combine ground, and most for a seat of its power', async () => {
-      const seat = findDistrict('combine-spire');
-      const outpost = findDistrict('undergrid');
-      if (!seat || !outpost) throw new Error('fixture error: a Combine district is missing');
-
-      const street = (await economyAfterRaid(raid.id, () => 0)).infamy;
-      const held = (await economyAfterRaid(outpost.id, () => 0)).infamy;
-      const power = (await economyAfterRaid(seat.id, () => 0)).infamy;
-
-      expect(street).toBe(STARTING_INFAMY + INFAMY_PER_RAID_WON);
-      expect(held).toBe(street + INFAMY_PER_GOVERNMENT_SITE);
-      expect(power).toBe(held + INFAMY_PER_GOVERNMENT_SEAT);
-    });
-
-    it('pays no infamy for a raid that failed, whoever held the ground', async () => {
-      const seat = findDistrict('combine-spire');
-      if (!seat) throw new Error('fixture error: combine-spire district missing');
-
-      expect((await economyAfterRaid(seat.id, () => 0.99)).infamy).toBe(STARTING_INFAMY);
-    });
-
-    it('books a won raid on a Combine stronghold as a seat of power taken', async () => {
-      const seat = findDistrict('combine-spire');
-      if (!seat) throw new Error('fixture error: combine-spire district missing');
-      expect(isSeatOfGovernmentPower(seat)).toBe(true);
-
-      const tally = await raidAndRead(seat.id, () => 0);
-      expect(tally).toMatchObject({
-        raidsWon: 1,
-        governmentSitesTaken: 1,
-        governmentSeatsTaken: 1,
-      });
-    });
-
-    it('books a Combine outpost as action against the state but not as a seat', async () => {
-      const outpost = findDistrict('undergrid');
-      if (!outpost) throw new Error('fixture error: undergrid district missing');
-      expect(outpost.faction).toBe('government');
-
-      const tally = await raidAndRead(outpost.id, () => 0);
-      expect(tally).toMatchObject({ governmentSitesTaken: 1, governmentSeatsTaken: 0 });
-    });
-
-    it('leaves the stance counters alone on independent ground', async () => {
-      expect(raid.faction).toBe('independent');
-      const tally = await raidAndRead(raid.id, () => 0);
-      expect(tally).toMatchObject({
-        raidsWon: 1,
-        governmentSitesTaken: 0,
-        governmentSeatsTaken: 0,
-      });
-    });
-
-    it('credits the Combine nothing to a crew it turned back', async () => {
-      const seat = findDistrict('combine-spire');
-      if (!seat) throw new Error('fixture error: combine-spire district missing');
-
-      const tally = await raidAndRead(seat.id, () => 0.99);
-      expect(tally).toMatchObject({
-        raidsLost: 1,
-        governmentSitesTaken: 0,
-        governmentSeatsTaken: 0,
-      });
-    });
+    expect(res.statusCode).toBe(400);
+    expect(errorCode(res)).toBe('INVALID_TARGET');
   });
 });
 

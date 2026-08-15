@@ -1,4 +1,4 @@
-import type { AssetKey, BaseSummary, District, DistrictKind } from '@frontline/shared';
+import type { AssetKey, BaseSummary, District, DistrictSummary } from '@frontline/shared';
 import {
   Application,
   Container,
@@ -22,6 +22,14 @@ import type { Viewport } from 'pixi-viewport';
 interface CityMapProps {
   districts: readonly District[];
   bases: readonly BaseSummary[];
+  /**
+   * §A4 — what this crew knows about each district, keyed by id.
+   *
+   * Passed alongside the districts rather than replacing them because the scene's geometry is a
+   * pure function of the *map* and only its colouring is a function of what has been seen. Keeping
+   * the two apart means the fog cannot accidentally move a marker.
+   */
+  intel: ReadonlyMap<string, DistrictSummary>;
   myBaseId: string | null;
   selectedId: string | null;
   onSelectDistrict: (district: District) => void;
@@ -29,12 +37,17 @@ interface CityMapProps {
 
 const hex = (value: string): number => Number.parseInt(value.replace('#', ''), 16);
 
-const KIND_COLOR: Record<DistrictKind, number> = {
-  player_base: hex(palette.neon.cyan),
-  npc_stronghold: hex(palette.neon.magenta),
-  raid: hex(palette.warning),
-  market: hex(palette.steel[300]),
-};
+/**
+ * What a district's marker says at a glance (§A4).
+ *
+ * Ownership first, then allegiance — the question a player is asking when they look at the map is
+ * "whose is that", and only after that "what is it". Unscouted ground is smog: legible as a place
+ * that exists, illegible as anything else, which is exactly what fog should feel like.
+ */
+const FOG_COLOR = hex(ramps.smog[500]);
+const MINE_COLOR = hex(palette.neon.cyan);
+const HOSTILE_COLOR = hex(palette.neon.magenta);
+const NEUTRAL_COLOR = hex(palette.warning);
 
 /**
  * The city behind a label is a dense field of lit windows at every value, so a plain fill is
@@ -78,9 +91,22 @@ function radiusFor(district: District): number {
   return 7 + district.difficulty * 0.7;
 }
 
-/** A district garrisoned by a bot reads as a threat, not as a friendly player base. */
-function districtColor(district: District, botDistrictIds: ReadonlySet<string>): number {
-  return botDistrictIds.has(district.id) ? hex(palette.neon.magenta) : KIND_COLOR[district.kind];
+function districtColor(
+  district: District,
+  intel: ReadonlyMap<string, DistrictSummary>,
+  myBaseId: string | null,
+): number {
+  const entry = intel.get(district.id);
+  if (!entry || !entry.scouted) return FOG_COLOR;
+  if (entry.isHome) return MINE_COLOR;
+
+  if (entry.holder?.kind === 'faction') {
+    return entry.holder.baseId === myBaseId ? MINE_COLOR : HOSTILE_COLOR;
+  }
+  // Somebody else's home, or the state's ground.
+  if (entry.base || district.faction === 'government') return HOSTILE_COLOR;
+  // Contested ground this crew has a foothold in still reads as partly theirs.
+  return (entry.held?.mine ?? 0) > 0 ? MINE_COLOR : NEUTRAL_COLOR;
 }
 
 interface Scene {
@@ -91,8 +117,6 @@ interface Scene {
   width: number;
   height: number;
   props: CityMapProps;
-  /** Districts held by an AI rival — drawn hostile rather than in their kind colour. */
-  botDistrictIds: ReadonlySet<string>;
 }
 
 // ─── tooltip ────────────────────────────────────────────────────────────────
@@ -185,7 +209,7 @@ function drawDistrictNode(scene: Scene, district: District, tooltip: Container):
   const px = district.position.x * width;
   const py = district.position.y * height;
   const r = radiusFor(district);
-  const color = districtColor(district, scene.botDistrictIds);
+  const color = districtColor(district, scene.props.intel, scene.props.myBaseId);
   const isSelected = props.selectedId === district.id;
 
   const node = new Container();
@@ -362,7 +386,6 @@ function buildNodes(scene: Scene): void {
 
   const enriched: Scene = {
     ...scene,
-    botDistrictIds: new Set(scene.props.bases.filter((b) => b.isBot).map((b) => b.districtId)),
   };
 
   const tooltip = makeTooltip();
@@ -493,7 +516,6 @@ export function CityMap(props: CityMapProps) {
           width,
           height,
           props: propsRef.current,
-          botDistrictIds: new Set(),
         };
         sceneRef.current = scene;
 

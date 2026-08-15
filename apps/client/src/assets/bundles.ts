@@ -7,12 +7,14 @@
  */
 import { ART_MANIFEST, type AssetKey, type AssetSpec } from '@frontline/shared';
 
-export const ASSET_BUNDLES = ['splash', 'overseer', 'city', 'base', 'ui'] as const;
+export const ASSET_BUNDLES = ['splash', 'overseer', 'city', 'base', 'units', 'ui'] as const;
 export type AssetBundleName = (typeof ASSET_BUNDLES)[number];
 
 function iconBundle(key: AssetKey): AssetBundleName {
   if (key.startsWith('icon-archetype-')) return 'overseer';
   if (key.startsWith('icon-kind-')) return 'city';
+  // §A4 — place markers are drawn inside a district, which is reached from the city screen.
+  if (key.startsWith('icon-place-')) return 'city';
   return 'ui';
 }
 
@@ -34,6 +36,9 @@ export function bundleFor(spec: AssetSpec): AssetBundleName {
       return 'city';
     case 'building':
       return 'base';
+    // Twenty-seven 768×1024 roster portraits, reached only from the units screen.
+    case 'unit':
+      return 'units';
     case 'ui':
       return 'ui';
     case 'icon':

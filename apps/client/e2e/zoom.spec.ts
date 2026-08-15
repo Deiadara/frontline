@@ -93,11 +93,16 @@ async function measureCoverage(page: Page): Promise<Coverage> {
 
     /**
      * Probe hue, at any brightness the vignette leaves it: red and blue equal and non-trivial,
-     * green an order of magnitude below them. `8` is the floor below which the multiply has taken
-     * the pixel to effectively black and no colour claim is safe.
+     * green an order of magnitude below them.
+     *
+     * The floor is 24 rather than 8. At 8 this matched `rgb(10,2,12)` — the outermost pixel of a
+     * district marker's magenta glow, faded by the vignette to something a player cannot tell from
+     * black — and reported it as bare ground. Uncovered `#ff00ff` never arrives that dark: even
+     * under the darkest corner of the vignette it lands well above 24, which the control below
+     * measures rather than assumes.
      */
     const isProbe = (r: number, g: number, b: number): boolean =>
-      r > 8 && b > 8 && Math.abs(r - b) <= 8 && g * 4 < r;
+      r > 24 && b > 24 && Math.abs(r - b) <= 8 && g * 4 < r;
 
     let uncovered = 0;
     let left = Infinity;
@@ -160,6 +165,36 @@ test.describe('city map zoom', () => {
    * fails only if a *pan* can walk past the painted edge — the same bare-ground defect reached the
    * other way, which `clamp({ direction: 'all' })` is what prevents.
    */
+  /**
+   * Positive control for the two assertions above.
+   *
+   * `measureCoverage` looks for one hue at one brightness range, and it was loosened once already
+   * after a marker's faded glow tripped it. A threshold nobody re-measures is a gate that has
+   * quietly stopped working — so paint the canvas' own backdrop the probe colour and check the
+   * measurement goes red.
+   */
+  test('the coverage gate goes red when the world really does not cover the frame', async ({
+    page,
+  }) => {
+    // Painted *over* the canvas rather than behind it: an element screenshot captures whatever is
+    // composited on top of the element's box, and the canvas' own CSS background sits under its
+    // WebGL surface where no screenshot can see it.
+    await page.evaluate(() => {
+      const canvas = document.querySelector('canvas');
+      if (!canvas) throw new Error('no canvas to cover');
+      const box = canvas.getBoundingClientRect();
+      const patch = document.createElement('div');
+      patch.style.cssText = `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height / 3}px;background:#ff00ff;z-index:9999`;
+      document.body.append(patch);
+    });
+
+    const { uncovered, total } = await measureCoverage(page);
+    expect(
+      uncovered / total,
+      'bare probe-coloured ground must register as uncovered',
+    ).toBeGreaterThan(MAX_UNCOVERED_FRACTION);
+  });
+
   test('zooming in and panning to a corner never uncovers the frame', async ({ page }) => {
     await wheelToStop(page, -WHEEL_DELTA);
     const box = await page.locator('canvas').boundingBox();

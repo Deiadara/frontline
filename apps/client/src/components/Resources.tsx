@@ -5,6 +5,7 @@ import {
   type Resources,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
+import { deliveredUrl } from '../assets/delivered';
 import { cn } from '../lib/cn';
 
 export type { ResourceKey };
@@ -110,6 +111,28 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
 /** Fixed display order — taken from the shared schema so a new resource cannot be dropped. */
 export const RESOURCE_ORDER: readonly ResourceKey[] = RESOURCE_KEYS;
 
+/**
+ * One resource's mark: the delivered icon once `icon-<resource>` has landed, the line glyph until
+ * then. Both draw in the same 14px box, so a readout with some resources painted and some still
+ * procedural keeps its columns.
+ *
+ * It deliberately sets no colour. The glyph paints in `currentColor` so that {@link CostLine} can
+ * turn a line the player cannot afford hostile without knowing which of the two it drew.
+ */
+export function ResourceIcon({ kind }: { kind: ResourceKey }) {
+  const painted = deliveredUrl({ type: 'resource-icon', resource: kind });
+  if (painted === null) return RESOURCE_META[kind].icon;
+  return (
+    <img
+      src={painted}
+      alt=""
+      aria-hidden="true"
+      className="h-3.5 w-3.5 shrink-0 object-contain"
+      data-testid={`resource-art-${kind}`}
+    />
+  );
+}
+
 interface ResourceChipProps {
   kind: ResourceKey;
   value: number;
@@ -120,7 +143,9 @@ export function ResourceChip({ kind, value }: ResourceChipProps) {
   const meta = RESOURCE_META[kind];
   return (
     <div className="flex shrink-0 items-center gap-2 border border-steel-700 bg-night px-2.5 py-1.5">
-      <span className={meta.color}>{meta.icon}</span>
+      <span className={meta.color}>
+        <ResourceIcon kind={kind} />
+      </span>
       <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-400">
         {meta.label}
       </span>
@@ -169,7 +194,7 @@ export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resou
               short ? 'text-neon-magenta' : meta.color,
             )}
           >
-            {meta.icon}
+            <ResourceIcon kind={kind} />
             <span className="font-semibold tabular-nums">{Math.round(amount)}</span>
             <span className="text-[10px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
           </span>
@@ -200,7 +225,7 @@ export function RewardLine({ rewards }: { rewards: PartialResources }) {
             key={kind}
             className={cn('flex items-center gap-1.5 font-display text-xs', meta.color)}
           >
-            {meta.icon}
+            <ResourceIcon kind={kind} />
             <span className="font-semibold tabular-nums">+{Math.round(amount)}</span>
             <span className="text-[10px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
           </span>

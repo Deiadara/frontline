@@ -79,6 +79,7 @@ async function boxes(page: Page, selector: string): Promise<Box[]> {
   }, selector);
 }
 
+/** Do the two rects share any area at all? A shared edge is not an overlap. */
 function intersects(a: Box, b: Box): boolean {
   return (
     a.left < b.right - SLACK_PX &&
@@ -88,24 +89,41 @@ function intersects(a: Box, b: Box): boolean {
   );
 }
 
-function expectNoPairOverlaps(rects: Box[], what: string): void {
-  const clashes: string[] = [];
-  for (const [i, a] of rects.entries()) {
-    for (const b of rects.slice(i + 1)) {
-      if (intersects(a, b)) clashes.push(`${a.label} × ${b.label}`);
-    }
-  }
-  expect(clashes, `overlapping ${what}: ${clashes.join(' | ')}`).toEqual([]);
+/**
+ * The band of ground a plot stands on: the bottom of its box, at the width `ContactShadow` pools
+ * its shade across. `plots.ts` uses the same two fractions.
+ *
+ * A plot's *box* is the room its drawing takes, and on a town view seen from above a tall
+ * building's upper mass is supposed to pass in front of a shorter one behind it — that is what
+ * depth looks like, and requiring the boxes to be disjoint would cap every structure's height at
+ * the gap to the row behind it. What may never collide is where two buildings meet the ground.
+ */
+function groundBand(box: Box): Box {
+  const width = box.right - box.left;
+  const height = box.bottom - box.top;
+  const midX = (box.left + box.right) / 2;
+  return {
+    label: box.label,
+    left: midX - width * 0.43,
+    right: midX + width * 0.43,
+    top: box.bottom - height * 0.14,
+    bottom: box.bottom,
+  };
 }
 
 /**
- * Every plot, and every name plate on one, is laid out inside the scene and clear of its
- * neighbours — measured from the DOM, after the display font has swapped in.
+ * Every plot is laid out inside the scene, and no two of them stand on the same ground — measured
+ * from the DOM, after the display font has swapped in.
+ *
+ * A town view reads as a place because there is visible ground between the buildings, so the
+ * layout leaves a lane between every pair (`plots.ts`) and this is where that survives contact
+ * with a real browser at five viewports.
  *
  * Name plates are checked separately from the plot buttons on purpose: a plate is `nowrap` text
- * centred in its plot, so it is the one element that can grow *wider than the box it was placed
+ * centred on its plot, so it is the one element that can grow *wider than the box it was placed
  * in* when the font lands, and it would then be silently cut by the scene's `overflow-hidden`
- * rather than pushing the document out.
+ * rather than pushing the document out. Plates render on hover and focus for a structure that is
+ * simply standing, so this measures the one the pointer is on.
  */
 async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
   const [scene] = await boxes(page, '[data-testid="district-scene"]');
@@ -116,10 +134,8 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
   expect(plots, 'every structure in the catalogue stands on a plot').toHaveLength(
     BUILDING_KINDS.length,
   );
-  const plates = await boxes(page, '[data-testid^="plot-label-"]');
-  expect(plates).toHaveLength(BUILDING_KINDS.length);
 
-  for (const box of [...plots, ...plates]) {
+  for (const box of plots) {
     expect(box.left, `${box.label} runs off the left of the scene`).toBeGreaterThanOrEqual(
       scene.left - SLACK_PX,
     );
@@ -134,12 +150,48 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
     );
   }
 
-  expectNoPairOverlaps(plots, 'plots');
-  expectNoPairOverlaps(plates, 'name plates');
+  const bands = plots.map(groundBand);
+  const clashes: string[] = [];
+  for (const [i, a] of bands.entries()) {
+    for (const b of bands.slice(i + 1))
+      if (intersects(a, b)) clashes.push(`${a.label} × ${b.label}`);
+  }
+  expect(clashes, `plots standing on the same ground: ${clashes.join(' | ')}`).toEqual([]);
 
-  // ...and the silhouette standing on each plot is actually drawn. Everything above measures
-  // *buttons and plates*; a sprite's own span is `min-h-0 w-full flex-1`, so it takes whatever the
-  // plate leaves it, and a sprite squeezed to nothing leaves every assertion so far untouched.
+  // The plate a player can actually see: hovering one plot reveals its name, and that is the
+  // element that can outgrow its plot once the display font lands.
+  const middle = Math.floor(plots.length / 2);
+  const named = plots[middle];
+  await page.locator('[data-testid="district-scene"] > button').nth(middle).hover();
+  await expect(page.locator('[data-testid^="plot-label-"]').nth(middle)).toHaveCSS('opacity', '1');
+  await settleFonts(page);
+
+  // Read by *computed* opacity, not by class: the hidden state keeps its `opacity-0` class and a
+  // `group-hover:` variant overrides it, so a class selector would find every plate hidden.
+  const plates = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid^="plot-label-"]')]
+      .filter((el) => Number(getComputedStyle(el).opacity) > 0.5)
+      .map((el) => {
+        const { left, right } = el.getBoundingClientRect();
+        return { label: el.textContent?.trim() ?? '', left, right };
+      }),
+  );
+  expect(
+    plates.length,
+    `no name plate appeared for ${named?.label ?? 'the hovered plot'}`,
+  ).toBeGreaterThan(0);
+  for (const plate of plates) {
+    expect(plate.left, `${plate.label} runs off the left of the scene`).toBeGreaterThanOrEqual(
+      scene.left - SLACK_PX,
+    );
+    expect(plate.right, `${plate.label} runs off the right of the scene`).toBeLessThanOrEqual(
+      scene.right + SLACK_PX,
+    );
+  }
+
+  // ...and the structure standing on each plot is actually drawn. Everything above measures
+  // *buttons*; a sprite is fitted inside its plot, so a sprite squeezed to nothing leaves every
+  // assertion so far untouched.
   await expectNoImagesClipped(page, '[data-testid="district-scene"]');
 }
 
@@ -248,6 +300,37 @@ test.describe('a district that has been played', () => {
   });
 
   /**
+   * Every structure can be clicked, and clicking it selects **it**.
+   *
+   * This is the end-to-end half: real DOM, real stacking, real handler. It is deliberately *not*
+   * the overlap gate — Playwright clicks each button at its centre, and a plot's centre stays clear
+   * even when a quarter of the building around it is covered by a nearer plot's box. Run against
+   * the layout this replaced, it passes. `scripts/district-layout.test.ts` is what measures that,
+   * by rasterising the masters and counting painted pixels a nearer box would swallow.
+   */
+  test('every structure answers its own click', async ({ page }) => {
+    await installApi(page, districtAt(20));
+    await page.goto('/game/base');
+    await settleFonts(page);
+
+    for (const kind of BUILDING_KINDS) {
+      const plot = page.locator(`[data-testid="plot-${kind}"]`);
+      await plot.click({ timeout: 4000 });
+      await expect(plot, `${kind} did not answer its own click`).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      // ...and it is the only one that did.
+      await expect(page.locator('[data-testid^="plot-"][aria-pressed="true"]')).toHaveCount(1);
+      // Selecting a plot opens its dialog over the whole scene, so it has to go before the next
+      // plot can be reached — otherwise every structure after the first fails on the backdrop
+      // rather than on anything about the district.
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toBeHidden();
+    }
+  });
+
+  /**
    * The positive control for {@link expectNoImagesClipped} — a guard that cannot be made to fail is
    * not a guard, and this family has a long record of looking covered and not being.
    *
@@ -281,9 +364,7 @@ test.describe('a district that has been played', () => {
     // Baseline: the gate is quiet on the district the assertions above just approved.
     await expectNoImagesClipped(page, scene);
 
-    await mutate(
-      `${scene} > button > span:first-child { flex: none !important; height: 0 !important; }`,
-    );
+    await mutate(`${scene} [data-testid^="sprite-"] { height: 0 !important; }`);
     expect(await rejection(), 'a sprite with no height must be reported').toContain('collapsed');
 
     // Put back, so the second mutation is measured on its own rather than on the first's wreckage.

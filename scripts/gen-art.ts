@@ -65,7 +65,7 @@ export interface ImageRequest {
   width: number;
   height: number;
   alpha: boolean;
-  /** On-disk paths of the already-generated style reference masters (ART-PROMPTS §7.3). */
+  /** On-disk paths of the already-generated style reference masters (ART-PROMPTS §8.3). */
   styleRefPaths: readonly string[];
 }
 
@@ -75,7 +75,7 @@ export interface ImageBackend {
   model: string;
   /** Licence statement for the licensing register (ART-BIBLE §9). */
   licence: string;
-  /** ART-PROMPTS §7.3 — whether `styleRefPaths` actually reach the model. */
+  /** ART-PROMPTS §8.3 — whether `styleRefPaths` actually reach the model. */
   supportsStyleRefs: boolean;
   /** ART-BIBLE §6 — whether the backend can return a genuinely transparent master. */
   supportsAlpha: boolean;
@@ -99,7 +99,7 @@ export interface Provenance {
   /** `null` when the backend exposes no seed (gpt-image-1) — the asset is then not reproducible. */
   seed: number | null;
   promptSha256: string;
-  /** Whether the ART-PROMPTS §7.3 consistency references were passed to the backend. */
+  /** Whether the ART-PROMPTS §8.3 consistency references were passed to the backend. */
   styleRefsApplied: boolean;
   generatedAt: string;
   licence: string;
@@ -270,7 +270,7 @@ export type OpenAiSize = '1024x1024' | '1024x1536' | '1536x1024';
  *
  * gpt-image-1 exposes neither a seed nor a negative prompt, so reproducibility is weaker than fal
  * (`honorsSeed: false`) and the negative list is folded into the prompt. Style references go
- * through the images **edit** endpoint, which is how ART-PROMPTS §7.3 says to carry them. Request
+ * through the images **edit** endpoint, which is how ART-PROMPTS §8.3 says to carry them. Request
  * shape follows OpenAI's documented images API; like the fal adapter it has **not** been exercised
  * against the live API.
  */
@@ -328,7 +328,7 @@ async function openAiGenerate(
   });
 }
 
-/** ART-PROMPTS §7.3 — the two approved references are passed as `image[]` edit inputs. */
+/** ART-PROMPTS §8.3 — the two approved references are passed as `image[]` edit inputs. */
 async function openAiEdit(
   key: string,
   model: string,
@@ -529,7 +529,7 @@ export function selectSpecs(only: readonly string[]): readonly AssetSpec[] {
 }
 
 /**
- * ART-PROMPTS §7.1 — plates and planes first (they set the world's value key), then the two assets
+ * ART-PROMPTS §8.1 — plates and planes first (they set the world's value key), then the two assets
  * that become the style references, then everything that depends on them. Stable within each tier.
  */
 export function orderForGeneration(specs: readonly AssetSpec[]): readonly AssetSpec[] {
@@ -625,7 +625,7 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
 }
 
 /**
- * ART-PROMPTS §7.3 refs must exist before the asset that cites them. Checked up front so a
+ * ART-PROMPTS §8.3 refs must exist before the asset that cites them. Checked up front so a
  * `--only` run fails for free instead of ENOENT-ing partway through a paid one.
  */
 async function assertStyleRefsAvailable(

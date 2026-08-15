@@ -80,7 +80,20 @@ export const SECTIONS: readonly Section[] = [
       'cropping it to 16:9 gives 1536×864 — under the 2048×1152 minimum, and `encode-art` will reject it,',
       'correctly. Upscaling invents detail, so the answer is a bigger render, not a bigger resample.',
     ].join('\n'),
-    includes: (spec) => !spec.alpha && !isHeroAsset(spec) && !isOccludedBackdropAsset(spec),
+    includes: (spec) =>
+      spec.aspect === '16:9' && !spec.alpha && !isHeroAsset(spec) && !isOccludedBackdropAsset(spec),
+  },
+  {
+    title: 'Roster set — any download at or above the listed minimum works',
+    guidance: [
+      'Opaque, like the hero set, but at a size and aspect ChatGPT does not return directly — so the',
+      'download needs a crop. `encode-art` does that crop for you, centred, as long as the file clears',
+      'the **Minimum size** listed under each entry; anything larger is centre-cropped to the aspect and',
+      'resampled down. A 1024×1536 portrait download crops to 768×1152 at 3:4 and is comfortably over.',
+      'What it will never do is upscale, so a small download is rejected by name rather than blurred.',
+    ].join('\n'),
+    includes: (spec) =>
+      spec.aspect !== '16:9' && !spec.alpha && !isHeroAsset(spec) && !isOccludedBackdropAsset(spec),
   },
   {
     title: 'Alpha set — not requested yet',

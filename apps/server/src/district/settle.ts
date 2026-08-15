@@ -1,6 +1,7 @@
 import {
   accrueProduction,
   applyQueueEntry,
+  disruptionPercentAt,
   driftMorale,
   moraleTarget,
   queueCompletesAt,
@@ -15,6 +16,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { settleBaseEconomy } from '../economy/settle.js';
 import { awardPlayerXp } from '../progression/award.js';
+import { settleTraining } from '../units/training.js';
 
 /**
  * Everything the district owes since it was last read (GDD §A1): finished builds, the resources
@@ -72,10 +74,15 @@ function walk(
   const since = base.economy.productionSettledAt;
   let cursor = since === null ? now.getTime() : Math.min(Date.parse(since), now.getTime());
 
+  // §A4 — a district that has just been raided runs at reduced effectiveness for a few hours.
+  // Applied as a *fraction of the window* rather than as a scale on the output, which is exactly
+  // equivalent for a linear accrual and keeps `accrueProduction` a statement about structures.
+  const working = 1 - disruptionPercentAt(base.economy.disruption, now) / 100;
+
   const advanceTo = (mark: number): void => {
     const hours = (mark - cursor) / HOUR_MS;
     if (hours > 0) {
-      resources = accrueProduction(resources, buildings, hours);
+      resources = accrueProduction(resources, buildings, hours * working);
       morale = driftMorale(morale, moraleTarget(buildings), hours);
       cursor = mark;
     }
@@ -138,5 +145,8 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
  */
 export function settleBase(repos: Repositories, base: Base, now: Date): DistrictSettlement {
   const district = settleDistrict(repos, base, now);
-  return { ...district, base: settleBaseEconomy(repos, district.base, now) };
+  // Training last: a batch landing does not feed anything else in the settle, and putting it
+  // first would mean the army the payroll sees differs from the one the district produced with.
+  const paid = settleBaseEconomy(repos, district.base, now);
+  return { ...district, base: settleTraining(repos, paid, now) };
 }

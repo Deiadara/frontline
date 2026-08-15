@@ -7,7 +7,7 @@
  * the hard wrapping in the doc (and in this file) never reaches a backend.
  */
 import type { BuildingKind } from '../building/index.js';
-import type { DistrictKind } from '../city.js';
+import type { DistrictKind, PlaceKind } from '../city/index.js';
 import type { OverseerArchetype } from '../overseer.js';
 import type { ResourceKey } from '../resources.js';
 
@@ -77,7 +77,7 @@ export const FRAMING = {
     percent toward #3d4761 and loses fifteen percent contrast.
   `),
   plate: block(`
-    Wide 16:9 cinematic composition, high oblique view over the city at roughly 35 degrees. Rendered
+    Wide 16:9 cinematic composition, high oblique view at roughly 35 degrees. Rendered
     as a single continuous painted illustration, not a tiled texture. No focal subject — this is a
     stage, and the readable action sits on top of it.
   `),
@@ -102,6 +102,14 @@ export const FRAMING = {
     hue. No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject
     filling the central seventy percent. Consistent implied light from upper-left across the whole
     set.
+  `),
+  unit: block(`
+    Half-length figure study of one representative fighter, three-quarter view, weight on the back
+    foot, weapon or tool held rather than posed with. Vertical 3:4 composition, head in the upper
+    quarter, cropped mid-thigh. Painted on an abstracted plaster-and-soot ground with no readable
+    architecture — the card behind it carries the information, so the frame must stay quiet.
+    Unhelmeted or visor-up wherever the unit's own description allows it, so the roster reads as
+    people. No group shots, no insignia the player has not earned, no text.
   `),
 } as const;
 
@@ -198,19 +206,12 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
     into rust runs. A collapsed section reveals the city drop below. Overgrown, abandoned, strangely
     serene.
   `),
-  'sprawl-exchange': block(`
-    A chaotic covered bazaar filling a collapsed transit interchange — stalls built into the
-    carcasses of train carriages, tarpaulins strung across the ruined vaulted roof, warm #f59e0b lamp
-    strings threading the whole volume. Dense crowd rendered as suggestion, not detail: values and
-    silhouettes only. Smoke from cooking fires catching the light shafts. The one genuinely alive place
-    in the city. Warm-led, with the cyan key entering only through the broken roof.
-  `),
-  'halcyon-plaza': block(`
-    A former civic plaza of pale stone colonnades, now an upmarket night market under strings
-    of warm #ffd166 lanterns. A monumental fountain long dry, its basin used for stalls. Elegant
-    proportions gone slightly shabby: chipped stone, cable runs stapled to columns, a corporate banner
-    sun-bleached to illegibility. Better dressed crowd, wider spacing than Sprawl Exchange. Nostalgic,
-    faded, faintly sad.
+  'kettle-row': block(`
+    A long residential terrace along a southern cut, boiler houses venting between every third
+    building so the whole street sits under drifting warm-lit steam. Washing strung across the gap at
+    three storeys. Front steps in constant use — this is the one district rendered as *inhabited*
+    rather than as infrastructure: figures on the steps, a game in the road, a repaired door standing
+    open. Warm #f59e0b sodium led, the cyan key arriving only down the length of the cut.
   `),
   'blacksite-7': block(`
     A hardened military compound sunk into a bomb crater — sloped ferrocrete revetments,
@@ -239,6 +240,23 @@ export const PLATE_SUBJECTS = {
     read on top of it. Emissives are small, numerous and low-saturation at this distance. Roughly eleven
     distinguishable neighbourhood characters across the frame, separated by canals, walls and roadways.
     Keep the outer eight percent of the frame quiet.
+  `),
+  'plate-district': block(`
+    A crew's own walled compound seen from directly above and slightly forward, a town-view camera
+    with **no sky and no horizon** — the whole frame is ground. Drawn as the ground *only*: the
+    structures are painted separately and dropped on top, so every place one would stand is an
+    empty, flat, quiet pad. Thirteen such pads in three staggered rows of four, five and four,
+    spread wide apart, with broad dirt roads and duckboard walkways running between them in both
+    directions and off all four edges — the lanes between the pads are the whole composition, and
+    they must read as somewhere people walk. Ground is packed dirt, cracked slab, gravel and
+    puddled standing water, patched with steel plate and old rail. The top edge of the frame is the
+    compound's back wall: gabion baskets, sheet pile, stacked containers and a lit guard post, not
+    open country. Scatter lives beside the roads and never on a pad — spoil heaps, oil drums,
+    pallet stacks, a burnt-out chassis, cable runs pinned along the wall, drying laundry strung
+    between poles. Value kept in the middle range (#1e293b to #55617e), the ground reading a step
+    warmer and darker as it comes toward the viewer. Cold #22d3ee key from upper left, weak sodium
+    #f59e0b bounce. Emissives are small, sparse and at ground level: a strung bulb line, a marker
+    lamp, a brazier. No buildings. Nothing on the pads. No text.
   `),
   'plane-city-sky': block(`
     Sky and distant arcology silhouettes only. Heavy smog ceiling in #1b2233 to #3d4761
@@ -335,12 +353,6 @@ export const BUILDING_SUBJECTS: Readonly<Record<BuildingKind, string>> = {
     firing step behind, and a single armoured gate leaf hung slightly out of true. Impact scarring
     and hasty patch-plates across the face. Lowest and widest silhouette; must read as horizontal
     against everything else.
-  `),
-  commons: block(`
-    A crew hall — a wide single-storey shed with a full-width awning over mismatched tables, a
-    lit bar counter along the back wall, a screen flickering cold #22d3ee over the room, and every
-    exterior surface covered in layered graffiti. Warm interior light spilling out under the awning.
-    The only welcoming silhouette in the district.
   `),
   lab: block(`
     A research stack — a vertical black slab of racked datacores behind a louvred skin, cold
@@ -457,20 +469,252 @@ export const ARCHETYPE_ICON_SUBJECTS: Readonly<Record<OverseerArchetype, string>
 
 /** ART-PROMPTS §6.3 — keyed by `DistrictKind`. */
 export const DISTRICT_KIND_ICON_SUBJECTS: Readonly<Record<DistrictKind, string>> = {
-  player_base: block(`
+  residential: block(`
     A small fortified compound seen from above — a walled square with a central drum and a gate
     notch, cyan #22d3ee light in the courtyard.
   `),
-  raid: block(`
-    A breached wall segment with rubble spilling through the gap and one amber #f59e0b ember
-    glow at the break.
+  contested: block(`
+    Four small blocks around a crossroads seen from above, one of them breached and spilling
+    rubble, a single magenta #e11d8f ember at the break.
+  `),
+};
+
+/** ART-PROMPTS §6.4 — keyed by `PlaceKind`. The map markers inside a contested district. */
+export const PLACE_KIND_ICON_SUBJECTS: Readonly<Record<PlaceKind, string>> = {
+  scrap_press: block(`
+    A baling press seen from above with a squared bale on the outfeed and a scatter of loose
+    swarf, warm #f59e0b rust tones.
+  `),
+  chemical_plant: block(`
+    Three cracking towers of descending height joined by a pipe run, one venting a pale
+    #86e6a8 plume.
+  `),
+  power_station: block(`
+    A transformer bank of four ribbed cylinders behind a mesh fence, cold #22d3ee arc light
+    between two of them.
+  `),
+  water_works: block(`
+    Two circular settling beds seen from above with a radial sweep arm on each, water reading
+    as flat #12a2bd.
+  `),
+  foundry: block(`
+    A cupola furnace with a tapping spout, the pour glowing #ffd166 across the floor plate
+    beneath it.
   `),
   market: block(`
     A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp
     point between them.
   `),
-  npc_stronghold: block(`
-    A blunt hexagonal bunker seen from above with sloped revetments on every face and a magenta
-    #e11d8f slit aperture at the centre.
+  pawn_shop: block(`
+    A barred serving hatch in a blank wall with three hanging balls above it, one warm
+    #f59e0b lamp inside the bars.
+  `),
+  high_ground: block(`
+    A water tower on lattice legs above a rooftop parapet, seen at a low angle, cold rim light
+    along the tank.
+  `),
+  barricade: block(`
+    A staggered line of sea containers and rubble with rebar teeth, seen from above, one
+    narrow gap left through it.
+  `),
+  armory: block(`
+    A heavy vault door standing ajar in a blank concrete face, weapon racks visible as
+    silhouettes in the #f59e0b light beyond.
+  `),
+  war_machine_graveyard: block(`
+    Three dead armoured hulls half sunk in mud, tracks shed, one turret canted skyward, cold
+    smog between them.
+  `),
+  university: block(`
+    A colonnaded facade with a broken pediment, one lit window in an upper storey, cyan
+    #22d3ee light behind the glass.
+  `),
+  satellite_uplink: block(`
+    A parabolic dish on a guyed mast, hand-aligned and slightly off true, cold #7ff0ff light
+    at the feed horn.
+  `),
+  gene_clinic: block(`
+    A sealed theatre door with a porthole and a cold-storage cabinet beside it, sterile white
+    light through the port.
+  `),
+  fight_pit: block(`
+    A sunken circular ring seen from above with a standing crowd ringing it, warm #f59e0b
+    lamps on poles around the rim.
+  `),
+  skate_ground: block(`
+    A drained reservoir bowl seen from above, its curved transitions marked with tyre and
+    board scuffs, one graffiti sweep across the floor.
+  `),
+  hospital: block(`
+    A four-bay ambulance canopy with a repainted cross panel above it, warm light spilling
+    from the entrance.
+  `),
+  rail_yard: block(`
+    Converging sidings around a turntable seen from above, two flatbeds parked off-centre,
+    cold light along the rail heads.
+  `),
+  broadcast_tower: block(`
+    A lattice transmitter mast with three stacked dipole arrays, a single #e11d8f obstruction
+    light at the top.
+  `),
+  sewer_junction: block(`
+    A brick chamber where six storm drains meet, seen from above, standing water reading as
+    dark #12a2bd with one shaft of light.
+  `),
+};
+
+/**
+ * ART-PROMPTS §7 — keyed by `UnitSpec.id`, so a unit added to `UNIT_CATALOG` cannot ship without a
+ * portrait prompt. The asset id is the kebab-cased unit id (`road_reavers` → `unit-road-reavers`),
+ * which `art/manifest.ts` derives; never hand-write one.
+ *
+ * Written against the tier ladder rather than one at a time: rabble are unarmoured and improvising,
+ * regulars have one good piece of kit each, specialists are defined by the equipment they carry
+ * instead of by what they wear, heavies have lost the human silhouette, and the legendaries each
+ * break the frame in a way none of the others do.
+ */
+export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
+  razors: block(`
+    A lean street fighter in a cut-down jacket over bare arms, holding a ground-down machete low
+    and away from the body. Cloth wrapped from knuckle to elbow in place of armour, one shoulder
+    taped. Expression flat and unbothered; cold #22d3ee key along the blade edge, warm #f59e0b
+    bounce off the wrapped forearm.
+  `),
+  sparks: block(`
+    A teenager holding a home-made electrical lance — a scaffold pole with a capacitor bank taped
+    along it and two bare contacts at the tip. Welding goggles pushed up on the forehead, hands
+    gloved in mismatched rubber. A single #7ff0ff arc crawling between the contacts is the
+    brightest thing in frame, and it lights the face from below.
+  `),
+  scrapers: block(`
+    A wiry scavenger in a patched canvas coat with a salvage hook over one shoulder and a strap of
+    pouches across the chest, goggles up on the brow. Light plate lashed to one shoulder with rope.
+    Half-turned as if already leaving, warm ochre midtones against a cold rim.
+  `),
+  muckrakers: block(`
+    A stooped figure in a slick waders-and-oilcloth rig, hood back, carrying a bulging drag-sack
+    roped shut at the neck and a short gaff. Chest-high tide line of grey silt dried on the rubber.
+    Pale #86e6a8 light from a lamp clipped at the hip, everything above it in shadow.
+  `),
+  breakers: block(`
+    A heavyset door-breacher braced behind a scuffed steel ram held two-handed across the body,
+    forearms and shins plated in bolted scrap. Face guard hinged up to show a broken nose and a
+    jaw set for the next one. Hard cold key across the ram face, warm bounce under the plates.
+  `),
+  wardens: block(`
+    A defender behind a tall salvaged shield planted on the ground, one hand on its rim and a short
+    spear upright in the other. Layered plate over a padded coat, everything scuffed at the front
+    and clean at the back. Composed, unhurried, watching past the viewer.
+  `),
+  ghosts: block(`
+    A slight figure in a matte grey wrap suit with a soft hood and a scarf over the mouth, holding
+    a suppressed carbine down along the leg. No hard edges and no shine anywhere on the fabric —
+    the only speculars are the eyes and a thin #22d3ee line along the optic.
+  `),
+  road_reavers: block(`
+    A rider in a studded leather cut over a fuel-stained undersuit, one arm through a scavenged
+    fairing used as a shield, a length of chain looped at the belt. Riding goggles down, hair and
+    scarf still moving. Warm #f59e0b headlamp glare from below and behind the shoulder.
+  `),
+  ironsides: block(`
+    A soldier encased front-on in overlapping salvaged plate — road sign, hull steel, a car door
+    panel — strapped over a padded frame, with a slit visor and a short blade held close. Wide,
+    immovable stance. Cold light rakes across the mismatched plates and finds a different colour
+    in each.
+  `),
+  ash_walkers: block(`
+    A trooper in a taped chemical suit and full-face respirator with two round filter drums at the
+    cheeks, one gloved hand steadying a hose that runs into the pack. Suit fabric bleached and
+    stiffened by exposure. Lens glass takes a flat #12a2bd reflection and shows nothing behind it.
+  `),
+  snipers: block(`
+    A marksman kneeling with a long bolt-action rifle across the raised knee, wrapped in a ghillie
+    of shredded grey rag, hood down and hair flattened by it. Face bare and very still. One narrow
+    cold highlight down the barrel; everything else sinks into the ground tone.
+  `),
+  stitchers: block(`
+    A field medic in a rolled-sleeve coat with a heavy satchel across the body and a strip of
+    surgical tape on the forearm holding a spare line in place. Both hands busy — one clamping a
+    dressing, one reaching. Warm #ffd166 light from a headband lamp turned down onto the work.
+  `),
+  demolishers: block(`
+    A sapper in a heavy apron over reinforced overalls, a bandolier of shaped charges across the
+    chest and a spool of det cord hooked at the hip. Ear defenders around the neck, hands blackened
+    to the wrist. Amber #f59e0b light and a haze of masonry dust in the air around the shoulders.
+  `),
+  jammers: block(`
+    An operator with a backpack transmitter and a folding directional antenna raised in one hand,
+    the other on a dial at the chest harness. Headset over one ear only. Faint #e11d8f indicator
+    lamps down the pack's spine are the only saturated colour in frame.
+  `),
+  kite_crews: block(`
+    A drone pilot crouched over a hinged control slate held at chest height, a rotor craft hovering
+    just off the shoulder at the frame edge. Padded vest, cable running from slate to belt, eyes on
+    the screen. Cold #22d3ee screen light fills the face from below.
+  `),
+  netrunners: block(`
+    A combat hacker with a deck strapped along the forearm and three fibre leads run from a dermal
+    port behind the ear into a shoulder loom. Coat open over a mesh underlayer, one hand raised
+    mid-gesture. Cyan #7ff0ff runs along the leads and reflects in a wet-looking eye.
+  `),
+  sleepers: block(`
+    An unremarkable person in ordinary work clothes — coveralls, a laminated pass on a lanyard, a
+    canvas bag — standing squarely and looking directly at the viewer. No visible weapon. The only
+    thing wrong is the stillness, and one hand already inside the bag.
+  `),
+  bell_ringers: block(`
+    A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one arm and
+    holding heavy ear defenders in the other. Four stacked horn drivers fill the frame behind the
+    shoulder. Air distorts in a visible ring; the ground tone smears where it passes.
+  `),
+  wrecking_crew: block(`
+    A siege worker in a heavy harness with a wrecking chain over the shoulder and a spiked pry bar
+    grounded at the feet, hard hat scarred to bare metal. Behind the shoulder, the top of a jack
+    frame. Broad, planted, patient; warm bounce from a work lamp out of frame.
+  `),
+  juggernauts: block(`
+    A fully augmented heavy assault trooper — a human silhouette only at the head, with the arms
+    and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts.
+    A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm
+    #8a5209 leaks from the joint seams.
+  `),
+  hollow_men: block(`
+    A shock trooper standing too straight in matte assault plate, faceplate open on an expression
+    of complete calm, pupils blown wide. Surgical scarring in a neat arc above one temple. Blood on
+    the gauntlets, none anywhere else. Even flat light, almost no shadow — nothing to read.
+  `),
+  the_condemned: block(`
+    A convict fighter in a stripped prison coverall with the sleeves torn away, a welded collar at
+    the throat and a heavy chain-wrapped blade held in both hands. Fresh brand on the shoulder,
+    older scars beneath it. Head lifted, grinning; harsh cold key from directly above.
+  `),
+  the_specter: block(`
+    A figure caught mid-decloak — the outline is complete but the body is only present in patches,
+    the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is solid
+    is a matte infiltration suit and one long knife. No face resolves.
+  `),
+  the_abomination: block(`
+    A failed experiment: a mass of grafted muscle and salvaged plate on a frame that no longer
+    agrees on how many limbs it has, restraint bolts still through the shoulders and one trailing
+    cable. Half a human face is set into the upper mass at the wrong angle. Sickly #86e6a8 fluid
+    light from within the seams.
+  `),
+  the_colossus: block(`
+    A walking fortress seen from the ground looking up, so only its lower hull, one tread-footed
+    leg and the underside of a gun sponson fit the frame. Rivet lines the size of a person, hatch
+    ladders, and a tiny crew figure on a walkway for scale. Cold sky behind, warm exhaust glow
+    beneath.
+  `),
+  the_saint: block(`
+    An older fighter in a long weathered coat over plain plate, unarmed hands open at the sides, a
+    sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely calm. The
+    one portrait lit warmly from the front — amber #ffd166 across the face, cold #22d3ee only as a
+    thin rim.
+  `),
+  the_cartographer: block(`
+    A traveller in a layered dust coat hung with rolled charts, a brass sighting compass on a
+    thong and a chalk stub behind the ear, one hand flat on a map board marked over many times in
+    different hands. Eyes on the viewer rather than the map. Warm lamp light on the paper, cold
+    light on everything else.
   `),
 };

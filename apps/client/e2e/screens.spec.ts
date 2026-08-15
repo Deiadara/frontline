@@ -1,7 +1,7 @@
 import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import {
-  battle,
+  attackResult,
   lateGame,
   me,
   meNoOverseer,
@@ -189,40 +189,68 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   await page.screenshot({ path: 'screenshots/bar-scrolled.png', fullPage: false });
 });
 
-test('battle result modal opens after an attack', async ({ page }) => {
-  await installApi(page, me);
-  await page.goto('/game');
+/** Clicks a district on the Pixi canvas the way a player does. */
+async function selectDistrict(page: Page, id: string): Promise<void> {
+  const district = CITY_DISTRICTS.find((d) => d.id === id);
+  if (!district) throw new Error(`missing ${id} district`);
   await expect(page.locator('canvas')).toBeVisible();
   await page.waitForTimeout(700);
-
-  const undergrid = CITY_DISTRICTS.find((d) => d.id === 'undergrid');
-  if (!undergrid) throw new Error('missing undergrid district');
   const box = await page.locator('canvas').boundingBox();
   if (!box) throw new Error('canvas has no bounding box');
   await page.mouse.click(
-    box.x + undergrid.position.x * box.width,
-    box.y + undergrid.position.y * box.height,
+    box.x + district.position.x * box.width,
+    box.y + district.position.y * box.height,
   );
+}
 
-  await page.getByRole('button', { name: 'Launch Attack' }).click();
+test('the district view shows what is inside a scouted district (§A4)', async ({ page }) => {
+  await installApi(page, me);
+  await page.goto('/game');
+  await selectDistrict(page, 'rustyard');
+
+  await page
+    .getByTestId('district-panel')
+    .getByRole('button', { name: 'Enter the district' })
+    .click();
+  await expect(page.getByTestId('places')).toBeVisible();
+  // Ground this crew holds reads differently from ground it does not, and offers different moves.
+  await expect(page.getByText('Yours').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Take it' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Dig in' })).toBeVisible();
+
+  await page.screenshot({ path: 'screenshots/district-places.png', fullPage: false });
+});
+
+test('taking a place opens the report (§A4)', async ({ page }) => {
+  await installApi(page, me);
+  await page.goto('/game/city/rustyard');
+  await expect(page.getByTestId('places')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Take it' }).first().click();
+  const picker = page.getByRole('dialog');
+  await expect(picker.getByRole('heading', { name: /^Take / })).toBeVisible();
+  // The force picker is where loot capacity becomes a decision rather than a stat.
+  await expect(picker.getByText('Can carry')).toBeVisible();
+  await picker.getByLabel('How many Razors').fill('4');
+  await picker.getByRole('button', { name: 'Send them in' }).click();
+
   await expect(page.getByRole('heading', { name: 'VICTORY' })).toBeVisible();
-
   await page.screenshot({ path: 'screenshots/battle.png', fullPage: false });
 });
 
 /**
- * MOU-227 — §I1 pays XP for the raid win or lose, and the battle response is the only place a
- * level it bought is ever reported. The report modal is therefore where the player finds out.
+ * MOU-227 — §I1 pays XP for the fight win or lose, and the response is the only place a level it
+ * bought is ever reported. The report modal is therefore where the player finds out.
  */
-test('battle result modal announces a level-up the raid paid for', async ({ page }) => {
+test('the report announces a level-up the fight paid for', async ({ page }) => {
   await installApi(page, me);
   // Registered after `installApi`, so Playwright's reverse-order matching gives it priority.
-  await page.route('**/api/battle', (route) =>
+  await page.route('**/api/city/attack', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        ...battle,
+        ...attackResult,
         levelUp: {
           level: 4,
           levelsGained: 1,
@@ -231,28 +259,51 @@ test('battle result modal announces a level-up the raid paid for', async ({ page
       }),
     }),
   );
-  await page.goto('/game');
-  await expect(page.locator('canvas')).toBeVisible();
-  await page.waitForTimeout(700);
+  await page.goto('/game/city/rustyard');
+  await expect(page.getByTestId('places')).toBeVisible();
 
-  const undergrid = CITY_DISTRICTS.find((d) => d.id === 'undergrid');
-  if (!undergrid) throw new Error('missing undergrid district');
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
-  await page.mouse.click(
-    box.x + undergrid.position.x * box.width,
-    box.y + undergrid.position.y * box.height,
-  );
+  await page.getByRole('button', { name: 'Take it' }).first().click();
+  await page.getByRole('dialog').getByLabel('How many Razors').fill('1');
+  await page.getByRole('dialog').getByRole('button', { name: 'Send them in' }).click();
 
-  await page.getByRole('button', { name: 'Launch Attack' }).click();
   const banner = page.getByRole('region', { name: 'Level up' });
   await expect(banner).toBeVisible();
   await expect(banner).toContainText('LEVEL 4');
-  await settleFonts(page);
+});
 
-  // The modal is a bounded scroller, so the banner has to be *reachable*, not merely rendered.
-  await expect(banner).toBeInViewport();
-  await page.screenshot({ path: 'screenshots/battle-levelup.png', fullPage: false });
+/** `neon-cyan` (#22d3ee) as the browser reports it — the selected tier tab's painted colour. */
+const ACTIVE_TAB_COLOR = 'rgb(34, 211, 238)';
+
+test('the unit roster shows what is fielded and what is still locked (§A5)', async ({ page }) => {
+  await installApi(page, me);
+  await page.goto('/game/units');
+
+  await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+  await expect(page.getByTestId('supply')).toBeVisible();
+  await expect(page.getByTestId('unit-razors')).toBeVisible();
+
+  // A locked tier says *what it is waiting on* rather than simply being absent.
+  await page.getByRole('button', { name: 'Legendary' }).click();
+  await expect(
+    page.getByTestId('unit-the-colossus').or(page.getByTestId('unit-the_colossus')),
+  ).toBeVisible();
+  await expect(page.getByText(/hold a War Machine Graveyard/i)).toBeVisible();
+
+  // The tier tabs carry `transition-colors`, and React flips the class a frame before the paint
+  // catches up — so a screenshot taken the instant the cards change shows *Rabble* still lit over a
+  // grid of legendaries. Nothing is wrong with the page; the artefact is what lies. Waiting on the
+  // painted colour rather than on a duration makes the shot deterministic and asserts the highlight
+  // actually follows the selection.
+  await expect(page.getByRole('button', { name: 'Legendary' })).toHaveCSS(
+    'color',
+    ACTIVE_TAB_COLOR,
+  );
+  await expect(page.getByRole('button', { name: 'Rabble' })).not.toHaveCSS(
+    'color',
+    ACTIVE_TAB_COLOR,
+  );
+
+  await page.screenshot({ path: 'screenshots/units.png', fullPage: false });
 });
 
 /*

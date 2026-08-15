@@ -81,6 +81,17 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
           { id: randomUUID(), kind: 'generator', level: 1, modifications: [] },
         ],
         buildQueue: [],
+        /**
+         * §A5 — enough Razors to walk into the Rustyard on day one and win.
+         *
+         * An empty army plus a Gauntlet they have not built yet is a first session with no move,
+         * and so, it turned out, was four: NPC places are garrisoned now, the Rustyard's easiest
+         * holds four, and a defender at parity wins every time. Measured — eight takes it, four
+         * loses forty out of forty. The number has to be the one that makes the opening move
+         * *available*, not the one that sounds modest.
+         */
+        army: { razors: 8 },
+        trainingQueue: [],
         commanders: [],
         createdAt: now,
       };

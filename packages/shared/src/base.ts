@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AssigneeStateSchema } from './assignees/placement.js';
 import { BuildQueueSchema, BuildingSchema } from './building/index.js';
 import { CommanderSchema } from './commander.js';
+import { ArmySchema, TrainingQueueSchema } from './units/index.js';
 import { EconomyStateSchema } from './economy/state.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { ProgressionStateSchema } from './progression/state.js';
@@ -47,6 +48,16 @@ export const BaseSchema = z.object({
   buildings: z.array(BuildingSchema),
   /** Up to six orders in flight (§A1). Owner-only, and settled lazily like everything else. */
   buildQueue: BuildQueueSchema,
+  /**
+   * Units standing at home and available to send (§A5).
+   *
+   * Only the ones *here*. Units left on a captured place live on that place's control row, because
+   * a garrison belongs to the ground rather than to the crew — it is what changes hands, or dies,
+   * when the place does.
+   */
+  army: ArmySchema.default({}),
+  /** Up to five training orders in flight (§A5). */
+  trainingQueue: TrainingQueueSchema,
   commanders: z.array(CommanderSchema),
   createdAt: IsoDateTimeSchema,
 });

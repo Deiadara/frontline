@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ART_MANIFEST,
+  POST_PROCESS_STEPS,
   BACKEND_CAPABILITIES,
   backendCanProduce,
   NEGATIVE,
@@ -143,7 +144,7 @@ describe('path derivation', () => {
 });
 
 describe('orderForGeneration', () => {
-  it('runs plates and planes first, then the two style references (ART-PROMPTS §7.1)', () => {
+  it('runs plates and planes first, then the two style references (ART-PROMPTS §8.1)', () => {
     const ordered = orderForGeneration(ART_MANIFEST).map((s) => s.key);
     expect(ordered.slice(0, 6)).toEqual([
       'plate-city',
@@ -424,7 +425,7 @@ describe('openai adapter', () => {
     });
   });
 
-  it('routes through the edit endpoint with the style references attached (§7.3)', async () => {
+  it('routes through the edit endpoint with the style references attached (§8.3)', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'frontline-art-'));
     try {
       const refPath = path.join(dir, 'district-neon-docks.png');
@@ -626,7 +627,7 @@ describe('validateRun', () => {
     );
   });
 
-  /** MOU-123 acceptance: whichever backend the operator picks, all 52 assets are producible. */
+  /** MOU-123 acceptance: whichever backend the operator picks, all 69 assets are producible. */
   it('passes on the whole manifest under either backend', () => {
     expect(validateRun(ART_MANIFEST, OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
     expect(validateRun(ART_MANIFEST, OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toEqual([]);
@@ -676,7 +677,7 @@ describe('main --dry-run', () => {
     await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(output.stdout.join('')).toContain('52 asset(s) validated');
+    expect(output.stdout.join('')).toContain(`${ART_MANIFEST.length} asset(s) validated`);
     expect(output.stdout.join('')).toContain(`${OUT}/district-neon-docks.png`);
   });
 
@@ -708,7 +709,16 @@ describe('main --dry-run', () => {
     await expect(main(['--dry-run', '--out', OUT], DRY_RUN_ENV)).resolves.toBe(0);
 
     const stdout = output.stdout.join('');
-    expect(stdout).toContain('15 master(s) are not the delivery image (matte 2, downscale 13)');
+    const processed = ART_MANIFEST.filter((s) => s.postProcess.length > 0).length;
+    expect(stdout).toContain(`${processed} master(s) are not the delivery image`);
+    // Every step the manifest declares is named with its own count. Written this way rather than as
+    // one hard-coded parenthetical because the summary's whole job is to be complete: a step that
+    // exists but goes unmentioned is masters silently missing from the number above it, and a
+    // literal `(matte N, downscale M)` here passes happily while a third step goes unreported.
+    for (const step of POST_PROCESS_STEPS) {
+      const count = ART_MANIFEST.filter((s) => s.postProcess.includes(step)).length;
+      if (count > 0) expect(stdout, step).toContain(`${step} ${count}`);
+    }
     expect(stdout).toContain('encode-art');
   });
 

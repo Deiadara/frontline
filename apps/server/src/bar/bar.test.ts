@@ -112,6 +112,8 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     assignees: startingAssignees(),
     buildings: [],
     buildQueue: [],
+    army: {},
+    trainingQueue: [],
     commanders: [],
     createdAt: NOW.toISOString(),
     ...overrides,

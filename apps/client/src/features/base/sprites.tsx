@@ -1,5 +1,8 @@
 import type { BuildingKind } from '@frontline/shared';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
+import { deliveredUrl } from '../../assets/delivered';
+import { gradeFilter } from './masters';
+import { cn } from '../../lib/cn';
 import { ramps } from '../../theme/tokens';
 
 /**
@@ -184,22 +187,6 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Lamp x={78} y={72} />
     </>
   ),
-  // A wide awning over an open front — the only structure you can see into.
-  commons: (
-    <>
-      <Hull x={20} y={52} width={60} height={42} fill={ferrite[950]} />
-      <path d="M6 52 94 52 88 44 12 44Z" fill={ferrite[500]} />
-      <rect x={28} y={62} width={44} height={20} fill={hextech[700]} opacity={0.45} />
-      <rect x={34} y={66} width={32} height={12} fill={hextech[300]} opacity={0.5} />
-      <rect x={8} y={78} width={18} height={4} fill={ferrite[700]} />
-      <rect x={74} y={78} width={18} height={4} fill={ferrite[700]} />
-      <rect x={12} y={82} width={3} height={12} fill={ferrite[700]} />
-      <rect x={85} y={82} width={3} height={12} fill={ferrite[700]} />
-      <path d="M22 40q8-6 16 0" stroke={sear[300]} strokeWidth={1.5} fill="none" />
-      <Lamp x={44} y={86} />
-      <Ground x={6} width={88} />
-    </>
-  ),
   // Tallest and thinnest — a louvred slab with banded status light.
   lab: (
     <>
@@ -262,19 +249,119 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
   ),
 };
 
-/** The structure's silhouette, or a marked-out empty plot when nothing has been built yet. */
-export function StructureSprite({ kind, built }: { kind: BuildingKind; built: boolean }) {
+/**
+ * The structure standing on a plot, or a marked-out empty plot when nothing has been built yet.
+ *
+ * A delivered master replaces the code-drawn silhouette and nothing else: an empty plot is a
+ * *state* rather than a structure, so it stays procedural whether or not the art for that kind has
+ * landed. Both fill the site box with `contain` and stand on its bottom edge, so a painted plot and
+ * a drawn one beside it still meet the ground at the same line, and a master at any aspect ratio
+ * keeps its own proportions inside whatever room its site gives it.
+ *
+ * `haze` and `lit` are what seat a cutout in a painted district, and both are applied through the
+ * sprite's **own alpha** rather than to a box around it:
+ *
+ *   * the haze is an overlay of the district's atmosphere masked by the sprite, so distance tints
+ *     the building and not the ground behind it;
+ *   * hover, focus and selection are a `drop-shadow`, which is computed from the alpha channel and
+ *     therefore traces the silhouette. A ring or a fill would draw the rectangle the whole scene is
+ *     arranged to hide.
+ */
+export function StructureSprite({
+  kind,
+  built,
+  haze = 0,
+  lit = false,
+}: {
+  kind: BuildingKind;
+  built: boolean;
+  /** How much of the district's atmosphere to mix in, 0–1. See `hazeFor`. */
+  haze?: number;
+  /** Whether this plot is the selected one. */
+  lit?: boolean;
+}) {
+  const painted = built ? deliveredUrl({ type: 'building', building: kind }) : null;
+
+  const glow = cn(
+    'h-full w-full transition-[filter] duration-150',
+    lit
+      ? 'drop-shadow-[0_0_10px_var(--sprite-lit)]'
+      : 'group-hover:drop-shadow-[0_0_8px_var(--sprite-hover)]',
+    'group-focus-visible:drop-shadow-[0_0_10px_var(--sprite-lit)]',
+  );
+
+  if (painted !== null) {
+    // The grade rides on a wrapper rather than on the image, because `filter` on the same element
+    // as the hover `drop-shadow` composes into one chain: the glow would then be graded too, and a
+    // structure whose master needed dimming would light up dimmer than its neighbours.
+    const grade = gradeFilter(kind);
+    return (
+      <span
+        className="relative block h-full w-full"
+        style={SPRITE_GLOW_VARS}
+        data-testid={`sprite-${kind}`}
+      >
+        <span
+          className="absolute inset-0 block"
+          style={grade === null ? undefined : { filter: grade }}
+          data-testid={`structure-grade-${kind}`}
+        >
+          <img
+            src={painted}
+            alt=""
+            aria-hidden="true"
+            className={cn(glow, 'absolute inset-0 object-contain object-bottom')}
+            data-testid={`structure-art-${kind}`}
+          />
+        </span>
+        {haze > 0 && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              backgroundColor: DISTRICT_HAZE,
+              opacity: haze,
+              maskImage: `url("${painted}")`,
+              maskSize: 'contain',
+              maskPosition: 'bottom center',
+              maskRepeat: 'no-repeat',
+              WebkitMaskImage: `url("${painted}")`,
+              WebkitMaskSize: 'contain',
+              WebkitMaskPosition: 'bottom center',
+              WebkitMaskRepeat: 'no-repeat',
+            }}
+            data-testid={`structure-haze-${kind}`}
+          />
+        )}
+      </span>
+    );
+  }
+
   return (
     <svg
       viewBox="0 0 100 100"
       preserveAspectRatio="xMidYMax meet"
-      className="h-full w-full"
+      className={cn(glow, 'block')}
+      style={{ ...SPRITE_GLOW_VARS, opacity: built ? 1 - haze : 1 }}
       aria-hidden="true"
+      data-testid={`sprite-${kind}`}
     >
       {built ? SPRITES[kind] : <VacantPlot />}
     </svg>
   );
 }
+
+/** The district's atmosphere — the colour a structure loses itself into with distance. */
+const DISTRICT_HAZE = smog[700];
+
+/**
+ * Glow colours as custom properties, because Tailwind's arbitrary `drop-shadow-[...]` value cannot
+ * hold a theme token directly and a hard-coded hex here would drift from the ramp.
+ */
+const SPRITE_GLOW_VARS = {
+  '--sprite-hover': `${hextech[300]}99`,
+  '--sprite-lit': `${hextech[300]}cc`,
+} as CSSProperties;
 
 /** Staked-out ground: rubble and a survey marker, so an empty plot still reads as a place. */
 function VacantPlot() {

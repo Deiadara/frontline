@@ -1,5 +1,6 @@
 import {
   applyCharacterXp,
+  characterXpBonus,
   characterXpForActivity,
   type Base,
   type Commander,
@@ -35,10 +36,13 @@ export function awardCharacterXp(
   base: Base,
   activities: readonly CharacterActivity[],
 ): Base {
+  // What the crew built raises what its officers learn — the Gauntlet's training bonus and any
+  // modification on it. `characterXpBonus` was computed and read by nothing until now.
+  const bonus = 1 + characterXpBonus(base.buildings) / 100;
   const earned = new Map<string, number>();
   for (const { officerId, minutesEngaged } of activities) {
     if (officerId === null) continue;
-    const xp = characterXpForActivity(minutesEngaged);
+    const xp = Math.round(characterXpForActivity(minutesEngaged) * bonus);
     if (xp > 0) earned.set(officerId, (earned.get(officerId) ?? 0) + xp);
   }
   if (earned.size === 0) return base;

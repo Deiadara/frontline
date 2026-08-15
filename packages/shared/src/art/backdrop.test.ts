@@ -14,11 +14,24 @@ describe('the backdrop stack', () => {
    * from it is silently treated as un-occluded. Deriving the expectation from the manifest classes
    * means a fifth plane fails here until someone places it.
    */
-  it('holds every full-frame map layer in the manifest', () => {
-    const backdropClasses = ART_MANIFEST.filter(
-      (candidate) => candidate.class === 'plane' || candidate.class === 'plate',
+  it('holds every full-frame layer of the city map in the manifest', () => {
+    /*
+     * Derived rather than listed, so a parallax plane cannot be added without joining the stack.
+     *
+     * `plate` is the one class with a member outside this scene: `plate-district` is the ground of
+     * the player's own compound (§A1), which the district page draws by itself and the map never
+     * composites. It is named here rather than filtered by a pattern so that deleting it from the
+     * manifest fails loudly instead of quietly making this derivation vacuous.
+     */
+    const elsewhere = ['plate-district'];
+    for (const key of elsewhere) expect(findAssetSpec(key), key).toBeDefined();
+
+    const mapLayers = ART_MANIFEST.filter(
+      (candidate) =>
+        (candidate.class === 'plane' || candidate.class === 'plate') &&
+        !elsewhere.includes(candidate.key),
     ).map((candidate) => candidate.key);
-    expect([...BACKDROP_STACK].sort()).toEqual([...backdropClasses].sort());
+    expect([...BACKDROP_STACK].sort()).toEqual([...mapLayers].sort());
   });
 
   it('is ordered back to front, with the opaque plate in the middle', () => {

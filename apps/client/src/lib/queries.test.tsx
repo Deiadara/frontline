@@ -9,17 +9,17 @@ import type * as ApiModule from './api';
 const launchMission = vi.hoisted(() => vi.fn());
 const getMissions = vi.hoisted(() => vi.fn());
 const buildStructure = vi.hoisted(() => vi.fn());
-const attack = vi.hoisted(() => vi.fn());
+const attackPlace = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
   getMissions,
   buildStructure,
-  attack,
+  attackPlace,
 }));
 
 const { ApiRequestError } = await import('./api');
-const { queryKeys, useAttack, useBuildStructure, useLaunchMission, useMissions } =
+const { queryKeys, useAttackPlace, useBuildStructure, useLaunchMission, useMissions } =
   await import('./queries');
 const { useSession } = await import('../store/session');
 
@@ -48,7 +48,7 @@ beforeEach(() => {
   launchMission.mockReset();
   getMissions.mockReset();
   buildStructure.mockReset();
-  attack.mockReset();
+  attackPlace.mockReset();
   useSession.setState({ token: 'session-token', user: null });
 });
 
@@ -176,13 +176,21 @@ describe('a level-up refreshes the §G layer it moved', () => {
     expect(invalidated()).toEqual(expect.arrayContaining(LEVEL_SENSITIVE));
   });
 
-  it('refreshes the roster and the HUD after a raid that crossed one', async () => {
-    attack.mockResolvedValueOnce({ result: {}, resources: {}, levelUp: LEVELLED });
-    const { result, invalidated } = harness(() => useAttack('base-1'));
+  it('refreshes the roster, the map and the HUD after taking a place', async () => {
+    attackPlace.mockResolvedValueOnce({ result: {}, captured: true, returned: {}, base: {} });
+    const { result, invalidated } = harness(() => useAttackPlace('base-1', 'rustyard'));
 
     result.current.mutate({} as never);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(LEVEL_SENSITIVE));
+    // §A4 — a place changing hands moves the map, the district and this crew's own units.
+    expect(invalidated()).toEqual(
+      expect.arrayContaining([
+        JSON.stringify(queryKeys.city),
+        JSON.stringify(queryKeys.units),
+        JSON.stringify(queryKeys.district('rustyard')),
+      ]),
+    );
   });
 });

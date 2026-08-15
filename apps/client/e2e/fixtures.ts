@@ -1,5 +1,18 @@
 import {
   BAR_HIRES_PER_DAY,
+  COMBAT_CONTEXT_LABELS,
+  PLACE_KIND_CATALOG,
+  UNIT_CATALOG,
+  UNIT_MODIFIERS,
+  armyCapacity,
+  supplyUsed,
+  describeHoldBonus,
+  describeRequirement,
+  findDistrict,
+  unitsUnlockedByPlace,
+  type AttackPlaceResponse,
+  type DistrictDetailResponse,
+  type UnitsResponse,
   MODIFICATIONS,
   populationCapacity,
   addResources,
@@ -92,6 +105,8 @@ export const base: Base = {
     { id: 'b2', kind: 'generator', level: 1, modifications: [] },
   ],
   buildQueue: [],
+  army: { razors: 4 },
+  trainingQueue: [],
   commanders: [],
   createdAt: NOW,
 };
@@ -119,31 +134,151 @@ export const lateGameBase: Base = {
 
 export const lateGame: MeResponse = { user, overseer, base: lateGameBase };
 
+/**
+ * §A4 — the map as one crew sees it.
+ *
+ * Two districts are deliberately left **unscouted**, because the fog is the thing most worth
+ * having a fixture for: a screen that renders `held: null` as "0 / 0" is a screen that tells a
+ * player something they have not earned, and it only shows up when something is actually unseen.
+ */
+/** Named rather than positional, so reordering the map cannot silently reveal the fog case. */
+const UNSCOUTED = new Set(['chrome-row', 'glasshouse-fields']);
+
 export const city: CityResponse = {
-  districts: [...CITY_DISTRICTS],
-  bases: [
-    {
-      id: base.id,
-      ownerId: user.id,
-      name: base.name,
-      districtId: 'neon-docks',
-      level: 1,
-      isBot: false,
-    },
-    {
-      id: 'rival-1',
-      ownerId: 'user-2',
-      name: 'Vex Holdings',
-      districtId: 'ashen-terraces',
-      level: 4,
-      isBot: true,
-    },
-  ],
+  homeDistrictId: 'neon-docks',
+  serverNow: NOW,
+  districts: CITY_DISTRICTS.map((district, index) => {
+    const scouted = !UNSCOUTED.has(district.id);
+    const isHome = district.id === 'neon-docks';
+    return {
+      district,
+      scouted: scouted || isHome,
+      travelMinutes: 8 + index * 7,
+      holder: null,
+      held:
+        scouted && district.kind === 'contested'
+          ? { mine: index === 3 ? 1 : 0, total: district.places.length }
+          : null,
+      base:
+        district.id === 'neon-docks'
+          ? {
+              id: base.id,
+              ownerId: user.id,
+              name: base.name,
+              districtId: 'neon-docks',
+              level: 1,
+              isBot: false,
+            }
+          : district.id === 'ashen-terraces'
+            ? {
+                id: 'base-vex',
+                ownerId: 'user-vex',
+                name: 'Vex Holdings',
+                districtId: 'ashen-terraces',
+                level: 4,
+                isBot: true,
+              }
+            : null,
+      isHome,
+    };
+  }),
 };
 
 export const baseDetail: BaseDetailResponse = { base };
 
 const rewards = { scrap: 120, caps: 60 };
+
+/**
+ * §A4 — one contested district, scouted, with one place already taken.
+ *
+ * The Rustyard because it is where a new crew actually goes: easy ground, looters holding it, and
+ * a war machine graveyard at the back worth a campaign.
+ */
+const rustyard = findDistrict('rustyard');
+if (!rustyard) throw new Error('fixture error: the Rustyard is missing from the city map');
+
+export const districtDetail: DistrictDetailResponse = {
+  district: rustyard,
+  scouted: true,
+  travelMinutes: 24,
+  holder: null,
+  unified: { title: 'Run of the Scrapfields', effect: '-10% training cost' },
+  base: null,
+  raidable: false,
+  serverNow: NOW,
+  places: rustyard.places.map((place, index) => {
+    const spec = PLACE_KIND_CATALOG[place.kind];
+    const mine = index === 0;
+    return {
+      place,
+      holder: mine ? { kind: 'faction' as const, baseId: base.id } : { kind: 'looters' as const },
+      holderName: mine ? base.name : 'Looters',
+      fortification: mine ? 2 : 0,
+      fortifyingUntil: null,
+      defense: spec.baseDefense + index,
+      garrisonSize: mine ? 3 : index * 2,
+      garrison: mine ? { razors: 3 } : null,
+      bonus: describeHoldBonus(spec.bonus),
+      reward: spec.reward,
+      unlocks: unitsUnlockedByPlace(place.kind).map((unit) => unit.name),
+    };
+  }),
+};
+
+/** A place changing hands. The whole force comes home on a win — garrisoning is a second choice. */
+export const attackResult: AttackPlaceResponse = {
+  result: {
+    winner: 'attacker',
+    log: [
+      '4 moving on Kessler Press.',
+      'The looters have 2 on the ground here.',
+      'Kessler Press changes hands. The Ninth Street Crew holds it.',
+      '1 broke and ran; 1 did not.',
+    ],
+    rewards: {},
+  },
+  captured: true,
+  returned: { razors: 4 },
+  base,
+};
+
+/** §A5 — the roster as a crew four levels in sees it: some fielded, most still locked. */
+export const unitsResponse: UnitsResponse = {
+  serverNow: NOW,
+  army: base.army,
+  garrisoned: { razors: 2 },
+  // Derived rather than typed, so the fixture cannot quietly become a crew that is over its own
+  // cap — which is a real state, but a misleading one to make the default screenshot of.
+  supplyUsed: supplyUsed(base.army) + supplyUsed({ razors: 2 }),
+  supplyCap: armyCapacity(base.buildings),
+  queue: [],
+  resources: base.resources,
+  trainingCostReduction: 10,
+  trainingSpeedBonus: 0,
+  units: UNIT_CATALOG.map((unit) => {
+    const unlocked = unit.tier === 'rabble';
+    return {
+      id: unit.id,
+      name: unit.name,
+      tier: unit.tier,
+      blurb: unit.blurb,
+      trainedAt: unit.trainedAt,
+      unique: unit.unique,
+      stats: unit.stats,
+      modifiers: unit.modifiers.map((id) => ({
+        label: UNIT_MODIFIERS[id].label,
+        description: UNIT_MODIFIERS[id].description,
+        when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
+      })),
+      cost: unit.cost,
+      trainSeconds: unit.trainSeconds,
+      supply: unit.supply,
+      unlocked,
+      missing: unlocked ? [] : unit.requires.map(describeRequirement),
+      owned: base.army[unit.id] ?? 0,
+    };
+  }),
+};
 
 export const battle: BattleResponse = {
   result: {

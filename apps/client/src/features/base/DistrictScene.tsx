@@ -6,21 +6,38 @@ import {
   type BuildingKind,
   type BuildQueue,
 } from '@frontline/shared';
+import { deliveredUrl } from '../../assets/delivered';
 import { cn } from '../../lib/cn';
 import { ramps } from '../../theme/tokens';
 import { StructureSprite } from './sprites';
-import { DISTRICT_ASPECT, DISTRICT_HORIZON, DISTRICT_PLOTS } from './plots';
+import {
+  DISTRICT_ASPECT,
+  DISTRICT_BACK_EDGE,
+  DISTRICT_SITES_BY_DEPTH,
+  siteBox,
+  type DistrictSite,
+} from './plots';
 
 /**
- * The district as a place (GDD §A1): thirteen discrete, clickable plots standing on ground, which
- * is what replaces a list of structure rows. Clicking a plot opens its dialog — the Grepolis move —
- * so the scene itself never has to make room for a detail column and can use the full width at
- * every supported viewport.
+ * The district as a place (GDD §A1): one painted ground, with thirteen structures standing on it.
  *
- * A plot is in exactly one of four states, and each has to be legible at a glance from across the
- * scene: standing, being worked on, empty and buildable, or empty and locked behind the Nexus. The
- * name plate carries all four, because it is the only part of a plot guaranteed to be readable at
- * the smallest supported size.
+ * The Grepolis move, and the reason the structures are cutouts with an alpha channel rather than
+ * tiles: nothing frames them. A plot has no border, no panel, no hover fill — it is the drawing of
+ * the building, sitting on the drawing of the ground, and everything that makes it feel *placed*
+ * rather than pasted is done per-pixel through the sprite's own alpha:
+ *
+ *   * a **contact shadow** pooled at the ground line, so it stands on the terrace instead of
+ *     hovering over it;
+ *   * **atmospheric haze** tinted into the sprite and weighted by depth, so the back terrace sits
+ *     behind the front one the way the painted ground does;
+ *   * a **rim glow** on hover and focus that follows the silhouette, because a rectangle drawn
+ *     around a building is the one thing that would give the trick away.
+ *
+ * A plot is in one of four states, and each has to be legible at a glance: standing, being worked
+ * on, empty and buildable, or empty and locked behind the Nexus. Names are shown on hover and focus
+ * rather than always — a permanent plate on each of thirteen structures is the other thing that
+ * would undo the blend — but `working` and `locked` keep a small always-visible marker, because
+ * those two are what a player scans the district *for*.
  */
 
 interface DistrictSceneProps {
@@ -40,61 +57,92 @@ const PLATE_STYLES: Record<PlotState, string> = {
   locked: 'border-dashed border-steel-700 bg-night text-steel-400',
 };
 
+/**
+ * The states that keep a name plate even when the player is not pointing at them — which is every
+ * state except a structure that is simply standing.
+ *
+ * The blend the scene is built for is a blend of *buildings* into painted ground. An empty plot has
+ * no building to blend: it is a survey marker, and the only thing it can tell a player is which
+ * structure would go there and whether they may build it yet. Hiding that behind a hover made the
+ * one plot worth clicking — vacant and unlocked — the only plot with nothing written on it.
+ */
+const ALWAYS_PLATED: readonly PlotState[] = ['working', 'vacant', 'locked'];
+
 export function DistrictScene({ buildings, queue, selected, onSelect }: DistrictSceneProps) {
+  const plate = deliveredUrl({ type: 'plate', plate: 'district' });
+
   return (
     <div
       className="relative w-full overflow-hidden border border-neon-cyan/20 bg-night"
       style={{ aspectRatio: DISTRICT_ASPECT }}
       data-testid="district-scene"
     >
-      <Ground />
-      {DISTRICT_PLOTS.map((plot) => {
-        const spec = BUILDING_CATALOG[plot.kind];
-        const level = buildingLevel(buildings, plot.kind);
-        const working = queue.some((entry) => entry.kind === plot.kind);
+      {plate === null ? (
+        <Ground />
+      ) : (
+        <img
+          src={plate}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+          data-testid="district-plate"
+        />
+      )}
+
+      {DISTRICT_SITES_BY_DEPTH.map((site) => {
+        const spec = BUILDING_CATALOG[site.kind];
+        const level = buildingLevel(buildings, site.kind);
+        const working = queue.some((entry) => entry.kind === site.kind);
         const state: PlotState = working
           ? 'working'
           : level > 0
             ? 'standing'
-            : isBuildingUnlocked(plot.kind, buildings)
+            : isBuildingUnlocked(site.kind, buildings)
               ? 'vacant'
               : 'locked';
+        const box = siteBox(site);
 
         return (
           <button
-            key={plot.kind}
+            key={site.kind}
             type="button"
-            aria-pressed={selected === plot.kind}
-            aria-label={`${spec.name} — ${describe(state, level, plot.kind)}`}
-            onClick={() => onSelect(plot.kind)}
+            aria-pressed={selected === site.kind}
+            aria-label={`${spec.name} — ${describe(state, level, site.kind)}`}
+            onClick={() => onSelect(site.kind)}
+            data-testid={`plot-${site.kind}`}
             style={{
-              left: `${plot.x}%`,
-              top: `${plot.y}%`,
-              width: `${plot.width}%`,
-              height: `${plot.height}%`,
+              left: `${box.x}%`,
+              top: `${box.y}%`,
+              width: `${box.width}%`,
+              height: `${box.height}%`,
             }}
             className={cn(
-              'group absolute flex flex-col items-center justify-end gap-1 border border-transparent p-1 transition-colors',
-              'hover:border-neon-cyan/40 focus-visible:border-neon-cyan focus-visible:outline-none',
-              selected === plot.kind && 'border-neon-cyan/70 bg-neon-cyan/5',
+              'group absolute block bg-transparent p-0 focus:outline-none',
               // Locked plots stay clickable — the dialog is where a player finds out what would
-              // unlock them, and a plot that cannot be clicked cannot tell them. Dimmed only to
-              // 60%: the back row is drawn against the skyline, and 45% put its name plates below
-              // the point where they could be read at 1024px.
+              // unlock them, and a plot that cannot be clicked cannot tell them.
               state === 'locked' && 'opacity-60',
             )}
           >
-            <span className="min-h-0 w-full flex-1">
-              <StructureSprite kind={plot.kind} built={level > 0} />
-            </span>
+            <ContactShadow visible={level > 0} />
+            <StructureSprite
+              kind={site.kind}
+              built={level > 0}
+              haze={hazeFor(site)}
+              lit={selected === site.kind}
+            />
             <span
-              data-testid={`plot-label-${plot.kind}`}
+              data-testid={`plot-label-${site.kind}`}
               className={cn(
+                'pointer-events-none absolute left-1/2 top-full z-10 -translate-x-1/2 -translate-y-1/2',
                 'whitespace-nowrap border px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.12em]',
+                'transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100',
                 PLATE_STYLES[state],
+                selected === site.kind || ALWAYS_PLATED.includes(state)
+                  ? 'opacity-100'
+                  : 'opacity-0',
               )}
             >
-              {spec.shortName} {plate(state, level)}
+              {spec.shortName} {plate_(state, level)}
             </span>
           </button>
         );
@@ -103,8 +151,43 @@ export function DistrictScene({ buildings, queue, selected, onSelect }: District
   );
 }
 
+/**
+ * How much of the district's haze is mixed into a structure, 0–1.
+ *
+ * Taken off the site's ground line rather than its size, because depth is where it stands and not
+ * how big it was drawn — a small structure at the front is *near*. Linear between the horizon and
+ * the bottom of the scene, and capped well below 1: this is meant to seat a cutout in the painting,
+ * not to fog it out.
+ */
+export const MAX_STRUCTURE_HAZE = 0.24;
+
+export function hazeFor(site: DistrictSite): number {
+  const depth = (100 - site.baseline) / (100 - DISTRICT_BACK_EDGE);
+  return Math.max(0, Math.min(1, depth)) * MAX_STRUCTURE_HAZE;
+}
+
+/**
+ * The pool of shade a structure sits in.
+ *
+ * Drawn as its own ellipse rather than as a `drop-shadow` of the sprite: a drop shadow is the
+ * silhouette offset, which is a shadow cast on a *wall*. What seats a building on ground seen from
+ * above is a soft pool under its footprint, wider than it is tall.
+ */
+function ContactShadow({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute bottom-0 left-1/2 h-[14%] w-[86%] -translate-x-1/2 translate-y-1/3"
+      style={{
+        background: `radial-gradient(closest-side, ${ramps.abyss[950]}cc, transparent)`,
+      }}
+    />
+  );
+}
+
 /** The trailing half of a name plate: the level, or the symbol standing in for one. */
-function plate(state: PlotState, level: number): string {
+function plate_(state: PlotState, level: number): string {
   if (state === 'locked') return '🔒';
   if (state === 'working') return level > 0 ? `Lv ${level} ▲` : '▲';
   return level > 0 ? `Lv ${level}` : '—';
@@ -125,17 +208,21 @@ function describe(state: PlotState, level: number, kind: BuildingKind): string {
 }
 
 /**
- * The place the district sits in: sodium haze over an undercity skyline, then the scrap yard the
- * plots stand on (§A2 — broken-down, not chrome).
+ * The interim ground, drawn until `plate-district` is delivered.
+ *
+ * No sky and no horizon: the camera looks down at the compound, so the whole frame is ground. What
+ * the top of the frame shows is the perimeter the district ends at ({@link DISTRICT_BACK_EDGE}).
+ *
+ * Three bands of dirt with a lane of road between them, matching the site table's three rows —
+ * which is the shape `plate-district` has to be painted in, so the stand-in is a rehearsal of it
+ * rather than a different place. Deliberately almost bare: a busy placeholder gets read as the
+ * design and then argued with.
  *
  * Stretched to the scene box rather than fitted, so there is never a letterbox band of bare surface
- * at any aspect the frame ends up at. The skyline's baseline is {@link DISTRICT_HORIZON}, the same
- * number the back row's plots end on, so the far structures stand *on* the ground line instead of
- * floating over it — one constant, not two that have to be kept in sync by eye.
+ * at any aspect the frame ends up at.
  */
 function Ground() {
-  const { abyss, smog, ferrite, ember, bile } = ramps;
-  const horizon = DISTRICT_HORIZON;
+  const { abyss, smog, ferrite } = ramps;
   return (
     <svg
       viewBox="0 0 200 100"
@@ -144,51 +231,68 @@ function Ground() {
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id="district-sky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={abyss[950]} />
-          <stop offset="65%" stopColor={abyss[500]} />
-          <stop offset="100%" stopColor={smog[700]} />
+        {/* One gradient per band, each starting on the value the road above it ends on, so the
+            three read as one slope away from the viewer rather than three stripes. */}
+        <linearGradient id="district-far" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={smog[950]} />
+          <stop offset="100%" stopColor={ferrite[950]} />
         </linearGradient>
-        {/* Starts on the far silhouette's own colour, so the ground arrives without a seam. */}
-        <linearGradient id="district-dirt" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={abyss[700]} />
-          <stop offset="45%" stopColor={ferrite[950]} />
+        <linearGradient id="district-mid" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={smog[700]} />
+          <stop offset="100%" stopColor={ferrite[950]} />
+        </linearGradient>
+        <linearGradient id="district-near" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={ferrite[700]} />
           <stop offset="100%" stopColor={abyss[950]} />
         </linearGradient>
       </defs>
-      <rect x="0" y="0" width="200" height={horizon} fill="url(#district-sky)" />
 
-      {/* Far towers, then a nearer, darker row — the depth behind the settlement. */}
-      <g transform={`translate(0 ${horizon})`}>
-        <path
-          d="M0-16h12v-11h9v11h11v-18h10v18h14v-9h11v9h15v-15h9v15h16v-10h10v10h13v-14h10v14h14v-8h10v8h15v-13h9v13h12V0H0Z"
-          fill={smog[950]}
+      {/* The whole frame is dirt; the bands sit on top of it, so a road is the ground showing. */}
+      <rect x="0" y="0" width="200" height="100" fill={abyss[700]} />
+      <rect x="0" y="0" width="200" height={DISTRICT_BACK_EDGE} fill={abyss[950]} />
+
+      {ROW_BANDS.map((band) => (
+        <rect
+          key={band.top}
+          x="0"
+          y={band.top}
+          width="200"
+          height={band.bottom - band.top}
+          fill={band.fill}
         />
-        <g fill={ember[300]} opacity="0.55">
-          <rect x="15" y="-24" width="1.4" height="2" />
-          <rect x="35" y="-30" width="1.4" height="2" />
-          <rect x="38" y="-25" width="1.4" height="2" />
-          <rect x="93" y="-26" width="1.4" height="2" />
-          <rect x="146" y="-22" width="1.4" height="2" />
-        </g>
-        <rect x="115" y="-21" width="1.4" height="2" fill={bile[300]} opacity="0.5" />
-        <path
-          d="M0-8h17v-7h10v7h15v-12h11v12h17v-6h11v6h16v-10h10v10h17v-8h11v8h20v-9h9v9h9V0H0Z"
-          fill={abyss[700]}
+      ))}
+
+      {/* The lanes between the rows, and the lit lip where each band steps down into one. */}
+      {ROW_BANDS.map((band) => (
+        <rect
+          key={`lip-${band.bottom}`}
+          x="0"
+          y={band.bottom - 0.5}
+          width="200"
+          height="0.5"
+          fill={ferrite[500]}
+          opacity="0.28"
         />
+      ))}
+
+      {/* Ground furniture, kept faint and outside the pads: worn patches in the dirt. */}
+      <g fill={abyss[950]} opacity="0.22">
+        <ellipse cx="52" cy="35" rx="24" ry="2.5" />
+        <ellipse cx="146" cy="68" rx="28" ry="3" />
+        <ellipse cx="30" cy="99" rx="26" ry="2.5" />
       </g>
-
-      <rect x="0" y={horizon} width="200" height={100 - horizon} fill="url(#district-dirt)" />
-      {/* Scrap yard: the track the near row stands beside, spoil heaps, and a run of dead pipe. */}
-      <path
-        d={`M4 ${horizon + 26}q18-6 34 0t34 0 34 0 34 0 34 0`}
-        fill="none"
-        stroke={ferrite[950]}
-        strokeWidth="1"
-      />
-      <path d={`M12 ${horizon + 4}l4-3 4 3Z`} fill={ferrite[700]} opacity="0.35" />
-      <path d={`M176 ${horizon + 5}l5-4 5 4Z`} fill={ferrite[700]} opacity="0.35" />
-      <path d={`M99 ${horizon + 3}l3-2 3 2Z`} fill={ferrite[700]} opacity="0.3" />
     </svg>
   );
 }
+
+/**
+ * Where each row's ground band starts and ends, percent of scene height.
+ *
+ * The gaps between them are the site table's clear lanes — `plots.test.ts` pins that no structure
+ * ever stands in one, so a band edge can never cut a building off at the knees.
+ */
+const ROW_BANDS = [
+  { top: DISTRICT_BACK_EDGE, bottom: 30, fill: 'url(#district-far)' },
+  { top: 36, bottom: 64, fill: 'url(#district-mid)' },
+  { top: 70, bottom: 100, fill: 'url(#district-near)' },
+] as const;

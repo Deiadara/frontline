@@ -237,6 +237,8 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     assignees: startingAssignees(),
     buildings: [],
     buildQueue: [],
+    army: {},
+    trainingQueue: [],
     commanders: [
       createCommander(
         'held-1',

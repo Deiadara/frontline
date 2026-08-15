@@ -9,8 +9,9 @@ import {
   startingProgression,
   startingResearch,
   type Base,
-  type BattleEngine,
+  type SkirmishEngine,
   type BattleWinner,
+  skirmishOutcome,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -57,6 +58,8 @@ function seedBase(db: AppDatabase, repos: Repositories, level: number): Base {
     assignees: startingAssignees(),
     buildings: [],
     buildQueue: [],
+    army: {},
+    trainingQueue: [],
     commanders: [],
     createdAt: NOW,
   };
@@ -174,13 +177,14 @@ describe('XP source pricing (§I1)', () => {
  * currently stage — so this is the live wiring, not a unit test of it. The mission source (§E) is
  * wired at W3's resolution site by whoever lands second (INTERFACES §2 R7).
  */
-describe('POST /api/battle awards XP (§I1)', () => {
+describe('POST /api/city/attack awards XP (§I1)', () => {
   const raid = findDistrict('rustyard');
   if (!raid) throw new Error('fixture error: rustyard district missing');
   const raidId = raid.id;
+  const TARGET_PLACE = raid.places[0]?.id ?? '';
 
-  const engineThatAlways = (winner: BattleWinner): BattleEngine => ({
-    simulate: () => ({ winner, log: ['test'], rewards: {} }),
+  const engineThatAlways = (winner: BattleWinner): SkirmishEngine => ({
+    resolve: () => skirmishOutcome({ winner, log: ['test'] }),
   });
 
   async function raidOnce(winner: BattleWinner): Promise<Base> {
@@ -191,7 +195,7 @@ describe('POST /api/battle awards XP (§I1)', () => {
     const app = await buildApp({
       config,
       db,
-      battleEngine: engineThatAlways(winner),
+      skirmishEngine: engineThatAlways(winner),
       logger: false,
     });
     apps.push(app);
@@ -211,11 +215,18 @@ describe('POST /api/battle awards XP (§I1)', () => {
     });
     const baseId = created.json<{ base: { id: string } }>().base.id;
 
+    // §A4 — a fight is over a *place* now, and a place has to be seen before it is taken.
+    await app.inject({
+      method: 'POST',
+      url: '/api/city/scout',
+      headers,
+      payload: { districtId: raidId },
+    });
     const battle = await app.inject({
       method: 'POST',
-      url: '/api/battle',
+      url: '/api/city/attack',
       headers,
-      payload: { targetDistrictId: raidId },
+      payload: { placeId: TARGET_PLACE, force: { razors: 1 } },
     });
     expect(battle.statusCode).toBe(200);
 
@@ -239,10 +250,11 @@ describe('POST /api/battle awards XP (§I1)', () => {
  * MOU-227 — the raid that paid for the level-up is the only request that knows it happened. The
  * `Progression` panel catches up on the next base read; this is about announcing the moment.
  */
-describe('POST /api/battle announces the level-up it paid for (§I2, MOU-227)', () => {
+describe('POST /api/city/attack announces the level-up it paid for (§I2, MOU-227)', () => {
   const raid = findDistrict('rustyard');
   if (!raid) throw new Error('fixture error: rustyard district missing');
   const raidId = raid.id;
+  const TARGET_PLACE = raid.places[0]?.id ?? '';
 
   interface BattleBody {
     levelUp?: { level: number; levelsGained: number; grants: Record<string, number> };
@@ -257,7 +269,9 @@ describe('POST /api/battle announces the level-up it paid for (§I2, MOU-227)', 
     const app = await buildApp({
       config,
       db,
-      battleEngine: { simulate: () => ({ winner: 'attacker', log: ['test'], rewards: {} }) },
+      skirmishEngine: {
+        resolve: () => skirmishOutcome({ winner: 'attacker', log: ['test'] }),
+      },
       logger: false,
     });
     apps.push(app);
@@ -277,11 +291,18 @@ describe('POST /api/battle announces the level-up it paid for (§I2, MOU-227)', 
     const baseId = created.json<{ base: { id: string } }>().base.id;
     createRepositories(db).bases.updateProgression(baseId, 1, { xpIntoLevel });
 
+    // §A4 — a fight is over a *place* now, and a place has to be seen before it is taken.
+    await app.inject({
+      method: 'POST',
+      url: '/api/city/scout',
+      headers,
+      payload: { districtId: raidId },
+    });
     const battle = await app.inject({
       method: 'POST',
-      url: '/api/battle',
+      url: '/api/city/attack',
       headers,
-      payload: { targetDistrictId: raidId },
+      payload: { placeId: TARGET_PLACE, force: { razors: 1 } },
     });
     expect(battle.statusCode).toBe(200);
     return battle.json<BattleBody>();

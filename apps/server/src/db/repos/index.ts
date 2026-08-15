@@ -1,6 +1,7 @@
 import type { AppDatabase } from '../index.js';
 import { createBarRepo, type BarRepo } from './bar.js';
 import { createBasesRepo, type BasesRepo } from './bases.js';
+import { createCityRepo, type CityRepo } from './city.js';
 import { createBattlesRepo, type BattlesRepo } from './battles.js';
 import { createMissionsRepo, type MissionsRepo } from './missions.js';
 import { createOverseersRepo, type OverseersRepo } from './overseers.js';
@@ -15,6 +16,8 @@ export interface Repositories {
   missions: MissionsRepo;
   /** The Bar's shared seat turnover and hire log (GDD §H2, §H2b). */
   bar: BarRepo;
+  /** Who holds the city, and who has seen it (GDD §A4). */
+  city: CityRepo;
 }
 
 export function createRepositories(db: AppDatabase): Repositories {
@@ -25,5 +28,6 @@ export function createRepositories(db: AppDatabase): Repositories {
     battles: createBattlesRepo(db),
     missions: createMissionsRepo(db),
     bar: createBarRepo(db),
+    city: createCityRepo(db),
   };
 }

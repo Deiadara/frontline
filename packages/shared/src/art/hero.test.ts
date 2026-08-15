@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CITY_DISTRICTS } from '../city.js';
+import { CITY_DISTRICTS } from '../city/index.js';
 import { OVERSEER_PRESETS } from '../overseer.js';
 import { ART_MANIFEST, type AssetSpec } from './manifest.js';
 import {
@@ -12,11 +12,11 @@ import {
 
 describe('the hero set', () => {
   /**
-   * The number the board is given as a single instruction ("do these fifteen"). It is derived, so
+   * The number the board is given as a single instruction ("do these fourteen"). It is derived, so
    * this pins the derivation: adding a district must move it, and adding an alpha asset must not.
    */
-  it('is exactly the 4 overseer portraits and the 11 district illustrations', () => {
-    expect(HERO_ASSETS).toHaveLength(15);
+  it('is exactly the 4 overseer portraits and the 10 district illustrations', () => {
+    expect(HERO_ASSETS).toHaveLength(OVERSEER_PRESETS.length + CITY_DISTRICTS.length);
     expect(HERO_ASSET_KEYS).toEqual([
       ...OVERSEER_PRESETS.map((preset) => `portrait-${preset.portraitId}`),
       ...CITY_DISTRICTS.map((district) => `district-${district.id}`),
@@ -43,7 +43,7 @@ describe('the hero set', () => {
 
   it('excludes every asset that needs transparency, a post-process or a 16:9 canvas', () => {
     const excluded = ART_MANIFEST.filter((spec) => !isHeroAsset(spec));
-    expect(excluded).toHaveLength(ART_MANIFEST.length - 15);
+    expect(excluded).toHaveLength(ART_MANIFEST.length - HERO_ASSETS.length);
     for (const spec of excluded) {
       const blocked =
         spec.alpha || spec.postProcess.length > 0 || !isChatGptBaselineSize(spec.source);

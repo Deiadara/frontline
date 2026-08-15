@@ -1,112 +1,142 @@
 import {
-  CITY_DISTRICTS,
-  GOVERNMENT,
+  CONTESTED_DISTRICTS,
+  RESIDENTIAL_DISTRICTS,
   STARTER_DISTRICT_ID,
-  STARTING_RESOURCES,
-  isSeatOfGovernmentPower,
-  startingEconomy,
-  startingAssignees,
-  startingProgression,
-  startingResearch,
-  type Base,
+  findDistrict,
   type District,
+  type DistrictSummary,
 } from '@frontline/shared';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ContextPanel } from './ContextPanel';
 
-const deliveredUrl = vi.hoisted(() => vi.fn<() => string | null>(() => null));
-vi.mock('../../assets/delivered', () => ({ deliveredUrl }));
+/**
+ * The map's caption (GDD §A4).
+ *
+ * What is being pinned here is the *fog*: an unscouted district must not report how many places
+ * are in it, who is holding them, or anything else a crew has not earned. That is a rule the panel
+ * can only get wrong in one direction, and it is the direction that matters.
+ */
 
-beforeEach(() => deliveredUrl.mockClear().mockReturnValue(null));
+const MY_BASE = 'base-1';
 
-const raidSite = CITY_DISTRICTS.find((d) => d.kind === 'raid');
-if (!raidSite) throw new Error('expected a raid district in the city');
+const home = findDistrict(STARTER_DISTRICT_ID);
+const contested = CONTESTED_DISTRICTS[0];
+const neighbour = RESIDENTIAL_DISTRICTS.find((district) => district.id !== STARTER_DISTRICT_ID);
+if (!home || !contested || !neighbour) throw new Error('fixture error: the city map is incomplete');
 
-const myBase: Base = {
-  id: 'base-1',
-  ownerId: 'owner-1',
-  name: 'Deepwater Hold',
-  districtId: STARTER_DISTRICT_ID,
-  level: 3,
-  isBot: false,
-  resources: STARTING_RESOURCES,
-  economy: startingEconomy('2026-08-13T09:30:00.000Z'),
-  progression: startingProgression(),
-  research: startingResearch(),
-  assignees: startingAssignees(),
-  buildings: [],
-  buildQueue: [],
-  commanders: [],
-  createdAt: '2026-08-13T09:30:00.000Z',
-};
+function entry(district: District, over: Partial<DistrictSummary> = {}): DistrictSummary {
+  return {
+    district,
+    scouted: true,
+    travelMinutes: 20,
+    holder: null,
+    held: { mine: 0, total: district.places.length },
+    base: null,
+    isHome: false,
+    ...over,
+  };
+}
 
-const renderPanel = (selected: District | null) =>
+const renderPanel = (summary: DistrictSummary | null, handlers = {}) =>
   render(
     <MemoryRouter>
       <ContextPanel
-        selected={selected}
-        myBase={myBase}
-        bases={[]}
-        onAttack={() => undefined}
-        isAttacking={false}
+        entry={summary}
+        myBaseId={MY_BASE}
+        pending={false}
+        onScout={vi.fn()}
+        onEnter={vi.fn()}
+        onRaid={vi.fn()}
+        {...handlers}
       />
     </MemoryRouter>,
   );
 
-describe('ContextPanel district art', () => {
-  it('shows no image while the district still paints procedurally', () => {
-    expect(renderPanel(raidSite).container.querySelector('img')).toBeNull();
-  });
-
-  it('shows the delivered district illustration, addressed by district rather than by path', () => {
-    deliveredUrl.mockReturnValue('/assets/district-rustyard.webp');
-    const { container } = renderPanel(raidSite);
-    expect(deliveredUrl).toHaveBeenCalledWith({ type: 'district', districtId: raidSite.id });
-    expect(container.querySelector('img')).toHaveAttribute('src', '/assets/district-rustyard.webp');
-  });
-
-  it('asks for no art at all with nothing selected', () => {
+describe('the map caption', () => {
+  it('asks the player to pick somewhere when nothing is selected', () => {
     renderPanel(null);
-    expect(deliveredUrl).not.toHaveBeenCalled();
+    expect(screen.getByText(/pick somewhere on the map/i)).toBeInTheDocument();
+  });
+
+  it('names the district and how far away it is', () => {
+    renderPanel(entry(contested, { travelMinutes: 37 }));
+    expect(screen.getByRole('heading', { name: contested.name })).toBeInTheDocument();
+    expect(screen.getByText('37 min away')).toBeInTheDocument();
   });
 });
 
-describe('ContextPanel names who holds the ground (§A3)', () => {
-  const combineOutpost = CITY_DISTRICTS.find(
-    (d) => d.faction === 'government' && !isSeatOfGovernmentPower(d),
-  );
-  const seatOfPower = CITY_DISTRICTS.find(isSeatOfGovernmentPower);
-  const independentSite = CITY_DISTRICTS.find(
-    (d) => d.kind === 'raid' && d.faction !== 'government',
-  );
-  if (!combineOutpost || !seatOfPower || !independentSite) {
-    throw new Error('fixture error: the city map is missing a faction case');
-  }
+describe('fog of war (§A4)', () => {
+  it('says nothing about what is inside ground nobody has scouted', () => {
+    renderPanel(entry(contested, { scouted: false, held: null, holder: null }));
 
-  it('marks a Combine holding and says who holds it', () => {
-    const { getByText } = renderPanel(combineOutpost);
-    expect(getByText(GOVERNMENT.adjective)).toBeInTheDocument();
-    expect(getByText(new RegExp(`Held by ${GOVERNMENT.name}`))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /send scouts/i })).toBeInTheDocument();
+    // The counts are the thing that must not leak — not merely hidden behind a label.
+    expect(screen.queryByTestId('places-held')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /enter the district/i })).not.toBeInTheDocument();
   });
 
-  it('reads a seat of power as a claim on the state, not a raid', () => {
-    const { getByText } = renderPanel(seatOfPower);
-    expect(getByText('Seat of Power')).toBeInTheDocument();
-    expect(getByText(/claim on the state/)).toBeInTheDocument();
+  it('reports what is held once the crew has been', () => {
+    renderPanel(entry(contested, { held: { mine: 2, total: 4 } }));
+    expect(screen.getByTestId('places-held')).toHaveTextContent('2 / 4');
+    expect(screen.getByRole('button', { name: /enter the district/i })).toBeInTheDocument();
   });
 
-  it('does not call independent ground the government', () => {
-    const { queryByText } = renderPanel(independentSite);
-    expect(queryByText(GOVERNMENT.adjective)).toBeNull();
-    expect(queryByText(new RegExp(`Held by ${GOVERNMENT.name}`))).toBeNull();
+  it('calls a district yours only when you hold every place in it', () => {
+    const whole = renderPanel(
+      entry(contested, {
+        held: { mine: contested.places.length, total: contested.places.length },
+        holder: { kind: 'faction', baseId: MY_BASE },
+      }),
+    );
+    expect(whole.getByText('You')).toBeInTheDocument();
+    whole.unmount();
+
+    renderPanel(entry(contested, { held: { mine: 1, total: 4 }, holder: null }));
+    expect(screen.getByText(/it is split/i)).toBeInTheDocument();
+  });
+});
+
+describe('home ground (§A4)', () => {
+  it('offers no raid on your own district', () => {
+    renderPanel(
+      entry(home, {
+        isHome: true,
+        base: {
+          id: MY_BASE,
+          ownerId: 'owner-1',
+          name: 'Mine',
+          districtId: home.id,
+          level: 3,
+          isBot: false,
+        },
+      }),
+    );
+    expect(screen.getByText(/cannot be taken off you/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /plan a raid/i })).not.toBeInTheDocument();
   });
 
-  it('says nothing about factions on the base the player holds', () => {
-    const home = CITY_DISTRICTS.find((d) => d.id === STARTER_DISTRICT_ID);
-    if (!home) throw new Error('fixture error: no starter district');
-    const { queryByText } = renderPanel(home);
-    expect(queryByText(new RegExp(`Held by ${GOVERNMENT.name}`))).toBeNull();
+  it('offers a raid on somebody else’s, and never a capture', () => {
+    const onRaid = vi.fn();
+    renderPanel(
+      entry(neighbour, {
+        base: {
+          id: 'base-2',
+          ownerId: 'owner-2',
+          name: 'Vex Holdings',
+          districtId: neighbour.id,
+          level: 4,
+          isBot: true,
+        },
+      }),
+      { onRaid },
+    );
+
+    expect(screen.getByText('Vex Holdings')).toBeInTheDocument();
+    expect(screen.getByText(/never be captured/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /plan a raid/i }));
+    expect(onRaid).toHaveBeenCalledWith(neighbour.id);
   });
 });

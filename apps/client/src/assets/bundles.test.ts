@@ -26,7 +26,8 @@ describe('bundle partition', () => {
     };
     expect(bundleOf('icon-caps')).toBe('ui');
     expect(bundleOf('icon-archetype-netrunner')).toBe('overseer');
-    expect(bundleOf('icon-kind-npc-stronghold')).toBe('city');
+    expect(bundleOf('icon-kind-contested')).toBe('city');
+    expect(bundleOf('icon-place-power-station')).toBe('city');
   });
 
   it('puts the map plates and planes on the city screen', () => {
