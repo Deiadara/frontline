@@ -165,10 +165,29 @@ export function recruitId(day: string, index: number, generation: number): strin
  * `generations` is indexed by seat; a short or missing entry reads as an untouched seat, so a
  * caller that has not written a single row yet gets exactly the roster §H2a always produced.
  */
-export function barRoster(day: string, generations: readonly number[] = []): BarCharacter[] {
-  return Array.from({ length: BAR_ROSTER_SIZE }, (_, index) =>
+export function barRoster(
+  day: string,
+  generations: readonly number[] = [],
+  seats: number = BAR_ROSTER_SIZE,
+): BarCharacter[] {
+  return Array.from({ length: Math.max(BAR_ROSTER_SIZE, seats) }, (_, index) =>
     recruitAt(day, index, generations[index] ?? 0),
   );
+}
+
+/**
+ * §F2 — how many extra seats a well-known crew fills.
+ *
+ * Extra seats are *added* to the eight, never substituted for them: the room a crew with no
+ * reputation walks into is the same room it always was, so a Charisma bonus cannot quietly change
+ * who is in seat three. Rounded down and capped, because the Bar is a room and not a job fair.
+ */
+export const MAX_EXTRA_BAR_SEATS = 4;
+export const RECRUIT_POOL_PERCENT_PER_SEAT = 15;
+
+export function barSeatsFor(recruitPoolPercent: number): number {
+  const extra = Math.floor(Math.max(0, recruitPoolPercent) / RECRUIT_POOL_PERCENT_PER_SEAT);
+  return BAR_ROSTER_SIZE + Math.min(MAX_EXTRA_BAR_SEATS, extra);
 }
 
 /**
@@ -194,6 +213,7 @@ export function findBarRecruit(
   day: string,
   recruitId: string,
   generations: readonly number[] = [],
+  seats: number = BAR_ROSTER_SIZE,
 ): BarCharacter | undefined {
-  return barRoster(day, generations).find((recruit) => recruit.id === recruitId);
+  return barRoster(day, generations, seats).find((recruit) => recruit.id === recruitId);
 }

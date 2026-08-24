@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "district-template": "tsx district-template.ts"
+    "building-portraits": "tsx building-portraits.ts"
   },
   "dependencies": {
     "@frontline/shared": "workspace:*",

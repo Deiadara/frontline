@@ -13,7 +13,8 @@
 import { findAssetSpec, type AssetKey } from '@frontline/shared';
 import { Container, FillGradient, Graphics } from 'pixi.js';
 import { ramps, hex } from '../theme/tokens';
-import { generateSkyline, WINDOW_FILLS, type DepthBand, type Skyline } from './skyline';
+import { generateCityPlan, LAMP_FILLS, type CityPlan } from './cityplan';
+import { type DepthBand } from './skyline';
 import type { AssetSource } from '../assets/source';
 
 /** Which band each procedural map key paints as. */
@@ -25,66 +26,44 @@ const BAND_BY_KEY: Record<string, DepthBand> = {
 };
 
 /**
- * Night-sky backdrop: `abyss.950` overhead falling to a bruised `sear.950` horizon glow — the city
- * lighting its own smog from below (ART-BIBLE §3.3). Only the `sky` plane is opaque; every plane in
- * front of it composites over this.
+ * Wet ground, seen from above.
+ *
+ * The old backdrop was a night sky with a horizon glow in it, which is exactly what a plan view has
+ * none of. This is the floor instead: near-black asphalt with a slow warm pool through the middle,
+ * which is the city's own sodium light bouncing back off standing water. It is the one thing on the
+ * map that is genuinely flat, so it gets the only gradient.
  */
-function skyBackdrop(width: number, height: number): Graphics {
+function groundPlane(width: number, height: number, fill: string): Graphics {
   const gradient = new FillGradient({
     type: 'linear',
     start: { x: 0, y: 0 },
     end: { x: 0, y: 1 },
     textureSpace: 'local',
-    // The glow sits at 0.62–0.8, not at the very bottom: the bottom of the plate is buried under
-    // the nearer bands, so a horizon painted there is never seen. Placed here it rises *behind*
-    // the mid-city rooftops and silhouettes them, which is the whole job of a horizon.
     colorStops: [
-      { offset: 0, color: ramps.abyss[950] },
-      { offset: 0.4, color: ramps.abyss[700] },
-      { offset: 0.62, color: ramps.smog[950] },
-      { offset: 0.8, color: ramps.sear[950] },
-      { offset: 1, color: ramps.abyss[950] },
+      { offset: 0, color: ramps.abyss[500] },
+      { offset: 0.4, color: fill },
+      { offset: 0.7, color: ramps.smog[500] },
+      { offset: 1, color: ramps.abyss[300] },
     ],
   });
   const g = new Graphics();
-  g.label = 'sky-backdrop';
+  g.label = 'ground';
   g.rect(0, 0, width, height).fill(gradient);
   return g;
 }
 
 /**
- * Sodium haze pooling along the skyline base. Additive so it reads as light in the air rather than
- * as a grey wash over the architecture.
- */
-function groundHaze(width: number, height: number): Graphics {
-  const gradient = new FillGradient({
-    type: 'linear',
-    start: { x: 0, y: 0 },
-    end: { x: 0, y: 1 },
-    textureSpace: 'local',
-    colorStops: [
-      { offset: 0, color: `${ramps.ember[700]}00` },
-      { offset: 1, color: `${ramps.ember[700]}5c` },
-    ],
-  });
-  const g = new Graphics();
-  g.label = 'ground-haze';
-  g.blendMode = 'add';
-  g.rect(0, height * 0.62, width, height * 0.38).fill(gradient);
-  return g;
-}
-
-/**
- * Depth fog for a band, drawn over its own masses only — each band is its own container, so the
- * haze fogs what is behind it and nothing in front. Atmospheric perspective is what stops a
- * distant tower reading as a flat slab: its base dissolves while its top edge stays crisp, which
- * is the difference between a painted skyline and a stack of rectangles (ART-BIBLE §3.2).
+ * Air over the ground, per band.
  *
- * `null` for the near bands — fogging the layer the player reads would only mute it.
+ * A plan view has no horizon to fade into, so this is not aerial perspective — it is the smog that
+ * sits *in* the streets. It pools toward the bottom of each band, which is the direction the camera
+ * is looking away down, and it is what keeps a far block from reading as sharply as a near one.
+ *
+ * `null` for the near bands: fogging the layer the player is reading would only mute it.
  */
 const BAND_FOG: Partial<Record<DepthBand, { color: string; alpha: number }>> = {
-  sky: { color: ramps.smog[700], alpha: 0.62 },
-  far: { color: ramps.smog[950], alpha: 0.45 },
+  sky: { color: ramps.smog[950], alpha: 0.4 },
+  far: { color: ramps.smog[950], alpha: 0.28 },
 };
 
 function bandFog(band: DepthBand, width: number, height: number): Graphics | null {
@@ -100,8 +79,8 @@ function bandFog(band: DepthBand, width: number, height: number): Graphics | nul
     end: { x: 0, y: 1 },
     textureSpace: 'local',
     colorStops: [
-      { offset: 0, color: to(0) },
-      { offset: 0.45, color: to(fog.alpha * 0.35) },
+      { offset: 0, color: to(fog.alpha * 0.5) },
+      { offset: 0.5, color: to(fog.alpha * 0.2) },
       { offset: 1, color: to(fog.alpha) },
     ],
   });
@@ -111,36 +90,65 @@ function bandFog(band: DepthBand, width: number, height: number): Graphics | nul
   return g;
 }
 
-/** One filled polygon per tower, then one batched pass per window tint. */
-function paintTowers(skyline: Skyline): Container {
-  const masses = new Graphics();
-  masses.label = 'masses';
+/**
+ * One band of the plan: ground, water, lanes, blocks, roofs, lamps — in that order, because that is
+ * the order they sit in on the ground.
+ *
+ * Lamps are drawn into their own additive layer rather than per roof. Two reasons: the bloom pass
+ * (`grade.ts`) thresholds on brightness and wants the emissives isolated, and batching every lamp
+ * into one `Graphics` keeps a plane with three hundred roofs to a handful of draw calls.
+ */
+export function paintCityPlan(plan: CityPlan): Container {
+  const root = new Container();
+  root.label = `plan-${plan.band}`;
+
+  if (plan.ground !== null) root.addChild(groundPlane(plan.width, plan.height, plan.ground));
+
+  if (plan.canal) {
+    const water = new Graphics();
+    water.label = 'canal';
+    water.poly(plan.canal.outline).fill(hex(plan.canal.fill));
+    root.addChild(water);
+  }
+
+  if (plan.lanes.length > 0) {
+    const lanes = new Graphics();
+    lanes.label = 'lanes';
+    for (const lane of plan.lanes) {
+      const [first, ...rest] = lane.points;
+      if (!first) continue;
+      lanes.moveTo(first.x, first.y);
+      for (const point of rest) lanes.lineTo(point.x, point.y);
+      lanes.stroke({ width: lane.width, color: hex(lane.fill), alpha: 0.75, cap: 'round' });
+    }
+    root.addChild(lanes);
+  }
+
+  const ground = new Graphics();
+  ground.label = 'blocks';
+  const roofs = new Graphics();
+  roofs.label = 'roofs';
   const warm = new Graphics();
   const cold = new Graphics();
-  warm.label = 'windows-warm';
-  cold.label = 'windows-cold';
+  warm.label = 'lamps-warm';
+  cold.label = 'lamps-cold';
 
-  for (const tower of skyline.towers) {
-    masses.poly(tower.outline).fill(hex(tower.fill));
-    for (const cell of tower.windows) {
-      (cell.warm ? warm : cold).rect(cell.x, cell.y, cell.w, cell.h);
+  for (const block of plan.blocks) {
+    ground.poly(block.outline).fill(hex(block.fill));
+    for (const roof of block.roofs) {
+      roofs.poly(roof.outline).fill(hex(roof.fill));
+      if (roof.lamp) {
+        (roof.lamp.warm ? warm : cold).circle(roof.lamp.x, roof.lamp.y, roof.lamp.r);
+      }
     }
   }
-  // Gantries last, so a catwalk reads as strung in front of the masses it ties together.
-  for (const strut of skyline.struts) {
-    masses.poly(strut.outline).fill(hex(strut.fill));
-  }
-  warm.fill({ color: hex(WINDOW_FILLS.warm), alpha: 0.85 });
-  cold.fill({ color: hex(WINDOW_FILLS.cold), alpha: 0.7 });
-
-  // Emissives are additive so the bloom threshold (grade.ts) catches them and nothing else.
+  warm.fill({ color: hex(LAMP_FILLS.warm), alpha: 0.9 });
+  cold.fill({ color: hex(LAMP_FILLS.cold), alpha: 0.75 });
   warm.blendMode = 'add';
   cold.blendMode = 'add';
 
-  const layer = new Container();
-  layer.label = `skyline-${skyline.band}`;
-  layer.addChild(masses, warm, cold);
-  return layer;
+  root.addChild(ground, roofs, warm, cold);
+  return root;
 }
 
 /**
@@ -155,11 +163,9 @@ export function paintProceduralPlane(
 ): Container {
   const root = new Container();
   root.label = `procedural-${band}`;
-  if (band === 'sky') root.addChild(skyBackdrop(width, height));
-  root.addChild(paintTowers(generateSkyline(band, width, height, seed)));
+  root.addChild(paintCityPlan(generateCityPlan(band, width, height, seed)));
   const fog = bandFog(band, width, height);
   if (fog) root.addChild(fog);
-  if (band !== 'fore') root.addChild(groundHaze(width, height));
   return root;
 }
 

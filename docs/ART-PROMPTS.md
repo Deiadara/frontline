@@ -41,7 +41,7 @@ gone dark. Cinematic, moody, beautiful and quietly haunting.
 ### 0.2 NEGATIVE — apply to every prompt
 
 ```
-text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption,
+watermark, signature, ui overlay, hud, frame, border, caption,
 flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art,
 3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly,
 photograph, photorealistic skin pores, stock photo,
@@ -369,7 +369,8 @@ stacks, a burnt-out chassis, cable runs pinned along the wall, drying laundry st
 poles. Value kept in the middle range (#1e293b to #55617e), the ground reading a step warmer and
 darker as it comes toward the viewer. Cold #22d3ee key from upper left, weak sodium #f59e0b
 bounce. Emissives are small, sparse and at ground level: a strung bulb line, a marker lamp, a
-brazier. No buildings. Nothing on the pads. No text.
+brazier. No buildings. Nothing on the pads. Painted signage, hoardings and graffiti are part of the
+street and welcome; nothing that reads as a label for a game object.
 ```
 
 ---
@@ -586,7 +587,7 @@ the central horizontal eighth of the canvas; the rest is fully transparent.
 
 ---
 
-## 6. Icons — 31 assets
+## 6. Icons — 53 assets
 
 **Class framing:**
 
@@ -627,32 +628,54 @@ central seventy percent. Consistent implied light from upper-left across the who
 
 One marker per _kind_ of place, not per place: thirty-one places share twenty kinds, and a player reads the kind off the map.
 
-| Key                                | Seed     | Subject                                                                                                                                             |
-| ---------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `icon-place-scrap-press`           | `160031` | `SUBJECT: A baling press seen from above with a squared bale on the outfeed and a scatter of loose swarf, warm #f59e0b rust tones.`                 |
-| `icon-place-chemical-plant`        | `160032` | `SUBJECT: Three cracking towers of descending height joined by a pipe run, one venting a pale #86e6a8 plume.`                                       |
-| `icon-place-power-station`         | `160033` | `SUBJECT: A transformer bank of four ribbed cylinders behind a mesh fence, cold #22d3ee arc light between two of them.`                             |
-| `icon-place-water-works`           | `160034` | `SUBJECT: Two circular settling beds seen from above with a radial sweep arm on each, water reading as flat #12a2bd.`                               |
-| `icon-place-foundry`               | `160035` | `SUBJECT: A cupola furnace with a tapping spout, the pour glowing #ffd166 across the floor plate beneath it.`                                       |
-| `icon-place-market`                | `160036` | `SUBJECT: A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp point between them.`                            |
-| `icon-place-pawn-shop`             | `160037` | `SUBJECT: A barred serving hatch in a blank wall with three hanging balls above it, one warm #f59e0b lamp inside the bars.`                         |
-| `icon-place-high-ground`           | `160038` | `SUBJECT: A water tower on lattice legs above a rooftop parapet, seen at a low angle, cold rim light along the tank.`                               |
-| `icon-place-barricade`             | `160039` | `SUBJECT: A staggered line of sea containers and rubble with rebar teeth, seen from above, one narrow gap left through it.`                         |
-| `icon-place-armory`                | `160040` | `SUBJECT: A heavy vault door standing ajar in a blank concrete face, weapon racks visible as silhouettes in the #f59e0b light beyond.`              |
-| `icon-place-war-machine-graveyard` | `160041` | `SUBJECT: Three dead armoured hulls half sunk in mud, tracks shed, one turret canted skyward, cold smog between them.`                              |
-| `icon-place-university`            | `160042` | `SUBJECT: A colonnaded facade with a broken pediment, one lit window in an upper storey, cyan #22d3ee light behind the glass.`                      |
-| `icon-place-satellite-uplink`      | `160043` | `SUBJECT: A parabolic dish on a guyed mast, hand-aligned and slightly off true, cold #7ff0ff light at the feed horn.`                               |
-| `icon-place-gene-clinic`           | `160044` | `SUBJECT: A sealed theatre door with a porthole and a cold-storage cabinet beside it, sterile white light through the port.`                        |
-| `icon-place-fight-pit`             | `160045` | `SUBJECT: A sunken circular ring seen from above with a standing crowd ringing it, warm #f59e0b lamps on poles around the rim.`                     |
-| `icon-place-skate-ground`          | `160046` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.` |
-| `icon-place-hospital`              | `160047` | `SUBJECT: A four-bay ambulance canopy with a repainted cross panel above it, warm light spilling from the entrance.`                                |
-| `icon-place-rail-yard`             | `160048` | `SUBJECT: Converging sidings around a turntable seen from above, two flatbeds parked off-centre, cold light along the rail heads.`                  |
-| `icon-place-broadcast-tower`       | `160049` | `SUBJECT: A lattice transmitter mast with three stacked dipole arrays, a single #e11d8f obstruction light at the top.`                              |
-| `icon-place-sewer-junction`        | `160050` | `SUBJECT: A brick chamber where six storm drains meet, seen from above, standing water reading as dark #12a2bd with one shaft of light.`            |
+| Key                                   | Seed     | Subject                                                                                                                                             |
+| ------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon-location-scrap-press`           | `160031` | `SUBJECT: A baling press seen from above with a squared bale on the outfeed and a scatter of loose swarf, warm #f59e0b rust tones.`                 |
+| `icon-location-chemical-plant`        | `160032` | `SUBJECT: Three cracking towers of descending height joined by a pipe run, one venting a pale #86e6a8 plume.`                                       |
+| `icon-location-power-station`         | `160033` | `SUBJECT: A transformer bank of four ribbed cylinders behind a mesh fence, cold #22d3ee arc light between two of them.`                             |
+| `icon-location-water-works`           | `160034` | `SUBJECT: Two circular settling beds seen from above with a radial sweep arm on each, water reading as flat #12a2bd.`                               |
+| `icon-location-foundry`               | `160035` | `SUBJECT: A cupola furnace with a tapping spout, the pour glowing #ffd166 across the floor plate beneath it.`                                       |
+| `icon-location-gas-station`           | `160036` | `SUBJECT: A forecourt canopy seen from above on four thin posts, two pump islands beneath it, a warm #f59e0b spill reading as fuel on the apron.`   |
+| `icon-location-nuclear-plant`         | `160037` | `SUBJECT: Two hyperboloid cooling towers with a low turbine hall between them, a cold #86e6a8 glow in the reactor block.`                           |
+| `icon-location-soup-kitchen`          | `160038` | `SUBJECT: A long trestle table seen from above with two steaming vats at one end and a queue of small marks along it, warm #f59e0b light.`          |
+| `icon-location-market`                | `160039` | `SUBJECT: A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp point between them.`                            |
+| `icon-location-downtown-market`       | `160040` | `SUBJECT: An exchange floor seen from above, a ring of desks around an open pit with a price board on the far wall in #22d3ee.`                     |
+| `icon-location-pawn-shop`             | `160041` | `SUBJECT: A barred serving hatch in a blank wall with three hanging balls above it, one warm #f59e0b lamp inside the bars.`                         |
+| `icon-location-bone-market`           | `160042` | `SUBJECT: A row of low stalls under a bare frame, pale #cbd5e1 sorted remains laid out on the boards.`                                              |
+| `icon-location-revolutionist-statue`  | `160043` | `SUBJECT: A bronze figure on a tall plinth with one arm raised, seen three-quarter from above, warm #f59e0b rim light down one side.`               |
+| `icon-location-high-ground`           | `160044` | `SUBJECT: A water tower on lattice legs above a rooftop parapet, seen at a low angle, cold rim light along the tank.`                               |
+| `icon-location-barricade`             | `160045` | `SUBJECT: A staggered line of sea containers and rubble with rebar teeth, seen from above, one narrow gap left through it.`                         |
+| `icon-location-watchtower`            | `160046` | `SUBJECT: A lattice mast with a small glazed cabin at the top, a cold #22d3ee lamp in the cabin.`                                                   |
+| `icon-location-sewer-junction`        | `160047` | `SUBJECT: A brick chamber where six storm drains meet, seen from above, standing water reading as dark #12a2bd with one shaft of light.`            |
+| `icon-location-smugglers-tunnel`      | `160048` | `SUBJECT: A timbered tunnel mouth cut into a retaining wall, rails running out of it, unlit interior in deep #0b1020.`                              |
+| `icon-location-armory`                | `160049` | `SUBJECT: A heavy vault door standing ajar in a blank concrete face, weapon racks visible as silhouettes in the #f59e0b light beyond.`              |
+| `icon-location-war-machine-graveyard` | `160050` | `SUBJECT: Three dead armoured hulls half sunk in mud, tracks shed, one turret canted skyward, cold smog between them.`                              |
+| `icon-location-construction-site`     | `160051` | `SUBJECT: A tower crane over a poured concrete raft with rebar stubs, seen from above, warm #f59e0b hazard marks on the base.`                      |
+| `icon-location-fight-pit`             | `160052` | `SUBJECT: A sunken circular ring seen from above with a standing crowd ringing it, warm #f59e0b lamps on poles around the rim.`                     |
+| `icon-location-gym`                   | `160053` | `SUBJECT: A barbell on a rack with two stacked plate trees beside it, seen three-quarter, worn #cbd5e1 iron.`                                       |
+| `icon-location-doghouse`              | `160054` | `SUBJECT: A row of three kennels under a low roof with a wire run in front, a single #22d3ee augment light at one door.`                            |
+| `icon-location-rail-yard`             | `160055` | `SUBJECT: Converging sidings around a turntable seen from above, two flatbeds parked off-centre, cold light along the rail heads.`                  |
+| `icon-location-tram-depot`            | `160056` | `SUBJECT: A depot shed with three parallel roads running into it, one tram nose showing, overhead line in cold #22d3ee.`                            |
+| `icon-location-university`            | `160057` | `SUBJECT: A colonnaded facade with a broken pediment, one lit window in an upper storey, cyan #22d3ee light behind the glass.`                      |
+| `icon-location-planetarium`           | `160058` | `SUBJECT: A ribbed dome with a slit at the apex, a projector silhouette inside it, cold #22d3ee light escaping.`                                    |
+| `icon-location-satellite-uplink`      | `160059` | `SUBJECT: A parabolic dish on a guyed mast, hand-aligned and slightly off true, cold #7ff0ff light at the feed horn.`                               |
+| `icon-location-broadcast-tower`       | `160060` | `SUBJECT: A lattice transmitter mast with three stacked dipole arrays, a single #e11d8f obstruction light at the top.`                              |
+| `icon-location-broadcast-station`     | `160061` | `SUBJECT: A studio console seen from above with two microphone booms and a lit ON AIR panel in #e11d8f.`                                            |
+| `icon-location-pirate-radio`          | `160062` | `SUBJECT: A wire aerial strung between two rooftop poles with a small transmitter case beneath it, a single #e11d8f indicator.`                     |
+| `icon-location-gene-clinic`           | `160063` | `SUBJECT: A sealed theatre door with a porthole and a cold-storage cabinet beside it, sterile white light through the port.`                        |
+| `icon-location-hospital`              | `160064` | `SUBJECT: A four-bay ambulance canopy with a repainted cross panel above it, warm light spilling from the entrance.`                                |
+| `icon-location-black-clinic`          | `160065` | `SUBJECT: A steel trolley with a locked cabinet above it and three syringes laid in a row, cold #22d3ee lamp overhead.`                             |
+| `icon-location-mad-scientist-lair`    | `160066` | `SUBJECT: A cylindrical specimen tank with cabling running to an operating table beside it, sick #86e6a8 light inside the tank.`                    |
+| `icon-location-tavern`                | `160067` | `SUBJECT: A long bar seen three-quarter from above with four stools and hanging glasses, warm #f59e0b light pooling on it.`                         |
+| `icon-location-cinema`                | `160068` | `SUBJECT: A projector on a stand throwing a cone of pale #cbd5e1 light towards a small bright screen.`                                              |
+| `icon-location-arcade`                | `160069` | `SUBJECT: Three upright cabinets side by side seen three-quarter, screens reading as #e11d8f and #22d3ee glow.`                                     |
+| `icon-location-skate-ground`          | `160070` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.` |
+| `icon-location-chapel`                | `160071` | `SUBJECT: A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one narrow window.`                                |
+| `icon-location-graveyard`             | `160072` | `SUBJECT: Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8 stone, one lamp at the gate in #f59e0b.`           |
 
 ---
 
-## 7. Unit roster portraits — 27 assets
+## 7. Unit roster portraits — 29 assets
 
 **Class framing:**
 
@@ -701,231 +724,176 @@ Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
 ### 7.1 `unit-razors`
 
 ```
-SUBJECT: A lean street fighter in a cut-down jacket over bare arms, holding a ground-down
-machete low and away from the body. Cloth wrapped from knuckle to elbow in place of armour, one
-shoulder taped. Expression flat and unbothered; cold #22d3ee key along the blade edge, warm
-#f59e0b bounce off the wrapped forearm.
+SUBJECT: A lean street fighter in a cut-down jacket over bare arms, holding a ground-down machete low and away from the body. Cloth wrapped from knuckle to elbow in place of armour, one shoulder taped. Expression flat and unbothered; cold #22d3ee key along the blade edge, warm #f59e0b bounce off the wrapped forearm.
 ```
 
-### 7.2 `unit-sparks`
+### 7.2 `unit-anodics`
 
 ```
-SUBJECT: A teenager holding a home-made electrical lance — a scaffold pole with a capacitor bank
-taped along it and two bare contacts at the tip. Welding goggles pushed up on the forehead,
-hands gloved in mismatched rubber. A single #7ff0ff arc crawling between the contacts is the
-brightest thing in frame, and it lights the face from below.
+SUBJECT: A short, densely built figure in a stretched cardigan over a stained shirt, sleeves shoved to the elbow, forearms thick. A narrow strip of hair, no more than two fingers wide, stiff and short — the rest of the scalp shaved down. One hand around the neck of a small brown bottle with a hand-lettered label, held like a tool rather than a drink; the other loose and open at the hip. Reading glasses pushed up into the mohawk. Pupils blown wide, jaw set, entirely calm in a way that is not restful. Warm #f59e0b key from below as if from a floor lamp, cold #22d3ee rim along the shoulders.
 ```
 
-### 7.3 `unit-scrapers`
+### 7.3 `unit-sparks`
 
 ```
-SUBJECT: A wiry scavenger in a patched canvas coat with a salvage hook over one shoulder and a
-strap of pouches across the chest, goggles up on the brow. Light plate lashed to one shoulder
-with rope. Half-turned as if already leaving, warm ochre midtones against a cold rim.
+SUBJECT: A teenager holding a home-made electrical lance — a scaffold pole with a capacitor bank taped along it and two bare contacts at the tip. Welding goggles pushed up on the forehead, hands gloved in mismatched rubber. A single #7ff0ff arc crawling between the contacts is the brightest thing in frame, and it lights the face from below.
 ```
 
-### 7.4 `unit-muckrakers`
+### 7.4 `unit-scrapers`
 
 ```
-SUBJECT: A stooped figure in a slick waders-and-oilcloth rig, hood back, carrying a bulging
-drag-sack roped shut at the neck and a short gaff. Chest-high tide line of grey silt dried on
-the rubber. Pale #86e6a8 light from a lamp clipped at the hip, everything above it in shadow.
+SUBJECT: A wiry scavenger in a patched canvas coat with a salvage hook over one shoulder and a strap of pouches across the chest, goggles up on the brow. Light plate lashed to one shoulder with rope. Half-turned as if already leaving, warm ochre midtones against a cold rim.
 ```
 
-### 7.5 `unit-breakers`
+### 7.5 `unit-muckrakers`
 
 ```
-SUBJECT: A heavyset door-breacher braced behind a scuffed steel ram held two-handed across the
-body, forearms and shins plated in bolted scrap. Face guard hinged up to show a broken nose and
-a jaw set for the next one. Hard cold key across the ram face, warm bounce under the plates.
+SUBJECT: A stooped figure in a slick waders-and-oilcloth rig, hood back, carrying a bulging drag-sack roped shut at the neck and a short gaff. Chest-high tide line of grey silt dried on the rubber. Pale #86e6a8 light from a lamp clipped at the hip, everything above it in shadow.
 ```
 
-### 7.6 `unit-wardens`
+### 7.6 `unit-breakers`
 
 ```
-SUBJECT: A defender behind a tall salvaged shield planted on the ground, one hand on its rim and
-a short spear upright in the other. Layered plate over a padded coat, everything scuffed at the
-front and clean at the back. Composed, unhurried, watching past the viewer.
+SUBJECT: A heavyset door-breacher braced behind a scuffed steel ram held two-handed across the body, forearms and shins plated in bolted scrap. Face guard hinged up to show a broken nose and a jaw set for the next one. Hard cold key across the ram face, warm bounce under the plates.
 ```
 
-### 7.7 `unit-ghosts`
+### 7.7 `unit-wardens`
 
 ```
-SUBJECT: A slight figure in a matte grey wrap suit with a soft hood and a scarf over the mouth,
-holding a suppressed carbine down along the leg. No hard edges and no shine anywhere on the
-fabric — the only speculars are the eyes and a thin #22d3ee line along the optic.
+SUBJECT: A defender behind a tall salvaged shield planted on the ground, one hand on its rim and a short spear upright in the other. Layered plate over a padded coat, everything scuffed at the front and clean at the back. Composed, unhurried, watching past the viewer.
 ```
 
-### 7.8 `unit-road-reavers`
+### 7.8 `unit-ghosts`
 
 ```
-SUBJECT: A rider in a studded leather cut over a fuel-stained undersuit, one arm through a
-scavenged fairing used as a shield, a length of chain looped at the belt. Riding goggles down,
-hair and scarf still moving. Warm #f59e0b headlamp glare from below and behind the shoulder.
+SUBJECT: A slight figure in a matte grey wrap suit with a soft hood and a scarf over the mouth, holding a suppressed carbine down along the leg. No hard edges and no shine anywhere on the fabric — the only speculars are the eyes and a thin #22d3ee line along the optic.
 ```
 
-### 7.9 `unit-ironsides`
+### 7.9 `unit-road-reavers`
 
 ```
-SUBJECT: A soldier encased front-on in overlapping salvaged plate — road sign, hull steel, a car
-door panel — strapped over a padded frame, with a slit visor and a short blade held close. Wide,
-immovable stance. Cold light rakes across the mismatched plates and finds a different colour in
-each.
+SUBJECT: A rider in a studded leather cut over a fuel-stained undersuit, one arm through a scavenged fairing used as a shield, a length of chain looped at the belt. Riding goggles down, hair and scarf still moving. Warm #f59e0b headlamp glare from below and behind the shoulder.
 ```
 
-### 7.10 `unit-ash-walkers`
+### 7.10 `unit-ironsides`
 
 ```
-SUBJECT: A trooper in a taped chemical suit and full-face respirator with two round filter drums
-at the cheeks, one gloved hand steadying a hose that runs into the pack. Suit fabric bleached
-and stiffened by exposure. Lens glass takes a flat #12a2bd reflection and shows nothing behind
-it.
+SUBJECT: A soldier encased front-on in overlapping salvaged plate — road sign, hull steel, a car door panel — strapped over a padded frame, with a slit visor and a short blade held close. Wide, immovable stance. Cold light rakes across the mismatched plates and finds a different colour in each.
 ```
 
-### 7.11 `unit-snipers`
+### 7.11 `unit-ash-walkers`
 
 ```
-SUBJECT: A marksman kneeling with a long bolt-action rifle across the raised knee, wrapped in a
-ghillie of shredded grey rag, hood down and hair flattened by it. Face bare and very still. One
-narrow cold highlight down the barrel; everything else sinks into the ground tone.
+SUBJECT: A trooper in a taped chemical suit and full-face respirator with two round filter drums at the cheeks, one gloved hand steadying a hose that runs into the pack. Suit fabric bleached and stiffened by exposure. Lens glass takes a flat #12a2bd reflection and shows nothing behind it.
 ```
 
-### 7.12 `unit-stitchers`
+### 7.12 `unit-snipers`
 
 ```
-SUBJECT: A field medic in a rolled-sleeve coat with a heavy satchel across the body and a strip
-of surgical tape on the forearm holding a spare line in place. Both hands busy — one clamping a
-dressing, one reaching. Warm #ffd166 light from a headband lamp turned down onto the work.
+SUBJECT: A marksman kneeling with a long bolt-action rifle across the raised knee, wrapped in a ghillie of shredded grey rag, hood down and hair flattened by it. Face bare and very still. One narrow cold highlight down the barrel; everything else sinks into the ground tone.
 ```
 
-### 7.13 `unit-demolishers`
+### 7.13 `unit-stitchers`
 
 ```
-SUBJECT: A sapper in a heavy apron over reinforced overalls, a bandolier of shaped charges
-across the chest and a spool of det cord hooked at the hip. Ear defenders around the neck, hands
-blackened to the wrist. Amber #f59e0b light and a haze of masonry dust in the air around the
-shoulders.
+SUBJECT: A field medic in a rolled-sleeve coat with a heavy satchel across the body and a strip of surgical tape on the forearm holding a spare line in place. Both hands busy — one clamping a dressing, one reaching. Warm #ffd166 light from a headband lamp turned down onto the work.
 ```
 
-### 7.14 `unit-jammers`
+### 7.14 `unit-demolishers`
 
 ```
-SUBJECT: An operator with a backpack transmitter and a folding directional antenna raised in one
-hand, the other on a dial at the chest harness. Headset over one ear only. Faint #e11d8f
-indicator lamps down the pack's spine are the only saturated colour in frame.
+SUBJECT: A sapper in a heavy apron over reinforced overalls, a bandolier of shaped charges across the chest and a spool of det cord hooked at the hip. Ear defenders around the neck, hands blackened to the wrist. Amber #f59e0b light and a haze of masonry dust in the air around the shoulders.
 ```
 
-### 7.15 `unit-kite-crews`
+### 7.15 `unit-jammers`
 
 ```
-SUBJECT: A drone pilot crouched over a hinged control slate held at chest height, a rotor craft
-hovering just off the shoulder at the frame edge. Padded vest, cable running from slate to belt,
-eyes on the screen. Cold #22d3ee screen light fills the face from below.
+SUBJECT: An operator with a backpack transmitter and a folding directional antenna raised in one hand, the other on a dial at the chest harness. Headset over one ear only. Faint #e11d8f indicator lamps down the pack's spine are the only saturated colour in frame.
 ```
 
-### 7.16 `unit-netrunners`
+### 7.16 `unit-kite-crews`
 
 ```
-SUBJECT: A combat hacker with a deck strapped along the forearm and three fibre leads run from a
-dermal port behind the ear into a shoulder loom. Coat open over a mesh underlayer, one hand
-raised mid-gesture. Cyan #7ff0ff runs along the leads and reflects in a wet-looking eye.
+SUBJECT: A drone pilot crouched over a hinged control slate held at chest height, a rotor craft hovering just off the shoulder at the frame edge. Padded vest, cable running from slate to belt, eyes on the screen. Cold #22d3ee screen light fills the face from below.
 ```
 
-### 7.17 `unit-sleepers`
+### 7.17 `unit-netrunners`
 
 ```
-SUBJECT: An unremarkable person in ordinary work clothes — coveralls, a laminated pass on a
-lanyard, a canvas bag — standing squarely and looking directly at the viewer. No visible weapon.
-The only thing wrong is the stillness, and one hand already inside the bag.
+SUBJECT: A combat hacker with a deck strapped along the forearm and three fibre leads run from a dermal port behind the ear into a shoulder loom. Coat open over a mesh underlayer, one hand raised mid-gesture. Cyan #7ff0ff runs along the leads and reflects in a wet-looking eye.
 ```
 
-### 7.18 `unit-bell-ringers`
+### 7.18 `unit-sleepers`
 
 ```
-SUBJECT: A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one
-arm and holding heavy ear defenders in the other. Four stacked horn drivers fill the frame
-behind the shoulder. Air distorts in a visible ring; the ground tone smears where it passes.
+SUBJECT: An unremarkable person in ordinary work clothes — coveralls, a laminated pass on a lanyard, a canvas bag — standing squarely and looking directly at the viewer. No visible weapon. The only thing wrong is the stillness, and one hand already inside the bag.
 ```
 
-### 7.19 `unit-wrecking-crew`
+### 7.19 `unit-cyber-dogs`
 
 ```
-SUBJECT: A siege worker in a heavy harness with a wrecking chain over the shoulder and a spiked
-pry bar grounded at the feet, hard hat scarred to bare metal. Behind the shoulder, the top of a
-jack frame. Broad, planted, patient; warm bounce from a work lamp out of frame.
+SUBJECT: Two lean working dogs in profile, one a half-step ahead. Cropped harnesses with a low-profile spine plate and a socketed collar; one animal's muzzle and jaw partly replaced with matte dark alloy. No visible weapons. Ears forward, weight on the front paws, mid-stride. Cold #22d3ee sensor glint at the collar sockets, warm #f59e0b ground bounce along the flanks.
 ```
 
-### 7.20 `unit-juggernauts`
+### 7.20 `unit-bell-ringers`
 
 ```
-SUBJECT: A fully augmented heavy assault trooper — a human silhouette only at the head, with the
-arms and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts.
-A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm
-#8a5209 leaks from the joint seams.
+SUBJECT: A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one arm and holding heavy ear defenders in the other. Four stacked horn drivers fill the frame behind the shoulder. Air distorts in a visible ring; the ground tone smears where it passes.
 ```
 
-### 7.21 `unit-hollow-men`
+### 7.21 `unit-wrecking-crew`
 
 ```
-SUBJECT: A shock trooper standing too straight in matte assault plate, faceplate open on an
-expression of complete calm, pupils blown wide. Surgical scarring in a neat arc above one
-temple. Blood on the gauntlets, none anywhere else. Even flat light, almost no shadow — nothing
-to read.
+SUBJECT: A siege worker in a heavy harness with a wrecking chain over the shoulder and a spiked pry bar grounded at the feet, hard hat scarred to bare metal. Behind the shoulder, the top of a jack frame. Broad, planted, patient; warm bounce from a work lamp out of frame.
 ```
 
-### 7.22 `unit-the-condemned`
+### 7.22 `unit-juggernauts`
 
 ```
-SUBJECT: A convict fighter in a stripped prison coverall with the sleeves torn away, a welded
-collar at the throat and a heavy chain-wrapped blade held in both hands. Fresh brand on the
-shoulder, older scars beneath it. Head lifted, grinning; harsh cold key from directly above.
+SUBJECT: A fully augmented heavy assault trooper — a human silhouette only at the head, with the arms and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts. A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm #8a5209 leaks from the joint seams.
 ```
 
-### 7.23 `unit-the-specter`
+### 7.23 `unit-hollow-men`
 
 ```
-SUBJECT: A figure caught mid-decloak — the outline is complete but the body is only present in
-patches, the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is
-solid is a matte infiltration suit and one long knife. No face resolves.
+SUBJECT: A shock trooper standing too straight in matte assault plate, faceplate open on an expression of complete calm, pupils blown wide. Surgical scarring in a neat arc above one temple. Blood on the gauntlets, none anywhere else. Even flat light, almost no shadow — nothing to read.
 ```
 
-### 7.24 `unit-the-abomination`
+### 7.24 `unit-the-condemned`
 
 ```
-SUBJECT: A failed experiment: a mass of grafted muscle and salvaged plate on a frame that no
-longer agrees on how many limbs it has, restraint bolts still through the shoulders and one
-trailing cable. Half a human face is set into the upper mass at the wrong angle. Sickly #86e6a8
-fluid light from within the seams.
+SUBJECT: A convict fighter in a stripped prison coverall with the sleeves torn away, a welded collar at the throat and a heavy chain-wrapped blade held in both hands. Fresh brand on the shoulder, older scars beneath it. Head lifted, grinning; harsh cold key from directly above.
 ```
 
-### 7.25 `unit-the-colossus`
+### 7.25 `unit-the-specter`
 
 ```
-SUBJECT: A walking fortress seen from the ground looking up, so only its lower hull, one
-tread-footed leg and the underside of a gun sponson fit the frame. Rivet lines the size of a
-person, hatch ladders, and a tiny crew figure on a walkway for scale. Cold sky behind, warm
-exhaust glow beneath.
+SUBJECT: A figure caught mid-decloak — the outline is complete but the body is only present in patches, the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is solid is a matte infiltration suit and one long knife. No face resolves.
 ```
 
-### 7.26 `unit-the-saint`
+### 7.26 `unit-the-abomination`
 
 ```
-SUBJECT: An older fighter in a long weathered coat over plain plate, unarmed hands open at the
-sides, a sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely
-calm. The one portrait lit warmly from the front — amber #ffd166 across the face, cold #22d3ee
-only as a thin rim.
+SUBJECT: A failed experiment: a mass of grafted muscle and salvaged plate on a frame that no longer agrees on how many limbs it has, restraint bolts still through the shoulders and one trailing cable. Half a human face is set into the upper mass at the wrong angle. Sickly #86e6a8 fluid light from within the seams.
 ```
 
-### 7.27 `unit-the-cartographer`
+### 7.27 `unit-the-colossus`
 
 ```
-SUBJECT: A traveller in a layered dust coat hung with rolled charts, a brass sighting compass on
-a thong and a chalk stub behind the ear, one hand flat on a map board marked over many times in
-different hands. Eyes on the viewer rather than the map. Warm lamp light on the paper, cold
-light on everything else.
+SUBJECT: A walking fortress seen from the ground looking up, so only its lower hull, one tread-footed leg and the underside of a gun sponson fit the frame. Rivet lines the size of a person, hatch ladders, and a tiny crew figure on a walkway for scale. Cold sky behind, warm exhaust glow beneath.
 ```
 
----
+### 7.28 `unit-the-saint`
+
+```
+SUBJECT: An older fighter in a long weathered coat over plain plate, unarmed hands open at the sides, a sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely calm. The one portrait lit warmly from the front — amber #ffd166 across the face, cold #22d3ee only as a thin rim.
+```
+
+### 7.29 `unit-the-cartographer`
+
+```
+SUBJECT: A traveller in a layered dust coat hung with rolled charts, a brass sighting compass on a thong and a chalk stub behind the ear, one hand flat on a map board marked over many times in different hands. Eyes on the viewer rather than the map. Warm lamp light on the paper, cold light on everything else.
+```
 
 ## 8. Consistency protocol
 

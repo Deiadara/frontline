@@ -26,7 +26,7 @@ import type { MissionKind } from '../missions.js';
  */
 
 /** §F4 — the Imagination the lead researcher needs before the cross-reference option unlocks. */
-export const CROSS_REFERENCE_IMAGINATION = 30;
+export const CROSS_REFERENCE_IMPROVISATION = 30;
 
 /** §F3 — Communication at or above this gets an extra fact out of the same investigation. */
 export const EXTRA_FACT_COMMUNICATION = 30;
@@ -39,7 +39,7 @@ export const EXTRA_FACT_COMMUNICATION = 30;
  * lead also notices a pairing — §B9's *what goes with what*.
  */
 export function unlocksCrossReference(attributes: Attributes): boolean {
-  return attributes.imagination >= CROSS_REFERENCE_IMAGINATION;
+  return attributes.improvisation >= CROSS_REFERENCE_IMPROVISATION;
 }
 
 /**

@@ -1,4 +1,6 @@
-export * from './places.js';
+export * from './labels.js';
+export * from './weather.js';
+export * from './locations.js';
 export * from './districts.js';
 export * from './geography.js';
 export * from './fortification.js';

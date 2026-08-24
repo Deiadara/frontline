@@ -1,5 +1,6 @@
 import {
   RESOURCE_KEYS,
+  RESOURCE_LORE,
   type PartialResources,
   type ResourceKey,
   type Resources,
@@ -7,6 +8,8 @@ import {
 import type { ReactNode } from 'react';
 import { deliveredUrl } from '../assets/delivered';
 import { cn } from '../lib/cn';
+import { HoverCard } from './ui/HoverCard';
+import { InfoWindow, WindowSection } from './ui/InfoWindow';
 
 export type { ResourceKey };
 
@@ -14,11 +17,14 @@ interface ResourceMeta {
   label: string;
   /** Tailwind text-color class (theme tokens only). */
   color: string;
+  /** The matching `bg-` class, for the storage bar. Kept beside `color` so the two cannot drift. */
+  fill: string;
   icon: ReactNode;
 }
 
 const glyph = (path: ReactNode) => (
-  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
+  <svg viewBox="0 0 16 16" className="h-full w-full" fill="none" aria-hidden="true">
+    {/* Sized by the wrapper `ResourceIcon` puts around it — see the note there. */}
     {path}
   </svg>
 );
@@ -31,6 +37,7 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
   caps: {
     label: 'Caps',
     color: 'text-warning',
+    fill: 'bg-warning',
     icon: glyph(
       <>
         <circle cx="8" cy="8" r="5.6" stroke="currentColor" strokeWidth="1.4" />
@@ -47,6 +54,7 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
   food: {
     label: 'Food',
     color: 'text-bile-300',
+    fill: 'bg-bile-300',
     icon: glyph(
       <>
         <rect x="4" y="3.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.4" />
@@ -57,6 +65,7 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
   oil: {
     label: 'Oil',
     color: 'text-hextech-300',
+    fill: 'bg-hextech-300',
     icon: glyph(
       <path
         d="M8 1.8c2.6 3 4.2 5.1 4.2 7a4.2 4.2 0 1 1-8.4 0c0-1.9 1.6-4 4.2-7z"
@@ -69,6 +78,7 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
   scrap: {
     label: 'Scrap',
     color: 'text-ferrite-300',
+    fill: 'bg-ferrite-300',
     icon: glyph(
       <>
         <path
@@ -88,7 +98,8 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
   },
   highQualityMetal: {
     label: 'HQ Metal',
-    color: 'text-steel-100',
+    color: 'text-ink-100',
+    fill: 'bg-ink-200',
     icon: glyph(
       <>
         <path
@@ -119,40 +130,221 @@ export const RESOURCE_ORDER: readonly ResourceKey[] = RESOURCE_KEYS;
  * It deliberately sets no colour. The glyph paints in `currentColor` so that {@link CostLine} can
  * turn a line the player cannot afford hostile without knowing which of the two it drew.
  */
-export function ResourceIcon({ kind }: { kind: ResourceKey }) {
+export function ResourceIcon({
+  kind,
+  className = 'h-4 w-4',
+}: {
+  kind: ResourceKey;
+  /** Size classes. Defaults to a readout-sized glyph; the HUD asks for a bigger one. */
+  className?: string;
+}) {
   const painted = deliveredUrl({ type: 'resource-icon', resource: kind });
-  if (painted === null) return RESOURCE_META[kind].icon;
+  // Wrapped rather than sized in place, so a delivered `<img>` and the procedural `<svg>` fallback
+  // are the same size at the same call site. Letting the icon fill its parent instead looked right
+  // in the HUD and blew the mission cards' icons up to 400px, because nothing else that draws one
+  // constrains its container.
   return (
-    <img
-      src={painted}
-      alt=""
-      aria-hidden="true"
-      className="h-3.5 w-3.5 shrink-0 object-contain"
-      data-testid={`resource-art-${kind}`}
-    />
+    <span className={cn('inline-flex shrink-0 items-center justify-center', className)}>
+      {painted === null ? (
+        RESOURCE_META[kind].icon
+      ) : (
+        <img
+          src={painted}
+          alt=""
+          aria-hidden="true"
+          className="h-full w-full object-contain"
+          data-testid={`resource-art-${kind}`}
+        />
+      )}
+    </span>
   );
 }
 
 interface ResourceChipProps {
   kind: ResourceKey;
   value: number;
+  /**
+   * What the Apothecary will hold. Omitted where there is no ceiling to show — the readouts that
+   * are not the HUD.
+   */
+  capacity?: number;
 }
 
-/** Compact icon + label + value chip for the HUD and readouts. */
-export function ResourceChip({ kind, value }: ResourceChipProps) {
+/**
+ * `125000` → `125K`. The exact figure stays in the chip's label and tooltip.
+ *
+ * Five stockpiles, two meters and an identity share one row, and a late-game player carries
+ * six-figure numbers in all five. Spelled out with separators they wrap the bar onto a second line,
+ * which costs the artwork ~50px on every screen in the game. A player scanning the bar is asking
+ * "roughly how much, and is it going up" — a question `125K` answers as well as `125,000` and in
+ * half the width. Anyone who wants the digit is one hover away.
+ */
+export function compactAmount(value: number): string {
+  const n = Math.round(value);
+  if (Math.abs(n) < 10_000) return n.toLocaleString();
+  if (Math.abs(n) < 1_000_000) return `${Math.round(n / 1000)}K`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}
+
+/**
+ * How full the Apothecary is, 0–1. Undefined capacity reads as empty rather than as full.
+ *
+ * Clamped at both ends: raids and mission pay are deliberately *not* clamped to storage (see
+ * `applyProduction`), so a district can legitimately sit over its own ceiling — and a bar that
+ * rendered 140% would run out of its own track.
+ */
+export function fillFraction(value: number, capacity: number | undefined): number {
+  if (capacity === undefined || capacity <= 0) return 0;
+  return Math.max(0, Math.min(1, value / capacity));
+}
+
+/** At and above this share of the ceiling, the bar warns: production is about to start spilling. */
+export const STORAGE_WARN_AT = 0.9;
+
+/**
+ * Icon, value, and how close the ceiling is.
+ *
+ * The bar underneath is the Grepolis move and it earns its two pixels: "how much do I have" is
+ * only half the question a player is asking, and the other half — *am I about to waste what I am
+ * producing* — is invisible in a bare number. Production stops dead at the ceiling while raid loot
+ * and mission pay still land, so a full stockpile is a real, silent loss that a fill bar turns into
+ * something you can see across the room.
+ *
+ * The chip itself stays compact and wordless. Everything else — the resource's name, the exact
+ * figure, the ceiling — lives in the hover card, because five of these plus two meters and an
+ * identity have to share one row over the artwork.
+ */
+export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
   const meta = RESOURCE_META[kind];
-  return (
-    <div className="flex shrink-0 items-center gap-2 border border-steel-700 bg-night px-2.5 py-1.5">
-      <span className={meta.color}>
-        <ResourceIcon kind={kind} />
+  const amount = Math.round(value);
+  const fill = fillFraction(value, capacity);
+  const nearlyFull = fill >= STORAGE_WARN_AT;
+  const reading =
+    capacity === undefined
+      ? `${meta.label}: ${amount.toLocaleString()}`
+      : `${meta.label}: ${amount.toLocaleString()} of ${Math.round(capacity).toLocaleString()}`;
+
+  /*
+   * Icon left, reading right — rather than icon-and-number over a full-width bar.
+   *
+   * The glyph is the thing a player finds the chip by, so it gets its own lighter tile and four
+   * more pixels. Putting the fill bar *beside* the icon instead of under the whole chip is what
+   * pays for them: the row is as tall as the tile, the bar sits under the number where it is
+   * still read as belonging to it, and the standing bar keeps exactly the height it had. Growing
+   * the top of the screen to make an icon bigger would have cost the world below it.
+   */
+  const chip = (
+    <div
+      className="edge-lit flex shrink-0 items-center gap-1.5 rounded-sm border border-surface-600/80 bg-surface-800/80 px-1.5 py-1"
+      data-testid={`resource-chip-${kind}`}
+    >
+      <span className="icon-tile flex h-12 w-12 shrink-0 items-center justify-center rounded-sm">
+        <ResourceIcon kind={kind} className="h-11 w-11" />
       </span>
-      <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-400">
-        {meta.label}
-      </span>
-      <span className={cn('font-display text-sm font-semibold tabular-nums', meta.color)}>
-        {Math.round(value)}
+      <span className="flex min-w-0 flex-col gap-1.5">
+        <span
+          className={cn('font-display text-lg font-bold leading-none tabular-nums', meta.color)}
+        >
+          {compactAmount(value)}
+        </span>
+        {capacity !== undefined && (
+          <span className="block h-1.5 w-full overflow-hidden rounded-sm bg-surface-950/80">
+            <span
+              className={cn(
+                'block h-full rounded-sm transition-[width] duration-500',
+                nearlyFull ? 'bg-oxblood-300' : meta.fill,
+              )}
+              style={{ width: `${fill * 100}%` }}
+              data-testid={`resource-fill-${kind}`}
+            />
+          </span>
+        )}
       </span>
     </div>
+  );
+
+  // Without a ceiling there is nothing to explain, so it stays a plain labelled readout rather
+  // than growing a control that opens onto one line of text.
+  if (capacity === undefined) {
+    return (
+      <div role="img" aria-label={reading} title={reading}>
+        {chip}
+      </div>
+    );
+  }
+
+  const lore = RESOURCE_LORE[kind];
+
+  return (
+    <HoverCard
+      data-testid={`resource-hover-${kind}`}
+      label={reading}
+      className="rounded-sm"
+      size="window"
+      card={
+        <InfoWindow
+          eyebrow="Stockpile"
+          title={meta.label}
+          icon={<ResourceIcon kind={kind} className="h-full w-full" />}
+          figure={
+            <span className="flex items-baseline gap-2">
+              <span className={cn('font-display text-2xl font-bold tabular-nums', meta.color)}>
+                {amount.toLocaleString()}
+              </span>
+              <span className="font-display text-base tabular-nums text-ink-300">
+                / {Math.round(capacity).toLocaleString()}
+              </span>
+            </span>
+          }
+        >
+          {/* The bar again, at a size worth reading, since the chip's is 6px tall. */}
+          <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950/80">
+            <span
+              className={cn('block h-full rounded-sm', nearlyFull ? 'bg-oxblood-300' : meta.fill)}
+              style={{ width: `${fill * 100}%` }}
+            />
+          </span>
+
+          <p className="font-body text-[14px] italic leading-relaxed text-ink-200">{lore.what}</p>
+
+          <WindowSection label="Spent on">
+            <ul className="flex flex-col gap-0.5">
+              {lore.spentOn.map((use) => (
+                <li
+                  key={use}
+                  className="flex gap-2 font-body text-[13px] leading-snug text-ink-100"
+                >
+                  <span
+                    aria-hidden
+                    className={cn('mt-[7px] h-1 w-1 shrink-0 rounded-full', meta.fill)}
+                  />
+                  {use}
+                </li>
+              ))}
+            </ul>
+          </WindowSection>
+
+          <WindowSection label="Comes from">
+            <p className="font-body text-[13px] leading-snug text-ink-100">{lore.from}</p>
+          </WindowSection>
+
+          <p
+            className={cn(
+              'rounded-sm border-l-2 px-2.5 py-1.5 font-body text-[13px] leading-snug',
+              nearlyFull
+                ? 'border-oxblood-300 bg-oxblood-500/10 text-oxblood-300'
+                : 'border-surface-600 bg-surface-900/50 text-ink-300',
+            )}
+          >
+            {nearlyFull
+              ? 'Nearly full. Anything produced above the ceiling is thrown away. Raise the Apothecary.'
+              : 'The Apothecary sets the ceiling. Production stops there; raids and pay do not.'}
+          </p>
+        </InfoWindow>
+      }
+    >
+      {chip}
+    </HoverCard>
   );
 }
 
@@ -191,12 +383,12 @@ export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resou
             key={kind}
             className={cn(
               'flex items-center gap-1.5 font-display text-xs',
-              short ? 'text-neon-magenta' : meta.color,
+              short ? 'text-oxblood-300' : meta.color,
             )}
           >
             <ResourceIcon kind={kind} />
             <span className="font-semibold tabular-nums">{Math.round(amount)}</span>
-            <span className="text-[10px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
+            <span className="text-[11px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
           </span>
         );
       })}
@@ -211,9 +403,7 @@ export function RewardLine({ rewards }: { rewards: PartialResources }) {
   ).map((kind) => ({ kind, amount: rewards[kind] ?? 0 }));
 
   if (entries.length === 0) {
-    return (
-      <span className="font-display text-xs tracking-[0.15em] text-steel-500">NO SALVAGE</span>
-    );
+    return <span className="font-display text-xs tracking-[0.15em] text-ink-300">NO SALVAGE</span>;
   }
 
   return (
@@ -227,7 +417,7 @@ export function RewardLine({ rewards }: { rewards: PartialResources }) {
           >
             <ResourceIcon kind={kind} />
             <span className="font-semibold tabular-nums">+{Math.round(amount)}</span>
-            <span className="text-[10px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
+            <span className="text-[11px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
           </span>
         );
       })}

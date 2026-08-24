@@ -8,6 +8,7 @@ import {
   startingResearch,
   type Base,
   type Overseer,
+  startingTraining,
 } from '@frontline/shared';
 import bcrypt from 'bcryptjs';
 import Database from 'better-sqlite3';
@@ -149,6 +150,10 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
       buildQueue: [],
       army: MVP_BOT.army,
       trainingQueue: [],
+      training: startingTraining(now),
+      inventory: {},
+      fittedUpgrades: [],
+      fleet: {},
       commanders: MVP_BOT.commanders,
       createdAt: now,
     };

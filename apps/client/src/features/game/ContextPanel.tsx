@@ -29,8 +29,8 @@ export function ContextPanel({
 }: ContextPanelProps) {
   if (!entry) {
     return (
-      <aside className="w-80 shrink-0 border-l border-neon-cyan/20 bg-night-raised p-4">
-        <p className="font-display text-[10px] uppercase tracking-[0.2em] text-steel-500">
+      <aside className="glass w-full rounded-sm border border-surface-600/80 p-4 shadow-panel">
+        <p className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
           Pick somewhere on the map
         </p>
       </aside>
@@ -43,14 +43,14 @@ export function ContextPanel({
 
   return (
     <aside
-      className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-neon-cyan/20 bg-night-raised p-4"
+      className="glass flex w-full flex-col gap-4 rounded-sm border border-surface-600/80 p-4 shadow-panel"
       data-testid="district-panel"
     >
       <div>
-        <p className="font-display text-[10px] uppercase tracking-[0.3em] text-neon-cyan/70">
+        <p className="font-display text-[11px] uppercase tracking-[0.22em] text-brass-300">
           {district.nickname ?? (district.kind === 'residential' ? 'Residential' : 'Contested')}
         </p>
-        <h2 className="text-glow-cyan mt-1 font-display text-lg font-bold tracking-[0.1em] text-steel-100">
+        <h2 className="mt-1 font-display text-lg font-bold tracking-[0.05em] text-ink-100">
           {district.name}
         </h2>
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -61,11 +61,11 @@ export function ContextPanel({
         </div>
       </div>
 
-      <p className="font-body text-xs leading-relaxed text-steel-400">{district.blurb}</p>
+      <p className="font-body text-xs leading-relaxed text-ink-300">{district.blurb}</p>
 
       {!scouted ? (
-        <div className="flex flex-col gap-3 border-t border-steel-800 pt-3">
-          <p className="font-body text-xs leading-relaxed text-steel-500">
+        <div className="flex flex-col gap-3 border-t border-surface-700 pt-3">
+          <p className="font-body text-xs leading-relaxed text-ink-300">
             Nobody from this crew has been here. You do not know what is inside, who is holding it,
             or how hard it would be to take.
           </p>
@@ -74,24 +74,24 @@ export function ContextPanel({
           </Button>
         </div>
       ) : (
-        <div className="flex flex-col gap-3 border-t border-steel-800 pt-3">
+        <div className="flex flex-col gap-3 border-t border-surface-700 pt-3">
           {district.kind === 'contested' ? (
             <>
-              <Row label="Places held">
+              <Row label="Locations held">
                 <span
-                  data-testid="places-held"
+                  data-testid="locations-held"
                   className={cn(
                     'font-display text-sm font-semibold tabular-nums',
-                    mine ? 'text-neon-cyan' : 'text-steel-100',
+                    mine ? 'text-brass-300' : 'text-ink-100',
                   )}
                 >
                   {held?.mine ?? 0} / {held?.total ?? 0}
                 </span>
               </Row>
               <Row label="District held by">
-                <span className="font-display text-xs tracking-[0.1em] text-steel-300">
+                <span className="font-display text-xs tracking-[0.1em] text-ink-200">
                   {holder === null
-                    ? 'Nobody — it is split'
+                    ? 'Nobody. It is split'
                     : holder.kind === 'faction'
                       ? mine
                         ? 'You'
@@ -106,13 +106,13 @@ export function ContextPanel({
           ) : (
             <>
               <Row label="Crew">
-                <span className="font-display text-xs tracking-[0.1em] text-steel-300">
+                <span className="font-display text-xs tracking-[0.1em] text-ink-200">
                   {base?.name ?? 'Nobody lives here'}
                 </span>
               </Row>
-              <p className="font-body text-xs leading-relaxed text-steel-500">
+              <p className="font-body text-xs leading-relaxed text-ink-300">
                 {isHome
-                  ? 'Your own ground. It cannot be taken off you — but it can be robbed.'
+                  ? 'Your own ground. Nobody can take it off you. They can still rob it.'
                   : 'A crew lives here. Home ground can never be captured, only raided.'}
               </p>
               {raidable && (
@@ -122,7 +122,7 @@ export function ContextPanel({
               )}
             </>
           )}
-          <p className="font-body text-[11px] leading-relaxed text-steel-600">
+          <p className="font-body text-[12px] leading-relaxed text-ink-300">
             Garrison: {garrisonOf(district)}.
           </p>
         </div>
@@ -134,7 +134,7 @@ export function ContextPanel({
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="font-display text-[10px] uppercase tracking-[0.18em] text-steel-500">
+      <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
         {label}
       </span>
       {children}
@@ -146,10 +146,10 @@ function Tag({ label, tone = 'plain' }: { label: string; tone?: 'plain' | 'mine'
   return (
     <span
       className={cn(
-        'border px-2 py-0.5 font-display text-[9px] uppercase tracking-[0.16em]',
-        tone === 'mine' && 'border-neon-cyan/50 text-neon-cyan',
-        tone === 'hostile' && 'border-neon-magenta/50 text-neon-magenta',
-        tone === 'plain' && 'border-steel-700 text-steel-400',
+        'border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
+        tone === 'mine' && 'border-brass-300/50 text-brass-300',
+        tone === 'hostile' && 'border-oxblood-500/50 text-oxblood-300',
+        tone === 'plain' && 'border-surface-600 text-ink-300',
       )}
     >
       {label}

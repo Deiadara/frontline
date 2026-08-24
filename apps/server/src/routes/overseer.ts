@@ -12,8 +12,10 @@ import {
   type Base,
   type CreateOverseerResponse,
   type Overseer,
+  startingTraining,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { applyUnlockedSandbox } from '../seed/sandbox.js';
 import { AppError, parseBody } from '../errors.js';
 
 /**
@@ -77,8 +79,15 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
          * than as a decision. Everything else is the player's to lay.
          */
         buildings: [
-          { id: randomUUID(), kind: 'nexus', level: 1, modifications: [] },
-          { id: randomUUID(), kind: 'generator', level: 1, modifications: [] },
+          { id: randomUUID(), kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
+          {
+            id: randomUUID(),
+            kind: 'generator',
+            level: 1,
+            modifications: [],
+            damage: 0,
+            garrisons: 0,
+          },
         ],
         buildQueue: [],
         /**
@@ -92,6 +101,10 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
          */
         army: { razors: 8 },
         trainingQueue: [],
+        training: startingTraining(now),
+        inventory: {},
+        fittedUpgrades: [],
+        fleet: {},
         commanders: [],
         createdAt: now,
       };
@@ -107,8 +120,17 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         app.repos.bases.insert(base);
       })();
 
+      // The sandbox switch also runs at boot, but a base does not exist until this moment — on a
+      // fresh database the flag would silently do nothing until the next restart, which is exactly
+      // the kind of "did I set it wrong?" that makes a dev switch useless.
+      if (app.config.unlocked) {
+        applyUnlockedSandbox(app.repos, user.username);
+        app.log.warn({ baseId: base.id }, 'UNLOCKED=true — new district opened at the end-game');
+      }
+
+      const opened = app.repos.bases.findById(base.id) ?? base;
       reply.code(201);
-      return { user: { ...user, overseerId: overseer.id }, overseer, base };
+      return { user: { ...user, overseerId: overseer.id }, overseer, base: opened };
     },
   );
 }

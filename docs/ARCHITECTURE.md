@@ -34,29 +34,41 @@ or client-facing type.
 
 ## Module map (shared)
 
-| Module               | Contents                                                                            |
-| -------------------- | ----------------------------------------------------------------------------------- |
-| `primitives.ts`      | `IdSchema`, `IsoDateTimeSchema`, `UsernameSchema`                                   |
-| `attributes.ts`      | `ATTRIBUTE_NAMES` (34, four groups), `Attributes` (0..100), `attributeTier`         |
-| `traits.ts`          | `TRAIT_IDS`, `TRAIT_CATALOG`, `applyTraitBonuses`                                   |
-| `roles.ts`           | `OFFICER_ROLES` (19) + labels; the requirement weights stay server-side (GDD §B8)   |
-| `overseer.ts`        | `Overseer`, archetypes, `OVERSEER_PRESETS` (4), `findOverseerPreset`                |
-| `commander.ts`       | Staff roles (head_doctor/battle_analyst/accountant/head_spy), factory               |
-| `resources.ts`       | `Resources` {caps,food,oil,scrap,highQualityMetal}, `STARTING_RESOURCES`            |
-| `building/`          | The district: 13 kinds, costs, power, production, standing, queue, 65 modifications |
-| `base.ts`            | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)     |
-| `city/`              | The map: 10 districts, 31 places, geography, territory control, fortification       |
-| `units/`             | 27 battle units, their sheets, multi-clause unlocks, training and the army cap      |
-| `raid.ts`            | Loot capacity in kg, what a raid takes, and the disruption it leaves                |
-| `economy/`           | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                           |
-| `bar/`               | §H dispositions, wage negotiation, alignment, character levels                      |
-| `assignees/`         | §G pool, placement, the §G7 bonus table                                             |
-| `research/`          | §B9/§F2 projects, discovered facts, effects                                         |
-| `progression/`       | §I player levels, grants, the (empty) §I3 unlock catalogue                          |
-| `user.ts`            | Client-facing `User` (no password material)                                         |
-| `battle/types.ts`    | `BattleInput`, `BattleResult`, `BattleEngine` interface                             |
-| `battle/skirmish.ts` | `CoinFlipSkirmishEngine` — a deliberate stub behind a swappable interface           |
-| `api.ts`             | All request/response DTO schemas + `ApiErrorSchema`                                 |
+| Module                  | Contents                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `primitives.ts`         | `IdSchema`, `IsoDateTimeSchema`, `UsernameSchema`                                    |
+| `attributes.ts`         | `ATTRIBUTE_NAMES` (34, four groups), `Attributes` (0..100), `attributeTier`          |
+| `traits.ts`             | `TRAIT_IDS`, `TRAIT_CATALOG`, `applyTraitBonuses`                                    |
+| `roles.ts`              | `OFFICER_ROLES` (19) + labels; the requirement weights stay server-side (GDD §B8)    |
+| `overseer.ts`           | `Overseer`, archetypes, `OVERSEER_PRESETS` (4), `findOverseerPreset`                 |
+| `commander.ts`          | Staff roles (head_doctor/battle_analyst/accountant/head_spy), factory                |
+| `resources.ts`          | `Resources` {caps,food,oil,scrap,highQualityMetal}, `STARTING_RESOURCES`             |
+| `building/`             | The district: 13 kinds, costs, power, production, standing, queue, 65 modifications  |
+| `base.ts`               | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)      |
+| `city/`                 | The map: 10 districts, 42 location kinds, labels, weather, control, levels           |
+| `units/`                | 27 battle units, their sheets, multi-clause unlocks, training and the army cap       |
+| `raid.ts`               | Loot capacity in kg, what a raid takes, and the disruption it leaves                 |
+| `economy/`              | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                            |
+| `bar/`                  | §H dispositions, wage negotiation, alignment, character levels                       |
+| `assignees/`            | §G pool, placement, the §G7 bonus table                                              |
+| `research/`             | §B9/§F2 projects, discovered facts, effects                                          |
+| `progression/`          | §I player levels, grants, the (empty) §I3 unlock catalogue                           |
+| `user.ts`               | Client-facing `User` (no password material)                                          |
+| `time/zone.ts`          | Europe/Athens is the game's clock; IANA zones, day boundaries, wall-clock formatting |
+| `market/blackmarket.ts` | The back room: 5 shared slots, priced in infamy, one take a day, battle boosts       |
+| `api.accounts.ts`       | Settings, the black market and the admin bench — the DTOs around the game            |
+| `battle/types.ts`       | `BattleInput`, `BattleResult`, `BattleEngine` interface                              |
+| `battle/skirmish.ts`    | `CoinFlipSkirmishEngine` — a deliberate stub behind a swappable interface            |
+| `battle/schedule.ts`    | Half-hour marks, the 8–24h declaration window, the one-second deployment cutoff      |
+| `battle/scheduled.ts`   | A declared fight: targets, gates, deployments, and what may legally be called        |
+| `battle/perimeter.ts`   | The ring outside the fight — who does not get away, and whose report goes missing    |
+| `battle/traps.ts`       | What is buried under an approach, and the bounded bite it takes                      |
+| `battle/intel.ts`       | What the other side can count of a deployment, on the §F2 channels                   |
+| `battle/analysis.ts`    | The after-action ledger, and who is allowed to read one                              |
+| `economy/infamy.ts`     | §D7 as an uncapped point total: what a kill is worth, and what a name buys           |
+| `building/damage.ts`    | What a breach does to a structure, and what watching one is worth                    |
+| `api.ts`                | All request/response DTO schemas + `ApiErrorSchema`                                  |
+| `api.battle.ts`         | The declared-battle contract, kept separate because it is a whole feature's worth    |
 
 The `building/` module is split by concern rather than kept as one file: `kinds` (the catalogue),
 `state` (what stands and its caps), `cost` (materials and clock), `power` (the grid), `production`
@@ -70,6 +82,18 @@ why the client can render the same numbers the server enforces without a DTO for
   handler tests without sockets, plugin model (cors/jwt already registered). We validate with Zod
   at handler boundaries instead of Fastify's JSON-schema layer so shared schemas stay the single
   source of truth.
+- **Europe/Athens is the game's clock** — every schedule, refresh and day boundary is an Athens
+  wall clock, because a shared world needs a shared day. Instants are stored and transmitted as
+  UTC ISO-8601 and converted at display time; a player's own zone is an IANA _name_ on their
+  account (never an offset, which does not know about summer time) and changes only what they are
+  shown, never when the day turns over. See `packages/shared/src/time/zone.ts`.
+- **Snapshots every ten minutes** — `VACUUM INTO` writes a whole consistent database file while the
+  server keeps taking writes, and the newest 24 are kept. A file copy is not an option: in WAL mode
+  the newest commits live in the `-wal` sidecar. Recovery path in `docs/RECOVERY.md`.
+- **Admin mode is the default build** — `ADMIN=false` turns it off. Every clock becomes five seconds
+  and nothing is charged, while every screen still quotes the real price and the real duration, and
+  every gate still refuses. Off automatically under the test runner, because a suite in which
+  nothing costs anything cannot see a pricing bug. See `apps/server/src/admin/mode.ts`.
 - **better-sqlite3** — zero-ops single-file persistence, synchronous API keeps handler code
   simple (no connection pool, no async ceremony) and is more than fast enough at this scale.
   Migrations are plain ordered SQL files (`src/db/migrations/NNNN_*.sql`) applied by a tiny
@@ -92,8 +116,13 @@ the interface (it injects `defaultSkirmishEngine`). That seam has already paid f
 coin flip the board asked for first was replaced wholesale without a route, a repository or a screen
 changing.
 
-The model is a **deterministic seeded round simulation**, resolved in one shot. A player commits a
-force; the server runs the fight and returns a report. Eight modules under
+The model is a **deterministic seeded round simulation**. A force is committed and the server runs
+the fight in one shot; what changed with the battle rework is _when_ that happens. A fight is now
+**declared for a half-hour mark between eight and twenty-four hours out**, both sides move units
+towards it until one second before, and it resolves on the first read after its mark — lazily, like
+everything else, with no scheduler. `apps/server/src/battle/` owns that half; the engine below it is
+unchanged in shape and now reads three inputs it previously ignored: the workshop's fitted upgrades,
+the crew's cohesion (which widens usable frontage), and a held district's stealth bonus. Eight modules under
 `packages/shared/src/battle/`, each independently testable — see `docs/STATUS.md` for the table and
 for which established game each mechanic was borrowed from.
 
@@ -113,7 +142,7 @@ Four properties are load-bearing, and each has a test that fails without it:
 `CoinFlipSkirmishEngine` is still exported. It is not a model of anything; it is what a test uses
 when it needs a decided outcome without an army behind it.
 
-Both kinds of fight go through the same engine: taking a place (§A4) and raiding a home district
+Both kinds of fight go through the same engine: taking a location (§A4) and raiding a home district
 (`homeBattlefield`). The caller's job is to build a `Battlefield` — the route that forgets to is
 caught by `routes.test.ts`, which asserts the log names the ground.
 

@@ -9,9 +9,17 @@ const USER: User = {
   username: 'operator',
   overseerId: null,
   createdAt: '2026-08-12T10:00:00.000Z',
+  displayName: null,
+  icon: 'shield',
+  timezone: 'Europe/Athens',
 };
 
-const ME: MeResponse = { user: USER, overseer: null, base: null };
+const ME: MeResponse = {
+  admin: false,
+  user: USER,
+  overseer: null,
+  base: null,
+};
 
 interface FakeResponseInit {
   ok: boolean;

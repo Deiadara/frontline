@@ -8,7 +8,12 @@
  */
 import { z } from 'zod';
 import { BUILDING_KINDS, type BuildingKind } from '../building/index.js';
-import { CITY_DISTRICTS, DISTRICT_KINDS, PLACE_KINDS, type DistrictKind } from '../city/index.js';
+import {
+  CITY_DISTRICTS,
+  DISTRICT_KINDS,
+  LOCATION_KINDS,
+  type DistrictKind,
+} from '../city/index.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS, type OverseerArchetype } from '../overseer.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { UNIT_CATALOG, UNIT_IDS } from '../units/index.js';
@@ -16,7 +21,7 @@ import {
   ARCHETYPE_ICON_SUBJECTS,
   BUILDING_SUBJECTS,
   DISTRICT_KIND_ICON_SUBJECTS,
-  PLACE_KIND_ICON_SUBJECTS,
+  LOCATION_ICON_SUBJECTS,
   DISTRICT_SUBJECTS,
   FRAMING,
   PLATE_SUBJECTS,
@@ -45,11 +50,14 @@ export type AssetClass = z.infer<typeof AssetClassSchema>;
 /**
  * ART-BIBLE §6 — aspect ratios are fixed; changing one is a layout change.
  *
- * `43:24` (1.7917) is the district plate's, and it exists because the delivered painting is that
+ * `1672:941` (1.7768) is the district plate's, and it exists because the delivered painting is that
  * shape. The district scene reads its aspect from the plate rather than the other way round, so
- * cropping 11 pixels off to reach 16:9 would buy nothing and cost a strip of the compound.
+ * cropping to reach 16:9 would buy nothing and cost a strip of the compound. It replaced `43:24`
+ * when the board repainted the district, which is exactly the kind of change this enum is meant to
+ * make visible: the twelve building sites are positions on that painting, so its shape changing is
+ * a layout change and not a detail.
  */
-export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '43:24']);
+export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '1672:941']);
 export type AssetAspect = z.infer<typeof AssetAspectSchema>;
 
 /** ADR 0001 §6.1 — the backends `scripts/gen-art.ts` knows how to drive. */
@@ -290,7 +298,7 @@ const SEED_BASE = {
   resourceIcon: 160000,
   archetypeIcon: 160010,
   kindIcon: 160020,
-  placeIcon: 160030,
+  locationIcon: 160030,
 } as const;
 
 const toKebab = (id: string): string => id.replaceAll('_', '-');
@@ -412,9 +420,9 @@ const OPAQUE_PLANE_SOURCE: AssetSource = { width: 2048, height: 1152, alpha: fal
  * here.
  */
 const DISTRICT_PLATE_DELIVERY = {
-  width: 1376,
-  height: 768,
-  aspect: '43:24',
+  width: 1672,
+  height: 941,
+  aspect: '1672:941',
 } as const satisfies Partial<AssetSpec>;
 
 /**
@@ -518,14 +526,15 @@ const iconDrafts = [
       prompt: { subject: DISTRICT_KIND_ICON_SUBJECTS[kind], framing: FRAMING.icon },
     }),
   ),
-  // §A4 — one marker per kind of place, not per place. Thirty-one places share twenty kinds, and
-  // a player reads the *kind* off the map: two substations should look like two substations.
-  ...PLACE_KINDS.map((kind, index) =>
+  // §A4 — one marker per *kind* of location rather than one per location. Forty-two locations on
+  // the map share these, and a player reads the kind off the marker: two substations should look
+  // like two substations.
+  ...LOCATION_KINDS.map((kind, index) =>
     draft({
-      key: `icon-place-${toKebab(kind)}`,
+      key: `icon-location-${toKebab(kind)}`,
       class: 'icon',
-      seed: SEED_BASE.placeIcon + index + 1,
-      prompt: { subject: PLACE_KIND_ICON_SUBJECTS[kind], framing: FRAMING.icon },
+      seed: SEED_BASE.locationIcon + index + 1,
+      prompt: { subject: LOCATION_ICON_SUBJECTS[kind], framing: FRAMING.icon },
     }),
   ),
 ];
@@ -662,9 +671,9 @@ function iconSubjectResolves(subject: string): boolean {
     return (DISTRICT_KINDS as readonly string[]).includes(toSnake(districtKind));
   }
 
-  const placeKind = stripPrefix(subject, 'place-');
-  if (placeKind !== null) {
-    return (PLACE_KINDS as readonly string[]).includes(toSnake(placeKind));
+  const locationKind = stripPrefix(subject, 'location-');
+  if (locationKind !== null) {
+    return (LOCATION_KINDS as readonly string[]).includes(toSnake(locationKind));
   }
 
   return RESOURCE_ICON_IDS.includes(subject);

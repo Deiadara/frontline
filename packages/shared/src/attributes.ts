@@ -15,24 +15,24 @@ import { z } from 'zod';
 
 export const PHYSICAL_ATTRIBUTES = [
   'strength',
-  'endurance',
-  'agility',
+  'stamina',
+  'dexterity',
   'speed',
   'reflexes',
   'toughness',
-  'marksmanship',
   'stealth',
 ] as const;
 
 export const MENTAL_ATTRIBUTES = [
-  'tactics',
+  'organization',
   'analysis',
-  'imagination',
-  'cunning',
+  'improvisation',
+  'logic',
   'composure',
-  'vigilance',
-  'scholarship',
-  'appraisal',
+  'resolve',
+  'intuition',
+  'strategy',
+  'authority',
 ] as const;
 
 export const SOCIAL_ATTRIBUTES = [
@@ -43,7 +43,7 @@ export const SOCIAL_ATTRIBUTES = [
   'negotiation',
   'deception',
   'empathy',
-  'mentoring',
+  'diplomacy',
 ] as const;
 
 export const TECHNICAL_ATTRIBUTES = [
@@ -57,6 +57,7 @@ export const TECHNICAL_ATTRIBUTES = [
   'navigation',
   'chemistry',
   'logistics',
+  'cryptography',
 ] as const;
 
 export const ATTRIBUTE_GROUPS = ['physical', 'mental', 'social', 'technical'] as const;
@@ -79,6 +80,9 @@ export const ATTRIBUTE_NAMES = [
   ...TECHNICAL_ATTRIBUTES,
 ] as const;
 
+/** One attribute *name*, for anything a player picks rather than a sheet the server writes. */
+export const AttributeNameSchema = z.enum(ATTRIBUTE_NAMES);
+
 export type AttributeName =
   | (typeof PHYSICAL_ATTRIBUTES)[number]
   | (typeof MENTAL_ATTRIBUTES)[number]
@@ -94,6 +98,59 @@ export const MAX_ATTRIBUTE = 100;
  * to go; a freshly generated character never touches it.
  */
 export const MAX_RECRUITMENT_ATTRIBUTE = 40;
+
+/**
+ * How each attribute is written when a player sees it.
+ *
+ * Held here rather than title-cased at the call site. Two of them are not what a naive capitalise
+ * would produce, and a sheet where one word is spelled differently on two screens is the kind of
+ * thing nobody files a bug about and everybody notices.
+ */
+export const ATTRIBUTE_LABELS: Readonly<Record<AttributeName, string>> = {
+  strength: 'Strength',
+  stamina: 'Stamina',
+  dexterity: 'Dexterity',
+  speed: 'Speed',
+  reflexes: 'Reflexes',
+  toughness: 'Toughness',
+  stealth: 'Stealth',
+  organization: 'Organization',
+  analysis: 'Analysis',
+  improvisation: 'Improvisation',
+  logic: 'Logic',
+  composure: 'Composure',
+  resolve: 'Resolve',
+  intuition: 'Intuition',
+  strategy: 'Strategy',
+  authority: 'Authority',
+  leadership: 'Leadership',
+  charisma: 'Charisma',
+  communication: 'Communication',
+  intimidation: 'Intimidation',
+  negotiation: 'Negotiation',
+  deception: 'Deception',
+  empathy: 'Empathy',
+  diplomacy: 'Diplomacy',
+  engineering: 'Engineering',
+  hacking: 'Hacking',
+  fabrication: 'Fabrication',
+  medicine: 'Medicine',
+  cybernetics: 'Cybernetics',
+  salvage: 'Salvage',
+  demolition: 'Demolition',
+  navigation: 'Navigation',
+  chemistry: 'Chemistry',
+  logistics: 'Logistics',
+  cryptography: 'Cryptography',
+};
+
+/** How a group is written when a player sees it. */
+export const ATTRIBUTE_GROUP_LABELS: Readonly<Record<AttributeGroup, string>> = {
+  physical: 'Physical',
+  mental: 'Mental',
+  social: 'Social',
+  technical: 'Technical',
+};
 
 /** A single attribute rating: integer 0..100. */
 export const AttributeValueSchema = z.number().int().min(MIN_ATTRIBUTE).max(MAX_ATTRIBUTE);

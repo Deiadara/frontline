@@ -4,146 +4,304 @@ import {
   findAssetSpec,
   type BuildingKind,
 } from '@frontline/shared';
-import { STRUCTURE_ASPECT } from './masters.js';
 
 /**
  * Where each structure stands in the district (GDD §A1 — a place laid out like Grepolis' town
  * view, not a list).
  *
- * A site is a **ground contact point plus a size**, not a grid cell. `x` is the centre of the
- * footprint and `baseline` is the line the structure stands on, so the box is anchored by its
- * *bottom edge* rather than its top: that is the one edge the painted plate cares about, and it is
- * what lets a site be nudged onto a lot without also re-deriving a top.
+ * ## The plate paints the buildings, so a site is a silhouette
  *
- * Coordinates are percentages of the scene box, so the district scales with its container and can
- * never be positioned off the edge by a viewport it was not measured at.
+ * `plate-district` used to be *ground*: an empty terrace with lots on it, and each structure was a
+ * cutout master pasted onto its lot. The delivered plate is a finished painting of a district with
+ * the buildings already in it, which turns the layout inside out. There is nothing left to paste —
+ * the Quarters are already drawn, at an angle nothing but that painting knows — so what the layout
+ * has to carry is no longer *where to put a box* but **which pixels are which building**.
  *
- * **Every site is a lot the plate actually paints.** These numbers are not a layout the art was
- * asked to accommodate — they were read off `plate-district` itself, lot by lot, and each one is an
- * enclosed patch of flat ground with roads and shanties around it. That is why nothing overlaps and
- * why the streets read as streets: the painting put them there.
+ * A site is therefore a polygon traced around the building on the plate, and the whole interaction
+ * layer is those polygons: hover lights one, click opens its dialog. The old model — centre, ground
+ * line, box sized to the master's aspect — has no job left, and keeping it would have meant hit
+ * areas that are rectangles over a painting where nothing is a rectangle: the Scrapyard's box would
+ * have swallowed the Cistern beside it, and the Gate's would have covered the road it stands over.
  *
- * The Gate is the exception, and deliberately so — see {@link DISTRICT_SITES}.
+ * The masters in `art-src/building-*.png` are not wasted. They are what the structure's dialog shows
+ * as its portrait — see `StructureDialog` — which is where an icon of a building is actually useful.
+ *
+ * ## Coordinates
+ *
+ * Percentages of the scene box, so the district scales with its container and can never be
+ * positioned off the edge by a viewport it was not measured at. Vertices run clockwise.
+ *
+ * Every polygon was traced against the plate itself under a printed grid, then rendered back over
+ * the painting and checked by eye — which is why they are irregular. `plots.test.ts` pins the
+ * properties that survive that process being redone: inside the frame, convex, non-overlapping, and
+ * a shape rather than a box.
  */
+export type ScenePoint = readonly [number, number];
+
 export interface DistrictSite {
   kind: BuildingKind;
-  /** Centre of the footprint, percent of scene width. */
-  x: number;
-  /** The ground line the structure stands on, percent of scene height. */
-  baseline: number;
-  /** Percent of scene width. */
-  width: number;
-  /** Percent of scene height. */
-  height: number;
+  /** The building's outline on the plate, clockwise, in percent of the scene box. */
+  shape: readonly ScenePoint[];
 }
 
 /**
- * Scene width ÷ height, taken from the delivered plate rather than declared.
+ * The delivered plate's pixel size, and the scene's shape, taken from the asset rather than
+ * declared.
  *
- * The plate is a *map*: every site below is a point on a specific painting, so the scene has to be
- * the shape that painting is. Writing the ratio down here as well would give it two sources, and
- * the day they disagreed every one of the twelve sites would slide off its lot at once.
+ * The plate is a *map*: every polygon below is traced on one specific painting, so the scene has to
+ * be the shape that painting is. Writing the ratio down here as well would give it two sources, and
+ * the day they disagreed every one of the twelve outlines would slide off its building at once.
+ *
+ * The pixel size is the SVG overlay's `viewBox`, which is what keeps a stroke the same weight in
+ * both axes — a `viewBox` of `0 0 100 100` stretched onto a 16:9 box draws a horizontal outline
+ * thinner than a vertical one.
  */
-export const DISTRICT_ASPECT = (() => {
-  const spec = findAssetSpec('plate-district') ?? ASSET_CLASS_SPECS.plate;
-  return spec.width / spec.height;
-})();
+const PLATE = findAssetSpec('plate-district') ?? ASSET_CLASS_SPECS.plate;
+
+export const DISTRICT_PLATE = { width: PLATE.width, height: PLATE.height } as const;
+
+export const DISTRICT_ASPECT = PLATE.width / PLATE.height;
 
 /**
- * The compound's back boundary, percent of scene height. Nothing stands above it.
+ * The compound's back boundary, percent of scene height. Used by the stand-in ground only.
  *
  * There is no horizon and no sky. The camera looks *down* at the district — the whole frame is
  * ground — so the top of the plate is the far side of the neighbourhood, not the place the land
- * meets the air. It is the shanty band the plate paints across the top edge, which is scenery
- * rather than buildable ground.
+ * meets the air.
  */
 export const DISTRICT_BACK_EDGE = 5;
 
-/** A structure's box, in the same percent-of-scene units, resolved from its anchor. */
-export function siteBox(site: DistrictSite): {
+/** The outline in `viewBox` units, ready for an SVG `points` attribute. */
+export function sitePoints(site: DistrictSite): string {
+  return site.shape
+    .map(
+      ([x, y]) =>
+        `${((x / 100) * DISTRICT_PLATE.width).toFixed(1)},${((y / 100) * DISTRICT_PLATE.height).toFixed(1)}`,
+    )
+    .join(' ');
+}
+
+/** Twice the signed area of the outline. Positive because the vertices run clockwise on screen. */
+export function siteArea(site: DistrictSite): number {
+  const points = site.shape;
+  let sum = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const [x1, y1] = points[i] as ScenePoint;
+    const [x2, y2] = points[(i + 1) % points.length] as ScenePoint;
+    sum += x1 * y2 - x2 * y1;
+  }
+  return sum / 2;
+}
+
+/**
+ * The outline's area centroid — where the name plate hangs.
+ *
+ * The mean of the vertices is not this, and the difference is visible: a building traced with six
+ * points along its lit roof and two at its base would pull a vertex mean up onto the roof. The area
+ * centroid sits in the middle of the *shape*, which is where a label reads as belonging to it.
+ */
+export function siteCentroid(site: DistrictSite): { x: number; y: number } {
+  const points = site.shape;
+  const area = siteArea(site);
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const [x1, y1] = points[i] as ScenePoint;
+    const [x2, y2] = points[(i + 1) % points.length] as ScenePoint;
+    const cross = x1 * y2 - x2 * y1;
+    cx += (x1 + x2) * cross;
+    cy += (y1 + y2) * cross;
+  }
+  return { x: cx / (6 * area), y: cy / (6 * area) };
+}
+
+/** The outline's bounding box, in percent of the scene — what a badge hung on it is sized from. */
+export function siteBounds(site: DistrictSite): {
   x: number;
   y: number;
   width: number;
   height: number;
 } {
-  return {
-    x: site.x - site.width / 2,
-    y: site.baseline - site.height,
-    width: site.width,
-    height: site.height,
-  };
+  const xs = site.shape.map(([x]) => x);
+  const ys = site.shape.map(([, y]) => y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
 /**
- * The box height that lets a master of `aspect` (width ÷ height) fill a box of `width` exactly.
+ * How near the front of the district a structure stands: the lowest point of its outline.
  *
- * Percent-of-width and percent-of-height are different units on a non-square scene, so a box's
- * shape is not `width / height`. Deriving every height through this rather than typing it is what
- * keeps the box equal to the *art*: a structure is drawn `object-contain`, so a box taller than its
- * master leaves a band of dead hit area over the roof, and a box wider than it shrinks the building
- * to fit a size nobody chose.
+ * The ground line, in other words — the same thing the old model stored as a `baseline`, except read
+ * off the tracing instead of typed beside it, so it cannot disagree with the shape it describes.
  */
-export function boxHeight(width: number, aspect: number): number {
-  return Math.round(((width * DISTRICT_ASPECT) / aspect) * 10) / 10;
+export function siteDepth(site: DistrictSite): number {
+  return Math.max(...site.shape.map(([, y]) => y));
 }
 
-const site = (kind: BuildingKind, x: number, baseline: number, width: number): DistrictSite => ({
-  kind,
-  x,
-  baseline,
-  width,
-  height: boxHeight(width, STRUCTURE_ASPECT[kind]),
-});
+const site = (kind: BuildingKind, shape: readonly ScenePoint[]): DistrictSite => ({ kind, shape });
 
 /**
- * The twelve sites, back to front.
+ * The twelve structures, as they are painted.
  *
- * Eleven of them are lots on `plate-district`: an enclosed patch of flat ground with a road or a
- * fence on every side. The order below is the order they recede, which is also the order they
- * paint, and the sizes vary because the lots do — the Quarters and the Gauntlet stand on the two
- * biggest, the back row on the smallest.
- *
- * **The Gate has no lot, and should not have one.** It is the way in and out of the compound, so a
- * plot in the middle of the district would be the one placement that makes no sense. It stands on
- * the timber perimeter wall the plate paints across the bottom-left, over the gap already painted
- * into it — which is why its baseline is nearly at the frame's edge and its box is the only one
- * that does not sit inside a fenced square.
+ * Read top-left to bottom-right across the plate, which is roughly back to front. Sizes vary
+ * enormously and that is the painting's doing rather than a design decision: the Quarters block and
+ * the Scrapyard's fenced lot are the two biggest things in the district, and the Cistern is one
+ * riveted tank.
  */
 export const DISTRICT_SITES: readonly DistrictSite[] = [
-  // Back row — the late unlocks, along the top of the compound.
-  site('lab', 60.1, 25.0, 13.7),
-  site('apothecary', 75.2, 26.0, 13.4),
-  site('cistern', 41.3, 28.4, 13.2),
-  site('infirmary', 26.2, 34.1, 14.2),
-  // Middle — the working district, with the Nexus on the centre lot.
-  site('garage', 86.3, 43.2, 11.6),
-  site('scrapyard', 10.4, 44.5, 17.3),
-  site('greenhouse', 40.5, 44.9, 13.3),
-  site('nexus', 53.5, 52.7, 13.0),
-  site('quarters', 73.7, 64.5, 15.1),
-  // Front — the largest lots, and the perimeter wall.
-  site('gauntlet', 31.9, 77.1, 18.8),
-  site('generator', 60.6, 83.3, 13.5),
-  site('gate', 12.7, 91.1, 17.0),
+  // The tenement stack: three storeys of shanty around a gabled core, and the biggest silhouette
+  // in the district. Traced down to the lower storey rather than stopping at the middle floor —
+  // the first tracing cut it off at y=27 and left the ground floor outside its own building.
+  site('quarters', [
+    [22, 0.8],
+    [26, 2.5],
+    [30.5, 7],
+    [31, 14],
+    [29.5, 21],
+    [27.5, 26.5],
+    [22, 30],
+    [16, 27],
+    [13, 22],
+    [12.5, 14],
+    [14, 7],
+  ]),
+  site('lab', [
+    [39.5, 9],
+    [42, 1],
+    [50, 2.5],
+    [52, 13],
+    [50.5, 17],
+    [43, 18],
+    [39.5, 13],
+  ]),
+  site('greenhouse', [
+    [77.5, 25],
+    [87, 14.5],
+    [96.5, 19],
+    [96.5, 30],
+    [85, 36.5],
+    [77.5, 31],
+  ]),
+  site('apothecary', [
+    [40.5, 33],
+    [43, 28],
+    [50, 29],
+    [51, 38],
+    [47, 43],
+    [41.5, 40],
+  ]),
+  site('gauntlet', [
+    [19, 41],
+    [23, 30.5],
+    [32, 33],
+    [33, 44],
+    [28, 50],
+    [21, 48],
+  ]),
+  site('nexus', [
+    [54.5, 33],
+    [57, 22],
+    [63, 24],
+    [65, 44],
+    [61, 52],
+    [55, 47],
+  ]),
+  // The plant on the canal: a stack, a duct and a boiler drum, standing over the water.
+  site('generator', [
+    [83, 38.5],
+    [89, 40],
+    [90, 45],
+    [90.5, 52],
+    [90, 58],
+    [86, 59.5],
+    [83, 54],
+    [80.8, 46.5],
+    [81.5, 42],
+  ]),
+  site('garage', [
+    [64.5, 57],
+    [68, 51],
+    [76, 54],
+    [76, 63],
+    [71, 67],
+    [65, 64],
+  ]),
+  // A drum with a domed cap — nine points because a cylinder traced with four is a crate.
+  site('cistern', [
+    [12, 59.6],
+    [14, 61],
+    [14.7, 63.5],
+    [14.6, 67],
+    [12.6, 69.8],
+    [10.6, 69.8],
+    [9.4, 67],
+    [9.3, 63.3],
+    [10.3, 61],
+  ]),
+  site('scrapyard', [
+    [4.5, 73],
+    [11, 70.8],
+    [17, 70.5],
+    [24, 75],
+    [24.5, 82],
+    [19, 90],
+    [10, 91],
+    [4, 85],
+  ]),
+  // The way in and out, so it is the painted breach in the timber wall rather than a lot. The only
+  // outline here with four corners, and honestly so: the wall is a straight run of palisade seen
+  // side-on, and it runs downhill across the bottom of the frame, so the shape it makes is a
+  // parallelogram. Adding vertices to it would be decoration rather than tracing.
+  site('gate', [
+    [30, 68.8],
+    [47, 74.2],
+    [47, 86],
+    [30, 79.6],
+  ]),
+  site('infirmary', [
+    [79, 79],
+    [84, 70],
+    [94, 74],
+    [95, 84],
+    [88, 91],
+    [80, 87],
+  ]),
 ];
 
 /**
- * Painting order: farthest first, so a nearer structure draws over a taller far one where their
- * *art* passes in front of it, even though their lots never meet.
+ * The band of the plate the buildings actually occupy, percent of scene height.
+ *
+ * Read off the tracings rather than typed, because it is a *consequence* of them: re-trace the
+ * Quarters' roofline and this moves with it. What it is for is the one measurement the scene cannot
+ * make from the picture alone — the plate's top and bottom edges are empty ground, so a viewport
+ * that cannot show the whole painting between the floating HUD and the scenery switcher can still
+ * show every building between them, by letting the *margins* pass under the chrome instead of the
+ * structures. Without it the district either shrinks into the middle of the screen or puts the
+ * Quarters behind the stockpile.
+ */
+export const DISTRICT_BAND = {
+  top: Math.min(...DISTRICT_SITES.flatMap((s) => s.shape.map(([, y]) => y))),
+  bottom: Math.max(...DISTRICT_SITES.flatMap((s) => s.shape.map(([, y]) => y))),
+} as const;
+
+/**
+ * Painting order: farthest first, so a nearer outline's glow and scrim draw over a taller far one
+ * where the painting has them pass in front of each other.
  *
  * Sorted here rather than relied on above, so the table stays readable as a description of the
- * *place* and a site can be moved between rows without also being moved in the list.
+ * *place* and a structure can be re-traced without also being moved in the list.
  */
 export const DISTRICT_SITES_BY_DEPTH: readonly DistrictSite[] = [...DISTRICT_SITES].sort(
-  (a, b) => a.baseline - b.baseline,
+  (a, b) => siteDepth(a) - siteDepth(b),
 );
 
 /**
- * Guards at module load that the layout covers the catalogue exactly — no structure without a site
- * to stand on, and no site for a structure that no longer exists.
+ * Guards at module load that the layout covers the catalogue exactly — no structure without a
+ * building on the plate, and no outline for a structure that no longer exists.
  */
 if (DISTRICT_SITES.length !== BUILDING_KINDS.length) {
   throw new Error(
-    `${DISTRICT_SITES.length} sites for ${BUILDING_KINDS.length} structures — the district layout is out of step with the catalogue`,
+    `${DISTRICT_SITES.length} outlines for ${BUILDING_KINDS.length} structures — the district layout is out of step with the catalogue`,
   );
 }

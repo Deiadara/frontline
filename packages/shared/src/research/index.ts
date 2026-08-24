@@ -10,3 +10,4 @@ export * from './effects.js';
 export * from './facts.js';
 export * from './projects.js';
 export * from './state.js';
+export * from './tech.js';

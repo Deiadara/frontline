@@ -5,12 +5,8 @@ import {
   BOT_DISTRICT_ID,
   MVP_DEV_CREDENTIALS,
   STARTING_RESOURCES,
-  findDistrict,
-  MAX_RAID_SHARE,
   type CityResponse,
-  type RaidDistrictResponse,
   type SkirmishEngine,
-  skirmishOutcome,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -267,90 +263,11 @@ describe('seeded dev login', () => {
   });
 });
 
-describe('raiding the bot crew (§A4)', () => {
-  const botDistrict = findDistrict(BOT_DISTRICT_ID);
-  if (!botDistrict) throw new Error('fixture error: bot district missing from the city map');
-
-  const alwaysWins: SkirmishEngine = {
-    resolve: () => skirmishOutcome({ winner: 'attacker', log: ['robbed'] }),
-  };
-
-  /**
-   * §A4 — a home district cannot be taken, only robbed.
-   *
-   * What leaves is bounded by what the raiders can physically *carry*, which is the whole reason
-   * `lootCapacity` is measured in kilograms. Four Razors carry very little, so this asserts the
-   * shape of the transfer rather than a magic number: something left the victim, the same thing
-   * arrived at the raider, and the victim still has a district.
-   */
-  it('moves a share of the victim’s stockpile to the raider, and leaves them disrupted', async () => {
-    const { app, db, repos } = await openStack(':memory:', alwaysWins);
-    await seedMvpWorld({ db, repos });
-    const { token, baseId } = await landAsDevPlayer(app);
-
-    const bot = repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);
-    if (!bot) throw new Error('fixture error: no bot base in the bot district');
-    const before = { ...bot.resources };
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/city/raid',
-      headers: auth(token),
-      payload: { districtId: BOT_DISTRICT_ID, force: { razors: 4 } },
-    });
-    expect(res.statusCode).toBe(200);
-
-    const body = res.json<RaidDistrictResponse>();
-    expect(body.result.winner).toBe('attacker');
-    expect(body.carriedKg).toBeGreaterThan(0);
-
-    const taken = body.result.rewards;
-    expect(Object.keys(taken).length).toBeGreaterThan(0);
-
-    const victim = repos.bases.findById(bot.id);
-    const raider = repos.bases.findById(baseId);
-    for (const [key, amount] of Object.entries(taken)) {
-      const resource = key as keyof typeof before;
-      expect(victim?.resources[resource]).toBe(before[resource] - (amount ?? 0));
-      expect(raider?.resources[resource]).toBe(STARTING_RESOURCES[resource] + (amount ?? 0));
-    }
-
-    // The district itself never changes hands — that is the whole rule.
-    expect(victim?.districtId).toBe(BOT_DISTRICT_ID);
-    // And it is left running at reduced effectiveness for a while.
-    expect(victim?.economy.disruption.until).not.toBeNull();
-    expect(victim?.economy.disruption.percent).toBeGreaterThan(0);
-  });
-
-  it('never takes more than a quarter of any one line, however big the force', async () => {
-    const { app, db, repos } = await openStack(':memory:', alwaysWins);
-    await seedMvpWorld({ db, repos });
-    const { token, baseId } = await landAsDevPlayer(app);
-
-    // A force that can carry the whole city home.
-    const hauler = repos.bases.findById(baseId);
-    if (!hauler) throw new Error('fixture error: no raider base');
-    repos.bases.updateArmy(baseId, { muckrakers: 400 }, []);
-
-    const bot = repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);
-    if (!bot) throw new Error('fixture error: no bot base');
-    const before = { ...bot.resources };
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/city/raid',
-      headers: auth(token),
-      payload: { districtId: BOT_DISTRICT_ID, force: { muckrakers: 400 } },
-    });
-    expect(res.statusCode).toBe(200);
-
-    const taken = res.json<RaidDistrictResponse>().result.rewards;
-    for (const [key, amount] of Object.entries(taken)) {
-      const resource = key as keyof typeof before;
-      expect(amount ?? 0, key).toBeLessThanOrEqual(Math.floor(before[resource] * MAX_RAID_SHARE));
-    }
-    // A player who logs in to nothing has no move to make, so something always survives.
-    const victim = repos.bases.findById(bot.id);
-    expect(victim?.resources.caps).toBeGreaterThan(0);
-  });
-});
+/*
+ * The raid tests were here, and they went with `POST /api/city/raid` (board, battle rework).
+ *
+ * What they measured — that a raid moves a bounded share of the victim's stockpile, that a home
+ * district never changes hands, and that it is left disrupted afterwards — is all still true and
+ * all still tested. It happens through the declared path now: break the gate, then hit a structure
+ * behind it. `battle/siege.test.ts` covers the loot bound and `battle/battle.test.ts` the settle.
+ */

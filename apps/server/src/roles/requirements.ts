@@ -33,27 +33,27 @@ export interface RoleRequirement {
 export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
   head_spy: {
     primary: 'stealth',
-    weights: { stealth: 5, deception: 3, hacking: 2, cunning: 2, vigilance: 1 },
+    weights: { stealth: 5, deception: 3, hacking: 2, logic: 2, resolve: 1 },
   },
   lead_engineer: {
     primary: 'engineering',
     weights: { engineering: 5, analysis: 3, fabrication: 2, logistics: 2, leadership: 1 },
   },
   finance_officer: {
-    primary: 'appraisal',
-    weights: { appraisal: 5, analysis: 3, logistics: 2, composure: 2, negotiation: 1 },
+    primary: 'strategy',
+    weights: { strategy: 5, analysis: 3, logistics: 2, composure: 2, negotiation: 1 },
   },
   head_of_growth: {
     primary: 'charisma',
-    weights: { charisma: 5, communication: 3, empathy: 2, negotiation: 2, imagination: 1 },
+    weights: { charisma: 5, communication: 3, empathy: 2, negotiation: 2, improvisation: 1 },
   },
   field_commander: {
-    primary: 'tactics',
-    weights: { tactics: 5, leadership: 3, composure: 2, vigilance: 2, marksmanship: 1 },
+    primary: 'organization',
+    weights: { organization: 5, leadership: 3, composure: 2, resolve: 2, strategy: 1 },
   },
   head_of_research: {
     primary: 'analysis',
-    weights: { analysis: 5, scholarship: 3, imagination: 2, composure: 2, chemistry: 1 },
+    weights: { analysis: 5, intuition: 3, improvisation: 2, composure: 2, chemistry: 1 },
   },
   wetware_chief: {
     primary: 'cybernetics',
@@ -61,35 +61,35 @@ export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
   },
   fabricator: {
     primary: 'fabrication',
-    weights: { fabrication: 5, engineering: 3, chemistry: 2, salvage: 2, appraisal: 1 },
+    weights: { fabrication: 5, engineering: 3, chemistry: 2, salvage: 2, strategy: 1 },
   },
   salvager: {
     primary: 'salvage',
-    weights: { salvage: 5, appraisal: 3, endurance: 2, navigation: 2, fabrication: 1 },
+    weights: { salvage: 5, strategy: 3, stamina: 2, navigation: 2, fabrication: 1 },
   },
   right_hand: {
     primary: 'leadership',
-    weights: { leadership: 5, composure: 3, empathy: 2, intimidation: 2, tactics: 1 },
+    weights: { leadership: 5, composure: 3, empathy: 2, intimidation: 2, organization: 1 },
   },
   cartographer: {
     primary: 'navigation',
-    weights: { navigation: 5, vigilance: 3, endurance: 2, analysis: 2, stealth: 1 },
+    weights: { navigation: 5, resolve: 3, stamina: 2, analysis: 2, stealth: 1 },
   },
   trader: {
     primary: 'negotiation',
-    weights: { negotiation: 5, appraisal: 3, charisma: 2, logistics: 2, deception: 1 },
+    weights: { negotiation: 5, strategy: 3, charisma: 2, logistics: 2, deception: 1 },
   },
   security_officer: {
-    primary: 'vigilance',
-    weights: { vigilance: 5, marksmanship: 3, toughness: 2, reflexes: 2, intimidation: 1 },
+    primary: 'resolve',
+    weights: { resolve: 5, reflexes: 3, toughness: 2, speed: 2, intimidation: 1 },
   },
   chief_medic: {
     primary: 'medicine',
-    weights: { medicine: 5, composure: 3, chemistry: 2, empathy: 2, scholarship: 1 },
+    weights: { medicine: 5, composure: 3, chemistry: 2, empathy: 2, intuition: 1 },
   },
   instructor_of_the_young: {
-    primary: 'mentoring',
-    weights: { mentoring: 5, communication: 3, empathy: 2, scholarship: 2, composure: 1 },
+    primary: 'diplomacy',
+    weights: { diplomacy: 5, communication: 3, empathy: 2, intuition: 2, composure: 1 },
   },
   raid_boss: {
     primary: 'intimidation',
@@ -97,15 +97,15 @@ export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
   },
   scout: {
     primary: 'speed',
-    weights: { speed: 5, agility: 3, vigilance: 2, navigation: 2, stealth: 1 },
+    weights: { speed: 5, dexterity: 3, resolve: 2, navigation: 2, stealth: 1 },
   },
   consigliere: {
-    primary: 'cunning',
-    weights: { cunning: 5, empathy: 3, deception: 2, appraisal: 2, communication: 1 },
+    primary: 'logic',
+    weights: { logic: 5, empathy: 3, deception: 2, strategy: 2, communication: 1 },
   },
   professor: {
-    primary: 'scholarship',
-    weights: { scholarship: 5, mentoring: 3, imagination: 2, analysis: 2, communication: 1 },
+    primary: 'intuition',
+    weights: { intuition: 5, diplomacy: 3, improvisation: 2, analysis: 2, communication: 1 },
   },
 };
 

@@ -30,7 +30,7 @@ export function mapDistance(a: Position, b: Position): number {
  *
  * `speedPercent` is everything that makes a crew faster — the Rail Yard, the Skate Ground, a
  * district's unified bonus — as one already-summed number, so this module never has to know what
- * a place is. Capped at {@link MAX_TRAVEL_SPEED_BONUS}: at some point the city stops being big,
+ * a location is. Capped at {@link MAX_TRAVEL_SPEED_BONUS}: at some point the city stops being big,
  * and a map you cross instantly is a map with no geography.
  */
 export const MAX_TRAVEL_SPEED_BONUS = 60;

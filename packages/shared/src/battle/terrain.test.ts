@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { noTerritoryEffects } from '../city/index.js';
 import { findUnit, type UnitSpec } from '../units/index.js';
-import { PLACE_KINDS, PLACE_KIND_CATALOG } from '../city/places.js';
+import { LOCATION_KINDS, LOCATION_CATALOG } from '../city/locations.js';
 import {
   bareBattlefield,
   battlefieldFor,
   homeBattlefield,
   isNight,
-  PLACE_CONTEXTS,
+  LOCATION_CONTEXTS,
 } from './battlefield.js';
 import { contextBonusPercent, effectiveStats, MAX_HELD_DEFENSE } from './effects.js';
 import { simulate } from './engine.js';
@@ -29,20 +29,20 @@ const unit = (id: string): UnitSpec => {
 const DAY = new Date('2026-08-14T13:00:00Z');
 const NIGHT = new Date('2026-08-14T23:00:00Z');
 
-describe('what each place fights like', () => {
-  it('gives every kind of place at least one context', () => {
-    for (const kind of PLACE_KINDS) {
-      expect(PLACE_CONTEXTS[kind], kind).not.toHaveLength(0);
+describe('what each location fights like', () => {
+  it('gives every kind of location at least one context', () => {
+    for (const kind of LOCATION_KINDS) {
+      expect(LOCATION_CONTEXTS[kind], kind).not.toHaveLength(0);
     }
   });
 
-  it('covers the catalogue exactly — no place kind without ground rules', () => {
-    expect(Object.keys(PLACE_CONTEXTS).sort()).toEqual(Object.keys(PLACE_KIND_CATALOG).sort());
+  it('covers the catalogue exactly — no location kind without ground rules', () => {
+    expect(Object.keys(LOCATION_CONTEXTS).sort()).toEqual(Object.keys(LOCATION_CATALOG).sort());
   });
 
   it('fights a sewer junction underground and a rail yard in the open', () => {
     const sewer = battlefieldFor({
-      placeName: 'The Junction',
+      locationName: 'The Junction',
       kind: 'sewer_junction',
       fortifyDifficulty: 'medium',
       fortifyLevel: 0,
@@ -52,7 +52,7 @@ describe('what each place fights like', () => {
     expect(sewer.contexts).not.toContain('open_ground');
 
     const yard = battlefieldFor({
-      placeName: 'The Yard',
+      locationName: 'The Yard',
       kind: 'rail_yard',
       fortifyDifficulty: 'medium',
       fortifyLevel: 0,
@@ -64,7 +64,7 @@ describe('what each place fights like', () => {
 
   it('only offers something to breach once somebody has dug in', () => {
     const base = {
-      placeName: 'The Berm',
+      locationName: 'The Berm',
       kind: 'high_ground',
       fortifyDifficulty: 'easy',
       at: DAY,
@@ -78,7 +78,7 @@ describe('what each place fights like', () => {
     expect(isNight(DAY)).toBe(false);
     expect(
       battlefieldFor({
-        placeName: 'x',
+        locationName: 'x',
         kind: 'market',
         fortifyDifficulty: 'easy',
         fortifyLevel: 0,
@@ -96,7 +96,7 @@ describe('what each place fights like', () => {
   it('carries the fortification tables into the battlefield', () => {
     const at = (difficulty: 'easy' | 'medium' | 'hard') =>
       battlefieldFor({
-        placeName: 'x',
+        locationName: 'x',
         kind: 'barricade',
         fortifyDifficulty: difficulty,
         fortifyLevel: 5,
@@ -125,7 +125,7 @@ describe('what the ground does to a unit', () => {
 
   it('raises the holder rather than the attacker when the ground is dug in', () => {
     const field = battlefieldFor({
-      placeName: 'x',
+      locationName: 'x',
       kind: 'barricade',
       fortifyDifficulty: 'easy',
       fortifyLevel: 5,
@@ -190,7 +190,7 @@ describe('the ground changes how the fight goes', () => {
         const simulation = simulate({
           seed: `ground-${seed}`,
           battlefield: battlefieldFor({
-            placeName: kind,
+            locationName: kind,
             kind,
             fortifyDifficulty: 'medium',
             fortifyLevel: 0,
@@ -209,15 +209,15 @@ describe('the ground changes how the fight goes', () => {
   });
 
   /**
-   * Measured as **whether the place is held**, not as how many bodies walked away.
+   * Measured as **whether the location is held**, not as how many bodies walked away.
    *
    * Those two come apart, and the way they come apart is the design working: a stack that breaks
    * early loses fewer people and loses the ground, so an unfortified defender can finish a fight
-   * with *more* survivors and no place. Fortification buys the objective. Measured at 30 v 26,
+   * with *more* survivors and no location. Fortification buys the objective. Measured at 30 v 26,
    * level 5 turns 3 holds in 24 into 24 in 24; by 32 v 26 it is nearly worthless, which is the
    * intended ceiling — a quarter more defence does not beat a quarter more bodies.
    */
-  it('makes digging in decide who holds the place', () => {
+  it('makes digging in decide who holds the location', () => {
     const held = (fortifyLevel: number) => {
       let holds = 0;
       const runs = 24;
@@ -225,7 +225,7 @@ describe('the ground changes how the fight goes', () => {
         const simulation = simulate({
           seed: `fort-${seed}`,
           battlefield: battlefieldFor({
-            placeName: 'The Barricade',
+            locationName: 'The Barricade',
             kind: 'barricade',
             fortifyDifficulty: 'easy',
             fortifyLevel,
@@ -245,14 +245,14 @@ describe('the ground changes how the fight goes', () => {
     expect(held(5)).toBeGreaterThan(held(0) * 3);
   });
 
-  /** ...and does not make a place unbreakable. Enough bodies still take it. */
-  it('leaves a fortified place takeable by weight of numbers', () => {
+  /** ...and does not make a location unbreakable. Enough bodies still take it. */
+  it('leaves a fortified location takeable by weight of numbers', () => {
     let taken = 0;
     for (let seed = 0; seed < 24; seed += 1) {
       const simulation = simulate({
         seed: `overrun-${seed}`,
         battlefield: battlefieldFor({
-          placeName: 'The Barricade',
+          locationName: 'The Barricade',
           kind: 'barricade',
           fortifyDifficulty: 'easy',
           fortifyLevel: 5,

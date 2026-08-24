@@ -7,6 +7,7 @@ import {
   CENTRAL_BUILDING,
   type BuildingKind,
 } from './kinds.js';
+import { repairedByBuilding } from './damage.js';
 import { buildingLevel, findBuilding, structureLevelCap, type Building } from './state.js';
 
 /**
@@ -95,6 +96,8 @@ export function projectedBuildings(buildings: readonly Building[], queue: BuildQ
         kind: entry.kind,
         level: entry.level,
         modifications: [],
+        damage: 0,
+        garrisons: 0,
       });
     }
   }
@@ -151,12 +154,23 @@ export function applyQueueEntry(
   if (!standing) {
     return [
       ...buildings,
-      { id: entry.id, kind: entry.kind, level: entry.level, modifications: [] },
+      {
+        id: entry.id,
+        kind: entry.kind,
+        level: entry.level,
+        modifications: [],
+        damage: 0,
+        garrisons: 0,
+      },
     ];
   }
+  // Building a level up is also how a wrecked structure gets put right (§A4). There is no repair
+  // button and there is not going to be one: making the recovery a side effect of the thing a
+  // player was going to do anyway keeps a siege's cost measured in tempo rather than in a second
+  // economy nobody asked for.
   return buildings.map((building) =>
     building.kind === entry.kind
-      ? { ...building, level: Math.max(building.level, entry.level) }
+      ? repairedByBuilding({ ...building, level: Math.max(building.level, entry.level) })
       : building,
   );
 }

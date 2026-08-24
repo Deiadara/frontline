@@ -12,6 +12,7 @@ import {
   type AssigneesResponse,
   type Base,
   type Commander,
+  alignmentBand,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { populationUsed } from '../district/population.js';
@@ -53,6 +54,12 @@ export function projectAssigneeOfficer(base: Base, officer: Commander): Assignee
     /** What one more would be worth — the number that makes the §G7 curve legible on the page. */
     nextBonusPercent:
       placed < assigneeCapPerOfficer(base.level) ? assigneeBonusPercent(placed + 1) : null,
+    // Who they are, so the crew screen can open a card on them rather than listing a name.
+    attributes: officer.attributes,
+    traits: officer.traits,
+    alignment: Math.round(officer.alignment),
+    alignmentBand: alignmentBand(officer.alignment),
+    level: officer.level,
   };
 }
 

@@ -33,7 +33,7 @@ export function registerUnitRoutes(app: FastifyInstance): void {
     const owned = app.repos.bases.findByOwnerId(ownerId);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
     settleFortifications(app.repos, now);
-    return settleTraining(app.repos, settleBase(app.repos, owned, now).base, now);
+    return settleTraining(app.repos, settleBase(app.repos, owned, now).base, now).base;
   }
 
   app.get('/units', { preHandler: app.authenticate }, (request): UnitsResponse => {
@@ -49,7 +49,9 @@ export function registerUnitRoutes(app: FastifyInstance): void {
     const unit = findUnit(unitId);
     if (!unit) throw new AppError('NOT_FOUND', 'No such unit');
 
-    const result = app.db.transaction(() => queueTraining(app.repos, { base, unit, count, now }))();
+    const result = app.db.transaction(() =>
+      queueTraining(app.repos, { base, unit, count, now, admin: app.config.admin }),
+    )();
     if (result.kind === 'refused') {
       const { code, message } = REFUSAL_ERRORS[result.reason];
       throw new AppError(code, message);

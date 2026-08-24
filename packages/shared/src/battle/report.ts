@@ -202,8 +202,8 @@ export function narrate(simulation: Simulation, findings: readonly BattleFinding
 
   log.push(
     started(defender) === 0
-      ? `${started(attacker)} moving on ${battlefield.placeName}. It is standing empty — or looks it.`
-      : `${started(attacker)} moving on ${battlefield.placeName}. ${defender.name} has ${started(defender)} on the ground.`,
+      ? `${started(attacker)} moving on ${battlefield.locationName}. It is standing empty, or looks it.`
+      : `${started(attacker)} moving on ${battlefield.locationName}. ${defender.name} has ${started(defender)} on the ground.`,
   );
 
   const ground = findings.find((finding) => finding.kind === 'ground');
@@ -216,8 +216,8 @@ export function narrate(simulation: Simulation, findings: readonly BattleFinding
 
   log.push(
     winner === 'attacker'
-      ? `${battlefield.placeName} changes hands. ${attacker.name} holds it.`
-      : `The push on ${battlefield.placeName} breaks. ${defender.name} still holds it.`,
+      ? `${battlefield.locationName} changes hands. ${attacker.name} holds it.`
+      : `The push on ${battlefield.locationName} breaks. ${defender.name} still holds it.`,
   );
 
   if (simulation.decidedOnPower) {

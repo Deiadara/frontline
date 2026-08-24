@@ -14,7 +14,10 @@ import {
   type Base,
   type Overseer,
   type ResearchProject,
+  speedMultiplier,
 } from '@frontline/shared';
+import { adminCost, adminMinutes, adminWaives } from '../admin/mode.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { modificationBlocker } from '../district/modifications.js';
 import { pairingsExhausted } from './discover.js';
@@ -34,6 +37,8 @@ export interface StartInput {
   project: ResearchProject;
   id: string;
   now: Date;
+  /** Testing mode: a minute rather than hours, and no materials (`admin/mode.ts`). */
+  admin?: boolean;
 }
 
 export const RESEARCH_REFUSALS = [
@@ -84,6 +89,7 @@ function refusalFor(input: StartInput): ResearchRefusal | null {
     if (refusal) return refusal;
   }
 
+  if (input.admin) return null;
   return canAfford(base.resources, researchCost(project.kind)) ? null : 'cannot_afford';
 }
 
@@ -117,9 +123,12 @@ function modificationRefusal(base: Base, id: string): ResearchRefusal | null {
  */
 export function startResearch(repos: Repositories, input: StartInput): StartResult {
   const refusal = refusalFor(input);
-  if (refusal) return { kind: 'refused', reason: refusal };
+  // The testing build waives the progress and price gates but not the "there is nothing to do"
+  // ones — see `admin/mode.ts` for which and why.
+  if (refusal && !adminWaives(refusal, input.admin ?? false))
+    return { kind: 'refused', reason: refusal };
 
-  const { base, project, id, now } = input;
+  const { base, project, id, now, admin = false } = input;
   const active: ActiveResearch = {
     id,
     project,
@@ -127,16 +136,22 @@ export function startResearch(repos: Repositories, input: StartInput): StartResu
     // §A1 — the Lab is what makes research quick, and its cut is frozen onto the row with
     // everything else. Floored at a minute: a project that lands the instant it starts has no
     // clock, and the whole screen is built around one.
-    durationMinutes: Math.max(
-      1,
-      Math.round(
-        withReduction(RESEARCH_MINUTES[project.kind], researchTimeReduction(base.buildings)),
+    // §F2 — and the people, on top of the Lab. Analysis reads the failure, Improvisation gets a
+    // result out of the wrong equipment; a crew with neither works at the catalogue rate.
+    durationMinutes: adminMinutes(
+      Math.max(
+        1,
+        Math.round(
+          withReduction(RESEARCH_MINUTES[project.kind], researchTimeReduction(base.buildings)) /
+            speedMultiplier(standingEffectsFor(repos, base).researchSpeedPercent),
+        ),
       ),
+      admin,
     ),
   };
   const started: Base = {
     ...base,
-    resources: spendResources(base.resources, researchCost(project.kind)),
+    resources: spendResources(base.resources, adminCost(researchCost(project.kind), admin)),
     research: { ...base.research, active },
   };
 

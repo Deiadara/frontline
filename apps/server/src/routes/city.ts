@@ -1,39 +1,33 @@
-import { randomUUID } from 'node:crypto';
 import {
-  AttackPlaceRequestSchema,
   FortifyRequestSchema,
   GarrisonRequestSchema,
-  RaidDistrictRequestSchema,
   ScoutRequestSchema,
+  UpgradeLocationRequestSchema,
   findDistrict,
-  findPlace,
-  isDistrictRaidable,
-  type AttackPlaceResponse,
+  findLocation,
   type Base,
   type CityMutationResponse,
   type CityResponse,
   type DistrictDetailResponse,
-  type RaidDistrictResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import {
-  attackPlace,
-  raidDistrict,
   setGarrison,
   settleFortifications,
   startFortifying,
   type CityRefusal,
 } from '../city/actions.js';
-import { cityContextFor, projectCity, projectDistrict } from '../city/view.js';
+import { settleBattles } from '../battle/resolve.js';
+import { projectCity, projectDistrict } from '../city/view.js';
+import { UPGRADE_REFUSALS, startUpgrade, type UpgradeRefusal } from '../city/upgrade.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
-import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
 
 /**
  * The city (GDD §A4): the map, what is inside a district, and the four things you can do about it.
  *
  * Everything settles first — the crew's own district and payroll, then any fortification whose
- * clock ran out while nobody was looking. A place that finished digging in five minutes ago has to
+ * clock ran out while nobody was looking. A location that finished digging in five minutes ago has to
  * be dug in *before* somebody attacks it.
  */
 
@@ -64,7 +58,12 @@ export function registerCityRoutes(app: FastifyInstance): void {
     const owned = app.repos.bases.findByOwnerId(ownerId);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
     settleFortifications(app.repos, now);
-    return settleBase(app.repos, owned, now).base;
+    // Any declared fight whose mark has passed runs here too (§A4). It has to: a battle that went
+    // off an hour ago may have changed who holds half this map, and a city read that showed the old
+    // answer would be a screen the rules disagree with.
+    settleBattles(app.repos, app.skirmishEngine, now);
+    const fresh = app.repos.bases.findByOwnerId(ownerId) ?? owned;
+    return settleBase(app.repos, fresh, now).base;
   }
 
   app.get('/city', { preHandler: app.authenticate }, (request): CityResponse => {
@@ -103,129 +102,33 @@ export function registerCityRoutes(app: FastifyInstance): void {
     return { district: projectDistrict(app.repos, base, district, now), base };
   });
 
-  /** §A4 — take a place off whoever is holding it. */
-  app.post('/city/attack', { preHandler: app.authenticate }, (request): AttackPlaceResponse => {
-    const { placeId, force } = parseBody(AttackPlaceRequestSchema, request.body);
-    const now = new Date();
-    const settledCrew = settleBase(app.repos, requireBase(app, request.currentUser.id), now);
-    settleFortifications(app.repos, now);
+  /*
+   * The two routes that used to live here — `POST /city/attack` and `POST /city/raid` — are gone
+   * (board, battle rework).
+   *
+   * They resolved a fight the instant somebody pressed a button: pick a force, press Attack, read
+   * the log. Everything §A4 was rebuilt for is a reaction to that. A fight is now **declared** in
+   * advance, on a mark both sides can read, and the defender has hours to move people up, arm the
+   * gate, set a trap or write the night off. Leaving an instant path beside it would not have been
+   * a second option, it would have been the *only* option anybody used — no notice to give, no
+   * hours to wait, and the whole rework reduced to a screen nobody opens.
+   *
+   * What replaced them: `POST /battles/declare`, `POST /battles/deploy` and the settler in
+   * `battle/resolve.ts`. Robbing a crew's home is the same three calls against a `gate` and then a
+   * `building` target — a home district still cannot be taken, only broken into and emptied.
+   */
 
-    const place = findPlace(placeId);
-    const district = place ? findDistrict(place.districtId) : undefined;
-    if (!place || !district) throw new AppError('NOT_FOUND', 'No such place');
-
-    // The same visibility the map computed, uplink range included — a district a crew can *see*
-    // into is one it can act in, and deriving that twice from different inputs is how the two
-    // quietly disagree.
-    const scouted = cityContextFor(app.repos, settledCrew.base).visible.has(district.id);
-
-    const outcome = app.db.transaction(() =>
-      attackPlace(app.repos, app.skirmishEngine, {
-        base: settledCrew.base,
-        place,
-        district,
-        force,
-        scouted,
-        now,
-      }),
-    )();
-    if (outcome.kind === 'refused') refuse(outcome.reason);
-
-    // §I1 pays for *fighting*, not for winning — a loss is worth less, not nothing.
-    const { award } = awardPlayerXp(
-      app.repos,
-      outcome.base,
-      outcome.result.winner === 'attacker' ? 'raidWon' : 'raidLost',
-    );
-
-    app.repos.battles.insert({
-      id: randomUUID(),
-      attackerBaseId: settledCrew.base.id,
-      targetDistrictId: district.id,
-      targetPlaceId: place.id,
-      winner: outcome.result.winner,
-      log: outcome.result.log,
-      rewards: outcome.result.rewards,
-      seed: randomUUID(),
-      createdAt: now.toISOString(),
-    });
-
-    return {
-      result: outcome.result,
-      captured: outcome.captured,
-      returned: outcome.returned,
-      base: outcome.base,
-      levelUp: levelUpFrom([...settledCrew.awards, award]),
-    };
-  });
-
-  /** §A4 — rob a crew's home district. It cannot be taken, only emptied. */
-  app.post('/city/raid', { preHandler: app.authenticate }, (request): RaidDistrictResponse => {
-    const { districtId, force } = parseBody(RaidDistrictRequestSchema, request.body);
-    const now = new Date();
-    const settledCrew = settleBase(app.repos, requireBase(app, request.currentUser.id), now);
-
-    const district = findDistrict(districtId);
-    if (!district) throw new AppError('NOT_FOUND', 'No such district');
-    if (!isDistrictRaidable(district, district.id === settledCrew.base.districtId)) {
-      refuse('not_raidable');
-    }
-
-    const target = app.repos.bases
-      .listSummaries()
-      .find((summary) => summary.districtId === districtId);
-    const victim = target ? app.repos.bases.findById(target.id) : undefined;
-    if (!victim || victim.id === settledCrew.base.id) refuse('not_raidable');
-
-    const outcome = app.db.transaction(() =>
-      raidDistrict(app.repos, app.skirmishEngine, {
-        base: settledCrew.base,
-        district,
-        target: victim,
-        force,
-        now,
-      }),
-    )();
-    if (outcome.kind === 'refused') refuse(outcome.reason);
-
-    const { award } = awardPlayerXp(
-      app.repos,
-      outcome.base,
-      outcome.result.winner === 'attacker' ? 'raidWon' : 'raidLost',
-    );
-
-    app.repos.battles.insert({
-      id: randomUUID(),
-      attackerBaseId: settledCrew.base.id,
-      targetDistrictId: district.id,
-      targetPlaceId: null,
-      winner: outcome.result.winner,
-      log: outcome.result.log,
-      rewards: outcome.result.rewards,
-      seed: randomUUID(),
-      createdAt: now.toISOString(),
-    });
-
-    return {
-      result: outcome.result,
-      returned: outcome.returned,
-      carriedKg: outcome.carriedKg,
-      base: outcome.base,
-      levelUp: levelUpFrom([...settledCrew.awards, award]),
-    };
-  });
-
-  /** §A4 — leave units on a place you hold, or bring them home. */
+  /** §A4 — leave units on a location you hold, or bring them home. */
   app.post('/city/garrison', { preHandler: app.authenticate }, (request): CityMutationResponse => {
-    const { placeId, changes } = parseBody(GarrisonRequestSchema, request.body);
+    const { locationId, changes } = parseBody(GarrisonRequestSchema, request.body);
     const now = new Date();
     const base = settled(app, request.currentUser.id, now);
 
-    const place = findPlace(placeId);
-    const district = place ? findDistrict(place.districtId) : undefined;
-    if (!place || !district) throw new AppError('NOT_FOUND', 'No such place');
+    const location = findLocation(locationId);
+    const district = location ? findDistrict(location.districtId) : undefined;
+    if (!location || !district) throw new AppError('NOT_FOUND', 'No such location');
 
-    const outcome = app.db.transaction(() => setGarrison(app.repos, { base, place, changes }))();
+    const outcome = app.db.transaction(() => setGarrison(app.repos, { base, location, changes }))();
     if (outcome.kind === 'refused') refuse(outcome.reason);
 
     return {
@@ -236,16 +139,49 @@ export function registerCityRoutes(app: FastifyInstance): void {
 
   /** §A4 — dig in one more level. */
   app.post('/city/fortify', { preHandler: app.authenticate }, (request): CityMutationResponse => {
-    const { placeId } = parseBody(FortifyRequestSchema, request.body);
+    const { locationId } = parseBody(FortifyRequestSchema, request.body);
     const now = new Date();
     const base = settled(app, request.currentUser.id, now);
 
-    const place = findPlace(placeId);
-    const district = place ? findDistrict(place.districtId) : undefined;
-    if (!place || !district) throw new AppError('NOT_FOUND', 'No such place');
+    const location = findLocation(locationId);
+    const district = location ? findDistrict(location.districtId) : undefined;
+    if (!location || !district) throw new AppError('NOT_FOUND', 'No such location');
 
-    const outcome = app.db.transaction(() => startFortifying(app.repos, { base, place, now }))();
+    const outcome = app.db.transaction(() => startFortifying(app.repos, { base, location, now }))();
     if (outcome.kind === 'refused') refuse(outcome.reason);
+
+    return {
+      district: projectDistrict(app.repos, outcome.base, district, now),
+      base: outcome.base,
+    };
+  });
+
+  /**
+   * §A4 — work a location up one level.
+   *
+   * The other half of holding ground, and deliberately the same shape as fortifying: charged up
+   * front, a clock on the row, banked by the settler on the next read. What separates them is what
+   * they buy — a fortification makes a location *harder to take*, a level makes it *worth more* —
+   * and what happens on capture, which is that a level is lost and a fortification is too.
+   */
+  app.post('/city/upgrade', { preHandler: app.authenticate }, (request): CityMutationResponse => {
+    const { locationId } = parseBody(UpgradeLocationRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+
+    const location = findLocation(locationId);
+    const district = location ? findDistrict(location.districtId) : undefined;
+    if (!location || !district) throw new AppError('NOT_FOUND', 'No such location');
+
+    const control = app.repos.city.control(locationId);
+    if (!control) throw new AppError('NOT_FOUND', 'No such location');
+
+    const outcome = app.db.transaction(() =>
+      startUpgrade(app.repos, { base, location, control, now }),
+    )();
+    if (outcome.kind === 'refused') {
+      throw new AppError(UPGRADE_ERROR_CODES[outcome.reason], UPGRADE_REFUSALS[outcome.reason]);
+    }
 
     return {
       district: projectDistrict(app.repos, outcome.base, district, now),
@@ -254,8 +190,10 @@ export function registerCityRoutes(app: FastifyInstance): void {
   });
 }
 
-function requireBase(app: FastifyInstance, ownerId: string): Base {
-  const owned = app.repos.bases.findByOwnerId(ownerId);
-  if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
-  return owned;
-}
+/** Which API code each upgrade refusal answers with. Shaped like `REFUSAL_ERRORS` above. */
+const UPGRADE_ERROR_CODES: Record<UpgradeRefusal, ErrorCode> = {
+  not_yours: 'PLACE_UNAVAILABLE',
+  at_ceiling: 'PLACE_UNAVAILABLE',
+  already_working: 'PLACE_UNAVAILABLE',
+  cannot_afford: 'INSUFFICIENT_RESOURCES',
+};

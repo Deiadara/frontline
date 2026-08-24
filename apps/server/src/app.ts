@@ -16,11 +16,18 @@ import { registerAssigneeRoutes } from './routes/assignees.js';
 import { registerBarRoutes } from './routes/bar.js';
 import { registerBaseRoutes } from './routes/base.js';
 import { registerCityRoutes } from './routes/city.js';
+import { registerBattleRoutes } from './battle/routes.js';
 import { registerUnitRoutes } from './routes/units.js';
 import { registerMeRoutes } from './routes/me.js';
 import { registerMissionRoutes } from './routes/missions.js';
 import { registerOverseerRoutes } from './routes/overseer.js';
 import { registerResearchRoutes } from './routes/research.js';
+import { registerTrainingRoutes } from './routes/training.js';
+import { registerMarketRoutes } from './routes/market.js';
+import { registerBlackMarketRoutes } from './routes/blackmarket.js';
+import { registerSettingsRoutes } from './routes/settings.js';
+import { registerAdminRoutes } from './routes/admin.js';
+import { registerWorkshopRoutes } from './routes/workshop.js';
 import type { JwtPayload } from './types.js';
 
 declare module 'fastify' {
@@ -122,12 +129,19 @@ export async function buildApp({
       registerMeRoutes(api);
       registerOverseerRoutes(api);
       registerCityRoutes(api);
+      registerBattleRoutes(api);
       registerBaseRoutes(api);
       registerUnitRoutes(api);
       registerMissionRoutes(api);
       registerBarRoutes(api);
       registerResearchRoutes(api);
       registerAssigneeRoutes(api);
+      registerTrainingRoutes(api);
+      registerMarketRoutes(api);
+      registerBlackMarketRoutes(api);
+      registerWorkshopRoutes(api);
+      registerSettingsRoutes(api);
+      registerAdminRoutes(api);
       done();
     },
     { prefix: '/api' },

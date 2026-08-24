@@ -6,14 +6,18 @@ import {
   moraleTarget,
   queueCompletesAt,
   splitDueQueue,
+  repairedDistrict,
   type Base,
   type Building,
   type BuildQueueEntry,
   type Meter,
   type PlayerXpAward,
   type Resources,
+  type CrewYield,
+  type ProductionCarry,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { settleBaseEconomy } from '../economy/settle.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { settleTraining } from '../units/training.js';
@@ -66,9 +70,11 @@ function walk(
   base: Base,
   due: readonly BuildQueueEntry[],
   now: Date,
-): { buildings: Building[]; resources: Resources; morale: Meter } {
+  crew: CrewYield,
+): { buildings: Building[]; resources: Resources; morale: Meter; carry: ProductionCarry } {
   let buildings: Building[] = base.buildings.map((building) => ({ ...building }));
   let resources = base.resources;
+  let carry = base.economy.productionCarry;
   let morale = base.economy.morale;
 
   const since = base.economy.productionSettledAt;
@@ -82,8 +88,23 @@ function walk(
   const advanceTo = (mark: number): void => {
     const hours = (mark - cursor) / HOUR_MS;
     if (hours > 0) {
-      resources = accrueProduction(resources, buildings, hours * working);
-      morale = driftMorale(morale, moraleTarget(buildings), hours);
+      // §A4 — the crew put the place right while all this was happening, so the district this
+      // segment produced with is not the one it started as.
+      //
+      // Evaluated at the segment's **midpoint**, which is exact rather than a compromise: repair is
+      // linear in time and a structure's effectiveness is linear in its damage, so the average of a
+      // linear function over the window is its value halfway through it. Using the start would
+      // charge a crew for a whole day of damage they spent that day fixing; using the end would
+      // hand them a day they never had.
+      const halfway = repairedDistrict(buildings, new Date(cursor + (mark - cursor) / 2));
+      // The carry threads through every segment of the walk, so cutting the window at a completed
+      // build cannot round anything away — three segments owe exactly what one segment would have.
+      const accrued = accrueProduction(resources, halfway, hours * working, crew, carry);
+      resources = accrued.resources;
+      carry = accrued.carry;
+      morale = driftMorale(morale, moraleTarget(halfway), hours);
+      // ...and the state carried out of the segment is the district as it stands at `mark`.
+      buildings = repairedDistrict(buildings, new Date(mark));
       cursor = mark;
     }
   };
@@ -94,7 +115,20 @@ function walk(
   }
   advanceTo(now.getTime());
 
-  return { buildings, resources, morale };
+  return { buildings, resources, morale, carry };
+}
+
+/** Did the walk actually move a structure? Damage and its clock are the only fields it can move. */
+function changed(before: readonly Building[], after: readonly Building[]): boolean {
+  return after.some((building, index) => {
+    const was = before[index];
+    return (
+      was === undefined ||
+      was.damage !== building.damage ||
+      (was.damagedAt ?? null) !== (building.damagedAt ?? null) ||
+      was.level !== building.level
+    );
+  });
 }
 
 export function settleDistrict(repos: Repositories, base: Base, now: Date): DistrictSettlement {
@@ -108,16 +142,37 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
     return { base, completed: [], awards: [] };
   }
 
-  const { buildings, resources, morale } = walk(base, due, now);
+  // §F2 — Engineering and Chemistry on the line, Logistics on the warehouse. Read once for the
+  // whole window rather than per segment: a crew does not change halfway through a settle, and
+  // re-reading it inside the walk would cost a database round trip per completed build.
+  const { productionPercent, storageCapacityPercent } = crewEffectsFor(repos, base);
+  // §A4 — and what the ground makes go further (the Abandoned Nuclear Plant). Read from the
+  // territory fold rather than the crew one: this is a location's doing, not a person's.
+  const { resourceYieldPercent } = standingEffectsFor(repos, base, now);
+  const { buildings, resources, morale, carry } = walk(base, due, now, {
+    productionPercent,
+    storageCapacityPercent,
+    resourceYieldPercent,
+  });
   const settled: Base = {
     ...base,
     resources,
     buildings,
     buildQueue: pending,
-    economy: { ...base.economy, morale, productionSettledAt: now.toISOString() },
+    economy: {
+      ...base.economy,
+      morale,
+      productionSettledAt: now.toISOString(),
+      productionCarry: carry,
+    },
   };
 
-  if (due.length > 0) repos.bases.updateDistrict(settled.id, settled.buildings, settled.buildQueue);
+  // Written when a build landed **or** when the repair clock moved a structure — the second is
+  // silent and would otherwise be recomputed and thrown away on every read, so a district would
+  // never actually come back.
+  if (due.length > 0 || changed(base.buildings, settled.buildings)) {
+    repos.bases.updateDistrict(settled.id, settled.buildings, settled.buildQueue);
+  }
   repos.bases.updateResources(settled.id, settled.resources);
   repos.bases.updateEconomy(settled.id, settled.economy);
 
@@ -148,5 +203,8 @@ export function settleBase(repos: Repositories, base: Base, now: Date): District
   // Training last: a batch landing does not feed anything else in the settle, and putting it
   // first would mean the army the payroll sees differs from the one the district produced with.
   const paid = settleBaseEconomy(repos, district.base, now);
-  return { ...district, base: settleTraining(repos, paid, now) };
+  const trained = settleTraining(repos, paid, now);
+  // Both runs of awards, in the order they happened, so one read that finished a building and a
+  // batch announces one level-up rather than losing whichever came first.
+  return { ...district, base: trained.base, awards: [...district.awards, ...trained.awards] };
 }

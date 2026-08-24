@@ -14,7 +14,7 @@ function iconBundle(key: AssetKey): AssetBundleName {
   if (key.startsWith('icon-archetype-')) return 'overseer';
   if (key.startsWith('icon-kind-')) return 'city';
   // §A4 — place markers are drawn inside a district, which is reached from the city screen.
-  if (key.startsWith('icon-place-')) return 'city';
+  if (key.startsWith('icon-location-')) return 'city';
   return 'ui';
 }
 

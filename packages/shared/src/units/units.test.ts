@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { BUILDING_CATALOG, type Building } from '../building/index.js';
-import { CITY_PLACES, PLACE_KINDS } from '../city/index.js';
+import { CITY_LOCATIONS, LOCATION_KINDS } from '../city/index.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import {
   UNIT_CATALOG,
   UNIT_TIERS,
   findUnit,
   unitsInTier,
-  unitsUnlockedByPlace,
+  unitsUnlockedByLocation,
   type UnitSpec,
   type UnitTier,
 } from './catalog.js';
@@ -57,9 +57,11 @@ const building = (
   kind,
   level,
   modifications,
+  damage: 0,
+  garrisons: 0,
 });
 
-/** A crew at the top of every tree, holding one of every kind of place. */
+/** A crew at the top of every tree, holding one of every kind of location. */
 const EVERYTHING = {
   buildings: (Object.keys(BUILDING_CATALOG) as Building['kind'][]).map((kind) =>
     building(kind, 20, [
@@ -69,7 +71,7 @@ const EVERYTHING = {
       'nexus_encrypted_core',
     ]),
   ),
-  heldPlaceKinds: new Set(PLACE_KINDS),
+  heldPlaceKinds: new Set(LOCATION_KINDS),
 };
 
 describe('the catalogue (§A5)', () => {
@@ -158,7 +160,7 @@ describe('unlocking them (§A5)', () => {
 
   it('gates something on each of the three kinds of clause', () => {
     const kinds = new Set(UNIT_CATALOG.flatMap((unit) => unit.requires.map((need) => need.kind)));
-    expect(kinds).toEqual(new Set(['building', 'modification', 'place']));
+    expect(kinds).toEqual(new Set(['building', 'modification', 'location']));
   });
 
   it('reads a building clause off the level, a modification off what is fitted', () => {
@@ -179,7 +181,7 @@ describe('unlocking them (§A5)', () => {
     ).toBe(true);
     expect(
       requirementMet(
-        { kind: 'place', placeKind: 'gene_clinic' },
+        { kind: 'location', locationKind: 'gene_clinic' },
         { ...NOTHING, heldPlaceKinds: new Set(['gene_clinic'] as const) },
       ),
     ).toBe(true);
@@ -201,19 +203,21 @@ describe('unlocking them (§A5)', () => {
     expect(isUnitUnlocked(colossus!, partway.length === 0 ? EVERYTHING : NOTHING)).toBe(false);
   });
 
-  it('reads back which units a place would open up', () => {
-    const gated = PLACE_KINDS.filter((kind) => unitsUnlockedByPlace(kind).length > 0);
+  it('reads back which units a location would open up', () => {
+    const gated = LOCATION_KINDS.filter((kind) => unitsUnlockedByLocation(kind).length > 0);
     expect(gated.length).toBeGreaterThan(0);
     for (const kind of gated) {
-      for (const unit of unitsUnlockedByPlace(kind)) {
-        expect(unit.requires.some((n) => n.kind === 'place' && n.placeKind === kind)).toBe(true);
+      for (const unit of unitsUnlockedByLocation(kind)) {
+        expect(unit.requires.some((n) => n.kind === 'location' && n.locationKind === kind)).toBe(
+          true,
+        );
       }
     }
   });
 
-  it('collects the place kinds a crew is standing on', () => {
-    const first = CITY_PLACES[0]!;
-    const kinds = heldPlaceKindsOf(CITY_PLACES, (placeId) => placeId === first.id);
+  it('collects the location kinds a crew is standing on', () => {
+    const first = CITY_LOCATIONS[0]!;
+    const kinds = heldPlaceKindsOf(CITY_LOCATIONS, (locationId) => locationId === first.id);
     expect(kinds).toEqual(new Set([first.kind]));
   });
 });

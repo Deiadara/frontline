@@ -1,3 +1,4 @@
+import { adminWaives } from '../admin/mode.js';
 import {
   BUILDING_CATALOG,
   BUILDING_MAX_LEVEL,
@@ -16,7 +17,14 @@ import {
   type Base,
   type BuildQueueEntry,
   type BuildingKind,
+  discounted,
+  speedMultiplier,
+  buildingParts,
+  hasItems,
+  removeItems,
 } from '@frontline/shared';
+import { adminCost, adminSeconds } from '../admin/mode.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -34,6 +42,7 @@ export const BUILD_REFUSALS = [
   'nexus_cap',
   'queue_full',
   'cannot_afford',
+  'missing_parts',
 ] as const;
 export type BuildRefusal = (typeof BUILD_REFUSALS)[number];
 
@@ -47,6 +56,18 @@ export interface BuildInput {
   /** Id minted for this order. It becomes the structure's own id if the order creates one. */
   id: string;
   now: Date;
+  /**
+   * Testing mode: five seconds, no materials (`admin/mode.ts`).
+   *
+   * Carried on the input rather than read off a module-level flag so the override is visible in
+   * every call and a test can have both modes in the same file.
+   *
+   * It waives the price, the clock, and every gate in {@link adminWaives} — which now includes the
+   * Nexus's authorisation and its level cap, because a reviewer who wants to look at the Garage
+   * should not have to spend the afternoon buying twelve Nexus levels first. What it cannot waive
+   * is {@link BUILDING_MAX_LEVEL}: there is no twenty-first level to queue.
+   */
+  admin?: boolean;
 }
 
 /**
@@ -57,7 +78,11 @@ export interface BuildInput {
  * is a third thing again, a structure the Nexus is not yet senior enough to authorise at all. A
  * player who cannot tell the three apart cannot act on any of them.
  */
-function refusalFor({ base, structure }: Omit<BuildInput, 'id' | 'now'>): BuildRefusal | null {
+function refusalFor({
+  base,
+  structure,
+  admin,
+}: Omit<BuildInput, 'id' | 'now'>): BuildRefusal | null {
   const { buildings, buildQueue } = base;
 
   if (!isUnlockedForQueue(structure, buildings, buildQueue)) return 'locked';
@@ -71,6 +96,10 @@ function refusalFor({ base, structure }: Omit<BuildInput, 'id' | 'now'>): BuildR
   }
 
   if (buildQueue.length >= MAX_BUILD_QUEUE) return 'queue_full';
+  // The part gate before the price: "you need a Coolant Cell" is a thing a player can go and do
+  // something about today, and "you are short of scrap" fixes itself while they read the message.
+  if (!hasItems(base.inventory, buildingParts(structure, level))) return 'missing_parts';
+  if (admin) return null;
   return canAfford(base.resources, buildingCost(structure, level, buildings))
     ? null
     : 'cannot_afford';
@@ -86,28 +115,54 @@ function refusalFor({ base, structure }: Omit<BuildInput, 'id' | 'now'>): BuildR
  * Nexus never retimes or re-prices work already under way — the same rule a mission's clock follows.
  */
 export function queueBuild(repos: Repositories, input: BuildInput): BuildResult {
+  const { base, structure, id, now, admin = false } = input;
   const refusal = refusalFor(input);
-  if (refusal) return { kind: 'refused', reason: refusal };
+  if (refusal && !adminWaives(refusal, admin)) return { kind: 'refused', reason: refusal };
 
-  const { base, structure, id, now } = input;
-  // `refusalFor` already proved this is not null; re-deriving beats threading it out of a guard.
-  const level = nextQueuedLevel(structure, base.buildings, base.buildQueue) ?? 1;
-  const cost = buildingCost(structure, level, base.buildings);
+  // The level the order is for.
+  //
+  // Normally `nextQueuedLevel`, which is null exactly when the Nexus caps it — and admin mode has
+  // just waived that cap, so the level has to be worked out without it. Falling back to `1` here
+  // (which is what the null case used to do) would queue a *first* level for a structure that
+  // already has six, and the district would come back wrong on the next read.
+  const projected = projectedBuildings(base.buildings, base.buildQueue);
+  const level =
+    nextQueuedLevel(structure, base.buildings, base.buildQueue) ??
+    buildingLevel(projected, structure) + 1;
+  // §F2 — the crew is half of how fast and how cheaply a thing goes up. Organization keeps a long
+  // job moving and Dexterity finishes the fiddly end of it; Fabrication makes the part rather than
+  // buying it. Frozen onto the entry with the rest, so hiring an engineer mid-build does not
+  // retime work already under way.
+  const effects = standingEffectsFor(repos, base);
+  const cost = discounted(buildingCost(structure, level, base.buildings), effects.buildCostPercent);
+  // §A1 — the handful of levels that ask for a part as well as a price. Taken at the moment the
+  // order is placed, like the materials: a queued build has already been paid for.
+  const parts = buildingParts(structure, level);
 
   const entry: BuildQueueEntry = {
     id,
     kind: structure,
     level,
     startedAt: queueStartsAt(base.buildQueue, now).toISOString(),
-    durationSeconds: buildingBuildSeconds(structure, level, base.buildings),
+    durationSeconds: adminSeconds(
+      Math.max(
+        1,
+        Math.round(
+          buildingBuildSeconds(structure, level, base.buildings) /
+            speedMultiplier(effects.buildSpeedPercent),
+        ),
+      ),
+      admin,
+    ),
   };
 
   const queued: Base = {
     ...base,
-    resources: spendResources(base.resources, cost),
+    resources: spendResources(base.resources, adminCost(cost, admin)),
+    inventory: removeItems(base.inventory, parts),
     buildQueue: [...base.buildQueue, entry],
   };
-  repos.bases.updateResources(queued.id, queued.resources);
+  repos.bases.updateHoldings(queued.id, queued.resources, queued.inventory);
   repos.bases.updateDistrict(queued.id, queued.buildings, queued.buildQueue);
 
   return { kind: 'queued', base: queued, entry };

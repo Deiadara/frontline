@@ -11,6 +11,7 @@ import {
   startingProgression,
   startingResearch,
   type Base,
+  startingTraining,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -64,7 +65,16 @@ function seedBase(repos: Repositories, officerCount: number, weeklyWage: number)
     buildQueue: [],
     army: {},
     trainingQueue: [],
-    commanders: officers.map((id) => createCommander(id, id, 'head_spy')),
+    training: startingTraining('2026-08-16T00:00:00.000Z'),
+    inventory: {},
+    fittedUpgrades: [],
+    fleet: {},
+    // §F2 discounts the wage book off Authority and Negotiation, and these tests are about the
+    // payroll arithmetic rather than about the discount — so the crew here has neither. The
+    // discount has its own test below, where it is the only thing moving.
+    commanders: officers.map((id) =>
+      createCommander(id, id, 'head_spy', { authority: 0, negotiation: 0 }),
+    ),
     createdAt: FOUNDED,
   };
   repos.bases.insert(base);

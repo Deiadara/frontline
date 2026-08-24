@@ -5,12 +5,9 @@ import {
   INFAMY_PER_GOVERNMENT_SEAT,
   INFAMY_PER_GOVERNMENT_SITE,
   INFAMY_PER_RAID_WON,
-  METER_MAX,
-  METER_MIN,
-  adjustMeter,
-  clampMeter,
   infamyForRaidWon,
-} from './meters.js';
+} from './infamy.js';
+import { METER_MAX, METER_MIN, adjustMeter, clampMeter } from './meters.js';
 
 describe('the meter range', () => {
   it('holds anything inside the range unchanged', () => {

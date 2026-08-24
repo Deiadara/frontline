@@ -80,6 +80,27 @@ Body: `CreateOverseerRequestSchema` `{presetId}`.
 projected through `BaseSummarySchema` (id/ownerId/name/districtId/level only — never resources
 or buildings of other players).
 
+### `POST /api/city/upgrade` (auth)
+
+Body: `UpgradeLocationRequestSchema` `{locationId}`. Works a location you hold up one level
+(GDD §A4). Charged up front, a clock on the control row, banked by `settleFortifications` on the
+next read of the city — the same lazy contract fortifying uses, and the same settler.
+
+A location is captured at level 1 and can be worked to `MAX_LOCATION_LEVEL` (4). Each level pays
+more (`LEVEL_SCALE`) and each upgrade costs more than the last (`UPGRADE_COST_SCALE`). **A capture
+resets it to 1** and cancels any work in progress — `battle/resolve.ts`, not this route.
+
+Refusals, all `409`:
+
+| Reason                          | Code                     |
+| ------------------------------- | ------------------------ |
+| Not held by the caller          | `PLACE_UNAVAILABLE`      |
+| Already at `MAX_LOCATION_LEVEL` | `PLACE_UNAVAILABLE`      |
+| Work already under way there    | `PLACE_UNAVAILABLE`      |
+| Stockpile does not cover it     | `INSUFFICIENT_RESOURCES` |
+
+`200` → `CityMutationResponseSchema` `{district, base}`.
+
 ### `GET /api/base/:id` (auth)
 
 - No such base → `404 NOT_FOUND`.
@@ -139,6 +160,37 @@ Body: `BattleRequestSchema` `{targetDistrictId}`.
   the battle insert.
 - `200` → `BattleResponseSchema` `{result, resources}` (`resources` = attacker base stockpile
   after payout).
+
+### Declared battles (§A4, battle rework)
+
+Six endpoints, all under `/api/battles`, all answering with the whole board so a client never has
+to reconstruct it. Schemas are in `packages/shared/src/api.battle.ts`.
+
+Every handler settles in the same order the city routes use, with one more step on the end: the
+crew's district and payroll, then any fortification whose clock ran out, then **any fight whose mark
+has passed**. There is no scheduler — `settleBattles` runs on the read, and a fight nobody has looked
+at for three days resolves to the same result whenever it is next opened.
+
+- `GET /api/battles` → `BattlesResponseSchema`. Coming fights the caller is in or can see, finished
+  ones they are allowed to read, the half-hour marks open right now, their infamy and what it buys,
+  their own structures, and the gate state of every district they can see into.
+- `POST /api/battles/declare` — `{target, scheduledFor}`. Refused (`409 BATTLE_REFUSED`) for a mark
+  off the half hour, inside eight hours or past twenty-four; for a location in a district one party
+  holds outright (attack the gate); for a gate where no one party holds all of it; for a structure
+  behind a gate that is still standing; for unscouted ground, ground already called, a fourth
+  simultaneous call, or your own.
+- `POST /api/battles/deploy` — `{battleId, changes, perimeterChanges}`, both **deltas**. Positive
+  sends, negative withdraws. Units leave the roster when sent and return when pulled, less whatever
+  the enemy's ring takes on the way out. Refused past the cutoff, for units the crew does not have,
+  and for units whose tier demands more infamy than the crew has earned.
+- `POST /api/battles/trap` — `{locationId, trapId}`. One armed trap per location, gated on the Lab.
+- `POST /api/battles/garrison` — `{buildingId, delta}`. Up to three watches per structure.
+- `POST /api/battles/sacrifice` — `{sacrificeId}`. Spends infamy outright; `409 NOT_ENOUGH_INFAMY`
+  when the name is not worth it. One at a time.
+
+The **report** is withheld rather than redacted: the winner always gets one, the loser only if at
+least one unit fled and made it home. A redacted report leaks the shape of what was kept back, and a
+perimeter is bought to buy a silence.
 
 ## Status code summary
 

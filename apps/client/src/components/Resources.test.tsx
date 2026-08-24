@@ -57,10 +57,19 @@ describe('the readouts that use it', () => {
    */
   it('renders the glyph bare, so an unaffordable line recolours the mark it inherits', () => {
     const { container } = render(<CostLine cost={{ caps: 99_999 }} stock={STARTING_RESOURCES} />);
-    const row = container.querySelector('span.text-neon-magenta');
+    const row = container.querySelector('span.text-oxblood-300');
     expect(row, 'a line the vault cannot cover is drawn hostile').not.toBeNull();
 
+    // The mark carries no colour of its own — not the svg, and not the wrapper that sizes it — so
+    // whatever the row is painted flows straight through. Asserted as "nothing sets a colour"
+    // rather than as "the root is an svg": the icon gained a sizing wrapper (so a delivered `<img>`
+    // and the procedural fallback come out the same size), and inheritance is what actually matters.
     const bare = render(<ResourceIcon kind="caps" />);
-    expect(bare.container.firstElementChild?.tagName.toLowerCase()).toBe('svg');
+    const glyph = bare.container.querySelector('svg');
+    expect(glyph, 'the procedural fallback is an svg').not.toBeNull();
+    for (const node of [bare.container.firstElementChild, glyph]) {
+      expect(node?.getAttribute('class') ?? '').not.toMatch(/\btext-/);
+    }
+    expect(glyph?.getAttribute('fill')).toBe('none');
   });
 });

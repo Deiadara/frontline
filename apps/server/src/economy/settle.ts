@@ -8,6 +8,7 @@ import {
   type Base,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { crewEffectsFor } from '../crew/standing.js';
 
 /**
  * Settles every pay-week boundary the base has crossed since it was last read (GDD §H7 wages,
@@ -23,6 +24,8 @@ export function settleBaseEconomy(repos: Repositories, base: Base, now: Date): B
     resources: base.resources,
     payroll: base.economy.payroll,
     officerCount: base.commanders.length,
+    // §F2 — what Authority and Negotiation take off the book before it is paid.
+    wageDiscountPercent: crewEffectsFor(repos, base).wageDiscountPercent,
     now,
   });
   if (cycle.weeksSettled === 0) return base;

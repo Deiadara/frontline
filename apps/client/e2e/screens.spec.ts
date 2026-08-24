@@ -1,7 +1,6 @@
 import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import {
-  attackResult,
   lateGame,
   me,
   meNoOverseer,
@@ -12,6 +11,7 @@ import {
   settlingMissions,
   settlingResearch,
 } from './fixtures';
+import { OFFICER_ROLES } from '@frontline/shared';
 import {
   expectNoImagesClipped,
   expectNothingClippedVertically,
@@ -20,6 +20,33 @@ import {
 } from './harness';
 
 test.use({ viewport: { width: 1280, height: 800 } });
+
+/**
+ * Where a district actually sits on screen.
+ *
+ * `position` is a fraction of the map's **layout** width, not of the canvas: the canvas is
+ * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
+ * out into the frame less whatever chrome is covering it and publishes that inset as
+ * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
+ * the district it was aimed at — and the further right the district, the worse the miss.
+ */
+async function districtPoint(
+  page: Page,
+  position: { x: number; y: number },
+): Promise<{ x: number; y: number }> {
+  const box = await page.locator('canvas').boundingBox();
+  if (!box) throw new Error('canvas has no bounding box');
+  const map = page.getByTestId('city-map');
+  const inset = async (name: string) =>
+    Number((await map.getAttribute(`data-safe-${name}`)) ?? '0');
+  const [right, top, bottom] = [await inset('right'), await inset('top'), await inset('bottom')];
+  const layoutWidth = Math.max(1, box.width - right);
+  const layoutHeight = Math.max(1, box.height - top - bottom);
+  return {
+    x: box.x + position.x * layoutWidth,
+    y: box.y + top + position.y * layoutHeight,
+  };
+}
 
 test('character select renders all presets', async ({ page }) => {
   await installApi(page, meNoOverseer);
@@ -76,31 +103,57 @@ test('character select renders all presets', async ({ page }) => {
 /**
  * The §G placement screen, at the widest state it can reach (level 24: a twelve-pip cap, the 50%
  * ceiling, a decimal bonus and the longest name/role pair on the board).
+ *
+ * The screen is a chart of the nineteen positions now rather than a list of the people in them, so
+ * the §G7 numbers live on a slot until it is opened and in the character's own card after. Both
+ * halves are checked: a chart that shows the right figures and hides the controls is the failure
+ * this rework could most easily have shipped.
  */
 test('assignee placement renders at the §G7 ceiling without clipping', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/assignees');
 
-  await expect(page.getByRole('heading', { name: 'ASSIGNEES' })).toBeVisible();
-  // §G7's last row and its `at cap` state, and a decimal bonus rendered without a stray `.0`.
-  await expect(page.getByText('75%', { exact: true })).toBeVisible();
-  await expect(page.getByText('at cap')).toBeVisible();
-  await expect(page.getByText('14.5%', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your crew' })).toBeVisible();
+  // §G7's last row and a decimal bonus rendered without a stray `.0`, both on their slots.
+  await expect(page.getByText('24 assigned · 75%')).toBeVisible();
+  await expect(page.getByText('3 assigned · 14.5%')).toBeVisible();
   // §C4 — a Professor is on the books, so reskilling is offered rather than explained away.
   await expect(page.getByRole('button', { name: 'Reskill' })).toBeEnabled();
 
+  // Every position is drawn, filled or not: the point of the chart is that a player can see the
+  // holes as well as the people.
+  await expect(page.locator('[data-testid^="crew-slot-"]')).toHaveCount(OFFICER_ROLES.length);
+  await expect(page.getByText('Vacant').first()).toBeVisible();
+
+  // Opening a slot is what shows the sheet, the pips and the one control on the screen.
+  await page.getByTestId('crew-slot-instructor_of_the_young').click();
+  const card = page.getByTestId('crew-detail');
+  await expect(card).toBeVisible();
+  // The window says "24 / 24 · 75%" now rather than the row's "24 assigned"; the figures are what
+  // the assertion is about, not the sentence they sit in.
+  await expect(card.getByText('24 / 24', { exact: false })).toBeVisible();
+  await expect(card.getByRole('button', { name: 'At cap' })).toBeDisabled();
+  // The sheet is the reason the card exists, so it has to actually be in it.
+  await expect(card.getByText('Cryptography')).toBeVisible();
+
   await settleFonts(page);
 
-  // Officer names and role labels are the long strings on this row; nothing may ellipsise or spill.
+  // Officer names and role labels are the long strings here; nothing may ellipsise or spill.
   const overflowing = await page.evaluate(() =>
     [...document.querySelectorAll('p, span')]
       .filter((el) => el.scrollWidth > el.clientWidth + 1)
       .map((el) => el.textContent?.slice(0, 40) ?? ''),
   );
   expect(overflowing, 'officer names and §G7 figures must not overflow their column').toEqual([]);
-  await expectNothingClippedVertically(page);
+  // No vertical clipping gate: nineteen slots are taller than the sheet, so the last visible row
+  // is always half-cut by the fold. That is what a scroller does — the same reason the roster and
+  // the research page gate on overflow and horizontal clipping instead.
 
   await page.screenshot({ path: 'screenshots/assignees.png', fullPage: false });
+
+  // And it closes again, which is the half of a drill-down that is easy to forget to build.
+  await card.getByRole('button', { name: 'Close' }).click();
+  await expect(card).toHaveCount(0);
 });
 
 test('assignee placement explains the empty state before any officer is hired', async ({
@@ -109,11 +162,12 @@ test('assignee placement explains the empty state before any officer is hired', 
   await installApi(page, me);
   await page.goto('/game/assignees');
 
-  await expect(page.getByText('hire an officer at the Bar first')).toBeVisible();
+  await expect(page.getByText('Nineteen positions, nobody in any of them yet')).toBeVisible();
   // §G8 — the pool is already 2 at level 1, so the page must not read as "you have nothing".
   await expect(page.getByText('Unplaced')).toBeVisible();
+  // Every position still drawn, all of them vacant: the chart is the explanation.
+  await expect(page.getByText('Vacant')).toHaveCount(OFFICER_ROLES.length);
   await settleFonts(page);
-  await expectNothingClippedVertically(page);
   await page.screenshot({ path: 'screenshots/assignees-empty.png', fullPage: false });
 });
 
@@ -121,7 +175,9 @@ test('game shell renders the city map', async ({ page }) => {
   await installApi(page, me);
   await page.goto('/game');
 
-  await expect(page.getByText(overseer.name)).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: new RegExp(`^${overseer.name}, Overseer`) }),
+  ).toBeVisible();
   await expect(page.locator('canvas')).toBeVisible();
   await page.waitForTimeout(700);
 
@@ -135,8 +191,8 @@ test('the hideout stands its structures on clickable plots', async ({ page }) =>
   await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
   // §A1 — the structures are plots in a place now, not rows in a list, so they are found by the
   // control you click rather than by a name printed somewhere on the page.
-  await expect(page.getByRole('button', { name: /^The Nexus —/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^The Generator —/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^The Nexus,/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^The Generator,/ })).toBeVisible();
 
   await page.screenshot({ path: 'screenshots/base.png', fullPage: false });
 });
@@ -197,10 +253,8 @@ async function selectDistrict(page: Page, id: string): Promise<void> {
   await page.waitForTimeout(700);
   const box = await page.locator('canvas').boundingBox();
   if (!box) throw new Error('canvas has no bounding box');
-  await page.mouse.click(
-    box.x + district.position.x * box.width,
-    box.y + district.position.y * box.height,
-  );
+  const at = await districtPoint(page, district.position);
+  await page.mouse.click(at.x, at.y);
 }
 
 test('the district view shows what is inside a scouted district (§A4)', async ({ page }) => {
@@ -212,67 +266,31 @@ test('the district view shows what is inside a scouted district (§A4)', async (
     .getByTestId('district-panel')
     .getByRole('button', { name: 'Enter the district' })
     .click();
-  await expect(page.getByTestId('places')).toBeVisible();
+  await expect(page.getByTestId('locations')).toBeVisible();
   // Ground this crew holds reads differently from ground it does not, and offers different moves.
   await expect(page.getByText('Yours').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Take it' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Call a fight' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Dig in' })).toBeVisible();
 
-  await page.screenshot({ path: 'screenshots/district-places.png', fullPage: false });
+  await page.screenshot({ path: 'screenshots/district-locations.png', fullPage: false });
 });
 
-test('taking a place opens the report (§A4)', async ({ page }) => {
-  await installApi(page, me);
-  await page.goto('/game/city/rustyard');
-  await expect(page.getByTestId('places')).toBeVisible();
-
-  await page.getByRole('button', { name: 'Take it' }).first().click();
-  const picker = page.getByRole('dialog');
-  await expect(picker.getByRole('heading', { name: /^Take / })).toBeVisible();
-  // The force picker is where loot capacity becomes a decision rather than a stat.
-  await expect(picker.getByText('Can carry')).toBeVisible();
-  await picker.getByLabel('How many Razors').fill('4');
-  await picker.getByRole('button', { name: 'Send them in' }).click();
-
-  await expect(page.getByRole('heading', { name: 'VICTORY' })).toBeVisible();
-  await page.screenshot({ path: 'screenshots/battle.png', fullPage: false });
-});
-
-/**
- * MOU-227 — §I1 pays XP for the fight win or lose, and the response is the only place a level it
- * bought is ever reported. The report modal is therefore where the player finds out.
+/*
+ * "Taking a place opens the report" was here, and it went with the instant-attack route (board,
+ * battle rework). A place is taken by calling a fight and turning up to it now, which is
+ * `e2e/battles.spec.ts` — and the report it opens is written when the settler runs, hours later,
+ * rather than when a button is pressed.
  */
-test('the report announces a level-up the fight paid for', async ({ page }) => {
-  await installApi(page, me);
-  // Registered after `installApi`, so Playwright's reverse-order matching gives it priority.
-  await page.route('**/api/city/attack', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        ...attackResult,
-        levelUp: {
-          level: 4,
-          levelsGained: 1,
-          grants: { assigneePool: 5, assigneeCapPerOfficer: 2, recruitSlots: 5 },
-        },
-      }),
-    }),
-  );
-  await page.goto('/game/city/rustyard');
-  await expect(page.getByTestId('places')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Take it' }).first().click();
-  await page.getByRole('dialog').getByLabel('How many Razors').fill('1');
-  await page.getByRole('dialog').getByRole('button', { name: 'Send them in' }).click();
+/*
+ * MOU-227's report test went with it, for the same reason: §I1 still pays XP for a fight win or
+ * lose, and the response that carries a level it bought is now the *build* response and the battle
+ * settlement rather than an attack call. `District.test.tsx` covers the build half against a real
+ * `fetch`; `battle/battle.test.ts` covers the settlement half.
+ */
 
-  const banner = page.getByRole('region', { name: 'Level up' });
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText('LEVEL 4');
-});
-
-/** `neon-cyan` (#22d3ee) as the browser reports it — the selected tier tab's painted colour. */
-const ACTIVE_TAB_COLOR = 'rgb(34, 211, 238)';
+/** `brass-300` (#f0ad4c) as the browser reports it: the selected tier tab's painted colour. */
+const ACTIVE_TAB_COLOR = 'rgb(240, 173, 76)';
 
 test('the unit roster shows what is fielded and what is still locked (§A5)', async ({ page }) => {
   await installApi(page, me);
@@ -287,7 +305,8 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
   await expect(
     page.getByTestId('unit-the-colossus').or(page.getByTestId('unit-the_colossus')),
   ).toBeVisible();
-  await expect(page.getByText(/hold a War Machine Graveyard/i)).toBeVisible();
+  // The Colossus is assembled standing up now, on the only crane in the city (§A4).
+  await expect(page.getByText(/hold a Construction Site/i)).toBeVisible();
 
   // The tier tabs carry `transition-colors`, and React flips the class a frame before the paint
   // catches up — so a screenshot taken the instant the cards change shows *Rabble* still lit over a
@@ -446,7 +465,9 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
 
   // The §G3 roster is what makes the gate satisfiable: the first officer leads until the player
   // says otherwise, so a hard card is never offering a button the server is certain to refuse.
-  await expect(ambush.getByRole('combobox')).toHaveValue('off-1');
+  // Read as a *name* now that the picker is painted: that is what the player actually sees, and a
+  // value attribute is a thing only a native control has.
+  await expect(ambush.getByRole('combobox')).toContainText('The Ghost of Sector Nine');
 
   const launch = page.waitForRequest(
     (request) => request.url().includes('/api/missions') && request.method() === 'POST',
@@ -473,24 +494,21 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
    * shipped "Instructor of the Yo" cut mid-word. So the label is measured directly against the
    * space the control actually gives it.
    */
-  const cut = await page.evaluate(() => {
-    const ARROW_PX = 20; // the disclosure triangle, which the text may not run under
-    return [...document.querySelectorAll<HTMLSelectElement>('select')]
-      .filter((select) => {
-        const style = getComputedStyle(select);
-        const context = document.createElement('canvas').getContext('2d');
-        if (!context) return false;
-        context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        const room =
-          select.clientWidth -
-          parseFloat(style.paddingLeft) -
-          parseFloat(style.paddingRight) -
-          ARROW_PX;
-        return [...select.options].some((option) => context.measureText(option.text).width > room);
-      })
-      .map((select) => select.options[select.selectedIndex]?.text ?? '');
-  });
+  // Opened, and measured on the real boxes.
+  //
+  // The native version of this had to be measured with a canvas and a guessed arrow width, because
+  // a closed `select`'s `option` elements have no box at all and the control clips its own text
+  // with no overflow to see. The painted list is ordinary DOM: every option is an element with a
+  // width, so the check is the one every other guard in this suite uses — does the text fit in the
+  // box it was given.
+  await ambush.getByRole('combobox').click();
+  const cut = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .filter((option) => option.scrollWidth > option.clientWidth + 1)
+      .map((option) => option.textContent ?? ''),
+  );
   expect(cut, 'no officer name may be cut off by the picker').toEqual([]);
+  await page.keyboard.press('Escape');
 
   await page.screenshot({ path: 'screenshots/missions-officer.png', fullPage: false });
 });

@@ -7,7 +7,7 @@
  * the hard wrapping in the doc (and in this file) never reaches a backend.
  */
 import type { BuildingKind } from '../building/index.js';
-import type { DistrictKind, PlaceKind } from '../city/index.js';
+import type { DistrictKind, LocationKind } from '../city/index.js';
 import type { OverseerArchetype } from '../overseer.js';
 import type { ResourceKey } from '../resources.js';
 
@@ -38,7 +38,7 @@ export const STYLE_ANCHOR = block(`
 
 /** ART-PROMPTS §0.2 — applied to every prompt. */
 export const NEGATIVE = block(`
-  text, letters, words, watermark, signature, logo, ui overlay, hud, frame, border, caption,
+  watermark, signature, ui overlay, hud, frame, border, caption,
   flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art,
   3d render, octane render, unreal engine screenshot, cgi plastic, clay render, low poly,
   photograph, photorealistic skin pores, stock photo,
@@ -256,7 +256,8 @@ export const PLATE_SUBJECTS = {
     between poles. Value kept in the middle range (#1e293b to #55617e), the ground reading a step
     warmer and darker as it comes toward the viewer. Cold #22d3ee key from upper left, weak sodium
     #f59e0b bounce. Emissives are small, sparse and at ground level: a strung bulb line, a marker
-    lamp, a brazier. No buildings. Nothing on the pads. No text.
+    lamp, a brazier. No buildings. Nothing on the pads. Painted signage, hoardings and graffiti are
+    part of the street and welcome; nothing that reads as a label for a game object.
   `),
   'plane-city-sky': block(`
     Sky and distant arcology silhouettes only. Heavy smog ceiling in #1b2233 to #3d4761
@@ -479,8 +480,8 @@ export const DISTRICT_KIND_ICON_SUBJECTS: Readonly<Record<DistrictKind, string>>
   `),
 };
 
-/** ART-PROMPTS §6.4 — keyed by `PlaceKind`. The map markers inside a contested district. */
-export const PLACE_KIND_ICON_SUBJECTS: Readonly<Record<PlaceKind, string>> = {
+/** ART-PROMPTS §6.4 — keyed by `LocationKind`. The map markers inside a contested district. */
+export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
   scrap_press: block(`
     A baling press seen from above with a squared bale on the outfeed and a scatter of loose
     swarf, warm #f59e0b rust tones.
@@ -561,6 +562,92 @@ export const PLACE_KIND_ICON_SUBJECTS: Readonly<Record<PlaceKind, string>> = {
     A brick chamber where six storm drains meet, seen from above, standing water reading as
     dark #12a2bd with one shaft of light.
   `),
+
+  gas_station: block(`
+    A forecourt canopy seen from above on four thin posts, two pump islands beneath it, a warm
+    #f59e0b spill reading as fuel on the apron.
+  `),
+  nuclear_plant: block(`
+    Two hyperboloid cooling towers with a low turbine hall between them, a cold #86e6a8 glow in
+    the reactor block.
+  `),
+  soup_kitchen: block(`
+    A long trestle table seen from above with two steaming vats at one end and a queue of small
+    marks along it, warm #f59e0b light.
+  `),
+  downtown_market: block(`
+    An exchange floor seen from above, a ring of desks around an open pit with a price board on
+    the far wall in #22d3ee.
+  `),
+  bone_market: block(`
+    A row of low stalls under a bare frame, pale #cbd5e1 sorted remains laid out on the boards.
+  `),
+  revolutionist_statue: block(`
+    A bronze figure on a tall plinth with one arm raised, seen three-quarter from above, warm
+    #f59e0b rim light down one side.
+  `),
+  watchtower: block(`
+    A lattice mast with a small glazed cabin at the top, a cold #22d3ee lamp in the cabin.
+  `),
+  smugglers_tunnel: block(`
+    A timbered tunnel mouth cut into a retaining wall, rails running out of it, unlit interior in
+    deep #0b1020.
+  `),
+  construction_site: block(`
+    A tower crane over a poured concrete raft with rebar stubs, seen from above, warm #f59e0b
+    hazard marks on the base.
+  `),
+  gym: block(`
+    A barbell on a rack with two stacked plate trees beside it, seen three-quarter, worn
+    #cbd5e1 iron.
+  `),
+  doghouse: block(`
+    A row of three kennels under a low roof with a wire run in front, a single #22d3ee augment
+    light at one door.
+  `),
+  tram_depot: block(`
+    A depot shed with three parallel roads running into it, one tram nose showing, overhead line
+    in cold #22d3ee.
+  `),
+  planetarium: block(`
+    A ribbed dome with a slit at the apex, a projector silhouette inside it, cold #22d3ee light
+    escaping.
+  `),
+  broadcast_station: block(`
+    A studio console seen from above with two microphone booms and a lit ON AIR panel in
+    #e11d8f.
+  `),
+  pirate_radio: block(`
+    A wire aerial strung between two rooftop poles with a small transmitter case beneath it, a
+    single #e11d8f indicator.
+  `),
+  black_clinic: block(`
+    A steel trolley with a locked cabinet above it and three syringes laid in a row, cold
+    #22d3ee lamp overhead.
+  `),
+  mad_scientist_lair: block(`
+    A cylindrical specimen tank with cabling running to an operating table beside it, sick
+    #86e6a8 light inside the tank.
+  `),
+  tavern: block(`
+    A long bar seen three-quarter from above with four stools and hanging glasses, warm
+    #f59e0b light pooling on it.
+  `),
+  cinema: block(`
+    A projector on a stand throwing a cone of pale #cbd5e1 light towards a small bright screen.
+  `),
+  arcade: block(`
+    Three upright cabinets side by side seen three-quarter, screens reading as #e11d8f and
+    #22d3ee glow.
+  `),
+  chapel: block(`
+    A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one
+    narrow window.
+  `),
+  graveyard: block(`
+    Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8
+    stone, one lamp at the gate in #f59e0b.
+  `),
 };
 
 /**
@@ -579,6 +666,15 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     and away from the body. Cloth wrapped from knuckle to elbow in place of armour, one shoulder
     taped. Expression flat and unbothered; cold #22d3ee key along the blade edge, warm #f59e0b
     bounce off the wrapped forearm.
+  `),
+  anodics: block(`
+    A short, densely built figure in a stretched cardigan over a stained shirt, sleeves shoved to
+    the elbow, forearms thick. A narrow strip of hair, no more than two fingers wide, stiff and
+    short — the rest of the scalp shaved down. One hand around the neck of a small brown bottle
+    with a hand-lettered label, held like a tool rather than a drink; the other loose and open at
+    the hip. Reading glasses pushed up into the mohawk. Pupils blown wide, jaw set, entirely calm
+    in a way that is not restful. Warm #f59e0b key from below as if from a floor lamp, cold
+    #22d3ee rim along the shoulders.
   `),
   sparks: block(`
     A teenager holding a home-made electrical lance — a scaffold pole with a capacitor bank taped
@@ -661,6 +757,12 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     An unremarkable person in ordinary work clothes — coveralls, a laminated pass on a lanyard, a
     canvas bag — standing squarely and looking directly at the viewer. No visible weapon. The only
     thing wrong is the stillness, and one hand already inside the bag.
+  `),
+  cyber_dogs: block(`
+    Two lean working dogs in profile, one a half-step ahead. Cropped harnesses with a low-profile
+    spine plate and a socketed collar; one animal's muzzle and jaw partly replaced with matte
+    dark alloy. No visible weapons. Ears forward, weight on the front paws, mid-stride. Cold
+    #22d3ee sensor glint at the collar sockets, warm #f59e0b ground bounce along the flanks.
   `),
   bell_ringers: block(`
     A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one arm and

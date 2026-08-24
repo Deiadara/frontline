@@ -12,6 +12,8 @@ import {
   GRADE_LUMINANCE_PULL,
   GRADE_SATURATION_PULL,
   MAX_BRIGHTEN,
+  PORTRAIT_TARGET_LUMINANCE,
+  PORTRAIT_TARGET_SATURATION,
   STRUCTURE_ASPECT,
   STRUCTURE_GRADE,
 } from '../apps/client/src/features/base/masters.js';
@@ -25,10 +27,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * numbers that change only when a master does. This package already has libvips, so the check lives
  * here — and its failure message is the fix, because the table is generated, not judged.
  *
- * Both halves matter and they fail differently. A stale **aspect** puts a building in a box that is
- * the wrong shape, which shows up as dead hit area over a roof and a name plate floating off the
- * building — invisible in a screenshot. A stale **grade** puts it a stop out of the painting's
- * light, which is visible, but only if somebody happens to look at that one plot.
+ * Both halves matter and they fail differently. A stale **aspect** means the delivered drawing is
+ * not the shape the table says it is, which is the number anything laying a master out has to trust.
+ * A stale **grade** puts one portrait a stop out of step with the eleven beside it, which is
+ * visible, but only if somebody happens to open that one structure's window.
  */
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -85,17 +87,11 @@ const round = (value: number): number => Math.round(value * 100) / 100;
 
 describe('the delivered structure masters', () => {
   const measured = new Map<BuildingKind, Tone>();
-  let plate: Tone | undefined;
 
   beforeAll(async () => {
     for (const kind of BUILDING_KINDS) {
       const file = await deliveredPath(kind);
       if (file !== null) measured.set(kind, await tone(file));
-    }
-    const spec = findAssetSpec('plate-district');
-    if (spec) {
-      const file = path.join(ASSET_DIR, spec.file);
-      if ((await readFile(file).catch(() => null)) !== null) plate = await tone(file);
     }
   }, 60_000);
 
@@ -106,7 +102,6 @@ describe('the delivered structure masters', () => {
    * anything cannot pass for a suite that checked everything.
    */
   it('has masters to measure', () => {
-    expect(plate, 'plate-district has not been delivered — nothing to grade against').toBeDefined();
     expect(measured.size, 'no structure master has been delivered').toBeGreaterThan(0);
     if (measured.size < BUILDING_KINDS.length) {
       const missing = BUILDING_KINDS.filter((kind) => !measured.has(kind));
@@ -155,12 +150,17 @@ describe('the delivered structure masters', () => {
     }
   }, 60_000);
 
-  it('carries the grade its own tone and the plate imply', () => {
+  it('carries the grade its own tone and the portrait target imply', () => {
     for (const [kind, art] of measured) {
       const brightness = round(
-        Math.min(MAX_BRIGHTEN, 1 + GRADE_LUMINANCE_PULL * ((plate?.lum ?? 0) / art.lum - 1)),
+        Math.min(
+          MAX_BRIGHTEN,
+          1 + GRADE_LUMINANCE_PULL * (PORTRAIT_TARGET_LUMINANCE / art.lum - 1),
+        ),
       );
-      const saturate = round(1 + GRADE_SATURATION_PULL * ((plate?.sat ?? 0) / art.sat - 1));
+      const saturate = round(
+        1 + GRADE_SATURATION_PULL * (PORTRAIT_TARGET_SATURATION / art.sat - 1),
+      );
       expect(STRUCTURE_GRADE[kind], kind).toEqual({ brightness, saturate });
     }
   });
@@ -172,18 +172,18 @@ describe('the delivered structure masters', () => {
    * pull of zero derives cleanly and grades nothing. This measures the *result*, and it says two
    * different things because the grade makes two different promises:
    *
-   *   * an uncapped structure lands within a quarter-stop of the plate it stands on, where the
-   *     ungraded set ran from two thirds of the plate's luminance to nearly double it;
-   *   * a structure held at {@link MAX_BRIGHTEN} stays **darker** than the plate — the cap can only
+   *   * an uncapped structure lands within a quarter-stop of the portrait target, where the ungraded
+   *     set ran from two thirds of it to nearly double;
+   *   * a structure held at {@link MAX_BRIGHTEN} stays **darker** than the target — the cap can only
    *     ever leave one dark — and is still closer than it was ungraded, so the cap is a limit on
    *     the correction rather than an escape from it.
    */
-  it('leaves every structure a quarter-stop from the plate, or dark on purpose', () => {
+  it('leaves every structure a quarter-stop from the portrait target, or dark on purpose', () => {
     for (const [kind, art] of measured) {
       const { brightness } = STRUCTURE_GRADE[kind];
       const after = art.lum * brightness;
-      const target = plate?.lum ?? 1;
-      const where = `${kind}: ${art.lum.toFixed(1)} graded to ${after.toFixed(1)}, plate ${target.toFixed(1)}`;
+      const target = PORTRAIT_TARGET_LUMINANCE;
+      const where = `${kind}: ${art.lum.toFixed(1)} graded to ${after.toFixed(1)}, target ${target.toFixed(1)}`;
       if (brightness < MAX_BRIGHTEN) {
         expect(Math.abs(Math.log2(after / target)), where).toBeLessThan(0.25);
       } else {

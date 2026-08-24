@@ -1,16 +1,39 @@
 import {
+  GAME_TIMEZONE,
   LoginRequestSchema,
   MVP_DEV_CREDENTIALS,
   RegisterRequestSchema,
+  formatClock,
+  zoneCity,
+  zoneLabel,
   type AuthResponse,
 } from '@frontline/shared';
 import { useMutation } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { ApiRequestError, login, register } from '../lib/api';
+import { SceneBackdrop } from '../features/game/PageShell';
 import { Wordmark } from '../brand/Wordmark';
 import { cn } from '../lib/cn';
 import { Button } from '../components/ui/Button';
+import { Icon, type IconName } from '../components/ui/Icon';
 import { useSession } from '../store/session';
+
+/**
+ * The door.
+ *
+ * This is the first frame of the game and for a long time it was a form on a picture: two inputs, a
+ * button, and nothing that said what was behind it. A sign-up board has one job beyond taking a
+ * password, which is to make somebody want to type one — so the screen is split. The left half is
+ * the pitch, in the game's own voice, with the three things this actually is. The right half is the
+ * board itself, bolted to the wall like everything else in this city.
+ *
+ * The card is the one place in the interface allowed to be ornate: it is looked at once per
+ * session, it is the only thing on screen, and it is where the game establishes what kind of thing
+ * it is going to be. Rust, rivets, tape and a hand-drawn rule, over the district behind it.
+ *
+ * At narrow widths the pitch drops away and the board takes the column. A marketing panel that
+ * pushes the passphrase field below the fold is worse than no marketing panel.
+ */
 
 type Mode = 'login' | 'register';
 
@@ -28,6 +51,25 @@ const prefillFor = (mode: Mode) =>
   mode === 'login'
     ? { username: MVP_DEV_CREDENTIALS.username, password: MVP_DEV_CREDENTIALS.password }
     : { username: '', password: '' };
+
+/** The three lines of pitch. Concrete nouns only — a feature list is not a reason to sign up. */
+const PROMISES: readonly { icon: IconName; title: string; line: string }[] = [
+  {
+    icon: 'district',
+    title: 'Hold a district',
+    line: 'Thirteen structures, a build queue that never stops, and a grid that browns out if you overreach.',
+  },
+  {
+    icon: 'sword',
+    title: 'Take the city',
+    line: 'Thirty-one places, ten districts, and an army that dies in the order you sent it.',
+  },
+  {
+    icon: 'infamy',
+    title: 'Earn a name',
+    line: 'Infamy buys what caps cannot. There is a door at the back of the market for it.',
+  },
+];
 
 export function AuthScreen() {
   const setSession = useSession((s) => s.login);
@@ -65,78 +107,168 @@ export function AuthScreen() {
   };
 
   const serverError = mutation.error instanceof ApiRequestError ? mutation.error.message : null;
+  const now = new Date();
 
   return (
-    <main className="scanlines relative flex h-screen flex-col items-center justify-center overflow-hidden bg-night px-4">
-      <div className="grain pointer-events-none absolute inset-0" />
-      <div className="relative flex w-full max-w-sm flex-col">
-        <div className="mb-6 text-center">
-          <p className="font-display text-[10px] tracking-[0.5em] text-neon-cyan/70">
-            // ACCESS TERMINAL //
-          </p>
-          {/* The wordmark carries the name; the h1 stays for the document outline and for AT. */}
-          <h1 className="mt-3">
-            <Wordmark className="mx-auto w-64" />
-          </h1>
-        </div>
+    // The city is behind the door before you are through it. A login on a flat field is a form;
+    // a login over the district is the first frame of the game.
+    <main className="vignette relative flex h-screen flex-col items-center justify-center overflow-hidden bg-surface-950 px-4 py-6">
+      <SceneBackdrop />
+      <div className="grain pointer-events-none absolute inset-0 z-10" />
+      {/* The same pane of dirty glass that runs over the game's chrome, so the door and the rooms
+          behind it are lit by one light. */}
+      <div className="patina pointer-events-none absolute inset-0 z-30" />
 
-        <div className="border border-neon-cyan/25 bg-night-raised shadow-neon-cyan">
-          <div className="grid grid-cols-2">
-            {(['login', 'register'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => switchMode(m)}
-                className={cn(
-                  'border-b py-3 font-display text-xs font-semibold uppercase tracking-[0.25em] transition-colors',
-                  mode === m
-                    ? 'border-neon-cyan text-neon-cyan'
-                    : 'border-steel-800 text-steel-500 hover:text-steel-300',
-                )}
-              >
-                {m}
-              </button>
-            ))}
+      <div className="relative z-20 grid w-full max-w-5xl items-center gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
+        {/* The pitch. Hidden below `lg`, where the board needs the whole column. */}
+        <section className="hidden min-w-0 flex-col gap-6 lg:flex">
+          <div>
+            <p className="font-display text-[11px] uppercase tracking-[0.3em] text-brass-300">
+              Neon Docks · Sector 7
+            </p>
+            <h1 className="mt-3">
+              <Wordmark className="w-72 max-w-full" />
+            </h1>
+            <p className="mt-4 max-w-md font-body text-[15px] leading-relaxed text-ink-200">
+              The Combine runs the lights, the water and the checkpoints. You run six streets and a
+              generator that is one bad week from cutting out. Everybody in this city is somebody
+              else&apos;s problem.
+            </p>
           </div>
 
-          <form onSubmit={onSubmit} className="flex flex-col gap-4 p-6" noValidate>
-            <Field
-              label="Operator ID"
-              value={username}
-              onChange={setUsername}
-              autoComplete="username"
-              error={fieldErrors.username}
-            />
-            <Field
-              label="Passphrase"
-              type="password"
-              value={password}
-              onChange={setPassword}
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              error={fieldErrors.password}
-            />
+          <ul className="flex flex-col gap-3">
+            {PROMISES.map((promise) => (
+              <li key={promise.title} className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-brass-500/40 bg-brass-300/10 text-brass-300">
+                  <Icon name={promise.icon} className="h-5 w-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-display text-[13px] font-bold uppercase tracking-[0.14em] text-ink-100">
+                    {promise.title}
+                  </span>
+                  <span className="mt-0.5 block font-body text-[13px] leading-snug text-ink-300">
+                    {promise.line}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
 
-            {mode === 'login' && (
-              <p className="border border-dashed border-warning/40 bg-warning/5 px-3 py-2 font-body text-[11px] leading-relaxed text-warning/90">
-                MVP build — dev login prefilled ({MVP_DEV_CREDENTIALS.username} /{' '}
-                {MVP_DEV_CREDENTIALS.password})
+          {/* The house clock, stated before anybody signs up. Every schedule in the game runs on
+              it, and finding that out from a countdown that is two hours off is the wrong way. */}
+          <p className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-200">
+            City time is {zoneCity(GAME_TIMEZONE)} — {formatClock(now, GAME_TIMEZONE)}{' '}
+            {zoneLabel(now, GAME_TIMEZONE)}. You can read it in your own clock from Settings.
+          </p>
+        </section>
+
+        {/* The board. */}
+        <section className="min-w-0 justify-self-center lg:justify-self-end">
+          {/* The wordmark again, for the narrow layout where the pitch is not on screen to carry
+              it. `aria-hidden` and not a heading: the real `h1` is in the pitch above, which stays
+              in the document at every width — two of them would be one document outline with the
+              game's name in it twice. */}
+          <div aria-hidden className="mb-5 text-center lg:hidden">
+            <p className="font-display text-[11px] uppercase tracking-[0.3em] text-brass-300">
+              Neon Docks · Sector 7
+            </p>
+            <div className="mt-3">
+              <Wordmark className="mx-auto w-64 max-w-full" />
+            </div>
+          </div>
+
+          <div className="glass-strong rusted rivets taped edge-lit relative w-full max-w-sm rounded-sm border border-surface-600/80 shadow-panel">
+            <div className="grid grid-cols-2">
+              {(['login', 'register'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => switchMode(m)}
+                  className={cn(
+                    'relative border-b py-3.5 font-display text-xs font-semibold uppercase tracking-[0.25em] transition-colors',
+                    mode === m
+                      ? 'border-brass-300 bg-brass-300/10 text-brass-300'
+                      : 'border-surface-700 text-ink-300 hover:bg-surface-800/60 hover:text-ink-200',
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+
+            <form onSubmit={onSubmit} className="flex flex-col gap-4 p-6" noValidate>
+              <p className="font-body text-[13px] leading-snug text-ink-300">
+                {mode === 'login'
+                  ? 'Back to the district. Nothing waited for you.'
+                  : 'Pick a handle the street can shout. Eight characters on the passphrase, minimum.'}
               </p>
-            )}
 
-            {serverError && (
-              <p
-                role="alert"
-                className="border border-neon-magenta/40 bg-neon-magenta/10 px-3 py-2 font-body text-xs text-neon-magenta"
-              >
-                {serverError}
+              <Field
+                label="Operator ID"
+                value={username}
+                onChange={setUsername}
+                autoComplete="username"
+                error={fieldErrors.username}
+              />
+              <Field
+                label="Passphrase"
+                type="password"
+                value={password}
+                onChange={setPassword}
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                error={fieldErrors.password}
+              />
+
+              {mode === 'login' && (
+                <p className="border border-dashed border-warning/40 bg-warning/5 px-3 py-2 font-body text-[12px] leading-relaxed text-warning/90">
+                  MVP build. Dev login prefilled ({MVP_DEV_CREDENTIALS.username} /{' '}
+                  {MVP_DEV_CREDENTIALS.password})
+                </p>
+              )}
+
+              {serverError && (
+                <p
+                  role="alert"
+                  className="border border-oxblood-500/40 bg-oxblood-300/15 px-3 py-2 font-body text-xs text-oxblood-300"
+                >
+                  {serverError}
+                </p>
+              )}
+
+              <Button type="submit" disabled={mutation.isPending} className="w-full justify-center">
+                {mutation.isPending ? 'Linking…' : mode === 'login' ? 'Jack In' : 'Enlist'}
+              </Button>
+
+              <span aria-hidden className="ink-rule" />
+
+              <p className="text-center font-body text-[12px] leading-snug text-ink-300">
+                {mode === 'login' ? (
+                  <>
+                    No handle yet?{' '}
+                    <button
+                      type="button"
+                      onClick={() => switchMode('register')}
+                      className="font-display uppercase tracking-[0.14em] text-brass-300 underline-offset-2 hover:underline"
+                    >
+                      Enlist
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    Already down here?{' '}
+                    <button
+                      type="button"
+                      onClick={() => switchMode('login')}
+                      className="font-display uppercase tracking-[0.14em] text-brass-300 underline-offset-2 hover:underline"
+                    >
+                      Jack in
+                    </button>
+                  </>
+                )}
               </p>
-            )}
-
-            <Button type="submit" disabled={mutation.isPending} className="w-full justify-center">
-              {mutation.isPending ? 'Linking…' : mode === 'login' ? 'Jack In' : 'Enlist'}
-            </Button>
-          </form>
-        </div>
+            </form>
+          </div>
+        </section>
       </div>
     </main>
   );
@@ -154,7 +286,7 @@ interface FieldProps {
 function Field({ label, value, onChange, type = 'text', autoComplete, error }: FieldProps) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="font-display text-[10px] uppercase tracking-[0.25em] text-steel-400">
+      <span className="font-display text-[11px] uppercase tracking-[0.25em] text-ink-300">
         {label}
       </span>
       <input
@@ -163,12 +295,12 @@ function Field({ label, value, onChange, type = 'text', autoComplete, error }: F
         autoComplete={autoComplete}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          'border bg-night px-3 py-2 font-body text-sm text-steel-100 outline-none transition-colors',
-          'placeholder:text-steel-600 focus:border-neon-cyan',
-          error ? 'border-neon-magenta/60' : 'border-steel-700',
+          'rounded-sm border bg-surface-950 px-3 py-2.5 font-body text-sm text-ink-100 outline-none transition-colors',
+          'placeholder:text-ink-300 focus:border-brass-300',
+          error ? 'border-oxblood-500' : 'border-surface-600',
         )}
       />
-      {error && <span className="font-body text-[11px] text-neon-magenta">{error}</span>}
+      {error && <span className="font-body text-[12px] text-oxblood-300">{error}</span>}
     </label>
   );
 }

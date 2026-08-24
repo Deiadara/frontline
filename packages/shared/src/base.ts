@@ -2,6 +2,10 @@ import { z } from 'zod';
 import { AssigneeStateSchema } from './assignees/placement.js';
 import { BuildQueueSchema, BuildingSchema } from './building/index.js';
 import { CommanderSchema } from './commander.js';
+import { TrainingStateSchema, startingTraining } from './crew/training.js';
+import { InventorySchema } from './items/inventory.js';
+import { FittedUpgradesSchema } from './units/upgrades.js';
+import { FleetSchema } from './building/vehicles.js';
 import { ArmySchema, TrainingQueueSchema } from './units/index.js';
 import { EconomyStateSchema } from './economy/state.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
@@ -59,6 +63,29 @@ export const BaseSchema = z.object({
   /** Up to five training orders in flight (§A5). */
   trainingQueue: TrainingQueueSchema,
   commanders: z.array(CommanderSchema),
+  /**
+   * The Overseer's and the officers' own drilling (§F2). Owner-only.
+   *
+   * Defaulted rather than required, because it arrived after bases existed: a district written
+   * before the Training tab has no `training_json`, and a schema that refused to parse it would
+   * take every one of those accounts offline instead of giving them today's five sessions.
+   */
+  training: TrainingStateSchema.default(() => startingTraining(new Date().toISOString())),
+  /**
+   * Everything held that is not a resource: blueprints, components, relics. Owner-only.
+   *
+   * Defaulted like `training`, and for the same reason — a district written before the market
+   * existed has no column, and a schema that refused to parse it would take the account offline
+   * rather than open it with an empty satchel.
+   */
+  inventory: InventorySchema.default({}),
+  /**
+   * Workshop upgrades the crew has fitted. Applies to every unit of the affected tiers, forever —
+   * see `upgradedStats`, which folds them at read time so a refit reaches units already trained.
+   */
+  fittedUpgrades: FittedUpgradesSchema.default([]),
+  /** What is in the Garage. Counted, not itemised: one motorcycle is like any other. */
+  fleet: FleetSchema.default({}),
   createdAt: IsoDateTimeSchema,
 });
 export type Base = z.infer<typeof BaseSchema>;

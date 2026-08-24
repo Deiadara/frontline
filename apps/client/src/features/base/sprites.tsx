@@ -1,7 +1,6 @@
 import type { BuildingKind } from '@frontline/shared';
 import type { CSSProperties, ReactNode } from 'react';
-import { deliveredUrl } from '../../assets/delivered';
-import { gradeFilter } from './masters';
+import { buildingPortraitUrl } from '../../assets/delivered';
 import { cn } from '../../lib/cn';
 import { ramps } from '../../theme/tokens';
 
@@ -250,37 +249,38 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
 };
 
 /**
- * The structure standing on a plot, or a marked-out empty plot when nothing has been built yet.
+ * One structure's portrait: the building **cut out of the district painting**, or the code-drawn
+ * silhouette where no plate has landed, or a marked-out empty plot when nothing is built yet.
  *
- * A delivered master replaces the code-drawn silhouette and nothing else: an empty plot is a
- * *state* rather than a structure, so it stays procedural whether or not the art for that kind has
- * landed. Both fill the site box with `contain` and stand on its bottom edge, so a painted plot and
- * a drawn one beside it still meet the ground at the same line, and a master at any aspect ratio
- * keeps its own proportions inside whatever room its site gives it.
+ * This is a *picture of a building*, and since the plate started painting its own buildings that is
+ * the only job it has: it is what the plot dialog shows beside the name.
  *
- * `haze` and `lit` are what seat a cutout in a painted district, and both are applied through the
- * sprite's **own alpha** rather than to a box around it:
+ * ## Why the plate crop wins over `building-<kind>`
  *
- *   * the haze is an overlay of the district's atmosphere masked by the sprite, so distance tints
- *     the building and not the ground behind it;
- *   * hover, focus and selection are a `drop-shadow`, which is computed from the alpha channel and
- *     therefore traces the silhouette. A ring or a fill would draw the rectangle the whole scene is
- *     arranged to hide.
+ * The `building-*` masters were drawn when structures were cutouts pasted onto empty ground, and
+ * they depict different buildings from the ones the delivered painting shows. Beside the map they
+ * read as simply wrong — the window said "The Quarters" over an illustration nothing on screen
+ * looked like. `buildingPortraitUrl` returns the same building the player just clicked, because it
+ * is literally those pixels, masked by the same outline the map hit-tests.
+ *
+ * The masters are not deleted and not graded away — `masters.ts` still measures them, and a board
+ * that delivers a new illustration matching the painting can restore the old precedence in one
+ * line. What must not happen is a portrait quietly disagreeing with the map.
+ *
+ * `lit` is a `drop-shadow`, which is computed from the alpha channel and therefore traces the
+ * silhouette rather than a box around it.
  */
 export function StructureSprite({
   kind,
   built,
-  haze = 0,
   lit = false,
 }: {
   kind: BuildingKind;
   built: boolean;
-  /** How much of the district's atmosphere to mix in, 0–1. See `hazeFor`. */
-  haze?: number;
-  /** Whether this plot is the selected one. */
+  /** Whether this structure is standing, which is what its portrait is lit for. */
   lit?: boolean;
 }) {
-  const painted = built ? deliveredUrl({ type: 'building', building: kind }) : null;
+  const painted = built ? buildingPortraitUrl(kind) : null;
 
   const glow = cn(
     'h-full w-full transition-[filter] duration-150',
@@ -291,48 +291,21 @@ export function StructureSprite({
   );
 
   if (painted !== null) {
-    // The grade rides on a wrapper rather than on the image, because `filter` on the same element
-    // as the hover `drop-shadow` composes into one chain: the glow would then be graded too, and a
-    // structure whose master needed dimming would light up dimmer than its neighbours.
-    const grade = gradeFilter(kind);
+    // No grade wrapper: a plate crop already carries the painting's own light, so pulling it toward
+    // a portrait target would be correcting a picture against itself.
     return (
       <span
         className="relative block h-full w-full"
         style={SPRITE_GLOW_VARS}
         data-testid={`sprite-${kind}`}
       >
-        <span
-          className="absolute inset-0 block"
-          style={grade === null ? undefined : { filter: grade }}
-          data-testid={`structure-grade-${kind}`}
-        >
-          <img
-            src={painted}
-            alt=""
-            aria-hidden="true"
-            className={cn(glow, 'absolute inset-0 object-contain object-bottom')}
-            data-testid={`structure-art-${kind}`}
-          />
-        </span>
-        {haze > 0 && (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{
-              backgroundColor: DISTRICT_HAZE,
-              opacity: haze,
-              maskImage: `url("${painted}")`,
-              maskSize: 'contain',
-              maskPosition: 'bottom center',
-              maskRepeat: 'no-repeat',
-              WebkitMaskImage: `url("${painted}")`,
-              WebkitMaskSize: 'contain',
-              WebkitMaskPosition: 'bottom center',
-              WebkitMaskRepeat: 'no-repeat',
-            }}
-            data-testid={`structure-haze-${kind}`}
-          />
-        )}
+        <img
+          src={painted}
+          alt=""
+          aria-hidden="true"
+          className={cn(glow, 'absolute inset-0 object-contain')}
+          data-testid={`structure-art-${kind}`}
+        />
       </span>
     );
   }
@@ -342,7 +315,7 @@ export function StructureSprite({
       viewBox="0 0 100 100"
       preserveAspectRatio="xMidYMax meet"
       className={cn(glow, 'block')}
-      style={{ ...SPRITE_GLOW_VARS, opacity: built ? 1 - haze : 1 }}
+      style={SPRITE_GLOW_VARS}
       aria-hidden="true"
       data-testid={`sprite-${kind}`}
     >
@@ -350,9 +323,6 @@ export function StructureSprite({
     </svg>
   );
 }
-
-/** The district's atmosphere — the colour a structure loses itself into with distance. */
-const DISTRICT_HAZE = smog[700];
 
 /**
  * Glow colours as custom properties, because Tailwind's arbitrary `drop-shadow-[...]` value cannot

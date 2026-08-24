@@ -250,6 +250,7 @@ describe('regressions', () => {
       morale: 0,
       brokeAt: 1,
       started: 10,
+      dealt: 0,
     };
     const before = {
       alive: wounded.alive,

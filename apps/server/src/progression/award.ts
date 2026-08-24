@@ -41,5 +41,9 @@ export function levelUpFrom(awards: readonly PlayerXpAward[]): LevelUp | undefin
   const levelsGained = awards.reduce((total, award) => total + award.levelsGained, 0);
   const last = awards.at(-1);
   if (levelsGained === 0 || !last) return undefined;
-  return { level: last.level, levelsGained, grants: last.grants };
+  // §I3 — every unlock the whole run crossed, not just the last award's. A settlement that banked
+  // two missions across three levels can open two doors, and announcing one of them would leave a
+  // player to discover the other by walking into it.
+  const unlocks = awards.flatMap((award) => award.unlocks);
+  return { level: last.level, levelsGained, grants: last.grants, unlocks };
 }

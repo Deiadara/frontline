@@ -38,11 +38,11 @@ describe('facts are canonical, so a fact has exactly one identity', () => {
   it('never files the same fact twice, whichever spelling arrives', () => {
     const state = recordFacts(startingResearch(), [
       { kind: 'role_attribute', role: 'scout', attribute: 'speed' },
-      makePairing('speed', 'agility'),
+      makePairing('speed', 'dexterity'),
     ]);
     const again = recordFacts(state, [
       { kind: 'role_attribute', role: 'scout', attribute: 'speed' },
-      makePairing('agility', 'speed'),
+      makePairing('dexterity', 'speed'),
     ]);
     expect(again.facts).toHaveLength(2);
     expect(again, 'an all-duplicate batch must not allocate a new state').toBe(state);
@@ -53,7 +53,7 @@ describe('facts are canonical, so a fact has exactly one identity', () => {
       { kind: 'role_attribute', role: 'scout', attribute: 'navigation' },
       { kind: 'role_attribute', role: 'scout', attribute: 'speed' },
       { kind: 'role_attribute', role: 'trader', attribute: 'negotiation' },
-      makePairing('cunning', 'stealth'),
+      makePairing('logic', 'stealth'),
     ]);
     // Canonical order, not insertion order: `speed` precedes `navigation` in `ATTRIBUTE_NAMES`.
     expect(roleFactsIn(state.facts, 'scout')).toEqual(['speed', 'navigation']);
@@ -86,9 +86,9 @@ describe('the consultation reads the sheet it is given (§B9)', () => {
 describe('§F2 — developing an attribute', () => {
   it('moves one attribute by one step and leaves the rest alone', () => {
     const before = makeAttributes(20);
-    const after = developAttribute(before, 'imagination');
-    expect(after.imagination).toBe(20 + TRAINING_STEP);
-    expect({ ...after, imagination: 20 }).toEqual(before);
+    const after = developAttribute(before, 'improvisation');
+    expect(after.improvisation).toBe(20 + TRAINING_STEP);
+    expect({ ...after, improvisation: 20 }).toEqual(before);
   });
 
   it('covers every attribute — §B6 has no per-role subset', () => {
@@ -114,7 +114,7 @@ describe('§F3 — Charisma turns a result into morale', () => {
 describe('a project runs on the clock frozen onto its row', () => {
   const active: ActiveResearch = {
     id: 'r-1',
-    project: { kind: 'training', attribute: 'imagination' },
+    project: { kind: 'training', attribute: 'improvisation' },
     startedAt: NOW.toISOString(),
     durationMinutes: RESEARCH_MINUTES.training,
   };

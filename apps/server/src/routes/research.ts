@@ -12,10 +12,25 @@ import {
   type ResearchLead,
   type ResearchResponse,
   type StartResearchResponse,
+  CHANNEL_LABELS,
+  ITEM_CATALOG,
+  StartTechRequestSchema,
+  TECHNOLOGIES,
+  TECH_TRACK_BLUEPRINT,
+  buildingLevel,
+  canAfford,
+  findTech,
+  removeItems,
+  spendResources,
+  techInTrack,
+  techRefusal,
+  type ItemId,
+  type LabTech,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { settleBase } from '../district/settle.js';
 import { hasLeadEngineer, modificationOptions } from '../district/modifications.js';
+import { holdsBlueprint, holdsParts } from '../market/board.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { pairingsExhausted } from '../research/discover.js';
 import { settleResearch } from '../research/settle.js';
@@ -104,7 +119,7 @@ const REFUSAL_ERRORS: Record<ResearchRefusal, { code: ErrorCode; message: string
   },
   no_modification_slot: {
     code: 'NO_MODIFICATION_SLOT',
-    message: 'That structure has no free slot — raise it further first',
+    message: 'That structure has no free slot. Raise it further first',
   },
   no_lead_engineer: {
     code: 'NO_LEAD_ENGINEER',
@@ -112,6 +127,57 @@ const REFUSAL_ERRORS: Record<ResearchRefusal, { code: ErrorCode; message: string
   },
   cannot_afford: { code: 'INSUFFICIENT_CAPS', message: 'You cannot cover the costs' },
 };
+
+/** Why a programme cannot be started, in the player's words, or `null`. */
+function techBlocker(base: Base, id: string): string | null {
+  const spec = findTech(id);
+  if (!spec) return 'No such programme';
+  const reason = techRefusal(
+    id,
+    base.research.technologies,
+    buildingLevel(base.buildings, 'lab'),
+    holdsBlueprint(base),
+    (cost) => canAfford(base.resources, cost),
+    holdsParts(base),
+  );
+  if (reason === null) return null;
+  switch (reason) {
+    case 'unknown_tech':
+      return 'No such programme';
+    case 'already_known':
+      return 'Already running';
+    case 'needs_previous_tier': {
+      const below = techInTrack(spec.track).find((other) => other.tier === spec.tier - 1);
+      return `Finish ${below?.name ?? 'the programme below'} first`;
+    }
+    case 'needs_blueprint':
+      return `Needs the ${ITEM_CATALOG[TECH_TRACK_BLUEPRINT[spec.track]].name}`;
+    case 'lab_too_low':
+      return `Needs the Lab at level ${spec.requiresLabLevel}`;
+    case 'cannot_afford':
+      return 'You cannot cover that';
+    case 'missing_parts':
+      return `Short of parts: ${Object.entries(spec.parts)
+        .map(([itemId, count]) => `${count}× ${ITEM_CATALOG[itemId as ItemId].name}`)
+        .join(', ')}`;
+  }
+}
+
+/** The whole tech tree, with each rung's state worked out for this crew. */
+function labTechnologies(base: Base): LabTech[] {
+  return TECHNOLOGIES.map((spec) => ({
+    id: spec.id,
+    track: spec.track,
+    tier: spec.tier,
+    name: spec.name,
+    description: spec.description,
+    cost: spec.cost,
+    parts: spec.parts,
+    effect: `+${spec.magnitude}${spec.channel.endsWith('Flat') ? '' : '%'} ${CHANNEL_LABELS[spec.channel].label.toLowerCase()}`,
+    known: base.research.technologies.includes(spec.id),
+    blocker: base.research.technologies.includes(spec.id) ? null : techBlocker(base, spec.id),
+  }));
+}
 
 export function registerResearchRoutes(app: FastifyInstance): void {
   app.get('/research', { preHandler: app.authenticate }, (request): ResearchResponse => {
@@ -134,7 +200,61 @@ export function registerResearchRoutes(app: FastifyInstance): void {
       costs: RESEARCH_COST_CAPS,
       canModify: hasLeadEngineer(base),
       modifications: modificationOptions(base),
+      technologies: labTechnologies(base),
     };
+  });
+
+  /**
+   * Start a standing programme.
+   *
+   * Bought outright rather than queued behind the Professor's one project slot: an investigation is
+   * somebody's *time*, and the Lab only has one of those to give — a technology is money, parts and
+   * a building tall enough to house the work. Putting both through one queue would mean a crew that
+   * wants a fact this week cannot also want a programme, which is a false choice dressed as depth.
+   */
+  app.post('/research/tech', { preHandler: app.authenticate }, (request): ResearchResponse => {
+    const { techId } = parseBody(StartTechRequestSchema, request.body);
+    const now = new Date();
+    const user = request.currentUser;
+
+    return app.db.transaction(() => {
+      const { base, overseer, justDiscovered } = settledPlayer(app, user.id, user.overseerId, now);
+      const blocker = techBlocker(base, techId);
+      if (blocker !== null) throw new AppError('RESEARCH_OPTION_LOCKED', blocker);
+
+      const spec = findTech(techId);
+      if (!spec) throw new AppError('NOT_FOUND', 'No such programme');
+
+      const research = {
+        ...base.research,
+        technologies: [...base.research.technologies, spec.id],
+      };
+      app.repos.bases.updateHoldings(
+        base.id,
+        spendResources(base.resources, spec.cost),
+        removeItems(base.inventory, spec.parts),
+      );
+      app.repos.bases.updateResearch(base.id, research);
+
+      const after = { ...base, research, resources: spendResources(base.resources, spec.cost) };
+      const { active, facts } = after.research;
+      return {
+        serverNow: now.toISOString(),
+        active,
+        completesAt: active ? researchCompletesAt(active).toISOString() : null,
+        justDiscovered,
+        facts,
+        leads: leadsOn(after),
+        openRoles: OFFICER_ROLES.filter((role) => !roleFullyResearched(facts, role)),
+        pairingsExhausted: pairingsExhausted(facts),
+        overseerAttributes: overseer.attributes,
+        caps: after.resources.caps,
+        costs: RESEARCH_COST_CAPS,
+        canModify: hasLeadEngineer(after),
+        modifications: modificationOptions(after),
+        technologies: labTechnologies(after),
+      };
+    })();
   });
 
   app.post('/research', { preHandler: app.authenticate }, (request): StartResearchResponse => {
@@ -145,7 +265,14 @@ export function registerResearchRoutes(app: FastifyInstance): void {
     // they should be allowed to use on this very request.
     const { base, overseer } = settledPlayer(app, user.id, user.overseerId, now);
 
-    const result = startResearch(app.repos, { base, overseer, project, id: randomUUID(), now });
+    const result = startResearch(app.repos, {
+      base,
+      overseer,
+      project,
+      id: randomUUID(),
+      now,
+      admin: app.config.admin,
+    });
     if (result.kind === 'refused') {
       const { code, message } = REFUSAL_ERRORS[result.reason];
       throw new AppError(code, message);

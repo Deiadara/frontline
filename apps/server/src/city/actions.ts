@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
-  CITY_PLACES,
   FORTIFY_MAX_LEVEL,
+  MAX_LOCATION_LEVEL,
   addResources,
   adjustMeter,
   addToArmy,
@@ -24,17 +24,19 @@ import {
   refreshDisruption,
   spendResources,
   takeFromArmy,
-  territoryEffectsFor,
   weightOf,
   type Army,
   type Base,
   type BattleResult,
   type District,
   type EconomyState,
-  type Place,
-  type PlaceControl,
+  type Location,
+  type LocationControl,
   type SkirmishEngine,
+  recoverCasualties,
 } from '@frontline/shared';
+import { forceSize, hasForce, mergeArmies, removeForce } from '../battle/forces.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -43,7 +45,7 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * Both halves move on the same event and neither is stored twice: the meter is nudged and the
  * stance tally is appended, from one reading of the district. `raidTargetOf` is the shared answer
- * to "whose was it", so the map is the only place that is authored.
+ * to "whose was it", so the map is the only location that is authored.
  */
 function recordTaking(
   economy: EconomyState,
@@ -96,58 +98,45 @@ export type CityRefusal = (typeof CITY_REFUSALS)[number];
 
 export type CityActionResult<T> = { kind: 'refused'; reason: CityRefusal } | ({ kind: 'ok' } & T);
 
-/** Whether this crew actually has the units it says it is sending. */
-function hasForce(army: Army, force: Army): boolean {
-  return Object.entries(force).every(([unitId, count]) => (army[unitId] ?? 0) >= count);
-}
-
-function forceSize(force: Army): number {
-  return Object.values(force).reduce((total, count) => total + count, 0);
-}
-
-function removeForce(army: Army, force: Army): Army {
-  return Object.entries(force).reduce(
-    (left, [unitId, count]) => takeFromArmy(left, unitId, count),
-    army,
-  );
-}
-
-function mergeArmies(into: Army, extra: Army): Army {
-  return Object.entries(extra).reduce(
-    (army, [unitId, count]) => addToArmy(army, unitId, count),
-    into,
-  );
-}
-
 /**
- * Finishes any fortification whose clock has run out.
+ * Finishes any fortification *or upgrade* whose clock has run out.
  *
  * Called at the top of every city read and write, which is the same lazy contract the rest of the
  * game runs on. Returns the controls it settled so callers do not read them twice.
+ *
+ * Both clocks in one pass on purpose: they live on the same row, they bank the same way, and a
+ * second settler over the same table is a second chance to forget to call one of them.
  */
-export function settleFortifications(repos: Repositories, now: Date): Map<string, PlaceControl> {
+export function settleFortifications(repos: Repositories, now: Date): Map<string, LocationControl> {
   const controls = repos.city.controls();
   for (const control of controls.values()) {
-    if (control.fortifyingUntil === null) continue;
-    if (Date.parse(control.fortifyingUntil) > now.getTime()) continue;
+    const dug =
+      control.fortifyingUntil !== null && Date.parse(control.fortifyingUntil) <= now.getTime();
+    const worked =
+      control.upgradingUntil !== null && Date.parse(control.upgradingUntil) <= now.getTime();
+    if (!dug && !worked) continue;
 
-    const settled: PlaceControl = {
+    const settled: LocationControl = {
       ...control,
-      fortification: Math.min(FORTIFY_MAX_LEVEL, control.fortification + 1),
-      fortifyingUntil: null,
+      fortification: dug
+        ? Math.min(FORTIFY_MAX_LEVEL, control.fortification + 1)
+        : control.fortification,
+      fortifyingUntil: dug ? null : control.fortifyingUntil,
+      level: worked ? Math.min(MAX_LOCATION_LEVEL, control.level + 1) : control.level,
+      upgradingUntil: worked ? null : control.upgradingUntil,
     };
     repos.city.put(settled);
-    controls.set(control.placeId, settled);
+    controls.set(control.locationId, settled);
   }
   return controls;
 }
 
-// --- taking a place ---
+// --- taking a location ---
 
 export interface AttackInput {
   base: Base;
-  place: Place;
-  /** The ground the place stands on — §D7/§D8 read *whose* it was, not which place it was. */
+  location: Location;
+  /** The ground the location stands on — §D7/§D8 read *whose* it was, not which location it was. */
   district: District;
   force: Army;
   scouted: boolean;
@@ -163,26 +152,26 @@ export interface AttackOutcome {
 }
 
 /**
- * One place, one fight.
+ * One location, one fight.
  *
- * On a win the place changes hands, its fortification is levelled and its garrison is gone — a
+ * On a win the location changes hands, its fortification is levelled and its garrison is gone — a
  * captured position is not a captured position *plus the enemy's diggings*. On a loss the attacking
  * force routs: the ones who ran come home, the ones who did not are dead.
  *
- * There is no one-off haul for taking a place. The reward is holding it, which is the point of the
- * whole system — a place that paid out on capture would be worth taking and abandoning.
+ * There is no one-off haul for taking a location. The reward is holding it, which is the point of the
+ * whole system — a location that paid out on capture would be worth taking and abandoning.
  */
 export function attackPlace(
   repos: Repositories,
   engine: SkirmishEngine,
   input: AttackInput,
 ): CityActionResult<AttackOutcome> {
-  const { base, place, district, force, scouted, now } = input;
+  const { base, location, district, force, scouted, now } = input;
   if (!scouted) return { kind: 'refused', reason: 'unscouted' };
   if (forceSize(force) === 0) return { kind: 'refused', reason: 'no_force' };
   if (!hasForce(base.army, force)) return { kind: 'refused', reason: 'not_enough_units' };
 
-  const control = repos.city.control(place.id);
+  const control = repos.city.control(location.id);
   if (!control) return { kind: 'refused', reason: 'not_contested' };
   if (isHeldBy(control, base.id)) return { kind: 'refused', reason: 'already_held' };
 
@@ -191,33 +180,43 @@ export function attackPlace(
     attackerName: base.name,
     defenderName:
       control.holder.kind === 'faction' ? 'the crew holding it' : holderWord(control.holder.kind),
-    placeName: place.name,
+    locationName: location.name,
     attacking: force,
     defending: control.garrison,
-    // The ground the fight actually happens on (§A4): what kind of place it is, how far into it
-    // the holder has dug, and whether it is dark. `placeDefense` folded all three into one number,
+    // The ground the fight actually happens on (§A4): what kind of location it is, how far into it
+    // the holder has dug, and whether it is dark. `locationDefense` folded all three into one number,
     // which the engine can no longer use — a sheet that says "below street level" needs to be told
     // that it *is* below street level, not handed a total.
     battlefield: battlefieldFor({
-      placeName: place.name,
-      kind: place.kind,
-      fortifyDifficulty: place.fortifyDifficulty,
+      locationName: location.name,
+      kind: location.kind,
+      fortifyDifficulty: location.fortifyDifficulty,
       fortifyLevel: control.fortification,
       at: now,
     }),
-    attackerTerritory: territoryEffectsFor(base.id, CITY_PLACES, repos.city.controls()),
+    attackerTerritory: standingEffectsFor(repos, base),
   });
 
   const captured = outcome.winner === 'attacker';
   // Winning is not free. `outcome.winnerLosses` is what the victor paid, and it used to be computed
   // by the engine and read by nobody — so a successful attack returned the *whole* force including
   // its dead, and the attrition the engine spends six modules calculating never reached the game.
-  const returned = captured ? removeForce(force, outcome.winnerLosses) : outcome.fled;
+  // §F2 — Medicine takes some of them off the casualty list before it is applied. The infirmary
+  // is at home, so this is only ever *our* dead: the defender's medics are not ours to call on.
+  const survived = recoverCasualties(
+    outcome.winnerLosses,
+    standingEffectsFor(repos, base).casualtyRecoveryPercent,
+  );
+  const returned = captured ? removeForce(force, survived) : outcome.fled;
 
   if (captured) {
     repos.city.put({
-      placeId: place.id,
+      locationId: location.id,
       holder: { kind: 'faction', baseId: base.id },
+      // §A4 — a capture resets the work. Level 1 and no clock: nobody inherits what the last
+      // holder poured in, which is the whole reason a well-developed location is worth taking.
+      level: 1,
+      upgradingUntil: null,
       fortification: 0,
       fortifyingUntil: null,
       garrison: {},
@@ -245,7 +244,7 @@ export function attackPlace(
 }
 
 /** A routed *defending* crew gets its runners back; the Combine and the looters do not. */
-function returnRoutedDefenders(repos: Repositories, control: PlaceControl, fled: Army): void {
+function returnRoutedDefenders(repos: Repositories, control: LocationControl, fled: Army): void {
   if (control.holder.kind !== 'faction') return;
   const owner = repos.bases.findById(control.holder.baseId);
   if (!owner) return;
@@ -253,7 +252,7 @@ function returnRoutedDefenders(repos: Repositories, control: PlaceControl, fled:
   repos.bases.updateArmy(owner.id, army, owner.trainingQueue);
 }
 
-function holderWord(kind: PlaceControl['holder']['kind']): string {
+function holderWord(kind: LocationControl['holder']['kind']): string {
   switch (kind) {
     case 'government':
       return 'The Combine';
@@ -309,24 +308,21 @@ export function raidDistrict(
   if (forceSize(force) === 0) return { kind: 'refused', reason: 'no_force' };
   if (!hasForce(base.army, force)) return { kind: 'refused', reason: 'not_enough_units' };
 
-  const effects = territoryEffectsFor(base.id, CITY_PLACES, repos.city.controls());
+  const effects = standingEffectsFor(repos, base);
   const outcome = engine.resolve({
     seed: randomUUID(),
     attackerName: base.name,
     defenderName: target.name,
-    placeName: district.name,
+    locationName: district.name,
     attacking: force,
     defending: target.army,
-    // A home district is streets and structures — there is no place kind and nothing dug in.
+    // A home district is streets and structures — there is no location kind and nothing dug in.
     battlefield: homeBattlefield(district.name, now),
     attackerTerritory: effects,
     // The Gate, finally. `districtDefense` folds in the Gate's level and any modification that
     // raises it, and until now it was computed and read by nothing — the one structure whose whole
     // job is raid protection did not appear in a raid.
-    defenderTerritory: withGate(
-      territoryEffectsFor(target.id, CITY_PLACES, repos.city.controls()),
-      target.buildings,
-    ),
+    defenderTerritory: withGate(standingEffectsFor(repos, target), target.buildings),
   });
 
   const won = outcome.winner === 'attacker';
@@ -347,7 +343,8 @@ export function raidDistrict(
     });
   }
 
-  const returned = won ? removeForce(force, outcome.winnerLosses) : outcome.fled;
+  const survived = recoverCasualties(outcome.winnerLosses, effects.casualtyRecoveryPercent);
+  const returned = won ? removeForce(force, survived) : outcome.fled;
   const army = mergeArmies(removeForce(base.army, force), returned);
   // The defender's own books. A raided crew used to lose resources and not one body, whether they
   // beat the raid off or lost it outright — the whole defending army survived either way.
@@ -379,8 +376,8 @@ export function raidDistrict(
 
 export interface GarrisonInput {
   base: Base;
-  place: Place;
-  /** Positive leaves units on the place; negative brings them home. */
+  location: Location;
+  /** Positive leaves units on the location; negative brings them home. */
   changes: Record<string, number>;
 }
 
@@ -388,8 +385,8 @@ export function setGarrison(
   repos: Repositories,
   input: Omit<GarrisonInput, 'now'>,
 ): CityActionResult<{ base: Base }> {
-  const { base, place, changes } = input;
-  const control = repos.city.control(place.id);
+  const { base, location, changes } = input;
+  const control = repos.city.control(location.id);
   if (!control) return { kind: 'refused', reason: 'not_contested' };
   if (!isHeldBy(control, base.id)) return { kind: 'refused', reason: 'not_held' };
 
@@ -410,7 +407,7 @@ export function setGarrison(
     }
   }
 
-  repos.city.setGarrison(place.id, garrison);
+  repos.city.setGarrison(location.id, garrison);
   const next: Base = { ...base, army };
   repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
   return { kind: 'ok', base: next };
@@ -418,7 +415,7 @@ export function setGarrison(
 
 export interface FortifyInput {
   base: Base;
-  place: Place;
+  location: Location;
   now: Date;
 }
 
@@ -427,8 +424,8 @@ export function startFortifying(
   repos: Repositories,
   input: FortifyInput,
 ): CityActionResult<{ base: Base }> {
-  const { base, place, now } = input;
-  const control = repos.city.control(place.id);
+  const { base, location, now } = input;
+  const control = repos.city.control(location.id);
   if (!control) return { kind: 'refused', reason: 'not_contested' };
   if (!isHeldBy(control, base.id)) return { kind: 'refused', reason: 'not_held' };
   if (control.fortifyingUntil !== null) return { kind: 'refused', reason: 'already_fortifying' };

@@ -39,7 +39,12 @@ export const FOOD_UPKEEP_CROWDING = 0.5;
 
 export function foodUpkeepFor(officerCount: number): number {
   if (officerCount <= 0) return 0;
-  return officerCount * (FOOD_UPKEEP_PER_OFFICER + FOOD_UPKEEP_CROWDING * (officerCount - 1));
+  const crew = Math.trunc(officerCount);
+  // Rounded even though `n(n+3)/2` is integral for every integral `n`. The identity holds for
+  // today's two constants and for nothing else, and food is spent straight out of a stockpile that
+  // may not hold a fraction — so the guarantee lives here rather than in a comment about arithmetic
+  // somebody may retune.
+  return Math.round(crew * (FOOD_UPKEEP_PER_OFFICER + FOOD_UPKEEP_CROWDING * (crew - 1)));
 }
 
 /**
@@ -50,7 +55,12 @@ export function foodUpkeepFor(officerCount: number): number {
 export const PayrollStateSchema = z.object({
   /** Start of the last pay week already settled. Always a Monday 00:00 UTC once normalised. */
   paidThroughAt: IsoDateTimeSchema,
-  wages: z.record(IdSchema, z.number().nonnegative()),
+  /**
+   * Whole caps. A wage is a number two people agreed on out loud, and `negotiateWage` has always
+   * rounded — the `.int()` is here so a hand-written row cannot smuggle a fraction into `capsDue`
+   * and back out into the stockpile.
+   */
+  wages: z.record(IdSchema, z.number().int().nonnegative()),
 });
 export type PayrollState = z.infer<typeof PayrollStateSchema>;
 
@@ -67,8 +77,17 @@ export interface EconomyCycleInput {
   payroll: PayrollState;
   /** Officers on the books — drives food upkeep (§D1). */
   officerCount: number;
+  /**
+   * §F2 — what the crew talks off the wage book. Authority and Negotiation: people take less to
+   * work under somebody worth working for, and every wage is an opening number to a good trader.
+   * Capped, because a crew that works for nothing is not a crew.
+   */
+  wageDiscountPercent?: number;
   now: Date;
 }
+
+/** However good the negotiator, somebody still has to be paid. */
+export const MAX_WAGE_DISCOUNT = 50;
 
 export interface EconomyCycleResult {
   /** Pay weeks settled by this run. 0 means nothing was owed and nothing changed. */
@@ -94,6 +113,7 @@ export function runEconomyCycle({
   resources,
   payroll,
   officerCount,
+  wageDiscountPercent = 0,
   now,
 }: EconomyCycleInput): EconomyCycleResult {
   const settledThrough = startOfPayWeek(new Date(payroll.paidThroughAt)).getTime();
@@ -115,7 +135,8 @@ export function runEconomyCycle({
     };
   }
 
-  const capsDue = weeksSettled * weeklyWageBill(payroll.wages);
+  const off = Math.min(MAX_WAGE_DISCOUNT, Math.max(0, wageDiscountPercent)) / 100;
+  const capsDue = Math.round(weeksSettled * weeklyWageBill(payroll.wages) * (1 - off));
   const foodDue = weeksSettled * foodUpkeepFor(officerCount);
   const capsPaid = Math.min(resources.caps, capsDue);
   const foodConsumed = Math.min(resources.food, foodDue);

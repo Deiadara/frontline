@@ -29,11 +29,23 @@ export function startingProgression(): ProgressionState {
  *
  * Not every entry fires yet, and the table deliberately does not say which do: §I1 enumerates the
  * sources, so pricing all of them is the deliverable, and a system that arrives later names its
- * source rather than reopening what it is worth. As of W8 landing the village build path,
- * `missionCompleted`, `buildingConstructed`, `raidWon` and `raidLost` all have live call sites;
- * only `questCompleted` has no system to fire it — there is no quest system, and §I1 is the one
- * place in the GDD that mentions quests at all. Do not read a key here as evidence that something
- * awards it, and do not add a second producer for a key that already has one.
+ * source rather than reopening what it is worth. Only `questCompleted` has no system to fire it —
+ * there is no quest system, and §I1 is the one place in the GDD that mentions quests at all. Do not
+ * read a key here as evidence that something awards it, and do not add a second producer for a key
+ * that already has one.
+ *
+ * ## Widened, because levels stopped having a ceiling
+ *
+ * Four sources paid XP while the level curve was quadratic and uncapped, and three of them were
+ * things a player does a handful of times a session. That is a curve nobody climbs. The board's
+ * words were "battles, quests and a lot of stuff really", so the rule now is: **anything with a
+ * clock on it pays when the clock runs out.** Research, a batch off the training bench and signing
+ * somebody all take real time and all now pay, which turns levelling into a consequence of playing
+ * rather than a separate errand.
+ *
+ * The new figures are priced against `missionCompleted` by how long the thing takes and how much of
+ * it a player can have running at once: research is the longest single commitment in the game and
+ * pays the most; a training batch is cheap and frequent and pays least.
  */
 export const PLAYER_XP_AWARDS = {
   missionCompleted: 120,
@@ -41,6 +53,12 @@ export const PLAYER_XP_AWARDS = {
   questCompleted: 200,
   raidWon: 80,
   raidLost: 25,
+  /** A project off the Archive board. The longest clock in the game, and one at a time. */
+  researchCompleted: 150,
+  /** A batch off the bench. Small and frequent — the roster is meant to pay in a trickle. */
+  unitTrained: 20,
+  /** Signing somebody out of the Bar. Once a day at most, so it can be worth something. */
+  officerHired: 70,
 } as const;
 
 export type PlayerXpSource = keyof typeof PLAYER_XP_AWARDS;

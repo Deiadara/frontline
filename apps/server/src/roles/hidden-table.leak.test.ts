@@ -12,6 +12,7 @@ import {
   startingResearch,
   type Attributes,
   type Base,
+  startingTraining,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
@@ -239,6 +240,10 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     buildQueue: [],
     army: {},
     trainingQueue: [],
+    training: startingTraining('2026-08-16T00:00:00.000Z'),
+    inventory: {},
+    fittedUpgrades: [],
+    fleet: {},
     commanders: [
       createCommander(
         'held-1',

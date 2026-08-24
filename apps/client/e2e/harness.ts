@@ -1,4 +1,14 @@
-import type { MeResponse } from '@frontline/shared';
+import {
+  createCommander,
+  negotiate,
+  negotiateWage,
+  negotiationLine,
+  openNegotiation,
+  type BarRecruit,
+  type Commander,
+  type MeResponse,
+  type OfficerRole,
+} from '@frontline/shared';
 import { expect, type Page } from '@playwright/test';
 import {
   assigneesFat,
@@ -6,12 +16,19 @@ import {
   authResponse,
   bar,
   baseDetail,
-  attackResult,
   battle,
+  battles,
   districtDetail,
   unitsResponse,
   city,
   createOverseerResponse,
+  crewStanding,
+  trainingResponse,
+  market,
+  blackMarket,
+  settings,
+  adminSnapshot,
+  workshop,
   launchResponse,
   missionsResponse,
   research,
@@ -198,6 +215,11 @@ export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<
       // `checkVisibility` answers "does this generate a box at all" without conflating it with
       // "does that box have area" — which is the very defect below, so the two must stay apart.
       if (!el.checkVisibility()) continue;
+      // Scenery is *meant* to run past its frame: the shell's backdrop is over-scaled on purpose
+      // so a blur has pixels to sample past its own edges. `visual.spec.ts` honours the same
+      // attribute, and this gate not honouring it made the backdrop a permanent false positive on
+      // every screen that shows one. The opt-out is per element and never its subtree.
+      if (el.hasAttribute('data-scenery')) continue;
       const at = el.getBoundingClientRect();
 
       if (at.width <= SLACK || at.height <= SLACK) {
@@ -252,14 +274,26 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // base — so the detail follows whichever session was installed.
     if (pathname.includes('/api/base/')) return json({ base: meResponse.base ?? baseDetail.base });
     if (pathname.endsWith('/api/battle')) return json(battle);
-    // §A4 — the city writes all answer with the district they touched, so one handler covers the
-    // four of them. `/api/city/attack` is the exception: it answers with a battle report.
-    if (pathname.endsWith('/api/city/attack')) return json(attackResult);
-    if (pathname.endsWith('/api/city/raid')) return json(attackResult);
+    // §A4 — the board. Every write answers with the whole board plus the crew, so one handler
+    // covers the read and all five writes; a write that answered with a different shape would be
+    // a hole in the fixture, which is the contract these runs are measured against.
+    if (pathname.includes('/api/battles')) {
+      return json(
+        route.request().method() === 'GET'
+          ? battles
+          : { battles, base: meResponse.base ?? baseDetail.base },
+      );
+    }
+    // §A4 — the city writes all answer with the district they touched, so one handler covers them.
+    // `/api/city/attack` and `/api/city/raid` used to need their own line here, because they
+    // answered with a battle report; they are gone with the instant fight they resolved.
     if (
       pathname.endsWith('/api/city/scout') ||
       pathname.endsWith('/api/city/garrison') ||
-      pathname.endsWith('/api/city/fortify')
+      pathname.endsWith('/api/city/fortify') ||
+      // §A4 — working a location up. Without a line here it fell through to the district read
+      // below and answered a POST with a district, which is a 200 that changes nothing.
+      pathname.endsWith('/api/city/upgrade')
     ) {
       return json({ district: districtDetail, base: meResponse.base ?? baseDetail.base });
     }
@@ -275,6 +309,80 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       if (route.request().method() !== 'POST') return json(missionsResponse());
       return json(launchResponse());
     }
+    /*
+     * §H7 — the conversation, run through the *real* model rather than answered with a canned
+     * reply.
+     *
+     * `negotiate` and `negotiationLine` are pure and live in `@frontline/shared`, which is exactly
+     * where the server gets them from, so this fixture produces the same answer the server would
+     * for the same offer. A hard-coded reply here would let a client that sent the wrong body, or
+     * mis-read the response, pass every run — the failure mode this harness has already been bitten
+     * by once on `/api/missions`.
+     */
+    if (pathname.endsWith('/api/bar/negotiate')) {
+      const body = route.request().postDataJSON() as { recruitId: string; offerWage: number };
+      const recruit = bar.recruits.find((entry) => entry.id === body.recruitId);
+      if (!recruit || recruit.askingWage === null) {
+        return json(
+          { error: { code: 'NOT_FOUND', message: 'They are not at the Bar today' } },
+          404,
+        );
+      }
+      const turn = negotiate({
+        negotiation:
+          bar.negotiations[body.recruitId] ??
+          openNegotiation(recruit.askingWage, recruit.ambition, recruit.moralCompass),
+        offer: body.offerWage,
+        asking: recruit.askingWage,
+        ambition: recruit.ambition,
+        moralCompass: recruit.moralCompass,
+      });
+      return json({
+        negotiation: turn.negotiation,
+        line: negotiationLine(recruit.moralCompass, turn.negotiation.mood, turn.negotiation.rounds),
+        accepted: turn.accepted,
+        walkedAway: turn.walkedAway,
+      });
+    }
+    /*
+     * Signing somebody, which had **no handler at all** until the hire path was fixed.
+     *
+     * That absence is why the "agrees but never joins the crew" bug shipped: `/api/bar/hire` fell
+     * through to the 404 catch-all, so a test could drive the whole negotiation, press the button,
+     * and see nothing happen — exactly as a player did. A route the app calls and the fixture does
+     * not answer is a hole in the contract, not a missing convenience.
+     *
+     * The wage rule is the real one: `negotiateWage` is the same shared function the server hires
+     * through, so an offer this fixture accepts is one the server would accept too.
+     */
+    if (pathname.endsWith('/api/bar/hire')) {
+      const body = route.request().postDataJSON() as {
+        recruitId: string;
+        role: OfficerRole;
+        offerWage: number;
+      };
+      const recruit = bar.recruits.find((entry) => entry.id === body.recruitId);
+      if (!recruit || recruit.askingWage === null) {
+        return json({ error: { code: 'NOT_FOUND', message: 'They have left' } }, 404);
+      }
+      const outcome = negotiateWage(body.offerWage, recruit.askingWage);
+      if (!outcome.accepted) {
+        return json({
+          accepted: false,
+          wage: outcome.wage,
+          officer: null,
+          firstPayment: 0,
+          resources: null,
+        });
+      }
+      return json({
+        accepted: true,
+        wage: outcome.wage,
+        officer: hiredOfficer(recruit, body.role),
+        firstPayment: Math.round(outcome.wage / 2),
+        resources: meResponse.base?.resources ?? null,
+      });
+    }
     if (pathname.endsWith('/api/bar')) return json(bar);
     if (pathname.endsWith('/api/research')) return json(research);
     // Keyed off the installed session for the same reason `/api/base/` is: a fixed §G payload
@@ -283,9 +391,98 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     if (pathname.endsWith('/api/assignees')) {
       return json((meResponse.base?.level ?? 1) > 1 ? assigneesFat : assigneesStart);
     }
+    // Before the bare `/api/overseer` handler below, which does not match a sub-path — and would
+    // answer a profile read with a 201 character-creation payload if it were reordered.
+    if (pathname.endsWith('/api/overseer/me')) return json(crewStanding);
+    if (pathname.endsWith('/api/training')) return json(trainingResponse);
+    // Every market write answers with the whole board, so one handler covers the read and all five
+    // writes — the fixture *is* the contract, and a write that answered with a different shape
+    // would be a hole in it.
+    if (pathname.includes('/api/market'))
+      return json(route.request().method() === 'GET' ? market : { market });
+    // The back room. Read and write answer with the same shape wrapped differently, exactly as the
+    // front of the market does — the fixture *is* the contract, so a write that answered with
+    // something else would be a hole in it.
+    if (pathname.includes('/api/black-market')) {
+      return json(route.request().method() === 'GET' ? blackMarket : { blackMarket });
+    }
+    // Settings answers the same record from all three of its endpoints, so one handler covers the
+    // read, the profile patch and the passphrase change.
+    if (pathname.includes('/api/settings')) return json(settings);
+    // The bench. A build without admin mode answers 404 here and the screen redirects; serving the
+    // snapshot is what puts the Bench door in the nav for these runs.
+    if (pathname.endsWith('/api/admin')) return json(adminSnapshot);
+    if (pathname.endsWith('/api/admin/knobs')) return json({ admin: adminSnapshot });
+    if (pathname.includes('/api/workshop')) {
+      return json(route.request().method() === 'GET' ? workshop : { workshop });
+    }
     if (pathname.endsWith('/api/overseer')) return json(createOverseerResponse, 201);
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);
     if (pathname.endsWith('/api/auth/register')) return json(authResponse, 201);
     return json({ error: { code: 'NOT_FOUND', message: 'unmapped route' } }, 404);
   });
+}
+
+/**
+ * The officer a signed recruit becomes.
+ *
+ * Built through the shared `createCommander` rather than by hand: a hand-written literal missed
+ * `alignment`, `alignmentUpdatedAt` and `xpIntoLevel` and carried three fields the schema does not
+ * have, so the response failed to parse, the mutation errored instead of succeeding, and the
+ * window silently stayed open on a completed hire. The factory cannot drift from the schema.
+ */
+function hiredOfficer(recruit: BarRecruit, role: OfficerRole): Commander {
+  return createCommander(recruit.id, recruit.name, role, recruit.attributes, recruit.traits, {
+    ambition: recruit.ambition,
+    moralCompass: recruit.moralCompass,
+  });
+}
+
+/**
+ * A document sheet must stay dark enough to read.
+ *
+ * The game is a dark interface with light type on it, and the textures that make it feel painted
+ * are *blends* — `painted` and `washed` are soft-light layers. One of them over a panel is the
+ * intended effect. Several stacked down one scrolling column compound, and the page comes out as a
+ * pale grey static field with the type barely legible through it. That is what happened to the
+ * Overseer's file the first time it was built, and every gate in this suite passed it: the DOM was
+ * correct, nothing overflowed, nothing was clipped, no text was cut. The defect was purely in what
+ * the pixels came out as, so this is the one check that has to look at pixels.
+ *
+ * Measured as the share of the sheet that is *pale* rather than as a mean, because a mean is
+ * dragged around by how much artwork happens to be on the page. Calibrated across every document
+ * screen in the game (2%–7% pale) against the broken build (83%), so the bound below sits about
+ * four times above the worst healthy page and three times under the failure.
+ */
+const MAX_PALE_SHARE = 0.25;
+
+export async function expectSheetNotWashedOut(
+  page: Page,
+  selector = 'main section',
+): Promise<void> {
+  const shot = await page.locator(selector).first().screenshot();
+  const pale = await page.evaluate(async (b64: string) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
+    ctx.drawImage(img, 0, 0);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const l =
+        (0.2126 * (data[i] ?? 0) + 0.7152 * (data[i + 1] ?? 0) + 0.0722 * (data[i + 2] ?? 0)) / 255;
+      if (l > 0.35) count++;
+    }
+    return count / (data.length / 4);
+  }, shot.toString('base64'));
+
+  expect(
+    pale,
+    `${(pale * 100).toFixed(0)}% of the sheet is pale — a blend layer is washing the page out`,
+  ).toBeLessThan(MAX_PALE_SHARE);
 }

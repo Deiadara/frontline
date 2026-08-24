@@ -32,7 +32,7 @@ const seeing = (side: Simulation['defender'], stealth: number): Simulation['defe
 
 const field = (kind: 'sewer_junction' | 'rail_yard' | 'armory') =>
   battlefieldFor({
-    placeName: kind,
+    locationName: kind,
     kind,
     fortifyDifficulty: 'medium',
     fortifyLevel: 0,
@@ -61,11 +61,25 @@ function run(
 }
 
 describe('combat width', () => {
+  /**
+   * The ordering, not the three numbers.
+   *
+   * Frontage is the context's width narrowed (or widened) by how Crammed or Open the ground is
+   * labelled — a sewer junction is `Crammed IV` and gets *narrower* than bare `underground`, which
+   * is the point of reading the label into the width at all. Pinning the raw constants made this
+   * a restatement of `FRONTAGE_BY_CONTEXT` that could not see the label doing anything; what has
+   * to hold is that a tunnel takes fewer bodies than a room and a room fewer than a yard.
+   */
   it('is narrowest where the ground is narrowest', () => {
-    expect(field('sewer_junction').frontage).toBe(FRONTAGE_BY_CONTEXT.underground);
-    expect(field('rail_yard').frontage).toBe(FRONTAGE_BY_CONTEXT.open_ground);
-    // An armoury is indoors; a corridor inside a building is still a corridor.
-    expect(field('armory').frontage).toBe(FRONTAGE_BY_CONTEXT.indoor);
+    const tunnel = field('sewer_junction').frontage;
+    const room = field('armory').frontage;
+    const yard = field('rail_yard').frontage;
+    expect(tunnel).toBeLessThan(room);
+    expect(room).toBeLessThan(yard);
+    // And the labels genuinely bite: a `Crammed IV` tunnel is tighter than bare underground.
+    expect(tunnel).toBeLessThan(FRONTAGE_BY_CONTEXT.underground ?? 0);
+    // A rail yard is `Open III`, so it takes more than open ground alone would.
+    expect(yard).toBeGreaterThan(FRONTAGE_BY_CONTEXT.open_ground ?? 0);
   });
 
   it('takes the narrowest of the contexts that apply', () => {

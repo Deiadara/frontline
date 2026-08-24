@@ -1,4 +1,9 @@
-import { ATTRIBUTE_NAMES, OVERSEER_PRESETS, TRAIT_CATALOG } from '@frontline/shared';
+import {
+  ATTRIBUTE_LABELS,
+  ATTRIBUTE_NAMES,
+  OVERSEER_PRESETS,
+  TRAIT_CATALOG,
+} from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -28,8 +33,12 @@ describe('CharacterSelectScreen', () => {
   // attribute, not a role-relevant subset.
   it('renders the full attribute sheet and a radar for all four presets', () => {
     renderScreen();
+    // By the label a player reads, not by the key: the sheet renders `ATTRIBUTE_LABELS`, and an
+    // assertion on the raw key would pass only for as long as the two happen to match.
     for (const attribute of ATTRIBUTE_NAMES) {
-      expect(screen.getAllByText(attribute)).toHaveLength(OVERSEER_PRESETS.length);
+      expect(screen.getAllByText(ATTRIBUTE_LABELS[attribute])).toHaveLength(
+        OVERSEER_PRESETS.length,
+      );
     }
     expect(screen.getAllByRole('img', { name: 'Attribute radar' })).toHaveLength(
       OVERSEER_PRESETS.length,

@@ -139,6 +139,7 @@ describe('who gets away', () => {
       morale: unit.stats.morale,
       brokeAt,
       started: alive,
+      dealt: 0,
     };
   };
 
@@ -202,6 +203,7 @@ describe('who gets away', () => {
       defending: true,
       swing: 1,
       luck: 0,
+      cohesionPercent: 0,
       stacks: [stackOf('razors', 6), stackOf('sparks', 4)],
     } satisfies SideState;
     losing.stacks[0]!.started = 10;
@@ -219,6 +221,7 @@ describe('who gets away', () => {
       defending: false,
       swing: 1,
       luck: 0,
+      cohesionPercent: 0,
       stacks: [stackOf('ironsides', 5), stackOf('road_reavers', 3)],
     } satisfies SideState;
     expect(pursuitSpeed(winning)).toBe(92);

@@ -4,7 +4,7 @@ import { PartialResourcesSchema } from '../resources.js';
 /**
  * What a fight leaves on the record.
  *
- * One shape for both kinds of fight — taking a place (§A4) and raiding a home district — because
+ * One shape for both kinds of fight — taking a location (§A4) and raiding a home district — because
  * both end up on the same `battles` row and both are read back the same way. What differs is the
  * *target*, which the row carries separately.
  *

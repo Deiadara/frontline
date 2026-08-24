@@ -1,5 +1,6 @@
 export * from './kinds.js';
 export * from './modifications.js';
+export * from './damage.js';
 export * from './state.js';
 export * from './effects.js';
 export * from './cost.js';
@@ -7,3 +8,5 @@ export * from './power.js';
 export * from './production.js';
 export * from './standing.js';
 export * from './queue.js';
+export * from './vehicles.js';
+export * from './parts.js';

@@ -78,33 +78,33 @@ export function ForcePicker({
   };
 
   return (
-    <Modal onClose={onClose} labelledBy="force-picker-title" className="border-neon-magenta/30">
-      <div className="flex shrink-0 flex-col gap-1 border-b border-neon-magenta/15 px-5 py-4">
+    <Modal onClose={onClose} labelledBy="force-picker-title" className="border-oxblood-500/30">
+      <div className="flex shrink-0 flex-col gap-1 border-b border-oxblood-500/15 px-5 py-4">
         <h2
           id="force-picker-title"
-          className="font-display text-lg font-bold tracking-[0.1em] text-steel-100"
+          className="font-display text-lg font-bold tracking-[0.1em] text-ink-100"
         >
           {title}
         </h2>
-        <p className="font-body text-xs leading-relaxed text-steel-400">{blurb}</p>
+        <p className="font-body text-xs leading-relaxed text-ink-300">{blurb}</p>
       </div>
 
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-5">
         {available.length === 0 ? (
-          <p className="font-body text-xs leading-relaxed text-steel-500">
+          <p className="font-body text-xs leading-relaxed text-ink-300">
             You have nobody to send. Train units at the Gauntlet first.
           </p>
         ) : (
           available.map(({ unit, count }) => (
             <label
               key={unit.id}
-              className="flex items-center justify-between gap-3 border border-steel-800 p-2"
+              className="flex items-center justify-between gap-3 border border-surface-700 p-2"
             >
               <span className="min-w-0">
-                <span className="block font-display text-[11px] uppercase tracking-[0.14em] text-steel-200">
+                <span className="block font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
                   {unit.name}
                 </span>
-                <span className="block font-body text-[11px] text-steel-500">
+                <span className="block font-body text-[12px] text-ink-300">
                   {unit.stats.lootCapacity} kg each ·{' '}
                   {unit.modifiers.map((id) => UNIT_MODIFIERS[id].label).join(', ') ||
                     'no modifiers'}
@@ -119,9 +119,9 @@ export function ForcePicker({
                   aria-label={`How many ${unit.name}`}
                   value={force[unit.id] ?? 0}
                   onChange={(event) => set(unit.id, Number(event.target.value), count)}
-                  className="w-16 border border-steel-700 bg-night px-2 py-1 font-display text-[11px] tabular-nums text-steel-200"
+                  className="w-16 border border-surface-600 bg-surface-950 px-2 py-1 font-display text-[12px] tabular-nums text-ink-200"
                 />
-                <span className="font-display text-[10px] tabular-nums text-steel-500">
+                <span className="font-display text-[11px] tabular-nums text-ink-300">
                   / {count}
                 </span>
               </span>
@@ -129,7 +129,7 @@ export function ForcePicker({
           ))
         )}
 
-        <dl className="flex flex-col divide-y divide-steel-800 border-t border-steel-800 pt-1">
+        <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700 pt-1">
           <Row label="Sending" value={String(chosen)} />
           <Row label="Can carry" value={`${capacity} kg`} />
         </dl>
@@ -137,13 +137,13 @@ export function ForcePicker({
         <Odds force={force} facingSize={facingSize} battlefield={battlefield} />
 
         {error !== null && error !== undefined && (
-          <p role="alert" className="font-body text-xs leading-relaxed text-neon-magenta">
+          <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
             {error instanceof ApiRequestError ? error.message : 'That did not go through'}
           </p>
         )}
       </div>
 
-      <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-steel-800 px-5 py-4">
+      <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-surface-700 px-5 py-4">
         <Button variant="ghost" size="sm" onClick={onClose}>
           Cancel
         </Button>
@@ -194,7 +194,7 @@ function Odds({
     return (
       <p
         data-testid="odds-unknown"
-        className="border border-dashed border-steel-700 px-3 py-2 font-body text-xs leading-relaxed text-steel-500"
+        className="border border-dashed border-surface-600 px-3 py-2 font-body text-xs leading-relaxed text-ink-300"
       >
         {facingSize === undefined
           ? 'Nobody has counted what is on this ground. You will find out when you get there.'
@@ -206,17 +206,17 @@ function Odds({
   return (
     <div
       data-testid="odds"
-      className="flex flex-col gap-1 border border-steel-700 bg-night px-3 py-2"
+      className="flex flex-col gap-1 border border-surface-600 bg-surface-950 px-3 py-2"
     >
-      <p className="font-display text-xs font-semibold tracking-[0.08em] text-neon-cyan">
+      <p className="font-display text-xs font-semibold tracking-[0.08em] text-brass-300">
         {describeOdds(read.winChance)}
       </p>
-      <p className="font-body text-xs leading-relaxed text-steel-400">
+      <p className="font-body text-xs leading-relaxed text-ink-300">
         {describeCost(read.attackerSurvival)}
       </p>
-      <p className="font-display text-[9px] uppercase tracking-[0.16em] text-steel-600">
-        {read.runs} runs against {facingSize} bodies. Nobody has seen *who* — this assumes ordinary
-        troops.
+      <p className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+        {read.runs} runs against {facingSize} bodies. Nobody has seen who is down there, so this
+        assumes ordinary troops.
       </p>
     </div>
   );
@@ -225,10 +225,8 @@ function Odds({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5">
-      <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-steel-500">
-        {label}
-      </dt>
-      <dd className="font-display text-xs font-semibold tabular-nums text-neon-cyan">{value}</dd>
+      <dt className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">{label}</dt>
+      <dd className="font-display text-xs font-semibold tabular-nums text-brass-300">{value}</dd>
     </div>
   );
 }

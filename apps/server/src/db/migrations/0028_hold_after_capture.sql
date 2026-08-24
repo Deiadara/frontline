@@ -1,0 +1,17 @@
+-- A declaration says whether the survivors hold the ground they take (GDD §A4).
+--
+-- Number allocated under INTERFACES.md R6/R9 — do not renumber, the runner keys
+-- `schema_migrations` on the file name and a rename re-applies the migration.
+--
+-- Two different fights were being spelled the same way. Taking a place and coming home is a raid:
+-- the map changes colour, and the crew is back on the roster tonight to be sent somewhere else.
+-- Taking a place and staying is an occupation: the survivors become its garrison, they answer for
+-- it when somebody comes to take it back, and they are unavailable until they are pulled out.
+--
+-- It is recorded on the **declaration** rather than decided at resolution, because it is the
+-- question that says what the fight is for, and a defender reading a public call deserves to be
+-- looking at the same commitment the attacker made. Nobody chooses it after seeing the casualties.
+--
+-- Defaulted to 0, so every row written before today reads as a raid — which is what those fights
+-- were: the settler sent every survivor home and left the captured place with an empty garrison.
+ALTER TABLE scheduled_battles ADD COLUMN hold_after_capture INTEGER NOT NULL DEFAULT 0;

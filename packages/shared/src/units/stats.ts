@@ -131,7 +131,7 @@ export const UNIT_MODIFIERS = {
   },
   last_stand: {
     label: 'Last Stand',
-    description: 'Fights hardest with the worst odds — which is not the same as fighting well.',
+    description: 'Fights hardest when the odds are worst. That is not the same as fighting well.',
     context: 'outnumbered',
     percent: 25,
   },
@@ -225,4 +225,26 @@ export const UNIT_STAT_LABELS: Record<(typeof UNIT_STAT_KEYS)[number], string> =
   stealth: 'Stealth',
   lootCapacity: 'Loot',
   intimidation: 'Intimidation',
+};
+
+/**
+ * What each stat actually decides, in the player's words.
+ *
+ * Eleven numbers on a card with nothing but a one-word label each is a spec sheet, not a decision:
+ * a player comparing Razors to Scrapers can see that one has more Evasion without knowing whether
+ * Evasion is worth anything. These are read off what the battle engine does with each number, and
+ * they are the copy behind the hover on every stat row.
+ */
+export const UNIT_STAT_EXPLAINERS: Record<(typeof UNIT_STAT_KEYS)[number], string> = {
+  speed: 'Who moves first, and who gets a shot away before the other side has decided anything.',
+  vitality: 'How much punishment one of them absorbs before they are out of the fight.',
+  morale: 'How far it has to go badly before they break and run rather than hold the line.',
+  armor: 'Taken off every hit that lands. Cheap weapons stop mattering against enough of it.',
+  lethality: 'How much a hit takes off when it does land. The other half of what a hit is worth.',
+  range: 'How long they get to shoot before the fight closes and range stops counting.',
+  offense: 'How often they hit at all, against whatever is trying not to be hit.',
+  evasion: 'How often the other side misses. Worth most against many small attacks.',
+  stealth: 'Whether a raid is noticed on the way in, and whether anyone comes looking after.',
+  lootCapacity: 'How much comes back on the truck when the ground is taken.',
+  intimidation: 'Some places give up rather than find out. That is a fight nobody has to have.',
 };

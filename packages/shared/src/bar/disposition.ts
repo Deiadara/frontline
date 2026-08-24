@@ -287,12 +287,26 @@ export function alignmentTarget(stance: number): number {
  */
 export const ALIGNMENT_HALF_LIFE_MS = 3 * 24 * 60 * 60 * 1000;
 
+/** However well the crew is handled, nobody is held in place against the whole of §H5. */
+export const MAX_ALIGNMENT_HOLD = 60;
+
 /**
  * §H5 — settles alignment towards `target` over `elapsedMs`. Never moves on a backwards clock,
  * and is exactly idempotent for a zero-length step, so calling it on every read is safe.
+ *
+ * `holdPercent` is §F2's contribution: Communication, Empathy and the rest slow a slide *away*
+ * from the crew, and do nothing at all to a rise towards it. Deliberately one-directional — a
+ * crew that handles its people well keeps the ones who were about to walk; it does not slow down
+ * somebody coming round to them, which would be a penalty dressed as a bonus.
  */
-export function settleAlignment(current: number, target: number, elapsedMs: number): number {
-  const elapsed = Math.max(0, elapsedMs);
+export function settleAlignment(
+  current: number,
+  target: number,
+  elapsedMs: number,
+  holdPercent = 0,
+): number {
+  const hold = target < current ? Math.min(MAX_ALIGNMENT_HOLD, Math.max(0, holdPercent)) / 100 : 0;
+  const elapsed = Math.max(0, elapsedMs) * (1 - hold);
   const remaining = Math.pow(0.5, elapsed / ALIGNMENT_HALF_LIFE_MS);
   return target + (current - target) * remaining;
 }

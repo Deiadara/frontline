@@ -14,7 +14,7 @@ import { ContextPanel } from './ContextPanel';
 /**
  * The map's caption (GDD §A4).
  *
- * What is being pinned here is the *fog*: an unscouted district must not report how many places
+ * What is being pinned here is the *fog*: an unscouted district must not report how many locations
  * are in it, who is holding them, or anything else a crew has not earned. That is a rule the panel
  * can only get wrong in one direction, and it is the direction that matters.
  */
@@ -32,7 +32,7 @@ function entry(district: District, over: Partial<DistrictSummary> = {}): Distric
     scouted: true,
     travelMinutes: 20,
     holder: null,
-    held: { mine: 0, total: district.places.length },
+    held: { mine: 0, total: district.locations.length },
     base: null,
     isHome: false,
     ...over,
@@ -73,20 +73,20 @@ describe('fog of war (§A4)', () => {
 
     expect(screen.getByRole('button', { name: /send scouts/i })).toBeInTheDocument();
     // The counts are the thing that must not leak — not merely hidden behind a label.
-    expect(screen.queryByTestId('places-held')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('locations-held')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /enter the district/i })).not.toBeInTheDocument();
   });
 
   it('reports what is held once the crew has been', () => {
     renderPanel(entry(contested, { held: { mine: 2, total: 4 } }));
-    expect(screen.getByTestId('places-held')).toHaveTextContent('2 / 4');
+    expect(screen.getByTestId('locations-held')).toHaveTextContent('2 / 4');
     expect(screen.getByRole('button', { name: /enter the district/i })).toBeInTheDocument();
   });
 
   it('calls a district yours only when you hold every place in it', () => {
     const whole = renderPanel(
       entry(contested, {
-        held: { mine: contested.places.length, total: contested.places.length },
+        held: { mine: contested.locations.length, total: contested.locations.length },
         holder: { kind: 'faction', baseId: MY_BASE },
       }),
     );
@@ -113,7 +113,7 @@ describe('home ground (§A4)', () => {
         },
       }),
     );
-    expect(screen.getByText(/cannot be taken off you/i)).toBeInTheDocument();
+    expect(screen.getByText(/nobody can take it off you/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /plan a raid/i })).not.toBeInTheDocument();
   });
 

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { TerritoryEffects } from '../city/index.js';
-import type { Army } from '../units/training.js';
+import type { Army, FittedUpgrades } from '../units/index.js';
+import { analyseBattle, BattleAnalysisSchema } from './analysis.js';
+import { perimeterToll } from './perimeter.js';
 import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
 import { simulate, type Simulation } from './engine.js';
 import {
@@ -14,7 +16,7 @@ import { mulberry32, seedFrom } from './rng.js';
 import { pursuitSpeed, routSurvivors, winnerCasualties } from './rout.js';
 
 /**
- * Taking a place (GDD §A4) — the seam every caller depends on.
+ * Taking a location (GDD §A4) — the seam every caller depends on.
  *
  * `SkirmishEngine` is an interface and the result shape is stable, so the model behind it can be
  * replaced without touching a route, a repository or a screen. It has been replaced once already:
@@ -37,7 +39,7 @@ export interface SkirmishInput {
   seed: string;
   attackerName: string;
   defenderName: string;
-  placeName: string;
+  locationName: string;
   attacking: Army;
   defending: Army;
   /** The ground. Omitted means open ground and nothing dug in. */
@@ -45,6 +47,22 @@ export interface SkirmishInput {
   /** What each side's held territory is worth to its units (§A4). */
   attackerTerritory?: TerritoryEffects;
   defenderTerritory?: TerritoryEffects;
+  /** What each side's workshop has fitted (`units/upgrades.ts`). */
+  attackerUpgrades?: FittedUpgrades;
+  defenderUpgrades?: FittedUpgrades;
+  /** §A5 teamwork — how much of an oversized force each side can actually deploy. */
+  attackerCohesionPercent?: number;
+  defenderCohesionPercent?: number;
+  /**
+   * The ring each side left outside the fight (`battle/perimeter.ts`).
+   *
+   * Never enters the round loop. Only the **winner's** does anything at all, and what it does is cut
+   * down the other side's runners — which is how a crew denies a beaten enemy their report.
+   */
+  attackerPerimeter?: Army;
+  defenderPerimeter?: Army;
+  /** Names the row this fight belongs to, so the report can be filed against it. */
+  battleId?: string;
 }
 
 export const SkirmishOutcomeSchema = z.object({
@@ -67,7 +85,20 @@ export const SkirmishOutcomeSchema = z.object({
       defender: z.array(z.object({ name: z.string(), state: z.string(), left: z.number().int() })),
     })
     .default({ attacker: [], defender: [] }),
+  /**
+   * Losing runners the winning side's ring stopped on the way out. Already counted inside
+   * {@link SkirmishOutcome.killed} — this is the breakdown, not a second set of casualties.
+   */
+  perimeterCaught: z.record(z.string(), z.number().int().nonnegative()).default({}),
   battlefield: BattlefieldSchema.optional(),
+  /**
+   * The full ledger (`battle/analysis.ts`), when the engine that ran this was the real one.
+   *
+   * Optional because a stub engine has no simulation behind it to analyse, and a stub is exactly
+   * what half the server suite injects. A caller that wants the ledger checks for it rather than
+   * every test double having to fabricate one.
+   */
+  analysis: BattleAnalysisSchema.optional(),
 });
 export type SkirmishOutcome = z.infer<typeof SkirmishOutcomeSchema>;
 
@@ -93,6 +124,7 @@ export function skirmishOutcome(partial: Partial<SkirmishOutcome> = {}): Skirmis
     rounds: 1,
     findings: [],
     standing: { attacker: [], defender: [] },
+    perimeterCaught: {},
     ...partial,
   };
 }
@@ -108,21 +140,29 @@ const total = (force: Army): number => Object.values(force).reduce((sum, count) 
  */
 export class TacticalSkirmishEngine implements SkirmishEngine {
   resolve(input: SkirmishInput): SkirmishOutcome {
-    const battlefield = input.battlefield ?? bareBattlefield(input.placeName);
+    const battlefield = input.battlefield ?? bareBattlefield(input.locationName);
     const simulation = simulate({
       seed: input.seed,
-      battlefield: { ...battlefield, placeName: input.placeName },
+      battlefield: { ...battlefield, locationName: input.locationName },
       attacker: {
         name: input.attackerName,
         army: input.attacking,
         defending: false,
         ...(input.attackerTerritory ? { territory: input.attackerTerritory } : {}),
+        ...(input.attackerUpgrades ? { upgrades: input.attackerUpgrades } : {}),
+        ...(input.attackerCohesionPercent !== undefined
+          ? { cohesionPercent: input.attackerCohesionPercent }
+          : {}),
       },
       defender: {
         name: input.defenderName,
         army: input.defending,
         defending: true,
         ...(input.defenderTerritory ? { territory: input.defenderTerritory } : {}),
+        ...(input.defenderUpgrades ? { upgrades: input.defenderUpgrades } : {}),
+        ...(input.defenderCohesionPercent !== undefined
+          ? { cohesionPercent: input.defenderCohesionPercent }
+          : {}),
       },
     });
 
@@ -157,21 +197,62 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
     next,
   );
 
+  // The ring, and only the winner's — a beaten side's perimeter walks away without fighting, which
+  // is the board's rule and the whole gamble of setting one. Drawn from the rout's stream after the
+  // rout itself, so a battle nobody ringed produces the exact stream it always did.
+  const winnerRing =
+    (simulation.winner === 'attacker' ? input.attackerPerimeter : input.defenderPerimeter) ?? {};
+  const { caught, escaped } = perimeterToll(fled, winnerRing, next);
+  const gotHome = escaped;
+  const dead = mergeArmies(killed, caught);
+
   const findings: BattleFinding[] = findingsFor(simulation);
+  const winnerLosses = winnerCasualties(winnerSide);
   return {
     winner: simulation.winner,
-    log: [...narrate(simulation, findings), lossLine(fled, killed)],
-    fled,
-    killed,
-    winnerLosses: winnerCasualties(winnerSide),
+    log: [...narrate(simulation, findings), lossLine(gotHome, dead), ...ringLine(caught)],
+    fled: gotHome,
+    killed: dead,
+    winnerLosses,
     rounds: lastRound,
     findings,
     standing: {
       attacker: standingReport(simulation.attacker),
       defender: standingReport(simulation.defender),
     },
+    perimeterCaught: caught,
     battlefield: simulation.battlefield,
+    analysis: analyseBattle({
+      battleId: input.battleId ?? input.seed,
+      locationName: input.locationName,
+      simulation,
+      fled: gotHome,
+      winnerLosses,
+      perimeter: {
+        attacker: input.attackerPerimeter ?? {},
+        defender: input.defenderPerimeter ?? {},
+      },
+      perimeterCaught: caught,
+      trap: null,
+      infamy: { attacker: 0, defender: 0 },
+    }),
   };
+}
+
+function mergeArmies(into: Army, extra: Army): Army {
+  const merged: Army = { ...into };
+  for (const [unitId, count] of Object.entries(extra)) {
+    if (count > 0) merged[unitId] = (merged[unitId] ?? 0) + count;
+  }
+  return merged;
+}
+
+/** One line, and only when a ring actually caught somebody. Silence is the usual case. */
+function ringLine(caught: Army): string[] {
+  const stopped = total(caught);
+  return stopped === 0
+    ? []
+    : [`${stopped} got out of the fight and no further. The ring was waiting.`];
 }
 
 function lossLine(fled: Army, killed: Army): string {
@@ -207,8 +288,8 @@ export class CoinFlipSkirmishEngine implements SkirmishEngine {
       winner: attackerWins ? 'attacker' : 'defender',
       log: [
         attackerWins
-          ? `${input.placeName} changes hands. ${input.attackerName} holds it.`
-          : `The push on ${input.placeName} breaks. ${input.defenderName} still holds it.`,
+          ? `${input.locationName} changes hands. ${input.attackerName} holds it.`
+          : `The push on ${input.locationName} breaks. ${input.defenderName} still holds it.`,
         lossLine(fled, killed),
       ],
       fled,
@@ -217,6 +298,7 @@ export class CoinFlipSkirmishEngine implements SkirmishEngine {
       rounds: 1,
       findings: [],
       standing: { attacker: [], defender: [] },
+      perimeterCaught: {},
     };
   }
 }

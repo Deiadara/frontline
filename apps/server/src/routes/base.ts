@@ -8,6 +8,10 @@ import {
   type BaseDetailResponse,
   type BuildStructureResponse,
   type RenameFactionResponse,
+  ITEM_CATALOG,
+  buildingParts,
+  nextQueuedLevel,
+  type ItemId,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { nexusGate, queueBuild, type BuildRefusal } from '../district/build.js';
@@ -29,6 +33,7 @@ const REFUSAL_ERRORS: Record<BuildRefusal, ErrorCode> = {
   nexus_cap: 'NEXUS_CAP',
   queue_full: 'BUILD_QUEUE_FULL',
   cannot_afford: 'INSUFFICIENT_RESOURCES',
+  missing_parts: 'MISSING_PARTS',
 };
 
 export function registerBaseRoutes(app: FastifyInstance): void {
@@ -68,6 +73,7 @@ export function registerBaseRoutes(app: FastifyInstance): void {
         structure: kind,
         id: randomUUID(),
         now: new Date(),
+        admin: app.config.admin,
       }),
     )();
 
@@ -110,11 +116,20 @@ function refusalMessage(
       return `${spec.name} is as good as it gets at level ${BUILDING_MAX_LEVEL}`;
     case 'nexus_cap': {
       const { at } = nexusGate(kind, base);
-      return `Nothing outgrows the Nexus — raise it past level ${at} first`;
+      return `Nothing outgrows the Nexus. Raise it past level ${at} first`;
     }
     case 'queue_full':
       return `All ${MAX_BUILD_QUEUE} build slots are working`;
     case 'cannot_afford':
       return 'You cannot cover the materials';
+    case 'missing_parts': {
+      // Named, not counted: the whole point of a part gate is that the answer is a thing you go
+      // and find rather than a number you wait for.
+      const level = nextQueuedLevel(kind, base.buildings, base.buildQueue) ?? 1;
+      const wanted = Object.entries(buildingParts(kind, level))
+        .map(([id, count]) => `${count}× ${ITEM_CATALOG[id as ItemId].name}`)
+        .join(', ');
+      return `Level ${level} needs ${wanted}`;
+    }
   }
 }

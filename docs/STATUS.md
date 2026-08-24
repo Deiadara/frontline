@@ -239,15 +239,16 @@ half-delivered set is a normal state rather than a broken one.
 | unit     | scrapers — 1 of 27                                                      |
 
 The district itself is now a **town view rather than a grid** (`features/base/plots.ts`): no sky,
-the whole scene is ground seen from above, and each of the thirteen structures has a ground-contact
-point and a size on it. Three staggered rows of four, five and four, with a lane of clear ground
-between every pair — that lane is where the plate paints its roads, and `plots.test.ts` pins both
-the zero overlap and the minimum lane. Each structure is seated with a contact shadow, a
-depth-weighted haze masked by its own alpha, and a hover rim that follows the silhouette rather
-than a box. `plate-district` is the painted ground underneath; until it lands the scene draws a
-three-band procedural stand-in. `pnpm --filter @frontline/scripts district-template` renders
-`docs/art/district-template.png` — the delivered masters composited at the exact size and place the
-client puts them, which is what the plate is painted under.
+the whole scene is ground seen from above. Since the delivered `plate-district` paints its own
+buildings, the twelve structures are no longer cutouts pasted onto it — each is a **polygon traced
+around its silhouette on the painting**, and that outline is the control: hovering it washes light
+over that building, clicking it opens its window, and the browser hit-tests the shape rather than a
+box around it. `plots.test.ts` pins the tracing as plane geometry (inside the frame, convex,
+disjoint, centroid inside its own outline); `hideout.spec.ts` asks the browser the same question with
+`elementFromPoint` at every vertex, which also catches chrome lying over a building. The scene is
+sized from a measurement of the room the HUD and the nav leave, because a `max-height` on a
+percentage width silently stops being the plate's aspect and crops the painting. Until the plate
+lands the scene draws a bare procedural stand-in.
 
 The brand wordmark is delivered too, but is **not** a manifest asset: it has no domain id and no
 backend can render 64:27 with alpha, so it ships as an ordinary import from

@@ -10,10 +10,10 @@ import {
   findDistrict,
   garrisonOf,
   isDistrictRaidable,
-  CITY_PLACES,
+  CITY_LOCATIONS,
   CONTESTED_DISTRICTS,
   RESIDENTIAL_DISTRICTS,
-  findPlace,
+  findLocation,
   unifiedBonusFor,
   isSeatOfGovernmentPower,
   raidTargetOf,
@@ -98,7 +98,7 @@ describe('who holds the map (§A3)', () => {
       expect(district.faction, district.id).toBe('independent');
       expect(isSeatOfGovernmentPower(district), district.id).toBe(false);
       // And nobody lives on ground that can be taken out from under them.
-      expect(district.places, district.id).toEqual([]);
+      expect(district.locations, district.id).toEqual([]);
     }
   });
 
@@ -147,31 +147,31 @@ describe('who holds the map (§A3)', () => {
   });
 });
 
-describe('the places inside a district (§A4)', () => {
+describe('the locations inside a district (§A4)', () => {
   it('gives every contested district something to take, and a unified bonus for taking it all', () => {
     for (const contested of CONTESTED_DISTRICTS) {
-      expect(contested.places.length, contested.id).toBeGreaterThan(0);
+      expect(contested.locations.length, contested.id).toBeGreaterThan(0);
       expect(unifiedBonusFor(contested.id), contested.id).not.toBeNull();
     }
   });
 
   it('gives every place a unique id that names the district it is in', () => {
-    const ids = CITY_PLACES.map((place) => place.id);
+    const ids = CITY_LOCATIONS.map((place) => place.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const place of CITY_PLACES) {
+    for (const place of CITY_LOCATIONS) {
       expect(place.id.startsWith(place.districtId), place.id).toBe(true);
-      expect(findPlace(place.id)).toEqual(place);
+      expect(findLocation(place.id)).toEqual(place);
     }
   });
 
   it('spreads the city across enough kinds of place to make holdings differ', () => {
-    const kinds = new Set(CITY_PLACES.map((place) => place.kind));
+    const kinds = new Set(CITY_LOCATIONS.map((place) => place.kind));
     expect(kinds.size).toBeGreaterThanOrEqual(15);
-    expect(CITY_PLACES.length).toBeGreaterThanOrEqual(25);
+    expect(CITY_LOCATIONS.length).toBeGreaterThanOrEqual(25);
   });
 
   it('offers all three grades of ground to dig into', () => {
-    const grades = new Set(CITY_PLACES.map((place) => place.fortifyDifficulty));
+    const grades = new Set(CITY_LOCATIONS.map((place) => place.fortifyDifficulty));
     expect(grades).toEqual(new Set(['easy', 'medium', 'hard']));
   });
 });

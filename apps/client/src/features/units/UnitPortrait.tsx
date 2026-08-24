@@ -13,11 +13,11 @@ import { cn } from '../../lib/cn';
  */
 
 const TIER_TINTS: Record<UnitTier, string> = {
-  rabble: 'from-steel-800/60 text-steel-100/10',
-  regular: 'from-ferrite-700/50 text-steel-100/12',
-  specialist: 'from-hextech-500/25 text-steel-100/15',
-  heavy: 'from-warning/20 text-steel-100/15',
-  legendary: 'from-neon-magenta/25 text-steel-100/20',
+  rabble: 'from-surface-700/60 text-ink-100/10',
+  regular: 'from-ferrite-700/50 text-ink-100/12',
+  specialist: 'from-hextech-500/25 text-ink-100/15',
+  heavy: 'from-warning/20 text-ink-100/15',
+  legendary: 'from-oxblood-300/25 text-ink-100/20',
 };
 
 export function UnitPortrait({
@@ -33,8 +33,10 @@ export function UnitPortrait({
   return (
     <div
       className={cn(
-        'relative shrink-0 overflow-hidden border border-steel-800 bg-gradient-to-b to-night',
-        'aspect-[3/4] w-14',
+        // No fixed width: the roster card gives the portrait a whole column and it fills it. The
+        // old `w-14` made it a thumbnail beside a heading whatever the card did.
+        'relative shrink-0 overflow-hidden border border-surface-700 bg-gradient-to-b to-surface-950',
+        'aspect-[3/4] w-full',
         TIER_TINTS[tier],
         className,
       )}

@@ -235,15 +235,29 @@ describe('backend selection', () => {
   });
 
   /**
+   * Keys the board paints by hand, which no backend is ever asked for.
+   *
+   * `plate-district` is the whole district screen and it arrived at the size it was painted,
+   * 1672×941. That is not a multiple of 16, and it cannot be made one: the twelve building outlines
+   * are positions on *this* image, so rounding the delivery would move all twelve at once, and no
+   * pure rescale of 1672:941 lands on sixteens in both axes. Exempting it costs nothing the bound
+   * was protecting — the bound exists so a *generated* source fails here rather than at spend time,
+   * and this one is never generated.
+   *
+   * A list rather than a skip on the whole test: anything else drifting out of bounds still fails.
+   */
+  const HAND_PAINTED: readonly string[] = ['plate-district'];
+
+  /**
    * `BACKEND_CAPABILITIES.fal.sizes` is `null` — "any size" — but FLUX.2 [pro]'s published
    * `image_size` bounds are not unbounded (ADR §6.1.1). The table therefore green-lights sizes the
    * API would reject, and only a paid call would surface it. Pin the real bounds here so a manifest
    * source that drifts outside them fails locally instead of at spend time.
    */
   it('keeps every fal-routed source inside the published FLUX.2 [pro] image_size bounds', () => {
-    const routed = ART_MANIFEST.map((s) => s.source).filter((source) =>
-      backendCanProduce('fal', source),
-    );
+    const routed = ART_MANIFEST.filter((spec) => !HAND_PAINTED.includes(spec.key))
+      .map((s) => s.source)
+      .filter((source) => backendCanProduce('fal', source));
     expect(routed).not.toHaveLength(0);
     for (const { width, height } of routed) {
       const at = `${width}×${height}`;

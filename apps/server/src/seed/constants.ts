@@ -54,12 +54,26 @@ export const MVP_BOT: BotBlueprint = {
    * seeding a rival with structures at all.
    */
   buildings: [
-    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [] },
-    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [] },
-    { id: 'vex-gauntlet', kind: 'gauntlet', level: 3, modifications: [] },
-    { id: 'vex-generator', kind: 'generator', level: 3, modifications: [] },
-    { id: 'vex-scrapyard', kind: 'scrapyard', level: 2, modifications: [] },
-    { id: 'vex-quarters', kind: 'quarters', level: 2, modifications: [] },
+    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'vex-gauntlet', kind: 'gauntlet', level: 3, modifications: [], damage: 0, garrisons: 0 },
+    {
+      id: 'vex-generator',
+      kind: 'generator',
+      level: 3,
+      modifications: [],
+      damage: 0,
+      garrisons: 0,
+    },
+    {
+      id: 'vex-scrapyard',
+      kind: 'scrapyard',
+      level: 2,
+      modifications: [],
+      damage: 0,
+      garrisons: 0,
+    },
+    { id: 'vex-quarters', kind: 'quarters', level: 2, modifications: [], damage: 0, garrisons: 0 },
   ],
   army: { razors: 12, wardens: 6, breakers: 4 },
   /* Four of the 19 officer positions (GDD §C1), on the 0..100 attribute scale. */
@@ -72,12 +86,12 @@ export const MVP_BOT: BotBlueprint = {
       ['field_surgeon'],
     ),
     createCommander('vex-commander-analyst', 'Ren Kaido', 'field_commander', {
-      tactics: 36,
+      organization: 36,
       leadership: 28,
-      vigilance: 22,
+      resolve: 22,
     }),
     createCommander('vex-commander-accountant', 'Odile Marchetti', 'finance_officer', {
-      appraisal: 34,
+      strategy: 34,
       analysis: 27,
       logistics: 25,
     }),

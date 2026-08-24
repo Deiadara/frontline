@@ -13,12 +13,19 @@ export const ResearchStateSchema = z.object({
   active: ActiveResearchSchema.nullable(),
   /** Discovered facts, de-duplicated by `factKey`. Never the raw table (§B8a, INTERFACES R4). */
   facts: z.array(DiscoveredFactSchema),
+  /**
+   * The Lab's finished standing programmes.
+   *
+   * Defaulted, so a district written before the Lab had a tech tree parses without a migration —
+   * `research_json` is already a JSON column and this is a new key inside it, not a new column.
+   */
+  technologies: z.array(z.string()).default([]),
 });
 export type ResearchState = z.infer<typeof ResearchStateSchema>;
 
 /** A crew that has never researched anything knows nothing and has nothing running. */
 export function startingResearch(): ResearchState {
-  return { active: null, facts: [] };
+  return { active: null, facts: [], technologies: [] };
 }
 
 /**

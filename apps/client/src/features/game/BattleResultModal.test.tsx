@@ -15,7 +15,9 @@ function show(levelUp?: { level: number; levelsGained: number }) {
       result={result}
       resources={STARTING_RESOURCES}
       targetName="Rustyard"
-      levelUp={levelUp ? { ...levelUp, grants: playerLevelGrants(levelUp.level) } : undefined}
+      levelUp={
+        levelUp ? { ...levelUp, grants: playerLevelGrants(levelUp.level), unlocks: [] } : undefined
+      }
       onClose={() => {}}
     />,
   );

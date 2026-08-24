@@ -5,6 +5,7 @@ import { recentlyReturned } from './MissionsPage';
 /** A returned crew, identified by when it launched and when it came home. */
 const returned = (id: string, startedAt: string, resolvedAt: string): Mission => ({
   id,
+  recalledAt: null,
   baseId: 'base-1',
   templateId: 'scrap-run',
   startedAt,
@@ -23,6 +24,7 @@ const inFlight = (id: string, startedAt: string): Mission => ({
   outcome: null,
   rewards: {},
   resolvedAt: null,
+  recalledAt: null,
 });
 
 /** The board as the server hands it back: newest launch first. */

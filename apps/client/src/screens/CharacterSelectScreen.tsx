@@ -94,17 +94,17 @@ export function CharacterSelectScreen() {
     createOverseer.error instanceof ApiRequestError ? createOverseer.error.message : null;
 
   return (
-    <main className="scanlines relative flex h-screen flex-col overflow-hidden bg-night">
+    <main className="relative flex h-screen flex-col overflow-hidden bg-surface-950">
       <div className="grain pointer-events-none absolute inset-0" />
 
-      <header className="relative shrink-0 border-b border-neon-cyan/20 px-8 py-3">
-        <p className="font-display text-[10px] tracking-[0.5em] text-neon-cyan/70">
+      <header className="relative shrink-0 border-b border-surface-600/70 px-8 py-3">
+        <p className="font-display text-[11px] tracking-[0.5em] text-brass-300">
           // OVERSEER SELECTION //
         </p>
-        <h1 className="text-glow-cyan mt-1 font-display text-2xl font-bold tracking-[0.2em] text-steel-100">
+        <h1 className="mt-1 font-display text-2xl font-bold tracking-[0.2em] text-ink-100">
           CHOOSE YOUR OVERSEER
         </h1>
-        <p className="mt-1 font-body text-xs text-steel-400">
+        <p className="mt-1 font-body text-xs text-ink-300">
           Four operators wait to run your syndicate. Each rewrites how the war is fought.
         </p>
       </header>
@@ -134,26 +134,26 @@ export function CharacterSelectScreen() {
           <p
             ref={hintRef}
             // Padding, not margin: `measureRows` budgets for the hint by `offsetHeight`.
-            className="shrink-0 pt-1.5 text-center font-display text-[9px] uppercase tracking-[0.3em] text-neon-cyan/70"
+            className="shrink-0 pt-1.5 text-center font-display text-[10px] uppercase tracking-[0.2em] text-brass-300"
           >
             ▼ Scroll for {rows.hiddenCards} more {rows.hiddenCards === 1 ? 'overseer' : 'overseers'}
           </p>
         )}
       </div>
 
-      <footer className="relative flex shrink-0 items-center justify-between gap-4 border-t border-neon-cyan/20 bg-night-raised px-8 py-3">
+      <footer className="relative flex shrink-0 items-center justify-between gap-4 border-t border-surface-600/70 bg-surface-900 px-8 py-3">
         <div className="min-w-0">
           {selected ? (
-            <p className="truncate font-display text-xs uppercase tracking-[0.2em] text-neon-cyan">
+            <p className="truncate font-display text-xs uppercase tracking-[0.2em] text-brass-300">
               Selected // {selected.name}
             </p>
           ) : (
-            <p className="font-display text-xs uppercase tracking-[0.2em] text-steel-500">
+            <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
               No overseer selected
             </p>
           )}
           {serverError && (
-            <p role="alert" className="mt-1 font-body text-[11px] text-neon-magenta">
+            <p role="alert" className="mt-1 font-body text-[12px] text-oxblood-300">
               {serverError}
             </p>
           )}

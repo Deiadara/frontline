@@ -8,7 +8,12 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { activeResearch, lateGame, me, meNoOverseer, missionsResponse } from './fixtures';
-import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
+import {
+  expectNothingClippedVertically,
+  expectSheetNotWashedOut,
+  installApi,
+  settleFonts,
+} from './harness';
 
 interface Size {
   readonly width: number;
@@ -55,6 +60,12 @@ async function expectNoDocumentOverflow(page: Page): Promise<void> {
  * No element may stick out of the viewport horizontally. Vertical is covered by the document
  * check above; horizontal needs per-element inspection because a `w-full` child of an
  * `overflow-hidden` parent clips silently rather than growing the document.
+ *
+ * `[data-scenery]` opts an element out, and only that element — never its subtree. Full-bleed
+ * artwork is deliberately larger than the frame (a blurred backdrop has to over-scale or it shows a
+ * soft rim), but the things standing *on* the artwork are still content: the first version of this
+ * exemption covered whole subtrees and would have hidden the bug that prompted it, which was a
+ * building's plot hanging 58px off the left edge where nobody could click it.
  */
 async function expectNothingClippedHorizontally(page: Page): Promise<void> {
   await settleFonts(page);
@@ -65,6 +76,7 @@ async function expectNothingClippedHorizontally(page: Page): Promise<void> {
       if (rect.width === 0 || rect.height === 0) continue;
       const style = getComputedStyle(el);
       if (style.visibility === 'hidden' || style.position === 'fixed') continue;
+      if (el.hasAttribute('data-scenery')) continue;
       if (rect.right > window.innerWidth + 1 || rect.left < -1) {
         bad.push(`${el.tagName.toLowerCase()}.${el.className} [${rect.left}..${rect.right}]`);
       }
@@ -162,9 +174,18 @@ for (const size of VIEWPORTS) {
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
-      // Two card rows need 592px of frame. Only the 720px-tall viewport cannot pay for it (549px);
-      // 1024x768 clears it by 5px, which is the margin this argument exists to keep honest.
-      await expectWholeCardRows(page, size.height >= 768);
+      // Two card rows need ~652px of frame, and only viewports 900px tall and up can pay for it.
+      //
+      // This flag has never been a target; it records which branch each viewport lands in, and it
+      // has moved twice. 1024x768 used to clear the old ~608px by 5px and stopped when the display
+      // face went from Orbitron to Rajdhani. 1280x800 cleared it until the attribute model was
+      // reworked: the sheet gained two attributes (Authority and Cryptography) and its labels went
+      // up a size and a shade for legibility, which is 22px of card. Both times the alternative was
+      // squeezing type on a screen whose whole job is to be read, and both times the screen already
+      // did the right thing without help — it drops a whole row and says "scroll for 2 more". So
+      // the number moves and the assertion keeps its teeth: a viewport on the wrong side of it
+      // still fails, and a roster that silently halves itself at 1440x900 still fails.
+      await expectWholeCardRows(page, size.height >= 900);
       await page.screenshot({ path: `screenshots/visual/overseer-${tag}.png` });
     });
 
@@ -195,9 +216,17 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
 
+      // The whole chip, not just its label: the label is now the chip's accessible name rather
+      // than a word printed beside the number, and "the readout is fully on screen" was always the
+      // thing worth asserting anyway.
+      // Each chip is a hover trigger now — a real button, so the reading is its accessible name
+      // rather than a `role="img"` wrapper. "The whole readout is on screen" is still the thing
+      // being asserted, which is what matters when the numbers get long enough to wrap the bar.
       const hud = page.locator('header');
       for (const chip of ['Caps', 'Food', 'Oil', 'Scrap', 'HQ Metal', 'Morale', 'Infamy']) {
-        await expect(hud.getByText(chip, { exact: true })).toBeInViewport({ ratio: 1 });
+        await expect(hud.getByRole('button', { name: new RegExp(`^${chip}:`) })).toBeInViewport({
+          ratio: 1,
+        });
       }
       await page.screenshot({ path: `screenshots/visual/hud-late-game-${tag}.png` });
     });
@@ -325,9 +354,11 @@ for (const size of VIEWPORTS) {
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
 
-      // The base screen is a document scroller, so the panel is below the fold at every viewport
-      // in the matrix — scrolled to, then measured, the same way a player reaches it. Scrolling to
-      // the *last* row puts the whole panel on screen, so the screenshot shows all of it.
+      // The district is the screen now, and everything written *about* it lives in a drawer that
+      // starts closed — so the readout is reached by opening the drawer and then scrolling inside
+      // it, which is what a player does. Scrolling to the *last* row puts the whole panel on
+      // screen, so the screenshot shows all of it.
+      await page.getByTestId('reports-toggle').click();
       const grantValue = (label: string) =>
         page.locator('dl > div').filter({ hasText: label }).locator('dd');
       await grantValue('Recruit slots').scrollIntoViewIfNeeded();
@@ -420,6 +451,7 @@ for (const size of VIEWPORTS) {
 
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/research-${tag}.png` });
 
       /*
@@ -434,6 +466,256 @@ for (const size of VIEWPORTS) {
       await settleFonts(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/research-facts-${tag}.png` });
+    });
+
+    /**
+     * The roster, relaid out: portrait down the left third, everything you *do* to a unit on the
+     * right, and the prose along the bottom across all three. The card is the densest thing in the
+     * game — twelve of them, each with a stat table, a price and a control — so it is the most
+     * likely place for a column to collapse or a number to be cut in half.
+     */
+    test(`units at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/units');
+      await expect(
+        page.getByRole('heading', { name: "It's the suffering that brings us together." }),
+      ).toBeVisible();
+      await settleFonts(page);
+
+      // The portrait owns a third and the stats own the rest. Measured rather than asserted from
+      // the class list: a `grid-cols-3` that loses its `col-span-2` still has both classes.
+      const layout = await page.evaluate<{ portrait: number; card: number } | null>(() => {
+        // Inside the catalogue: `unit-catalogue` itself starts with `unit-`, and matching the
+        // grid instead of a card silently measures the portrait against the whole page.
+        const card = document.querySelector(
+          '[data-testid="unit-catalogue"] [data-testid^="unit-"]',
+        );
+        const image = card?.querySelector('img, svg');
+        if (!card || !image) return null;
+        return {
+          portrait: image.getBoundingClientRect().width,
+          card: card.getBoundingClientRect().width,
+        };
+      });
+      expect(layout, 'a unit card must render a portrait').not.toBeNull();
+      const share = (layout?.portrait ?? 0) / (layout?.card ?? 1);
+      expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeGreaterThan(0.2);
+      expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeLessThan(0.4);
+
+      // Cut text, horizontally: the stat labels sit in a two-column table inside two thirds of a
+      // card, which is the narrowest any of them ever get.
+      const clipped = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('span, p, h3, dt, dd, li')]
+          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}"`),
+      );
+      expect(clipped, `cut text on the roster: ${clipped.join(' | ')}`).toEqual([]);
+
+      // No vertical guard here, and deliberately: the roster is a scrolling document, so the last
+      // visible row is *always* half-cut by the fold. That is what a scroller does, and it is why
+      // the other document pages in this file gate on overflow and horizontal clipping instead.
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/units-${tag}.png` });
+    });
+
+    /** §F2 — the Training tab, with an hour already running and an officer idle beside it. */
+    test(`training at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/training');
+      await expect(page.getByTestId('training-in-flight')).toBeVisible();
+      await settleFonts(page);
+
+      // Thirty-five drills in four columns is the one screen in the game where a label has real
+      // competition for its width.
+      const clipped = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('span, p, h3')]
+          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}"`),
+      );
+      expect(clipped, `cut text on the training page: ${clipped.join(' | ')}`).toEqual([]);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/training-${tag}.png` });
+    });
+
+    /** The Overseer's own file, reached by clicking the identity in the HUD. */
+    test(`overseer profile at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game');
+      await page.getByTestId('hud-overseer').click();
+      await expect(page.getByTestId('crew-effects')).toBeVisible();
+      await settleFonts(page);
+
+      const cut = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('span, p, h2, li')]
+          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}"`),
+      );
+      expect(cut, `cut text on the overseer's file: ${cut.join(' | ')}`).toEqual([]);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/overseer-profile-${tag}.png` });
+    });
+
+    /**
+     * A resource popup must sit *over* the world, not push it down.
+     *
+     * The board's words: hovering a number should not make the whole top of the screen grow. It
+     * did, because the card rendered inside the stockpile bar and the bar wraps — so every pointer
+     * that crossed a chip shoved the district down by the height of the explanation. The card is
+     * portalled to `document.body` now, and this is the assertion that keeps it there: the HUD's
+     * height before and after must be identical, and the card must overhang past the bar's bottom
+     * edge, which is the whole point of letting it hang into the world.
+     */
+    test(`a resource popup does not move the HUD at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game');
+      const hud = page.locator('header').first();
+      await expect(hud).toBeVisible();
+      await settleFonts(page);
+
+      const before = await hud.boundingBox();
+      await page.getByTestId('resource-hover-scrap').hover();
+      const card = page.getByRole('tooltip');
+      await expect(card).toBeVisible();
+      const after = await hud.boundingBox();
+
+      expect(after?.height, 'the HUD grew when a resource was hovered').toBe(before?.height);
+
+      const box = await card.boundingBox();
+      expect(box, 'the popup must be laid out').not.toBeNull();
+      // It hangs into the world below the bar — measured at its *bottom* edge, because the card is
+      // anchored under the chip it explains and the chip sits on the bar's lower tier, a couple of
+      // pixels inside the bar's own padding. What matters is that the window overhangs the chrome
+      // rather than being contained by it, and that is a statement about where it ends.
+      expect((box?.y ?? 0) + (box?.height ?? 0)).toBeGreaterThan(
+        (before?.y ?? 0) + (before?.height ?? 0),
+      );
+      expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
+      expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(size.width);
+    });
+
+    /**
+     * Grepolis' standing queue readout: what is in flight, on whatever screen you are on.
+     *
+     * Timestamps are made *live* here rather than taken from the shared fixture. The fixture's
+     * clock is a fixed date, so every order in it finished long ago and the rail would render a
+     * row of zeroes — which is exactly the state that cannot tell a working countdown from a
+     * broken one. Overriding `/me` for this one test is what makes the assertion mean something.
+     */
+    test(`the in-flight rail counts down at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.route('**/api/me', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ...lateGame,
+            base: {
+              ...lateGame.base,
+              buildQueue: [
+                {
+                  id: 'live-build',
+                  kind: 'quarters',
+                  level: 4,
+                  startedAt: new Date(Date.now() - 60_000).toISOString(),
+                  durationSeconds: 1200,
+                },
+              ],
+              trainingQueue: [],
+            },
+          }),
+        }),
+      );
+      await page.goto('/game');
+
+      const rail = page.getByTestId('queue-rail');
+      await expect(rail).toBeVisible();
+      const row = page.getByTestId('queue-rail-build-live-build');
+      await expect(row).toContainText('The Quarters');
+      // Nineteen minutes left of twenty, not zero and not the whole thing.
+      await expect(row).toContainText(/1[89]m/);
+
+      // Clicking opens the clock rather than navigating: the rail has room for four words, and
+      // what a player wants from it is when the thing lands and whether they can change their mind.
+      await row.click();
+      const detail = page.getByRole('dialog');
+      await expect(detail).toBeVisible();
+      await expect(detail).toContainText('Your district');
+      await expect(detail).toContainText('Expected');
+
+      // And the window is the way *to* the screen that owns it.
+      await detail.getByRole('link', { name: 'Go there' }).click();
+      await expect(page).toHaveURL(/\/game\/base$/);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+    });
+
+    /** The market: the Runner's window, the Broker's rate and the players' board. */
+    test(`the market at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/market');
+      await expect(page.getByTestId('vendor-stock')).toBeVisible();
+      await settleFonts(page);
+
+      // The three things a market screen has to actually say.
+      await expect(page.getByTestId('vendor-state')).toContainText('In');
+      await expect(page.getByTestId('barter-quote')).toContainText('50');
+      await expect(page.getByTestId('market-board')).toBeVisible();
+
+      const clipped = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('span, p, h3, li')]
+          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}"`),
+      );
+      expect(clipped, `cut text on the market: ${clipped.join(' | ')}`).toEqual([]);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/market-${tag}.png` });
+    });
+
+    /** The workshop: three ladders and the yard. */
+    test(`the workshop at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/workshop');
+      await expect(page.getByTestId('upgrade-armour_1')).toBeVisible();
+      await settleFonts(page);
+
+      // A fitted rung, a reachable one and a locked one all render differently, and all three are
+      // on this fixture — which is the point of the fixture.
+      await expect(page.getByTestId('upgrade-armour_1')).toContainText('Fitted');
+      await expect(page.getByTestId('upgrade-armour_3')).toContainText('Needs the Gauntlet');
+      await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Blueprint');
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/workshop-${tag}.png` });
+    });
+
+    /** The satchel, grouped by what a player would do with the thing. */
+    test(`the satchel at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/inventory');
+      await expect(page.getByTestId('satchel-component')).toBeVisible();
+      await settleFonts(page);
+
+      await expect(page.getByTestId('satchel-blueprint')).toContainText('Cybernetics');
+      await expect(page.getByTestId('satchel-relic')).toContainText('Ivory Dice');
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/satchel-${tag}.png` });
     });
 
     /** The other half of the same screen: a project in flight, with §F4's option showing. */

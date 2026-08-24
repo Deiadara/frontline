@@ -21,6 +21,7 @@ import {
   type Building,
   type BuildQueue,
   type Resources,
+  startingTraining,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -57,6 +58,8 @@ const build = (kind: Building['kind'], level: number, modifications: string[] = 
   kind,
   level,
   modifications,
+  damage: 0,
+  garrisons: 0,
 });
 
 interface SeedOptions {
@@ -93,6 +96,10 @@ function seedBase(repos: Repositories, options: SeedOptions = {}): Base {
     buildQueue: options.buildQueue ?? [],
     army: {},
     trainingQueue: [],
+    training: startingTraining('2026-08-16T00:00:00.000Z'),
+    inventory: {},
+    fittedUpgrades: [],
+    fleet: {},
     commanders: options.officers ?? [],
     createdAt: NOW.toISOString(),
   };

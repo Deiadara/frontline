@@ -4,10 +4,10 @@ import { cn } from '../../lib/cn';
 
 /** On-brand gradient options (theme tokens only), picked deterministically by portraitId. */
 const GRADIENTS = [
-  'from-neon-cyan/30 via-night-overlay to-night',
-  'from-neon-magenta/30 via-night-overlay to-night',
-  'from-warning/25 via-night-overlay to-night',
-  'from-steel-500/30 via-night-overlay to-night',
+  'from-verdigris-500/40 via-surface-800 to-surface-950',
+  'from-oxblood-500/40 via-surface-800 to-surface-950',
+  'from-brass-500/35 via-surface-800 to-surface-950',
+  'from-surface-500/50 via-surface-800 to-surface-950',
 ] as const;
 
 function gradientFor(portraitId: string): string {
@@ -31,7 +31,7 @@ function Silhouette() {
   return (
     <svg
       viewBox="0 0 64 80"
-      className="absolute inset-0 h-full w-full text-steel-100/15"
+      className="absolute inset-0 h-full w-full text-ink-100/15"
       preserveAspectRatio="xMidYMax meet"
       aria-hidden="true"
     >
@@ -57,7 +57,7 @@ export function OverseerPortrait({
   return (
     <div
       className={cn(
-        'relative w-full overflow-hidden border border-neon-cyan/20 bg-gradient-to-b',
+        'relative w-full overflow-hidden border border-surface-600/70 bg-gradient-to-b',
         aspect === 'portrait' ? 'aspect-[3/4]' : 'aspect-square',
         gradientFor(portraitId),
         className,
@@ -71,7 +71,7 @@ export function OverseerPortrait({
       )}
       <div className="grain pointer-events-none absolute inset-0 opacity-60" />
       {showTag && (
-        <span className="absolute bottom-1.5 left-1.5 border border-neon-cyan/30 bg-night/70 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.2em] text-neon-cyan">
+        <span className="absolute bottom-1.5 left-1.5 border border-brass-300/30 bg-surface-950/70 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.2em] text-brass-300">
           {archetype}
         </span>
       )}

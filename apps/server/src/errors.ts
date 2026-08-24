@@ -20,6 +20,8 @@ export type ErrorCode =
   | 'ROLE_TAKEN'
   | 'INSUFFICIENT_CAPS'
   | 'NO_POINTS'
+  | 'NEGOTIATION_CLOSED'
+  | 'AREA_LOCKED'
   // research and discovery (GDD §B9, §F2-§F4)
   | 'RESEARCH_BUSY'
   | 'NO_RESEARCH_LEAD'
@@ -29,6 +31,11 @@ export type ErrorCode =
   | 'NO_ASSIGNEES'
   | 'ASSIGNEES_AT_CAP'
   | 'NO_PROFESSOR'
+  | 'TRAINING_REFUSED'
+  | 'MARKET_REFUSED'
+  | 'BLACK_MARKET_REFUSED'
+  | 'MISSION_REFUSED'
+  | 'WORKSHOP_REFUSED'
   | 'MISSION_NEEDS_OFFICER'
   // the district (GDD §A1, §D3)
   | 'INSUFFICIENT_RESOURCES'
@@ -36,6 +43,7 @@ export type ErrorCode =
   | 'STRUCTURE_LOCKED'
   | 'NEXUS_CAP'
   | 'BUILD_QUEUE_FULL'
+  | 'MISSING_PARTS'
   | 'MODIFICATION_UNAVAILABLE'
   | 'NO_MODIFICATION_SLOT'
   | 'NO_LEAD_ENGINEER'
@@ -48,6 +56,9 @@ export type ErrorCode =
   | 'UNIT_LOCKED'
   | 'TRAINING_QUEUE_FULL'
   | 'NO_SUPPLY'
+  // declared battles and the §D7 sinks
+  | 'BATTLE_REFUSED'
+  | 'NOT_ENOUGH_INFAMY'
   | 'INTERNAL';
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
@@ -60,13 +71,22 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   OVERSEER_ALREADY_CHOSEN: 409,
   UNKNOWN_PRESET: 400,
   NO_BASE: 409,
+  TRAINING_REFUSED: 409,
+  MARKET_REFUSED: 409,
+  BLACK_MARKET_REFUSED: 409,
+  MISSION_REFUSED: 409,
+  ROLE_TAKEN: 409,
+  WORKSHOP_REFUSED: 409,
   INVALID_TARGET: 400,
   MISSIONS_AT_CAPACITY: 409,
   RECRUIT_UNAVAILABLE: 409,
   NO_RECRUIT_SLOTS: 409,
-  ROLE_TAKEN: 409,
   INSUFFICIENT_CAPS: 409,
   NO_POINTS: 409,
+  NEGOTIATION_CLOSED: 409,
+  // 403 rather than 404: the screen exists, this crew is not senior enough to be in it, and the
+  // message says which level opens it. A 404 would teach a player that the feature is not built.
+  AREA_LOCKED: 403,
   RESEARCH_BUSY: 409,
   NO_RESEARCH_LEAD: 409,
   RESEARCH_OPTION_LOCKED: 409,
@@ -80,6 +100,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   STRUCTURE_LOCKED: 409,
   NEXUS_CAP: 409,
   BUILD_QUEUE_FULL: 409,
+  MISSING_PARTS: 409,
   MODIFICATION_UNAVAILABLE: 409,
   NO_MODIFICATION_SLOT: 409,
   NO_LEAD_ENGINEER: 409,
@@ -91,6 +112,8 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   UNIT_LOCKED: 409,
   TRAINING_QUEUE_FULL: 409,
   NO_SUPPLY: 409,
+  BATTLE_REFUSED: 409,
+  NOT_ENOUGH_INFAMY: 409,
   INTERNAL: 500,
 };
 

@@ -7,6 +7,7 @@ interface MissionRow {
   base_id: string;
   template_id: string;
   started_at: string;
+  recalled_at: string | null;
   travel_minutes: number;
   duration_minutes: number;
   success_chance: number;
@@ -43,6 +44,9 @@ export interface MissionsRepo {
   listActiveByBaseId(baseId: string): StoredMission[];
   countActiveByBaseId(baseId: string): number;
   markResolved(missionId: string, resolution: MissionResolution): void;
+  /** §E — turn a crew around. The return leg is derived from this instant, not stored. */
+  markRecalled(missionId: string, recalledAt: string): void;
+  findById(missionId: string): StoredMission | undefined;
 }
 
 function rowToStored(row: MissionRow): StoredMission {
@@ -52,6 +56,7 @@ function rowToStored(row: MissionRow): StoredMission {
       baseId: row.base_id,
       templateId: row.template_id,
       startedAt: row.started_at,
+      recalledAt: row.recalled_at,
       travelMinutes: row.travel_minutes,
       durationMinutes: row.duration_minutes,
       status: row.status,
@@ -72,6 +77,8 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         success_chance, seed, status, officer_id, outcome, rewards_json, resolved_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+  const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
+  const byIdStmt = db.prepare('SELECT * FROM missions WHERE id = ?');
   const byBaseStmt = db.prepare(
     'SELECT * FROM missions WHERE base_id = ? ORDER BY started_at DESC, id DESC',
   );
@@ -113,6 +120,13 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
     },
     countActiveByBaseId(baseId) {
       return (countActiveStmt.get(baseId) as { count: number }).count;
+    },
+    markRecalled(missionId, recalledAt) {
+      markRecalledStmt.run(recalledAt, missionId);
+    },
+    findById(missionId) {
+      const row = byIdStmt.get(missionId) as MissionRow | undefined;
+      return row ? rowToStored(row) : undefined;
     },
     markResolved(missionId, { outcome, rewards, resolvedAt }) {
       resolveStmt.run(outcome, JSON.stringify(rewards), resolvedAt, missionId);

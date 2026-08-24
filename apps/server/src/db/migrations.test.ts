@@ -1,7 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUILDING_KINDS, isModificationId, type Building } from '@frontline/shared';
+import {
+  AttributesSchema,
+  BUILDING_KINDS,
+  isModificationId,
+  type Building,
+} from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from './index.js';
 
@@ -25,6 +30,9 @@ function migrateUpTo(db: AppDatabase, stopBefore: string): void {
 }
 
 const DROP_COMMONS = '0014_drop_commons.sql';
+
+/** One fixed timestamp for every row these tests write. */
+const NOW = '2026-08-16T12:00:00.000Z';
 
 /**
  * The Commons removal, checked the only way that means anything: against a row written *before* it.
@@ -143,5 +151,156 @@ describe('0014 — dropping the Commons from saved districts', () => {
     for (const building of buildingsAfter(db)) {
       expect(BUILDING_KINDS as readonly string[]).toContain(building.kind);
     }
+  });
+});
+
+/**
+ * The attribute rename, checked against sheets written before it.
+ *
+ * Nine attributes changed name, one was retired and two were added. A stored sheet is JSON keyed by
+ * attribute name, so nothing rejects the old keys on write and nothing rejects them on read: the
+ * failure is `AttributesSchema` complaining that the *new* keys are missing, which reads as a bug in
+ * the schema rather than as old data. No fixture built from the current model can produce this
+ * state, so it is written by hand, exactly as it sits in anybody's database right now.
+ */
+describe('0015 — renaming the attribute sheet', () => {
+  const OLD_SHEET = {
+    strength: 20,
+    endurance: 21,
+    agility: 22,
+    speed: 23,
+    reflexes: 24,
+    toughness: 25,
+    marksmanship: 26,
+    stealth: 27,
+    tactics: 30,
+    analysis: 31,
+    imagination: 32,
+    cunning: 33,
+    composure: 34,
+    vigilance: 35,
+    scholarship: 36,
+    appraisal: 37,
+    leadership: 40,
+    charisma: 41,
+    communication: 42,
+    intimidation: 43,
+    negotiation: 44,
+    deception: 45,
+    empathy: 46,
+    mentoring: 47,
+    engineering: 50,
+    hacking: 51,
+    fabrication: 52,
+    medicine: 53,
+    cybernetics: 54,
+    salvage: 55,
+    demolition: 56,
+    navigation: 57,
+    chemistry: 58,
+    logistics: 59,
+  };
+
+  const legacyOverseer = (): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, '0015_attribute_rename.sql');
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u1', 'legacy', 'x', NOW);
+    db.prepare(
+      `INSERT INTO overseers (id, user_id, preset_id, name, archetype, portrait_id, bio, attributes_json, traits_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'o1',
+      'u1',
+      'enforcer',
+      'Kane',
+      'enforcer',
+      'overseer-1',
+      'bio',
+      JSON.stringify(OLD_SHEET),
+      '[]',
+      NOW,
+    );
+    return db;
+  };
+
+  const sheetAfter = (db: AppDatabase): Record<string, number> => {
+    runMigrations(db);
+    const row = db.prepare('SELECT attributes_json FROM overseers').get() as {
+      attributes_json: string;
+    };
+    return JSON.parse(row.attributes_json) as Record<string, number>;
+  };
+
+  it('carries every renamed rating across without changing it', () => {
+    const sheet = sheetAfter(legacyOverseer());
+    expect(sheet.stamina).toBe(OLD_SHEET.endurance);
+    expect(sheet.dexterity).toBe(OLD_SHEET.agility);
+    expect(sheet.organization).toBe(OLD_SHEET.tactics);
+    expect(sheet.logic).toBe(OLD_SHEET.cunning);
+    expect(sheet.intuition).toBe(OLD_SHEET.scholarship);
+    expect(sheet.resolve).toBe(OLD_SHEET.vigilance);
+    expect(sheet.improvisation).toBe(OLD_SHEET.imagination);
+    expect(sheet.strategy).toBe(OLD_SHEET.appraisal);
+    expect(sheet.diplomacy).toBe(OLD_SHEET.mentoring);
+  });
+
+  it('leaves none of the old names behind', () => {
+    const sheet = sheetAfter(legacyOverseer());
+    for (const gone of [
+      'endurance',
+      'agility',
+      'tactics',
+      'cunning',
+      'scholarship',
+      'vigilance',
+      'imagination',
+      'appraisal',
+      'mentoring',
+      'marksmanship',
+    ]) {
+      expect(sheet, gone).not.toHaveProperty(gone);
+    }
+  });
+
+  /** A sheet the current schema cannot parse is a character the game cannot load. */
+  it('leaves a sheet the current model accepts', () => {
+    expect(() => AttributesSchema.parse(sheetAfter(legacyOverseer()))).not.toThrow();
+  });
+
+  it('gives the two new attributes a rating nobody was rolled for, rather than a zero', () => {
+    const sheet = sheetAfter(legacyOverseer());
+    // Zero is a statement about a person. These were never rolled, so they start at the floor.
+    expect(sheet.authority).toBeGreaterThan(0);
+    expect(sheet.cryptography).toBeGreaterThan(0);
+  });
+
+  it('migrates an officer nested inside a crew, not just the overseer', () => {
+    const db = legacyOverseer();
+    db.prepare('UPDATE bases SET commanders_json = ? WHERE 1=0').run('[]');
+    db.prepare(
+      `INSERT INTO bases (id, owner_id, name, district_id, level, resources_json, buildings_json, created_at, commanders_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'b1',
+      'u1',
+      'Crew',
+      'neon-docks',
+      1,
+      '{}',
+      '[]',
+      NOW,
+      JSON.stringify([{ id: 'c1', name: 'Rask', attributes: OLD_SHEET }]),
+    );
+
+    runMigrations(db);
+    const row = db.prepare('SELECT commanders_json FROM bases WHERE id = ?').get('b1') as {
+      commanders_json: string;
+    };
+    const [officer] = JSON.parse(row.commanders_json) as { attributes: Record<string, number> }[];
+    expect(officer?.attributes.stamina).toBe(OLD_SHEET.endurance);
+    expect(officer?.attributes).not.toHaveProperty('marksmanship');
+    expect(officer?.attributes.cryptography).toBeGreaterThan(0);
   });
 });

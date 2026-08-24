@@ -1,6 +1,6 @@
 import {
   OFFICER_ROLES,
-  CROSS_REFERENCE_IMAGINATION,
+  CROSS_REFERENCE_IMPROVISATION,
   characterXpForActivity,
   EXTRA_FACT_COMMUNICATION,
   MAX_ATTRIBUTE,
@@ -34,6 +34,7 @@ import {
   type ResearchProject,
   type ResearchResponse,
   type ResearchState,
+  startingTraining,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -64,9 +65,25 @@ function makeOverseer(overrides: Partial<Overseer> = {}): Overseer {
   };
 }
 
+/**
+ * What an investigation actually takes once `professor('…', 10, …)` is on the books.
+ *
+ * §F2 cuts a project's clock by the crew's Analysis and Improvisation, so the catalogue number is
+ * no longer the number that lands on the row. Written out rather than recomputed from the same
+ * functions the code under test uses: an expectation derived from the implementation agrees with
+ * it however badly either one is broken.
+ *
+ * 45 catalogue minutes, a little under 5% off, is 43. It used to be 42, and the two minutes are
+ * §C2 arriving: a Professor's seat puts Improvisation to work and does **not** put Analysis to
+ * work, so their Analysis 15 now counts at the off-duty share instead of in full. The crew is
+ * genuinely slightly worse at this than it was, because the person doing the reading was hired to
+ * do something else with most of their day.
+ */
+const INVESTIGATION_MINUTES = 43;
+
 /** A Professor whose sheet is set exactly where the §F3/§F4 gates are being probed. */
-function professor(id: string, imagination: number, communication: number): Commander {
-  return createCommander(id, 'Ada Vasquez', 'professor', { imagination, communication }, [], {
+function professor(id: string, improvisation: number, communication: number): Commander {
+  return createCommander(id, 'Ada Vasquez', 'professor', { improvisation, communication }, [], {
     now: NOW.toISOString(),
   });
 }
@@ -88,6 +105,10 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     buildQueue: [],
     army: {},
     trainingQueue: [],
+    training: startingTraining('2026-08-16T00:00:00.000Z'),
+    inventory: {},
+    fittedUpgrades: [],
+    fleet: {},
     commanders: [],
     createdAt: NOW.toISOString(),
     ...overrides,
@@ -103,6 +124,8 @@ function fakeRepos(): {
     morale?: number;
     attributes?: unknown;
     commanders?: Commander[];
+    level?: number;
+    xpIntoLevel?: number;
   };
 } {
   const written: {
@@ -111,6 +134,8 @@ function fakeRepos(): {
     morale?: number;
     attributes?: unknown;
     commanders?: Commander[];
+    level?: number;
+    xpIntoLevel?: number;
   } = {};
   const repos = {
     bases: {
@@ -128,12 +153,23 @@ function fakeRepos(): {
       updateCommanders: (_id: string, commanders: Commander[]) => {
         written.commanders = commanders;
       },
+      // §I1 — a finished project now pays the *player* as well as its lead, and `awardPlayerXp`
+      // is the only writer of `Base.level`. Captured, so the level-up tests below can read it.
+      updateProgression: (_id: string, level: number, progression: { xpIntoLevel: number }) => {
+        written.level = level;
+        written.xpIntoLevel = progression.xpIntoLevel;
+      },
     },
     overseers: {
       updateAttributes: (_id: string, attributes: unknown) => {
         written.attributes = attributes;
       },
     },
+    // §F2 — a project's clock is now cut by the crew's Analysis and Improvisation as well as by
+    // the Lab. These doubles answer "no ground, nobody" so the tests below stay about the Lab and
+    // the officer; the crew's cut has its own test.
+    city: { controls: () => new Map() },
+    users: { findById: () => undefined },
   } as unknown as Parameters<typeof settleResearch>[0];
   return { repos, written };
 }
@@ -172,9 +208,9 @@ describe('starting a project (§B9, §F2, §F4)', () => {
     if (result.kind !== 'started') return;
     expect(result.base.resources.caps).toBe(5000 - RESEARCH_COST_CAPS.investigation);
     expect(written.caps).toBe(result.base.resources.caps);
-    expect(result.active.durationMinutes).toBe(RESEARCH_MINUTES.investigation);
+    expect(result.active.durationMinutes).toBe(INVESTIGATION_MINUTES);
     expect(researchCompletesAt(result.active).getTime()).toBe(
-      NOW.getTime() + RESEARCH_MINUTES.investigation * MINUTE_MS,
+      NOW.getTime() + INVESTIGATION_MINUTES * MINUTE_MS,
     );
     expect(written.research?.active?.id).toBe('r');
   });
@@ -190,6 +226,7 @@ describe('starting a project (§B9, §F2, §F4)', () => {
           durationMinutes: 45,
         },
         facts: [],
+        technologies: [],
       },
     });
     const { repos } = fakeRepos();
@@ -228,8 +265,8 @@ describe('starting a project (§B9, §F2, §F4)', () => {
 
   it('§F4 — the cross-reference option is refused, not silently dropped, when locked', () => {
     const { repos } = fakeRepos();
-    const dull = professor('dull', CROSS_REFERENCE_IMAGINATION - 1, 10);
-    const bright = professor('bright', CROSS_REFERENCE_IMAGINATION, 10);
+    const dull = professor('dull', CROSS_REFERENCE_IMPROVISATION - 1, 10);
+    const bright = professor('bright', CROSS_REFERENCE_IMPROVISATION, 10);
     expect(unlocksCrossReference(dull.attributes)).toBe(false);
     expect(unlocksCrossReference(bright.attributes)).toBe(true);
 
@@ -304,7 +341,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     });
     if (started.kind !== 'started') throw new Error('expected a start');
 
-    const early = new Date(NOW.getTime() + (RESEARCH_MINUTES.investigation - 1) * MINUTE_MS);
+    const early = new Date(NOW.getTime() + (INVESTIGATION_MINUTES - 1) * MINUTE_MS);
     const settlement = settleResearch(repos, started.base, overseer, early);
     expect(settlement.discovered).toEqual([]);
     expect(settlement.base.research.active, 'the project is still running').not.toBeNull();
@@ -340,7 +377,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
   });
 
   it('§F4 — the cross-reference adds a pairing on top of the role fact', () => {
-    const bright = professor('bright', CROSS_REFERENCE_IMAGINATION, 10);
+    const bright = professor('bright', CROSS_REFERENCE_IMPROVISATION, 10);
     const settlement = runToCompletion(
       makeBase({ commanders: [bright] }),
       overseer,
@@ -390,7 +427,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     const started = startResearch(repos, {
       base,
       overseer: before,
-      project: { kind: 'training', attribute: 'imagination' },
+      project: { kind: 'training', attribute: 'improvisation' },
       id: 'r',
       now: NOW,
     });
@@ -398,11 +435,11 @@ describe('settling a project (§B9, §F2, §F3)', () => {
 
     const after = new Date(NOW.getTime() + RESEARCH_MINUTES.training * MINUTE_MS);
     const settlement = settleResearch(repos, started.base, before, after);
-    expect(settlement.overseer.attributes.imagination).toBe(13);
+    expect(settlement.overseer.attributes.improvisation).toBe(13);
     expect(written.attributes).toEqual(settlement.overseer.attributes);
     // Nothing else on the sheet moved, and no fact was minted by a training project.
     expect(settlement.discovered).toEqual([]);
-    expect({ ...settlement.overseer.attributes, imagination: 12 }).toEqual(before.attributes);
+    expect({ ...settlement.overseer.attributes, improvisation: 12 }).toEqual(before.attributes);
   });
 
   it('§F2 — every attribute is trainable, and training stops at the ceiling', () => {
@@ -421,7 +458,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
   });
 
   it('never files the same fact twice, however long a crew grinds', () => {
-    const bright = professor('b', CROSS_REFERENCE_IMAGINATION, EXTRA_FACT_COMMUNICATION);
+    const bright = professor('b', CROSS_REFERENCE_IMPROVISATION, EXTRA_FACT_COMMUNICATION);
     let state = makeBase({ commanders: [bright] });
     for (let run = 0; run < 40; run += 1) {
       const { repos } = fakeRepos();
@@ -564,7 +601,7 @@ describe('GET /research and POST /research', () => {
     expect(body.leads, 'a fresh crew has no Professor').toEqual([]);
     expect(body.openRoles.length).toBeGreaterThan(0);
     expect(body.costs).toEqual(RESEARCH_COST_CAPS);
-    expect(body.overseerAttributes.imagination).toBeGreaterThan(0);
+    expect(body.overseerAttributes.improvisation).toBeGreaterThan(0);
   });
 
   it('refuses a project the crew has nobody to run', async () => {
@@ -612,6 +649,7 @@ describe('GET /research and POST /research', () => {
     app.repos.bases.updateResearch(app.repos.bases.findByOwnerId(userIdOf(app, token))!.id, {
       active: { ...active, startedAt: past },
       facts: [],
+      technologies: [],
     });
 
     const after = await read(app, token);
@@ -625,7 +663,7 @@ describe('GET /research and POST /research', () => {
     const baseId = app.repos.bases.findByOwnerId(userIdOf(app, token))!.id;
 
     // Hire a Professor the direct way: the Bar's roster is a different feature's gate.
-    const lead = professor('prof-1', CROSS_REFERENCE_IMAGINATION, EXTRA_FACT_COMMUNICATION);
+    const lead = professor('prof-1', CROSS_REFERENCE_IMPROVISATION, EXTRA_FACT_COMMUNICATION);
     app.repos.bases.updateCommanders(baseId, [lead]);
 
     const withLead = await read(app, token);
@@ -650,7 +688,11 @@ describe('GET /research and POST /research', () => {
     const past = new Date(
       Date.now() - RESEARCH_MINUTES.investigation * MINUTE_MS * 2,
     ).toISOString();
-    app.repos.bases.updateResearch(baseId, { active: { ...active, startedAt: past }, facts: [] });
+    app.repos.bases.updateResearch(baseId, {
+      active: { ...active, startedAt: past },
+      facts: [],
+      technologies: [],
+    });
 
     const settled = await read(app, token);
     // Two role facts (Communication) plus a pairing (Imagination) — §F3 and §F4 on one run.
@@ -711,6 +753,7 @@ describe('GET /research and POST /research', () => {
     app.repos.bases.updateResearch(baseId, {
       active: null,
       facts: [{ kind: 'role_attribute', role: 'head_spy', attribute: 'stealth' }],
+      technologies: [],
     });
 
     const shape = (options: typeof novice.modifications) =>
@@ -760,7 +803,7 @@ describe('character XP from an internal process (§G6, §H6)', () => {
     );
 
     const paid = settled.base.commanders.find((c) => c.id === lead.id);
-    expect(paid?.xpIntoLevel).toBe(characterXpForActivity(RESEARCH_MINUTES.investigation));
+    expect(paid?.xpIntoLevel).toBe(characterXpForActivity(INVESTIGATION_MINUTES));
     // And it was persisted, not just applied to the copy handed back.
     expect(written.commanders?.find((c) => c.id === lead.id)?.xpIntoLevel).toBe(paid?.xpIntoLevel);
   });
@@ -769,7 +812,7 @@ describe('character XP from an internal process (§G6, §H6)', () => {
     const { repos, written } = fakeRepos();
     const trainable = makeOverseer();
     const base = makeBase({ commanders: [lead] });
-    const training: ResearchProject = { kind: 'training', attribute: 'imagination' };
+    const training: ResearchProject = { kind: 'training', attribute: 'improvisation' };
     const started = startResearch(repos, {
       base,
       overseer: trainable,

@@ -8,6 +8,17 @@ import {
 import { PAY_WEEK_MS, proratedFirstWage, startOfPayWeek } from '../economy/payroll.js';
 import { LIVE_REPUTATION_LABELS, REPUTATION_LABELS } from '../economy/reputation.js';
 import {
+  INSULT_FRACTION,
+  MAX_PATIENCE,
+  MIN_PATIENCE,
+  NEGOTIATION_MOODS,
+  negotiate,
+  negotiationLine,
+  negotiationTemper,
+  openNegotiation,
+  type Negotiation,
+} from './negotiation.js';
+import {
   ALIGNMENT_BANDS,
   ALIGNMENT_BONUS_ATTRIBUTES,
   ALIGNMENT_BONUS_THRESHOLD,
@@ -29,7 +40,9 @@ import {
   reputationStance,
   settleAlignment,
   threatensToLeave,
+  type Ambition,
   type Disposition,
+  type MoralCompass,
 } from './disposition.js';
 import { JOIN_REFUSAL_STANCE, assessJoin } from './join.js';
 import {
@@ -147,14 +160,14 @@ describe('§H5 — the alignment meter', () => {
   });
 
   it('lands the bonus on the few attributes they are already best at, and nowhere else', () => {
-    const attributes = makeAttributes(20, { stealth: 38, cunning: 34, hacking: 30, medicine: 8 });
+    const attributes = makeAttributes(20, { stealth: 38, logic: 34, hacking: 30, medicine: 8 });
     const best = alignmentBonusAttributes(attributes);
-    expect(best).toEqual(['stealth', 'cunning', 'hacking']);
+    expect(best).toEqual(['stealth', 'logic', 'hacking']);
     expect(best).toHaveLength(ALIGNMENT_BONUS_ATTRIBUTES);
 
     const boosted = alignedAttributes(attributes, ALIGNMENT_MAX);
     expect(boosted.stealth).toBe(43);
-    expect(boosted.cunning).toBe(39);
+    expect(boosted.logic).toBe(39);
     expect(boosted.hacking).toBe(35);
     // "Some skills", not the sheet: everything else is untouched.
     const untouched = ATTRIBUTE_NAMES.filter((name) => !best.includes(name));
@@ -260,7 +273,7 @@ describe('§H5 — the alignment meter', () => {
 });
 
 describe('§H6/§H6a — the character level', () => {
-  const sheet = makeAttributes(18, { stealth: 34, cunning: 30, hacking: 28, medicine: 9 });
+  const sheet = makeAttributes(18, { stealth: 34, logic: 30, hacking: 28, medicine: 9 });
   const fresh = {
     level: CHARACTER_LEVEL_MIN,
     xpIntoLevel: 0,
@@ -288,10 +301,10 @@ describe('§H6/§H6a — the character level', () => {
   });
 
   it('auto-allocates along the strengths already on the sheet (§H6a)', () => {
-    expect(autoAllocatedAttributes(sheet)).toEqual(['stealth', 'cunning', 'hacking']);
+    expect(autoAllocatedAttributes(sheet)).toEqual(['stealth', 'logic', 'hacking']);
     const advanced = applyCharacterXp(fresh, characterXpToNextLevel(CHARACTER_LEVEL_MIN));
     expect(advanced.attributes.stealth).toBe(35);
-    expect(advanced.attributes.cunning).toBe(31);
+    expect(advanced.attributes.logic).toBe(31);
     expect(advanced.attributes.hacking).toBe(29);
     expect(advanced.attributes.medicine).toBe(9);
   });
@@ -361,7 +374,7 @@ describe('§H6/§H6a — the character level', () => {
 
 describe('§H7 — negotiating a salary', () => {
   const ordinary = makeAttributes(18);
-  const excellent = makeAttributes(18, { stealth: 38, cunning: 36, hacking: 34, deception: 32 });
+  const excellent = makeAttributes(18, { stealth: 38, logic: 36, hacking: 34, deception: 32 });
 
   it('prices a better sheet higher', () => {
     expect(askingWage(excellent, 0)).toBeGreaterThan(askingWage(ordinary, 0));
@@ -429,15 +442,165 @@ describe('the shared package keeps no role-shaped data', () => {
     // A wage that tracked role fit would put the hidden table on the wire with a price on it
     // (§B8a, INTERFACES R4). Two sheets with the same ratings in different *attributes* must
     // therefore cost exactly the same.
-    const first = makeAttributes(18, { stealth: 38, cunning: 30 });
-    const second = makeAttributes(18, { medicine: 38, mentoring: 30 });
+    const first = makeAttributes(18, { stealth: 38, logic: 30 });
+    const second = makeAttributes(18, { medicine: 38, diplomacy: 30 });
     expect(askingWage(first, 0)).toBe(askingWage(second, 0));
   });
 
   it('auto-allocates by rating, not by role', () => {
     const swap = (a: AttributeName, b: AttributeName) =>
       autoAllocatedAttributes(makeAttributes(18, { [a]: 38, [b]: 30 }));
-    expect(swap('stealth', 'cunning')).toEqual(['stealth', 'cunning', ATTRIBUTE_NAMES[0]]);
-    expect(swap('medicine', 'mentoring')).toEqual(['medicine', 'mentoring', ATTRIBUTE_NAMES[0]]);
+    expect(swap('stealth', 'logic')).toEqual(['stealth', 'logic', ATTRIBUTE_NAMES[0]]);
+    expect(swap('medicine', 'diplomacy')).toEqual(['medicine', 'diplomacy', ATTRIBUTE_NAMES[0]]);
+  });
+});
+
+/**
+ * The conversation (§H7).
+ *
+ * `negotiateWage` answered one question the same way for everybody; this is the part that makes
+ * hiring feel like hiring a person. Every property below is one a Football Manager negotiation has
+ * and this one had to grow: a floor that does not move, a demand that does, a personality behind
+ * both, patience that runs out, and a door.
+ */
+describe('haggling with somebody who has an opinion about you (§H7)', () => {
+  const ASKING = 100;
+  const FLOOR = reservationWage(ASKING); // 80
+
+  const open = (ambition: Ambition = 'wealth', compass: MoralCompass = 'pragmatist') =>
+    openNegotiation(ASKING, ambition, compass);
+
+  const say = (
+    negotiation: Negotiation,
+    offer: number,
+    ambition: Ambition = 'wealth',
+    moralCompass: MoralCompass = 'pragmatist',
+  ) => negotiate({ negotiation, offer, asking: ASKING, ambition, moralCompass });
+
+  it('opens at the asking price with the whole of their patience', () => {
+    const started = open();
+    expect(started.standing).toBe(ASKING);
+    expect(started.rounds).toBe(0);
+    expect(started.closed).toBe(false);
+    expect(started.patience).toBe(negotiationTemper('wealth', 'pragmatist').patience);
+  });
+
+  it('takes an offer at the reservation value, and not one cap under it', () => {
+    expect(say(open(), FLOOR).accepted).toBe(true);
+    expect(say(open(), FLOOR - 1).accepted).toBe(false);
+  });
+
+  it('agrees at the number offered — haggling well is worth caps', () => {
+    const turn = say(open(), FLOOR);
+    expect(turn.negotiation.lastOffer).toBe(FLOOR);
+    expect(turn.negotiation.standing).toBe(FLOOR);
+    expect(turn.negotiation.closed).toBe(true);
+  });
+
+  it('knows the difference between agreeing and being overpaid', () => {
+    expect(say(open(), FLOOR).negotiation.mood).toBe('agreed');
+    expect(say(open(), ASKING + 20).negotiation.mood).toBe('overpaid');
+  });
+
+  it('comes down when you move up, and never below the floor', () => {
+    let state = open();
+    let previous = state.standing;
+    for (const offer of [40, 55, 65, 72, 76]) {
+      const turn = say(state, offer);
+      if (turn.negotiation.closed) break;
+      expect(turn.negotiation.standing).toBeLessThanOrEqual(previous);
+      expect(turn.negotiation.standing).toBeGreaterThanOrEqual(FLOOR);
+      previous = turn.negotiation.standing;
+      state = turn.negotiation;
+    }
+    expect(previous).toBeLessThan(ASKING);
+  });
+
+  it('gives almost nothing to a player who repeats themselves', () => {
+    const first = say(open(), 60);
+    const movedOn = say(first.negotiation, 70);
+    const repeated = say(first.negotiation, 60);
+
+    const concededByMoving = first.negotiation.standing - movedOn.negotiation.standing;
+    const concededByRepeating = first.negotiation.standing - repeated.negotiation.standing;
+    expect(concededByRepeating).toBeLessThan(concededByMoving);
+    // And it costs more patience than moving does, which is what makes stubbornness a bad plan.
+    expect(repeated.negotiation.patience).toBeLessThan(movedOn.negotiation.patience);
+    expect(repeated.negotiation.mood).toBe('stonewalled');
+  });
+
+  it('treats a lowball as an insult and burns patience for it', () => {
+    const insulting = say(open(), Math.floor(FLOOR * INSULT_FRACTION) - 1);
+    const merelyLow = say(open(), FLOOR - 1);
+    expect(insulting.negotiation.mood).toBe('insulted');
+    expect(insulting.negotiation.patience).toBeLessThan(merelyLow.negotiation.patience);
+  });
+
+  it('walks away when patience runs out, and stays gone', () => {
+    let state = open('notoriety', 'ruthless');
+    let walked = false;
+    for (let round = 0; round < 20 && !walked; round++) {
+      const turn = say(state, 1, 'notoriety', 'ruthless');
+      state = turn.negotiation;
+      walked = turn.walkedAway;
+    }
+    expect(walked, 'a stream of insulting offers has to end the conversation').toBe(true);
+    expect(state.closed).toBe(true);
+    expect(state.mood).toBe('walked');
+
+    // And a further offer changes nothing at all, however good it is.
+    const after = say(state, ASKING * 10, 'notoriety', 'ruthless');
+    expect(after.accepted).toBe(false);
+    expect(after.negotiation).toEqual(state);
+  });
+
+  it('gives the impatient less room than the patient — the personality is the point', () => {
+    const grinder = negotiationTemper('wealth', 'pragmatist');
+    const shortFuse = negotiationTemper('notoriety', 'ruthless');
+    expect(grinder.patience).toBeGreaterThan(shortFuse.patience);
+    // Somebody here to belong is embarrassed to be haggling and gives ground to end it.
+    expect(negotiationTemper('belonging', 'idealist').concession).toBeGreaterThan(
+      negotiationTemper('wealth', 'opportunist').concession,
+    );
+  });
+
+  it('keeps every temper inside the bounds the model promises', () => {
+    for (const ambition of AMBITIONS) {
+      for (const compass of MORAL_COMPASSES) {
+        const temper = negotiationTemper(ambition, compass);
+        expect(temper.patience).toBeGreaterThanOrEqual(MIN_PATIENCE);
+        expect(temper.patience).toBeLessThanOrEqual(MAX_PATIENCE);
+        expect(temper.concession).toBeGreaterThan(0);
+        expect(temper.concession).toBeLessThanOrEqual(0.7);
+      }
+    }
+  });
+
+  it('agrees on exactly the number the hire gate would accept', () => {
+    // The one invariant that stops the conversation being theatre: `negotiateWage` is what
+    // `/bar/hire` enforces, and it must never disagree with what the character just said yes to.
+    for (let offer = 0; offer <= ASKING + 40; offer++) {
+      expect(say(open(), offer).accepted).toBe(negotiateWage(offer, ASKING).accepted);
+    }
+  });
+
+  it('says something in character, and says the same thing twice', () => {
+    const turn = say(open('wealth', 'ruthless'), 10, 'wealth', 'ruthless');
+    const line = negotiationLine('ruthless', turn.negotiation.mood, turn.negotiation.rounds);
+    expect(line.length).toBeGreaterThan(0);
+    expect(negotiationLine('ruthless', turn.negotiation.mood, turn.negotiation.rounds)).toBe(line);
+    // Four voices, not one bank with a name on it.
+    expect(negotiationLine('idealist', 'insulted', 0)).not.toBe(
+      negotiationLine('ruthless', 'insulted', 0),
+    );
+  });
+
+  it('has a line for every mood a conversation can actually reach', () => {
+    for (const compass of MORAL_COMPASSES) {
+      for (const mood of NEGOTIATION_MOODS) {
+        expect(negotiationLine(compass, mood, 0).length).toBeGreaterThan(0);
+        expect(negotiationLine(compass, mood, 7).length).toBeGreaterThan(0);
+      }
+    }
   });
 });

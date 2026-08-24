@@ -323,6 +323,35 @@ describe('mission payout (§E1, §E5)', () => {
     );
   });
 
+  /**
+   * §D7 — and it keeps paying past a hundred, because infamy has no ceiling any more.
+   *
+   * This is the regression, and it was invisible: the settle folded the delta through
+   * `adjustMeter`, left over from when infamy was a 0..100 meter, so a crew that had already made
+   * a name banked **nothing** from a mission and was told nothing about it. The test above cannot
+   * see it — a starting crew is nowhere near a hundred — which is exactly why this one starts
+   * somewhere a real crew gets to in a week.
+   */
+  it('keeps paying a crew that already has a name, because infamy has no ceiling', async () => {
+    const stack = await makeStack();
+    const notorious = {
+      ...stack.base,
+      economy: { ...stack.base.economy, infamy: 480 },
+    };
+    stack.repos.bases.updateEconomy(notorious.id, notorious.economy);
+
+    const strike = findMissionTemplate('fuel-siphon') as MissionTemplate;
+    planted({ ...stack, base: notorious }, strike, ALWAYS_SUCCEEDS);
+
+    const { base } = resolveDueMissions(
+      stack.repos,
+      notorious,
+      after(templateTimings(strike).totalMinutes),
+    );
+
+    expect(base.economy.infamy).toBe(480 + MISSION_INFAMY_DELTA.against_government.success);
+  });
+
   it('leaves infamy alone for a failed strike, and for work done for the Combine', async () => {
     for (const [id, roll] of [
       ['fuel-siphon', ALWAYS_FAILS],
@@ -467,8 +496,15 @@ describe('the mission routes', () => {
     expect(overflow.statusCode).toBe(409);
     expect(overflow.json<{ error: { code: string } }>().error.code).toBe('MISSIONS_AT_CAPACITY');
 
-    // A day-long expedition that has actually come home releases its crew.
-    resolveDueMissions(stack.repos, stack.base, after(10 * 24 * 60));
+    /*
+     * A day-long expedition that has actually come home releases its crew.
+     *
+     * Ten days from **now**, not from `T0`. The four launches above went through the route, which
+     * stamps them with the real clock; resolving at a moment ten days after a fixed constant only
+     * works while that constant is in the recent past, and it silently stopped working the day the
+     * calendar walked past it — the missions were simply not due yet and nothing was released.
+     */
+    resolveDueMissions(stack.repos, stack.base, after(10 * 24 * 60, new Date()));
     const afterReturn = await app.inject({
       method: 'POST',
       url: '/api/missions',

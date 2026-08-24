@@ -1,6 +1,7 @@
 import {
   MISSION_STANCE_SPECS,
   MISSION_TEMPLATES,
+  OFFICER_ROLE_LABELS,
   findMissionTemplate,
   formatCountdown,
   formatDuration,
@@ -23,10 +24,13 @@ import { useEffect, useState } from 'react';
 import { LevelUpBanner } from '../../components/LevelUp';
 import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
+import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
 import { useAssignees, useLaunchMission, useMissions } from '../../lib/queries';
 import { useServerClock } from './useServerClock';
+import { PageShell } from '../game/PageShell';
 
 const KIND_LABEL: Record<MissionKind, string> = {
   standard: 'Standard',
@@ -35,8 +39,8 @@ const KIND_LABEL: Record<MissionKind, string> = {
 
 /** Battles read hot, standard work reads cool — the §E5 risk difference at a glance. */
 const KIND_STYLE: Record<MissionKind, string> = {
-  standard: 'border-neon-cyan/50 text-neon-cyan',
-  battle: 'border-neon-magenta/50 text-neon-magenta',
+  standard: 'border-brass-300/50 text-brass-300',
+  battle: 'border-oxblood-500/50 text-oxblood-300',
 };
 
 /**
@@ -46,7 +50,7 @@ const KIND_STYLE: Record<MissionKind, string> = {
  */
 const STANCE_STYLE: Record<Exclude<MissionStance, 'unaligned'>, string> = {
   against_government: 'border-warning/50 text-warning',
-  for_government: 'border-steel-500 text-steel-300',
+  for_government: 'border-surface-500 text-ink-200',
 };
 
 const PHASE_LABEL: Record<MissionPhase, string> = {
@@ -60,7 +64,7 @@ function Tag({ label, className }: { label: string; className?: string }) {
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center border border-steel-700 px-2 py-1 font-display text-[9px] uppercase tracking-[0.18em] text-steel-400',
+        'inline-flex shrink-0 items-center border border-surface-600 px-2 py-1 font-display text-[10px] uppercase tracking-[0.18em] text-ink-300',
         className,
       )}
     >
@@ -76,14 +80,14 @@ function Tag({ label, className }: { label: string; className?: string }) {
 function TimingBreakdown({ template }: { template: MissionTemplate }) {
   const { travelMinutes, durationMinutes, totalMinutes } = templateTimings(template);
   return (
-    <dl className="grid grid-cols-2 gap-px border border-steel-800 bg-steel-800">
+    <dl className="grid grid-cols-2 gap-px border border-surface-700 bg-surface-700">
       <TimingCell label="Travel" value={formatDuration(travelMinutes)} hint="each way, ×2" />
       <TimingCell label="On site" value={formatDuration(durationMinutes)} hint="the mission" />
-      <div className="col-span-2 flex items-baseline justify-between gap-3 bg-night px-2.5 py-2">
-        <dt className="font-display text-[9px] uppercase tracking-[0.16em] text-steel-500">
+      <div className="col-span-2 flex items-baseline justify-between gap-3 bg-surface-950 px-2.5 py-2">
+        <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
           Total round trip
         </dt>
-        <dd className="font-display text-sm font-semibold tabular-nums text-neon-cyan">
+        <dd className="font-display text-sm font-semibold tabular-nums text-brass-300">
           {formatDuration(totalMinutes)}
         </dd>
       </div>
@@ -98,12 +102,10 @@ function TimingBreakdown({ template }: { template: MissionTemplate }) {
  */
 function TimingCell({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 bg-night px-2.5 py-2">
-      <dt className="font-display text-[9px] uppercase tracking-[0.16em] text-steel-500">
-        {label}
-      </dt>
-      <dd className="font-display text-sm font-semibold tabular-nums text-steel-200">{value}</dd>
-      <dd className="font-display text-[9px] uppercase tracking-[0.14em] text-steel-600">{hint}</dd>
+    <div className="flex min-w-0 flex-col gap-0.5 bg-surface-950 px-2.5 py-2">
+      <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">{label}</dt>
+      <dd className="font-display text-sm font-semibold tabular-nums text-ink-200">{value}</dd>
+      <dd className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">{hint}</dd>
     </div>
   );
 }
@@ -161,7 +163,7 @@ function LeaderPicker({
   const canPick = !needsOfficer || officers.length > 0;
   return (
     <label className="flex min-w-0 flex-col gap-1">
-      <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
+      <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
         Leading
       </span>
       {/*
@@ -175,7 +177,7 @@ function LeaderPicker({
        * refetches (`retryOnMount`), so "reload" would have been advice for a cheaper problem.
        */}
       {roster.status === 'error' && (
-        <p className="text-[11px] leading-relaxed text-neon-magenta">
+        <p className="text-[12px] leading-relaxed text-oxblood-300">
           Could not read your officers.
         </p>
       )}
@@ -192,34 +194,41 @@ function LeaderPicker({
        * noise; a failed read never ends, which is what earns it a place on all eight.
        */}
       {needsOfficer && roster.status === 'loading' && (
-        <p className="text-[11px] leading-relaxed text-steel-600">Reading the roster…</p>
+        <p className="text-[12px] leading-relaxed text-ink-300">Reading the roster…</p>
       )}
       {needsOfficer && roster.status === 'ready' && officers.length === 0 && (
-        <p className="text-[11px] leading-relaxed text-warning">
+        <p className="text-[12px] leading-relaxed text-warning">
           Hard runs need an officer leading them. Hire one at the Bar.
         </p>
       )}
       {canPick && (
-        <select
+        /*
+         * The name alone in the label, and the role as the hint underneath.
+         *
+         * A native `<select>` clipped the long ones without so much as an ellipsis — this control
+         * is one column of a three-up card grid, and "The Ghost of Sector Nine" is not a short
+         * name. The painted list draws itself at whatever width the names need, so the role can
+         * come back as a second line: it earns nothing mechanically (§G5/§G7 pay for the assignees
+         * standing under an officer, not for what they are called) but it is how a player tells
+         * two similar names apart.
+         */
+        <Dropdown
+          label="Who leads this run"
           value={leader?.officerId ?? ''}
-          onChange={(event) => onPick(event.target.value)}
-          className="min-w-0 border border-steel-700 bg-night px-2 py-1.5 text-[11px] text-steel-200"
-        >
-          {/* §G6's easy branch — an explicit choice, not the absence of one. */}
-          {!needsOfficer && <option value="">Nobody — assignees alone, slower</option>}
-          {/*
-           * The name alone. A role label reads well on the §G screen, which has the width for it,
-           * but this control is one column of a three-up card grid: "The Ghost of Sector Nine —
-           * Instructor of the Young" is cut mid-word by the select's own edge, and a native select
-           * clips without so much as an ellipsis. The role also earns nothing here — §G5/§G7 pay
-           * for the assignees standing under an officer, not for what they are called.
-           */}
-          {officers.map((officer) => (
-            <option key={officer.officerId} value={officer.officerId}>
-              {officer.name}
-            </option>
-          ))}
-        </select>
+          onChange={onPick}
+          options={[
+            // §G6's easy branch — an explicit choice, not the absence of one.
+            ...(needsOfficer
+              ? []
+              : [{ value: '', label: 'Nobody', hint: 'Assignees alone, and slower for it' }]),
+            ...officers.map((officer) => ({
+              value: officer.officerId,
+              label: officer.name,
+              hint: OFFICER_ROLE_LABELS[officer.role],
+            })),
+          ]}
+          data-testid={`mission-leader-${template.id}`}
+        />
       )}
     </label>
   );
@@ -240,7 +249,7 @@ function MissionCard({ template, roster, disabled, pending, refusal, onLaunch }:
   const unled = requiresOfficer(template.difficulty) && leader === undefined;
 
   return (
-    <article className="flex min-w-0 flex-col gap-3 border border-steel-800 bg-night p-4">
+    <article className="flex min-w-0 flex-col gap-3 border border-surface-700 bg-surface-950 p-4">
       {/*
         `flex-wrap` is load-bearing now that a card can carry two tags. The tag group cannot shrink,
         so on a narrow column an un-wrapping header squeezes the heading down to a few characters
@@ -248,7 +257,7 @@ function MissionCard({ template, roster, disabled, pending, refusal, onLaunch }:
         heading the whole line and drops the tags underneath it instead.
       */}
       <header className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-2">
-        <h3 className="min-w-0 break-words font-display text-sm font-semibold uppercase tracking-[0.14em] text-steel-100">
+        <h3 className="min-w-0 break-words font-display text-sm font-semibold uppercase tracking-[0.14em] text-ink-100">
           {template.name}
         </h3>
         <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
@@ -262,12 +271,12 @@ function MissionCard({ template, roster, disabled, pending, refusal, onLaunch }:
         </div>
       </header>
 
-      <p className="min-w-0 break-words text-xs leading-relaxed text-steel-400">{template.brief}</p>
+      <p className="min-w-0 break-words text-xs leading-relaxed text-ink-300">{template.brief}</p>
 
       <TimingBreakdown template={template} />
 
       <div className="flex min-w-0 flex-col gap-1.5">
-        <span className="font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
+        <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
           Expected haul
         </span>
         <RewardLine rewards={missionRewards(template, 'success')} />
@@ -284,16 +293,16 @@ function MissionCard({ template, roster, disabled, pending, refusal, onLaunch }:
       {refusal && (
         <p
           role="alert"
-          className="min-w-0 break-words text-[11px] leading-relaxed text-neon-magenta"
+          className="min-w-0 break-words text-[12px] leading-relaxed text-oxblood-300"
         >
           {refusal}
         </p>
       )}
 
       <footer className="mt-auto flex items-center justify-between gap-3 pt-1">
-        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-steel-500">
+        <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
           Success{' '}
-          <span className="tabular-nums text-steel-300">
+          <span className="tabular-nums text-ink-200">
             {Math.round(template.successChance * 100)}%
           </span>
         </span>
@@ -321,34 +330,31 @@ function InFlightRow({ mission, now }: { mission: Mission; now: Date }) {
   return (
     <li className="flex min-w-0 flex-col gap-2 px-4 py-3">
       <div className="flex min-w-0 items-baseline justify-between gap-3">
-        <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-steel-100">
+        <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-100">
           {template?.name ?? mission.templateId}
         </span>
         <span
           className={cn(
             'shrink-0 font-display text-base font-semibold tabular-nums',
-            done ? 'text-bile-300' : 'text-neon-cyan',
+            done ? 'text-bile-300' : 'text-brass-300',
           )}
         >
           {done ? 'READY' : formatCountdown(remaining)}
         </span>
       </div>
 
-      <div className="h-1 w-full overflow-hidden bg-steel-800">
-        <div
-          className={cn(
-            'h-full transition-[width] duration-1000 ease-linear',
-            done ? 'bg-bile-300' : 'bg-neon-cyan',
-          )}
-          style={{ width: `${Math.round(progress * 100)}%` }}
-        />
-      </div>
+      {/* The painted bar, so a crew in flight reads the same as a build, a batch and a project. */}
+      <ProgressBar
+        progress={progress}
+        label={template?.name ?? mission.templateId}
+        tone={done ? 'verdigris' : 'brass'}
+      />
 
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <span className="truncate font-display text-[9px] uppercase tracking-[0.18em] text-steel-500">
+        <span className="truncate font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
           {PHASE_LABEL[phase]}
         </span>
-        <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.16em] text-steel-600">
+        <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
           {formatDuration(missionTimings(mission).totalMinutes)} round trip
         </span>
       </div>
@@ -363,13 +369,13 @@ function ReturnedRow({ mission }: { mission: Mission }) {
   return (
     <li className="flex min-w-0 flex-col gap-1.5 px-4 py-3">
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-steel-200">
+        <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-200">
           {template?.name ?? mission.templateId}
         </span>
         <Tag
           label={failed ? 'Lost' : 'Success'}
           className={
-            failed ? 'border-neon-magenta/50 text-neon-magenta' : 'border-bile-300/50 text-bile-300'
+            failed ? 'border-oxblood-500/50 text-oxblood-300' : 'border-bile-300/50 text-bile-300'
           }
         />
       </div>
@@ -399,7 +405,7 @@ export function recentlyReturned(missions: readonly Mission[]): Mission[] {
 
 function EmptyRow({ text }: { text: string }) {
   return (
-    <p className="px-4 py-6 text-center font-display text-[10px] uppercase tracking-[0.2em] text-steel-600">
+    <p className="px-4 py-6 text-center font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
       {text}
     </p>
   );
@@ -444,110 +450,101 @@ export function MissionsPage() {
   const atCapacity = limit > 0 && active.length >= limit;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-6">
-      <div className="mx-auto flex max-w-5xl flex-col gap-5">
-        <header>
-          <p className="font-display text-[10px] tracking-[0.4em] text-neon-cyan/70">
-            // OPERATIONS //
-          </p>
-          <h1 className="text-glow-cyan mt-1 font-display text-2xl font-bold tracking-[0.15em] text-steel-100">
-            Missions
-          </h1>
-          <p className="mt-2 max-w-2xl text-xs leading-relaxed text-steel-500">
-            Crews are away for the whole round trip — out, on site, and back. Timers run on the
-            server, so a mission lands on schedule whether or not this page is open.
-          </p>
-        </header>
-
-        {levelUp && (
-          <div className="flex flex-col gap-2">
-            <LevelUpBanner levelUp={levelUp} />
-            <button
-              type="button"
-              onClick={() => setLevelUp(null)}
-              className="self-end font-display text-[10px] uppercase tracking-[0.18em] text-steel-500 hover:text-steel-300"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Panel
-            title="In Flight"
-            action={
-              <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.18em] text-steel-500">
-                <span className="tabular-nums text-steel-300">{active.length}</span>
-                {limit > 0 ? <span className="tabular-nums"> / {limit}</span> : null} crews out
-              </span>
-            }
+    <PageShell
+      title="Missions"
+      icon="missions"
+      // A quotation, not a lede. It is the one line on this screen that is not telling anybody a
+      // number, and it was set in the same grey help text as the travel-time explainer beside it.
+      quote="The first death is in the heart. Get out there and show you are still alive."
+    >
+      {levelUp && (
+        <div className="flex flex-col gap-2">
+          <LevelUpBanner levelUp={levelUp} />
+          <button
+            type="button"
+            onClick={() => setLevelUp(null)}
+            className="self-end font-display text-[11px] uppercase tracking-[0.18em] text-ink-300 hover:text-ink-200"
           >
-            {missionsQuery.isLoading ? (
-              <EmptyRow text="Reading the board…" />
-            ) : active.length === 0 ? (
-              <EmptyRow text="Every crew is home" />
-            ) : (
-              <ul aria-label="Crews in flight" className="flex flex-col divide-y divide-steel-800">
-                {active.map((mission) => (
-                  <InFlightRow key={mission.id} mission={mission} now={now} />
-                ))}
-              </ul>
-            )}
-          </Panel>
-
-          <Panel title="Recently Returned">
-            {returned.length === 0 ? (
-              <EmptyRow text="No crew has come back yet" />
-            ) : (
-              <ul aria-label="Crews returned" className="flex flex-col divide-y divide-steel-800">
-                {returned.map((mission) => (
-                  <ReturnedRow key={mission.id} mission={mission} />
-                ))}
-              </ul>
-            )}
-          </Panel>
+            Dismiss
+          </button>
         </div>
+      )}
 
+      <div className="grid gap-5 lg:grid-cols-2">
         <Panel
-          title="Mission Board"
+          title="In Flight"
           action={
-            atCapacity ? (
-              <span className="shrink-0 font-display text-[9px] uppercase tracking-[0.16em] text-warning">
-                All crews deployed
-              </span>
-            ) : null
+            <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
+              <span className="tabular-nums text-ink-200">{active.length}</span>
+              {limit > 0 ? <span className="tabular-nums"> / {limit}</span> : null} crews out
+            </span>
           }
         >
-          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-            {MISSION_TEMPLATES.map((template) => (
-              <MissionCard
-                key={template.id}
-                template={template}
-                roster={roster}
-                disabled={atCapacity}
-                pending={launch.isPending && launch.variables?.templateId === template.id}
-                refusal={
-                  launch.error && launch.variables?.templateId === template.id
-                    ? launch.error.message
-                    : null
-                }
-                onLaunch={(templateId, officerId) =>
-                  launch.mutate(
-                    { templateId, ...(officerId ? { officerId } : {}) },
-                    // A launch settles the board first, so this response is the only place a crew
-                    // that landed on it is ever reported — including when the launch is then
-                    // refused, since the settle is not rolled back (MOU-280).
-                    {
-                      onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp),
-                      onError: (error) => error.levelUp && setLevelUp(error.levelUp),
-                    },
-                  )
-                }
-              />
-            ))}
-          </div>
+          {missionsQuery.isLoading ? (
+            <EmptyRow text="Reading the board…" />
+          ) : active.length === 0 ? (
+            <EmptyRow text="Every crew is home" />
+          ) : (
+            <ul aria-label="Crews in flight" className="flex flex-col divide-y divide-surface-700">
+              {active.map((mission) => (
+                <InFlightRow key={mission.id} mission={mission} now={now} />
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <Panel title="Recently Returned">
+          {returned.length === 0 ? (
+            <EmptyRow text="No crew has come back yet" />
+          ) : (
+            <ul aria-label="Crews returned" className="flex flex-col divide-y divide-surface-700">
+              {returned.map((mission) => (
+                <ReturnedRow key={mission.id} mission={mission} />
+              ))}
+            </ul>
+          )}
         </Panel>
       </div>
-    </div>
+
+      <Panel
+        title="Mission Board"
+        action={
+          atCapacity ? (
+            <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-warning">
+              All crews deployed
+            </span>
+          ) : null
+        }
+      >
+        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+          {MISSION_TEMPLATES.map((template) => (
+            <MissionCard
+              key={template.id}
+              template={template}
+              roster={roster}
+              disabled={atCapacity}
+              pending={launch.isPending && launch.variables?.templateId === template.id}
+              refusal={
+                launch.error && launch.variables?.templateId === template.id
+                  ? launch.error.message
+                  : null
+              }
+              onLaunch={(templateId, officerId) =>
+                launch.mutate(
+                  { templateId, ...(officerId ? { officerId } : {}) },
+                  // A launch settles the board first, so this response is the only place a crew
+                  // that landed on it is ever reported — including when the launch is then
+                  // refused, since the settle is not rolled back (MOU-280).
+                  {
+                    onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp),
+                    onError: (error) => error.levelUp && setLevelUp(error.levelUp),
+                  },
+                )
+              }
+            />
+          ))}
+        </div>
+      </Panel>
+    </PageShell>
   );
 }

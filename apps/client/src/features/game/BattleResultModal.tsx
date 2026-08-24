@@ -28,24 +28,22 @@ export function BattleResultModal({
     <Modal
       onClose={onClose}
       labelledBy="battle-outcome"
-      className={cn(
-        won ? 'border-neon-cyan/60 shadow-neon-cyan' : 'border-neon-magenta/60 shadow-neon-magenta',
-      )}
+      className={cn(won ? 'border-brass-500 shadow-brass' : 'border-oxblood-500 shadow-lifted')}
     >
       <div
         className={cn(
-          'scanlines border-b px-6 py-5 text-center',
-          won ? 'border-neon-cyan/30' : 'border-neon-magenta/30',
+          'border-b px-6 py-5 text-center',
+          won ? 'border-brass-300/30' : 'border-oxblood-500/30',
         )}
       >
-        <p className="font-display text-[10px] uppercase tracking-[0.4em] text-steel-400">
+        <p className="font-display text-[11px] uppercase tracking-[0.24em] text-ink-300">
           Assault on {targetName}
         </p>
         <h2
           id="battle-outcome"
           className={cn(
-            'mt-1 font-display text-4xl font-black tracking-[0.3em]',
-            won ? 'text-glow-cyan text-neon-cyan' : 'text-glow-magenta text-neon-magenta',
+            'mt-1 font-display text-4xl font-black tracking-[0.2em]',
+            won ? 'text-brass-300' : 'text-oxblood-300',
           )}
         >
           {won ? 'VICTORY' : 'DEFEAT'}
@@ -56,36 +54,36 @@ export function BattleResultModal({
         {/* First in the scroller: the raid is over, and this is the part that changed the player. */}
         {levelUp && <LevelUpBanner levelUp={levelUp} />}
 
-        <div className="border border-steel-800 bg-night p-3">
+        <div className="border border-surface-700 bg-surface-950 p-3">
           {result.log.map((line, i) => (
             <p
               key={i}
-              className="flex gap-2 py-0.5 font-mono text-[11px] leading-relaxed text-steel-300"
+              className="flex gap-2 py-0.5 font-mono text-[12px] leading-relaxed text-ink-200"
             >
-              <span className={won ? 'text-neon-cyan' : 'text-neon-magenta'}>&gt;</span>
+              <span className={won ? 'text-brass-300' : 'text-oxblood-300'}>&gt;</span>
               <span>{line}</span>
             </p>
           ))}
         </div>
 
         <div>
-          <p className="mb-1.5 font-display text-[10px] uppercase tracking-[0.25em] text-steel-400">
+          <p className="mb-1.5 font-display text-[11px] uppercase tracking-[0.25em] text-ink-300">
             Salvage
           </p>
-          <div className="border border-warning/25 bg-night p-3">
+          <div className="border border-warning/25 bg-surface-950 p-3">
             <RewardLine rewards={result.rewards} />
           </div>
         </div>
 
         <div>
-          <p className="mb-1.5 font-display text-[10px] uppercase tracking-[0.25em] text-steel-400">
+          <p className="mb-1.5 font-display text-[11px] uppercase tracking-[0.25em] text-ink-300">
             Updated Stockpile
           </p>
           <ResourceGrid resources={resources} />
         </div>
       </div>
 
-      <div className="border-t border-steel-800 p-4">
+      <div className="border-t border-surface-700 p-4">
         <Button
           variant={won ? 'primary' : 'danger'}
           onClick={onClose}

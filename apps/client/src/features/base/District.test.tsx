@@ -12,11 +12,14 @@ import {
   type BuildStructureRequest,
   type BuildStructureResponse,
   type MeResponse,
+  startingTraining,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BasePanel } from './BasePanel';
+import { DistrictScene } from './DistrictScene';
+import { formatDuration } from './format';
 import { useSession } from '../../store/session';
 
 /**
@@ -43,18 +46,31 @@ const base: Base = {
   research: startingResearch(),
   assignees: startingAssignees(),
   buildings: [
-    { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [] },
-    { id: 'b-generator', kind: 'generator', level: 1, modifications: [] },
+    { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'b-generator', kind: 'generator', level: 1, modifications: [], damage: 0, garrisons: 0 },
   ],
   buildQueue: [],
   army: {},
   trainingQueue: [],
+  training: startingTraining('2026-08-16T00:00:00.000Z'),
+  inventory: {},
+  fittedUpgrades: [],
+  fleet: {},
   commanders: [],
   createdAt: NOW,
 };
 
 const me: MeResponse = {
-  user: { id: 'user-1', username: 'operator', overseerId: 'ov-1', createdAt: NOW },
+  admin: false,
+  user: {
+    id: 'user-1',
+    username: 'operator',
+    overseerId: 'ov-1',
+    createdAt: NOW,
+    displayName: null,
+    icon: 'shield',
+    timezone: 'Europe/Athens',
+  },
   overseer: null,
   base,
 };
@@ -122,7 +138,10 @@ function renderDistrict() {
   );
 }
 
-const plot = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name} —`) });
+/** The reports drawer starts closed — the district is the screen, not a document under it. */
+const openReports = () => fireEvent.click(screen.getByTestId('reports-toggle'));
+
+const plot = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name},`) });
 const dialog = () => screen.getByRole('dialog');
 
 /** The body the page actually put on the wire for the one order it made. */
@@ -189,7 +208,9 @@ describe('§A1 — the district is a place, not a list', () => {
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('The Ninth Street Crew'),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Rename faction' }));
+    // The whole plaque is the control now, so it is named for the thing it *is* plus the thing it
+    // does — which is what a player reads on hover and what a screen reader announces.
+    fireEvent.click(screen.getByRole('button', { name: /rename your faction/i }));
     fireEvent.change(screen.getByLabelText('Faction name'), { target: { value: 'Vermilion' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -210,7 +231,14 @@ describe('§D3 — building and upgrading consume materials, and take time', () 
     const cost = buildingCost('quarters', 1, base.buildings);
     expect(within(dialog()).getByText(String(cost.oil))).toBeInTheDocument();
     // The clock is what makes this a queue rather than a purchase, so it has to be quoted.
-    expect(within(dialog()).getByText('Build time')).toBeInTheDocument();
+    // Asserted on the duration rather than on the label beside it: the label is wording and has
+    // already been reworded once, and a gate that only ever saw the word "Build time" would have
+    // stayed green through a window that quoted no clock at all.
+    expect(
+      within(dialog()).getByText(
+        formatDuration(buildingBuildSeconds('quarters', 1, base.buildings)),
+      ),
+    ).toBeInTheDocument();
 
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Queue build' }));
     await waitFor(() => expect(buildBody()).toEqual({ kind: 'quarters' }));
@@ -226,6 +254,7 @@ describe('§D3 — building and upgrading consume materials, and take time', () 
 
     // The plot says it is being worked on — not that it is standing, which it is not.
     await waitFor(() => expect(plot('The Quarters')).toHaveAccessibleName(/under construction/));
+    openReports();
     expect(
       within(screen.getByTestId('build-queue')).getByText(/The Quarters → Lv 1/),
     ).toBeInTheDocument();
@@ -250,6 +279,37 @@ describe('§D3 — building and upgrading consume materials, and take time', () 
     fireEvent.click(plot('The Quarters'));
 
     expect(within(dialog()).getByRole('button', { name: 'Queue build' })).toBeDisabled();
+  });
+
+  /**
+   * A refusal is not a no-op, so it may not leave the screen showing what was true before it.
+   *
+   * `POST /base/build` runs `settleBase` on its first line and only then asks whether the order can
+   * be given: by the time a 409 comes back the server has banked an hour of production, paid a wage
+   * week and may have crossed a player level — the route puts a `levelUp` on the *error* for
+   * exactly that reason. A mutation that only invalidates `onSuccess` therefore tells the player
+   * "you cannot afford that" over a stockpile that has since moved, possibly past the price.
+   *
+   * Counted in reads of `/me`, because `/me` is what the HUD's stockpile is drawn from and a refetch
+   * of it is the whole observable effect.
+   */
+  it('refreshes what the settle banked even when the order is refused', async () => {
+    stubApi({
+      build: { ok: false, status: 409, body: { error: { code: 'NO_FUNDS', message: 'Short' } } },
+    });
+    renderDistrict();
+
+    await waitFor(() => expect(plot('The Quarters')).toBeInTheDocument());
+    const before = fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/me')).length;
+
+    fireEvent.click(plot('The Quarters'));
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Queue build' }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/me')).length,
+      ).toBeGreaterThan(before),
+    );
   });
 
   it('explains a plot the Nexus is holding down instead of offering it', async () => {
@@ -303,6 +363,8 @@ describe('§A1 — the grid and what the district makes', () => {
     renderDistrict();
 
     // Nexus 1 draws 4; one Generator level supplies 26. Comfortable, and reported as such.
+    await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
+    openReports();
     await waitFor(() => expect(screen.getByTestId('power-balance')).toHaveTextContent('4 / 26'));
     expect(screen.getByText(/spare\. The lights are on/)).toBeInTheDocument();
   });
@@ -312,6 +374,8 @@ describe('§A1 — the grid and what the district makes', () => {
     renderDistrict();
 
     // The only rate a brand-new district has is the fuel going the wrong way.
+    await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
+    openReports();
     await waitFor(() => expect(screen.getByTestId('production')).toBeInTheDocument());
     expect(within(screen.getByTestId('production')).getByText(/^-/)).toBeInTheDocument();
   });
@@ -346,3 +410,80 @@ describe('§I1 — building things pays XP', () => {
 function levelUp() {
   return { level: 2, levelsGained: 1, grants: playerLevelGrants(2) };
 }
+
+/**
+ * Somebody else's district, on the city screen.
+ *
+ * The same scene, drawn read-only. Two things have to hold and neither is visible in a screenshot:
+ * a plot on another crew's ground must not be a control — there is nothing there for you to order —
+ * and an empty lot must not be drawn at all, because a survey flag on land you do not own reads as
+ * an invitation to build on it.
+ */
+describe("a neighbour's district (§A4)", () => {
+  const theirs = [
+    { id: 'n1', kind: 'nexus' as const, level: 6, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'n2', kind: 'gate' as const, level: 4, modifications: [], damage: 0, garrisons: 0 },
+  ];
+
+  const renderTheirs = () =>
+    render(
+      <DistrictScene
+        buildings={theirs}
+        queue={[]}
+        selected={null}
+        onSelect={() => undefined}
+        readOnly
+      />,
+    );
+
+  it('draws what is standing, and nothing that is not', () => {
+    renderTheirs();
+    expect(screen.getByTestId('plot-nexus')).toBeInTheDocument();
+    expect(screen.getByTestId('plot-gate')).toBeInTheDocument();
+    // The Quarters are not built here, so there is no plot to show for them.
+    expect(screen.queryByTestId('plot-quarters')).not.toBeInTheDocument();
+  });
+
+  it('offers no control over ground that is not yours', () => {
+    // The *behaviour*, not the ARIA role. Asserting the role alone passed against an outline that
+    // had been given `role="img"` and kept its handler — the mutation kept the attribute and kept
+    // the control, which is exactly the bug the test was written to catch.
+    const onSelect = vi.fn();
+    render(
+      <DistrictScene buildings={theirs} queue={[]} selected={null} onSelect={onSelect} readOnly />,
+    );
+
+    const plot = screen.getByTestId('plot-nexus');
+    expect(plot).not.toHaveAttribute('tabindex');
+    fireEvent.click(plot);
+    fireEvent.keyDown(plot, { key: 'Enter' });
+    expect(onSelect).not.toHaveBeenCalled();
+    // Still named, so it is readable and reachable — it is a picture of a building, not a button.
+    expect(screen.getByRole('img', { name: /^The Nexus,/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^The Nexus,/ })).not.toBeInTheDocument();
+  });
+
+  it('answers the keyboard on your own district, which a polygon does not do for free', () => {
+    const onSelect = vi.fn();
+    render(<DistrictScene buildings={theirs} queue={[]} selected={null} onSelect={onSelect} />);
+
+    const plot = screen.getByTestId('plot-nexus');
+    expect(plot).toHaveAttribute('tabindex', '0');
+    // A `<polygon role="button">` gets none of a `<button>`'s behaviour, so both keys a button
+    // answers to are handled by hand — and a district that can only be played with a mouse is
+    // exactly what forgetting one of them produces.
+    fireEvent.keyDown(plot, { key: 'Enter' });
+    fireEvent.keyDown(plot, { key: ' ' });
+    expect(onSelect).toHaveBeenCalledTimes(2);
+
+    fireEvent.keyDown(plot, { key: 'a' });
+    expect(onSelect).toHaveBeenCalledTimes(2);
+  });
+
+  it('still opens the dialog on your own district, which is the control case', () => {
+    render(
+      <DistrictScene buildings={theirs} queue={[]} selected={null} onSelect={() => undefined} />,
+    );
+    expect(screen.getByRole('button', { name: /^The Nexus,/ })).toBeInTheDocument();
+  });
+});

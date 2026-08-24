@@ -25,9 +25,11 @@ import {
   startingAssignees,
   startingProgression,
   startingResearch,
+  type AssigneesResponse,
   type Base,
   type BarResponse,
   type Commander,
+  startingTraining,
 } from '@frontline/shared';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
@@ -114,6 +116,10 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     buildQueue: [],
     army: {},
     trainingQueue: [],
+    training: startingTraining('2026-08-16T00:00:00.000Z'),
+    inventory: {},
+    fittedUpgrades: [],
+    fleet: {},
     commanders: [],
     createdAt: NOW.toISOString(),
     ...overrides,
@@ -153,7 +159,22 @@ function fakeRepos(hiresToday = 0): {
       written.hiresToday += 1;
     },
   };
-  return { repos: { bases, bar } as unknown as Parameters<typeof hireRecruit>[0], written };
+  /*
+   * A crew holding nothing.
+   *
+   * The §H5 alignment settler folds the crew's own effects, and a crew's effects now include what
+   * the *ground* adds to its officers (§A4 — the Chapel, the Broadcast Station). So a double that
+   * omits the city repo is a double the code under test cannot run against, which is the double
+   * being wrong rather than the code being fragile: an empty map is what "this crew holds nothing"
+   * actually looks like.
+   */
+  const city = { controls: () => new Map(), control: () => undefined, scouted: () => new Set() };
+  const users = { findById: () => undefined };
+  const overseers = { findById: () => undefined };
+  return {
+    repos: { bases, bar, city, users, overseers } as unknown as Parameters<typeof hireRecruit>[0],
+    written,
+  };
 }
 
 /** The two §H2b fields every `hireRecruit` call needs, defaulted so cases can ignore them. */
@@ -522,6 +543,11 @@ describe('§H5 — alignment drifts to what they make of the crew', () => {
     const writes: Commander[][] = [];
     const repos = {
       bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
+      // §F2 reads the crew's own sheets to work out how much of a slide it holds off. Answering
+      // "nobody" — and "no ground", since §A4's Chapel and Broadcast Station lift officer sheets
+      // before that fold — keeps these two tests about the anchor rather than about the hold.
+      users: { findById: () => undefined },
+      city: { controls: () => new Map() },
     } as unknown as Parameters<typeof settleOfficerAlignment>[0];
 
     const indifferent = officerWho('wealth', 'idealist');
@@ -549,6 +575,11 @@ describe('§H5 — alignment drifts to what they make of the crew', () => {
     const writes: Commander[][] = [];
     const repos = {
       bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
+      // §F2 reads the crew's own sheets to work out how much of a slide it holds off. Answering
+      // "nobody" — and "no ground", since §A4's Chapel and Broadcast Station lift officer sheets
+      // before that fold — keeps these two tests about the anchor rather than about the hold.
+      users: { findById: () => undefined },
+      city: { controls: () => new Map() },
     } as unknown as Parameters<typeof settleOfficerAlignment>[0];
 
     const base = makeBase({ commanders: [officerWho('notoriety', 'ruthless')] });
@@ -607,7 +638,19 @@ describe('the Bar over HTTP', () => {
     expect(res.statusCode).toBe(200);
     const hired = res.json<{ accepted: boolean; wage: number; firstPayment: number }>();
     expect(hired.accepted).toBe(true);
-    expect(hired.firstPayment).toBeGreaterThan(0);
+    /*
+     * The prorated first payment (§H7), recomputed rather than merely asserted positive.
+     *
+     * `toBeGreaterThan(0)` was a date-dependent flake and it went off on a Sunday evening: the
+     * payment covers what is left of the pay week, so in the last hours before the Monday boundary
+     * a modest wage prorates to under half a cap and rounds to zero — which is the documented
+     * behaviour, correctly implemented, failing a test that had only ever run mid-week.
+     *
+     * A cap of tolerance because the clock moves between the route's read and this one.
+     */
+    expect(
+      Math.abs(hired.firstPayment - proratedFirstWage(hired.wage, new Date())),
+    ).toBeLessThanOrEqual(1);
 
     const after = await readBar(app, token);
     expect(after.slotsUsed).toBe(1);
@@ -615,6 +658,22 @@ describe('the Bar over HTTP', () => {
     expect(after.officers[0]?.commander.name).toBe(target.name);
     expect(after.officers[0]?.weeklyWage).toBe(hired.wage);
     expect(after.caps).toBe(bar.caps - hired.firstPayment);
+
+    // …and they are in the crew, which is the screen a player goes to next.
+    //
+    // Worth its own read rather than trusting the Bar's: `/bar` projects the officers it just
+    // wrote, so it would report a signing that went nowhere. The Crew screen is a different route
+    // over a different projection, and "I agreed a wage and they never turned up" is the shape of
+    // bug this catches.
+    const crew = await app.inject({
+      method: 'GET',
+      url: '/api/assignees',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(crew.statusCode).toBe(200);
+    const roster = crew.json<AssigneesResponse>();
+    expect(roster.officers.map((one) => one.name)).toContain(target.name);
+    expect(roster.officers.find((one) => one.name === target.name)?.role).toBe('head_spy');
 
     // §H2b — they have left the room, and somebody else is in their seat. Both halves matter: a
     // roster that merely greyed them out would still be a private catalogue, and one that emptied

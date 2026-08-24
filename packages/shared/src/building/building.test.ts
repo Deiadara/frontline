@@ -51,6 +51,7 @@ import {
   districtProduction,
   populationCapacity,
   storageCapacity,
+  type ProductionCarry,
 } from './production.js';
 import {
   BASE_MORALE_TARGET,
@@ -91,6 +92,8 @@ const build = (kind: (typeof BUILDING_KINDS)[number], level: number): Building =
   kind,
   level,
   modifications: [],
+  damage: 0,
+  garrisons: 0,
 });
 
 /** A district with everything standing at `level` — the fat case most ceilings are read at. */
@@ -355,16 +358,75 @@ describe('what the district makes (§A1)', () => {
     expect(perHour.food ?? 0).toBeGreaterThan(0);
   });
 
-  it('accrues over elapsed hours and keeps the fractions', () => {
+  it('accrues over elapsed hours and banks whole units, carrying the rest', () => {
     const district = [build('nexus', 1), build('generator', 1), build('greenhouse', 1)];
     const stock: Resources = { ...STARTING_RESOURCES, food: 0 };
     const oneHour = accrueProduction(stock, district, 1);
     const halfHour = accrueProduction(stock, district, 0.5);
 
-    expect(oneHour.food).toBeGreaterThan(0);
-    expect(halfHour.food).toBeCloseTo(oneHour.food / 2, 6);
-    // Two half-hours must equal one hour, or a player is paid for how often they refresh.
-    expect(accrueProduction(halfHour, district, 0.5).food).toBeCloseTo(oneHour.food, 6);
+    expect(oneHour.resources.food).toBeGreaterThan(0);
+    expect(Number.isInteger(oneHour.resources.food)).toBe(true);
+    expect(Number.isInteger(halfHour.resources.food)).toBe(true);
+
+    // Two half-hours must equal one hour, or a player is paid for how often they refresh. What
+    // makes that true with an integral stockpile is the carry, so the comparison is of the *sum*.
+    const twice = accrueProduction(halfHour.resources, district, 0.5, undefined, halfHour.carry);
+    const held = (accrual: ReturnType<typeof accrueProduction>): number =>
+      accrual.resources.food + (accrual.carry.food ?? 0);
+    expect(held(twice)).toBeCloseTo(held(oneHour), 6);
+  });
+
+  it('pays out a rate below one an hour instead of rounding it to nothing', () => {
+    // The Scrapyard makes a quarter of a high-quality metal per level-hour. Settled a minute at a
+    // time, an accrual that rounded each step would pay zero for ever — which is exactly the bug a
+    // whole-number stockpile invites. Eight hours drip-fed must bank what eight hours pays.
+    const district = [build('nexus', 1), build('generator', 2), build('scrapyard', 1)];
+    const stock: Resources = { ...STARTING_RESOURCES, highQualityMetal: 0 };
+    const HOURS = 8;
+
+    const oneShot = accrueProduction(stock, district, HOURS);
+
+    let held = stock;
+    let carry: ProductionCarry = {};
+    for (let minute = 0; minute < 60 * HOURS; minute++) {
+      const accrual = accrueProduction(held, district, 1 / 60, undefined, carry);
+      held = accrual.resources;
+      carry = accrual.carry;
+      expect(Number.isInteger(held.highQualityMetal)).toBe(true);
+    }
+
+    // Banked, not merely owed: a carry that never turned into a unit would be the same bug wearing
+    // a different hat.
+    expect(held.highQualityMetal).toBeGreaterThanOrEqual(1);
+    expect(held.highQualityMetal + (carry.highQualityMetal ?? 0)).toBeCloseTo(
+      oneShot.resources.highQualityMetal + (oneShot.carry.highQualityMetal ?? 0),
+      6,
+    );
+  });
+
+  it('does not take a whole barrel off the readout for a fraction of a barrel burned', () => {
+    // A district with nothing but a Nexus and a Generator makes no oil and burns some, so a settle
+    // covering half a minute produces about -0.012 oil. Accumulating the running total and flooring
+    // it debits a whole unit the instant anybody opens the page — arithmetically conserved, because
+    // the carry holds 0.98 of a barrel, and visibly wrong. The live flow caught exactly this.
+    const district = [build('nexus', 1), build('generator', 1)];
+    const stock: Resources = { ...STARTING_RESOURCES };
+    const halfAMinute = 30 / 3600;
+
+    const { perHour } = districtProduction(district);
+    expect(
+      perHour.oil ?? 0,
+      'this test is meaningless unless the district is burning oil',
+    ).toBeLessThan(0);
+
+    const accrual = accrueProduction(stock, district, halfAMinute);
+    expect(accrual.resources.oil).toBe(stock.oil);
+    expect(accrual.carry.oil ?? 0).toBeLessThan(0);
+
+    // And the barrel does leave, once a whole one has actually been burned.
+    const hours = 1 / Math.abs(perHour.oil ?? 1);
+    const later = accrueProduction(stock, district, hours * 1.01);
+    expect(later.resources.oil).toBe(stock.oil - 1);
   });
 
   it('stops production at the Apothecary’s ceiling without clawing anything back', () => {
@@ -372,11 +434,37 @@ describe('what the district makes (§A1)', () => {
     const ceiling = storageCapacity(district);
 
     const full: Resources = { ...STARTING_RESOURCES, food: ceiling };
-    expect(accrueProduction(full, district, 100).food).toBe(ceiling);
+    expect(accrueProduction(full, district, 100).resources.food).toBe(ceiling);
 
     // Raid loot can put a stock over the ceiling. Production adds nothing, but takes nothing.
     const overflowing: Resources = { ...STARTING_RESOURCES, food: ceiling * 2 };
-    expect(accrueProduction(overflowing, district, 100).food).toBe(ceiling * 2);
+    expect(accrueProduction(overflowing, district, 100).resources.food).toBe(ceiling * 2);
+  });
+
+  it('never hands a settle a fractional stockpile, however the window is cut', () => {
+    const district = [
+      build('nexus', 2),
+      build('generator', 2),
+      build('greenhouse', 3),
+      build('scrapyard', 2),
+    ];
+    let held: Resources = { ...STARTING_RESOURCES };
+    let carry: ProductionCarry = {};
+    // Deliberately awkward windows: a whole hour is the easy case and the one that never broke.
+    for (const hours of [0.37, 1.9, 0.004, 11.11, 0.5, 2.718]) {
+      const accrual = accrueProduction(held, district, hours, undefined, carry);
+      held = accrual.resources;
+      carry = accrual.carry;
+      for (const amount of Object.values(held)) {
+        expect(Number.isInteger(amount)).toBe(true);
+      }
+      // And the carry never becomes a second stockpile: it is a part-unit, under one either way.
+      for (const owed of Object.values(carry)) {
+        // `?? 0` because the carry is sparse: a key that is absent owes nothing, which is the
+        // same statement this makes about a key that is present and small.
+        expect(Math.abs(owed ?? 0)).toBeLessThan(1);
+      }
+    }
   });
 
   it('raises the ceiling with the Apothecary and with its modifications', () => {

@@ -15,6 +15,9 @@ const USER: User = {
   username: 'operator',
   overseerId: null,
   createdAt: '2026-08-12T10:00:00.000Z',
+  displayName: null,
+  icon: 'shield',
+  timezone: 'Europe/Athens',
 };
 
 const fetchMock = vi.fn();
@@ -48,7 +51,7 @@ describe('AuthScreen MVP dev prefill', () => {
 
     expect(usernameField().value).toBe(MVP_DEV_CREDENTIALS.username);
     expect(passwordField().value).toBe(MVP_DEV_CREDENTIALS.password);
-    expect(screen.getByText(/MVP build — dev login prefilled/)).toBeInTheDocument();
+    expect(screen.getByText(/MVP build. Dev login prefilled/)).toBeInTheDocument();
   });
 
   it('clears both fields when switching to register', () => {
@@ -58,7 +61,7 @@ describe('AuthScreen MVP dev prefill', () => {
     // The 5-character dev passphrase would fail the >= 8 register rule, so it must not linger.
     expect(usernameField().value).toBe('');
     expect(passwordField().value).toBe('');
-    expect(screen.queryByText(/MVP build — dev login prefilled/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/MVP build. Dev login prefilled/)).not.toBeInTheDocument();
   });
 
   it('restores the prefill when switching back to login', () => {

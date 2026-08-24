@@ -49,6 +49,17 @@ export default defineConfig({
         DATABASE_PATH: scratchDb,
         JWT_SECRET: 'e2e-secret',
         CORS_ORIGIN: clientUrl,
+        // Pinned off, not merely absent. `dotenv` loads the developer's own `apps/server/.env`,
+        // so a local `UNLOCKED=true` would hand every spec a level-20 account with a full roster
+        // and the whole suite would quietly stop testing the game it ships — the first symptom
+        // being the live flow asserting a starting stockpile it no longer has.
+        UNLOCKED: 'false',
+        // Same argument, and it caught the same test. Admin mode ships *on* by default so the
+        // board can walk the game without grinding, and one of the things it does is waive every
+        // resource cost while still quoting the real price on screen. Left on here, `live.spec.ts`
+        // would order the Quarters, be charged nothing, and assert a stockpile that never moved —
+        // a green suite proving the economy works when it had simply been switched off.
+        ADMIN: 'false',
       },
     },
     {

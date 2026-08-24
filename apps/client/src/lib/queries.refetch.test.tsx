@@ -19,7 +19,7 @@ const { ApiRequestError } = await import('./api');
 const { useAssignees, useLaunchMission, useMe } = await import('./queries');
 const { useSession } = await import('../store/session');
 
-const LEVELLED = { level: 4, levelsGained: 1, grants: playerLevelGrants(4) };
+const LEVELLED = { level: 4, levelsGained: 1, grants: playerLevelGrants(4), unlocks: [] };
 
 /**
  * The app's own query defaults, copied from `main.tsx`. They are the reason this file exists: a

@@ -1,4 +1,5 @@
 import {
+  gainInfamy,
   MISSION_INFAMY_DELTA,
   MISSION_MORALE_DELTA,
   addResources,
@@ -13,6 +14,8 @@ import {
   type Mission,
   type MissionOutcome,
   type ReputationTally,
+  addItems,
+  rollSalvage,
 } from '@frontline/shared';
 import { awardCharacterXp } from '../characters/award.js';
 import { createRng } from '../characters/rng.js';
@@ -59,15 +62,40 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
 
   const resolvedAt = now.toISOString();
   const settlements = due.map((stored) => {
-    const outcome = rollMissionOutcome(stored);
+    /*
+     * A recalled crew never reached the site.
+     *
+     * So there is no roll to make and nothing to pay: they turned around somewhere on the road and
+     * walked back. It settles as a failure rather than as a third outcome, because everything
+     * downstream — morale, infamy, the §D8 tally, the officer's XP — already knows what to do with
+     * a failure, and "went out, achieved nothing, came home" is what a failure *is*. What it is
+     * not is a way to dodge the consequences of having gone.
+     */
+    const recalled = stored.mission.recalledAt !== null;
+    const outcome = recalled ? ('failure' as const) : rollMissionOutcome(stored);
     // A template retired from the board after this run launched: bring the crew home empty
     // rather than stranding them on the timers page forever.
     const template = findMissionTemplate(stored.mission.templateId);
     // Priced off the clock frozen on the row, not the template's current timings: a retune that
     // lands mid-flight must not re-price a crew that is already out.
-    const rewards = template
-      ? missionRewards(template, outcome, missionTimings(stored.mission).totalMinutes)
-      : {};
+    const rewards =
+      template && !recalled
+        ? missionRewards(template, outcome, missionTimings(stored.mission).totalMinutes)
+        : {};
+
+    /*
+     * What they found, as opposed to what they were paid.
+     *
+     * Drawn from the *same* seed the outcome came from, one draw further along the stream, so a
+     * mission's finds are as reproducible as whether it worked — two reads of the same finished
+     * run cannot disagree about what is in the satchel. A recalled crew found nothing, because
+     * they never got anywhere.
+     */
+    const rng = createRng(stored.seed);
+    rng(); // The outcome's own draw, consumed so the finds do not reuse it.
+    const found = recalled
+      ? {}
+      : rollSalvage(missionTimings(stored.mission).totalMinutes, outcome === 'success', rng);
     return {
       mission: {
         ...stored.mission,
@@ -78,6 +106,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       } satisfies Mission,
       outcome,
       rewards,
+      found,
       moraleDelta: template ? MISSION_MORALE_DELTA[template.kind][outcome] : 0,
       // §D7/§A3 — a blow that lands on the state is heard on the street. Keyed off the same
       // retired-template fallback as the rest: a run whose template is gone comes home silent.
@@ -99,10 +128,20 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   const settled: Base = {
     ...base,
     resources: settlements.reduce((acc, s) => addResources(acc, s.rewards), base.resources),
+    // What they found goes into the satchel alongside the pay. Folded across every crew that came
+    // home on this call, so two runs that both turned up a servo hand over two.
+    inventory: settlements.reduce((held, s) => addItems(held, s.found), base.inventory),
     economy: {
       ...base.economy,
       morale: settlements.reduce((acc, s) => adjustMeter(acc, s.moraleDelta), base.economy.morale),
-      infamy: settlements.reduce((acc, s) => adjustMeter(acc, s.infamyDelta), base.economy.infamy),
+      // §D7 — through `gainInfamy`, the same seam the battle settler banks through.
+      //
+      // It was `adjustMeter`, left over from when infamy was a 0..100 meter, and that clamped it at
+      // a hundred: a crew already at the old ceiling banked *nothing* from a mission, silently, and
+      // the loop the board rebuilt the whole mechanic for stopped paying out on the one screen that
+      // runs every day. Nothing but spending takes a name back, which is why a negative delta is
+      // worth zero rather than a deduction.
+      infamy: settlements.reduce((acc, s) => gainInfamy(acc, s.infamyDelta), base.economy.infamy),
       // §D8 — missions are the second live writer of the one reputation tally (the first is
       // POST /battle). Folded in launch order through the shared recorder so the §D8 drift is
       // applied exactly once, by the same function, however many crews came home on this call.
@@ -112,7 +151,9 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       ),
     },
   };
-  repos.bases.updateResources(settled.id, settled.resources);
+  // Stockpile and satchel in one statement, because a mission pays into both and a crash between
+  // two writes would bank the caps and lose the parts.
+  repos.bases.updateHoldings(settled.id, settled.resources, settled.inventory);
   repos.bases.updateEconomy(settled.id, settled.economy);
 
   // INTERFACES R7 — §I1 makes a mission completing an XP source. W6 owns the whole XP side, so this

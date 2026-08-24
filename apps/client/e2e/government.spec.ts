@@ -9,7 +9,7 @@ import { lateGame, me, missionsResponse } from './fixtures';
 import { installApi, settleFonts } from './harness';
 
 /**
- * W10 (GDD §A3) — the Combine is on screen in two places: the intel panel names who holds a
+ * W10 (GDD §A3) — the Combine is on screen in two locations: the intel panel names who holds a
  * district, and the mission board badges which way a job points at the state.
  *
  * Both additions are *extra text in a row that was already full*, which is the one way this change
@@ -84,6 +84,33 @@ async function escaping(page: Page, container: string): Promise<string[]> {
         .map((el) => el.textContent?.slice(0, 60) ?? '');
     });
   }, container);
+}
+
+/**
+ * Where a district actually sits on screen.
+ *
+ * `position` is a fraction of the map's **layout** width, not of the canvas: the canvas is
+ * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
+ * out into the frame less whatever chrome is covering it and publishes that inset as
+ * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
+ * the district it was aimed at — and the further right the district, the worse the miss.
+ */
+async function districtPoint(
+  page: Page,
+  position: { x: number; y: number },
+): Promise<{ x: number; y: number }> {
+  const box = await page.locator('canvas').boundingBox();
+  if (!box) throw new Error('canvas has no bounding box');
+  const map = page.getByTestId('city-map');
+  const inset = async (name: string) =>
+    Number((await map.getAttribute(`data-safe-${name}`)) ?? '0');
+  const [right, top, bottom] = [await inset('right'), await inset('top'), await inset('bottom')];
+  const layoutWidth = Math.max(1, box.width - right);
+  const layoutHeight = Math.max(1, box.height - top - bottom);
+  return {
+    x: box.x + position.x * layoutWidth,
+    y: box.y + top + position.y * layoutHeight,
+  };
 }
 
 test.describe('the mission board badges the Combine (§A3, §D8)', () => {
@@ -166,9 +193,8 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
   async function select(page: Page, position: { x: number; y: number }): Promise<void> {
     await expect(page.locator('canvas')).toBeVisible();
     await page.waitForTimeout(700);
-    const box = await page.locator('canvas').boundingBox();
-    if (!box) throw new Error('canvas has no bounding box');
-    await page.mouse.click(box.x + position.x * box.width, box.y + position.y * box.height);
+    const at = await districtPoint(page, position);
+    await page.mouse.click(at.x, at.y);
   }
 
   for (const { name, width, height } of WIDTHS) {

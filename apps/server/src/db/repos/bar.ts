@@ -1,11 +1,13 @@
+import type { Negotiation } from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
 
 /**
- * The Bar's shared state (GDD §H2, §H2b).
+ * The Bar's shared state (GDD §H2, §H2b) and the private half of it (§H7).
  *
- * Two counters and nothing else. The roster itself is still never stored — it is computed from the
- * UTC date and the per-seat turnover counts this repo holds, so two players asking on the same day
- * with the same counters are served the same room.
+ * The roster itself is still never stored — it is computed from the UTC date and the per-seat
+ * turnover counts this repo holds, so two players asking on the same day with the same counters are
+ * served the same room. What is stored is only what a player has *done* to it: who they hired, and
+ * how far into a conversation they have talked themselves.
  */
 
 export interface BarHire {
@@ -31,11 +33,51 @@ export interface BarRepo {
    * person standing there for the next player to hire again.
    */
   recordHire(hire: BarHire, slot: number): void;
+  /** §H7 — every conversation this player has open today, keyed by recruit id. */
+  negotiations(userId: string, day: string): Record<string, Negotiation>;
+  /** One conversation, or `undefined` when they have not spoken to this character yet. */
+  negotiation(userId: string, day: string, recruitId: string): Negotiation | undefined;
+  /** Writes a conversation's new state. Upserts: the first exchange has no row to update. */
+  saveNegotiation(
+    userId: string,
+    day: string,
+    recruitId: string,
+    negotiation: Negotiation,
+    at: string,
+  ): void;
 }
 
 interface GenerationRow {
   slot: number;
   generation: number;
+}
+
+interface NegotiationRow {
+  recruit_id: string;
+  rounds: number;
+  patience: number;
+  standing: number;
+  last_offer: number | null;
+  mood: string;
+  closed: number;
+}
+
+/**
+ * A stored row as the domain reads it.
+ *
+ * `mood` is widened back to the enum by the caller's schema rather than validated here — the repo's
+ * job is the shape, and a mood this build does not know about is a parse error worth seeing at the
+ * boundary rather than a silent fallback five layers in.
+ */
+function rowToNegotiation(row: NegotiationRow): Negotiation {
+  return {
+    rounds: row.rounds,
+    patience: row.patience,
+    standing: row.standing,
+    lastOffer: row.last_offer,
+    mood: row.mood as Negotiation['mood'],
+    closed: row.closed === 1,
+  };
 }
 
 export function createBarRepo(db: AppDatabase): BarRepo {
@@ -50,6 +92,27 @@ export function createBarRepo(db: AppDatabase): BarRepo {
   const bumpSlotStmt = db.prepare(
     `INSERT INTO bar_slots (day, slot, generation) VALUES (?, ?, 1)
      ON CONFLICT (day, slot) DO UPDATE SET generation = generation + 1`,
+  );
+  const negotiationsStmt = db.prepare(
+    `SELECT recruit_id, rounds, patience, standing, last_offer, mood, closed
+       FROM bar_negotiations WHERE user_id = ? AND day = ?`,
+  );
+  const negotiationStmt = db.prepare(
+    `SELECT recruit_id, rounds, patience, standing, last_offer, mood, closed
+       FROM bar_negotiations WHERE user_id = ? AND day = ? AND recruit_id = ?`,
+  );
+  const saveNegotiationStmt = db.prepare(
+    `INSERT INTO bar_negotiations
+       (user_id, day, recruit_id, rounds, patience, standing, last_offer, mood, closed, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (user_id, day, recruit_id) DO UPDATE SET
+       rounds = excluded.rounds,
+       patience = excluded.patience,
+       standing = excluded.standing,
+       last_offer = excluded.last_offer,
+       mood = excluded.mood,
+       closed = excluded.closed,
+       updated_at = excluded.updated_at`,
   );
 
   return {
@@ -68,6 +131,28 @@ export function createBarRepo(db: AppDatabase): BarRepo {
     recordHire(hire, slot) {
       insertHireStmt.run(hire.id, hire.day, hire.userId, hire.recruitId, hire.hiredAt);
       bumpSlotStmt.run(hire.day, slot);
+    },
+    negotiations(userId, day) {
+      const rows = negotiationsStmt.all(userId, day) as NegotiationRow[];
+      return Object.fromEntries(rows.map((row) => [row.recruit_id, rowToNegotiation(row)]));
+    },
+    negotiation(userId, day, recruitId) {
+      const row = negotiationStmt.get(userId, day, recruitId) as NegotiationRow | undefined;
+      return row ? rowToNegotiation(row) : undefined;
+    },
+    saveNegotiation(userId, day, recruitId, negotiation, at) {
+      saveNegotiationStmt.run(
+        userId,
+        day,
+        recruitId,
+        negotiation.rounds,
+        negotiation.patience,
+        negotiation.standing,
+        negotiation.lastOffer,
+        negotiation.mood,
+        negotiation.closed ? 1 : 0,
+        at,
+      );
     },
   };
 }

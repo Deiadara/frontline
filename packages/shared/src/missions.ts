@@ -92,7 +92,8 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'scrap-run',
     name: 'Scrap Run',
-    brief: 'Strip the collapsed overpass two blocks out before anyone else calls it theirs.',
+    brief:
+      'The overpass came down in the spring and nobody has cleared it. Two blocks out. Take the crew, take the cutters, come back heavy.',
     kind: 'standard',
     difficulty: 'easy',
     stance: 'unaligned',
@@ -104,7 +105,8 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'ration-run',
     name: 'Ration Run',
-    brief: 'A hydroponics bay under the market still runs. Its owners keep irregular hours.',
+    brief:
+      'There is a growing bay under the market that still has power. Whoever runs it keeps strange hours. Go while the lights are off.',
     kind: 'standard',
     difficulty: 'easy',
     stance: 'unaligned',
@@ -117,7 +119,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     id: 'convoy-ambush',
     name: 'Convoy Ambush',
     brief:
-      'A Combine ration convoy runs the ring road at dusk. Short, loud, and the escort shoots back.',
+      'Combine ration trucks take the ring road at dusk. Four minutes of work if it goes well. The escort is paid to make sure it does not.',
     kind: 'battle',
     difficulty: 'hard',
     stance: 'against_government',
@@ -129,7 +131,8 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'fuel-siphon',
     name: 'Fuel Siphon',
-    brief: 'The Combine tank farm sheds its guard at shift change. Bring hose and patience.',
+    brief:
+      'Shift change at the Combine tank farm leaves twenty minutes with nobody watching the valves. Bring hose. Bring somebody who can stay quiet that long.',
     kind: 'standard',
     difficulty: 'easy',
     stance: 'against_government',
@@ -141,7 +144,8 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'foundry-raid',
     name: 'Foundry Raid',
-    brief: 'Hit the Combine smelter floor while the pour is hot and walk out with finished stock.',
+    brief:
+      'The Combine smelter pours at two in the morning. Walk in while the metal is still moving and walk out with it finished. The floor crew will not thank you.',
     kind: 'battle',
     difficulty: 'hard',
     stance: 'against_government',
@@ -154,7 +158,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     id: 'courier-contract',
     name: 'Courier Contract',
     brief:
-      'A Combine broker needs a sealed crate moved across three districts. Do not open it. Do not be late.',
+      'A Combine broker wants a sealed crate carried three districts over. He is not saying what is in it and you are not asking. Late is worse than light.',
     kind: 'standard',
     difficulty: 'easy',
     stance: 'for_government',
@@ -167,7 +171,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     id: 'curfew-sweep',
     name: 'Curfew Sweep',
     brief:
-      'The Combine is short of enforcers on the lower tiers and is paying crews to hold curfew for it.',
+      'The Combine is short of bodies on the lower tiers, so it is paying crews to hold its curfew for it. Good money. Your neighbours will remember who took it.',
     kind: 'battle',
     difficulty: 'hard',
     stance: 'for_government',
@@ -180,7 +184,8 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
     id: 'refinery-assault',
     name: 'Refinery Assault',
-    brief: 'Take the outer Combine refinery and hold it long enough to empty the alloy store.',
+    brief:
+      'Take the outer Combine refinery and sit on it long enough to empty the alloy store. Getting in is loud. Holding it is the hard part.',
     kind: 'battle',
     difficulty: 'hard',
     stance: 'against_government',
@@ -193,7 +198,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     id: 'deep-expedition',
     name: 'Deep Expedition',
     brief:
-      'A full day beyond the wire, past the last Combine checkpoint. They go dark until the gate.',
+      'A full day out, past the last checkpoint, into ground nobody has mapped since the flood. No word from them until they are back at the gate.',
     kind: 'standard',
     difficulty: 'hard',
     stance: 'unaligned',
@@ -203,6 +208,20 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     successChance: 0.88,
   },
 ];
+
+/**
+ * §A4 — what the ground takes off a mission's clock.
+ *
+ * The Smuggler's Tunnel, essentially: there is a shorter way across the city and you own it. Capped
+ * hard, because a mission that lands the moment it is launched is a mission with no decision in it,
+ * and floored at a minute for the same reason a build is.
+ */
+export const MAX_MISSION_SPEED_BONUS = 50;
+
+export function hastenedMinutes(minutes: number, speedPercent: number): number {
+  const bonus = Math.min(MAX_MISSION_SPEED_BONUS, Math.max(0, speedPercent));
+  return Math.max(1, Math.round(minutes / (1 + bonus / 100)));
+}
 
 export function findMissionTemplate(templateId: string): MissionTemplate | undefined {
   return MISSION_TEMPLATES.find((template) => template.id === templateId);
@@ -349,6 +368,18 @@ export const MissionSchema = z.object({
   /** What was actually banked. Empty until the mission resolves. */
   rewards: PartialResourcesSchema,
   resolvedAt: IsoDateTimeSchema.nullable(),
+  /**
+   * When the crew was turned around, or `null` if they were left to finish.
+   *
+   * A recall does not stop a mission; it *reverses* it. The crew is however far out they had got,
+   * and getting back takes exactly as long as getting there did — so the new arrival is
+   * `recalledAt + (recalledAt - startedAt)`, and it is derived from this rather than written into
+   * the clock. Keeping the original `startedAt`, `travelMinutes` and `durationMinutes` intact is
+   * what lets the report say how long they were out and how far they got.
+   *
+   * They come home with nothing. They never reached the site.
+   */
+  recalledAt: IsoDateTimeSchema.nullable().default(null),
 });
 export type Mission = z.infer<typeof MissionSchema>;
 
@@ -362,6 +393,12 @@ export type MissionPhase = z.infer<typeof MissionPhaseSchema>;
 const MINUTE_MS = 60_000;
 
 export function missionCompletesAt(mission: Mission): Date {
+  // A recalled crew is walking back the way they came: the return leg is exactly as long as the
+  // time they had already been travelling when the order reached them.
+  if (mission.recalledAt !== null) {
+    const out = Date.parse(mission.recalledAt) - Date.parse(mission.startedAt);
+    return new Date(Date.parse(mission.recalledAt) + out);
+  }
   const { totalMinutes } = missionTimings(mission);
   return new Date(Date.parse(mission.startedAt) + totalMinutes * MINUTE_MS);
 }
@@ -372,6 +409,10 @@ export function missionRemainingMs(mission: Mission, now: Date): number {
 }
 
 export function missionPhaseAt(mission: Mission, now: Date): MissionPhase {
+  // Recalled crews only have two states: on the road home, or home.
+  if (mission.recalledAt !== null) {
+    return now.getTime() >= missionCompletesAt(mission).getTime() ? 'returned' : 'returning';
+  }
   const elapsedMinutes = (now.getTime() - Date.parse(mission.startedAt)) / MINUTE_MS;
   const { travelMinutes, durationMinutes, totalMinutes } = missionTimings(mission);
 
@@ -383,9 +424,30 @@ export function missionPhaseAt(mission: Mission, now: Date): MissionPhase {
 
 /** Fraction of the whole round trip completed, clamped to 0..1 — the timer bar on §E3's page. */
 export function missionProgressAt(mission: Mission, now: Date): number {
+  if (mission.recalledAt !== null) {
+    const recalled = Date.parse(mission.recalledAt);
+    const home = missionCompletesAt(mission).getTime();
+    const leg = home - recalled;
+    return leg <= 0 ? 1 : Math.min(1, Math.max(0, (now.getTime() - recalled) / leg));
+  }
   const elapsedMs = now.getTime() - Date.parse(mission.startedAt);
   const totalMs = missionTimings(mission).totalMinutes * MINUTE_MS;
   return Math.min(1, Math.max(0, elapsedMs / totalMs));
+}
+
+/**
+ * Whether a crew can still be turned around.
+ *
+ * Only while they are still out. Once the clock is up they are at the gate and the only thing left
+ * is to bank whatever they came back with, so a recall at that point would be a way of *deleting*
+ * a payout rather than cancelling a trip.
+ */
+export function canRecall(mission: Mission, now: Date): boolean {
+  return (
+    mission.status === 'active' &&
+    mission.recalledAt === null &&
+    now.getTime() < missionCompletesAt(mission).getTime()
+  );
 }
 
 /** True once the clock is up but the payout has not been banked — what the resolver looks for. */

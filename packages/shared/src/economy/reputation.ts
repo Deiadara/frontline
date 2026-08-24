@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { Faction, MissionStance } from '../factions.js';
 import { IsoDateTimeSchema } from '../primitives.js';
-import type { Meter } from './meters.js';
 
 /**
  * Reputation is a *word*, not a number (GDD §D8): a label the street applies to your group
@@ -141,8 +140,14 @@ export const TALLY_COUNTERS: readonly ReputationTallyCounter[] = ReputationTally
   updatedAt: true,
 }).keyof().options;
 
-/** Infamy at or above which the street simply calls you `Feared`. */
-export const FEARED_INFAMY = 60;
+/**
+ * Infamy at or above which the street simply calls you `Feared`.
+ *
+ * Re-quoted when infamy stopped being a 0..100 meter: 60 used to be most of a full meter and is now
+ * one dead Colossus. 500 is roughly two won assaults on a garrisoned place — a crew that has done
+ * real damage twice rather than one that has been lucky once.
+ */
+export const FEARED_INFAMY = 500;
 /** Losses that mark a crew `Reckless`, provided it is losing more than it wins. */
 export const RECKLESS_LOSSES = 5;
 /** Wins that earn `Respected`. */
@@ -306,7 +311,8 @@ export function recordPayrollOutcome(
 }
 
 export interface ReputationInputs {
-  infamy: Meter;
+  /** §D7 points, uncapped — see `economy/infamy.ts`. */
+  infamy: number;
   tally: ReputationTally;
 }
 
@@ -374,7 +380,7 @@ export function deriveReputation({ infamy, tally }: ReputationInputs, now: Date)
     return 'Honorable';
   }
 
-  // Infamy is a meter, not a decayed tally counter, so it is read directly.
+  // Infamy is a running total, not a decayed tally counter, so it is read directly.
   if (infamy >= FEARED_INFAMY) return 'Feared';
   if (tallyReaches(raidsLost, RECKLESS_LOSSES) && raidsLost > raidsWon) return 'Reckless';
   if (tallyReaches(raidsWon, RESPECTED_WINS)) return 'Respected';

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IdSchema } from '../primitives.js';
+import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import {
   BUILDING_MAX_LEVEL,
   BuildingKindSchema,
@@ -7,6 +7,7 @@ import {
   CENTRAL_BUILDING,
   type BuildingKind,
 } from './kinds.js';
+import { MAX_BUILDING_GARRISONS } from './damage.js';
 import {
   MAX_MODIFICATION_SLOTS,
   ModificationIdSchema,
@@ -27,6 +28,32 @@ export const BuildingSchema = z.object({
    * modifications existed still parses — the field is additive, unlike the kind rename beside it.
    */
   modifications: z.array(ModificationIdSchema).max(MAX_MODIFICATION_SLOTS).default([]),
+  /**
+   * How badly it has been wrecked, 0..100 (§A4, battle rework). Costs it up to half its job — see
+   * `building/damage.ts`. Defaulted, so a structure written before sieges existed reads as intact.
+   */
+  damage: z.number().min(0).max(100).default(0),
+  /**
+   * When it was last hit, or null if it is intact (§A4).
+   *
+   * The clock the repair crews run on. Damage is not permanent and never was meant to be: a
+   * structure comes all the way back {@link REPAIR_HOURS} hours after the strike that wrecked it,
+   * whether or not anybody buys it a level, and this is the timestamp that says how far through
+   * that it is. Nulled the moment it reaches nothing, so an intact structure carries no clock and
+   * the settle can skip it.
+   *
+   * **Optional**, not defaulted, and that is a deliberate difference from `damage` beside it. A
+   * default makes the field required on the way *out* of the parser, which would have meant writing
+   * `damagedAt: null` into every structure literal in the codebase — forty-odd of them, most in
+   * test fixtures that have nothing to do with sieges — to say the thing that "absent" already
+   * says. Absent, null and "never hit" are the same state, and every reader treats them as one.
+   */
+  damagedAt: IsoDateTimeSchema.nullable().optional(),
+  /**
+   * How many times it has been garrisoned, 0..`MAX_BUILDING_GARRISONS`. Each one stations people in
+   * it and raises what a raider has to beat. Defaulted for the same reason as `damage`.
+   */
+  garrisons: z.number().int().min(0).max(MAX_BUILDING_GARRISONS).default(0),
 });
 export type Building = z.infer<typeof BuildingSchema>;
 

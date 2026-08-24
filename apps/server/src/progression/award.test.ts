@@ -1,32 +1,26 @@
 import {
   PLAYER_XP_AWARDS,
   STARTING_RESOURCES,
-  findDistrict,
-  playerLevelGrants,
   playerXpToNextLevel,
   startingEconomy,
   startingAssignees,
   startingProgression,
   startingResearch,
+  findPlayerUnlock,
+  playerLevelGrants,
   type Base,
-  type SkirmishEngine,
-  type BattleWinner,
-  skirmishOutcome,
+  type PlayerLevelUnlock,
+  startingTraining,
 } from '@frontline/shared';
-import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildApp } from '../app.js';
-import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { awardPlayerXp } from './award.js';
+import { awardPlayerXp, levelUpFrom } from './award.js';
 
 const NOW = '2026-08-13T09:30:00.000Z';
 const open: AppDatabase[] = [];
-const apps: FastifyInstance[] = [];
 
-afterEach(async () => {
-  for (const app of apps.splice(0)) await app.close();
+afterEach(() => {
   for (const db of open.splice(0)) db.close();
 });
 
@@ -60,6 +54,10 @@ function seedBase(db: AppDatabase, repos: Repositories, level: number): Base {
     buildQueue: [],
     army: {},
     trainingQueue: [],
+    training: startingTraining('2026-08-16T00:00:00.000Z'),
+    inventory: {},
+    fittedUpgrades: [],
+    fleet: {},
     commanders: [],
     createdAt: NOW,
   };
@@ -111,7 +109,41 @@ describe('awardPlayerXp — the single XP write path (INTERFACES R7)', () => {
     expect(award.level).toBe(4);
     // Level 4 is where §G3's per-officer cap turns over from 1 to 2.
     expect(award.grants).toEqual({ assigneePool: 5, assigneeCapPerOfficer: 2, recruitSlots: 5 });
-    expect(award.unlocks).toEqual([]); // §I3 catalogue is the board's to file
+    // Level 4 opens nothing — the catalogue's doors are at 3, 5, 7 and 10. Pinned as empty rather
+    // than left unasserted: an award that announced a door it had not opened is the bug this field
+    // makes possible, and it would look exactly like a passing test.
+    expect(award.unlocks).toEqual([]);
+  });
+
+  it('names the §I3 door a level-up opened, rather than leaving it to be found by accident', () => {
+    const { db, repos } = makeRepos();
+    // 280 of the 300 needed to clear level 2; one mission (120) carries it into level 3, which is
+    // where the Archive opens.
+    const base = seedBase(db, repos, 2);
+    repos.bases.updateProgression(base.id, 2, { xpIntoLevel: 280 });
+    const at2 = repos.bases.findById('base-1') as Base;
+
+    const { award } = awardPlayerXp(repos, at2, 'missionCompleted');
+
+    expect(award.level).toBe(3);
+    expect(award.unlocks.map((unlock) => unlock.id)).toEqual(['research']);
+    // With its copy, because a locked door has to be able to say what is behind it.
+    expect(award.unlocks[0]?.name).toBe('The Archive');
+    expect(award.unlocks[0]?.description).toBeTruthy();
+  });
+
+  it('reports every door a single oversized award crossed, not just the last', () => {
+    const { db, repos } = makeRepos();
+    // Level 1 with 980 banked. One quest (200) clears level 1 (100), level 2 (300) and level 3
+    // (600) in one go, landing on 4 — past both the Archive at 3 and nothing else.
+    const base = seedBase(db, repos, 1);
+    repos.bases.updateProgression(base.id, 1, { xpIntoLevel: 980 });
+    const at1 = repos.bases.findById('base-1') as Base;
+
+    const { award } = awardPlayerXp(repos, at1, 'questCompleted');
+
+    expect(award.levelsGained).toBeGreaterThan(1);
+    expect(award.unlocks.map((unlock) => unlock.id)).toEqual(['research']);
   });
 
   it("never leaves stored progress at or above the stored level's threshold", () => {
@@ -124,6 +156,50 @@ describe('awardPlayerXp — the single XP write path (INTERFACES R7)', () => {
       expect(stored.level).toBe(base.level);
     }
     expect(base.level).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * The announcement itself (§I2, §I3, MOU-227).
+ *
+ * `levelUpFrom` is what every route puts on its response, and it is the one place a *run* of awards
+ * is folded into a single thing to say. Tested directly rather than through a route: the route
+ * suites that used to cover it went with the battle rework, and an aggregation nobody exercises is
+ * an aggregation that quietly starts returning nothing.
+ */
+describe('levelUpFrom — one announcement for a whole settlement', () => {
+  const award = (level: number, levelsGained: number, unlocks: PlayerLevelUnlock[]) => ({
+    source: 'missionCompleted' as const,
+    xpGained: 120,
+    level,
+    progression: { xpIntoLevel: 0 },
+    xpToNextLevel: playerXpToNextLevel(level),
+    levelsGained,
+    grants: playerLevelGrants(level),
+    unlocks,
+  });
+
+  it('says nothing at all when no level was crossed', () => {
+    expect(levelUpFrom([award(2, 0, [])])).toBeUndefined();
+    expect(levelUpFrom([])).toBeUndefined();
+  });
+
+  it('adds the levels up and reports the one the player ended on', () => {
+    const announced = levelUpFrom([award(2, 1, []), award(3, 1, [])]);
+    expect(announced).toMatchObject({ level: 3, levelsGained: 2 });
+  });
+
+  it('carries every door the *run* opened, not only the last award’s', () => {
+    // Two settlements landing on one read — a mission home and a build finished — each crossing a
+    // level with a door on it. Announcing only the last one loses the first for good: no later
+    // read re-resolves a settle, so this response is the only place it can ever be said.
+    const first = findPlayerUnlock('research');
+    const second = findPlayerUnlock('market');
+    expect(first, 'the catalogue must still have these doors').toBeDefined();
+    expect(second).toBeDefined();
+
+    const announced = levelUpFrom([award(3, 1, [first!]), award(5, 2, [second!])]);
+    expect(announced?.unlocks.map((unlock) => unlock.id)).toEqual(['research', 'market']);
   });
 });
 
@@ -172,157 +248,11 @@ describe('XP source pricing (§I1)', () => {
   });
 });
 
-/**
- * §I1 names "fighting other players" as an XP source, and raiding is the one fight the game can
- * currently stage — so this is the live wiring, not a unit test of it. The mission source (§E) is
- * wired at W3's resolution site by whoever lands second (INTERFACES §2 R7).
+/*
+ * The two suites that drove `POST /api/city/attack` were here, and they went with it (board,
+ * battle rework).
+ *
+ * §I1 still pays for fighting and it now pays **both** crews, because a declared fight is one the
+ * defender turns out for. That wiring lives in the settler, and it is measured against the real
+ * routes in `battle/fight-xp.test.ts` — the same shape these were, one layer along.
  */
-describe('POST /api/city/attack awards XP (§I1)', () => {
-  const raid = findDistrict('rustyard');
-  if (!raid) throw new Error('fixture error: rustyard district missing');
-  const raidId = raid.id;
-  const TARGET_PLACE = raid.places[0]?.id ?? '';
-
-  const engineThatAlways = (winner: BattleWinner): SkirmishEngine => ({
-    resolve: () => skirmishOutcome({ winner, log: ['test'] }),
-  });
-
-  async function raidOnce(winner: BattleWinner): Promise<Base> {
-    const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
-    const db = openDatabase(config.databasePath);
-    runMigrations(db);
-    open.push(db);
-    const app = await buildApp({
-      config,
-      db,
-      skirmishEngine: engineThatAlways(winner),
-      logger: false,
-    });
-    apps.push(app);
-
-    const reg = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: { username: 'commander', password: 'hunter2pass' },
-    });
-    const token = reg.json<{ token: string }>().token;
-    const headers = { authorization: `Bearer ${token}` };
-    const created = await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers,
-      payload: { presetId: 'enforcer' },
-    });
-    const baseId = created.json<{ base: { id: string } }>().base.id;
-
-    // §A4 — a fight is over a *place* now, and a place has to be seen before it is taken.
-    await app.inject({
-      method: 'POST',
-      url: '/api/city/scout',
-      headers,
-      payload: { districtId: raidId },
-    });
-    const battle = await app.inject({
-      method: 'POST',
-      url: '/api/city/attack',
-      headers,
-      payload: { placeId: TARGET_PLACE, force: { razors: 1 } },
-    });
-    expect(battle.statusCode).toBe(200);
-
-    const detail = await app.inject({ method: 'GET', url: `/api/base/${baseId}`, headers });
-    return detail.json<{ base: Base }>().base;
-  }
-
-  it('banks the win award on the attacker, readable on the next base read', async () => {
-    const base = await raidOnce('attacker');
-    expect(base.progression.xpIntoLevel).toBe(PLAYER_XP_AWARDS.raidWon);
-    expect(base.level).toBe(1);
-  });
-
-  it('still pays, less, for a raid that failed', async () => {
-    const base = await raidOnce('defender');
-    expect(base.progression.xpIntoLevel).toBe(PLAYER_XP_AWARDS.raidLost);
-  });
-});
-
-/**
- * MOU-227 — the raid that paid for the level-up is the only request that knows it happened. The
- * `Progression` panel catches up on the next base read; this is about announcing the moment.
- */
-describe('POST /api/city/attack announces the level-up it paid for (§I2, MOU-227)', () => {
-  const raid = findDistrict('rustyard');
-  if (!raid) throw new Error('fixture error: rustyard district missing');
-  const raidId = raid.id;
-  const TARGET_PLACE = raid.places[0]?.id ?? '';
-
-  interface BattleBody {
-    levelUp?: { level: number; levelsGained: number; grants: Record<string, number> };
-  }
-
-  /** Raids once from a base parked at `xpIntoLevel`, and hands back the raw battle response. */
-  async function raidFrom(xpIntoLevel: number): Promise<BattleBody> {
-    const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
-    const db = openDatabase(config.databasePath);
-    runMigrations(db);
-    open.push(db);
-    const app = await buildApp({
-      config,
-      db,
-      skirmishEngine: {
-        resolve: () => skirmishOutcome({ winner: 'attacker', log: ['test'] }),
-      },
-      logger: false,
-    });
-    apps.push(app);
-
-    const reg = await app.inject({
-      method: 'POST',
-      url: '/api/auth/register',
-      payload: { username: 'commander', password: 'hunter2pass' },
-    });
-    const headers = { authorization: `Bearer ${reg.json<{ token: string }>().token}` };
-    const created = await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers,
-      payload: { presetId: 'enforcer' },
-    });
-    const baseId = created.json<{ base: { id: string } }>().base.id;
-    createRepositories(db).bases.updateProgression(baseId, 1, { xpIntoLevel });
-
-    // §A4 — a fight is over a *place* now, and a place has to be seen before it is taken.
-    await app.inject({
-      method: 'POST',
-      url: '/api/city/scout',
-      headers,
-      payload: { districtId: raidId },
-    });
-    const battle = await app.inject({
-      method: 'POST',
-      url: '/api/city/attack',
-      headers,
-      payload: { placeId: TARGET_PLACE, force: { razors: 1 } },
-    });
-    expect(battle.statusCode).toBe(200);
-    return battle.json<BattleBody>();
-  }
-
-  it('carries the new level and its grants when the raid crossed one', async () => {
-    // 80 for the win on top of 40 clears level 1's 100.
-    const { levelUp } = await raidFrom(40);
-
-    expect(levelUp).toEqual({
-      level: 2,
-      levelsGained: 1,
-      grants: playerLevelGrants(2),
-    });
-  });
-
-  it('omits the field entirely when the raid only banked XP', async () => {
-    // 80 short of the 100 level 1 costs, so nothing to announce.
-    const { levelUp } = await raidFrom(0);
-
-    expect(levelUp).toBeUndefined();
-  });
-});

@@ -9,21 +9,21 @@ import type * as ApiModule from './api';
 const launchMission = vi.hoisted(() => vi.fn());
 const getMissions = vi.hoisted(() => vi.fn());
 const buildStructure = vi.hoisted(() => vi.fn());
-const attackPlace = vi.hoisted(() => vi.fn());
+const setGarrison = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
   getMissions,
   buildStructure,
-  attackPlace,
+  setGarrison,
 }));
 
 const { ApiRequestError } = await import('./api');
-const { queryKeys, useAttackPlace, useBuildStructure, useLaunchMission, useMissions } =
+const { queryKeys, useSetGarrison, useBuildStructure, useLaunchMission, useMissions } =
   await import('./queries');
 const { useSession } = await import('../store/session');
 
-const LEVELLED = { level: 4, levelsGained: 1, grants: playerLevelGrants(4) };
+const LEVELLED = { level: 4, levelsGained: 1, grants: playerLevelGrants(4), unlocks: [] };
 
 function harness<T>(hook: () => T) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -48,7 +48,7 @@ beforeEach(() => {
   launchMission.mockReset();
   getMissions.mockReset();
   buildStructure.mockReset();
-  attackPlace.mockReset();
+  setGarrison.mockReset();
   useSession.setState({ token: 'session-token', user: null });
 });
 
@@ -176,15 +176,18 @@ describe('a level-up refreshes the §G layer it moved', () => {
     expect(invalidated()).toEqual(expect.arrayContaining(LEVEL_SENSITIVE));
   });
 
-  it('refreshes the roster, the map and the HUD after taking a place', async () => {
-    attackPlace.mockResolvedValueOnce({ result: {}, captured: true, returned: {}, base: {} });
-    const { result, invalidated } = harness(() => useAttackPlace('base-1', 'rustyard'));
+  it('refreshes the roster, the map and the HUD after moving people onto a place', async () => {
+    // Was `useAttackPlace`, which went with the instant-attack route (board, battle rework). The
+    // contract it guarded is a property of `useCityWrite` rather than of any one call, so it is
+    // measured on the garrison write instead — the one that is still there and still moves units.
+    setGarrison.mockResolvedValueOnce({ district: {}, base: {} });
+    const { result, invalidated } = harness(() => useSetGarrison('base-1', 'rustyard'));
 
     result.current.mutate({} as never);
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(LEVEL_SENSITIVE));
-    // §A4 — a place changing hands moves the map, the district and this crew's own units.
+    // §A4 — units moving onto or off a place moves the map, the district and this crew's roster.
     expect(invalidated()).toEqual(
       expect.arrayContaining([
         JSON.stringify(queryKeys.city),

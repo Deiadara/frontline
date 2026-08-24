@@ -1,7 +1,8 @@
 import { clampMeter, type Meter } from '../economy/meters.js';
+import { buildingEffectiveness, garrisonDefensePercent } from './damage.js';
 import { districtEffects, MAX_EFFECT_REDUCTION } from './effects.js';
 import { powerGrid } from './power.js';
-import { buildingLevel, type Building } from './state.js';
+import { buildingLevel, findBuilding, type Building } from './state.js';
 
 /**
  * What the district is worth to the crew standing in it (§A1).
@@ -78,8 +79,15 @@ export const DEFENSE_PER_GATE_LEVEL = 6;
  */
 export function districtDefense(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  const gate = buildingLevel(buildings, 'gate') * DEFENSE_PER_GATE_LEVEL;
-  return Math.round(gate * (1 + effects.defense_percent / 100));
+  // A Gate that has been kicked in is worth less until it is rebuilt — which is most of what a
+  // breach is *for*, and the reason a second raid inside the window is easier than the first.
+  const gate =
+    buildingLevel(buildings, 'gate') *
+    DEFENSE_PER_GATE_LEVEL *
+    buildingEffectiveness(findBuilding(buildings, 'gate'));
+  // §A4 — people stationed inside the structures themselves, up to three per structure. The one
+  // defence that costs bodies rather than materials.
+  return Math.round(gate * (1 + effects.defense_percent / 100) + garrisonDefensePercent(buildings));
 }
 
 // --- the Lab, the Gauntlet, the Infirmary and the haul ---

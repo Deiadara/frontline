@@ -9,10 +9,12 @@ import {
   type Base,
   type DiscoveredFact,
   type Overseer,
+  type PlayerXpAward,
 } from '@frontline/shared';
 import { awardCharacterXp } from '../characters/award.js';
 import type { Repositories } from '../db/repos/index.js';
 import { MODIFICATION_ROLE, fitModification } from '../district/modifications.js';
+import { awardPlayerXp } from '../progression/award.js';
 import { nextPairing, nextRoleFact } from './discover.js';
 
 /**
@@ -29,6 +31,8 @@ export interface ResearchSettlement {
   overseer: Overseer;
   /** Facts banked by this call, in discovery order. Empty when nothing was due. */
   discovered: DiscoveredFact[];
+  /** §I1 — the player XP the finished project paid. At most one; empty when nothing was due. */
+  awards: PlayerXpAward[];
 }
 
 /**
@@ -89,7 +93,9 @@ export function settleResearch(
   now: Date,
 ): ResearchSettlement {
   const active = base.research.active;
-  if (!active || !isResearchDue(active, now)) return { base, overseer, discovered: [] };
+  if (!active || !isResearchDue(active, now)) {
+    return { base, overseer, discovered: [], awards: [] };
+  }
 
   const discovered = investigationYield(base, active);
   const trained =
@@ -134,5 +140,15 @@ export function settleResearch(
     { officerId: leadOf(settled, active), minutesEngaged: active.durationMinutes },
   ]);
 
-  return { base: paid, overseer: trained, discovered };
+  // §I1 — and the player. A project is the longest single commitment in the game, so it is the one
+  // clock that has to be worth waiting out on its own. Last, after the officer's own XP, for the
+  // same reason: the two ledgers are separate and this one must not change what that one paid.
+  const progressed = awardPlayerXp(repos, paid, 'researchCompleted');
+
+  return {
+    base: progressed.base,
+    overseer: trained,
+    discovered,
+    awards: [progressed.award],
+  };
 }

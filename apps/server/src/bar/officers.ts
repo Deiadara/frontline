@@ -10,6 +10,7 @@ import {
   type ReputationLabel,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { crewEffectsFor } from '../crew/standing.js';
 
 /**
  * The §H5 alignment meter, kept current.
@@ -33,10 +34,15 @@ function clampAlignment(value: number): number {
  * whose reputation turns hostile to a given officer's ambitions watches that officer's alignment
  * fall from wherever it stood — and, past §H5's threshold, start threatening to leave.
  */
-export function alignmentAt(officer: Commander, reputation: ReputationLabel, now: Date): number {
+export function alignmentAt(
+  officer: Commander,
+  reputation: ReputationLabel,
+  now: Date,
+  holdPercent = 0,
+): number {
   const target = alignmentTarget(reputationStance(officer, reputation));
   const elapsed = now.getTime() - new Date(officer.alignmentUpdatedAt).getTime();
-  return clampAlignment(settleAlignment(officer.alignment, target, elapsed));
+  return clampAlignment(settleAlignment(officer.alignment, target, elapsed, holdPercent));
 }
 
 /**
@@ -78,9 +84,12 @@ export function settleOfficerAlignment(repos: Repositories, base: Base, now: Dat
   );
   if (!stale) return base;
 
+  // §F2 — Communication, Empathy and Authority slow a walkout. Read off the crew as it stands,
+  // which includes the officer doing the drifting: a room that talks to each other holds together.
+  const hold = crewEffectsFor(repos, base).alignmentHoldPercent;
   const settled = base.commanders.map((officer) => ({
     ...officer,
-    alignment: alignmentAt(officer, reputation, now),
+    alignment: alignmentAt(officer, reputation, now, hold),
     alignmentUpdatedAt: now.toISOString(),
   }));
 

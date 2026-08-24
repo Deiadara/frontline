@@ -9,8 +9,14 @@ import {
   type PlayerXpSource,
 } from './state.js';
 import {
+  AREA_UNLOCK_LEVELS,
+  FIRST_MILESTONE_LEVEL,
+  GATED_AREAS,
+  MILESTONE_STEP,
   PLAYER_LEVEL_UNLOCKS,
+  findPlayerUnlock,
   isPlayerUnlockActive,
+  nextPlayerUnlock,
   playerUnlocksBetween,
   type PlayerLevelUnlock,
 } from './unlocks.js';
@@ -113,22 +119,37 @@ describe('level-up grants (§I2 → §G8, §G3, §H8)', () => {
   });
 });
 
-describe('the unlock hook (§I3)', () => {
+describe('the unlock catalogue (§I3)', () => {
   const catalogue: PlayerLevelUnlock[] = [
-    { id: 'reskilling', level: 3 },
-    { id: 'hard-missions', level: 5 },
+    { id: 'reskilling', level: 3, name: 'Reskilling', description: 'Move an assignee.' },
+    { id: 'hard-missions', level: 5, name: 'Hard work', description: 'The bad jobs.' },
   ];
 
-  it("ships no catalogue — §I3 is the board's to file", () => {
-    expect(PLAYER_LEVEL_UNLOCKS).toEqual([]);
-    expect(playerUnlocksBetween(1, 99)).toEqual([]);
-    expect(isPlayerUnlockActive('anything', 99)).toBe(false);
+  it('opens the four screens at the levels the board named', () => {
+    expect(AREA_UNLOCK_LEVELS).toEqual({ research: 3, market: 5, training: 7, bar: 10 });
+    for (const area of GATED_AREAS) {
+      expect(isPlayerUnlockActive(area, AREA_UNLOCK_LEVELS[area] - 1)).toBe(false);
+      expect(isPlayerUnlockActive(area, AREA_UNLOCK_LEVELS[area])).toBe(true);
+      // A door has copy, because a locked one has to say what it is rather than only when.
+      expect(findPlayerUnlock(area)?.description).toBeTruthy();
+    }
+  });
+
+  it('puts every milestone on the ten-level ladder from 40, and none below it', () => {
+    const milestones = PLAYER_LEVEL_UNLOCKS.filter(
+      (unlock) => !GATED_AREAS.includes(unlock.id as (typeof GATED_AREAS)[number]),
+    );
+    expect(milestones.length).toBeGreaterThan(0);
+    for (const milestone of milestones) {
+      expect(milestone.level).toBeGreaterThanOrEqual(FIRST_MILESTONE_LEVEL);
+      expect(milestone.level % MILESTONE_STEP).toBe(0);
+    }
   });
 
   it('reports only the unlocks a level-up actually crossed', () => {
-    expect(playerUnlocksBetween(1, 3, catalogue)).toEqual([{ id: 'reskilling', level: 3 }]);
+    expect(playerUnlocksBetween(1, 3, catalogue)).toEqual([catalogue[0]]);
     // Already had reskilling at 3; levelling 3 -> 5 must not re-announce it.
-    expect(playerUnlocksBetween(3, 5, catalogue)).toEqual([{ id: 'hard-missions', level: 5 }]);
+    expect(playerUnlocksBetween(3, 5, catalogue)).toEqual([catalogue[1]]);
     expect(playerUnlocksBetween(1, 5, catalogue)).toHaveLength(2);
     expect(playerUnlocksBetween(5, 5, catalogue)).toEqual([]);
   });
@@ -138,21 +159,35 @@ describe('the unlock hook (§I3)', () => {
     expect(isPlayerUnlockActive('reskilling', 3, catalogue)).toBe(true);
     expect(isPlayerUnlockActive('nope', 99, catalogue)).toBe(false);
   });
+
+  it('names the next thing worth reaching, and stops naming one past the ladder', () => {
+    expect(nextPlayerUnlock(1)?.id).toBe('research');
+    expect(nextPlayerUnlock(3)?.id).toBe('market');
+    expect(nextPlayerUnlock(10)?.level).toBe(FIRST_MILESTONE_LEVEL);
+    expect(nextPlayerUnlock(9_999)).toBeNull();
+  });
 });
 
 describe('XP awards (§I1)', () => {
-  it('prices all four §I1 sources — missions, building, quests, fighting players', () => {
+  it('prices every §I1 source, including the clocks the widening added', () => {
     expect(XP_SOURCES).toEqual([
       'missionCompleted',
       'buildingConstructed',
       'questCompleted',
       'raidWon',
       'raidLost',
+      'researchCompleted',
+      'unitTrained',
+      'officerHired',
     ]);
     for (const source of XP_SOURCES) {
       expect(PLAYER_XP_AWARDS[source]).toBeGreaterThan(0);
     }
     expect(PLAYER_XP_AWARDS.raidWon).toBeGreaterThan(PLAYER_XP_AWARDS.raidLost);
+    // The ordering the table's doc comment claims: priced by how long the thing takes and how much
+    // of it can be running at once. A batch off the bench is the cheapest and most frequent.
+    expect(PLAYER_XP_AWARDS.researchCompleted).toBeGreaterThan(PLAYER_XP_AWARDS.officerHired);
+    expect(PLAYER_XP_AWARDS.officerHired).toBeGreaterThan(PLAYER_XP_AWARDS.unitTrained);
   });
 
   it('starts a fresh player at zero progress, and that parses', () => {
@@ -191,9 +226,9 @@ describe('XP awards (§I1)', () => {
 
   it('surfaces every unlock a multi-level award crossed', () => {
     const catalogue: PlayerLevelUnlock[] = [
-      { id: 'a', level: 2 },
-      { id: 'b', level: 3 },
-      { id: 'later', level: 9 },
+      { id: 'a', level: 2, name: 'A', description: 'The first door.' },
+      { id: 'b', level: 3, name: 'B', description: 'The second door.' },
+      { id: 'later', level: 9, name: 'Later', description: 'Not yet.' },
     ];
     const award = resolvePlayerXpAward({ level: 1, xpIntoLevel: 380 }, 'questCompleted', catalogue);
     expect(award.level).toBe(3);

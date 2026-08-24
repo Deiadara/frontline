@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STARTING_INFAMY } from './meters.js';
+import { STARTING_INFAMY } from './infamy.js';
 import { PAY_WEEK_MS } from './payroll.js';
 import {
   ANTI_SYSTEMIC_ACTIONS,

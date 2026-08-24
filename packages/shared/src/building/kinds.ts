@@ -168,7 +168,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Lab',
     description:
       'Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Ideas, not devices.',
-    role: 'Cuts the time every research project takes — investigations, training and modification work alike.',
+    role: 'Cuts the time every research project takes. Investigations, training and modification work all move faster.',
     requiresNexusLevel: 6,
     baseCost: { caps: 260, scrap: 130, oil: 40, highQualityMetal: 10 },
     baseSeconds: 50,

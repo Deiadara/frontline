@@ -16,7 +16,7 @@ import { paintPlaneFallback, paintProcedural } from '../../render/procedural';
 import { PARALLAX_PLANES, planeOffset, type PlaneId, type Vec2 } from '../../render/layers';
 import { createPostFx, createVignette, type PostFxChain } from '../../render/grade';
 import { createViewport, resizeViewport } from '../../render/viewport';
-import { palette, ramps } from '../../theme/tokens';
+import { chrome, ramps } from '../../theme/tokens';
 import type { Viewport } from 'pixi-viewport';
 
 interface CityMapProps {
@@ -33,6 +33,19 @@ interface CityMapProps {
   myBaseId: string | null;
   selectedId: string | null;
   onSelectDistrict: (district: District) => void;
+  /**
+   * Screen-space the chrome is sitting on, in CSS pixels.
+   *
+   * The canvas is full-bleed — the painted city runs edge to edge, which is the point. The
+   * *districts* are not: the intel panel floats over the right of the map, and a district under it
+   * is a district you have to drag out from underneath before you can click it. At 1024 that panel
+   * covered everything past x = 0.65, which is a third of the city.
+   *
+   * So the backdrop fills the frame and the nodes are laid out into what is left of it. That is the
+   * usual split — full-bleed art, interactive content inside a safe area — and it keeps every
+   * district reachable at every viewport without moving the map.
+   */
+  safeArea?: { right?: number; top?: number; bottom?: number };
 }
 
 const hex = (value: string): number => Number.parseInt(value.replace('#', ''), 16);
@@ -44,10 +57,18 @@ const hex = (value: string): number => Number.parseInt(value.replace('#', ''), 1
  * "whose is that", and only after that "what is it". Unscouted ground is smog: legible as a place
  * that exists, illegible as anything else, which is exactly what fog should feel like.
  */
+/**
+ * Marker colours, from the interface palette rather than the art ramps.
+ *
+ * These are chrome — they say whose ground a district is, which is information the app draws over
+ * the city rather than something painted into it. Verdigris for yours, oxblood for hostile, brass
+ * for unclaimed: the same three the rest of the interface uses, so a colour means one thing
+ * everywhere instead of one thing on the map and another in a dialog.
+ */
 const FOG_COLOR = hex(ramps.smog[500]);
-const MINE_COLOR = hex(palette.neon.cyan);
-const HOSTILE_COLOR = hex(palette.neon.magenta);
-const NEUTRAL_COLOR = hex(palette.warning);
+const MINE_COLOR = hex(chrome.verdigris[100]);
+const HOSTILE_COLOR = hex(chrome.oxblood[300]);
+const NEUTRAL_COLOR = hex(chrome.brass[300]);
 
 /**
  * The city behind a label is a dense field of lit windows at every value, so a plain fill is
@@ -60,7 +81,7 @@ const NEUTRAL_COLOR = hex(palette.warning);
  */
 function labelStyle(fontSize: number, fill: number): TextStyleOptions {
   return {
-    fontFamily: 'Orbitron, sans-serif',
+    fontFamily: 'Rajdhani, sans-serif',
     fontSize,
     fontWeight: '600',
     fill,
@@ -76,9 +97,9 @@ function labelStyle(fontSize: number, fill: number): TextStyleOptions {
   };
 }
 
-const LABEL_STYLE = labelStyle(11, hex(palette.steel[200]));
+const LABEL_STYLE = labelStyle(12, hex(chrome.ink[200]));
 
-const LABEL_FONT = '600 11px Orbitron';
+const LABEL_FONT = '600 12px Rajdhani';
 
 async function labelFontsReady(): Promise<void> {
   const fonts: FontFaceSet | undefined = document.fonts;
@@ -119,6 +140,25 @@ interface Scene {
   props: CityMapProps;
 }
 
+/** The width districts are laid out across: the frame less whatever chrome is covering it. */
+function layoutWidth(scene: Scene): number {
+  return Math.max(1, scene.width - (scene.props.safeArea?.right ?? 0));
+}
+
+/**
+ * The band districts are laid out down, as `[top, height]`.
+ *
+ * The same argument as `layoutWidth`, and it was found the same way: the stockpile bar is 60px on a
+ * wide screen and four times that on a narrow one, and the two hardest districts in the game sit at
+ * the top of the map. At 1024 the Combine Spire and Blacksite 7 were drawn *underneath* the HUD —
+ * on screen, in the DOM, and impossible to click.
+ */
+function layoutBand(scene: Scene): { top: number; height: number } {
+  const top = scene.props.safeArea?.top ?? 0;
+  const bottom = scene.props.safeArea?.bottom ?? 0;
+  return { top, height: Math.max(1, scene.height - top - bottom) };
+}
+
 // ─── tooltip ────────────────────────────────────────────────────────────────
 
 function makeTooltip(): Container {
@@ -128,7 +168,7 @@ function makeTooltip(): Container {
   const bg = new Graphics();
   const text = new Text({
     text: '',
-    style: labelStyle(10, hex(palette.steel[100])),
+    style: labelStyle(11, hex(chrome.ink[100])),
   });
   text.position.set(8, 5);
   container.addChild(bg, text);
@@ -150,7 +190,7 @@ function updateTooltip(
   const h = text.height + 10;
   bg.clear()
     .rect(0, 0, w, h)
-    .fill({ color: hex(palette.night.overlay), alpha: 0.95 })
+    .fill({ color: hex(chrome.surface[800]), alpha: 0.95 })
     .stroke({ width: 1, color, alpha: 0.8 });
   tooltip.position.set(Math.max(2, x - w / 2), Math.max(2, y - h - 12));
   tooltip.visible = true;
@@ -188,7 +228,7 @@ export function districtFace(
   ring.fill({ color, alpha: texture ? ART_SCRIM_ALPHA : FACE_ALPHA });
   ring.stroke({
     width: isSelected ? 2.5 : 1.5,
-    color: isSelected ? hex(palette.steel[100]) : color,
+    color: isSelected ? hex(chrome.ink[100]) : color,
   });
   if (!texture) return ring;
 
@@ -205,9 +245,10 @@ export function districtFace(
 }
 
 function drawDistrictNode(scene: Scene, district: District, tooltip: Container): Container {
-  const { width, height, props } = scene;
-  const px = district.position.x * width;
-  const py = district.position.y * height;
+  const { props } = scene;
+  const band = layoutBand(scene);
+  const px = district.position.x * layoutWidth(scene);
+  const py = band.top + district.position.y * band.height;
   const r = radiusFor(district);
   const color = districtColor(district, scene.props.intel, scene.props.myBaseId);
   const isSelected = props.selectedId === district.id;
@@ -271,27 +312,23 @@ export function groupByDistrict(bases: readonly BaseSummary[]): Map<string, Base
 }
 
 function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Container | null {
-  const { width, height, props } = scene;
+  const { props } = scene;
   const district = props.districts.find((d) => d.id === base.districtId);
   if (!district) return null;
   const isMine = base.id === props.myBaseId;
-  const color = base.isBot
-    ? hex(palette.neon.magenta)
-    : isMine
-      ? hex(palette.neon.cyan)
-      : hex(palette.steel[300]);
+  const color = base.isBot ? HOSTILE_COLOR : isMine ? MINE_COLOR : hex(chrome.ink[300]);
 
   const glyph = new Graphics();
   if (base.isBot) {
     glyph
       .poly([0, 7, -7, -5, 0, -1, 7, -5])
       .fill({ color, alpha: 1 })
-      .stroke({ width: 1, color: hex(palette.night.DEFAULT) });
+      .stroke({ width: 1, color: hex(chrome.surface[950]) });
   } else {
     glyph
       .poly([0, -6, 5, 0, 0, 6, -5, 0])
       .fill({ color, alpha: isMine ? 1 : 0.7 })
-      .stroke({ width: 1, color: hex(palette.night.DEFAULT) });
+      .stroke({ width: 1, color: hex(chrome.surface[950]) });
   }
 
   const tag = new Text({
@@ -302,11 +339,13 @@ function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Cont
   tag.position.set(0, -TAG_GAP);
 
   const halfTag = tag.width / 2;
-  const px = district.position.x * width;
-  const py = district.position.y * height;
+  const safeWidth = layoutWidth(scene);
+  const band = layoutBand(scene);
+  const px = district.position.x * safeWidth;
+  const py = band.top + district.position.y * band.height;
   const marker = new Container();
   marker.position.set(
-    Math.min(Math.max(px, halfTag + EDGE_PADDING), width - halfTag - EDGE_PADDING),
+    Math.min(Math.max(px, halfTag + EDGE_PADDING), safeWidth - halfTag - EDGE_PADDING),
     markerY(py, radiusFor(district), slot),
   );
 
@@ -485,7 +524,12 @@ export function CityMap(props: CityMapProps) {
         });
 
         // All planes live inside the viewport; the viewport pans them together.
-        for (const id of ['sky', 'far', 'mid', 'nodes', 'fore', 'atmosphere'] as PlaneId[]) {
+        //
+        // `nodes` sits above `fore`, not under it. In the old elevation view a foreground mass
+        // passing in front of a marker was a depth cue; in a plan view there is no "in front",
+        // only "on top", and a near block drawn over a district's name is just a label a player
+        // cannot read — "The Undergrid" was rendering as "…grid".
+        for (const id of ['sky', 'far', 'mid', 'fore', 'nodes', 'atmosphere'] as PlaneId[]) {
           const c = planes.get(id);
           if (c) viewport.addChild(c);
         }
@@ -589,5 +633,18 @@ export function CityMap(props: CityMapProps) {
     buildPlanes(scene);
   }, [cityArt.status]);
 
-  return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
+  // The safe width is published rather than left for a reader to recompute. A district's screen
+  // position is `position.x * layoutWidth`, and anything outside this component that needs to point
+  // at one — a test driving the canvas, most of all — would otherwise keep a second copy of that
+  // arithmetic and silently drift from it.
+  return (
+    <div
+      ref={containerRef}
+      className="h-full w-full overflow-hidden"
+      data-testid="city-map"
+      data-safe-right={props.safeArea?.right ?? 0}
+      data-safe-top={props.safeArea?.top ?? 0}
+      data-safe-bottom={props.safeArea?.bottom ?? 0}
+    />
+  );
 }

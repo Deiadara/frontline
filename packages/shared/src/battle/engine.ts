@@ -1,5 +1,5 @@
 import { noTerritoryEffects, type TerritoryEffects } from '../city/index.js';
-import { findUnit, type Army, type UnitSpec } from '../units/index.js';
+import { findUnit, type Army, type FittedUpgrades, type UnitSpec } from '../units/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
 import { effectiveStats, OUTNUMBERED_RATIO, type Effective } from './effects.js';
 import { exchange, threatWeight } from './matchup.js';
@@ -73,7 +73,21 @@ export const MAX_CONCENTRATION = 1.6;
  * was invented to fix.
  */
 export function engagedBodies(side: SideState, frontage: number): number {
-  return Math.min(fighting(side), Math.max(1, frontage));
+  return Math.min(fighting(side), Math.max(1, effectiveFrontage(side, frontage)));
+}
+
+/**
+ * The most a crew's own co-ordination can widen the ground it is fighting on.
+ *
+ * Capped at half again, because a corridor is a corridor. Cohesion is a real answer to combat width
+ * and it is deliberately not a complete one — a crew that solves overstacking by hiring an organiser
+ * would put the mechanic back where it was before frontage existed.
+ */
+export const MAX_COHESION_WIDTH = 1.5;
+
+/** This side's usable frontage: the ground's, widened by what the crew can co-ordinate. */
+export function effectiveFrontage(side: SideState, frontage: number): number {
+  return frontage * Math.min(MAX_COHESION_WIDTH, 1 + Math.max(0, side.cohesionPercent) / 100);
 }
 
 /**
@@ -120,6 +134,15 @@ export interface Stack {
   brokeAt: number | null;
   /** Bodies that started the fight — the denominator for every casualty figure. */
   started: number;
+  /**
+   * Damage this stack has put out across the whole fight, opening strike included.
+   *
+   * Accumulated rather than derived, because there is nowhere to derive it from: fire is split
+   * across every enemy stack and applied from a shared snapshot, so by the time the round is over
+   * the only record of who did what is the one kept while it was happening. It is what
+   * `battle/analysis.ts` reads to say which of your units actually earned their supply.
+   */
+  dealt: number;
 }
 
 export interface SideSetup {
@@ -127,6 +150,10 @@ export interface SideSetup {
   army: Army;
   defending: boolean;
   territory?: TerritoryEffects;
+  /** The workshop's refit, folded onto every sheet on this side (`units/upgrades.ts`). */
+  upgrades?: FittedUpgrades;
+  /** §A5 teamwork — how much of a force too big for the ground can be brought to bear anyway. */
+  cohesionPercent?: number;
 }
 
 export interface SideState {
@@ -143,6 +170,14 @@ export interface SideState {
    * else.
    */
   luck: number;
+  /**
+   * §A5 — the teamwork channel (`crew/effects.ts`), as a percentage on this side's usable frontage.
+   *
+   * The only bonus in the game whose worth depends on how many people you brought: it does nothing
+   * at all to a force that already fits on the ground, and it is the difference between a hundred
+   * and a hundred *fighting* when the ground is a corridor.
+   */
+  cohesionPercent: number;
 }
 
 const clamp = (value: number, low: number, high: number): number =>
@@ -203,12 +238,19 @@ function buildStacks(
   defending: boolean,
   outnumbered: boolean,
   territory: TerritoryEffects,
+  upgrades: FittedUpgrades,
 ): Stack[] {
   const stacks: Stack[] = [];
   for (const [unitId, count] of Object.entries(army)) {
     const unit = findUnit(unitId);
     if (!unit || count <= 0) continue;
-    const effective = effectiveStats(unit, battlefield, { defending, outnumbered }, territory);
+    const effective = effectiveStats(
+      unit,
+      battlefield,
+      { defending, outnumbered },
+      territory,
+      upgrades,
+    );
     stacks.push({
       unit,
       effective,
@@ -217,6 +259,7 @@ function buildStacks(
       morale: effective.morale,
       brokeAt: null,
       started: count,
+      dealt: 0,
     });
   }
   return stacks;
@@ -270,6 +313,7 @@ function fireRound(
       const damage =
         perBody * stack.alive * deployed * share * ROUND_DAMAGE_SCALE * concentration * swing;
       incoming.set(target, (incoming.get(target) ?? 0) + damage);
+      stack.dealt += damage;
     }
   }
   return incoming;
@@ -406,12 +450,14 @@ export function simulate(input: SimulateInput): Simulation {
     swing: 1 + (next() * 2 - 1) * BATTLE_LUCK,
     // Filled in below: every force is registered before any luck is drawn.
     luck: 0,
+    cohesionPercent: setup.cohesionPercent ?? 0,
     stacks: buildStacks(
       setup.army,
       battlefield,
       setup.defending,
       ownCount > 0 && otherCount / ownCount >= OUTNUMBERED_RATIO,
       setup.territory ?? noTerritoryEffects(),
+      setup.upgrades ?? [],
     ),
   });
 
@@ -426,7 +472,7 @@ export function simulate(input: SimulateInput): Simulation {
 
   // The opening strike, before either side is in position. Only the attacker can take one — an
   // ambush is something you set, and the side standing on the ground it already holds is not
-  // setting it. This is also the only place `stealth` matters once a fight has started.
+  // setting it. This is also the only location `stealth` matters once a fight has started.
   const ambush = ambushShare(attacker, defender, battlefield.frontage);
   // Carried into the first round's morale rather than discarded. The opening volley was applied to
   // health and then dropped on the floor: bodies fell and nothing was shaken by it, so an ambush

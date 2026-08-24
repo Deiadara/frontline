@@ -1,7 +1,9 @@
-import type { TerritoryEffects } from '../city/index.js';
+import { labelVerdict, type TerritoryEffects } from '../city/index.js';
 import {
   UNIT_MODIFIERS,
+  upgradedStats,
   type CombatContext,
+  type FittedUpgrades,
   type UnitSpec,
   type UnitStats,
 } from '../units/index.js';
@@ -24,7 +26,7 @@ import type { Battlefield } from './battlefield.js';
 
 /** The contexts that depend on the side rather than the ground. */
 export interface SideContext {
-  /** Holding the place, rather than coming for it. */
+  /** Holding the location, rather than coming for it. */
   defending: boolean;
   /** Fewer bodies than the other side, by {@link OUTNUMBERED_RATIO} or worse. */
   outnumbered: boolean;
@@ -98,20 +100,39 @@ export function contextBonusPercent(
  * `CombatContext`s: the first two depend on who the unit is shooting at, so they belong to the
  * matchup and are applied per exchange (`matchup.ts`). `vs_structure` does live here, because the
  * fortification is a property of the ground and does not change with the target.
+ *
+ * `upgrades` is the workshop's refit (`units/upgrades.ts`), folded onto the sheet *first* so every
+ * percentage below multiplies the upgraded figure rather than the catalogue one. It was the one
+ * input the engine did not read: a crew could buy Slaved Optics for every unit it owns and fight
+ * exactly as well as one that had not, which made the whole workshop a number on a screen.
  */
 export function effectiveStats(
   unit: UnitSpec,
   battlefield: Battlefield,
   side: SideContext,
   territory: TerritoryEffects,
+  upgrades: FittedUpgrades = [],
 ): Effective {
   const contexts: CombatContext[] = [...battlefield.contexts];
   if (side.defending) contexts.push('defending');
   if (side.outnumbered) contexts.push('outnumbered');
 
   const { percent, reasons } = contextBonusPercent(unit, contexts);
-  const offenseBonus = percent + territory.unitOffensePercent;
-  const sheet = unit.stats;
+  const sheet = upgrades.length === 0 ? unit.stats : upgradedStats(unit.stats, upgrades);
+
+  /*
+   * What the ground and the sky are worth to *this* unit (`city/labels.ts`).
+   *
+   * Read off the **upgraded** sheet rather than the catalogue one, so a refit that adds armour
+   * genuinely changes how a unit copes with the cold — the alternative is a workshop upgrade that
+   * moves eleven numbers and is invisible to the one system built to read them.
+   *
+   * Summed with the context modifiers rather than multiplied against them, for the reason at the
+   * top of this file: a player has to be able to add up why their Anodics are at +46% in a press
+   * hall at four in the morning, and `1.25 × 1.26 × 1.04` is not something anybody adds up.
+   */
+  const ground = labelVerdict(sheet, unit, battlefield.labels);
+  const offenseBonus = percent + ground.percent + territory.unitOffensePercent;
 
   // Everything the holder built buys *toughness*, not damage: a wall does not make a rifle shoot
   // harder. This is the one place percentages land on vitality rather than on offense.
@@ -131,11 +152,11 @@ export function effectiveStats(
     range: sheet.range,
     evasion: sheet.evasion,
     lethality: sheet.lethality,
-    stealth: sheet.stealth,
+    stealth: Math.min(100, Math.round(sheet.stealth * (1 + territory.unitStealthPercent / 100))),
     intimidation: sheet.intimidation,
     morale: clamp(sheet.morale + territory.unitMoraleFlat, 0, 100),
     damageType: sheet.damageType,
     resistances: sheet.resistances,
-    reasons: held > 0 ? [...reasons, 'Holding built ground'] : reasons,
+    reasons: [...reasons, ...ground.reasons, ...(held > 0 ? ['Holding built ground'] : [])],
   };
 }

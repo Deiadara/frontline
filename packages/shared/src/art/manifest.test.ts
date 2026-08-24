@@ -62,32 +62,34 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['building-infirmary', 'building-infirmary.webp', 140011],
   ['building-garage', 'building-garage.webp', 140012],
   ['unit-razors', 'unit-razors.webp', 145001],
-  ['unit-sparks', 'unit-sparks.webp', 145002],
-  ['unit-scrapers', 'unit-scrapers.webp', 145003],
-  ['unit-muckrakers', 'unit-muckrakers.webp', 145004],
-  ['unit-breakers', 'unit-breakers.webp', 145005],
-  ['unit-wardens', 'unit-wardens.webp', 145006],
-  ['unit-ghosts', 'unit-ghosts.webp', 145007],
-  ['unit-road-reavers', 'unit-road-reavers.webp', 145008],
-  ['unit-ironsides', 'unit-ironsides.webp', 145009],
-  ['unit-ash-walkers', 'unit-ash-walkers.webp', 145010],
-  ['unit-snipers', 'unit-snipers.webp', 145011],
-  ['unit-stitchers', 'unit-stitchers.webp', 145012],
-  ['unit-demolishers', 'unit-demolishers.webp', 145013],
-  ['unit-jammers', 'unit-jammers.webp', 145014],
-  ['unit-kite-crews', 'unit-kite-crews.webp', 145015],
-  ['unit-netrunners', 'unit-netrunners.webp', 145016],
-  ['unit-sleepers', 'unit-sleepers.webp', 145017],
-  ['unit-bell-ringers', 'unit-bell-ringers.webp', 145018],
-  ['unit-wrecking-crew', 'unit-wrecking-crew.webp', 145019],
-  ['unit-juggernauts', 'unit-juggernauts.webp', 145020],
-  ['unit-hollow-men', 'unit-hollow-men.webp', 145021],
-  ['unit-the-condemned', 'unit-the-condemned.webp', 145022],
-  ['unit-the-specter', 'unit-the-specter.webp', 145023],
-  ['unit-the-abomination', 'unit-the-abomination.webp', 145024],
-  ['unit-the-colossus', 'unit-the-colossus.webp', 145025],
-  ['unit-the-saint', 'unit-the-saint.webp', 145026],
-  ['unit-the-cartographer', 'unit-the-cartographer.webp', 145027],
+  ['unit-anodics', 'unit-anodics.webp', 145002],
+  ['unit-sparks', 'unit-sparks.webp', 145003],
+  ['unit-scrapers', 'unit-scrapers.webp', 145004],
+  ['unit-muckrakers', 'unit-muckrakers.webp', 145005],
+  ['unit-breakers', 'unit-breakers.webp', 145006],
+  ['unit-wardens', 'unit-wardens.webp', 145007],
+  ['unit-ghosts', 'unit-ghosts.webp', 145008],
+  ['unit-road-reavers', 'unit-road-reavers.webp', 145009],
+  ['unit-ironsides', 'unit-ironsides.webp', 145010],
+  ['unit-ash-walkers', 'unit-ash-walkers.webp', 145011],
+  ['unit-snipers', 'unit-snipers.webp', 145012],
+  ['unit-stitchers', 'unit-stitchers.webp', 145013],
+  ['unit-demolishers', 'unit-demolishers.webp', 145014],
+  ['unit-jammers', 'unit-jammers.webp', 145015],
+  ['unit-kite-crews', 'unit-kite-crews.webp', 145016],
+  ['unit-netrunners', 'unit-netrunners.webp', 145017],
+  ['unit-sleepers', 'unit-sleepers.webp', 145018],
+  ['unit-cyber-dogs', 'unit-cyber-dogs.webp', 145019],
+  ['unit-bell-ringers', 'unit-bell-ringers.webp', 145020],
+  ['unit-wrecking-crew', 'unit-wrecking-crew.webp', 145021],
+  ['unit-juggernauts', 'unit-juggernauts.webp', 145022],
+  ['unit-hollow-men', 'unit-hollow-men.webp', 145023],
+  ['unit-the-condemned', 'unit-the-condemned.webp', 145024],
+  ['unit-the-specter', 'unit-the-specter.webp', 145025],
+  ['unit-the-abomination', 'unit-the-abomination.webp', 145026],
+  ['unit-the-colossus', 'unit-the-colossus.webp', 145027],
+  ['unit-the-saint', 'unit-the-saint.webp', 145028],
+  ['unit-the-cartographer', 'unit-the-cartographer.webp', 145029],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -105,26 +107,48 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-archetype-technocrat', 'icon-archetype-technocrat.webp', 160014],
   ['icon-kind-residential', 'icon-kind-residential.webp', 160021],
   ['icon-kind-contested', 'icon-kind-contested.webp', 160022],
-  ['icon-place-scrap-press', 'icon-place-scrap-press.webp', 160031],
-  ['icon-place-chemical-plant', 'icon-place-chemical-plant.webp', 160032],
-  ['icon-place-power-station', 'icon-place-power-station.webp', 160033],
-  ['icon-place-water-works', 'icon-place-water-works.webp', 160034],
-  ['icon-place-foundry', 'icon-place-foundry.webp', 160035],
-  ['icon-place-market', 'icon-place-market.webp', 160036],
-  ['icon-place-pawn-shop', 'icon-place-pawn-shop.webp', 160037],
-  ['icon-place-high-ground', 'icon-place-high-ground.webp', 160038],
-  ['icon-place-barricade', 'icon-place-barricade.webp', 160039],
-  ['icon-place-armory', 'icon-place-armory.webp', 160040],
-  ['icon-place-war-machine-graveyard', 'icon-place-war-machine-graveyard.webp', 160041],
-  ['icon-place-university', 'icon-place-university.webp', 160042],
-  ['icon-place-satellite-uplink', 'icon-place-satellite-uplink.webp', 160043],
-  ['icon-place-gene-clinic', 'icon-place-gene-clinic.webp', 160044],
-  ['icon-place-fight-pit', 'icon-place-fight-pit.webp', 160045],
-  ['icon-place-skate-ground', 'icon-place-skate-ground.webp', 160046],
-  ['icon-place-hospital', 'icon-place-hospital.webp', 160047],
-  ['icon-place-rail-yard', 'icon-place-rail-yard.webp', 160048],
-  ['icon-place-broadcast-tower', 'icon-place-broadcast-tower.webp', 160049],
-  ['icon-place-sewer-junction', 'icon-place-sewer-junction.webp', 160050],
+  ['icon-location-scrap-press', 'icon-location-scrap-press.webp', 160031],
+  ['icon-location-chemical-plant', 'icon-location-chemical-plant.webp', 160032],
+  ['icon-location-power-station', 'icon-location-power-station.webp', 160033],
+  ['icon-location-water-works', 'icon-location-water-works.webp', 160034],
+  ['icon-location-foundry', 'icon-location-foundry.webp', 160035],
+  ['icon-location-gas-station', 'icon-location-gas-station.webp', 160036],
+  ['icon-location-nuclear-plant', 'icon-location-nuclear-plant.webp', 160037],
+  ['icon-location-soup-kitchen', 'icon-location-soup-kitchen.webp', 160038],
+  ['icon-location-market', 'icon-location-market.webp', 160039],
+  ['icon-location-downtown-market', 'icon-location-downtown-market.webp', 160040],
+  ['icon-location-pawn-shop', 'icon-location-pawn-shop.webp', 160041],
+  ['icon-location-bone-market', 'icon-location-bone-market.webp', 160042],
+  ['icon-location-revolutionist-statue', 'icon-location-revolutionist-statue.webp', 160043],
+  ['icon-location-high-ground', 'icon-location-high-ground.webp', 160044],
+  ['icon-location-barricade', 'icon-location-barricade.webp', 160045],
+  ['icon-location-watchtower', 'icon-location-watchtower.webp', 160046],
+  ['icon-location-sewer-junction', 'icon-location-sewer-junction.webp', 160047],
+  ['icon-location-smugglers-tunnel', 'icon-location-smugglers-tunnel.webp', 160048],
+  ['icon-location-armory', 'icon-location-armory.webp', 160049],
+  ['icon-location-war-machine-graveyard', 'icon-location-war-machine-graveyard.webp', 160050],
+  ['icon-location-construction-site', 'icon-location-construction-site.webp', 160051],
+  ['icon-location-fight-pit', 'icon-location-fight-pit.webp', 160052],
+  ['icon-location-gym', 'icon-location-gym.webp', 160053],
+  ['icon-location-doghouse', 'icon-location-doghouse.webp', 160054],
+  ['icon-location-rail-yard', 'icon-location-rail-yard.webp', 160055],
+  ['icon-location-tram-depot', 'icon-location-tram-depot.webp', 160056],
+  ['icon-location-university', 'icon-location-university.webp', 160057],
+  ['icon-location-planetarium', 'icon-location-planetarium.webp', 160058],
+  ['icon-location-satellite-uplink', 'icon-location-satellite-uplink.webp', 160059],
+  ['icon-location-broadcast-tower', 'icon-location-broadcast-tower.webp', 160060],
+  ['icon-location-broadcast-station', 'icon-location-broadcast-station.webp', 160061],
+  ['icon-location-pirate-radio', 'icon-location-pirate-radio.webp', 160062],
+  ['icon-location-gene-clinic', 'icon-location-gene-clinic.webp', 160063],
+  ['icon-location-hospital', 'icon-location-hospital.webp', 160064],
+  ['icon-location-black-clinic', 'icon-location-black-clinic.webp', 160065],
+  ['icon-location-mad-scientist-lair', 'icon-location-mad-scientist-lair.webp', 160066],
+  ['icon-location-tavern', 'icon-location-tavern.webp', 160067],
+  ['icon-location-cinema', 'icon-location-cinema.webp', 160068],
+  ['icon-location-arcade', 'icon-location-arcade.webp', 160069],
+  ['icon-location-skate-ground', 'icon-location-skate-ground.webp', 160070],
+  ['icon-location-chapel', 'icon-location-chapel.webp', 160071],
+  ['icon-location-graveyard', 'icon-location-graveyard.webp', 160072],
 ];
 
 /**
@@ -185,8 +209,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 96 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(96);
+  it('holds the 120 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(120);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -218,7 +242,11 @@ describe('ART_MANIFEST', () => {
    * widened rule.
    */
   const SIZE_EXCEPTIONS: Record<string, { width: number; height: number; aspect: string }> = {
-    'plate-district': { width: 1376, height: 768, aspect: '43:24' },
+    // The size the board painted it at. Written down independently of the manifest on purpose:
+    // this is the one asset whose delivery size is *load-bearing* — twelve building outlines are
+    // positions on this exact image — so a change to it has to be made in two places by somebody
+    // who meant it, rather than in one and agreed with automatically.
+    'plate-district': { width: 1672, height: 941, aspect: '1672:941' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {
@@ -368,8 +396,8 @@ describe('ART_MANIFEST', () => {
     ).toEqual(['plane-city-far', 'plane-city-fore']);
   });
 
-  it('leaves the other 51 assets needing no post-process at all', () => {
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(45);
+  it('leaves the other 53 assets needing no post-process at all', () => {
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(67);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {

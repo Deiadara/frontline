@@ -44,6 +44,7 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     outcome: null,
     rewards: {},
     resolvedAt: null,
+    recalledAt: null,
   };
 }
 

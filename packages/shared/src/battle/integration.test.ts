@@ -37,7 +37,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     attacking: { razors: 20, snipers: 6, breakers: 4 },
     defending: { wardens: 10, ironsides: 4 },
     ground: battlefieldFor({
-      placeName: 'The Sump',
+      locationName: 'The Sump',
       kind: 'sewer_junction',
       fortifyDifficulty: 'medium',
       fortifyLevel: 3,
@@ -49,7 +49,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     attacking: { road_reavers: 12 },
     defending: { snipers: 14, jammers: 6 },
     ground: battlefieldFor({
-      placeName: 'The Yard',
+      locationName: 'The Yard',
       kind: 'rail_yard',
       fortifyDifficulty: 'hard',
       fortifyLevel: 0,
@@ -67,7 +67,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     attacking: { scrapers: 18, ghosts: 6 },
     defending: { stitchers: 4, wardens: 8 },
     ground: battlefieldFor({
-      placeName: 'The Armoury',
+      locationName: 'The Armoury',
       kind: 'armory',
       fortifyDifficulty: 'easy',
       fortifyLevel: 5,
@@ -79,7 +79,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     attacking: { razors: 60 },
     defending: { the_colossus: 1, ironsides: 6 },
     ground: battlefieldFor({
-      placeName: 'The Graveyard',
+      locationName: 'The Graveyard',
       kind: 'war_machine_graveyard',
       fortifyDifficulty: 'medium',
       fortifyLevel: 1,
@@ -87,11 +87,11 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     }),
   },
   {
-    name: 'an undefended place',
+    name: 'an undefended location',
     attacking: { razors: 8 },
     defending: {},
     ground: battlefieldFor({
-      placeName: 'The Press',
+      locationName: 'The Press',
       kind: 'scrap_press',
       fortifyDifficulty: 'easy',
       fortifyLevel: 0,
@@ -113,7 +113,7 @@ const resolve = (scenario: (typeof SCENARIOS)[number], seed: number): SkirmishOu
     seed: `${scenario.name}-${seed}`,
     attackerName: 'The Ninth Street Crew',
     defenderName: 'the looters',
-    placeName: scenario.ground.placeName,
+    locationName: scenario.ground.locationName,
     attacking: scenario.attacking,
     defending: scenario.defending,
     battlefield: scenario.ground,
@@ -248,7 +248,7 @@ describe.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))(
       for (const seed of seeds) {
         const outcome = resolve(scenario, seed);
         expect(outcome.log.length).toBeGreaterThan(1);
-        expect(outcome.log.join(' ')).toContain(scenario.ground.placeName);
+        expect(outcome.log.join(' ')).toContain(scenario.ground.locationName);
         expect(outcome.log.some((line) => line.trim() === '')).toBe(false);
         // The last line always accounts for the bodies.
         expect(outcome.log.at(-1)).toMatch(/lost on the ground|did not|broke and ran/);

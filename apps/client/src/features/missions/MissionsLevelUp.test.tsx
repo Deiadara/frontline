@@ -29,7 +29,7 @@ function board(levelUp?: LevelUp): { data: MissionsResponse; dataUpdatedAt: numb
   };
 }
 
-const crossed: LevelUp = { level: 4, levelsGained: 1, grants: playerLevelGrants(4) };
+const crossed: LevelUp = { level: 4, levelsGained: 1, grants: playerLevelGrants(4), unlocks: [] };
 
 beforeEach(() => {
   useMissions.mockReset();

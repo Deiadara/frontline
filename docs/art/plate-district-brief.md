@@ -1,70 +1,63 @@
 # `plate-district` — what shipped, and what a revision would change
 
 **The delivered plate is in the game.** `art-src/plate-district.png` → `assets/plate-district.webp`,
-1376 × 768, and the twelve structures stand on lots in it. `docs/art/district-template.png` is the
-current composite — the delivered plate with every master drawn where the client draws it, graded
-the way the client grades it. Regenerate it with:
+1672 × 941, and it is the whole district screen: the painting _is_ the buildings.
 
-```
-pnpm --filter @frontline/scripts district-template -- --clean
-```
+## 1. The model changed with this delivery
 
-Drop `--clean` to get the pad outlines and labels over the top.
+The plate used to be **ground**: an empty terrace with lots in it, onto which the client pasted
+twelve cutout masters at fixed points, graded and hazed to make them sit down into the picture. The
+delivered plate is a finished district with its buildings already painted, so there is nothing left
+to paste.
 
----
+What the client adds instead is an **interaction layer**: one polygon traced around each building's
+own silhouette (`apps/client/src/features/base/plots.ts`). Hovering one washes light over that
+building's pixels; clicking it opens that structure's window. The browser hit-tests the outline, so
+each building answers for exactly its own shape.
 
-## 1. Size — settled, and not 16:9
+Two consequences for anybody revising the art:
 
-The plate ships at **1376 × 768 (aspect 43:24, 1.7917)**, which is the size it was painted at. This
-is the only asset in the manifest that overrides the ART-BIBLE §6 class size, and the override is
-deliberate: the plate is a **map**, not a backdrop. Twelve building sites are positions on _this_
-image, so centre-cropping 11 pixels to reach 16:9 would move all twelve at once for no gain.
+- **A re-render at a different framing is a re-layout.** Every one of the twelve outlines is a
+  position on _this_ image. A crop, a pan, or a rebuilt street plan moves all twelve at once, and
+  they have to be re-traced by hand against the new file.
+- **A re-render at the same framing and a larger size is free.** 3344 × 1882 would drop straight in:
+  the outlines are percentages, and the scene is fitted to the plate's aspect from the manifest.
 
-A future revision may be **larger at the same aspect** — 2752 × 1536 would give room for a zoom —
-but it must be the same framing, or every site moves. Anything at a different aspect is a re-layout,
-not a re-render.
+## 2. The building masters are still used
 
-## 2. Lots — eleven, plus the perimeter
+`art-src/building-*.png` did not become dead. They are the **portrait** in a structure's window —
+the one place a player sees the building itself rather than the building in its street — so a
+redelivered master still shows up, and `scripts/district-masters.test.ts` still gates them.
 
-Eleven structures stand on lots the painting already has. The twelfth, the **Gate**, stands on the
-timber perimeter wall across the bottom-left, over the gap painted into it — it is the way in and
-out of the compound, so a plot in the middle of the district would have been the one placement that
-makes no sense.
-
-Lot sizes were read off the painting rather than imposed on it, and they vary from 11.6% to 18.8% of
-the frame width. Every one of them clears the readability floor.
+The grade table in `apps/client/src/features/base/masters.ts` is what stops a portrait glowing
+against the chrome.
 
 ## 3. What the renderer does, so the painting does not have to
 
 Do **not** bake any of this in — it is applied at draw time and doing it twice looks like a mistake:
 
-- **Grade.** Each structure is pulled 85% of the way to the plate's own mean luminance and 60% of
-  the way to its saturation (`apps/client/src/features/base/masters.ts`). Ungraded, the twelve
-  masters ran from a mean luminance of 40 to 108 against a plate at 59.5 — which is what "pasted on"
-  looks like. The table is re-derived from the delivered files by
-  `scripts/district-masters.test.ts`, so a redelivered master fails a gate rather than glowing.
-- **Contact shadows.** A soft pool at each structure's ground line. No drop shadows in the painting.
-- **Depth haze.** Tinted into the sprite by depth.
+- **Hover and selection**: a warm `screen`-blended wash inside the building's outline, plus a glow.
+- **Unbuilt structures**: a dark scrim with a dashed edge over the outline. The painting draws every
+  building whether or not the player has built it, so "not yet" is drawn by the client.
 
-So the plate should stay **flat**: no vignette, no grain, no bloom, no baked shadows for buildings
-that are not there.
+So the plate should stay **flat**: no vignette, no grain, no bloom.
 
 ## 4. What a revision should change
 
 In rough order of value:
 
-1. **No text.** Three delivered masters carry baked-in lettering — the Lab reads `MAKING COOL
-STUFF`, the Greenhouse `W E WANT APPLES`, the Garage `GARAGE`. It cannot be localised and it does
-   not survive scaling. This is an ART-BIBLE §6 rule and these three break it.
-2. **Clear the two lots that still have furniture in them.** The canalside lot (the Quarters) has an
-   open-sided shelter at its back-left and a container at its front; the far-right lot (the Garage)
-   has an awning. Buildings are drawn on top, so today they read as a building standing on a crate.
-3. **A third clean lot in the middle band** would let the layout breathe; the centre is the tightest
-   part of the frame.
+1. **No text.** The painting carries baked-in lettering — the greenhouse reads `WE WANT APPLES!`,
+   the lab `MAKING COOL STUFF`. It cannot be localised and it does not survive scaling. This is an
+   ART-BIBLE §6 rule.
+2. **Two buildings, one label.** The reference sheet labels two glasshouses and no garage; the
+   second glasshouse (mid-right, the container-like shed at roughly x 65–76%, y 51–67%) is being
+   used as the Garage. A revision should make that building read as a garage.
+3. **Give the small structures more room.** The Cistern is one tank about 5% of the frame wide,
+   which is the smallest thing a player has to be able to point at.
 
 ## 5. Things to keep exactly as they are
 
-- The camera angle — high and slightly forward, and it matches how the buildings are drawn.
+- The camera angle — high and slightly forward.
 - No sky, no horizon. The whole frame is ground.
 - Night, with the cold key and the sodium lamps.
 - The wet ground and the puddled reflections.
@@ -82,3 +75,6 @@ art-src/plate-district.png
 Then `pnpm --filter @frontline/scripts encode-art --landed` ships it. A file with any other name is
 silently ignored at every stage — that is the one failure mode to watch for. Record the licence and
 source in ART-BIBLE §9 at the same time; `auditProvenance` fails the build without a row.
+
+If the size changes, update `DISTRICT_PLATE_DELIVERY` in `packages/shared/src/art/manifest.ts` to
+match. The scene takes its shape from that entry, and `plots.test.ts` fails if the two disagree.

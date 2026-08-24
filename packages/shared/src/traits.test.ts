@@ -98,7 +98,7 @@ describe('applying traits to a sheet', () => {
 
     const hurt = applyTraitBonuses(flat, ['glass_jaw']);
     expect(hurt.toughness).toBe(31);
-    expect(hurt.endurance).toBe(35);
+    expect(hurt.stamina).toBe(35);
   });
 
   it('leaves every attribute the trait does not name alone', () => {

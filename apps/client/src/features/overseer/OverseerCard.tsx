@@ -18,10 +18,8 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        'group flex min-h-0 snap-start flex-col border bg-night-raised text-left transition-all duration-150',
-        selected
-          ? 'border-neon-cyan shadow-neon-cyan'
-          : 'border-steel-700 hover:border-neon-cyan/50',
+        'group flex min-h-0 snap-start flex-col border bg-surface-900 text-left transition-all duration-150',
+        selected ? 'border-brass-300 shadow-brass' : 'border-surface-600 hover:border-brass-300/50',
       )}
     >
       <div className="flex gap-3 px-2 py-1.5">
@@ -33,13 +31,15 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
           />
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
-          <h3 className="truncate font-display text-sm font-bold tracking-wide text-steel-100">
+          <h3 className="truncate font-display text-sm font-bold tracking-wide text-ink-100">
             {preset.name}
           </h3>
-          <span className="mt-0.5 w-fit border border-neon-cyan/30 px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.2em] text-neon-cyan">
+          <span className="mt-0.5 w-fit border border-brass-300/30 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.2em] text-brass-300">
             {preset.archetype}
           </span>
-          <p className="mt-1.5 line-clamp-3 font-body text-[11px] leading-relaxed text-steel-400">
+          {/* Two lines, not three. The sheet under this card grew by two rows when the attribute
+              model was reworked, and at 1280x800 the fourth card was the one that paid for it. */}
+          <p className="mt-1.5 line-clamp-2 font-body text-[12px] leading-relaxed text-ink-300">
             {preset.bio}
           </p>
           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -59,7 +59,7 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
         </div>
       </div>
 
-      <div className="border-t border-steel-800 px-2 py-1.5">
+      <div className="border-t border-surface-700 px-2 py-1.5">
         <AttributeSheet attributes={preset.attributes} />
       </div>
     </button>

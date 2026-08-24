@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { METER_MAX, type Meter } from '../economy/meters.js';
 import type { ReputationLabel } from '../economy/reputation.js';
+import { MILESTONE_SECOND_SIGNATURE, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { reputationStance, STANCE_MIN, type Disposition } from './disposition.js';
 
 /**
@@ -21,16 +21,19 @@ import { reputationStance, STANCE_MIN, type Disposition } from './disposition.js
  */
 export const JoinRequirementSchema = z.object({
   /** The §D7 infamy the crew must already have. `0` means anyone can approach them. */
-  minInfamy: z.number().min(0).max(METER_MAX),
+  minInfamy: z.number().min(0),
 });
 export type JoinRequirement = z.infer<typeof JoinRequirementSchema>;
 
 /**
- * The hardest infamy gate the Bar will ever roll. Deliberately well below `METER_MAX`: a
- * requirement no reachable crew can clear is a character who is never recruitable, which reads as
- * a bug rather than as a locked door.
+ * The hardest infamy gate the Bar will ever roll.
+ *
+ * Deliberately reachable: a requirement no crew can clear is a character who is never recruitable,
+ * which reads as a bug rather than as a locked door. Re-quoted with infamy when it stopped being a
+ * 0..100 meter — 400 is a few real fights' worth of dead, so the hardest door in the Bar opens for
+ * a crew that has been doing the thing the game is about.
  */
-export const RECRUIT_MAX_MIN_INFAMY = 60;
+export const RECRUIT_MAX_MIN_INFAMY = 400;
 
 /**
  * §H4 — the stance at which a character will not join at all. `-2` is both halves of §H4
@@ -40,7 +43,8 @@ export const JOIN_REFUSAL_STANCE = STANCE_MIN;
 
 /** What the crew looks like from the other side of the table. */
 export interface CrewStanding {
-  infamy: Meter;
+  /** §D7 points, uncapped. */
+  infamy: number;
   reputation: ReputationLabel;
 }
 
@@ -88,3 +92,18 @@ export function assessJoin(
  * tries.
  */
 export const BAR_HIRES_PER_DAY = 1;
+
+/**
+ * §I3 — and how many a crew who has earned it may sign.
+ *
+ * The one exception to the paragraph above, and it is a deliberate one: `MILESTONE_SECOND_SIGNATURE`
+ * is worth reaching level 40 for precisely because the limit it lifts has bound every crew in the
+ * city since their first night. Two is the whole of it — the room still empties, it just empties
+ * slightly faster for one crew.
+ *
+ * Every reader of the limit goes through here rather than through the constant, so the milestone
+ * cannot be honoured on the screen and forgotten at the gate.
+ */
+export function barHiresPerDay(level: number): number {
+  return BAR_HIRES_PER_DAY + (isPlayerUnlockActive(MILESTONE_SECOND_SIGNATURE, level) ? 1 : 0);
+}

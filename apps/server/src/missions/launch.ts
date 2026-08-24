@@ -9,7 +9,9 @@ import {
   type DelegationTerms,
   type MissionTemplate,
   type Overseer,
+  hastenedMinutes,
 } from '@frontline/shared';
+import { adminMinutes } from '../admin/mode.js';
 import type { StoredMission } from '../db/repos/missions.js';
 
 /**
@@ -62,8 +64,34 @@ export function launchMission(args: {
   officer?: Commander | undefined;
   /** Overridable so tests can pin the roll. */
   seed?: number;
+  /**
+   * Testing mode (`admin/mode.ts`): the run is over in a minute and the van does not travel.
+   *
+   * A minute rather than the five seconds everything else gets, because a mission's clock is stored
+   * in whole minutes and one is the floor. The odds, the crew requirement and the officer gate are
+   * all untouched — what is being skipped is the wait, not the mission.
+   */
+  admin?: boolean;
+  /**
+   * §A4 — what the crew's ground takes off the clock (`TerritoryEffects.missionSpeedPercent`).
+   *
+   * The Smuggler's Tunnel. Applied to the travel *and* the run, because both are time on the
+   * road: a shorter way across the city is shorter in both directions and while you are there.
+   */
+  missionSpeedPercent?: number;
 }): StoredMission {
-  const { id, base, template, now, overseer, terms, officer, seed = randomInt(0, 2 ** 32) } = args;
+  const {
+    id,
+    base,
+    template,
+    now,
+    overseer,
+    terms,
+    officer,
+    admin = false,
+    missionSpeedPercent = 0,
+    seed = randomInt(0, 2 ** 32),
+  } = args;
 
   const afterOverseer = overseer
     ? modifiedSuccessChance(template.successChance, overseer.attributes, template.kind)
@@ -75,10 +103,17 @@ export function launchMission(args: {
       baseId: base.id,
       templateId: template.id,
       startedAt: now.toISOString(),
-      travelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
-      durationMinutes: terms
-        ? delegatedMinutes(template.durationMinutes, terms)
-        : template.durationMinutes,
+      recalledAt: null,
+      travelMinutes: admin
+        ? 0
+        : hastenedMinutes(TRAVEL_BAND_MINUTES[template.travelBand], missionSpeedPercent),
+      durationMinutes: adminMinutes(
+        hastenedMinutes(
+          terms ? delegatedMinutes(template.durationMinutes, terms) : template.durationMinutes,
+          missionSpeedPercent,
+        ),
+        admin,
+      ),
       status: 'active',
       officerId: officer?.id ?? null,
       outcome: null,

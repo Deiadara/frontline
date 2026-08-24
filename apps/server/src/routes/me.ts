@@ -10,6 +10,6 @@ export function registerMeRoutes(app: FastifyInstance): void {
       : null;
     const owned = app.repos.bases.findByOwnerId(user.id);
     const base = owned ? settleBase(app.repos, owned, new Date()).base : null;
-    return { user, overseer, base };
+    return { user, overseer, base, admin: app.config.admin };
   });
 }

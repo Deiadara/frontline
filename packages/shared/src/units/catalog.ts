@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BUILDING_KINDS, findModification, type BuildingKind } from '../building/index.js';
-import { PLACE_KINDS, type PlaceKind } from '../city/places.js';
+import { ENV_LABEL_IDS, type EnvLabelId } from '../city/labels.js';
+import { LOCATION_KINDS, type LocationKind } from '../city/locations.js';
 import type { PartialResources } from '../resources.js';
 import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js';
 
@@ -10,7 +11,7 @@ import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js'
  * Five tiers, and what separates them is not only power — it is **what you had to do with the
  * world to get them**. Rabble needs a Gauntlet, or in one case nothing at all. Specialists need
  * something researched or a specific augment fitted. Heavy units need a clinic you took off
- * somebody. Legendary units need a place on the map *and* a structure at the top of its tree: the
+ * somebody. Legendary units need a location on the map *and* a structure at the top of its tree: the
  * Colossus is built out of a war machine graveyard because that is where the hulls are.
  *
  * That is the whole design intent of the requirement list below — a unit roster is a readout of a
@@ -35,12 +36,12 @@ export const UNIT_TIER_LABELS: Record<UnitTier, string> = {
  * Three kinds, and between them they cover everything the design asks for: "enough Gauntlet
  * levels", "a strong enough Generator", "researched it in the Lab" and "a certain augment fitted"
  * are all `building` or `modification`; "there is a factory in another district that makes them"
- * is `place`.
+ * is `location`.
  */
 export type UnitRequirement =
   | { kind: 'building'; building: BuildingKind; level: number }
   | { kind: 'modification'; modificationId: string }
-  | { kind: 'place'; placeKind: PlaceKind };
+  | { kind: 'location'; locationKind: LocationKind };
 
 export interface UnitSpec {
   id: string;
@@ -58,6 +59,26 @@ export interface UnitSpec {
   supply: number;
   stats: UnitStats;
   modifiers: readonly UnitModifierId[];
+  /**
+   * Percentage points **per tier** added to what an environment label is already worth to this
+   * unit (`city/labels.ts`).
+   *
+   * Almost every unit leaves this empty and is answered by the label's own stat rule — a
+   * Juggernaut cooks in the heat because it is wearing ninety-five points of armour, not because
+   * somebody typed a row for it. What goes here is the handful of cases a sheet genuinely cannot
+   * express: Anodics fight *better* in a room full of noise, and no combination of their eleven
+   * numbers says so.
+   */
+  affinities?: Partial<Record<EnvLabelId, number>>;
+  /**
+   * Labels whose baseline simply does not apply. The affinity, if any, still does.
+   *
+   * For the things that are not really people: a machine is not frightened by an eerie room and a
+   * creature that breathes chlorine is not troubled by a chlorine leak. Immunity rather than a
+   * large positive affinity, because "immune" is a fact a player can rely on and "+13 per tier
+   * which happens to cancel out at this armour value" is a coincidence that breaks on a rebalance.
+   */
+  immuneTo?: readonly EnvLabelId[];
 }
 
 /** The middle of the road. Every unit below states only what makes it different from this. */
@@ -93,7 +114,7 @@ const fitted = (modificationId: string): UnitRequirement => ({
   kind: 'modification',
   modificationId,
 });
-const holds = (placeKind: PlaceKind): UnitRequirement => ({ kind: 'place', placeKind });
+const holds = (locationKind: LocationKind): UnitRequirement => ({ kind: 'location', locationKind });
 
 export const UNIT_CATALOG: readonly UnitSpec[] = [
   // ---------------------------------------------------------------- rabble
@@ -131,6 +152,55 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 8,
     }),
     modifiers: ['urban_bonus', 'close_quarters'],
+  },
+  {
+    id: 'anodics',
+    name: 'Anodics',
+    tier: 'rabble',
+    blurb:
+      'Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every book in the district, shaved most of it off, and came down here with a bottle of speed and a plan.',
+    trainedAt: 'gauntlet',
+    unique: false,
+    requires: [gauntlet(2)],
+    /**
+     * The cheapest thing in the game that can take a hit.
+     *
+     * Rabble tier and priced like it, but with a Warden's constitution and a middling everything
+     * else — the unit a new crew fields when it does not yet know what fight it is walking into.
+     * What they are *for* is the ground, not the sheet: a room, a tunnel, a factory floor with a
+     * press running. Fight them in a yard and they are worse than Razors.
+     */
+    cost: { caps: 55, food: 15, scrap: 10 },
+    trainSeconds: 60,
+    supply: 1,
+    stats: sheet({
+      speed: 46,
+      vitality: 88,
+      morale: 66,
+      armor: 16,
+      damageType: 'blade',
+      lethality: 10,
+      range: 12,
+      offense: 40,
+      evasion: 8,
+      stealth: 8,
+      lootCapacity: 18,
+      intimidation: 22,
+    }),
+    modifiers: ['close_quarters', 'last_stand'],
+    /**
+     * The one unit whose whole identity is a label.
+     *
+     * **Noisy** is the headline and it is not a metaphor: they are running on something that turns
+     * a room full of machinery into a reason to keep going, and a press hall or a full tavern is
+     * where they are worth twice what they cost. **Crammed** doubles down on the close-quarters
+     * modifier they already carry. **Open** is the bill for both — in a yard with sightlines they
+     * are a slow target with a bottle.
+     *
+     * **Eerie** is the quiet one: they are far too wired to be unnerved by anything, which is not
+     * courage and does not need to be.
+     */
+    affinities: { noisy: 11, crammed: 7, eerie: 5, open: -5 },
   },
   {
     id: 'sparks',
@@ -212,6 +282,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 3,
     }),
     modifiers: ['tunnel_rat', 'night_operations'],
+    // Sewer work: they are used to standing in it and used to the smell of it.
+    affinities: { toxic: 6, wet: 6, dark: 4, open: -4 },
   },
 
   // --------------------------------------------------------------- regulars
@@ -246,7 +318,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     id: 'wardens',
     name: 'Wardens',
     tier: 'regular',
-    blurb: 'Defensive specialists. Considerably better at holding a place than at taking one.',
+    blurb: 'Defensive specialists. Considerably better at holding a location than at taking one.',
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(4)],
@@ -273,7 +345,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     id: 'ghosts',
     name: 'Ghosts',
     tier: 'regular',
-    blurb: 'Lightly armed infiltrators. The problem is not fighting them — it is finding them.',
+    blurb: 'Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job.',
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(5)],
@@ -295,6 +367,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 5,
     }),
     modifiers: ['night_operations', 'ambush'],
+    affinities: { dark: 8, foggy: 4, noisy: -7 },
   },
   {
     id: 'road_reavers',
@@ -321,6 +394,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 35,
     }),
     modifiers: ['open_field', 'urban_bonus'],
+    // Motorcycles. Wet, snow and a corridor are all the same answer.
+    affinities: { wet: -6, snowy: -7, crammed: -7, open: 6 },
   },
   {
     id: 'ironsides',
@@ -349,6 +424,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 40,
     }),
     modifiers: ['dug_in', 'close_quarters'],
+    // Salvaged plate, worn all day. The cold is somebody else's problem.
+    affinities: { cold: 5, hot: -5, snowy: -4 },
   },
   {
     id: 'ash_walkers',
@@ -377,6 +454,10 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 25,
     }),
     modifiers: ['tunnel_rat'],
+    // Chem suits. The whole unit exists for the air being wrong, so the one label that
+    // decides most of a chemical plant does not touch them.
+    immuneTo: ['toxic'],
+    affinities: { hot: -4 },
   },
 
   // ------------------------------------------------------------ specialists
@@ -405,6 +486,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 25,
     }),
     modifiers: ['rooftop', 'open_field'],
+    // A rifle is a promise about a sightline, and fog, wind and a low ceiling all break it.
+    affinities: { elevated: 7, foggy: -7, windy: -5 },
   },
   {
     id: 'stitchers',
@@ -432,6 +515,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 2,
     }),
     modifiers: ['dug_in'],
+    // Medics are not fighting; what stops them is not being able to find anybody.
+    affinities: { dark: -6, foggy: -5, eerie: -5 },
   },
   {
     id: 'demolishers',
@@ -465,7 +550,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     id: 'jammers',
     name: 'Jammers',
     tier: 'specialist',
-    blurb: 'Electronic warfare. The enemy is still there — they just cannot hear each other.',
+    blurb:
+      'Electronic warfare. The enemy is still out there. They just cannot hear each other any more.',
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(8), structure('lab', 6)],
@@ -514,6 +600,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 10,
     }),
     modifiers: ['rooftop', 'open_field'],
+    // Drones. Weather is the whole of their problem and the ground is none of it.
+    affinities: { windy: -9, foggy: -6, elevated: 6 },
   },
   {
     id: 'netrunners',
@@ -541,6 +629,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 20,
     }),
     modifiers: ['night_operations', 'armor_piercing'],
+    // They work off other people's augmentations, and a wet street does nothing to that.
+    affinities: { crammed: 5, eerie: -4 },
   },
   {
     id: 'sleepers',
@@ -570,6 +660,40 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     modifiers: ['ambush', 'urban_bonus'],
   },
   {
+    id: 'cyber_dogs',
+    name: 'Cyber Dogs',
+    tier: 'specialist',
+    blurb:
+      'Augmented working dogs off the kennels under the flyover. They find what is hiding and they do not need to see it to do it.',
+    trainedAt: 'infirmary',
+    unique: false,
+    requires: [structure('infirmary', 6), holds('doghouse')],
+    cost: { caps: 190, food: 90, highQualityMetal: 15 },
+    trainSeconds: 420,
+    supply: 1,
+    stats: sheet({
+      speed: 92,
+      vitality: 55,
+      morale: 72,
+      armor: 8,
+      damageType: 'blade',
+      lethality: 30,
+      range: 4,
+      offense: 58,
+      evasion: 38,
+      stealth: 55,
+      lootCapacity: 0,
+      intimidation: 45,
+    }),
+    modifiers: ['ambush', 'night_operations'],
+    /**
+     * They hunt by nose, so the two labels that blind everybody else are the two they are best in.
+     * What stops them is noise — a press hall is a dog with no ears — and anything that makes the
+     * handler's job harder makes theirs impossible.
+     */
+    affinities: { dark: 7, foggy: 9, noisy: -7, eerie: -4 },
+  },
+  {
     id: 'bell_ringers',
     name: 'Bell-Ringers',
     tier: 'specialist',
@@ -595,6 +719,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 85,
     }),
     modifiers: ['terror'],
+    // Sonic warfare: a loud room is their range extended, and a dead-quiet one exposes them.
+    affinities: { noisy: 8, crammed: 5 },
   },
   {
     id: 'wrecking_crew',
@@ -680,6 +806,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 70,
     }),
     modifiers: ['close_quarters', 'terror'],
+    // The fear was removed surgically. So was most of the rest of it.
+    immuneTo: ['eerie'],
   },
   {
     id: 'the_condemned',
@@ -707,6 +835,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 60,
     }),
     modifiers: ['last_stand', 'close_quarters'],
+    // Nothing left to threaten them with, which covers every room in the city.
+    affinities: { eerie: 8, crammed: 5 },
   },
 
   // -------------------------------------------------------------- legendary
@@ -739,6 +869,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       resistances: { sonic: -40 },
     }),
     modifiers: ['ambush', 'night_operations'],
+    affinities: { dark: 10, eerie: 8, noisy: -8 },
   },
   {
     id: 'the_abomination',
@@ -747,7 +878,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A failed experiment that became a weapon. Unstable, devastating, and not steerable.',
     trainedAt: 'lab',
     unique: true,
-    requires: [structure('lab', 16), structure('infirmary', 12), holds('gene_clinic')],
+    requires: [structure('lab', 16), structure('infirmary', 12), holds('mad_scientist_lair')],
     cost: { caps: 1400, food: 400, highQualityMetal: 200 },
     trainSeconds: 4200,
     supply: 10,
@@ -767,6 +898,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 100,
     }),
     modifiers: ['terror', 'close_quarters'],
+    // It breathes chlorine by preference and nothing about a room has ever unsettled it.
+    immuneTo: ['toxic', 'eerie'],
+    affinities: { cold: 4, crammed: 4 },
   },
   {
     id: 'the_colossus',
@@ -775,7 +909,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A single massive machine that functions like a walking fortress. It arrives slowly.',
     trainedAt: 'garage',
     unique: true,
-    requires: [structure('garage', 16), structure('generator', 14), holds('war_machine_graveyard')],
+    requires: [structure('garage', 16), structure('generator', 14), holds('construction_site')],
     cost: { caps: 2200, scrap: 900, oil: 600, highQualityMetal: 400 },
     trainSeconds: 5400,
     supply: 12,
@@ -795,6 +929,10 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 95,
     }),
     modifiers: ['breaching', 'armor_piercing'],
+    // A walking fortress is a machine: it is not frightened and it does not breathe. What it is,
+    // is enormous — it cannot get into half the ground on the map and it cooks in its own plate.
+    immuneTo: ['eerie', 'toxic'],
+    affinities: { crammed: -8, hot: -5, wet: -4 },
   },
   {
     id: 'the_saint',
@@ -803,7 +941,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A legendary fighter whose presence alone steadies everyone who can see them.',
     trainedAt: 'gauntlet',
     unique: true,
-    requires: [gauntlet(15), structure('quarters', 12), holds('fight_pit')],
+    requires: [gauntlet(15), structure('quarters', 12), holds('tavern')],
     cost: { caps: 1200, food: 300, highQualityMetal: 120 },
     trainSeconds: 3000,
     supply: 6,
@@ -870,17 +1008,17 @@ export function unitsInTier(tier: UnitTier): UnitSpec[] {
   return UNIT_CATALOG.filter((unit) => unit.tier === tier);
 }
 
-/** Which units holding a place of this kind would open up — read back off the requirements. */
-export function unitsUnlockedByPlace(placeKind: PlaceKind): UnitSpec[] {
+/** Which units holding a location of this kind would open up — read back off the requirements. */
+export function unitsUnlockedByLocation(locationKind: LocationKind): UnitSpec[] {
   return UNIT_CATALOG.filter((unit) =>
-    unit.requires.some((need) => need.kind === 'place' && need.placeKind === placeKind),
+    unit.requires.some((need) => need.kind === 'location' && need.locationKind === locationKind),
   );
 }
 
 /**
  * Guards the catalogue at module load.
  *
- * A requirement naming a modification or a place kind that does not exist is a unit nobody can
+ * A requirement naming a modification or a location kind that does not exist is a unit nobody can
  * ever field, and the only symptom would be a permanently greyed row. Cheaper to trip here.
  */
 for (const unit of UNIT_CATALOG) {
@@ -894,8 +1032,8 @@ for (const unit of UNIT_CATALOG) {
     if (need.kind === 'modification' && !findModification(need.modificationId)) {
       throw new Error(`${unit.id} needs ${need.modificationId}, which is not a modification`);
     }
-    if (need.kind === 'place' && !PLACE_KINDS.includes(need.placeKind)) {
-      throw new Error(`${unit.id} needs a ${need.placeKind}, which is not a place kind`);
+    if (need.kind === 'location' && !LOCATION_KINDS.includes(need.locationKind)) {
+      throw new Error(`${unit.id} needs a ${need.locationKind}, which is not a location kind`);
     }
     if (need.kind === 'building' && !BUILDING_KINDS.includes(need.building)) {
       throw new Error(`${unit.id} needs a ${need.building}, which is not a structure`);
@@ -904,6 +1042,16 @@ for (const unit of UNIT_CATALOG) {
   for (const modifier of unit.modifiers) {
     if (!UNIT_MODIFIERS[modifier]) {
       throw new Error(`${unit.id} carries ${modifier}, which is not a modifier`);
+    }
+  }
+  for (const id of Object.keys(unit.affinities ?? {})) {
+    if (!ENV_LABEL_IDS.includes(id as EnvLabelId)) {
+      throw new Error(`${unit.id} has an affinity for ${id}, which is not an environment label`);
+    }
+  }
+  for (const id of unit.immuneTo ?? []) {
+    if (!ENV_LABEL_IDS.includes(id)) {
+      throw new Error(`${unit.id} is immune to ${id}, which is not an environment label`);
     }
   }
 }

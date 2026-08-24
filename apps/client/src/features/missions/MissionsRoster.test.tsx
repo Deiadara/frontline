@@ -4,9 +4,18 @@ import {
   type AssigneesResponse,
   type HireRecruitResponse,
   type MissionsResponse,
+  makeAttributes,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MissionsPage } from './MissionsPage';
@@ -49,6 +58,11 @@ const staffed: AssigneesResponse = {
       assignees: 3,
       bonusPercent: assigneeBonusPercent(3),
       nextBonusPercent: assigneeBonusPercent(4),
+      attributes: makeAttributes(15),
+      traits: [],
+      alignment: 50,
+      alignmentBand: 'settled' as const,
+      level: 1,
     },
   ],
 };
@@ -149,8 +163,12 @@ describe('the board cannot read the roster', () => {
     // officers, and the line above now says so. Assert on what the picker *holds*: a surviving
     // combobox that had lost its one option would be a dead control, and the §G6 entitlement this
     // whole case exists to protect would be gone with the error line still sitting above it.
-    expect(easy.getAllByRole('option').map((option) => option.textContent)).toEqual([
-      'Nobody — assignees alone, slower',
+    //
+    // The painted picker only renders its list while it is open, so the list is opened to be read.
+    // Portalled to the body, so the options are found on `screen` rather than inside the card.
+    fireEvent.click(easy.getByRole('combobox'));
+    expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
+      'NobodyAssignees alone, and slower for it',
     ]);
   });
 });

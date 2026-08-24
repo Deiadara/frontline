@@ -8,4 +8,5 @@
 export * from './disposition.js';
 export * from './join.js';
 export * from './level.js';
+export * from './negotiation.js';
 export * from './wage.js';

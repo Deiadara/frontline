@@ -9,6 +9,7 @@ import {
   type MissionStance,
   type MissionTemplate,
   type MissionsResponse,
+  makeAttributes,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -43,6 +44,11 @@ const officer = (officerId: string, name: string, assignees: number) => ({
   assignees,
   bonusPercent: assigneeBonusPercent(assignees),
   nextBonusPercent: assigneeBonusPercent(assignees + 1),
+  attributes: makeAttributes(15),
+  traits: [],
+  alignment: 50,
+  alignmentBand: 'settled' as const,
+  level: 1,
 });
 
 /** §G — a roster with people on the books, so a hard run has somebody to lead it. */
@@ -88,6 +94,7 @@ const accepted: LaunchMissionResponse = {
     outcome: null,
     rewards: {},
     resolvedAt: null,
+    recalledAt: null,
   },
   serverNow: NOW,
 };
@@ -177,6 +184,9 @@ const card = (name: string): HTMLElement => {
 
 const deploy = (name: string) => within(card(name)).getByRole('button', { name: 'Deploy' });
 
+/** The picker on one card. A painted `Dropdown`, so the trigger is a `combobox` button. */
+const picker = (name: string) => within(card(name)).getByRole('combobox');
+
 /**
  * Wait for the roster itself, not for the control that renders it.
  *
@@ -184,8 +194,19 @@ const deploy = (name: string) => within(card(name)).getByRole('button', { name: 
  * so waiting on the `combobox` is satisfied by an *empty* roster. That made every easy-card
  * assertion below vacuous: selecting an officer silently did nothing because the option was not in
  * the DOM yet, and "unled by default" passed because there was nobody to lead it either way.
+ *
+ * The picker is no longer a native `<select>`, whose options are in the DOM whether it is open or
+ * not — a painted list only exists while it is open. So the signal is now the *hard* card's
+ * trigger, which defaults to the first officer and therefore reads their name the moment the
+ * roster lands. Still the roster rather than the control, and still not satisfiable by an empty one.
  */
-const rosterLoaded = () => screen.findAllByRole('option', { name: /Reza Malik/ });
+const rosterLoaded = () => screen.findAllByText('Reza Malik');
+
+/** Open a card's picker and choose somebody. The list is portalled, so it is found on `screen`. */
+async function pick(cardName: string, officer: RegExp): Promise<void> {
+  fireEvent.click(picker(cardName));
+  fireEvent.click(await screen.findByRole('option', { name: officer }));
+}
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
@@ -218,9 +239,7 @@ describe('§G6 — the officer a launch has to name', () => {
     renderBoard();
 
     await rosterLoaded();
-    fireEvent.change(within(card('Foundry Raid')).getByRole('combobox'), {
-      target: { value: 'off-2' },
-    });
+    await pick('Foundry Raid', /Odile Marchetti/);
     fireEvent.click(deploy('Foundry Raid'));
 
     await waitFor(() => expect(launchBody().officerId).toBe('off-2'));
@@ -246,9 +265,7 @@ describe('§G6 — the officer a launch has to name', () => {
     renderBoard();
 
     await rosterLoaded();
-    fireEvent.change(within(card('Scrap Run')).getByRole('combobox'), {
-      target: { value: 'off-1' },
-    });
+    await pick('Scrap Run', /Reza Malik/);
     fireEvent.click(deploy('Scrap Run'));
 
     await waitFor(() => expect(launchBody().officerId).toBe('off-1'));
@@ -288,7 +305,8 @@ describe('§G6 — the officer a launch has to name', () => {
 
     // Once the roster answers, the card offers the officer it found.
     await rosterLoaded();
-    expect(within(card('Convoy Ambush')).getByRole('combobox')).toHaveValue('off-1');
+    // The trigger shows who it settled on by *name*, which is the only thing a player can read.
+    expect(picker('Convoy Ambush')).toHaveTextContent('Reza Malik');
     expect(screen.queryByText('Reading the roster…')).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import {
   PlaceAssigneesRequestSchema,
+  ReassignOfficerRequestSchema,
   populationCapacity,
   ReskillRequestSchema,
   placeAssignees,
@@ -82,7 +83,7 @@ export function registerAssigneeRoutes(app: FastifyInstance): void {
       if (count > housingSpare(base)) {
         throw new AppError(
           'NO_HOUSING',
-          `Your district houses ${populationCapacity(base.buildings)} — raise the Quarters`,
+          `Your district houses ${populationCapacity(base.buildings)}. Raise the Quarters`,
         );
       }
 
@@ -111,6 +112,45 @@ export function registerAssigneeRoutes(app: FastifyInstance): void {
 
       app.repos.bases.updateAssignees(base.id, result.state);
       return { assignees: projectAssignees({ ...base, assignees: result.state }) };
+    },
+  );
+
+  /**
+   * §C2 — move an officer into a different position.
+   *
+   * A hire is a person, not a job title: the sheet a player weighed at the Bar does not change
+   * when the crew's needs do, and being stuck with the role you picked in the first thirty seconds
+   * of meeting somebody is the kind of decision a game should let you take back.
+   *
+   * The position has to be *open*. Two people cannot hold one job, and a swap is two reassignments
+   * with an empty seat in between — which is a decision the player should have to make on purpose
+   * rather than something a route quietly does for them.
+   *
+   * Their assignees stay with them. The pool is placed under a *person*, not under a title.
+   */
+  app.post(
+    '/assignees/reassign',
+    { preHandler: app.authenticate },
+    (request): AssigneesMutationResponse => {
+      const { officerId, role } = parseBody(ReassignOfficerRequestSchema, request.body);
+      return app.db.transaction(() => {
+        const base = ownBase(app, request.currentUser.id);
+        const officer = base.commanders.find((candidate) => candidate.id === officerId);
+        if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+        if (officer.role === role) {
+          return { assignees: projectAssignees(base) };
+        }
+        const taken = base.commanders.some(
+          (candidate) => candidate.role === role && candidate.id !== officerId,
+        );
+        if (taken) throw new AppError('ROLE_TAKEN', 'Somebody already holds that position');
+
+        const commanders = base.commanders.map((candidate) =>
+          candidate.id === officerId ? { ...candidate, role } : candidate,
+        );
+        app.repos.bases.updateCommanders(base.id, commanders);
+        return { assignees: projectAssignees({ ...base, commanders }) };
+      })();
     },
   );
 }

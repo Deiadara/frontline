@@ -35,8 +35,8 @@ if (!botDistrict) throw new Error('fixture error: the bot district is missing fr
  * bottom of the curve is where that wait is measured in seconds rather than hours.
  */
 const STARTING_DISTRICT = [
-  { id: 'b1', kind: 'nexus' as const, level: 1, modifications: [] },
-  { id: 'b2', kind: 'generator' as const, level: 1, modifications: [] },
+  { id: 'b1', kind: 'nexus' as const, level: 1, modifications: [], damage: 0, garrisons: 0 },
+  { id: 'b2', kind: 'generator' as const, level: 1, modifications: [], damage: 0, garrisons: 0 },
 ];
 const QUARTERS = buildingCost('quarters', 1, STARTING_DISTRICT);
 
@@ -70,9 +70,35 @@ async function shootEveryViewport(page: Page, step: string): Promise<void> {
 
 /** Click a district node on the Pixi canvas by its normalized map position. */
 async function clickDistrict(page: Page, position: { x: number; y: number }): Promise<void> {
+  const at = await districtPoint(page, position);
+  await page.mouse.click(at.x, at.y);
+}
+
+/**
+ * Where a district actually sits on screen.
+ *
+ * `position` is a fraction of the map's **layout** width, not of the canvas: the canvas is
+ * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
+ * out into the frame less whatever chrome is covering it and publishes that inset as
+ * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
+ * the district it was aimed at — and the further right the district, the worse the miss.
+ */
+async function districtPoint(
+  page: Page,
+  position: { x: number; y: number },
+): Promise<{ x: number; y: number }> {
   const box = await page.locator('canvas').boundingBox();
   if (!box) throw new Error('canvas has no bounding box');
-  await page.mouse.click(box.x + position.x * box.width, box.y + position.y * box.height);
+  const map = page.getByTestId('city-map');
+  const inset = async (name: string) =>
+    Number((await map.getAttribute(`data-safe-${name}`)) ?? '0');
+  const [right, top, bottom] = [await inset('right'), await inset('top'), await inset('bottom')];
+  const layoutWidth = Math.max(1, box.width - right);
+  const layoutHeight = Math.max(1, box.height - top - bottom);
+  return {
+    x: box.x + position.x * layoutWidth,
+    y: box.y + top + position.y * layoutHeight,
+  };
 }
 
 test('live: Nikos logs in, meets the AI rival and raids it against the real backend', async ({
@@ -105,7 +131,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(page.getByRole('heading', { name: 'FRONTLINE' })).toBeVisible();
   await expect(page.getByLabel('Operator ID')).toHaveValue(MVP_DEV_CREDENTIALS.username);
   await expect(page.getByLabel('Passphrase')).toHaveValue(MVP_DEV_CREDENTIALS.password);
-  await expect(page.getByText(/MVP build — dev login prefilled/)).toBeVisible();
+  await expect(page.getByText(/MVP build. Dev login prefilled/)).toBeVisible();
   await shootEveryViewport(page, 'login');
   await page.getByRole('button', { name: 'Jack In' }).click();
 
@@ -121,17 +147,21 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // --- STEP 3: city map, with the hostile rival marker on Ashen Terraces ---
   await page.waitForURL('**/game');
   const hud = page.locator('header'); // the TopHud; scopes the name away from the char-select DOM
-  await expect(hud.getByText(overseerName)).toBeVisible();
+  // By the door rather than by the text: below 1560px the HUD shows the face and drops the
+  // nameplate, so the name lives in the link's accessible name at every width the game runs at.
+  await expect(
+    hud.getByRole('link', { name: new RegExp(`^${overseerName}, Overseer`) }),
+  ).toBeVisible();
   await expect(page.locator('canvas')).toBeVisible();
   await expect(hud).toContainText(String(STARTING_RESOURCES.caps));
   await page.waitForTimeout(800); // let Pixi paint the map before the screenshot
   await shootEveryViewport(page, 'city-map');
 
   // --- STEP 4: the hideout, and building in it against the real server (GDD §A1, §D3) ---
-  await page.getByRole('link', { name: 'Base', exact: true }).click();
+  await page.getByRole('link', { name: 'District', exact: true }).click();
   await expect(page.getByRole('heading', { name: /Crew/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^The Nexus —/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /^The Generator —/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^The Nexus,/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^The Generator,/ })).toBeVisible();
   await shootEveryViewport(page, 'base');
 
   /*
@@ -140,7 +170,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    * server refuses for a reason the client mirrored wrongly — the district says it can afford the
    * Quarters, so the server must agree.
    */
-  const quarters = page.getByRole('button', { name: /^The Quarters —/ });
+  const quarters = page.getByRole('button', { name: /^The Quarters,/ });
   await expect(quarters).toHaveAttribute('aria-label', /vacant plot/);
   await quarters.click();
   const plotDialog = page.getByRole('dialog');
@@ -148,6 +178,9 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // The order is placed, not finished — which is the whole contract of the queue.
   await expect(quarters).toHaveAttribute('aria-label', /under construction/);
   await plotDialog.getByRole('button', { name: 'Close' }).click();
+  // The queue is a report on the district rather than part of it, so it lives in the drawer.
+  const reports = page.getByTestId('reports-toggle');
+  await reports.click();
   await expect(page.getByTestId('build-queue')).toContainText('The Quarters');
   // §D3: the oil left the HUD's ledger *at order time*, not a second counter of the district's
   // own. Matched as a whole chip value, so it cannot pass on some other resource that happens to
@@ -163,10 +196,11 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    */
   await expect(quarters).toHaveAttribute('aria-label', /level 1/, { timeout: 90_000 });
   await expect(page.getByTestId('build-queue')).toHaveCount(0);
+  await reports.click();
   await shootEveryViewport(page, 'district-built');
 
   // --- STEP 5: walk into the city and take a place off the looters (§A4) ---
-  await page.getByRole('link', { name: 'Map', exact: true }).click();
+  await page.getByRole('link', { name: 'City', exact: true }).click();
   await expect(page.locator('canvas')).toBeVisible();
   await page.waitForTimeout(800);
 
@@ -177,59 +211,47 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // Fog first: a district nobody has been to says nothing about what is inside it.
   const panel = page.getByTestId('district-panel');
   await expect(panel.getByRole('heading', { name: scrapfields.name })).toBeVisible();
-  await expect(panel.getByTestId('places-held')).toHaveCount(0);
+  await expect(panel.getByTestId('locations-held')).toHaveCount(0);
   await shootEveryViewport(page, 'city-fog');
 
   await panel.getByRole('button', { name: 'Send scouts' }).click();
-  await expect(panel.getByTestId('places-held')).toBeVisible();
+  await expect(panel.getByTestId('locations-held')).toBeVisible();
 
   await panel.getByRole('button', { name: 'Enter the district' }).click();
   await expect(page.getByRole('heading', { name: scrapfields.name })).toBeVisible();
-  await expect(page.getByTestId('places')).toBeVisible();
-  await shootEveryViewport(page, 'district-places');
+  await expect(page.getByTestId('locations')).toBeVisible();
+  await shootEveryViewport(page, 'district-locations');
 
   /*
-   * The one place `POST /api/city/attack` runs end to end: real route, real control table, real
-   * §I1 award.
+   * §A4 as it is actually played, against the real backend: **call** a fight, and commit people to
+   * it.
    *
-   * It used to send **one** Razor and retry ten times, which was right when the engine was a coin
-   * flip and every place was garrisoned by nobody. Neither is true now: the Rustyard's easiest
-   * place holds four looters and the engine reads the sheets, so one Razor loses every time and
-   * ten attempts is just ten ways to arrive with an empty army. Send what the crew has.
+   * This step used to press "Take it" and read a victory banner, because a fight resolved the
+   * instant it was ordered. It does not any more, and there is no way to fake that here: a
+   * declaration is legal only hours out, and the settler runs when the mark passes. So what a live
+   * session can prove is the whole of the loop up to the mark, which is the part a player does —
+   * the call goes on the board, the squad leaves the roster for it, and pulling them back puts
+   * them where they were.
    */
-  const firstPlace = scrapfields.places[0];
-  if (!firstPlace) throw new Error('fixture error: the Rustyard has no places');
-  const card = page.getByTestId(`place-${firstPlace.id}`);
+  const firstPlace = scrapfields.locations[0];
+  if (!firstPlace) throw new Error('fixture error: the Rustyard has no locations');
+  const card = page.getByTestId(`location-${firstPlace.id}`);
   await expect(card).toBeVisible();
 
-  let captured = false;
-  for (let attempt = 0; attempt < 3 && !captured; attempt += 1) {
-    const take = card.getByRole('button', { name: 'Take it' });
-    if ((await take.count()) === 0) {
-      captured = true;
-      break;
-    }
-    await take.click();
-    const picker = page.getByRole('dialog');
-    await expect(
-      picker.getByRole('heading', { name: new RegExp(`Take ${firstPlace.name}`) }),
-    ).toBeVisible();
-    await picker.getByLabel('How many Razors').fill('8');
-    await picker.getByRole('button', { name: 'Send them in' }).click();
+  await card.getByRole('button', { name: 'Call a fight' }).click();
+  const caller = page.getByRole('dialog');
+  await expect(caller.getByRole('heading', { name: firstPlace.name })).toBeVisible();
+  // The occupation flag the board asked for, on the real screen.
+  await expect(caller.getByTestId('declare-hold')).toBeVisible();
+  await caller.getByTestId('declare-hold').click();
+  await caller.getByTestId('declare-confirm').click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await shootEveryViewport(page, 'fight-called');
 
-    const outcome = page.getByRole('heading', { name: /VICTORY|DEFEAT/ });
-    await expect(outcome).toBeVisible();
-    captured = ((await outcome.textContent()) ?? '').includes('VICTORY');
-    await page.getByRole('button', { name: 'Dismiss' }).click();
-    await expect(page.getByRole('dialog')).toBeHidden();
-  }
-  expect(captured, 'eight Razors should take a four-body looter garrison').toBe(true);
-
-  // Taken ground says so, and offers the two things you can only do to ground you hold.
-  await expect(card.getByText('Yours')).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Dig in' })).toBeVisible();
-  await expect(card.getByRole('button', { name: 'Garrison' })).toBeVisible();
-  await shootEveryViewport(page, 'place-taken');
+  // It is on the board, with the mark on it, and it is public.
+  await page.getByRole('link', { name: 'Board', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Coming/i }).first()).toBeVisible();
+  await shootEveryViewport(page, 'battle-board');
 
   // --- STEP 6: the roster reflects what the city has opened up (§A5) ---
   await page.getByRole('link', { name: 'Units', exact: true }).click();

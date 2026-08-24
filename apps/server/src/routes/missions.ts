@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
   LaunchMissionRequestSchema,
+  RecallMissionRequestSchema,
+  canRecall,
   findMissionTemplate,
   type Base,
   type LaunchMissionResponse,
@@ -10,6 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
 import { resolveCrew } from '../missions/crew.js';
 import { CONCURRENT_MISSION_LIMIT, launchMission } from '../missions/launch.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { resolveDueMissions } from '../missions/resolve.js';
 
 /** The caller's own base — a player runs missions from their one base or from nowhere. */
@@ -100,10 +103,45 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       overseer,
       terms: crew.terms,
       officer,
+      admin: app.config.admin,
+      // §A4 — the ground this crew holds takes time off the road (the Smuggler's Tunnel).
+      missionSpeedPercent: standingEffectsFor(app.repos, base, now).missionSpeedPercent,
     });
     app.repos.missions.insert(stored);
     // The settle above is the only place this level-up is ever reported: the next `GET /missions`
     // re-resolves nothing, so dropping it here loses it outright rather than deferring it.
     return { mission: stored.mission, serverNow: now.toISOString(), levelUp };
+  });
+
+  /**
+   * §E — turn a crew around.
+   *
+   * Not a cancel: the mission stays on the books and still settles, it just settles as a failure
+   * with nothing in the bag. The clock is not rewritten either — `recalledAt` is recorded and the
+   * return leg is derived from it, so the report afterwards can still say how long the run was
+   * meant to take and how far they got before the order reached them.
+   */
+  app.post('/missions/recall', { preHandler: app.authenticate }, (request): MissionsResponse => {
+    const { missionId } = parseBody(RecallMissionRequestSchema, request.body);
+    const now = new Date();
+    const base = requireOwnBase(app, request.currentUser.id);
+
+    return app.db.transaction(() => {
+      const stored = app.repos.missions.findById(missionId);
+      if (!stored || stored.mission.baseId !== base.id) {
+        throw new AppError('NOT_FOUND', 'No mission of yours by that id');
+      }
+      if (!canRecall(stored.mission, now)) {
+        throw new AppError('MISSION_REFUSED', 'They are already at the gate');
+      }
+      app.repos.missions.markRecalled(missionId, now.toISOString());
+      return {
+        missions: app.repos.missions.listByBaseId(base.id).map((entry) => entry.mission),
+        justResolved: [],
+        resources: base.resources,
+        activeLimit: CONCURRENT_MISSION_LIMIT,
+        serverNow: now.toISOString(),
+      };
+    })();
   });
 }
