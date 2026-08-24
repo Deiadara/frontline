@@ -114,6 +114,99 @@
   }
 
   /**
+   * A scrap of paper, torn off and pinned up.
+   *
+   * The surface every hover note and every piece of prose in the game sits on. A rounded rectangle
+   * with a hairline border is what a form looks like; this is a warm sheet with a **torn edge down
+   * both sides**, a hand-inked outline around it, and a shadow that says it is lying on top of
+   * something rather than being part of it.
+   *
+   * The tear is a `clip-path` rather than an image, so it costs nothing, scales to any box and
+   * never has to be re-cut for a new size. The polygon runs down the left and right edges with the
+   * top and bottom left square: a sheet torn out of a pad tears along its length, and clipping all
+   * four sides reads as a starburst rather than as paper.
+   */
+  .scrap {
+    position: relative;
+    background:
+      linear-gradient(148deg, rgb(58 48 40 / 0.97), rgb(38 32 30 / 0.98) 55%, rgb(30 25 26 / 0.99)),
+      radial-gradient(circle at 18% 12%, rgb(240 200 140 / 0.06), transparent 60%);
+    box-shadow:
+      0 14px 30px -12px rgb(8 6 12 / 0.85),
+      0 2px 0 0 rgb(255 255 255 / 0.04) inset;
+    clip-path: polygon(
+      0.9% 0%,
+      100% 0%,
+      99.1% 3%,
+      100% 8%,
+      99.2% 14%,
+      100% 21%,
+      99.3% 29%,
+      100% 37%,
+      99.1% 46%,
+      100% 55%,
+      99.2% 64%,
+      100% 73%,
+      99.3% 82%,
+      100% 91%,
+      99.2% 100%,
+      0% 100%,
+      0.8% 92%,
+      0% 84%,
+      0.9% 75%,
+      0% 66%,
+      0.8% 57%,
+      0% 48%,
+      0.9% 39%,
+      0% 30%,
+      0.8% 22%,
+      0% 15%,
+      0.9% 8%,
+      0% 3%
+    );
+  }
+
+  /**
+   * The ink outline that turns a `.scrap` into something somebody drew.
+   *
+   * Same turbulence trick as `.brushed`, at a warmer colour and a lighter hand, drawn *inside* the
+   * torn edge so the two read as one object: a line ruled around a piece of paper, not a border on
+   * a div.
+   */
+  .scrap::before {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    z-index: 1;
+    pointer-events: none;
+    border: 5px solid transparent;
+    border-image-slice: 5;
+    border-image-width: 5px;
+    border-image-repeat: stretch;
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.08' numOctaves='3' seed='19'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='2.4'/%3E%3C/filter%3E%3Crect x='2.5' y='2.5' width='35' height='35' rx='2' fill='none' stroke='%23e6c99a' stroke-opacity='0.34' stroke-width='1.4' filter='url(%23s)'/%3E%3C/svg%3E");
+  }
+
+  /** A scrap's own content has to clear the torn edge and the ruled line. */
+  .scrap > * {
+    position: relative;
+    z-index: 2;
+  }
+
+  /**
+   * A quieter scrap, for the things there are a lot of.
+   *
+   * Same paper and the same ruled line, no tear: twenty of these in a grid would be twenty
+   * different silhouettes, and the eye reads that as damage rather than as texture. The tear is
+   * kept for the notes that appear one at a time.
+   */
+  .card-paper {
+    position: relative;
+    background:
+      linear-gradient(152deg, rgb(52 44 40 / 0.9), rgb(34 29 30 / 0.94) 60%, rgb(28 24 26 / 0.96)),
+      radial-gradient(circle at 22% 8%, rgb(240 200 140 / 0.05), transparent 62%);
+  }
+
+  /**
    * A rule drawn by hand, wobble and all.
    *
    * Replaces the 1px divider under headings. A straight line is fine; a line that is *nearly*
@@ -129,7 +222,7 @@
   /**
    * Ink wash: a brush loaded and dragged once across the surface.
    *
-   * Two soft diagonal bands at very low opacity. What it buys is *unevenness* — the eye reads a
+   * Two soft diagonal bands at very low opacity. What it buys is *unevenness*: the eye reads a
    * flat fill as printed and an uneven one as painted, and that difference is most of the gap
    * between this and a dashboard.
    */
@@ -152,7 +245,7 @@
   /**
    * The panel surface: warm dark glass over artwork.
    *
-   * Translucent rather than opaque, because the scene behind it is the point — a solid panel turns
+   * Translucent rather than opaque, because the scene behind it is the point: a solid panel turns
    * a town view into a form with a picture at the top. The blur is what keeps text legible over a
    * lit, high-contrast painting without having to darken it into mud.
    */
@@ -160,7 +253,7 @@
    * The plate a HUD glyph sits on.
    *
    * A resource icon on the panel's own background is a small picture on a dark field, and at HUD
-   * size that is the least legible thing in the interface — the eye has nothing to separate the
+   * size that is the least legible thing in the interface: the eye has nothing to separate the
    * glyph from the chrome around it. Giving it its own lighter tile does the separating, and the
    * purple-to-cyan run keeps it inside the palette instead of introducing a sixth accent.
    *
@@ -169,13 +262,30 @@
   .icon-tile {
     /* A pale lilac plate, and nothing else on it.
      *
-     * The first version ran the gradient into a cyan and rimmed it in the same — which put a blue
+     * The first version ran the gradient into a cyan and rimmed it in the same, which put a blue
      * ring around every resource glyph and made the tile compete with the icon standing on it. A
      * plate's whole job is to be a *quiet* light value behind a saturated shape: one hue, lifted
      * well above the chrome, with the rim a lighter tint of itself rather than a second colour. */
     background-image: linear-gradient(165deg, rgb(186 176 226 / 0.95), rgb(146 134 196 / 0.95));
     border: 1px solid rgb(222 215 255 / 0.55);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3);
+  }
+
+  /**
+   * The dark plate, for a glyph that is *drawn* rather than painted.
+   *
+   * `.icon-tile` is a pale lilac ground and it is right for the resource icons: those are painted
+   * masters with their own light in them, and they need a quiet light value to stand on. A stroked
+   * single-colour mark is the opposite case. On the lilac plate the infamy spade came out pink on
+   * lavender and read as a playing card from a children's game, which is the note the board sent.
+   * On a dark plate the same mark keeps its own colour and its own weight.
+   */
+  .icon-plate {
+    background-image: linear-gradient(165deg, rgb(28 24 38 / 0.95), rgb(16 13 22 / 0.98));
+    border: 1px solid rgb(120 110 150 / 0.35);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.06),
+      inset 0 0 18px rgb(0 0 0 / 0.55);
   }
 
   .glass {
@@ -203,7 +313,7 @@
    * The tooth every painted surface has, and flat CSS does not.
    *
    * A `background-color` is perfectly even, and next to hand-painted artwork perfectly even reads as
-   * plastic — it is the single biggest thing separating a game interface from a form. This lays a
+   * plastic. It is the single biggest thing separating a game interface from a form. This lays a
    * fractal-noise wash over the panel and a soft warm bloom in one corner, so the surface has grain
    * and a light direction like something that was *made*. Both ride on a pseudo-element at very low
    * opacity: the point is to be felt, not seen.
@@ -281,7 +391,7 @@
     mix-blend-mode: overlay;
   }
 
-  /** A hairline of sodium light along an edge — the interface's one piece of ornament. */
+  /** A hairline of sodium light along an edge: the interface's one piece of ornament. */
   .rule-brass {
     background-image: linear-gradient(
       to right,
@@ -308,7 +418,7 @@
    * Rust: an iron stain that has been running down this panel for years.
    *
    * Two soft orange-brown blooms bled in from an edge, plus a fine speckle of pitting. Deliberately
-   * *asymmetric* — the whole point of rust as an ornament is that it happened rather than that it
+   * *asymmetric*: the whole point of rust as an ornament is that it happened rather than that it
    * was applied, and a symmetric stain reads as a pattern.
    *
    * A `background-image` rather than a blend, unlike `painted` and `washed`. Those two are
@@ -323,7 +433,7 @@
     z-index: 0;
     pointer-events: none;
     border-radius: inherit;
-    /* Blooms and a bled edge — no speckle.
+    /* Blooms and a bled edge: no speckle.
      *
      * The first version put a fractal-noise layer on top of these, keyed off the noise's own alpha
      * channel. On screen that is not rust, it is *confetti*: a dense field of individually visible
@@ -350,7 +460,7 @@
   }
 
   /**
-   * The patina — one sheet of dirty glass over the entire frame.
+   * The patina: one sheet of dirty glass over the entire frame.
    *
    * This is the layer that ties the interface together. Every panel below it is its own box with
    * its own edge, and without something running *across* them the screen reads as a stack of
@@ -358,7 +468,7 @@
    * is what makes them look like they are all behind the same pane.
    *
    * Held at a very low alpha on purpose. `overlay` deepens what is already dark and lifts what is
-   * already light, so the temptation is always to turn it up until you can see it — and the moment
+   * already light, so the temptation is always to turn it up until you can see it, and the moment
    * you can *see* it, the text under it is fighting it. It is meant to be felt.
    */
   .patina {
@@ -446,7 +556,7 @@
    * and the hand-wobbled edge on the underside, drawn with the same SVG path grammar as `ink-rule`
    * so every drawn line in the interface has the same hand behind it.
    *
-   * Paint, not a blend — see the note on `.rusted`. Anything on this bar can sit inside a scrolling
+   * Paint, not a blend: see the note on `.rusted`. Anything on this bar can sit inside a scrolling
    * column of panels, which is exactly the situation `expectSheetNotWashedOut` exists to police.
    */
   .paint-track {
@@ -463,7 +573,7 @@
    *
    * A single loaded stroke: brighter where the brush first touched down, thinning towards the top
    * as the bristles ran out. The ragged leading edge is a `clip-path` rather than an image, so it
-   * stays crisp at any width and costs nothing to animate — and it is what stops the bar reading as
+   * stays crisp at any width and costs nothing to animate, and it is what stops the bar reading as
    * a rectangle that happens to be coloured in.
    */
   .paint-fill {

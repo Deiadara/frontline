@@ -10,7 +10,7 @@ import type { AppDatabase } from '../index.js';
  * its listings behind for exactly as long as it takes to settle or expire them.
  *
  * Nothing here decides anything. Escrow, expiry and who may see what are rules, and they live in
- * `@frontline/shared` where both sides can read them — this only stores rows.
+ * `@frontline/shared` where both sides can read them: this only stores rows.
  */
 
 interface OfferRow {

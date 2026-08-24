@@ -1,5 +1,5 @@
 /**
- * The city map's parallax stack — ADR 0001 §5.2, back to front.
+ * The city map's parallax stack: ADR 0001 §5.2, back to front.
  *
  * This module is data plus one pure transform. Mounting the planes into `CityMap` is phase 2;
  * keeping the model here means the scroll factors live in one place a test can pin against the ADR.
@@ -18,16 +18,16 @@ export interface ParallaxPlane {
   /**
    * Rate the plane scrolls at relative to the world: `1` tracks it exactly, `<1` lags (further
    * away), `>1` overtakes (nearer the camera). `null` marks a screen-space overlay that does not
-   * parallax at all — ADR §5.2 leaves those two rows blank.
+   * parallax at all: ADR §5.2 leaves those two rows blank.
    */
   scrollFactor: number | null;
   /** Manifest key the plane is painted from; `null` where it is composed at runtime. */
   assetKey: AssetKey | null;
   /**
-   * ADR §5.4 — blurred planes are baked with `cacheAsTexture` and invalidated only on resize. Data
+   * ADR §5.4: blurred planes are baked with `cacheAsTexture` and invalidated only on resize. Data
    * only so far: nothing applies it yet. Whoever does must call `updateCacheTexture()` on the
    * container after `buildPlanes` swaps its children, or a delivered master lands behind a stale
-   * bake and never appears — Pixi does not refresh a cache on its own.
+   * bake and never appears: Pixi does not refresh a cache on its own.
    */
   cacheAsTexture: boolean;
   /** Exactly one plane takes pointer events: district nodes and base markers. */
@@ -39,7 +39,7 @@ export const PARALLAX_PLANES: readonly ParallaxPlane[] = [
     index: 0,
     // Visible only while `mid` is procedural. `plate-city` is opaque by specification
     // (ART-BIBLE §6), so the day it is delivered as a file it covers this plane completely and
-    // `plane-city-sky` stops contributing a pixel — which is why the order sheet no longer asks the
+    // `plane-city-sky` stops contributing a pixel, which is why the order sheet no longer asks the
     // board for a master for it (MOU-309, `isOccludedBackdropAsset`). Until then this carries the
     // backdrop: `procedural.ts` paints only `sky` opaque and composites every plane over it.
     id: 'sky',
@@ -53,7 +53,7 @@ export const PARALLAX_PLANES: readonly ParallaxPlane[] = [
     index: 1,
     // Occluded by a delivered `mid` on the same terms as `sky` above. Its ART-BIBLE §6 ≥30%
     // transparency floor guards the *procedural* stack it is drawn over today, not the delivered
-    // one — once the plate lands there is no sky behind this left to hide.
+    // one: once the plate lands there is no sky behind this left to hide.
     id: 'far',
     label: 'Far city block mass',
     scrollFactor: 0.35,

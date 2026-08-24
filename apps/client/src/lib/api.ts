@@ -6,7 +6,7 @@ import {
   type DeployRequest,
   type GarrisonStructureRequest,
   type LayTrapRequest,
-  type SacrificeInfamyRequest,
+  type BuyBattleBoostRequest,
   AssigneesMutationResponseSchema,
   AssigneesResponseSchema,
   AssignPointResponseSchema,
@@ -164,7 +164,7 @@ export const setGarrison = (body: GarrisonRequest) =>
 export const fortifyLocation = (body: FortifyRequest) =>
   apiFetch('/city/fortify', CityMutationResponseSchema, jsonBody(body));
 
-/** §A4 — work a location you hold up one level. */
+/** §A4: work a location you hold up one level. */
 export const upgradeLocation = (body: UpgradeLocationRequest) =>
   apiFetch('/city/upgrade', CityMutationResponseSchema, jsonBody(body));
 
@@ -184,8 +184,11 @@ export const layTrap = (body: LayTrapRequest) =>
 export const garrisonStructure = (body: GarrisonStructureRequest) =>
   apiFetch('/battles/garrison', BattleMutationResponseSchema, jsonBody(body));
 
-export const sacrificeInfamy = (body: SacrificeInfamyRequest) =>
-  apiFetch('/battles/sacrifice', BattleMutationResponseSchema, jsonBody(body));
+export const buyBattleBoost = (body: BuyBattleBoostRequest) =>
+  apiFetch('/battles/boost', BattleMutationResponseSchema, jsonBody(body));
+
+export const upgradeNotoriety = () =>
+  apiFetch('/battles/notoriety', BattleMutationResponseSchema, jsonBody({}));
 
 export const getUnits = () => apiFetch('/units', UnitsResponseSchema);
 
@@ -264,7 +267,7 @@ export const changePassword = (body: ChangePasswordRequest) =>
 /**
  * The admin bench.
  *
- * A 404 here is not an error state to show, it is the answer "there is no bench in this build" —
+ * A 404 here is not an error state to show, it is the answer "there is no bench in this build":
  * see `routes/admin.ts`. The hook that calls it turns that one status into `null` rather than
  * letting the screen render a failure a player was never meant to know about.
  */

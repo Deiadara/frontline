@@ -13,7 +13,7 @@ import type { AppDatabase } from '../index.js';
 /**
  * Who holds the city, and who has seen it (GDD §A4).
  *
- * Control is world state — one row per location, shared by every crew — and intel is per-crew
+ * Control is world state, one row per location, shared by every crew, and intel is per-crew
  * knowledge. Keeping them in separate tables is the whole fog-of-war design: the truth exists
  * whether or not you have looked at it.
  */
@@ -56,7 +56,7 @@ export interface CityRepo {
   control(locationId: string): LocationControl | undefined;
   /** Replaces one location's whole control row. Holder, digging and garrison move together. */
   put(control: LocationControl): void;
-  /** Just the garrison — the common write, and the one that must not disturb a fortify clock. */
+  /** Just the garrison: the common write, and the one that must not disturb a fortify clock. */
   setGarrison(locationId: string, garrison: Army): void;
   /** Districts this crew has seen inside. */
   scouted(baseId: string): Set<string>;

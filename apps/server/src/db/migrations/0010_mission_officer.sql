@@ -1,5 +1,5 @@
 -- Who led the run (§G6). Until now the officer was resolved at launch, used to price the mission,
--- and then forgotten — so nothing downstream could tell which character had actually been out, and
+-- and then forgotten, so nothing downstream could tell which character had actually been out, and
 -- `characterXpForActivity` (INTERFACES §2 R2) had no relation to award against.
 --
 -- Nullable, and deliberately not a foreign key:

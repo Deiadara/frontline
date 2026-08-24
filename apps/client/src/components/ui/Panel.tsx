@@ -36,7 +36,7 @@ interface PanelProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
 /**
  * The surface everything else sits on: warm dark glass over the world, not an opaque box.
  *
- * Translucent because the scene behind it is the point — the district stays visible under every
+ * Translucent because the scene behind it is the point: the district stays visible under every
  * panel, the way a town view stays visible under a Grepolis dialog. The border is a hairline of
  * sodium light rather than a cyan rule, and the shadow is cast rather than glowing: chrome floating
  * over a painting has to look like it is *above* the painting, and a glow just looks like part of
@@ -48,7 +48,7 @@ export function Panel({ title, action, tone = 'brass', className, children, ...r
       className={cn(
         // A step *lighter* than the sheet it sits in, not the same value. Panels used to be the
         // same translucent dark as their container, so a screen with six of them read as one dark
-        // rectangle with hairlines drawn on it — the borders were doing all the grouping on their
+        // rectangle with hairlines drawn on it: the borders were doing all the grouping on their
         // own, which is the weakest signal available. Value does the grouping now and the border
         // just finishes the edge.
         // No hard border: the frayed outline *is* the edge. Running both gives every panel a
@@ -67,10 +67,10 @@ export function Panel({ title, action, tone = 'brass', className, children, ...r
             TONE[tone].head,
           )}
         >
-          {/* The hand face, and a step up in size again. A panel heading is a *name* — "On the
-              shelf", "Your crew" — and it is the label a player scans a screen by, so it is one of
+          {/* The hand face, and a step up in size again. A panel heading is a *name*: "On the
+              shelf", "Your crew", and it is the label a player scans a screen by, so it is one of
               the places the board asked for lettering rather than a field label. */}
-          <h2 className={cn('font-hand text-[21px] leading-none', TONE[tone].heading)}>{title}</h2>
+          <h2 className={cn('font-stamp text-[16px] leading-none', TONE[tone].heading)}>{title}</h2>
           {action}
           {/* Hand-drawn, not a border: a heading underlined with a ruler reads as a spreadsheet. */}
           <span aria-hidden className="ink-rule absolute inset-x-0 -bottom-[2px]" />

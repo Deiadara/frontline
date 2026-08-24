@@ -12,7 +12,7 @@ import { UNIT_CATALOG, type UnitRequirement, type UnitSpec } from './catalog.js'
  *
  * Every clause is evaluated against the same context object, and **all** of them must hold. That
  * is the design: the interesting units are the ones that need two different kinds of progress at
- * once — a structure at the top of its tree *and* a location you had to take off somebody.
+ * once: a structure at the top of its tree *and* a location you had to take off somebody.
  */
 
 export interface UnlockContext {
@@ -67,7 +67,7 @@ export function describeRequirement(need: UnitRequirement): string {
   }
 }
 
-/** The location kinds a crew holds, from its control rows — the other half of {@link UnlockContext}. */
+/** The location kinds a crew holds, from its control rows: the other half of {@link UnlockContext}. */
 export function heldPlaceKindsOf(
   locations: readonly { id: string; kind: LocationKind }[],
   isHeld: (locationId: string) => boolean,

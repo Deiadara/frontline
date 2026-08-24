@@ -14,9 +14,9 @@ export interface AwardedXp {
 }
 
 /**
- * Awards player XP for one thing that happened, and applies any level-up it paid for (GDD §I1–I2).
+ * Awards player XP for one thing that happened, and applies any level-up it paid for (GDD §I1-I2).
  *
- * **This is the only function in the server that writes player XP or `Base.level`** — INTERFACES §2
+ * **This is the only function in the server that writes player XP or `Base.level`**: INTERFACES §2
  * R7 gives W6 the whole XP side, so a system that makes XP happen calls this and names its source
  * rather than deciding an amount or touching the level itself. Call sites stay one line long.
  */
@@ -31,7 +31,7 @@ export function awardPlayerXp(repos: Repositories, base: Base, source: PlayerXpS
 
 /**
  * The `levelUp` a response announces for the awards one request banked, or `undefined` when none of
- * them crossed a level (MOU-227 — presence is the signal, so no client compares two numbers).
+ * them crossed a level (MOU-227: presence is the signal, so no client compares two numbers).
  *
  * Takes the whole run of awards because a single call can bank several: a settlement that brings two
  * crews home over two thresholds is *one* level-up to announce, so the levels **add up** while the
@@ -41,7 +41,7 @@ export function levelUpFrom(awards: readonly PlayerXpAward[]): LevelUp | undefin
   const levelsGained = awards.reduce((total, award) => total + award.levelsGained, 0);
   const last = awards.at(-1);
   if (levelsGained === 0 || !last) return undefined;
-  // §I3 — every unlock the whole run crossed, not just the last award's. A settlement that banked
+  // §I3: every unlock the whole run crossed, not just the last award's. A settlement that banked
   // two missions across three levels can open two doors, and announcing one of them would leave a
   // player to discover the other by walking into it.
   const unlocks = awards.flatMap((award) => award.unlocks);

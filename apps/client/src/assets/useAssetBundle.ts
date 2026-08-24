@@ -7,7 +7,7 @@ import { artLoader, type ArtLoader, type BundleState } from './loader';
  *
  * `ensure` runs during render rather than in an effect so the request is in flight before the
  * first paint; it is idempotent, so React's double-invoked renders are harmless. Bundles with
- * nothing delivered yet come back `ready` on the very first snapshot — the procedural fallback
+ * nothing delivered yet come back `ready` on the very first snapshot: the procedural fallback
  * needs no fetch, so there is nothing to flash.
  */
 export function useAssetBundle(

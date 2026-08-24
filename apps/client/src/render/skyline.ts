@@ -1,17 +1,17 @@
 /**
- * Seeded city-mass geometry — the interim painted look promised by ADR 0001 §5.3.
+ * Seeded city-mass geometry: the interim painted look promised by ADR 0001 §5.3.
  *
  * Pure and resolution-independent: every dimension is a fraction of the plane it will be painted
  * into, and every random draw comes from the asset's own `seed`, so a key paints identically on
  * every run and at every viewport size. `procedural.ts` turns this into PixiJS objects; keeping the
  * geometry here means the silhouette rules are unit-tested rather than eyeballed.
  *
- * Colours are picked as whole ART-BIBLE §2.1 ramp stops, never interpolated — §2.1 forbids
+ * Colours are picked as whole ART-BIBLE §2.1 ramp stops, never interpolated: §2.1 forbids
  * inventing intermediate hues, so depth is expressed by *choosing a darker stop*, not by blending.
  */
 import { ramps } from '../theme/tokens';
 
-/** Which parallax plane a mass belongs to — ADR §5.2 rows `sky`, `far`, `mid` and `fore`. */
+/** Which parallax plane a mass belongs to: ADR §5.2 rows `sky`, `far`, `mid` and `fore`. */
 export type DepthBand = 'sky' | 'far' | 'mid' | 'fore';
 
 export interface Point {
@@ -19,13 +19,13 @@ export interface Point {
   y: number;
 }
 
-/** A lit window. Unlit windows are not emitted — they are just façade. */
+/** A lit window. Unlit windows are not emitted. They are just façade. */
 export interface WindowCell {
   x: number;
   y: number;
   w: number;
   h: number;
-  /** Sodium interior (`ember`) vs. cold display glow (`hextech`) — ART-BIBLE §3.3. */
+  /** Sodium interior (`ember`) vs. cold display glow (`hextech`): ART-BIBLE §3.3. */
   warm: boolean;
 }
 
@@ -37,7 +37,7 @@ export interface Tower {
   depth: number;
   fill: string;
   /**
-   * Gutted masses — sheared roof, no aerial, near-dark façade. GDD §A2 asks for old, destroyed and
+   * Gutted masses: sheared roof, no aerial, near-dark façade. GDD §A2 asks for old, destroyed and
    * new side by side, and a skyline of uniformly healthy buildings is what reads as "futuristic
    * city at night" instead of "post-war undercity". This is the flag that keeps both in frame.
    */
@@ -45,7 +45,7 @@ export interface Tower {
 }
 
 /**
- * A gantry, catwalk or slung cable bridge tying two masses together — ART-BIBLE §5, "scrap is
+ * A gantry, catwalk or slung cable bridge tying two masses together: ART-BIBLE §5, "scrap is
  * structure" and "break the box". Kept apart from {@link Tower} because a strut is the one piece
  * of city geometry that is *not* grounded, so it must not be held to the tower invariants.
  */
@@ -64,7 +64,7 @@ export interface Skyline {
 }
 
 /**
- * mulberry32 — 32-bit, seedable, no dependency. Quality is irrelevant here; determinism is the
+ * mulberry32: 32-bit, seedable, no dependency. Quality is irrelevant here; determinism is the
  * whole point, so that `plane-city-far` has the same skyline in a screenshot test as in the app.
  */
 export function mulberry32(seed: number): () => number {
@@ -85,11 +85,11 @@ interface BandProfile {
   height: [number, number];
   /** Chance a tower stacks a third accreted storey instead of just two. */
   stackChance: number;
-  /** Chance a standing tower carries a mast above its top segment. Derelicts never do — it fell. */
+  /** Chance a standing tower carries a mast above its top segment. Derelicts never do: it fell. */
   spireChance: number;
   /**
    * How far this band's accretion may wander outside its ground storey's own footprint, as a
-   * fraction of that footprint's width. It bounds every horizontal excursion at once — overhanging
+   * fraction of that footprint's width. It bounds every horizontal excursion at once: overhanging
    * storeys, lean, and the scrap sheds at the foot.
    *
    * `fore` is deliberately near-zero, but be precise about what that buys. {@link BandProfile.spans}
@@ -104,7 +104,7 @@ interface BandProfile {
   windowChance: number;
   /**
    * Lit-window size as a fraction of *plane* height. Sizing windows off the tower instead makes a
-   * wide foreground tower sprout 40px light-boxes — the flat-rectangle failure mode. A storey is a
+   * wide foreground tower sprout 40px light-boxes: the flat-rectangle failure mode. A storey is a
    * fixed real-world size, so it scales with the plane and only grows a little as bands come nearer.
    */
   windowScale: number;
@@ -123,7 +123,7 @@ interface BandProfile {
 const FULL_SPAN = [[0, 1]] as const;
 
 /**
- * ART-BIBLE §5 — silhouette reads first, and it reads by *value*: each band forward is a step
+ * ART-BIBLE §5: silhouette reads first, and it reads by *value*: each band forward is a step
  * darker than the one behind it (`smog` → `abyss.300` → `abyss.500` → `abyss.950`), which is what
  * atmospheric perspective is. Bands all painted from the same near-black end read as one flat
  * black field no matter how good the geometry is.
@@ -134,7 +134,7 @@ const FULL_SPAN = [[0, 1]] as const;
 export const BAND_PROFILES: Record<DepthBand, BandProfile> = {
   sky: {
     towers: 26,
-    // Taller than every band in front of it — bands are all floor-anchored, so a distant band
+    // Taller than every band in front of it: bands are all floor-anchored, so a distant band
     // that is not the tallest is simply painted over and contributes nothing.
     width: [0.018, 0.055],
     height: [0.46, 0.9],
@@ -192,14 +192,14 @@ export const BAND_PROFILES: Record<DepthBand, BandProfile> = {
 export const WINDOW_WARM_CHANCE = 0.72;
 
 /**
- * Share of masses that are gutted rather than standing (GDD §A2 — "old, destroyed, and new ones
+ * Share of masses that are gutted rather than standing (GDD §A2: "old, destroyed, and new ones
  * side by side"). Kept a minority: past half, the skyline stops reading as a city that lost a war
  * and starts reading as an abandoned one.
  */
 export const DERELICT_CHANCE = 0.34;
 
 /**
- * Chance a storey has power at all, before any individual cell is rolled. ART-BIBLE §5 — "the
+ * Chance a storey has power at all, before any individual cell is rolled. ART-BIBLE §5: "the
  * lights are half out": an undercity is unevenly powered, so lit windows come in clumped bands
  * with dark floors between them. Rolling only per-cell gives a uniform sprinkle, which at skyline
  * scale is exactly the regular curtain-wall grid A2 rejects.
@@ -207,7 +207,7 @@ export const DERELICT_CHANCE = 0.34;
 const FLOOR_POWERED_CHANCE = { standing: 0.45, derelict: 0.08 } as const;
 
 /**
- * Roof shear as a signed fraction of the top storey's height — one side of the roof sits that much
+ * Roof shear as a signed fraction of the top storey's height: one side of the roof sits that much
  * lower than the other. ART-BIBLE §5, "no intact roof lines": a flat horizontal top edge is the
  * chrome-futurism tell, so every mass ends where it broke.
  */
@@ -220,7 +220,7 @@ const ROOF_SHEAR = { standing: [0.12, 0.4], derelict: [0.4, 0.85] } as const;
  */
 const STOREY_WIDTH_RATIO = [0.55, 1.32] as const;
 
-/** Chance a mass has a scrap lean-to piled against its foot — ART-BIBLE §5, "scrap is structure". */
+/** Chance a mass has a scrap lean-to piled against its foot: ART-BIBLE §5, "scrap is structure". */
 const LEAN_TO_CHANCE = 0.5;
 
 /** Chance two close-enough neighbours are tied together by a gantry. */
@@ -231,7 +231,7 @@ const MAX_GANTRY_SPAN = 0.05;
 
 /**
  * One storey of a tower, bottom → top. Unlike a planned tower's setbacks, a storey here may be
- * *wider* than the one below and sit off its centre — that overhang is the accretion read.
+ * *wider* than the one below and sit off its centre: that overhang is the accretion read.
  */
 interface Segment {
   width: number;
@@ -251,7 +251,7 @@ const clamp = (value: number, min: number, max: number): number =>
 const signed = (range: readonly [number, number], rng: () => number): number =>
   lerp(range[0], range[1], rng()) * (rng() < 0.5 ? -1 : 1);
 
-/** Picks the ramp stop for `depth`, clamped — no interpolation (ART-BIBLE §2.1). */
+/** Picks the ramp stop for `depth`, clamped: no interpolation (ART-BIBLE §2.1). */
 export function fillForDepth(fills: readonly string[], depth: number): string {
   const index = Math.min(fills.length - 1, Math.max(0, Math.floor(depth * fills.length)));
   return fills[index] as string;
@@ -267,7 +267,7 @@ export function fillForDepth(fills: readonly string[], depth: number): string {
  *   and the polygon self-intersects. `|Δdx| < (w_below + w) / 2` is exactly the overlap condition;
  *   it is taken at 40% for margin.
  * - **The stack stays within `sprawl` of the ground storey's footprint** (`reach`), so a band with
- *   a layout contract — `fore` — cannot lean its way into the middle of the plate.
+ *   a layout contract, `fore`, cannot lean its way into the middle of the plate.
  */
 function accretedOnto(
   below: Segment,
@@ -359,7 +359,7 @@ function windowsFor(
   const cell = Math.max(1.5, planeHeight * profile.windowScale);
   const gap = cell * 1.1;
   // The roof shear cuts into the top storey, so the façade starts below the deepest part of the
-  // cut — otherwise a lit window floats in the sky above a broken roof line.
+  // cut: otherwise a lit window floats in the sky above a broken roof line.
   const facadeTop = top + Math.abs(segment.shear);
   const facadeHeight = segment.height - Math.abs(segment.shear);
   const columns = Math.floor((segment.width - gap) / (cell + gap));
@@ -393,7 +393,7 @@ function towerAt(
   height: number,
   rng: () => number,
 ): Tower {
-  // Nearer towers in a band are taller and wider — the cue that sells depth inside one plane.
+  // Nearer towers in a band are taller and wider: the cue that sells depth inside one plane.
   const towerWidth = width * lerp(profile.width[0], profile.width[1], lerp(rng(), depth, 0.5));
   const towerHeight = height * lerp(profile.height[0], profile.height[1], lerp(rng(), depth, 0.5));
   const derelict = rng() < DERELICT_CHANCE;
@@ -419,10 +419,10 @@ function towerAt(
 /**
  * Horizontal extent of a mass, in the two forms its callers need.
  *
- * `left`/`right` span the *whole* outline — what a gantry hangs off, since it attaches somewhere
+ * `left`/`right` span the *whole* outline: what a gantry hangs off, since it attaches somewhere
  * up the wall rather than at the floor. `base` spans only the ground storey, where the mass meets
  * the floor. Storeys may overhang (see {@link STOREY_WIDTH_RATIO}), so the two genuinely differ:
- * anything anchored to the ground-floor wall — a lean-to — must use `base` or it is planted out in
+ * anything anchored to the ground-floor wall, a lean-to, must use `base` or it is planted out in
  * open air under the overhang, with a gap between it and the mass it is supposed to be leaning on.
  */
 function footprintOf(tower: Tower): {
@@ -446,7 +446,7 @@ function footprintOf(tower: Tower): {
 }
 
 /**
- * A scrap shed piled against the foot of a mass — ART-BIBLE §5, "scrap is structure". Its roof
+ * A scrap shed piled against the foot of a mass: ART-BIBLE §5, "scrap is structure". Its roof
  * slopes away from the wall it leans on, which is what distinguishes it from just another tower.
  *
  * Emitted as a {@link Tower} rather than a special case: it is grounded, closed and filled from the
@@ -496,7 +496,7 @@ function leanToAgainst(
 }
 
 /**
- * Ties neighbouring masses together with gantries. Only genuinely adjacent pairs qualify — a strut
+ * Ties neighbouring masses together with gantries. Only genuinely adjacent pairs qualify: a strut
  * across a wide gap is not a catwalk, and on `fore` it would be a bar drawn straight over the
  * clickable middle of the plate, whose two margins are exactly such a gap.
  */
@@ -510,7 +510,7 @@ function strutsBetween(
   const struts: Strut[] = [];
   const ordered = [...towers].sort((a, b) => footprintOf(a).left - footprintOf(b).left);
   const thickness = Math.max(2, baseY * 0.005);
-  // A gap *between* two spans is there on purpose — on `fore` it is the clickable middle of the
+  // A gap *between* two spans is there on purpose: on `fore` it is the clickable middle of the
   // plate. Bounding the span length alone does not protect it: masses jitter and sprawl toward the
   // boundary, so two of them can close to within a bridgeable distance across it. Requiring the
   // whole gap to sit inside a single span encodes the layout contract instead of relying on the
@@ -602,5 +602,5 @@ export function generateSkyline(
   };
 }
 
-/** Window emissive colours — ART-BIBLE §3.3, warm sodium interiors against the cold key. */
+/** Window emissive colours: ART-BIBLE §3.3, warm sodium interiors against the cold key. */
 export const WINDOW_FILLS = { warm: ramps.ember[300], cold: ramps.hextech[300] } as const;

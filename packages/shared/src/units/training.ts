@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { buildingLevel, type Building } from '../building/index.js';
+import type { Building } from '../building/index.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
 import { UNIT_CATALOG, UnitIdSchema, findUnit, type UnitSpec } from './catalog.js';
@@ -11,7 +11,7 @@ import { UNIT_CATALOG, UnitIdSchema, findUnit, type UnitSpec } from './catalog.j
  * campaign; this is the statement about the week: every unit costs materials and takes time, and
  * the standing army has a ceiling set by the Gauntlet.
  *
- * The queue is the same shape as the build queue and settles the same way — lazily, on read, from
+ * The queue is the same shape as the build queue and settles the same way: lazily, on read, from
  * absolute timestamps frozen at order time. There is still no scheduler anywhere in this game.
  */
 
@@ -26,7 +26,7 @@ export const TrainingOrderSchema = z.object({
   unitId: UnitIdSchema,
   count: z.number().int().positive(),
   startedAt: IsoDateTimeSchema,
-  /** Frozen at order time, for the whole batch — the same rule a build order follows. */
+  /** Frozen at order time, for the whole batch: the same rule a build order follows. */
   durationSeconds: z.number().int().positive(),
 });
 export type TrainingOrder = z.infer<typeof TrainingOrderSchema>;
@@ -35,21 +35,13 @@ export const TrainingQueueSchema = z.array(TrainingOrderSchema).max(MAX_TRAINING
 export type TrainingQueue = z.infer<typeof TrainingQueueSchema>;
 
 /**
- * Supply the Gauntlet provides before any level, and per level after.
+ * What an army costs against the district's population (§A1). A Colossus is not one soldier.
  *
- * A crew with no Gauntlet can still field a handful of Razors — an army cap of zero would mean a
- * new player cannot fight at all until they have built a barracks, which is a worse first hour
- * than a small one.
+ * There is no separate army ceiling any more. The Gauntlet used to run one and the Quarters ran a
+ * second for officers and assignees, so a crew could fill both without either knowing, and "how
+ * many people work here" had two answers. Everything comes out of one pool now: see
+ * `building/population.ts` for what fills it and why supply is the right cost per body.
  */
-export const ARMY_SUPPLY_BASE = 8;
-export const ARMY_SUPPLY_PER_GAUNTLET_LEVEL = 6;
-
-/** The standing army this district can support. */
-export function armyCapacity(buildings: readonly Building[]): number {
-  return ARMY_SUPPLY_BASE + buildingLevel(buildings, 'gauntlet') * ARMY_SUPPLY_PER_GAUNTLET_LEVEL;
-}
-
-/** What an army costs against that ceiling. A Colossus is not one soldier. */
 export function supplyUsed(army: Army): number {
   return Object.entries(army).reduce((total, [unitId, count]) => {
     const unit = findUnit(unitId);
@@ -61,7 +53,7 @@ export function armySize(army: Army): number {
   return Object.values(army).reduce((total, count) => total + count, 0);
 }
 
-/** Supply a queued batch will claim when it lands — counted against the cap at *order* time. */
+/** Supply a queued batch will claim when it lands: counted against the cap at *order* time. */
 export function supplyQueued(queue: TrainingQueue): number {
   return queue.reduce((total, order) => {
     const unit = findUnit(order.unitId);
@@ -72,8 +64,8 @@ export function supplyQueued(queue: TrainingQueue): number {
 /**
  * What training `count` of `unit` costs.
  *
- * `discountPercent` is everything that makes units cheaper — an Armory, a district's unified
- * bonus — already summed, so this module never has to know what a place is. Floored at 1 per line
+ * `discountPercent` is everything that makes units cheaper: an Armory, a district's unified
+ * bonus: already summed, so this module never has to know what a place is. Floored at 1 per line
  * so a deep discount can never make a unit free.
  */
 export const MAX_TRAINING_DISCOUNT = 50;
@@ -92,8 +84,8 @@ export function trainingCost(unit: UnitSpec, count: number, discountPercent = 0)
 /**
  * How long training `count` of `unit` takes, in seconds.
  *
- * Batches are cheaper in time than one-at-a-time — a second Razor does not take a second full
- * training cycle — but never free, or the queue's five slots would be a formality. The first is
+ * Batches are cheaper in time than one-at-a-time: a second Razor does not take a second full
+ * training cycle, but never free, or the queue's five slots would be a formality. The first is
  * full price and every one after is {@link BATCH_TIME_FACTOR} of it.
  */
 export const BATCH_TIME_FACTOR = 0.6;
@@ -130,7 +122,7 @@ export function trainingStartsAt(queue: TrainingQueue, now: Date): Date {
 
 /**
  * The leading run of orders whose clocks are up, and the rest. A prefix rather than a filter,
- * because the queue is sequential — the same reasoning the build queue's splitter documents.
+ * because the queue is sequential: the same reasoning the build queue's splitter documents.
  */
 export function splitDueTraining(
   queue: TrainingQueue,

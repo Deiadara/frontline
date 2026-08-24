@@ -4,11 +4,11 @@ import { RESOURCE_KEYS, type ResourceKey, type Resources } from '../resources.js
 import { RESOURCE_CAP_VALUE } from './offers.js';
 
 /**
- * The supply run — caps into materials, rationed by the day (market extension).
+ * The supply run: caps into materials, rationed by the day (market extension).
  *
  * Caps are money. Nothing produces them passively and nothing caps them: they come off missions,
  * raids and anything a crew sells, and they go out on wages, hires, research and the Runner's
- * barrow. What was missing was the thing that makes a currency behave like one — **being able to
+ * barrow. What was missing was the thing that makes a currency behave like one: **being able to
  * buy the ordinary stuff with it**. Until now a crew that was rich and out of scrap had no way to
  * turn one into the other except the Broker, who only trades materials for materials and takes half
  * for the privilege.
@@ -18,7 +18,7 @@ import { RESOURCE_CAP_VALUE } from './offers.js';
  * A shop with no limit and a fair price replaces the district: at some cap balance it is simply
  * better to buy scrap than to raise a Scrapyard, and every structure in §A1 becomes optional. A
  * shop with no limit and a *bad* price is a shop nobody uses. So the price is mildly bad and the
- * **quantity** is what is bounded — a day's supply run is a fraction of what the district can hold,
+ * **quantity** is what is bounded: a day's supply run is a fraction of what the district can hold,
  * which means it tops a crew up and can never feed one.
  *
  * ## What the ration is measured against
@@ -26,7 +26,7 @@ import { RESOURCE_CAP_VALUE } from './offers.js';
  * Storage, because storage is the one number that already says how big an operation this is. A crew
  * with a level-1 Apothecary can buy a few hundred units a day; a crew with a level-20 one can buy
  * thousands, and has built the warehouse that justifies it. And the *share* of that storage scales
- * with player level, from {@link SUPPLY_MIN_PERCENT} to {@link SUPPLY_MAX_PERCENT} — so levelling
+ * with player level, from {@link SUPPLY_MIN_PERCENT} to {@link SUPPLY_MAX_PERCENT}, so levelling
  * widens the tap on a pipe the district decided the diameter of.
  *
  * The allowance is **pooled across resources**, not one quota per line. A day of buying is a budget
@@ -45,7 +45,7 @@ export const SUPPLY_MIN_PERCENT = 30;
 export const SUPPLY_MAX_PERCENT = 100;
 /** Percentage points the share widens by, per level. Reaches the top at level 36. */
 export const SUPPLY_PERCENT_PER_LEVEL = 2;
-/** §I3 — what `MILESTONE_DEEP_POCKETS` multiplies the share by at level 70. */
+/** §I3: what `MILESTONE_DEEP_POCKETS` multiplies the share by at level 70. */
 export const SUPPLY_DEEP_POCKETS_MULTIPLIER = 2;
 /** And what that comes to, since the curve has long since topped out by then. */
 export const SUPPLY_DEEP_POCKETS_PERCENT = SUPPLY_MAX_PERCENT * SUPPLY_DEEP_POCKETS_MULTIPLIER;
@@ -54,12 +54,12 @@ export const SUPPLY_DEEP_POCKETS_PERCENT = SUPPLY_MAX_PERCENT * SUPPLY_DEEP_POCK
  * What share of a full store this crew may buy today.
  *
  * Linear rather than a curve. The number is a promise a player has to be able to make plans
- * against — "two more levels and I can buy half a warehouse a day" — and a promise you need a
+ * against, "two more levels and I can buy half a warehouse a day", and a promise you need a
  * spreadsheet to read is not one.
  *
  * The milestone **multiplies the share** rather than raising a ceiling the share is clamped to. A
- * raised ceiling would have done nothing at all at level 70 — the linear part does not reach 168%
- * of a store until the eighties — which is the quiet way to ship a reward nobody can feel on the
+ * raised ceiling would have done nothing at all at level 70: the linear part does not reach 168%
+ * of a store until the eighties, which is the quiet way to ship a reward nobody can feel on the
  * level it is attached to.
  */
 export function supplyAllowancePercent(level: number): number {
@@ -186,7 +186,7 @@ export const SupplyBoardSchema = z.object({
 });
 export type SupplyBoard = z.infer<typeof SupplyBoardSchema>;
 
-/** The whole board for a crew — one function both sides of the wire call. */
+/** The whole board for a crew: one function both sides of the wire call. */
 export function supplyBoard(
   level: number,
   stock: Resources,

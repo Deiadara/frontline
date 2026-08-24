@@ -1,7 +1,7 @@
 import type { LevelUp } from '@frontline/shared';
 import { z } from 'zod';
 
-/** Domain error codes from docs/SPEC-server.md — always SCREAMING_SNAKE. */
+/** Domain error codes from docs/SPEC-server.md: always SCREAMING_SNAKE. */
 export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'UNAUTHORIZED'

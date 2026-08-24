@@ -23,7 +23,7 @@ import { useSession } from '../store/session';
  *
  * This is the first frame of the game and for a long time it was a form on a picture: two inputs, a
  * button, and nothing that said what was behind it. A sign-up board has one job beyond taking a
- * password, which is to make somebody want to type one — so the screen is split. The left half is
+ * password, which is to make somebody want to type one, so the screen is split. The left half is
  * the pitch, in the game's own voice, with the three things this actually is. The right half is the
  * board itself, bolted to the wall like everything else in this city.
  *
@@ -43,7 +43,7 @@ interface FieldErrors {
 }
 
 /**
- * MVP ONLY — the login form starts prefilled with the seeded dev operator so the build can
+ * MVP ONLY: the login form starts prefilled with the seeded dev operator so the build can
  * be picked up and played. Register mode starts blank: the dev passphrase is 5 characters
  * and would fail `RegisterRequestSchema`'s 8-character minimum.
  */
@@ -52,7 +52,7 @@ const prefillFor = (mode: Mode) =>
     ? { username: MVP_DEV_CREDENTIALS.username, password: MVP_DEV_CREDENTIALS.password }
     : { username: '', password: '' };
 
-/** The three lines of pitch. Concrete nouns only — a feature list is not a reason to sign up. */
+/** The three lines of pitch. Concrete nouns only: a feature list is not a reason to sign up. */
 const PROMISES: readonly { icon: IconName; title: string; line: string }[] = [
   {
     icon: 'district',
@@ -157,7 +157,7 @@ export function AuthScreen() {
           {/* The house clock, stated before anybody signs up. Every schedule in the game runs on
               it, and finding that out from a countdown that is two hours off is the wrong way. */}
           <p className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-200">
-            City time is {zoneCity(GAME_TIMEZONE)} — {formatClock(now, GAME_TIMEZONE)}{' '}
+            City time is {zoneCity(GAME_TIMEZONE)}: {formatClock(now, GAME_TIMEZONE)}{' '}
             {zoneLabel(now, GAME_TIMEZONE)}. You can read it in your own clock from Settings.
           </p>
         </section>
@@ -166,7 +166,7 @@ export function AuthScreen() {
         <section className="min-w-0 justify-self-center lg:justify-self-end">
           {/* The wordmark again, for the narrow layout where the pitch is not on screen to carry
               it. `aria-hidden` and not a heading: the real `h1` is in the pitch above, which stays
-              in the document at every width — two of them would be one document outline with the
+              in the document at every width: two of them would be one document outline with the
               game's name in it twice. */}
           <div aria-hidden className="mb-5 text-center lg:hidden">
             <p className="font-display text-[11px] uppercase tracking-[0.3em] text-brass-300">

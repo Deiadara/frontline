@@ -2,20 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { UNIT_CATALOG, UNIT_TIERS, findUnit, unitsInTier } from '../units/index.js';
 import {
   INFAMY_PER_TIER,
-  INFAMY_SACRIFICES,
-  INFAMY_TO_FIELD,
+  NOTORIETY_TO_FIELD,
   INFAMY_UNIT_VALUES,
   STARTING_INFAMY,
-  findSacrifice,
   gainInfamy,
   hasInfamy,
   infamyForKill,
   infamyForKills,
-  infamyToField,
-  sacrificeEffect,
+  notorietyToField,
   spendInfamy,
-  unitsBeyondInfamy,
+  unitsBeyondNotoriety,
 } from './infamy.js';
+import { notorietySpentTo } from './notoriety.js';
 import { startingEconomy } from './state.js';
 
 const NOW = new Date('2026-08-16T12:00:00.000Z');
@@ -47,7 +45,7 @@ describe('what a kill is worth (§D7)', () => {
   });
 
   it('scales inside a tier by what a unit eats, so a big specialist is worth two small ones', () => {
-    // Wrecking Crew is supply 4 against the Snipers' 2 — twice the bodies, twice the name.
+    // Wrecking Crew is supply 4 against the Snipers' 2: twice the bodies, twice the name.
     expect(infamyForKill('wrecking_crew')).toBe(2 * infamyForKill('snipers'));
   });
 
@@ -102,65 +100,43 @@ describe('spending it', () => {
   it('refuses a negative price', () => {
     expect(spendInfamy(500, -100)).toBeNull();
   });
-
-  it('offers sinks that all cost something and all land on a channel', () => {
-    expect(INFAMY_SACRIFICES.length).toBeGreaterThan(0);
-    for (const spec of INFAMY_SACRIFICES) {
-      expect(spec.cost, spec.id).toBeGreaterThan(0);
-      expect(spec.hours, spec.id).toBeGreaterThan(0);
-      expect(spec.magnitude, spec.id).toBeGreaterThan(0);
-      expect(findSacrifice(spec.id)).toBe(spec);
-    }
-  });
-
-  it('pays out while the clock runs and nothing at all after it', () => {
-    const spec = INFAMY_SACRIFICES[0]!;
-    const running = { id: spec.id, until: '2026-08-16T18:00:00.000Z' };
-    expect(sacrificeEffect(running, NOW)).toEqual({
-      channel: spec.channel,
-      magnitude: spec.magnitude,
-    });
-    expect(sacrificeEffect(running, new Date('2026-08-16T18:00:00.000Z'))).toBeNull();
-    expect(sacrificeEffect(null, NOW)).toBeNull();
-  });
-
-  it('is worth nothing at all for a sacrifice that has been retired from the catalogue', () => {
-    expect(
-      sacrificeEffect({ id: 'sacrifice_that_was_removed', until: '2099-01-01T00:00:00.000Z' }, NOW),
-    ).toBeNull();
-  });
 });
 
 describe('what a name lets you field (§D7)', () => {
   it('lets anybody put rabble and regulars on the street', () => {
-    expect(infamyToField('razors')).toBe(0);
-    expect(infamyToField('breakers')).toBe(0);
+    expect(notorietyToField('razors')).toBe(0);
+    expect(notorietyToField('breakers')).toBe(0);
   });
 
   it('asks for a real name before the heaviest things will take a contract', () => {
-    expect(infamyToField('juggernauts')).toBe(INFAMY_TO_FIELD.heavy);
-    expect(infamyToField('the_colossus')).toBe(INFAMY_TO_FIELD.legendary);
-    expect(INFAMY_TO_FIELD.legendary).toBeGreaterThan(INFAMY_TO_FIELD.heavy);
+    expect(notorietyToField('juggernauts')).toBe(NOTORIETY_TO_FIELD.heavy);
+    expect(notorietyToField('the_colossus')).toBe(NOTORIETY_TO_FIELD.legendary);
+    expect(NOTORIETY_TO_FIELD.legendary).toBeGreaterThan(NOTORIETY_TO_FIELD.heavy);
   });
 
   it('names exactly which units in a force are out of reach, and nothing else', () => {
     const force = { razors: 20, juggernauts: 2, the_colossus: 1 };
-    expect(unitsBeyondInfamy(force, 0).sort()).toEqual(['juggernauts', 'the_colossus']);
-    expect(unitsBeyondInfamy(force, INFAMY_TO_FIELD.heavy)).toEqual(['the_colossus']);
-    expect(unitsBeyondInfamy(force, INFAMY_TO_FIELD.legendary)).toEqual([]);
+    expect(unitsBeyondNotoriety(force, 0).sort()).toEqual(['juggernauts', 'the_colossus']);
+    expect(unitsBeyondNotoriety(force, NOTORIETY_TO_FIELD.heavy)).toEqual(['the_colossus']);
+    expect(unitsBeyondNotoriety(force, NOTORIETY_TO_FIELD.legendary)).toEqual([]);
   });
 
   it('says nothing about a unit nobody is sending', () => {
-    expect(unitsBeyondInfamy({ the_colossus: 0 }, 0)).toEqual([]);
+    expect(unitsBeyondNotoriety({ the_colossus: 0 }, 0)).toEqual([]);
   });
 
   /**
-   * The gate has to be *reachable*, or the unit is decoration. One legendary kill plus a handful of
-   * heavies is what the number is quoted against, so this is the arithmetic that keeps it honest.
+   * The gate has to be reachable, or the unit is decoration.
+   *
+   * It is a rank now, so the arithmetic runs through the ladder: what does it cost in infamy to
+   * buy every rung up to the one a legendary asks for, and how many real fights is that? Priced
+   * against killing an Abomination, which is the most valuable body in the game.
    */
   it('sets a legendary gate a determined crew can actually clear', () => {
     const abomination = findUnit('the_abomination')!;
-    const kills = Math.ceil(INFAMY_TO_FIELD.legendary / infamyForKill(abomination));
-    expect(kills).toBeLessThanOrEqual(12);
+    const spent = notorietySpentTo(NOTORIETY_TO_FIELD.legendary);
+    const kills = Math.ceil(spent / infamyForKill(abomination));
+    expect(kills).toBeGreaterThan(20);
+    expect(kills).toBeLessThanOrEqual(400);
   });
 });

@@ -20,7 +20,7 @@ import { settleBattles } from '../battle/resolve.js';
 import { UPGRADE_SECONDS_SCALE, upgradeSeconds } from './upgrade.js';
 
 /**
- * §A4 — a location is a post you take, work up, and lose.
+ * §A4: a location is a post you take, work up, and lose.
  *
  * The whole board-game loop in one file, and the last assertion is the one the design turns on:
  * **a capture resets the level to 1.** Nobody inherits the previous holder's work, so a
@@ -154,7 +154,7 @@ describe('working a location up (§A4)', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(stack.app.repos.bases.findById(stack.baseId)?.resources.caps).toBe(before - cost);
 
-    // Still level 1 while the work is under way — the clock is the whole point.
+    // Still level 1 while the work is under way: the clock is the whole point.
     const during = await read(stack);
     expect(during.level).toBe(1);
     expect(during.upgradingUntil).not.toBeNull();
@@ -173,7 +173,7 @@ describe('working a location up (§A4)', () => {
     const after = await read(stack);
 
     expect(after.bonuses).not.toEqual(before.bonuses);
-    // Not just *different* — the same bonuses, described at the new level, one line each.
+    // Not just *different*: the same bonuses, described at the new level, one line each.
     expect(after.bonuses).toHaveLength(bonusesAt(after.location.kind, 2).length);
     for (const line of after.bonuses) expect(line.length).toBeGreaterThan(2);
   });

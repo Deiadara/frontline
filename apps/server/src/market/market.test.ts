@@ -20,7 +20,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
  * The market and the workshop, end to end over HTTP.
  *
  * The rules themselves are pinned in `packages/shared`; what these are for is the part that only
- * exists on the server — that goods actually move, that they move *once*, and that escrow comes
+ * exists on the server: that goods actually move, that they move *once*, and that escrow comes
  * home. A trade is the one place in this game where a bug takes something off a player that they
  * cannot get back, so every assertion below is about a stockpile before and after.
  *

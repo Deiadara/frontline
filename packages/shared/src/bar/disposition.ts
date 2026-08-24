@@ -12,7 +12,7 @@ import type { ReputationLabel } from '../economy/reputation.js';
  * agree with the crew holding them (§H5).
  *
  * §H4 makes willingness to join a judgement *the character* makes about *your group's reputation
- * word* — so both halves of that judgement live on the character, and the only thing read off the
+ * word*, so both halves of that judgement live on the character, and the only thing read off the
  * crew is the §D8 label. Nothing here touches the hidden role table (§B8a): every input is a
  * number or word the player can already see.
  */
@@ -140,7 +140,7 @@ function opinionOf(spec: DispositionSpec, reputation: ReputationLabel): number {
 }
 
 /**
- * §H4 — what this character makes of your group's reputation word, `-2`..`+2`.
+ * §H4: what this character makes of your group's reputation word, `-2`..`+2`.
  *
  * Their ambition and their moral compass each read the word independently and the two are summed,
  * so a character can be drawn to what you do and appalled by how you do it and come out neutral.
@@ -160,7 +160,7 @@ export function reputationStance(
  *
  * Refusing to join takes both of them at once, so a character whose ambition and moral compass are
  * repelled by disjoint sets of reputations will hear any crew out, however the street reads. The
- * Bar deliberately seats a few of these every day — see `BAR_OPEN_DOOR_FLOOR` — because otherwise
+ * Bar deliberately seats a few of these every day, see `BAR_OPEN_DOOR_FLOOR`, because otherwise
  * an unlucky roll can leave a crew with nobody willing to talk to them at all.
  */
 export function hearsAnyCrewOut({ ambition, moralCompass }: Disposition): boolean {
@@ -169,7 +169,7 @@ export function hearsAnyCrewOut({ ambition, moralCompass }: Disposition): boolea
 }
 
 /**
- * §H5 — the alignment meter, 0..100. Starts neutral: a character who has just signed has an
+ * §H5: the alignment meter, 0..100. Starts neutral: a character who has just signed has an
  * opinion of your *reputation*, not yet of the work.
  */
 export const ALIGNMENT_MIN = 0;
@@ -177,19 +177,19 @@ export const ALIGNMENT_MAX = 100;
 export const ALIGNMENT_START = 50;
 export const AlignmentSchema = z.number().min(ALIGNMENT_MIN).max(ALIGNMENT_MAX);
 
-/** §H5 — at or below this they threaten to leave. */
+/** §H5: at or below this they threaten to leave. */
 export const ALIGNMENT_LEAVE_THRESHOLD = 20;
 /**
- * §H5 — at or above this they start earning skill bonuses.
+ * §H5: at or above this they start earning skill bonuses.
  *
  * Deliberately equal to `alignmentTarget(1)`, so a stance `+1` officer settles on exactly the
- * first alignment that pays nothing and earns `+0` forever — not `+0` for the first few months.
+ * first alignment that pays nothing and earns `+0` forever, not `+0` for the first few months.
  * That is the intended reading of §H4: the durable bonus is what it buys to have *both* halves of
  * a character approve of your reputation word, and only `+2` rests above the threshold. What `+1`
  * buys is the promotion to the `settled` band, which is what the Bar shows against their name.
  *
- * The `1`..`4` steps of the scale are a decay ramp rather than resting tiers — every live target
- * is a multiple of `ALIGNMENT_PER_STANCE` — so an officer who was `+2` and whose word turns to a
+ * The `1`..`4` steps of the scale are a decay ramp rather than resting tiers: every live target
+ * is a multiple of `ALIGNMENT_PER_STANCE`, so an officer who was `+2` and whose word turns to a
  * `+1` keeps a shrinking bonus for six days instead of losing five attribute points the moment
  * the street's opinion moves. The tests pin both the ramp and the `+1` officer's zero.
  *
@@ -216,17 +216,17 @@ export function alignmentBand(alignment: number): AlignmentBand {
   return 'unsettled';
 }
 
-/** §H5 — "too low → they threaten to leave". The one place that reading is decided. */
+/** §H5: "too low → they threaten to leave". The one place that reading is decided. */
 export function threatensToLeave(alignment: number): boolean {
   return alignment <= ALIGNMENT_LEAVE_THRESHOLD;
 }
 
 /** Alignment points that buy one attribute point of bonus. */
 export const ALIGNMENT_POINTS_PER_BONUS = 5;
-/** §H5 — "bonuses to *some* skills": the few they are already best at, not the whole sheet. */
+/** §H5: "bonuses to *some* skills": the few they are already best at, not the whole sheet. */
 export const ALIGNMENT_BONUS_ATTRIBUTES = 3;
 
-/** §H5 — how large the bonus is at this alignment. Zero below the threshold, `+5` at 100. */
+/** §H5: how large the bonus is at this alignment. Zero below the threshold, `+5` at 100. */
 export function alignmentSkillBonus(alignment: number): number {
   if (alignment < ALIGNMENT_BONUS_THRESHOLD) return 0;
   return Math.floor((alignment - ALIGNMENT_BONUS_THRESHOLD) / ALIGNMENT_POINTS_PER_BONUS);
@@ -246,7 +246,7 @@ export function alignmentBonusAttributes(attributes: Attributes): AttributeName[
 }
 
 /**
- * §H5 — the sheet as it actually performs, with the alignment bonus folded in.
+ * §H5: the sheet as it actually performs, with the alignment bonus folded in.
  *
  * A read-time view, never persisted: storing it would bake today's alignment into the character
  * and double-count the bonus the next time they drift.
@@ -268,7 +268,7 @@ export function alignedAttributes(attributes: Attributes, alignment: number): At
  * The step is exactly `(ALIGNMENT_MAX - ALIGNMENT_START) / STANCE_MAX`, which is what keeps the
  * meter honest: the strongest §H4 reading either direction can produce heads for the end of the
  * bar rather than for some interior value. At `20` the reachable range was `10..90`, which left
- * `devoted` (`>= 95`) and the top of the skill-bonus scale states no live path could enter — the
+ * `devoted` (`>= 95`) and the top of the skill-bonus scale states no live path could enter: the
  * band cuts are written against `ALIGNMENT_MAX`, a schema bound, and only coincide with the
  * reachable bound at this step. `alignmentReachesEveryBand` in the tests pins that.
  */
@@ -282,7 +282,7 @@ export function alignmentTarget(stance: number): number {
 }
 
 /**
- * How long it takes an officer to move half the way to their target opinion. Days, not ticks —
+ * How long it takes an officer to move half the way to their target opinion. Days, not ticks,
  * like the §D8 reputation drift, alignment settles continuously so nothing has to be scheduled.
  */
 export const ALIGNMENT_HALF_LIFE_MS = 3 * 24 * 60 * 60 * 1000;
@@ -291,11 +291,11 @@ export const ALIGNMENT_HALF_LIFE_MS = 3 * 24 * 60 * 60 * 1000;
 export const MAX_ALIGNMENT_HOLD = 60;
 
 /**
- * §H5 — settles alignment towards `target` over `elapsedMs`. Never moves on a backwards clock,
+ * §H5: settles alignment towards `target` over `elapsedMs`. Never moves on a backwards clock,
  * and is exactly idempotent for a zero-length step, so calling it on every read is safe.
  *
  * `holdPercent` is §F2's contribution: Communication, Empathy and the rest slow a slide *away*
- * from the crew, and do nothing at all to a rise towards it. Deliberately one-directional — a
+ * from the crew, and do nothing at all to a rise towards it. Deliberately one-directional: a
  * crew that handles its people well keeps the ones who were about to walk; it does not slow down
  * somebody coming round to them, which would be a penalty dressed as a bonus.
  */

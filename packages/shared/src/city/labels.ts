@@ -6,20 +6,20 @@ import type { UnitStats } from '../units/stats.js';
  *
  * A location used to be a name, a bonus and a hit-point total. Two crews fighting over a cinema
  * and over a rail yard fought exactly the same fight, which makes a map of forty locations a map
- * of one location drawn forty times. A **label** is the fix: a keyword hung on the ground —
- * `Crammed`, `Dark`, `Noisy`, `Toxic` — that some units are better in and some are worse in.
+ * of one location drawn forty times. A **label** is the fix: a keyword hung on the ground:
+ * `Crammed`, `Dark`, `Noisy`, `Toxic`: that some units are better in and some are worse in.
  *
  * Two things produce labels and they compose:
  *
- *   * the **location itself**, authored in the catalogue — a smuggler's tunnel is Crammed and Dark
+ *   * the **location itself**, authored in the catalogue: a smuggler's tunnel is Crammed and Dark
  *     whatever the sky is doing;
- *   * the **day**, from the weather roll and the clock (`weather.ts`) — Wet, Cold, Foggy, Hot.
+ *   * the **day**, from the weather roll and the clock (`weather.ts`): Wet, Cold, Foggy, Hot.
  *
  * ## Tiers
  *
  * Every label carries a tier in Latin numerals, `I`..`IV`. `Toxic II` is worse than `Toxic I` and
  * costs exactly twice as much, because a label's effect is *per tier*: one number in the table
- * below, multiplied by the tier. Two sources of the same label do not stack into a fifth tier —
+ * below, multiplied by the tier. Two sources of the same label do not stack into a fifth tier:
  * the higher wins ({@link mergeLabels}), so a storm over a flooded yard is Wet III rather than
  * Wet VI.
  *
@@ -28,12 +28,12 @@ import type { UnitStats } from '../units/stats.js';
  * A label's effect is read off the *unit's own sheet*, linearly between two authored endpoints.
  * `Hot` is `armor 0 → 0, armor 100 → −10`: heavy armour cooks, a Razor in a vest does not care.
  * `Wet` is `speed 0 → −9, speed 100 → 0`: bad mobility bogs down. That gives every unit in the
- * game — including every unit added after this — a defensible answer to every label without
+ * game, including every unit added after this, a defensible answer to every label without
  * anybody authoring 520 cells.
  *
  * On top of that a unit may carry {@link UnitSpec.affinities}, which *adds* to the baseline, and
  * {@link UnitSpec.immuneTo}, which floors it at whatever the affinity alone says. That is where
- * "the Abomination does not care about toxic" and "Anodics fight better when it is loud" live —
+ * "the Abomination does not care about toxic" and "Anodics fight better when it is loud" live:
  * the two cases a stat-driven rule genuinely cannot express.
  */
 
@@ -67,7 +67,7 @@ export const EnvLabelSchema = z.object({
 });
 export type EnvLabel = z.infer<typeof EnvLabelSchema>;
 
-/** `I`, `II`, `III`, `IV` — the tier as it is written on the chip. */
+/** `I`, `II`, `III`, `IV`: the tier as it is written on the chip. */
 export const TIER_NUMERALS = ['I', 'II', 'III', 'IV'] as const;
 
 export function tierNumeral(tier: number): string {
@@ -79,7 +79,7 @@ export function tierNumeral(tier: number): string {
  *
  * `atLow` is the effect on a unit with 0 in `stat`; `atHigh` on a unit with 100. Both are
  * percentage points **per tier** on the unit's effectiveness, positive for help. A straight line
- * because the alternative — a curve, a threshold, a table — is a thing a player cannot predict,
+ * because the alternative, a curve, a threshold, a table, is a thing a player cannot predict,
  * and the whole point of a visible keyword is that it is predictable.
  */
 export interface LabelRule {
@@ -132,7 +132,7 @@ export const ENV_LABEL_CATALOG: Readonly<Record<EnvLabelId, EnvLabelSpec>> = {
   elevated: {
     id: 'elevated',
     name: 'Elevated',
-    description: 'Gantries, roofs and spoil heaps — whatever counts as looking down around here.',
+    description: 'Gantries, roofs and spoil heaps: whatever counts as looking down around here.',
     bites: 'Shooters get the angle. Anyone who has to climb to reach anything does not.',
     tone: 'gold',
     rule: { stat: 'range', atLow: -4, atHigh: 7 },
@@ -232,7 +232,7 @@ export function envLabel(id: EnvLabelId, tier: number): EnvLabel {
 }
 
 /**
- * Fold several sources of labels into one list — **highest tier wins, never the sum.**
+ * Fold several sources of labels into one list: **highest tier wins, never the sum.**
  *
  * A storm over a location that is already Wet is not Wet VI. Summing would let two ordinary
  * sources produce a tier nothing in the catalogue can, and the whole readability argument for a
@@ -294,7 +294,7 @@ export function labelEffectPercent(
 /** Every label on this ground, summed, with the ones worth naming in a report. */
 export interface LabelVerdict {
   percent: number;
-  /** `Noisy II +20%` — one entry per label that moved anything, strongest first. */
+  /** `Noisy II +20%`: one entry per label that moved anything, strongest first. */
   reasons: readonly string[];
 }
 

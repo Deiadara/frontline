@@ -11,7 +11,7 @@ export interface NewBattle {
   winner: BattleWinner;
   log: string[];
   rewards: PartialResources;
-  /** The roll this fight was resolved from — what makes the row replayable. */
+  /** The roll this fight was resolved from: what makes the row replayable. */
   seed: string;
   createdAt: string;
 }

@@ -21,17 +21,17 @@ async function main(): Promise<void> {
   app.log.info(seeded, 'seeded MVP world');
 
   // Announced loudly, because a server that has quietly maxed an account is a server whose
-  // numbers mean nothing — and the one thing worse than not having a sandbox switch is not
+  // numbers mean nothing, and the one thing worse than not having a sandbox switch is not
   // knowing you are standing in it.
   if (config.unlocked) {
     const sandbox = applyUnlockedSandbox(app.repos, MVP_PLAYER.username);
-    app.log.warn(sandbox, 'UNLOCKED=true — dev account raised to the end-game state');
+    app.log.warn(sandbox, 'UNLOCKED=true: dev account raised to the end-game state');
   }
 
   if (config.admin) {
     app.log.warn(
       { adminScreen: '/game/admin' },
-      'ADMIN mode is on — every clock is 5s and nothing is charged. Set ADMIN=false for real costs.',
+      'ADMIN mode is on: every clock is 5s and nothing is charged. Set ADMIN=false for real costs.',
     );
   }
 
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
     });
     app.log.info(
       { directory: config.backupDir, everyMs: BACKUP_INTERVAL_MS },
-      'backup schedule started — see docs/RECOVERY.md to restore one',
+      'backup schedule started: see docs/RECOVERY.md to restore one',
     );
   }
 

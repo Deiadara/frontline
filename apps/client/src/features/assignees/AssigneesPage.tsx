@@ -19,8 +19,9 @@ import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Modal } from '../../components/ui/Modal';
 import { DescribedTag } from '../../components/ui/DescribedTag';
+import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
-import { Panel } from '../../components/ui/Panel';
+import { InfoWindow } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
 import {
   useAssignees,
@@ -32,7 +33,7 @@ import { AttributeSheet } from '../overseer/AttributeSheet';
 import { PageShell } from '../game/PageShell';
 
 /**
- * Assignees — the fungible pool under each officer (GDD §G).
+ * Assignees: the fungible pool under each officer (GDD §G).
  *
  * Every number on this page is served by `/api/assignees`, never recomputed here: the §G7 table and
  * the §G8 pool formula live in `@frontline/shared` and are read server-side, so the screen cannot
@@ -44,10 +45,28 @@ export function percent(value: number): string {
   return `${Number.isInteger(value) ? value : value.toFixed(1)}%`;
 }
 
-/** §G1 — one pip per assignee. They are interchangeable, so the pips are identical by design. */
+/**
+ * §G1: one pip per assignee. They are interchangeable, so the pips are identical by design.
+ *
+ * Past {@link PIPS_MAX} it becomes a bar instead. A cap climbs to twenty-four with the crew's level,
+ * and twenty-four squares either wrap onto a second line, which breaks the fixed card height every
+ * other card depends on, or shrink to a texture nobody can count anyway.
+ */
+const PIPS_MAX = 12;
+
 function Pips({ filled, cap }: { filled: number; cap: number }) {
+  if (cap > PIPS_MAX) {
+    return (
+      <span className="flex h-2.5 w-full max-w-[9rem] overflow-hidden rounded-sm border border-surface-600 bg-surface-900">
+        <span
+          className="block h-full bg-brass-300/70"
+          style={{ width: `${cap === 0 ? 0 : (filled / cap) * 100}%` }}
+        />
+      </span>
+    );
+  }
   return (
-    <div className="flex flex-wrap gap-1" aria-hidden="true">
+    <div className="flex gap-1" aria-hidden="true">
       {Array.from({ length: cap }, (_, index) => (
         <span
           key={index}
@@ -66,71 +85,113 @@ function Pips({ filled, cap }: { filled: number; cap: number }) {
 interface SlotProps {
   role: OfficerRole;
   officer: AssigneeOfficer | undefined;
+  cap: number;
   open: boolean;
   onToggle: () => void;
 }
 
 /**
- * One position on the books, filled or not.
+ * One position on the books, filled or not, as a card.
  *
  * The page used to list only the people you had already hired, which meant the nineteen jobs in
- * §C1 were invisible until somebody was standing in one — a player could not see what the crew was
- * *for*, only who happened to be in it. Every position now has a slot, empty ones included, so the
+ * §C1 were invisible until somebody was standing in one: a player could not see what the crew was
+ * *for*, only who happened to be in it. Every position has a card now, empty ones included, so the
  * screen reads as a chart of the organisation and hiring is filling a hole you can already see.
  *
- * A filled slot is a button that opens the person underneath it. Nothing about a character is
- * shown at this size: a grid of nineteen cards each carrying a sheet is a wall, and the sheet is
- * only interesting for the one person you are thinking about.
+ * Built to the roster's pattern, and for the roster's reason: a **fixed frame**, so that the row of
+ * pips and the button land on the same line on every card and the eye can run down a column of
+ * nineteen without re-finding anything. Nothing about a character is printed at this size beyond
+ * their name and what they are carrying: the sheet is a window away, and nineteen sheets side by
+ * side is a wall.
  */
-function Slot({ role, officer, open, onToggle }: SlotProps) {
+function Slot({ role, officer, cap, open, onToggle }: SlotProps) {
   const filled = officer !== undefined;
   const label = OFFICER_ROLE_LABELS[role];
 
   const body = (
     <>
+      {/* The face column, at the roster card's proportions so the two screens read as one game.
+          Empty on purpose rather than absent: a face-shaped hole says art is coming. */}
       <span
         className={cn(
-          'flex h-14 w-14 shrink-0 items-center justify-center rounded-sm border-2 transition-colors',
+          'relative flex w-[4.5rem] shrink-0 items-center justify-center overflow-hidden border-r',
           filled
-            ? 'icon-tile border-brass-300/60 text-brass-100'
-            : 'border-dashed border-surface-600 bg-surface-900/70 text-ink-300',
+            ? 'icon-tile border-surface-700 text-brass-100'
+            : 'border-surface-700/70 bg-surface-950/60 text-ink-400',
         )}
       >
         {filled ? (
-          <span className="font-display text-xl font-bold">{officer.name.slice(0, 1)}</span>
+          <span className="font-display text-3xl font-bold">{officer.name.slice(0, 1)}</span>
         ) : (
-          <Icon name="crew" className="h-7 w-7" />
+          <Icon name="crew" className="h-8 w-8" />
         )}
       </span>
-      <span className="min-w-0 flex-1 text-left">
-        <span className="block truncate font-display text-[13px] font-bold uppercase tracking-[0.12em] text-brass-300">
+
+      <span className="flex min-w-0 flex-1 flex-col gap-1.5 p-3 text-left">
+        <span className="block truncate font-display text-[12px] font-bold uppercase tracking-[0.12em] text-brass-300">
           {label}
         </span>
         <span
           className={cn(
-            'block truncate font-body text-[13px]',
-            filled ? 'text-ink-100' : 'text-ink-300',
+            'block truncate font-display text-[15px] font-bold leading-tight',
+            filled ? 'text-ink-100' : 'text-ink-400',
           )}
         >
           {filled ? officer.name : 'Vacant'}
         </span>
-        {filled && (
-          <span className="mt-0.5 block font-display text-[12px] uppercase tracking-[0.12em] text-ink-300">
-            {officer.assignees} assigned · {percent(officer.bonusPercent)}
+
+        {/* The reserved row. Pips when somebody is standing here, a hairline when nobody is, so
+            every card in the grid is exactly as tall as every other. */}
+        <span className="flex h-4 items-center">
+          {filled ? (
+            <Pips filled={officer.assignees} cap={cap} />
+          ) : (
+            <span aria-hidden className="ink-rule w-16 opacity-40" />
+          )}
+        </span>
+
+        <span className="mt-auto flex items-center justify-between gap-2">
+          <span
+            className={cn(
+              'truncate font-display text-[11px] uppercase tracking-[0.12em] tabular-nums',
+              filled ? 'text-ink-300' : 'text-ink-400',
+            )}
+          >
+            {filled
+              ? `${officer.assignees} / ${cap} · ${percent(officer.bonusPercent)}`
+              : 'Nobody hired'}
           </span>
-        )}
+          {filled ? (
+            <span
+              className={cn(
+                'shrink-0 rounded-sm border px-1.5 py-px font-display text-[10px] font-bold uppercase tracking-[0.1em]',
+                BAND_STYLE[officer.alignmentBand],
+              )}
+            >
+              {ALIGNMENT_BAND_LABELS[officer.alignmentBand]}
+            </span>
+          ) : (
+            <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.12em] text-brass-300">
+              The Bar
+            </span>
+          )}
+        </span>
       </span>
     </>
   );
 
+  const frame =
+    'card-paper washed rivets edge-lit flex h-[7.5rem] min-w-0 overflow-hidden rounded-sm border text-left transition-colors';
+
   if (!filled) {
     return (
-      <div
+      <Link
+        to="/game/bar"
         data-testid={`crew-slot-${role}`}
-        className="flex items-center gap-3 rounded-sm border border-surface-700 bg-surface-900/50 p-3 opacity-70"
+        className={cn(frame, 'border-dashed border-surface-700 opacity-70 hover:opacity-100')}
       >
         {body}
-      </div>
+      </Link>
     );
   }
 
@@ -141,10 +202,10 @@ function Slot({ role, officer, open, onToggle }: SlotProps) {
       aria-expanded={open}
       data-testid={`crew-slot-${role}`}
       className={cn(
-        'flex w-full items-center gap-3 rounded-sm border p-3 text-left transition-colors',
+        frame,
         open
-          ? 'border-brass-300 bg-brass-300/10'
-          : 'border-surface-600 bg-surface-800/60 hover:border-brass-300/60 hover:bg-brass-300/5',
+          ? 'border-brass-300 shadow-brass'
+          : 'border-surface-600/70 hover:border-brass-300/60 hover:shadow-lifted',
       )}
     >
       {body}
@@ -157,8 +218,8 @@ function Slot({ role, officer, open, onToggle }: SlotProps) {
  *
  * Half the width of the frame and most of its height, because a person is the most expensive
  * decision in the game and looking one over should feel like opening a file rather than expanding
- * a row. Portrait on the left — empty until the board delivers officer art, and deliberately shaped
- * like the frame it will fill — the sheet on the right, and the three things you can actually do
+ * a row. Portrait on the left: empty until the board delivers officer art, and deliberately shaped
+ * like the frame it will fill: the sheet on the right, and the three things you can actually do
  * along the bottom: put people under them, move them into a different job, or go and train them.
  *
  * A modal rather than an inline panel, unlike the first version. Nineteen slots is a tall grid, and
@@ -296,7 +357,7 @@ function OfficerDetail({
               </Button>
             </section>
 
-            {/* §C2 — a hire is a person, not a job title. Only open positions are offered: two
+            {/* §C2: a hire is a person, not a job title. Only open positions are offered: two
                 people cannot hold one, and a swap is two moves the player makes on purpose. */}
             <section>
               <h3 className="mb-1.5 font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
@@ -304,7 +365,7 @@ function OfficerDetail({
               </h3>
               {/* `aria-label`, not a visually-hidden span. `sr-only` clips its own text to a 1px
                   box by design, which is exactly the shape every "is any text cut off?" gate in
-                  the suite looks for — and this one is a whole officer's name long. */}
+                  the suite looks for, and this one is a whole officer's name long. */}
               <label className="flex flex-wrap items-center gap-2">
                 <span className="min-w-0 flex-1">
                   <Dropdown
@@ -349,107 +410,150 @@ const BAND_STYLE: Record<AlignmentBand, string> = {
   devoted: 'border-bile-300/50 text-bile-300',
 };
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-brass-300">
-        {label}
-      </p>
-      <p className="font-display text-2xl font-bold tabular-nums text-ink-100">{value}</p>
-      {hint !== undefined && <p className="text-[12px] text-ink-300">{hint}</p>}
-    </div>
-  );
-}
-
 function Layout({ data }: { data: AssigneesResponse }) {
   const place = usePlaceAssignees();
   const reskill = useReskillAssignees();
   const reassign = useReassignOfficer();
   const pending = place.isPending || reskill.isPending || reassign.isPending;
-  /** Which officer's card is open, if any. One at a time — this is a drill-down, not a list. */
+  /** Which officer's card is open, if any. One at a time. This is a drill-down, not a list. */
   const [opened, setOpened] = useState<string | null>(null);
   const open = data.officers.find((officer) => officer.officerId === opened);
 
   return (
     <PageShell title="Your crew" icon="crew" wide>
-      <Panel>
-        <div className="flex flex-wrap items-start justify-between gap-4 p-4">
-          <div className="flex flex-wrap gap-x-8 gap-y-3">
-            <Stat label="Pool" value={String(data.pool)} hint={`level ${data.level}`} />
-            <Stat label="Unplaced" value={String(data.unplaced)} />
-            <Stat
-              label="Per officer"
-              value={String(data.capPerOfficer)}
-              hint={
-                data.capPerOfficer >= MAX_ASSIGNEES_PER_OFFICER
-                  ? 'maximum'
-                  : `up to ${percent(data.maxBonusPercent)}`
+      {/* Three figures and one control. The paragraph that used to sit beside the Reskill button
+          explaining what it does is on the button now, where a player is already pointing. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Figure
+          label="Pool"
+          value={String(data.pool)}
+          note={`Level ${data.level}`}
+          explain="Everybody your crew has to hand, granted by your level rather than hired. They do nothing at all until you put them under an officer."
+        />
+        <Figure
+          label="Unplaced"
+          value={String(data.unplaced)}
+          note={data.unplaced === 0 ? 'All working' : 'Idle'}
+          explain="People standing around waiting to be given to somebody. Open a position below and assign them."
+        />
+        <Figure
+          label="Per officer"
+          value={String(data.capPerOfficer)}
+          note={
+            data.capPerOfficer >= MAX_ASSIGNEES_PER_OFFICER
+              ? 'Maximum'
+              : `Up to ${percent(data.maxBonusPercent)}`
+          }
+          explain="How many one officer can carry, and what a full set is worth to whatever they are doing. Both climb with your level."
+        />
+        <span className="ml-auto">
+          <HoverCard
+            size="window"
+            label="Reskill"
+            onActivate={() => reskill.mutate({ placements: {} })}
+            disabled={!data.canReskill || data.placed === 0 || pending}
+            card={
+              <InfoWindow eyebrow="§G4" title="Reskill" tone="oxblood">
+                <p className="font-body text-[14px] leading-relaxed text-ink-100">
+                  {data.canReskill
+                    ? 'Your Professor calls every assignee back off the books at once, and you place them again from scratch.'
+                    : 'Only a Professor can take assignees back once they are placed. Hire one at the Bar.'}
+                </p>
+              </InfoWindow>
+            }
+          >
+            <span
+              className={cn(
+                'flex items-center gap-2 rounded-sm border px-3 py-2 font-display text-[12px] font-bold uppercase tracking-[0.14em]',
+                !data.canReskill || data.placed === 0
+                  ? 'border-surface-700 text-ink-400'
+                  : 'border-brass-300/60 text-brass-300 hover:bg-brass-300/10',
+              )}
+            >
+              <Icon name="edit" aria-hidden className="h-4 w-4" />
+              Reskill
+            </span>
+          </HoverCard>
+        </span>
+      </div>
+
+      {data.officers.length === 0 && (
+        <p className="font-body text-[13px] text-ink-300">
+          Nineteen positions, nobody in any of them yet. A card is a job: click an empty one to go
+          and hire for it.
+        </p>
+      )}
+
+      {open !== undefined && (
+        <OfficerDetail
+          officer={open}
+          cap={data.capPerOfficer}
+          unplaced={data.unplaced}
+          filledRoles={data.officers.map((one) => one.role)}
+          pending={pending}
+          onPlace={() => place.mutate({ officerId: open.officerId, count: 1 })}
+          onReassign={(role) => reassign.mutate({ officerId: open.officerId, role })}
+          onClose={() => setOpened(null)}
+        />
+      )}
+
+      {/* No panel around it. Nineteen cards inside a bordered box is a box with a border you have
+          to look past; the cards are the surface, and the page they sit on already scrolls. */}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="crew-books">
+        {OFFICER_ROLES.map((role) => {
+          const officer = data.officers.find((candidate) => candidate.role === role);
+          return (
+            <Slot
+              key={role}
+              role={role}
+              officer={officer}
+              cap={data.capPerOfficer}
+              open={officer !== undefined && opened === officer.officerId}
+              onToggle={() =>
+                setOpened((current) =>
+                  officer && current === officer.officerId ? null : (officer?.officerId ?? null),
+                )
               }
             />
-          </div>
-
-          {/* §G4/§C4 — reskilling is the Professor's process, and the only way to take people back. */}
-          <div className="max-w-xs text-right">
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={!data.canReskill || data.placed === 0 || pending}
-              onClick={() => reskill.mutate({ placements: {} })}
-            >
-              Reskill
-            </Button>
-            <p className="mt-1.5 text-[12px] leading-snug text-ink-300">
-              {data.canReskill
-                ? 'Your Professor recalls every assignee at once.'
-                : 'Hire a Professor to recall assignees once placed.'}
-            </p>
-          </div>
-        </div>
-      </Panel>
-
-      <Panel title="The books">
-        {data.officers.length === 0 && (
-          <p className="px-4 pt-4 text-[13px] text-ink-300">
-            Nineteen positions, nobody in any of them yet. Hire somebody at the Bar and they take a
-            slot below.
-          </p>
-        )}
-        {open !== undefined && (
-          <OfficerDetail
-            officer={open}
-            cap={data.capPerOfficer}
-            unplaced={data.unplaced}
-            filledRoles={data.officers.map((one) => one.role)}
-            pending={pending}
-            onPlace={() => place.mutate({ officerId: open.officerId, count: 1 })}
-            onReassign={(role) => reassign.mutate({ officerId: open.officerId, role })}
-            onClose={() => setOpened(null)}
-          />
-        )}
-
-        <div className="grid gap-2.5 p-4 sm:grid-cols-2 xl:grid-cols-3">
-          {OFFICER_ROLES.map((role) => {
-            const officer = data.officers.find((candidate) => candidate.role === role);
-            return (
-              <div key={role} className="flex min-w-0 flex-col gap-2.5">
-                <Slot
-                  role={role}
-                  officer={officer}
-                  open={officer !== undefined && opened === officer.officerId}
-                  onToggle={() =>
-                    setOpened((current) =>
-                      officer && current === officer.officerId
-                        ? null
-                        : (officer?.officerId ?? null),
-                    )
-                  }
-                />
-              </div>
-            );
-          })}
-        </div>
-      </Panel>
+          );
+        })}
+      </div>
     </PageShell>
+  );
+}
+
+/** One figure from the top of the page, with what it means one hover away rather than printed. */
+function Figure({
+  label,
+  value,
+  note,
+  explain,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  explain: string;
+}) {
+  return (
+    <HoverCard
+      size="window"
+      label={`${label}: ${value}`}
+      card={
+        <InfoWindow eyebrow="Your crew" title={label}>
+          <p className="font-body text-[14px] leading-relaxed text-ink-100">{explain}</p>
+        </InfoWindow>
+      }
+    >
+      <span className="card-paper washed edge-lit flex items-baseline gap-2 rounded-sm border border-surface-600/70 px-3 py-2">
+        <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-brass-300">
+          {label}
+        </span>
+        <span className="font-display text-xl font-bold tabular-nums text-ink-100">{value}</span>
+        <span className="font-display text-[11px] uppercase tracking-[0.12em] text-ink-300">
+          {note}
+        </span>
+      </span>
+    </HoverCard>
   );
 }
 

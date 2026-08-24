@@ -11,7 +11,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
  * without the old passphrase, a timezone that is an offset rather than a zone.
  *
  * The defaults are pinned too. A row written before this feature existed has three NULL columns,
- * and the schema is what turns those into a shield, a username and the house clock — if that
+ * and the schema is what turns those into a shield, a username and the house clock, if that
  * default ever moves to the database, every account created before the move silently keeps the old
  * one and there is no way to tell the two groups apart.
  */

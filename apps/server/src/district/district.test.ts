@@ -1,5 +1,4 @@
 import {
-  BUILDING_CATALOG,
   BUILDING_MAX_LEVEL,
   MAX_BUILD_QUEUE,
   MODIFICATIONS,
@@ -7,7 +6,9 @@ import {
   buildingBuildSeconds,
   buildingCost,
   buildingLevel,
+  nexusLevelFor,
   createCommander,
+  findUnit,
   districtProduction,
   findModification,
   moraleTarget,
@@ -22,13 +23,16 @@ import {
   type BuildQueue,
   type Resources,
   startingTraining,
+  CITY_LOCATIONS,
+  POPULATION_PER_LOCATION,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { queueBuild } from './build.js';
 import { fitModification, modificationBlocker, modificationOptions } from './modifications.js';
-import { housingSpare, populationUsed } from './population.js';
+import { districtPopulation } from './population.js';
+import { queueTraining } from '../units/training.js';
 import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
 
 /**
@@ -36,7 +40,7 @@ import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
  * next read.
  *
  * Run against a real sqlite stack rather than a repository double, because half of what is being
- * asserted is that the queue and the structures move in the same write — a double would happily
+ * asserted is that the queue and the structures move in the same write: a double would happily
  * let them come apart.
  */
 
@@ -207,11 +211,21 @@ describe('ordering a level (§A1, §D3)', () => {
     const repos = openStack();
     const rich = seedBase(repos, {
       resources: { caps: 99999, food: 99999, oil: 99999, scrap: 99999, highQualityMetal: 99999 },
+      // Everything the Gate wants except the Nexus rung, already up.
+      buildings: [build('nexus', 1), build('generator', 1), build('scrapyard', 3)],
     });
 
     let base = rich;
-    // Three Nexus levels take it to 4, which is the Gate's gate.
-    for (let i = 0; i < BUILDING_CATALOG.gate.requiresNexusLevel - 1; i += 1) {
+    /*
+     * The claim under test is narrow and worth keeping narrow: **a prerequisite still in the queue
+     * counts as met**, so a player can order the Nexus rung and the thing it opens without waiting.
+     *
+     * So only the Nexus is climbed here. The Gate's *other* clause, a Scrapyard, is standing
+     * before the run starts, because six queue slots (`MAX_BUILD_QUEUE`) cannot hold three Nexus
+     * levels, three Scrapyard levels and the Gate, and a test that failed on the queue cap would be
+     * failing for a reason that has nothing to do with what it is asserting.
+     */
+    for (let i = buildingLevel(base.buildings, 'nexus'); i < nexusLevelFor('gate'); i += 1) {
       const result = queueBuild(repos, { base, structure: 'nexus', id: `n${i}`, now: NOW });
       expect(result.kind, `nexus order ${i}`).toBe('queued');
       if (result.kind !== 'queued') return;
@@ -296,7 +310,7 @@ describe('settling the district (§A1)', () => {
    * The piecewise walk is the whole reason `settleDistrict` is not one multiplication.
    *
    * A Greenhouse that finished an hour ago must pay for one hour, not for the three days the
-   * district went unread — and the only way to tell the two apart is to compare against a district
+   * district went unread, and the only way to tell the two apart is to compare against a district
    * where the same structure had been standing the whole time.
    */
   it('does not back-date a structure that finished partway through the window', () => {
@@ -333,7 +347,7 @@ describe('settling the district (§A1)', () => {
     const gap = target - base.economy.morale;
     expect(gap).toBeGreaterThan(0);
 
-    // Two days is four half-lives, so most of the gap is closed — and it never overshoots, which
+    // Two days is four half-lives, so most of the gap is closed, and it never overshoots, which
     // is the property that makes the drift safe to apply over any window at all.
     expect(settled.base.economy.morale).toBeGreaterThan(base.economy.morale + gap * 0.9);
     expect(settled.base.economy.morale).toBeLessThan(target);
@@ -360,8 +374,8 @@ describe('settling the district (§A1)', () => {
   });
 });
 
-describe('housing (§A1 — the Quarters)', () => {
-  it('counts officers and placed assignees against the same ceiling', () => {
+describe('population (§A1: one pool)', () => {
+  it('counts officers, placed assignees and soldiers against the same ceiling', () => {
     const repos = openStack();
     const officers = [createCommander('o1', 'One', 'head_spy')];
     const base = seedBase(repos, {
@@ -369,13 +383,67 @@ describe('housing (§A1 — the Quarters)', () => {
       buildings: [build('nexus', 1), build('generator', 1), build('quarters', 2)],
     });
 
-    expect(populationUsed(base)).toBe(1);
-    const withPlacement: Base = {
-      ...base,
-      assignees: { placements: { o1: 3 } },
-    };
-    expect(populationUsed(withPlacement)).toBe(4);
-    expect(housingSpare(withPlacement)).toBe(housingSpare(base) - 3);
+    expect(districtPopulation(repos, base).total).toBe(1);
+
+    const withPlacement: Base = { ...base, assignees: { placements: { o1: 3 } } };
+    const placed = districtPopulation(repos, withPlacement);
+    expect(placed.total).toBe(4);
+    expect(placed.spare).toBe(districtPopulation(repos, base).spare - 3);
+
+    // §A5, and the army draws on the same beds, which is the whole point of merging the pools.
+    // Razors are supply 1 apiece, so five of them is five bodies and not one entry on a roster.
+    const withArmy: Base = { ...withPlacement, army: { razors: 5 } };
+    const fielded = districtPopulation(repos, withArmy);
+    expect(fielded.army).toBe(5);
+    expect(fielded.total).toBe(placed.total + 5);
+    expect(fielded.spare).toBe(placed.spare - 5);
+  });
+
+  /**
+   * §A5 through the real route: the pool is a ceiling on the army, and officers eat into it.
+   *
+   * This is the consequence the merge exists for. Before it, the Gauntlet ran a separate army cap
+   * and a crew could fill both pools without either noticing; the only way to see that the merge
+   * actually happened is to hire somebody and watch the roster get smaller.
+   */
+  it('refuses an order the district has no beds for, and officers make it refuse sooner', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: [build('nexus', 1), build('generator', 1), build('gauntlet', 4)],
+      resources: {
+        caps: 900_000,
+        food: 900_000,
+        oil: 900_000,
+        scrap: 900_000,
+        highQualityMetal: 0,
+      },
+    });
+    const razors = findUnit('razors')!;
+    const room = districtPopulation(repos, base).spare;
+
+    expect(queueTraining(repos, { base, unit: razors, count: room + 1, now: NOW })).toEqual({
+      kind: 'refused',
+      reason: 'no_supply',
+    });
+
+    const filled = queueTraining(repos, { base, unit: razors, count: room, now: NOW });
+    expect(filled.kind).toBe('queued');
+
+    // And the beds an officer is in are beds a soldier is not.
+    const withOfficer = { ...base, commanders: [createCommander('o1', 'One', 'head_spy')] };
+    expect(districtPopulation(repos, withOfficer).spare).toBe(room - 1);
+  });
+
+  it('houses more people for every location the crew holds', () => {
+    const repos = openStack();
+    const base = seedBase(repos, { buildings: [build('nexus', 1), build('quarters', 2)] });
+    const bare = districtPopulation(repos, base).capacity;
+
+    const location = CITY_LOCATIONS[0]!;
+    const held = repos.city.control(location.id)!;
+    repos.city.put({ ...held, holder: { kind: 'faction', baseId: base.id } });
+
+    expect(districtPopulation(repos, base).capacity).toBe(bare + POPULATION_PER_LOCATION);
   });
 });
 
@@ -396,7 +464,7 @@ describe('modifications (§A1, §C4)', () => {
 
     expect(options).toHaveLength(MODIFICATIONS.length);
     // A brand-new district has built almost nothing, so everything belonging to a structure that is
-    // not standing reports `not_built` — exactly that many, no more and no fewer. Counted off the
+    // not standing reports `not_built`: exactly that many, no more and no fewer. Counted off the
     // catalogue rather than written down, because a magic number here is a number that goes stale
     // the next time a structure joins or leaves the game and reports nothing when it does.
     const standing = MODIFICATIONS.filter(

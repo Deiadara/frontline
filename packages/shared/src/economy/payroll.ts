@@ -6,7 +6,7 @@ import { MORALE_PER_STARVED_WEEK, MORALE_PER_UNPAID_WAGE_WEEK } from './meters.j
 export const PAY_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * §H7: wages are paid "once a week on the real-world clock". That clock is Monday 00:00:00 UTC —
+ * §H7: wages are paid "once a week on the real-world clock". That clock is Monday 00:00:00 UTC:
  * one global boundary for every player, so payday does not depend on when an account was made.
  */
 export function startOfPayWeek(at: Date): Date {
@@ -30,7 +30,7 @@ export function proratedFirstWage(weeklyWageCaps: number, recruitedAt: Date): nu
 }
 
 /**
- * §D1: "more officers require more food" — and each extra mouth costs more than the last, because
+ * §D1: "more officers require more food", and each extra mouth costs more than the last, because
  * supplying a bigger crew is harder than supplying a smaller one twice. `n * (n + 3) / 2`, which
  * is always a whole number of food.
  */
@@ -42,7 +42,7 @@ export function foodUpkeepFor(officerCount: number): number {
   const crew = Math.trunc(officerCount);
   // Rounded even though `n(n+3)/2` is integral for every integral `n`. The identity holds for
   // today's two constants and for nothing else, and food is spent straight out of a stockpile that
-  // may not hold a fraction — so the guarantee lives here rather than in a comment about arithmetic
+  // may not hold a fraction, so the guarantee lives here rather than in a comment about arithmetic
   // somebody may retune.
   return Math.round(crew * (FOOD_UPKEEP_PER_OFFICER + FOOD_UPKEEP_CROWDING * (crew - 1)));
 }
@@ -57,7 +57,7 @@ export const PayrollStateSchema = z.object({
   paidThroughAt: IsoDateTimeSchema,
   /**
    * Whole caps. A wage is a number two people agreed on out loud, and `negotiateWage` has always
-   * rounded — the `.int()` is here so a hand-written row cannot smuggle a fraction into `capsDue`
+   * rounded: the `.int()` is here so a hand-written row cannot smuggle a fraction into `capsDue`
    * and back out into the stockpile.
    */
   wages: z.record(IdSchema, z.number().int().nonnegative()),
@@ -75,10 +75,10 @@ export function weeklyWageBill(wages: PayrollState['wages']): number {
 export interface EconomyCycleInput {
   resources: Resources;
   payroll: PayrollState;
-  /** Officers on the books — drives food upkeep (§D1). */
+  /** Officers on the books: drives food upkeep (§D1). */
   officerCount: number;
   /**
-   * §F2 — what the crew talks off the wage book. Authority and Negotiation: people take less to
+   * §F2: what the crew talks off the wage book. Authority and Negotiation: people take less to
    * work under somebody worth working for, and every wage is an opening number to a good trader.
    * Capped, because a crew that works for nothing is not a crew.
    */
@@ -94,11 +94,11 @@ export interface EconomyCycleResult {
   weeksSettled: number;
   capsDue: number;
   capsPaid: number;
-  /** Wages that could not be covered. Costs morale — see `moralePenaltyFor`. */
+  /** Wages that could not be covered. Costs morale: see `moralePenaltyFor`. */
   capsShortfall: number;
   foodDue: number;
   foodConsumed: number;
-  /** Upkeep that could not be covered. Costs morale — see `moralePenaltyFor`. */
+  /** Upkeep that could not be covered. Costs morale: see `moralePenaltyFor`. */
   foodShortfall: number;
   resources: Resources;
   payroll: PayrollState;
@@ -106,8 +106,8 @@ export interface EconomyCycleResult {
 
 /**
  * Settles every pay-week boundary crossed since `payroll.paidThroughAt`: caps wages out (§H7)
- * and food upkeep down (§D1). Catches up honestly across a long absence — three missed weeks
- * cost three weeks — and pays what it can when the stockpile is short, reporting the rest.
+ * and food upkeep down (§D1). Catches up honestly across a long absence: three missed weeks
+ * cost three weeks, and pays what it can when the stockpile is short, reporting the rest.
  */
 export function runEconomyCycle({
   resources,
@@ -190,12 +190,12 @@ export function payrollWeeksFor(cycle: EconomyCycleResult): {
 }
 
 /**
- * Morale this settled cycle cost the crew (§D4) — always ≤ 0, and 0 when everyone was paid.
+ * Morale this settled cycle cost the crew (§D4): always ≤ 0, and 0 when everyone was paid.
  *
  * Kept separate from `runEconomyCycle` because the cycle is about the stockpile and this is about
  * the people: the caller settles resources first and then asks what it did to morale.
  *
- * `hardshipReductionPercent` is what the district takes off the blow — the Infirmary's whole job
+ * `hardshipReductionPercent` is what the district takes off the blow: the Infirmary's whole job
  * (§A1), passed in as a plain number so this module never has to know what a building is.
  */
 export function moralePenaltyFor(cycle: EconomyCycleResult, hardshipReductionPercent = 0): number {

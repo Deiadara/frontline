@@ -46,7 +46,7 @@ const spec = (key: string): AssetSpec => {
 const DISTRICT = spec('district-chrome-row');
 const PORTRAIT = spec('portrait-overseer-1');
 const PLATE = spec('plate-city');
-/** ART-BIBLE §6 — a 1024×1024 asset that must ship with a real alpha channel. */
+/** ART-BIBLE §6: a 1024×1024 asset that must ship with a real alpha channel. */
 const FRAME = spec('ui-frame-panel');
 /** The two shapes no backend renders directly: 512² alpha, and 16:9 alpha. */
 const ICON = spec('icon-scrap');
@@ -84,7 +84,7 @@ describe('assemblePrompt', () => {
     );
   });
 
-  it('never paraphrases the anchor — every asset carries the identical block', () => {
+  it('never paraphrases the anchor: every asset carries the identical block', () => {
     for (const asset of ART_MANIFEST) {
       expect(assemblePrompt(asset).startsWith(STYLE_ANCHOR)).toBe(true);
     }
@@ -206,14 +206,14 @@ describe('backend selection', () => {
     expect(openAiSize(1024, 1536)).toBe('1024x1536');
     expect(openAiSize(1024, 1024)).toBe('1024x1024');
     expect(openAiSize(1536, 1024)).toBe('1536x1024');
-    // 16:9 plates/planes/splashes have no gpt-image-1 equivalent — never silently substitute one.
+    // 16:9 plates/planes/splashes have no gpt-image-1 equivalent: never silently substitute one.
     expect(openAiSize(2048, 1152)).toBeNull();
     expect(openAiSize(512, 512)).toBeNull();
   });
 
   /**
    * `openAiSize` is the API-string mapper; `BACKEND_CAPABILITIES` decides what is producible. Pin
-   * them together in both directions — a one-way check lets a size drift into one table only.
+   * them together in both directions: a one-way check lets a size drift into one table only.
    */
   it('maps exactly the sizes the shared capability table advertises', () => {
     const advertised = BACKEND_CAPABILITIES.openai.sizes ?? [];
@@ -241,7 +241,7 @@ describe('backend selection', () => {
    * 1672×941. That is not a multiple of 16, and it cannot be made one: the twelve building outlines
    * are positions on *this* image, so rounding the delivery would move all twelve at once, and no
    * pure rescale of 1672:941 lands on sixteens in both axes. Exempting it costs nothing the bound
-   * was protecting — the bound exists so a *generated* source fails here rather than at spend time,
+   * was protecting: the bound exists so a *generated* source fails here rather than at spend time,
    * and this one is never generated.
    *
    * A list rather than a skip on the whole test: anything else drifting out of bounds still fails.
@@ -249,7 +249,7 @@ describe('backend selection', () => {
   const HAND_PAINTED: readonly string[] = ['plate-district'];
 
   /**
-   * `BACKEND_CAPABILITIES.fal.sizes` is `null` — "any size" — but FLUX.2 [pro]'s published
+   * `BACKEND_CAPABILITIES.fal.sizes` is `null`, "any size", but FLUX.2 [pro]'s published
    * `image_size` bounds are not unbounded (ADR §6.1.1). The table therefore green-lights sizes the
    * API would reject, and only a paid call would surface it. Pin the real bounds here so a manifest
    * source that drifts outside them fails locally instead of at spend time.
@@ -273,13 +273,13 @@ describe('backend selection', () => {
 
   it('reports why a backend cannot render a source, from the one capability table', () => {
     expect(unproducibleSource('openai', { width: 2048, height: 1152, alpha: false })).toMatch(
-      /openai cannot render 2048×1152 — it supports 1024×1024, 1024×1536, 1536×1024, with alpha/,
+      /openai cannot render 2048×1152: it supports 1024×1024, 1024×1536, 1536×1024, with alpha/,
     );
     expect(unproducibleSource('openai', { width: 1024, height: 1536, alpha: false })).toBeNull();
     // FLUX.2 takes any size but exposes no alpha parameter.
     expect(unproducibleSource('fal', { width: 2048, height: 1152, alpha: false })).toBeNull();
     expect(unproducibleSource('fal', { width: 1024, height: 1024, alpha: true })).toMatch(
-      /fal cannot render 1024×1024 with alpha — it supports any size, no alpha/,
+      /fal cannot render 1024×1024 with alpha: it supports any size, no alpha/,
     );
   });
 
@@ -294,7 +294,7 @@ describe('assertPngMaster', () => {
     expect(() => assertPngMaster('plate-city', PNG_BYTES)).not.toThrow();
   });
 
-  it('rejects anything else — `output_format` is unverified wire format', () => {
+  it('rejects anything else: `output_format` is unverified wire format', () => {
     // JPEG SOI + APP0.
     const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]);
     expect(() => assertPngMaster('plate-city', jpeg)).toThrow(
@@ -307,7 +307,7 @@ describe('assertPngMaster', () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* Adapters — mocked fetch only; no request ever leaves the process.           */
+/* Adapters: mocked fetch only; no request ever leaves the process.           */
 /* -------------------------------------------------------------------------- */
 
 function request(overrides: Partial<ImageRequest> = {}): ImageRequest {
@@ -371,7 +371,7 @@ describe('fal adapter', () => {
     expect(calls[1]![0]).toBe('https://cdn.fal.test/a.png');
   });
 
-  it('surfaces the error body — the only thing that names a wrong field', async () => {
+  it('surfaces the error body: the only thing that names a wrong field', async () => {
     stubFetch(
       new Response('{"detail":"unknown field image_size"}', {
         status: 422,
@@ -379,7 +379,7 @@ describe('fal adapter', () => {
       }),
     );
     await expect(createFalBackend({ FAL_KEY: 'k' }).generate(request())).rejects.toThrow(
-      /fal request failed: 422 Unprocessable Entity — \{"detail":"unknown field image_size"\}/,
+      /fal request failed: 422 Unprocessable Entity: \{"detail":"unknown field image_size"\}/,
     );
   });
 
@@ -481,7 +481,7 @@ describe('openai adapter', () => {
     );
     await expect(
       createOpenAiBackend({ OPENAI_API_KEY: 'k' }).generate(portraitRequest()),
-    ).rejects.toThrow(/openai request failed: 400 Bad Request — .*Unknown parameter/);
+    ).rejects.toThrow(/openai request failed: 400 Bad Request: .*Unknown parameter/);
   });
 });
 
@@ -496,7 +496,7 @@ describe('buildProvenance', () => {
       assetKey: 'district-chrome-row',
       masterFile: 'district-chrome-row.png',
       deliveryFile: 'district-chrome-row.webp',
-      // This master already is the delivery image — no substitution to declare.
+      // This master already is the delivery image: no substitution to declare.
       source: { width: 1024, height: 1024, alpha: false },
       postProcess: [],
       backend: 'fal',
@@ -612,7 +612,7 @@ describe('validateRun', () => {
     const problems = validateRun(ART_MANIFEST, OUT, {});
     expect(problems).not.toEqual([]);
     expect(problems).toContainEqual(
-      'district-chrome-row: not pinned to a backend and FRONTLINE_ART_BACKEND is unset — set it to "fal" or "openai"',
+      'district-chrome-row: not pinned to a backend and FRONTLINE_ART_BACKEND is unset: set it to "fal" or "openai"',
     );
     expect(problems).toHaveLength(ART_MANIFEST.filter((s) => s.backend === undefined).length);
   });
@@ -754,7 +754,7 @@ describe('main --dry-run', () => {
 });
 
 // MOU-145: `--only ""` was closed first, but a bare invocation reached the same 44-asset bill by a
-// shorter path — a stray Enter, or a wrapper script that dropped its args.
+// shorter path: a stray Enter, or a wrapper script that dropped its args.
 describe('main funded-selection gate', () => {
   const FUNDED_ENV: Env = { FRONTLINE_ART_BACKEND: 'fal', FAL_KEY: 'k' };
 
@@ -809,7 +809,7 @@ describe('foldNegativeIntoProse', () => {
 });
 
 describe('main --emit-prompts', () => {
-  /** The mode's contract is machine-readable stdout — parse it rather than string-matching. */
+  /** The mode's contract is machine-readable stdout: parse it rather than string-matching. */
   async function emit(...argv: string[]): Promise<EmittedPrompt[]> {
     const output = captureOutput();
     await expect(main(['--emit-prompts', ...argv], {})).resolves.toBe(0);
@@ -881,7 +881,7 @@ describe('main --emit-prompts', () => {
   });
 });
 
-describe('main — live run', () => {
+describe('main: live run', () => {
   it('writes the PNG master and a parseable provenance record', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'frontline-art-'));
     try {

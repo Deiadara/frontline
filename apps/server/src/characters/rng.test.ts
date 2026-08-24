@@ -4,7 +4,7 @@ import { createRng, sample, weightedSample } from './rng.js';
 
 /**
  * A non-positive count means "draw nothing". Both helpers end in a `slice`, and a negative count
- * slices from the *end* of the pool instead — so without a guard they hand back a near-full draw
+ * slices from the *end* of the pool instead, so without a guard they hand back a near-full draw
  * exactly when the caller asked for none. `pickStrengths` keeps its argument positive today, but
  * it computes it as `count - outside`, so widening the off-template band makes this reachable.
  */

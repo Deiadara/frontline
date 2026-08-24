@@ -36,7 +36,7 @@ describe('what each location fights like', () => {
     }
   });
 
-  it('covers the catalogue exactly — no location kind without ground rules', () => {
+  it('covers the catalogue exactly: no location kind without ground rules', () => {
     expect(Object.keys(LOCATION_CONTEXTS).sort()).toEqual(Object.keys(LOCATION_CATALOG).sort());
   });
 
@@ -92,7 +92,7 @@ describe('what each location fights like', () => {
     expect(homeBattlefield('Kettle Row', NIGHT).contexts).toEqual(['urban', 'night']);
   });
 
-  /** Easy ground pays the most per level — the board's inversion, carried through to the fight. */
+  /** Easy ground pays the most per level: the board's inversion, carried through to the fight. */
   it('carries the fortification tables into the battlefield', () => {
     const at = (difficulty: 'easy' | 'medium' | 'hard') =>
       battlefieldFor({
@@ -173,7 +173,7 @@ describe('the ground changes how the fight goes', () => {
    * A binary tally is a blunt instrument for this: the first draft of this test had Muckrakers
    * winning 24 out of 24 on both grounds, which said nothing about whether the ground had been
    * read at all. The survival fraction moves continuously and catches the contexts being computed
-   * correctly and then never applied — which is the failure worth having a test for.
+   * correctly and then never applied, which is the failure worth having a test for.
    */
   const survived = (side: { stacks: { started: number; alive: number }[] }): number => {
     const started = side.stacks.reduce((total, stack) => total + stack.started, 0);
@@ -215,7 +215,7 @@ describe('the ground changes how the fight goes', () => {
    * early loses fewer people and loses the ground, so an unfortified defender can finish a fight
    * with *more* survivors and no location. Fortification buys the objective. Measured at 30 v 26,
    * level 5 turns 3 holds in 24 into 24 in 24; by 32 v 26 it is nearly worthless, which is the
-   * intended ceiling — a quarter more defence does not beat a quarter more bodies.
+   * intended ceiling: a quarter more defence does not beat a quarter more bodies.
    */
   it('makes digging in decide who holds the location', () => {
     const held = (fortifyLevel: number) => {
@@ -238,8 +238,8 @@ describe('the ground changes how the fight goes', () => {
       }
       return holds;
     };
-    // Stated as a ratio as well as a level, so a change that shifts every seeded fight by one — an
-    // extra draw from the stream, say — moves the numbers without breaking the claim.
+    // Stated as a ratio as well as a level, so a change that shifts every seeded fight by one: an
+    // extra draw from the stream, say: moves the numbers without breaking the claim.
     expect(held(0)).toBeLessThan(5);
     expect(held(5)).toBeGreaterThan(12);
     expect(held(5)).toBeGreaterThan(held(0) * 3);
@@ -271,7 +271,7 @@ describe('what the defender built reaches the fight', () => {
   /**
    * The Gate (§A1) and the modifications that raise it.
    *
-   * `districtDefense` existed, was correct, and was **read by nothing** — its own doc comment
+   * `districtDefense` existed, was correct, and was **read by nothing**: its own doc comment
    * claimed the battle engine added it, and the engine had never heard of it. So the one structure
    * whose entire job is raid protection did nothing to a raid. Found by grepping for consumers of a
    * function rather than by any test failing, which is why this one exists.

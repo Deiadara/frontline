@@ -48,7 +48,7 @@ describe('the backdrop stack', () => {
 describe('isOccludedBackdropAsset', () => {
   /**
    * The whole point of the predicate: these two are behind an opaque plate, so a delivered master
-   * for either could never be seen. MOU-309 — `plane-city-sky` was in the *active* order-sheet
+   * for either could never be seen. MOU-309: `plane-city-sky` was in the *active* order-sheet
    * section before this landed.
    */
   it('flags exactly the layers behind the opaque plate', () => {

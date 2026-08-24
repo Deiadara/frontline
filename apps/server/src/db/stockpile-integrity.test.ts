@@ -152,7 +152,7 @@ describe('a save that already holds the nulls', () => {
   /**
    * Written straight past the repository on purpose.
    *
-   * The guard above means the application can no longer produce this row — which is the point of
+   * The guard above means the application can no longer produce this row, which is the point of
    * the guard, and also why the repair has to be tested by forging the row rather than by causing
    * it. A backup taken during the broken window still holds one.
    */
@@ -173,7 +173,7 @@ describe('a save that already holds the nulls', () => {
 
     // Rewound to a save that predates the repair, which is the only shape the repair can reach.
     // `runMigrations` records what it has applied and skips it next time, so re-running against an
-    // already-current database does nothing at all — and a test that did that would pass whether
+    // already-current database does nothing at all, and a test that did that would pass whether
     // the migration worked or not.
     forget(db, REPAIR_MIGRATION);
     runMigrations(db);
@@ -211,7 +211,7 @@ describe('a save that already holds the nulls', () => {
  * The same three directions, for the other way a stockpile becomes unreadable.
  *
  * `ResourcesSchema` is whole numbers now. Production used to write whatever a settle of arbitrary
- * length produced — `37772.751872` caps was a real stored value — so the fraction is exactly the
+ * length produced, `37772.751872` caps was a real stored value, so the fraction is exactly the
  * `null` bug arriving from the other side: a row that parsed on the build that wrote it and refuses
  * to parse on the next one. Three tests again, and for the same reason: the arithmetic must not
  * produce a fraction, the repository must refuse to store one if something else ever does, and a

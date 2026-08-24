@@ -1,13 +1,13 @@
 /**
- * The city seen from above — seeded, pure, resolution-independent geometry.
+ * The city seen from above: seeded, pure, resolution-independent geometry.
  *
  * This replaces the skyline for the map. The skyline was an *elevation*: towers standing against a
  * horizon, which is a picture of a city rather than a map of one, and it fought the district markers
- * the whole time — a marker at `y = 0.13` sat in the sky, a marker at `y = 0.9` sat in the
+ * the whole time: a marker at `y = 0.13` sat in the sky, a marker at `y = 0.9` sat in the
  * foreground rubble, and neither position meant anything about where that district *is*.
  *
  * A plan solves that. Looking down, `y` is distance across the ground, so the layout the districts
- * are arranged in (`CITY_DISTRICTS` — the docks at the bottom, the Spire at the top) is the layout a
+ * are arranged in (`CITY_DISTRICTS`: the docks at the bottom, the Spire at the top) is the layout a
  * player sees. It is also the same camera the district screen uses, which is what makes the two
  * screens read as the same world at two zoom levels.
  *
@@ -16,7 +16,7 @@
  * lanes. Everything is a fraction of the plane it will be painted into, and every draw comes from
  * the asset's own seed, so a plane paints identically on every run and at every viewport size.
  *
- * Colours are whole ART-BIBLE §2.1 ramp stops, never interpolated — depth is expressed by
+ * Colours are whole ART-BIBLE §2.1 ramp stops, never interpolated: depth is expressed by
  * *choosing a darker stop*, not by blending.
  */
 import { ramps } from '../theme/tokens';
@@ -34,7 +34,7 @@ export interface Block {
 export interface Roof {
   outline: Point[];
   fill: string;
-  /** A lit skylight or roof lamp. Absent on most roofs — a lit one has to mean somebody is in. */
+  /** A lit skylight or roof lamp. Absent on most roofs: a lit one has to mean somebody is in. */
   lamp: { x: number; y: number; r: number; warm: boolean } | null;
 }
 
@@ -65,7 +65,7 @@ export interface CityPlan {
  * What each parallax band contributes to the plan.
  *
  * The bands are inherited from the elevation renderer and still earn their keep: they are what the
- * map parallaxes on drag. Their *meaning* changes — they are no longer "sky, far, mid, fore" in
+ * map parallaxes on drag. Their *meaning* changes. They are no longer "sky, far, mid, fore" in
  * depth but four passes over the same ground, from the surface up.
  */
 interface BandProfile {
@@ -124,7 +124,7 @@ export const BAND_PLANS: Readonly<Record<DepthBand, BandProfile>> = {
     roofFills: [ramps.ferrite[700], ramps.smog[700], ramps.abyss[300]],
   },
   /**
-   * Nearest — and the band that carries the water and the arterial roads.
+   * Nearest, and the band that carries the water and the arterial roads.
    *
    * Those two belong to the *ground*, so the obvious place for them was the bottom band. It was
    * wrong: the eighteen-column block layer above buried both, and the map lost the one feature that
@@ -151,14 +151,14 @@ export const LAMP_FILLS = { warm: ramps.ember[300], cold: ramps.hextech[300] } a
  * The ground is **lighter than the buildings on it**, which is the opposite of the elevation view
  * and the right way round for a plan.
  *
- * From above at night a city is lit streets between dark roofs — the light is *in* the gaps. Drawn
+ * From above at night a city is lit streets between dark roofs: the light is *in* the gaps. Drawn
  * the other way (pale blocks on black ground, which is what the first pass did) the lanes disappear
  * and the whole map reads as scattered slabs with nothing joining them.
  */
 export const GROUND_FILL = ramps.smog[700];
 /** Water is the darkest thing on the map: a black ribbon that takes a bite out of the street grid. */
 export const CANAL_FILL = ramps.abyss[700];
-/** Lit tarmac — brighter than the ground so an arterial road reads through the blocks. */
+/** Lit tarmac: brighter than the ground so an arterial road reads through the blocks. */
 export const LANE_FILL = ramps.smog[500];
 
 /** `min + rng() * (max - min)`, the shape every dimension below is drawn with. */
@@ -167,7 +167,7 @@ function between(rng: () => number, min: number, max: number): number {
 }
 
 /**
- * A quad with every corner nudged — the shape of a roof nobody measured.
+ * A quad with every corner nudged: the shape of a roof nobody measured.
  *
  * Rectangles are the giveaway in a procedural city: a plan full of them reads as a spreadsheet seen
  * from above. Jitter is a fraction of the quad's own size, so a big roof leans as much as a small
@@ -196,7 +196,7 @@ function jitteredQuad(
  * One continuous cut rather than a branching river: it is the map's strongest read, the thing that
  * tells a player at a glance which side of the city they are on, and a delta would make it scenery
  * instead. It runs top-right to bottom-left because that is the diagonal the district layout leaves
- * clearest — see `CITY_DISTRICTS`.
+ * clearest: see `CITY_DISTRICTS`.
  */
 function cutCanal(width: number, height: number, rng: () => number): Canal {
   const steps = 7;
@@ -277,7 +277,7 @@ function fillBlock(outline: Point[], profile: BandProfile, rng: () => number): R
 /**
  * The blocks, laid on an irregular grid.
  *
- * A grid is the skeleton — cities do have streets — but every cell is inset by a random margin, so
+ * A grid is the skeleton, cities do have streets, but every cell is inset by a random margin, so
  * what a player sees is blocks of different sizes with lanes of different widths between them
  * rather than a chessboard. `columns`/`rows` are per band, which is what makes the near bands read
  * as fewer, bigger roofs.

@@ -22,7 +22,6 @@ import { SettingsPage } from './features/settings/SettingsPage';
 import { AdminPage } from './features/admin/AdminPage';
 import { InventoryPage } from './features/inventory/InventoryPage';
 import { WorkshopPage } from './features/workshop/WorkshopPage';
-import { CitiesPage } from './features/cities/CitiesPage';
 import {
   RequireAuth,
   RequireGuest,
@@ -96,7 +95,7 @@ export default function App() {
           <Route path="battles" element={<BattlePage />} />
           <Route path="units" element={<UnitsPage />} />
           <Route path="missions" element={<MissionsPage />} />
-          {/* §I3 — four screens open on a level. `RequireLevel` draws the door rather than
+          {/* §I3: four screens open on a level. `RequireLevel` draws the door rather than
               redirecting, so a player who arrives early is told what opens it. */}
           <Route
             path="bar"
@@ -140,7 +139,6 @@ export default function App() {
               </RequireLevel>
             }
           />
-          <Route path="cities" element={<CitiesPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="inventory" element={<InventoryPage />} />

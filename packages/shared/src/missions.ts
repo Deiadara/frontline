@@ -5,15 +5,15 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 
 /**
- * Missions, travel and timers — GDD §E.
+ * Missions, travel and timers: GDD §E.
  *
  * Everything here is pure arithmetic over a mission record and a clock reading. The server is the
  * only authority on *when* a mission started and *what* it rolled; this module answers "given that
- * record and this instant, where is the crew and what is it worth?" — which is why the client can
+ * record and this instant, where is the crew and what is it worth?", which is why the client can
  * share it to render live timers without ever being able to move one.
  */
 
-/** Travel time by distance band (§E6). One way — §E8 charges it twice. */
+/** Travel time by distance band (§E6). One way: §E8 charges it twice. */
 export const TRAVEL_BAND_MINUTES = {
   close: 5,
   further: 20,
@@ -50,14 +50,14 @@ export const MissionTemplateSchema = z.object({
   brief: z.string().min(1),
   kind: MissionKindSchema,
   /**
-   * §G6 — hard runs require an officer; easy ones can go out on assignees alone. Authored per
+   * §G6: hard runs require an officer; easy ones can go out on assignees alone. Authored per
    * mission rather than derived from `kind` or length: a day-long standard expedition beyond the
    * wire is not "easy" just because nobody shoots at you, and the board asked for a hard/easy
    * split, not a battle/standard one.
    */
   difficulty: MissionDifficultySchema,
   /**
-   * §A3 — who the job is aimed at. The Combine is the one antagonist NPC content has, so the
+   * §A3, who the job is aimed at. The Combine is the one antagonist NPC content has, so the
    * board is mostly work against it, some work that ignores it, and a little work *for* it. This
    * is also the §D8 driver: `recordMissionOutcome` reads it and nothing else.
    */
@@ -81,9 +81,9 @@ export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
 
 /**
  * The mission board. Every distance band and both kinds are represented, and the durations span
- * §E7's full range — a three-minute scrap run at one end, a day-long expedition at the other.
+ * §E7's full range: a three-minute scrap run at one end, a day-long expedition at the other.
  *
- * §A3 — the Combine is the antagonist the board is written against: most of the paying work is a
+ * §A3: the Combine is the antagonist the board is written against: most of the paying work is a
  * blow against it, a little is honest scavenging it does not care about, and two jobs are the
  * Combine's own, taken for its caps. That last pair is what makes §D8's `Collaborator` a choice a
  * player can actually make rather than a word in a table.
@@ -210,7 +210,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
 ];
 
 /**
- * §A4 — what the ground takes off a mission's clock.
+ * §A4: what the ground takes off a mission's clock.
  *
  * The Smuggler's Tunnel, essentially: there is a shorter way across the city and you own it. Capped
  * hard, because a mission that lands the moment it is launched is a mission with no decision in it,
@@ -233,7 +233,7 @@ export interface MissionTimings {
   travelMinutes: number;
   /** Time on site, excluding travel (§E7). */
   durationMinutes: number;
-  /** §E8 — total elapsed is two legs of travel plus the mission itself. */
+  /** §E8: total elapsed is two legs of travel plus the mission itself. */
   totalMinutes: number;
 }
 
@@ -287,7 +287,7 @@ export function rewardScale(totalMinutes: number, kind: MissionKind): number {
  *
  * `totalMinutes` defaults to the template's *current* timings, which is what the board wants when
  * it quotes an unlaunched mission. A run already in flight must pass the total frozen on its row
- * instead, so retuning the board cannot re-price a crew that is already out — see the invariant on
+ * instead, so retuning the board cannot re-price a crew that is already out: see the invariant on
  * `MissionSchema`.
  *
  * Residue (deliberate, needs a schema change to close): `kind` and `spoils` are still read live off
@@ -314,7 +314,7 @@ export function missionRewards(
 /**
  * Morale moved by a mission coming home (§D4). W2 parked this driver as a `TODO-LATER` in
  * `economy/meters.ts` and named W3 as its owner; this is it. A won battle lifts the crew most, a
- * lost one costs the most — that is where "risking your people" lands until W4's assignee pool
+ * lost one costs the most. That is where "risking your people" lands until W4's assignee pool
  * gives casualties somebody to happen to.
  */
 export const MISSION_MORALE_DELTA: Record<MissionKind, Record<MissionOutcome, number>> = {
@@ -323,12 +323,12 @@ export const MISSION_MORALE_DELTA: Record<MissionKind, Record<MissionOutcome, nu
 };
 
 /**
- * Infamy moved by a mission coming home (§D7, §A3) — keyed on which way the job pointed at the
+ * Infamy moved by a mission coming home (§D7, §A3): keyed on which way the job pointed at the
  * Combine rather than on how hard it was, because infamy is about *who you crossed*, not effort.
  *
  * Only anti-government work is loud, and only when it lands: a failed run at the state is already
  * priced in morale and in `Reckless`, and counting it here would let a crew build a reputation out
- * of things it did not manage to do. Work *for* the Combine moves nothing — collaboration is a
+ * of things it did not manage to do. Work *for* the Combine moves nothing: collaboration is a
  * §D8 reputation matter, and being useful to the state does not make the street afraid of you.
  */
 export const MISSION_INFAMY_DELTA: Record<MissionStance, Record<MissionOutcome, number>> = {
@@ -344,7 +344,7 @@ export const MISSION_INFAMY_DELTA: Record<MissionStance, Record<MissionOutcome, 
  * from it: a run already in flight must keep the clock it was launched under, so retuning the
  * board cannot retime or refund somebody's day-long expedition halfway through.
  *
- * Note what is *not* here — the roll seed. It lives in a server-only column so that holding a
+ * Note what is *not* here: the roll seed. It lives in a server-only column so that holding a
  * mission id tells you nothing about how it is going to end.
  */
 export const MissionSchema = z.object({
@@ -356,7 +356,7 @@ export const MissionSchema = z.object({
   durationMinutes: z.number().int().positive(),
   status: MissionStatusSchema,
   /**
-   * §G6 — the officer leading the run, or `null` for a delegation of assignees alone.
+   * §G6: the officer leading the run, or `null` for a delegation of assignees alone.
    *
    * Frozen at launch like the clock and the odds: this records *who went*, so dismissing an
    * officer or reshuffling placements mid-flight cannot rewrite who was out. It is what
@@ -372,7 +372,7 @@ export const MissionSchema = z.object({
    * When the crew was turned around, or `null` if they were left to finish.
    *
    * A recall does not stop a mission; it *reverses* it. The crew is however far out they had got,
-   * and getting back takes exactly as long as getting there did — so the new arrival is
+   * and getting back takes exactly as long as getting there did, so the new arrival is
    * `recalledAt + (recalledAt - startedAt)`, and it is derived from this rather than written into
    * the clock. Keeping the original `startedAt`, `travelMinutes` and `durationMinutes` intact is
    * what lets the report say how long they were out and how far they got.
@@ -384,7 +384,7 @@ export const MissionSchema = z.object({
 export type Mission = z.infer<typeof MissionSchema>;
 
 /**
- * Where the crew is (§E2) — they travel out, work, and travel back, and they are *away* for all
+ * Where the crew is (§E2): they travel out, work, and travel back, and they are *away* for all
  * three. `returned` means the clock is up; whether the payout has been banked yet is `status`.
  */
 export const MissionPhaseSchema = z.enum(['outbound', 'onSite', 'returning', 'returned']);
@@ -422,7 +422,7 @@ export function missionPhaseAt(mission: Mission, now: Date): MissionPhase {
   return 'outbound';
 }
 
-/** Fraction of the whole round trip completed, clamped to 0..1 — the timer bar on §E3's page. */
+/** Fraction of the whole round trip completed, clamped to 0..1: the timer bar on §E3's page. */
 export function missionProgressAt(mission: Mission, now: Date): number {
   if (mission.recalledAt !== null) {
     const recalled = Date.parse(mission.recalledAt);
@@ -450,12 +450,12 @@ export function canRecall(mission: Mission, now: Date): boolean {
   );
 }
 
-/** True once the clock is up but the payout has not been banked — what the resolver looks for. */
+/** True once the clock is up but the payout has not been banked: what the resolver looks for. */
 export function isMissionDue(mission: Mission, now: Date): boolean {
   return mission.status === 'active' && missionRemainingMs(mission, now) === 0;
 }
 
-/** `1h 05m`, `12m`, `2m` — compact enough for a timer column, exact to the minute. */
+/** `1h 05m`, `12m`, `2m`: compact enough for a timer column, exact to the minute. */
 export function formatDuration(totalMinutes: number): string {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = Math.round(totalMinutes % 60);
@@ -463,7 +463,7 @@ export function formatDuration(totalMinutes: number): string {
   return `${hours}h ${String(minutes).padStart(2, '0')}m`;
 }
 
-/** `04:59` under an hour, `1:04:59` over it — the live countdown on §E3's page. */
+/** `04:59` under an hour, `1:04:59` over it: the live countdown on §E3's page. */
 export function formatCountdown(remainingMs: number): string {
   const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
   const seconds = totalSeconds % 60;

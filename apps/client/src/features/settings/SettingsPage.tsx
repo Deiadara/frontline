@@ -113,7 +113,7 @@ function ProfilePanel({
       {
         username: name,
         // An empty box means "call me by my username again", which the schema spells as omitting
-        // the field — so it is sent only when there is something in it.
+        // the field, so it is sent only when there is something in it.
         ...(shown.trim() === '' ? {} : { displayName: shown.trim() }),
         icon: glyph,
       },
@@ -207,8 +207,8 @@ function ClockPanel({ timezone, serverNow }: { timezone: string; serverNow: stri
     >
       <div className="flex flex-col gap-4 p-4">
         <p className="font-body text-[13px] leading-relaxed text-ink-300">
-          Every clock, countdown and refresh in the game runs on {zoneCity(GAME_TIMEZONE)} time —
-          the day the black market turns over on, and the day the Runner&apos;s hours are quoted
+          Every clock, countdown and refresh in the game runs on {zoneCity(GAME_TIMEZONE)} time: the
+          day the black market turns over on, and the day the Runner&apos;s hours are quoted
           against. Changing this changes what you are <em>shown</em>; it does not move the day
           boundary, because that one is shared with everybody in the city.
         </p>
@@ -356,7 +356,7 @@ export function SettingsPage() {
       icon="gear"
       lede="Your name, your mark, your clock and your passphrase."
     >
-      <InfoNote>
+      <InfoNote label="What is yours alone">
         Everything here is yours alone. Changing your Operator ID changes what you log in with;
         changing your Name changes only what other crews see.
       </InfoNote>

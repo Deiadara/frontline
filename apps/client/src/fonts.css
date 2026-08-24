@@ -2,209 +2,116 @@
  * Self-hosted webfonts. See `public/fonts/README.md` for provenance and licences.
  *
  * These used to be a runtime `<link>` to fonts.googleapis.com, which failed roughly 1 load in 8
- * and took every geometry gate down with it (MOU-197) — and left players on a bad connection
+ * and took every geometry gate down with it (MOU-197), and left players on a bad connection
  * rendering the fallback metrics no gate has ever measured.
  *
- * The weights are enumerated rather than declared as a variable range even where the file is one
- * variable font (Orbitron, Inter), because CSS weight matching differs between the two: against
- * discrete 500/700/900 faces a request for 600 resolves to 700, but against a `500 900` range it
- * would resolve to 600 itself. `CityMap` draws its canvas labels at `600 11px Orbitron`, so a
- * range would silently change rendering. Mirroring Google's own per-weight rules keeps metrics
- * identical to what the gates were calibrated against.
+ * Two families ship, and that is the whole set: `Roboto Condensed` sets the interface,
+ * `Special Elite` sets the handful of places that should read as struck rather than printed. The
+ * rationale for the split is on `fontStacks` in `src/theme/tokens.ts`.
+ *
+ * Roboto Condensed is one variable file per subset, so all four weights share a `src`. They are
+ * still enumerated rather than declared as a `100 900` range, because CSS weight matching differs
+ * between the two: against discrete 400/500/600/700 faces a request for 550 resolves to 500, but
+ * against a range it would resolve to 550 itself. `CityMap` draws its canvas labels at an explicit
+ * `600 12px`, so a range could silently change what that renders.
+ *
+ * Special Elite has one weight and no italic, so `font-bold` and `italic` on a `font-stamp`
+ * element get the browser's synthetic versions. That is not new (the face it took those sites
+ * from had no italic either) and it is legible on a struck letterform, but it is worth knowing
+ * before adding a weight ramp to anything stamped.
  */
 
 /* Only the latin subsets are vendored; the UI is English and player-entered text is latin-ext at
-   worst. This is narrower than the hosted stylesheet, which also served Inter in cyrillic, greek
-   and vietnamese and Rajdhani in devanagari — see public/fonts/README.md before widening either
-   UsernameSchema or the UI's language coverage. */
+   worst. This is narrower than the hosted stylesheet, which also serves Roboto Condensed in
+   cyrillic, cyrillic-ext, greek, greek-ext and vietnamese: see public/fonts/README.md before
+   widening either UsernameSchema or the UI's language coverage. */
+
 @font-face {
-  font-family: 'Orbitron';
+  font-family: 'Roboto Condensed';
   font-style: normal;
-  font-weight: 500;
+  font-weight: 400;
   font-display: swap;
-  src: url('/fonts/orbitron-latin.woff2') format('woff2');
+  src: url('/fonts/roboto-condensed-latin.woff2') format('woff2');
   unicode-range:
     U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: 'Orbitron';
+  font-family: 'Roboto Condensed';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/roboto-condensed-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Roboto Condensed';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/roboto-condensed-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Roboto Condensed';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/roboto-condensed-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Roboto Condensed';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/roboto-condensed-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Roboto Condensed';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/roboto-condensed-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Roboto Condensed';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/orbitron-latin.woff2') format('woff2');
+  src: url('/fonts/roboto-condensed-latin.woff2') format('woff2');
   unicode-range:
     U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
     U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
-  font-family: 'Orbitron';
-  font-style: normal;
-  font-weight: 900;
-  font-display: swap;
-  src: url('/fonts/orbitron-latin.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Rajdhani';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/rajdhani-latin-400.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Rajdhani';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/rajdhani-latin-ext-400.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Rajdhani';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/rajdhani-latin-500.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Rajdhani';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/rajdhani-latin-ext-500.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Rajdhani';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/rajdhani-latin-600.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Rajdhani';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/rajdhani-latin-ext-600.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Rajdhani';
+  font-family: 'Roboto Condensed';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/rajdhani-latin-700.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Rajdhani';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/rajdhani-latin-ext-700.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/inter-latin.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/inter-latin-ext.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/inter-latin.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url('/fonts/inter-latin-ext.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/inter-latin.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/inter-latin-ext.woff2') format('woff2');
+  src: url('/fonts/roboto-condensed-latin-ext.woff2') format('woff2');
   unicode-range:
     U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
     U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
@@ -212,89 +119,13 @@
 }
 
 /*
- * The hand-drawn pair.
+ * The stamped face.
  *
- * `Caveat` is a pen. It carries the lettering a player is meant to *feel* rather than scan — page
- * names, window titles, a mission's quote, what a character says across a table — and it is the
- * face that stops the interface reading as a form with artwork behind it.
- *
- * `Special Elite` is a stamped machine. It does the small uppercase work Caveat cannot: a
- * handwritten label at 10px with 0.18em tracking is decoration, not a label, and this game's
- * screens are mostly dense tables. Between them they cover the two jobs one hand-drawn face cannot
- * do at once.
- *
- * Caveat is one variable file per subset, so the three weights share a `src` exactly as Inter's do.
- * Enumerated rather than declared as a range for the reason at the top of this file.
+ * `Special Elite` is a struck typewriter: uneven strokes, ink spread, no weight axis. That is a
+ * legibility tax across dense 10-12px tables, which is why it does not set the interface, and it
+ * is exactly the right texture on the sparse lettering a player reads one line at a time. See
+ * `fontStacks.stamp`.
  */
-
-@font-face {
-  font-family: 'Caveat';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/caveat-latin.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Caveat';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/caveat-latin-ext.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Caveat';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/caveat-latin.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Caveat';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/caveat-latin-ext.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
-
-@font-face {
-  font-family: 'Caveat';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/caveat-latin.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Caveat';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('/fonts/caveat-latin-ext.woff2') format('woff2');
-  unicode-range:
-    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
-    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
-    U+A720-A7FF;
-}
 
 @font-face {
   font-family: 'Special Elite';

@@ -16,7 +16,7 @@ import {
 } from './labels.js';
 
 /**
- * Environment labels (§A4) — the keywords that decide which units are worth bringing where.
+ * Environment labels (§A4): the keywords that decide which units are worth bringing where.
  *
  * What is measured here is the *shape* of the system rather than any one number: that a tier is a
  * multiplier and not a lookup, that two sources of a label do not stack into a fifth tier, that
@@ -108,7 +108,7 @@ describe('what a label is worth to a unit', () => {
     );
   });
 
-  /** §A5 — the Abomination breathes it. Immunity is a fact, not a coincidence of its armour value. */
+  /** §A5: the Abomination breathes it. Immunity is a fact, not a coincidence of its armour value. */
   it('means immune when it says immune', () => {
     expect(worth('the_abomination', envLabel('toxic', 4))).toBe(0);
     expect(worth('the_abomination', envLabel('eerie', 4))).toBeGreaterThanOrEqual(0);
@@ -127,7 +127,7 @@ describe('what a label is worth to a unit', () => {
 });
 
 /**
- * The Anodics (§A5) — the unit whose identity *is* a pair of labels.
+ * The Anodics (§A5): the unit whose identity *is* a pair of labels.
  *
  * The board's brief was "cheap, tanky all-rounder, better in close spaces, fights better when
  * there is noise". Three of those are on the sheet and the suite can read them; the fourth is not

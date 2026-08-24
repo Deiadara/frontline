@@ -5,19 +5,19 @@ import type { PartialResources } from '../resources.js';
 import { OfficerRoleSchema } from '../roles.js';
 
 /**
- * Research projects (GDD §B9, §F2) — the two things the crew can put time into.
+ * Research projects (GDD §B9, §F2): the two things the crew can put time into.
  *
  * An **investigation** is §B9's librarian-ish task: somebody senior reads the room, the files and
  * the last decade of who worked out where, and comes back knowing one more thing about what a job
  * actually needs. A **training** project is §F2: the Overseer develops one of their own attributes.
  *
  * Both are one-at-a-time and run on the real clock, settled lazily on read exactly like missions
- * (§E2) and payroll (§H7) — there is no scheduler to keep alive, and a crew nobody looks at owes
+ * (§E2) and payroll (§H7). There is no scheduler to keep alive, and a crew nobody looks at owes
  * the same result whenever it is next opened.
  */
 
 /**
- * §B9/§C4 — an investigation is led by one held officer. Which roles may lead is *not* decided
+ * §B9/§C4: an investigation is led by one held officer. Which roles may lead is *not* decided
  * here: `HIRING_INSIGHT_ROLES` in `roles.ts` is W1's, and the server gates on it (INTERFACES R4).
  */
 export const InvestigationProjectSchema = z.object({
@@ -25,12 +25,12 @@ export const InvestigationProjectSchema = z.object({
   /** The job being investigated. Roles are public (§C1); what they *need* is not (§B8a). */
   role: OfficerRoleSchema,
   leadOfficerId: IdSchema,
-  /** §F4 — the extra option, available only when the lead's Imagination unlocks it. */
+  /** §F4: the extra option, available only when the lead's Imagination unlocks it. */
   crossReference: z.boolean(),
 });
 export type InvestigationProject = z.infer<typeof InvestigationProjectSchema>;
 
-/** §F2 — the Overseer develops one attribute. Any of them, including irrelevant ones (§B6). */
+/** §F2: the Overseer develops one attribute. Any of them, including irrelevant ones (§B6). */
 export const TrainingProjectSchema = z.object({
   kind: z.literal('training'),
   attribute: z.enum(ATTRIBUTE_NAMES),
@@ -38,11 +38,11 @@ export const TrainingProjectSchema = z.object({
 export type TrainingProject = z.infer<typeof TrainingProjectSchema>;
 
 /**
- * §A1 — modification work: designing and fitting one of a structure's five upgrades.
+ * §A1: modification work: designing and fitting one of a structure's five upgrades.
  *
  * It sits in the research queue rather than in the build queue on purpose. A modification is not
  * bought and it is not a level; it is *worked out*, which is the same crew and the same bench the
- * Lab already occupies — and it means a district cannot fit three modifications at once any more
+ * Lab already occupies, and it means a district cannot fit three modifications at once any more
  * than it can run three investigations at once.
  *
  * Unlike an investigation, the lead is not chosen: §C4 makes this the Lead Engineer's work, and
@@ -83,7 +83,7 @@ export const RESEARCH_COST_CAPS: Record<ResearchProjectKind, number> = {
 };
 
 /**
- * Materials a modification needs on top of its caps — the only research project that builds
+ * Materials a modification needs on top of its caps: the only research project that builds
  * anything physical, and the reason the Garage's high-quality metal has somewhere to go.
  */
 export const MODIFICATION_MATERIALS: PartialResources = {
@@ -125,13 +125,13 @@ export function researchRemainingMs(active: ActiveResearch, now: Date): number {
   return Math.max(0, researchCompletesAt(active).getTime() - now.getTime());
 }
 
-/** Fraction of the project completed, clamped to 0..1 — the progress bar on the research page. */
+/** Fraction of the project completed, clamped to 0..1: the progress bar on the research page. */
 export function researchProgressAt(active: ActiveResearch, now: Date): number {
   const elapsedMs = now.getTime() - Date.parse(active.startedAt);
   return Math.min(1, Math.max(0, elapsedMs / (active.durationMinutes * MINUTE_MS)));
 }
 
-/** True once the clock is up but the result has not been banked — what the settler looks for. */
+/** True once the clock is up but the result has not been banked: what the settler looks for. */
 export function isResearchDue(active: ActiveResearch, now: Date): boolean {
   return researchRemainingMs(active, now) === 0;
 }

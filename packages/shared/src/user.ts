@@ -30,7 +30,7 @@ export type PlayerIcon = z.infer<typeof PlayerIconSchema>;
 export const DEFAULT_PLAYER_ICON: PlayerIcon = 'shield';
 
 /**
- * Client-facing user. The password hash is deliberately NOT part of this type —
+ * Client-facing user. The password hash is deliberately NOT part of this type:
  * it lives in a server-only type (see apps/server/src/types.ts).
  *
  * The three settings fields are **defaulted rather than required**, for the reason `Base.training`

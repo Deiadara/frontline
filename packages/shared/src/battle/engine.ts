@@ -16,7 +16,7 @@ import { mulberry32, seedFrom } from './rng.js';
 /**
  * The fight itself.
  *
- * One commitment, one resolution, one report — the player sets a force and reads what happened,
+ * One commitment, one resolution, one report: the player sets a force and reads what happened,
  * the way Grepolis and Tribal Wars work. Underneath it is a **round simulation** rather than a
  * single formula, which is the split most auto-resolvers land on: a formula can tell you that you
  * lost and a simulation can tell you *that the Snipers never got a shot off*, and the second is
@@ -27,7 +27,7 @@ import { mulberry32, seedFrom } from './rng.js';
  * - **Deterministic.** Every draw comes from one seeded stream, so a fight replays from the string
  *   on its battle row for as long as the code is unchanged.
  * - **Simultaneous.** Both sides fire from the same snapshot, so nothing wins by being first in an
- *   array — the single most common way a round loop develops a silent bias.
+ *   array: the single most common way a round loop develops a silent bias.
  * - **Calibrated.** With counters, morale and terrain neutral it reproduces the industry reference
  *   curve in `attrition.ts`. That is what keeps tuning honest.
  * - **Bounded.** It always terminates, and it always terminates with somebody holding the ground.
@@ -40,7 +40,7 @@ export const MAX_ROUNDS = 12;
  * Fraction of a defender's health pool one round of a matched attacker's offense removes.
  *
  * Tuned by measurement, not derived. It sets how long a fight runs, and everything about how a
- * report reads follows from that — but it is also not a free dial. Too high and the loser is wiped
+ * report reads follows from that, but it is also not a free dial. Too high and the loser is wiped
  * in one round before it fires back, which makes winning nearly free; too low and morale decides
  * the fight before casualties matter, which makes it a coin flip. Both failure modes were measured
  * on the way to 0.2, at which a 4:1 runs two rounds and a near-even fight runs six or seven.
@@ -48,7 +48,7 @@ export const MAX_ROUNDS = 12;
 export const ROUND_DAMAGE_SCALE = 0.2;
 
 /**
- * How much massing bodies is worth beyond the bodies themselves — Lanchester's square law, weighted
+ * How much massing bodies is worth beyond the bodies themselves: Lanchester's square law, weighted
  * by how much of the force can actually concentrate its fire.
  *
  * Ranged units get the full edge and melee gets none, which is Lanchester's original observation:
@@ -66,7 +66,7 @@ export const MAX_CONCENTRATION = 1.6;
  *
  * Combat width (`battlefield.ts`). Bodies past the frontage are queuing, not fighting: they cannot
  * shoot, though they are still there to absorb losses and to rotate forward as the front rank
- * falls. That asymmetry is the point — an overstacked force is not *weaker*, it is slower, and it
+ * falls. That asymmetry is the point: an overstacked force is not *weaker*, it is slower, and it
  * pays for the ground it could not deploy on.
  *
  * Without this the answer to every fight is "bring more", which is the failure mode combat width
@@ -80,7 +80,7 @@ export function engagedBodies(side: SideState, frontage: number): number {
  * The most a crew's own co-ordination can widen the ground it is fighting on.
  *
  * Capped at half again, because a corridor is a corridor. Cohesion is a real answer to combat width
- * and it is deliberately not a complete one — a crew that solves overstacking by hiring an organiser
+ * and it is deliberately not a complete one: a crew that solves overstacking by hiring an organiser
  * would put the mechanic back where it was before frontage existed.
  */
 export const MAX_COHESION_WIDTH = 1.5;
@@ -105,7 +105,7 @@ export function frontageShare(side: SideState, frontage: number): number {
 /**
  * What an ambush is worth: one opening exchange before the defender is in position.
  *
- * The `ambush` sheet was, until now, a second `urban_bonus` with a different name — same context,
+ * The `ambush` sheet was, until now, a second `urban_bonus` with a different name: same context,
  * same arithmetic, no reason to prefer one over the other. This is what it was always supposed to
  * mean, and it is the only combat use `stealth` has: a stack gets its opening strike in proportion
  * to how much of the force can hide and how badly the other side can see.
@@ -132,7 +132,7 @@ export interface Stack {
   morale: number;
   /** The round it broke, or null while it is still fighting. */
   brokeAt: number | null;
-  /** Bodies that started the fight — the denominator for every casualty figure. */
+  /** Bodies that started the fight: the denominator for every casualty figure. */
   started: number;
   /**
    * Damage this stack has put out across the whole fight, opening strike included.
@@ -152,7 +152,7 @@ export interface SideSetup {
   territory?: TerritoryEffects;
   /** The workshop's refit, folded onto every sheet on this side (`units/upgrades.ts`). */
   upgrades?: FittedUpgrades;
-  /** §A5 teamwork — how much of a force too big for the ground can be brought to bear anyway. */
+  /** §A5 teamwork: how much of a force too big for the ground can be brought to bear anyway. */
   cohesionPercent?: number;
 }
 
@@ -171,7 +171,7 @@ export interface SideState {
    */
   luck: number;
   /**
-   * §A5 — the teamwork channel (`crew/effects.ts`), as a percentage on this side's usable frontage.
+   * §A5: the teamwork channel (`crew/effects.ts`), as a percentage on this side's usable frontage.
    *
    * The only bonus in the game whose worth depends on how many people you brought: it does nothing
    * at all to a force that already fits on the ground, and it is the difference between a hundred
@@ -186,7 +186,7 @@ const clamp = (value: number, low: number, high: number): number =>
 export const bodies = (side: SideState): number =>
   side.stacks.reduce((total, stack) => total + stack.alive, 0);
 
-/** Bodies still willing to fight — a broken stack is on the field but not in the battle. */
+/** Bodies still willing to fight: a broken stack is on the field but not in the battle. */
 export const fighting = (side: SideState): number =>
   side.stacks.reduce((total, stack) => total + (stack.brokeAt === null ? stack.alive : 0), 0);
 
@@ -208,7 +208,7 @@ export function sidePower(side: SideState): number {
   return Math.sqrt(Math.max(0, offense) * Math.max(0, durability));
 }
 
-/** The share of a side that can concentrate its fire, 0..1 — see {@link CONCENTRATION_EDGE}. */
+/** The share of a side that can concentrate its fire, 0..1: see {@link CONCENTRATION_EDGE}. */
 function rangedShare(side: SideState): number {
   let weighted = 0;
   let total = 0;
@@ -220,7 +220,7 @@ function rangedShare(side: SideState): number {
   return total === 0 ? 0 : weighted / total;
 }
 
-/** Average intimidation across a side's live bodies — what the other side has to look at. */
+/** Average intimidation across a side's live bodies: what the other side has to look at. */
 function intimidation(side: SideState): number {
   let weighted = 0;
   let total = 0;
@@ -270,7 +270,7 @@ function buildStacks(
  *
  * Weighted by {@link threatWeight}, so the counter system decides targeting rather than a rule
  * saying it should. Fire is *split* rather than focused on the single best target, because a stack
- * of forty is forty people making their own decisions — total focus would make every fight a
+ * of forty is forty people making their own decisions: total focus would make every fight a
  * sequence of clean executions and would reward a single hard counter far past what it is worth.
  */
 function allocate(attacker: Stack, enemies: readonly Stack[]): { target: Stack; share: number }[] {
@@ -470,7 +470,7 @@ export function simulate(input: SimulateInput): Simulation {
   defender.luck = drawLuck(next);
   const rounds: RoundRecord[] = [];
 
-  // The opening strike, before either side is in position. Only the attacker can take one — an
+  // The opening strike, before either side is in position. Only the attacker can take one: an
   // ambush is something you set, and the side standing on the ground it already holds is not
   // setting it. This is also the only location `stealth` matters once a fight has started.
   const ambush = ambushShare(attacker, defender, battlefield.frontage);
@@ -561,7 +561,7 @@ export function simulate(input: SimulateInput): Simulation {
   const defenderStanding = fighting(defender);
   // Three endings, and the third is the one the first draft got wrong. One side still fighting
   // takes the ground. *Neither* side still fighting is a mutual collapse, and it has to be settled
-  // on who is left standing — handing it to the defender by default made a mirror unwinnable.
+  // on who is left standing: handing it to the defender by default made a mirror unwinnable.
   const decidedOnPower = attackerStanding === 0 || defenderStanding === 0 ? false : true;
   const winner =
     attackerStanding > 0 && defenderStanding === 0
@@ -589,7 +589,7 @@ export function simulate(input: SimulateInput): Simulation {
  *
  * Two things have to be true for it to be worth anything: some of the force has to be built to set
  * an ambush, and it has to be able to hide from the people it is ambushing. Neither alone is enough,
- * which is why this is a product — Ghosts on open ground against a Cartographer get very little, and
+ * which is why this is a product: Ghosts on open ground against a Cartographer get very little, and
  * Ghosts in a sewer against Sparks get most of it.
  *
  * Returns 0 when nothing on the side carries the sheet, so the common case costs nothing and adds
@@ -613,7 +613,7 @@ export function ambushShare(side: SideState, enemy: SideState, frontage: number)
   return AMBUSH_ROUND_SHARE * share * edge;
 }
 
-/** How hard a side is to sneak up on — its own stealth is what it knows to look for. */
+/** How hard a side is to sneak up on: its own stealth is what it knows to look for. */
 function watchfulness(side: SideState): number {
   let weighted = 0;
   let total = 0;

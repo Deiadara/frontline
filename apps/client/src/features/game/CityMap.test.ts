@@ -11,8 +11,8 @@ vi.mock('../../assets/delivered', () => ({ deliveredTexture }));
 
 /**
  * The procedural painters bake gradients through a 2D canvas, which jsdom has none of (see
- * `procedural.ts`). Stubbing them keeps this file on the dispatch question — *which* painter a
- * plane reaches for — and leaves the painting itself to the Chromium suite.
+ * `procedural.ts`). Stubbing them keeps this file on the dispatch question, *which* painter a
+ * plane reaches for, and leaves the painting itself to the Chromium suite.
  */
 const painters = vi.hoisted(() => ({
   paintProcedural: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock('../../render/procedural', () => painters);
 
 beforeEach(() => {
   deliveredTexture.mockClear().mockReturnValue(null);
-  // The stubs keep the real contract — a display object can only have one parent, so every call
+  // The stubs keep the real contract: a display object can only have one parent, so every call
   // needs its own container, and `paintProcedural` declines a delivered file exactly as it does in
   // production. Without that second half a plane could look painted here while rendering blank.
   painters.paintProcedural
@@ -90,7 +90,7 @@ describe('groupByDistrict', () => {
 });
 
 describe('buildPlanes', () => {
-  /** Every plane that is painted from a manifest key — the ones a delivered master can land on. */
+  /** Every plane that is painted from a manifest key: the ones a delivered master can land on. */
   const PAINTED = PARALLAX_PLANES.filter((spec) => spec.assetKey !== null);
 
   const READY: BundleState = { status: 'ready', loaded: 1, total: 1, progress: 1, error: null };
@@ -106,7 +106,7 @@ describe('buildPlanes', () => {
 
   /**
    * The shipping state today: nothing delivered, so the real resolver hands every plane key its
-   * procedural source — with that key's own class and seed, not a stand-in shape.
+   * procedural source, with that key's own class and seed, not a stand-in shape.
    */
   const proceduralLoader = (): ArtLoader => ({
     ...loaderWith(new Map()),
@@ -146,7 +146,7 @@ describe('buildPlanes', () => {
     ).not.toHaveBeenCalled();
   });
 
-  it('fits the master cover — full-bleed, undistorted, centred', () => {
+  it('fits the master cover: full-bleed, undistorted, centred', () => {
     const scene = sceneOf(800, 800);
 
     buildPlanes(scene, loaderWith(allDelivered));

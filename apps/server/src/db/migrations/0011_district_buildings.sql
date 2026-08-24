@@ -1,6 +1,6 @@
--- The district — thirteen buildings, modifications and a build queue (GDD §A1).
+-- The district: thirteen buildings, modifications and a build queue (GDD §A1).
 --
--- Number allocated under INTERFACES.md R6/R9 — do not renumber, the runner keys
+-- Number allocated under INTERFACES.md R6/R9: do not renumber, the runner keys
 -- `schema_migrations` on the file name and a rename re-applies the migration.
 --
 -- This is a **destructive rename**, and deliberately so. The six MVP structures
@@ -16,12 +16,12 @@
 --     barracks       -> gauntlet     (training)
 --     wall           -> gate         (the first thing raiders meet)
 --
--- The other seven — quarters, greenhouse, cistern, apothecary, commons, infirmary, garage — are
+-- The other seven, quarters, greenhouse, cistern, apothecary, commons, infirmary, garage, are
 -- new ground and nobody has one. §D9 made the same destructive call for resources; this follows it.
 --
 -- Note what is NOT here. `productionSettledAt` is a new key inside `economy_json`, and
 -- `EconomyStateSchema` declares it `.nullable().default(null)` precisely so an existing row parses
--- without being rewritten — and null reads as "start the clock now", so no base is handed weeks of
+-- without being rewritten, and null reads as "start the clock now", so no base is handed weeks of
 -- back-dated production the first time it is opened. A JSON patch here would have created exactly
 -- the back-pay it is designed to avoid.
 
@@ -61,7 +61,7 @@ WHERE json_array_length(buildings_json) > 0;
 ALTER TABLE bases ADD COLUMN build_queue_json TEXT NOT NULL DEFAULT '[]';
 
 -- 3. Faction names. `FactionNameSchema` trims and bounds at 40 characters, and the old
---    auto-generated "<username>'s Foothold" can exceed that for a long username — which would fail
+--    auto-generated "<username>'s Foothold" can exceed that for a long username, which would fail
 --    `BaseSchema.parse` on the next read rather than at the point the name was set. Trimmed to fit
 --    rather than reset, so a player keeps a name they recognise and can rename it themselves.
 UPDATE bases

@@ -64,7 +64,7 @@ describe('the day boundary', () => {
     expect(dayInZone(inside, GAME_TIMEZONE)).toBe('2026-03-29');
     const boundary = nextDayBoundary(inside, GAME_TIMEZONE);
     expect(dayInZone(boundary, GAME_TIMEZONE)).toBe('2026-03-30');
-    // Adding a flat 24 hours would land on the 30th at 01:30 local, an hour past the boundary —
+    // Adding a flat 24 hours would land on the 30th at 01:30 local, an hour past the boundary:
     // the arithmetic this function exists to avoid.
     expect(boundary.getTime()).toBeLessThan(inside.getTime() + 24 * 3_600_000);
     expect(formatClock(boundary, GAME_TIMEZONE)).toBe('00:00');

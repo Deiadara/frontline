@@ -18,7 +18,7 @@ import { cn } from '../../lib/cn';
  * them, and that the same yard is a different fight after dark.
  *
  * **Seven days in ten it renders nothing at all.** An ordinary day carries no labels and gets no
- * banner — a strip that is always there saying "Ordinary" would make the one morning it says "Fog"
+ * banner: a strip that is always there saying "Ordinary" would make the one morning it says "Fog"
  * indistinguishable from the wallpaper.
  */
 export function WeatherBanner({ at, className }: { at: Date; className?: string }) {

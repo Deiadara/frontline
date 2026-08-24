@@ -37,10 +37,10 @@ import { settleResearch } from '../research/settle.js';
 import { startResearch, type ResearchRefusal } from '../research/start.js';
 
 /**
- * Research and discovery (GDD §B9, §F2–§F4).
+ * Research and discovery (GDD §B9, §F2-§F4).
  *
  * The response carries **discovered facts only**. There is no fit score, no weight, no ordering and
- * nothing keyed by role id anywhere in it — §B9 is the one feature allowed to put role knowledge on
+ * nothing keyed by role id anywhere in it: §B9 is the one feature allowed to put role knowledge on
  * the wire, which makes it the one that has to prove it did not put the table there
  * (§B8a, INTERFACES R4). `apps/server/src/research/discovery.leak.test.ts` asserts that over this
  * route's real response body, because the W1 guard scans client-reachable directories and a server
@@ -78,7 +78,7 @@ function settledPlayer(
   };
 }
 
-/** §B9/§C4 + §F4 — who could lead an investigation, and what their own sheet unlocks. */
+/** §B9/§C4 + §F4, who could lead an investigation, and what their own sheet unlocks. */
 function leadsOn(base: Base): ResearchLead[] {
   return base.commanders
     .filter((officer) => HIRING_INSIGHT_ROLES.includes(officer.role))
@@ -208,7 +208,7 @@ export function registerResearchRoutes(app: FastifyInstance): void {
    * Start a standing programme.
    *
    * Bought outright rather than queued behind the Professor's one project slot: an investigation is
-   * somebody's *time*, and the Lab only has one of those to give — a technology is money, parts and
+   * somebody's *time*, and the Lab only has one of those to give: a technology is money, parts and
    * a building tall enough to house the work. Putting both through one queue would mean a crew that
    * wants a fact this week cannot also want a programme, which is a false choice dressed as depth.
    */

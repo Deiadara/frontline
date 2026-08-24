@@ -23,7 +23,7 @@ import { modificationBlocker } from '../district/modifications.js';
 import { pairingsExhausted } from './discover.js';
 
 /**
- * Putting the crew onto a research project (GDD §B9, §F2, §F4) — every gate between "look into
+ * Putting the crew onto a research project (GDD §B9, §F2, §F4): every gate between "look into
  * this" and a running clock.
  *
  * The §F4 gate is the interesting one: the cross-reference option is not silently dropped when the
@@ -46,7 +46,7 @@ export const RESEARCH_REFUSALS = [
   'no_lead',
   'option_locked',
   'nothing_to_learn',
-  // §A1 modification work adds three of its own — the structure, the slot and the engineer.
+  // §A1 modification work adds three of its own: the structure, the slot and the engineer.
   'unknown_modification',
   'modification_unavailable',
   'no_modification_slot',
@@ -70,14 +70,14 @@ function refusalFor(input: StartInput): ResearchRefusal | null {
   if (base.research.active) return 'already_running';
 
   if (project.kind === 'investigation') {
-    // §B9/§C4 — a Professor or Head of Research, gated on W1's constant rather than a second
+    // §B9/§C4: a Professor or Head of Research, gated on W1's constant rather than a second
     // hardcoded role check (INTERFACES R4).
     const lead = base.commanders.find((officer) => officer.id === project.leadOfficerId);
     if (!lead || !HIRING_INSIGHT_ROLES.includes(lead.role)) return 'no_lead';
     if (project.crossReference && !unlocksCrossReference(lead.attributes)) return 'option_locked';
 
     // A role at `MAX_ROLE_FACTS` has nothing left to give, and a cross-reference-only run is
-    // pointless once the pairing cap is reached — refuse rather than charge for nothing.
+    // pointless once the pairing cap is reached: refuse rather than charge for nothing.
     const roleDone = roleFullyResearched(base.research.facts, project.role);
     if (roleDone && (!project.crossReference || pairingsExhausted(base.research.facts))) {
       return 'nothing_to_learn';
@@ -108,7 +108,7 @@ function modificationRefusal(base: Base, id: string): ResearchRefusal | null {
     case 'no_lead_engineer':
       return 'no_lead_engineer';
     // `research_busy` is already refused above as `already_running`, and `cannot_afford` is the
-    // shared check below — neither needs a second home here.
+    // shared check below: neither needs a second home here.
     default:
       return null;
   }
@@ -118,13 +118,13 @@ function modificationRefusal(base: Base, id: string): ResearchRefusal | null {
  * Charges for the project and starts its clock.
  *
  * `durationMinutes` is copied onto the row here and never re-read from `RESEARCH_MINUTES`, so
- * retuning the catalogue cannot retime a project that is already running — the same freeze
+ * retuning the catalogue cannot retime a project that is already running: the same freeze
  * `launchMission` applies to a crew already out.
  */
 export function startResearch(repos: Repositories, input: StartInput): StartResult {
   const refusal = refusalFor(input);
   // The testing build waives the progress and price gates but not the "there is nothing to do"
-  // ones — see `admin/mode.ts` for which and why.
+  // ones: see `admin/mode.ts` for which and why.
   if (refusal && !adminWaives(refusal, input.admin ?? false))
     return { kind: 'refused', reason: refusal };
 
@@ -133,10 +133,10 @@ export function startResearch(repos: Repositories, input: StartInput): StartResu
     id,
     project,
     startedAt: now.toISOString(),
-    // §A1 — the Lab is what makes research quick, and its cut is frozen onto the row with
+    // §A1: the Lab is what makes research quick, and its cut is frozen onto the row with
     // everything else. Floored at a minute: a project that lands the instant it starts has no
     // clock, and the whole screen is built around one.
-    // §F2 — and the people, on top of the Lab. Analysis reads the failure, Improvisation gets a
+    // §F2, and the people, on top of the Lab. Analysis reads the failure, Improvisation gets a
     // result out of the wrong equipment; a crew with neither works at the catalogue rate.
     durationMinutes: adminMinutes(
       Math.max(

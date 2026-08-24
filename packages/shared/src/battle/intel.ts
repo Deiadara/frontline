@@ -5,7 +5,7 @@ import { findUnit, type Army } from '../units/index.js';
  * What the other side can see of what you have moved up (GDD §A4/§F2, battle rework).
  *
  * The board's rule is that **a deployment is not public**. Both crews know a fight is coming and
- * where — that is what a declaration is — and neither knows what the other has walked onto the
+ * where, that is what a declaration is, and neither knows what the other has walked onto the
  * ground. The only way to find out is to be good at finding out: scouts, hacking, the Signals track,
  * anybody in the room with Logic or Intuition. The only way to stop them is to be good at not being
  * found: cryptography, deception, and units that are hard to see in the first place.
@@ -53,7 +53,7 @@ export interface DeploymentIntelInput {
   resistancePercent: number;
   /** ...and the reading of whoever is trying to count it. */
   yieldPercent: number;
-  /** The force itself — see the module note on why its own sheet is the third term. */
+  /** The force itself: see the module note on why its own sheet is the third term. */
   force: Army;
 }
 
@@ -71,7 +71,7 @@ export function deploymentBlurPercent(input: DeploymentIntelInput): number {
 /**
  * The size a rival's deployment appears to be, or `null` when it cannot be made out at all.
  *
- * Coarsened rather than falsified — the rule `blurredCount` was written under, and the reason a
+ * Coarsened rather than falsified: the rule `blurredCount` was written under, and the reason a
  * scout says "about forty" instead of an invented forty-three.
  */
 export function observedForceSize(force: Army, blurPercent: number): number | null {

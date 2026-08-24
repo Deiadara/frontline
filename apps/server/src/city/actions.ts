@@ -73,8 +73,8 @@ function recordTaking(
 /**
  * Doing things to the city (GDD §A4).
  *
- * Every action here resolves **immediately**. Travel time is computed and shown — it is what the
- * Rail Yard and the Skate Ground are for — but a force does not yet spend it in transit.
+ * Every action here resolves **immediately**. Travel time is computed and shown. It is what the
+ * Rail Yard and the Skate Ground are for, but a force does not yet spend it in transit.
  *
  * TODO-LATER: forces in transit. A sent force should arrive after `travelMinutes` and resolve
  * then, the way a mission does (§E2), which also makes intercepting one possible. That is a
@@ -136,7 +136,7 @@ export function settleFortifications(repos: Repositories, now: Date): Map<string
 export interface AttackInput {
   base: Base;
   location: Location;
-  /** The ground the location stands on — §D7/§D8 read *whose* it was, not which location it was. */
+  /** The ground the location stands on: §D7/§D8 read *whose* it was, not which location it was. */
   district: District;
   force: Army;
   scouted: boolean;
@@ -146,7 +146,7 @@ export interface AttackInput {
 export interface AttackOutcome {
   result: BattleResult;
   captured: boolean;
-  /** Survivors that came home — the whole force on a win, whoever ran on a loss. */
+  /** Survivors that came home: the whole force on a win, whoever ran on a loss. */
   returned: Army;
   base: Base;
 }
@@ -154,12 +154,12 @@ export interface AttackOutcome {
 /**
  * One location, one fight.
  *
- * On a win the location changes hands, its fortification is levelled and its garrison is gone — a
+ * On a win the location changes hands, its fortification is levelled and its garrison is gone: a
  * captured position is not a captured position *plus the enemy's diggings*. On a loss the attacking
  * force routs: the ones who ran come home, the ones who did not are dead.
  *
  * There is no one-off haul for taking a location. The reward is holding it, which is the point of the
- * whole system — a location that paid out on capture would be worth taking and abandoning.
+ * whole system: a location that paid out on capture would be worth taking and abandoning.
  */
 export function attackPlace(
   repos: Repositories,
@@ -185,7 +185,7 @@ export function attackPlace(
     defending: control.garrison,
     // The ground the fight actually happens on (§A4): what kind of location it is, how far into it
     // the holder has dug, and whether it is dark. `locationDefense` folded all three into one number,
-    // which the engine can no longer use — a sheet that says "below street level" needs to be told
+    // which the engine can no longer use: a sheet that says "below street level" needs to be told
     // that it *is* below street level, not handed a total.
     battlefield: battlefieldFor({
       locationName: location.name,
@@ -199,9 +199,9 @@ export function attackPlace(
 
   const captured = outcome.winner === 'attacker';
   // Winning is not free. `outcome.winnerLosses` is what the victor paid, and it used to be computed
-  // by the engine and read by nobody — so a successful attack returned the *whole* force including
+  // by the engine and read by nobody, so a successful attack returned the *whole* force including
   // its dead, and the attrition the engine spends six modules calculating never reached the game.
-  // §F2 — Medicine takes some of them off the casualty list before it is applied. The infirmary
+  // §F2: Medicine takes some of them off the casualty list before it is applied. The infirmary
   // is at home, so this is only ever *our* dead: the defender's medics are not ours to call on.
   const survived = recoverCasualties(
     outcome.winnerLosses,
@@ -213,7 +213,7 @@ export function attackPlace(
     repos.city.put({
       locationId: location.id,
       holder: { kind: 'faction', baseId: base.id },
-      // §A4 — a capture resets the work. Level 1 and no clock: nobody inherits what the last
+      // §A4: a capture resets the work. Level 1 and no clock: nobody inherits what the last
       // holder poured in, which is the whole reason a well-developed location is worth taking.
       level: 1,
       upgradingUntil: null,
@@ -292,8 +292,8 @@ export interface RaidOutcome {
 /**
  * A defender's territory effects with what they built folded in.
  *
- * Kept as a function rather than inlined so the two territory lookups the first version made —
- * one for the spread and one for the addition — cannot drift apart.
+ * Kept as a function rather than inlined so the two territory lookups the first version made:
+ * one for the spread and one for the addition: cannot drift apart.
  */
 function withGate(effects: TerritoryEffects, buildings: Base['buildings']): TerritoryEffects {
   return { ...effects, defensePercent: effects.defensePercent + districtDefense(buildings) };
@@ -316,18 +316,18 @@ export function raidDistrict(
     locationName: district.name,
     attacking: force,
     defending: target.army,
-    // A home district is streets and structures — there is no location kind and nothing dug in.
+    // A home district is streets and structures. There is no location kind and nothing dug in.
     battlefield: homeBattlefield(district.name, now),
     attackerTerritory: effects,
     // The Gate, finally. `districtDefense` folds in the Gate's level and any modification that
-    // raises it, and until now it was computed and read by nothing — the one structure whose whole
+    // raises it, and until now it was computed and read by nothing: the one structure whose whole
     // job is raid protection did not appear in a raid.
     defenderTerritory: withGate(standingEffectsFor(repos, target), target.buildings),
   });
 
   const won = outcome.winner === 'attacker';
   // Both halves of the haul bonus: what the crew holds in the city (`effects`) and what they built
-  // at home (`raidLootBonus` — the Garage and its modifications). The second was computed by
+  // at home (`raidLootBonus`: the Garage and its modifications). The second was computed by
   // `standing.ts` and read by nobody, the same dead wiring the Gate had.
   const capacity = lootCapacityOf(
     force,
@@ -347,7 +347,7 @@ export function raidDistrict(
   const returned = won ? removeForce(force, survived) : outcome.fled;
   const army = mergeArmies(removeForce(base.army, force), returned);
   // The defender's own books. A raided crew used to lose resources and not one body, whether they
-  // beat the raid off or lost it outright — the whole defending army survived either way.
+  // beat the raid off or lost it outright: the whole defending army survived either way.
   repos.bases.updateArmy(
     target.id,
     won ? outcome.fled : removeForce(target.army, outcome.winnerLosses),

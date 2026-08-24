@@ -94,7 +94,7 @@ export async function buildApp({
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send({
         error: { code: error.code, message: error.message },
-        // Only when the refusal really banked one — presence is the signal here as everywhere else.
+        // Only when the refusal really banked one: presence is the signal here as everywhere else.
         ...(error.levelUp ? { levelUp: error.levelUp } : {}),
       });
     }

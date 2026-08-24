@@ -11,12 +11,12 @@ import {
 } from './locations.js';
 
 /**
- * The city (GDD §A4) — ten districts, hard-authored, with the locations inside them.
+ * The city (GDD §A4): ten districts, hard-authored, with the locations inside them.
  *
  * Two kinds of ground, and the difference is the whole shape of the game:
  *
- *   * **Residential** districts hold crews. A crew's own district is its base — the thirteen
- *     structures of §A1 — and it can be *raided* but never taken. Losing everything you have built
+ *   * **Residential** districts hold crews. A crew's own district is its base: the thirteen
+ *     structures of §A1, and it can be *raided* but never taken. Losing everything you have built
  *     because you were asleep is not a strategy game, it is a punishment.
  *   * **Contested** districts hold **locations**: a substation, a pawn shop, a war machine graveyard.
  *     Each is held by somebody, each is takeable on its own, and each pays for as long as you keep
@@ -29,7 +29,7 @@ export const DISTRICT_KINDS = ['residential', 'contested'] as const;
 export const DistrictKindSchema = z.enum(DISTRICT_KINDS);
 export type DistrictKind = z.infer<typeof DistrictKindSchema>;
 
-/** Normalized 0..1 map coordinates — the renderer scales to its viewport. */
+/** Normalized 0..1 map coordinates: the renderer scales to its viewport. */
 export const PositionSchema = z.object({
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
@@ -40,7 +40,7 @@ export const DistrictSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
   /**
-   * What the street calls it — "the Tech District", "the Old City Center". Not every district has
+   * What the street calls it: "the Tech District", "the Old City Center". Not every district has
    * one, and the ones that do not are more interesting for it: a nickname is something a location
    * earns.
    */
@@ -48,7 +48,7 @@ export const DistrictSchema = z.object({
   kind: DistrictKindSchema,
   /** Whose ground this nominally is (§A3), before anybody starts taking it off them. */
   faction: FactionSchema,
-  /** A seat of the Combine's power rather than one of its holdings — see §D8's `Revolutionary`. */
+  /** A seat of the Combine's power rather than one of its holdings: see §D8's `Revolutionary`. */
   seatOfPower: z.boolean(),
   position: PositionSchema,
   difficulty: z.number().int().min(1).max(10),
@@ -82,7 +82,7 @@ export interface UnifiedBonus {
  * The §A4 unified bonus per contested district.
  *
  * Each is deliberately something *other* than what its own locations give, so a district is worth
- * completing rather than worth farming the best location in — the Scrapfields are full of scrap, and
+ * completing rather than worth farming the best location in: the Scrapfields are full of scrap, and
  * finishing them buys cheaper troops instead of yet more scrap. `city.test.ts` enforces that:
  * a unified bonus whose effect kind already appears inside its own district fails the suite.
  */
@@ -94,7 +94,7 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
   'chrome-row': {
     title: 'The Row Runs For You',
     // Downtown end to end: everybody who moves anything in this city owes somebody here, and
-    // every crew you send out is back sooner for it. Deliberately not more morale — the Regal
+    // every crew you send out is back sooner for it. Deliberately not more morale: the Regal
     // and the Cracked Anvil are already in this district and pay in exactly that.
     bonus: { kind: 'mission_speed', percent: 10 },
   },
@@ -118,7 +118,7 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
     title: 'The Spire Is Taken',
     // The last district in the game, and the bonus is the Combine's own machinery rather than a
     // pile of anything: every price in this city was set from these offices, and now you set it.
-    // Not infamy, tempting as that is — the Martyrs' Ground inside these walls already pays in
+    // Not infamy, tempting as that is: the Martyrs' Ground inside these walls already pays in
     // exactly that, and a unified bonus has to be worth *finishing* the district for.
     bonus: { kind: 'market_discount', percent: 20 },
   },
@@ -150,8 +150,8 @@ function locationsIn(
  * government seats sat in opposite corners for no reason, and a player had no way to read where
  * they were in the world from where they were on it.
  *
- * It is a **climb** now. The water and the crews are at the bottom — the Docks, Kettle Row and the
- * Rustyard, the three cheapest locations in the game — and the Directorate is at the top, with the
+ * It is a **climb** now. The water and the crews are at the bottom: the Docks, Kettle Row and the
+ * Rustyard, the three cheapest locations in the game, and the Directorate is at the top, with the
  * Combine Spire looking down the middle of the frame from the highest point on it. Difficulty rises
  * with height almost monotonically, so "further up" and "harder" are the same direction, and a
  * player who has taken the low ground can see what the next rung is without opening anything.
@@ -286,6 +286,9 @@ export const CITY_DISTRICTS: readonly District[] = [
       ['coldrow', 'Cold Row', 'foundry', 'medium'],
       ['orrery', 'The Orrery', 'planetarium', 'medium'],
       ['loft', 'Nine Roofs', 'pirate_radio', 'easy'],
+      // The half-built faculty tower. Also the only crane in the city outside the Spire: see the
+      // note on the Colossus in `units/catalog.ts` for why that matters.
+      ['scaffold', 'The Unfinished Faculty', 'construction_site', 'hard'],
     ]),
   },
   {
@@ -306,6 +309,8 @@ export const CITY_DISTRICTS: readonly District[] = [
       ['haulers', 'Hauler Yard', 'rail_yard', 'medium'],
       ['ladle', 'The Long Ladle', 'soup_kitchen', 'easy'],
       ['fieldchapel', 'Chapel of the Furrow', 'chapel', 'easy'],
+      // Against the fence, on the wrong side of the food.
+      ['fence', 'The Fence Camp', 'refugee_camp', 'easy'],
     ]),
   },
   {
@@ -378,7 +383,7 @@ export const CONTESTED_DISTRICTS: readonly District[] = CITY_DISTRICTS.filter(
 );
 
 /**
- * A seat of the government's power rather than one of its holdings (§A3) — what you have to take
+ * A seat of the government's power rather than one of its holdings (§A3): what you have to take
  * to be *replacing* the Combine instead of merely robbing it. That is the whole difference between
  * §D8's `Anti-systemic` and `Revolutionary`.
  */
@@ -401,7 +406,7 @@ export function raidTargetOf(district: District): RaidTarget {
 /**
  * Whether a crew may raid this district's *base* (§A4).
  *
- * A home district is somebody's base and can never be captured — but it can be robbed, so long as
+ * A home district is somebody's base and can never be captured, but it can be robbed, so long as
  * it is not your own. Contested ground is not raided at all: it is taken a location at a time, which
  * is `isLocationAttackable`'s question rather than this one.
  */
@@ -420,7 +425,7 @@ export function defaultHolderFaction(district: District): Faction {
 }
 
 /**
- * Guards at module load that the authored content is complete and self-consistent — cheaper to
+ * Guards at module load that the authored content is complete and self-consistent: cheaper to
  * trip here than to discover from a `undefined` on a map tooltip.
  */
 for (const district of CITY_DISTRICTS) {

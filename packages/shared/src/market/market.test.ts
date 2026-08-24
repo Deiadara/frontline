@@ -92,7 +92,7 @@ describe('the Runner', () => {
       expect(vendorStockFor(day)).toEqual(vendorStockFor(day));
     }
     const varied = new Set(DAYS.map((day) => JSON.stringify(vendorSessionsFor(day))));
-    // Not all sixty distinct — that would be a different property — but nowhere near constant.
+    // Not all sixty distinct, that would be a different property, but nowhere near constant.
     expect(varied.size).toBeGreaterThan(20);
   });
 
@@ -343,7 +343,7 @@ describe('listings', () => {
   });
 });
 
-describe('the supply run — caps into materials', () => {
+describe('the supply run: caps into materials', () => {
   const rich = { ...STARTING_RESOURCES, caps: 1_000_000 };
 
   it('widens the day’s ration from 30% of a store to 100%, and no further', () => {
@@ -368,7 +368,7 @@ describe('the supply run — caps into materials', () => {
     expect(Number.isInteger(supplyAllowance(7, 977))).toBe(true);
   });
 
-  it('§I3 — Deep Pockets at 70 lifts the ceiling past a full store', () => {
+  it('§I3: Deep Pockets at 70 lifts the ceiling past a full store', () => {
     expect(supplyAllowancePercent(69)).toBe(SUPPLY_MAX_PERCENT);
     expect(supplyAllowancePercent(70)).toBe(SUPPLY_DEEP_POCKETS_PERCENT);
   });
@@ -396,7 +396,7 @@ describe('the supply run — caps into materials', () => {
     ).toBe('not_a_resource');
   });
 
-  it('refuses past the ration, past the warehouse and past the wallet — in that order', () => {
+  it('refuses past the ration, past the warehouse and past the wallet: in that order', () => {
     const order = { key: 'scrap' as const, stock: rich, storageCapacity: 10_000 };
     expect(supplyRefusal({ ...order, units: 0, allowanceLeft: 100 })).toBe('nothing_ordered');
     expect(supplyRefusal({ ...order, units: 101, allowanceLeft: 100 })).toBe('over_allowance');
@@ -443,7 +443,7 @@ describe('the supply run — caps into materials', () => {
   });
 });
 
-describe('§I3 — the Broker’s cut', () => {
+describe('§I3: the Broker’s cut', () => {
   it('takes half until level 60 and less after it', () => {
     expect(barterRateFor(1)).toBe(BARTER_RATE);
     expect(barterRateFor(59)).toBe(BARTER_RATE);

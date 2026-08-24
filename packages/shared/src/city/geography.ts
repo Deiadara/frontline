@@ -1,7 +1,7 @@
 import { CITY_DISTRICTS, findDistrict, type District, type Position } from './districts.js';
 
 /**
- * How far apart things are (GDD §A4 — "some relative geography").
+ * How far apart things are (GDD §A4: "some relative geography").
  *
  * The map is not a menu. Hitting the Spire from the Docks is most of the way across the city, and
  * that has to *cost* something or the positions on the map are decoration. What it costs is time:
@@ -28,8 +28,8 @@ export function mapDistance(a: Position, b: Position): number {
 /**
  * Travel time between two districts, in minutes.
  *
- * `speedPercent` is everything that makes a crew faster — the Rail Yard, the Skate Ground, a
- * district's unified bonus — as one already-summed number, so this module never has to know what
+ * `speedPercent` is everything that makes a crew faster: the Rail Yard, the Skate Ground, a
+ * district's unified bonus, as one already-summed number, so this module never has to know what
  * a location is. Capped at {@link MAX_TRAVEL_SPEED_BONUS}: at some point the city stops being big,
  * and a map you cross instantly is a map with no geography.
  */
@@ -52,7 +52,7 @@ export function travelMinutes(fromId: string, toId: string, speedPercent = 0): n
 /**
  * The `count` districts closest to `fromId`, nearest first, excluding `fromId` itself.
  *
- * What a Satellite Uplink sees. Ties break on district id so the answer is stable — a vision list
+ * What a Satellite Uplink sees. Ties break on district id so the answer is stable: a vision list
  * that reshuffled between two reads would flicker the fog on the map for no reason.
  */
 export function nearestDistricts(fromId: string, count: number): District[] {

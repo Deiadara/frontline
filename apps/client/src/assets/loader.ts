@@ -1,5 +1,5 @@
 /**
- * Lazy, observable art loading — ADR 0001 §5.1.
+ * Lazy, observable art loading: ADR 0001 §5.1.
  *
  * A bundle is fetched the first time something asks for it and never again. Keys backed by the
  * procedural fallback need no network at all, so a bundle with nothing delivered yet reaches
@@ -14,10 +14,10 @@ export type BundleStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface BundleState {
   status: BundleStatus;
-  /** Delivered files fetched so far. Procedural keys are never counted — they cost nothing. */
+  /** Delivered files fetched so far. Procedural keys are never counted: they cost nothing. */
   loaded: number;
   total: number;
-  /** `0`–`1`. A bundle with no delivered files is complete on arrival. */
+  /** `0`-`1`. A bundle with no delivered files is complete on arrival. */
   progress: number;
   error: string | null;
 }
@@ -113,7 +113,7 @@ export function createArtLoader(options: ArtLoaderOptions = {}): ArtLoader {
       void load(bundle, keys);
     },
     stateOf(bundle) {
-      // Stable identity per bundle — `useSyncExternalStore` re-renders on snapshot inequality.
+      // Stable identity per bundle: `useSyncExternalStore` re-renders on snapshot inequality.
       return states.get(bundle) ?? UNKNOWN_BUNDLE;
     },
     subscribe(listener) {

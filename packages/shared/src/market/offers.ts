@@ -16,7 +16,7 @@ import {
  *
  * A board rather than an auction house. Somebody posts what they will give and what they want;
  * anybody else can take it as it stands, or come back with a different number. That second half is
- * the part that makes it a market rather than a vending machine — the interesting thing about
+ * the part that makes it a market rather than a vending machine: the interesting thing about
  * trading with a person is that they can say "no, but".
  *
  * ## Escrow, and why the goods leave immediately
@@ -26,7 +26,7 @@ import {
  * at the moment somebody tries to take them, and the board fills with listings that are lies. The
  * goods come back if the offer is withdrawn or expires.
  *
- * What an offer *wants* is not escrowed — the buyer pays at the moment they accept, and cannot
+ * What an offer *wants* is not escrowed: the buyer pays at the moment they accept, and cannot
  * accept what they cannot pay.
  *
  * ## Counter-offers are new offers, aimed at one person
@@ -82,7 +82,7 @@ export function bundleIsEmpty(bundle: TradeBundle): boolean {
 /**
  * What a bundle is worth in caps, at the vendor's own prices.
  *
- * Not a price — nobody is forced to trade at it. It is the number the board shows beside each side
+ * Not a price. Nobody is forced to trade at it. It is the number the board shows beside each side
  * of a listing so a player can tell a fair trade from a robbery at a glance, which is the single
  * most useful thing a trading screen can do for somebody who has not memorised the catalogue.
  */

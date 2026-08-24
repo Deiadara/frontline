@@ -299,7 +299,7 @@ function BackupsPanel({ snapshot }: { snapshot: AdminSnapshot }) {
         </ul>
       )}
       <p className="px-4 py-3 font-body text-[12px] leading-snug text-ink-300">
-        Restoring one is three commands and no replay — see <code>docs/RECOVERY.md</code>.
+        Restoring one is three commands and no replay: see <code>docs/RECOVERY.md</code>.
       </p>
     </Panel>
   );
@@ -338,9 +338,9 @@ export function AdminPage() {
         </span>
       }
     >
-      <InfoNote tone="warn">
+      <InfoNote tone="warn" label="Testing mode">
         Every clock in the game is <strong>{snapshot.state.actionSeconds} seconds</strong> and
-        nothing is charged, but every screen still shows the real price and the real duration — that
+        nothing is charged, but every screen still shows the real price and the real duration. That
         is the point, so the economy can be judged while the waiting is skipped. Gates are
         untouched: a locked structure is still locked, a full queue is still full, supply is still
         supply. Run with <code>ADMIN=false</code> for a build that charges.

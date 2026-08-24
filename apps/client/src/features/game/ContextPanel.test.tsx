@@ -72,7 +72,7 @@ describe('fog of war (§A4)', () => {
     renderPanel(entry(contested, { scouted: false, held: null, holder: null }));
 
     expect(screen.getByRole('button', { name: /send scouts/i })).toBeInTheDocument();
-    // The counts are the thing that must not leak — not merely hidden behind a label.
+    // The counts are the thing that must not leak, not merely hidden behind a label.
     expect(screen.queryByTestId('locations-held')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /enter the district/i })).not.toBeInTheDocument();
   });

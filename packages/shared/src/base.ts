@@ -17,7 +17,7 @@ import { ResourcesSchema } from './resources.js';
  * How long a faction's name may be.
  *
  * Long enough for "The Ninth Street Reclamation Company", short enough that the HUD's identity
- * line and the city map's marker can both render it whole at 1024px — the board's zero-cut-text
+ * line and the city map's marker can both render it whole at 1024px: the board's zero-cut-text
  * bar is a layout constraint, so the length that satisfies it belongs in the schema rather than
  * in a CSS truncation nobody can see coming.
  */
@@ -29,7 +29,7 @@ export const BaseSchema = z.object({
   id: IdSchema,
   ownerId: IdSchema,
   /**
-   * The faction's name — the crew, not the place. Player-chosen and renameable, and the one label
+   * The faction's name: the crew, not the place. Player-chosen and renameable, and the one label
    * every other player sees on the city map.
    */
   name: FactionNameSchema,
@@ -38,7 +38,7 @@ export const BaseSchema = z.object({
   /** AI-controlled rival base. Bot bases are raidable; human bases are not. */
   isBot: z.boolean(),
   resources: ResourcesSchema,
-  /** Meters, action tally and wage book (GDD §D, §H7). Owner-only — never in a public projection. */
+  /** Meters, action tally and wage book (GDD §D, §H7). Owner-only: never in a public projection. */
   economy: EconomyStateSchema,
   /** XP banked towards the next `level` (GDD §I). Owner-only; `level` itself is public above. */
   progression: ProgressionStateSchema,
@@ -46,7 +46,7 @@ export const BaseSchema = z.object({
   research: ResearchStateSchema,
   /**
    * Where the fungible assignee pool is standing (GDD §G). Owner-only. Only the *placements* are
-   * here — the pool size is a pure function of `level` (§G8) and is never stored twice.
+   * here: the pool size is a pure function of `level` (§G8) and is never stored twice.
    */
   assignees: AssigneeStateSchema,
   buildings: z.array(BuildingSchema),
@@ -56,7 +56,7 @@ export const BaseSchema = z.object({
    * Units standing at home and available to send (§A5).
    *
    * Only the ones *here*. Units left on a captured place live on that place's control row, because
-   * a garrison belongs to the ground rather than to the crew — it is what changes hands, or dies,
+   * a garrison belongs to the ground rather than to the crew. It is what changes hands, or dies,
    * when the place does.
    */
   army: ArmySchema.default({}),
@@ -74,13 +74,13 @@ export const BaseSchema = z.object({
   /**
    * Everything held that is not a resource: blueprints, components, relics. Owner-only.
    *
-   * Defaulted like `training`, and for the same reason — a district written before the market
+   * Defaulted like `training`, and for the same reason: a district written before the market
    * existed has no column, and a schema that refused to parse it would take the account offline
    * rather than open it with an empty satchel.
    */
   inventory: InventorySchema.default({}),
   /**
-   * Workshop upgrades the crew has fitted. Applies to every unit of the affected tiers, forever —
+   * Workshop upgrades the crew has fitted. Applies to every unit of the affected tiers, forever:
    * see `upgradedStats`, which folds them at read time so a refit reaches units already trained.
    */
   fittedUpgrades: FittedUpgradesSchema.default([]),
@@ -92,7 +92,7 @@ export type Base = z.infer<typeof BaseSchema>;
 
 /**
  * Public projection of a base, safe to show to other players on the city map.
- * `isBot` is public on purpose — the map styles hostile markers from it.
+ * `isBot` is public on purpose: the map styles hostile markers from it.
  */
 export const BaseSummarySchema = BaseSchema.pick({
   id: true,

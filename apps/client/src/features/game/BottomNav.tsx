@@ -11,7 +11,7 @@ import { useAdmin, useMe } from '../../lib/queries';
  * beside it. Along the bottom it costs a strip, the artwork keeps the full width, and the thing a
  * player actually looks at is the page rather than a picture on it.
  *
- * Each entry is a **place**, not a menu item — an icon big enough to read as a destination with its
+ * Each entry is a **place**, not a menu item: an icon big enough to read as a destination with its
  * name under it, so the row scans as a set of doors and the one you are standing in is obvious
  * without reading a word. The buttons are deliberately chunky and reactive (Hero Zero's register
  * rather than a toolbar's): they lift on hover, press down on click, and the active one is lit from
@@ -31,7 +31,7 @@ export interface NavDestination {
   /** Present when the destination is not built yet. */
   soon?: boolean;
   /**
-   * §I3 — the screen this door leads to, when a level opens it.
+   * §I3: the screen this door leads to, when a level opens it.
    *
    * The door is still drawn, still labelled and still clickable when it is shut: the screen behind
    * it says which level opens it, which is the whole point of gating rather than hiding. What
@@ -40,19 +40,24 @@ export interface NavDestination {
   area?: GatedArea;
 }
 
+/**
+ * The places, in the order a player walks them.
+ *
+ * Battles and Settings are deliberately **not** here. They live as icons in the standing bar
+ * (`TopHud`), which is where Grepolis puts the same two, and for the same reason: neither is a
+ * place in the world. One is a deadline you answer for and the other is a drawer of knobs, and both
+ * are wanted from wherever you happen to be standing rather than walked to.
+ *
+ * Neither is Cities. The wider world is the city map at a step back (`CitiesView`), reached by a
+ * control on the map itself, because "all cities" and "this city" are one place at two distances
+ * and walking between them lost the district you had selected every time.
+ */
 export const DESTINATIONS: readonly NavDestination[] = [
   { label: 'City', title: 'The city map', to: '/game', icon: 'city' },
-  { label: 'Cities', title: 'Cities — one, for now', to: '/game/cities', icon: 'city', soon: true },
-  // Not "Base". A crew holds a district, and the faction is who holds it — the two words the
+  // Not "Base". A crew holds a district, and the faction is who holds it: the two words the
   // player already uses for this screen. "Foothold" was a third name for the same place.
   { label: 'District', title: 'Your district', to: '/game/base', icon: 'district' },
   { label: 'Units', title: 'The roster', to: '/game/units', icon: 'units' },
-  {
-    label: 'Board',
-    title: 'Declared fights and what came back',
-    to: '/game/battles',
-    icon: 'city',
-  },
   { label: 'Missions', title: 'Missions', to: '/game/missions', icon: 'missions' },
   { label: 'The Bar', title: 'The bar', to: '/game/bar', icon: 'bar', area: 'bar' },
   {
@@ -79,12 +84,6 @@ export const DESTINATIONS: readonly NavDestination[] = [
   },
   { label: 'Workshop', title: 'Refits and the yard', to: '/game/workshop', icon: 'research' },
   { label: 'Satchel', title: 'Blueprints, parts and relics', to: '/game/inventory', icon: 'crew' },
-  {
-    label: 'Settings',
-    title: 'Your name, mark, clock and passphrase',
-    to: '/game/settings',
-    icon: 'gear',
-  },
 ];
 
 /**
@@ -97,7 +96,7 @@ export const DESTINATIONS: readonly NavDestination[] = [
  */
 const BENCH: NavDestination = {
   label: 'Bench',
-  title: 'Testing mode — knobs, presets and snapshots',
+  title: 'Testing mode: knobs, presets and snapshots',
   to: '/game/admin',
   // Not the gear: Settings already wears it, and two doors with the same glyph side by side
   // are two doors a player has to read the label of every single time.
@@ -109,8 +108,8 @@ const testId = (label: string): string => `nav-${label.toLowerCase().replace(/\s
 /**
  * One door. Active is lit and raised; the rest are unlit metal that lifts when pointed at.
  *
- * A door behind a level (§I3) still links. It reads as shut — dimmed, with a padlock over the
- * glyph and the level it opens at under the label — and clicking it goes to the screen that
+ * A door behind a level (§I3) still links. It reads as shut: dimmed, with a padlock over the
+ * glyph and the level it opens at under the label, and clicking it goes to the screen that
  * explains itself. Disabling it would leave a player with a grey square and no way to find out
  * anything about it, which is precisely the failure the board asked to avoid.
  */
@@ -192,9 +191,7 @@ function Destination({
       // `end` only on the city map: it is the index route, so without it every child route would
       // light the city up as well as itself.
       end={destination.to === '/game'}
-      title={
-        locked === null ? destination.title : `${destination.title} — opens at level ${locked}`
-      }
+      title={locked === null ? destination.title : `${destination.title}: opens at level ${locked}`}
       className="group flex w-[72px] flex-col items-center gap-1 focus-visible:outline-none"
       data-testid={testId(destination.label)}
     >
@@ -207,7 +204,7 @@ export function BottomNav() {
   const admin = useAdmin();
   const me = useMe();
   const destinations = admin.data ? [...DESTINATIONS, BENCH] : DESTINATIONS;
-  // §I3 — read once for the row. `useMe` is already resolved by every screen behind `/game`, so
+  // §I3: read once for the row. `useMe` is already resolved by every screen behind `/game`, so
   // this is a cache read rather than a request.
   const level = me.data?.base?.level ?? 1;
   const lockedAt = (destination: NavDestination): number | null => {
@@ -220,7 +217,7 @@ export function BottomNav() {
     <nav
       aria-label="Places"
       // `flex-wrap`. Fourteen doors no longer fit one 1024px row, and without it the row does not
-      // spill — it *shrinks*, squeezing each door to 65px until "Workshop" wraps onto two lines
+      // spill: it *shrinks*, squeezing each door to 65px until "Workshop" wraps onto two lines
       // inside a target the pointer can barely tell from its neighbour. Wrapping puts the overflow
       // on a second row instead, which the shell absorbs for free because it measures this bar's
       // height rather than assuming it. Adding `shrink-0` here without the wrap is the version that

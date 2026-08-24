@@ -28,7 +28,7 @@ test.use({ viewport: { width: 1280, height: 800 } });
  * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
  * out into the frame less whatever chrome is covering it and publishes that inset as
  * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
- * the district it was aimed at — and the further right the district, the worse the miss.
+ * the district it was aimed at, and the further right the district, the worse the miss.
  */
 async function districtPoint(
   page: Page,
@@ -56,8 +56,8 @@ test('character select renders all presets', async ({ page }) => {
   await page.getByText(overseer.name).click();
   await expect(page.getByRole('button', { name: 'Confirm Overseer' })).toBeEnabled();
 
-  // Both assertions below are geometry, so they are only meaningful once Orbitron has swapped
-  // in — the fallback is narrower and would hide exactly the clipping they exist to catch.
+  // Both assertions below are geometry, so they are only meaningful once Roboto Condensed has
+  // swapped in: the fallback has different metrics and would hide the clipping they exist to catch.
   await settleFonts(page);
 
   // The radar's axis labels sit outside the plotted rings, so a viewBox that is too tight
@@ -115,9 +115,9 @@ test('assignee placement renders at the §G7 ceiling without clipping', async ({
 
   await expect(page.getByRole('heading', { name: 'Your crew' })).toBeVisible();
   // §G7's last row and a decimal bonus rendered without a stray `.0`, both on their slots.
-  await expect(page.getByText('24 assigned · 75%')).toBeVisible();
-  await expect(page.getByText('3 assigned · 14.5%')).toBeVisible();
-  // §C4 — a Professor is on the books, so reskilling is offered rather than explained away.
+  await expect(page.getByText('24 / 24 · 75%')).toBeVisible();
+  await expect(page.getByText('3 / 24 · 14.5%')).toBeVisible();
+  // §C4: a Professor is on the books, so reskilling is offered rather than explained away.
   await expect(page.getByRole('button', { name: 'Reskill' })).toBeEnabled();
 
   // Every position is drawn, filled or not: the point of the chart is that a player can see the
@@ -146,7 +146,7 @@ test('assignee placement renders at the §G7 ceiling without clipping', async ({
   );
   expect(overflowing, 'officer names and §G7 figures must not overflow their column').toEqual([]);
   // No vertical clipping gate: nineteen slots are taller than the sheet, so the last visible row
-  // is always half-cut by the fold. That is what a scroller does — the same reason the roster and
+  // is always half-cut by the fold. That is what a scroller does: the same reason the roster and
   // the research page gate on overflow and horizontal clipping instead.
 
   await page.screenshot({ path: 'screenshots/assignees.png', fullPage: false });
@@ -163,7 +163,7 @@ test('assignee placement explains the empty state before any officer is hired', 
   await page.goto('/game/assignees');
 
   await expect(page.getByText('Nineteen positions, nobody in any of them yet')).toBeVisible();
-  // §G8 — the pool is already 2 at level 1, so the page must not read as "you have nothing".
+  // §G8: the pool is already 2 at level 1, so the page must not read as "you have nothing".
   await expect(page.getByText('Unplaced')).toBeVisible();
   // Every position still drawn, all of them vacant: the chart is the explanation.
   await expect(page.getByText('Vacant')).toHaveCount(OFFICER_ROLES.length);
@@ -189,7 +189,7 @@ test('the hideout stands its structures on clickable plots', async ({ page }) =>
   await page.goto('/game/base');
 
   await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
-  // §A1 — the structures are plots in a place now, not rows in a list, so they are found by the
+  // §A1: the structures are plots in a place now, not rows in a list, so they are found by the
   // control you click rather than by a name printed somewhere on the page.
   await expect(page.getByRole('button', { name: /^The Nexus,/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /^The Generator,/ })).toBeVisible();
@@ -199,11 +199,11 @@ test('the hideout stands its structures on clickable plots', async ({ page }) =>
 
 /**
  * The Bar (GDD §H). The roster sits inside the page's own scroller, so `fullPage` would not reach
- * the cards below the fold — they are scrolled to and re-checked instead (MOU-162).
+ * the cards below the fold. They are scrolled to and re-checked instead (MOU-162).
  *
  * Installed against `lateGame`, not `me`: the `bar` fixture is a level-12 crew with 13 slots, a
  * `Feared` street and six figures of caps, and serving it over a starting session put "STREET
- * READS FEARED" directly under a HUD reading `Cautious` / infamy 0 — the half-fixture MOU-207 was
+ * READS FEARED" directly under a HUD reading `Cautious` / infamy 0: the half-fixture MOU-207 was
  * filed about, visible only in the screenshot. The two now describe the same save.
  */
 test('the bar lists tonight’s roster and the crew already signed', async ({ page }) => {
@@ -217,13 +217,13 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   await expect(page.getByText('Says they are done unless something changes.')).toBeVisible();
   await expect(page.getByText(/^\+5 to /)).toBeVisible();
   // §H3/§H4 refusals say which gate is shut rather than just greying the card out.
-  await expect(page.getByText('Not infamous enough').first()).toBeVisible();
+  await expect(page.getByText('Your name is not big enough').first()).toBeVisible();
   await expect(page.getByText('Wants no part of you')).toBeVisible();
 
   await settleFonts(page);
 
   // Fixed copy that ellipsises is invisible to a document-overflow gate, so authored text is
-  // measured directly — this is the defect class that shipped `ROUND TRI…` on the missions page.
+  // measured directly. This is the defect class that shipped `ROUND TRI…` on the missions page.
   const truncated = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>('h1, h2, h3, p, span, li, option')]
       .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
@@ -278,7 +278,7 @@ test('the district view shows what is inside a scouted district (§A4)', async (
 /*
  * "Taking a place opens the report" was here, and it went with the instant-attack route (board,
  * battle rework). A place is taken by calling a fight and turning up to it now, which is
- * `e2e/battles.spec.ts` — and the report it opens is written when the settler runs, hours later,
+ * `e2e/battles.spec.ts`, and the report it opens is written when the settler runs, hours later,
  * rather than when a button is pressed.
  */
 
@@ -309,7 +309,7 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
   await expect(page.getByText(/hold a Construction Site/i)).toBeVisible();
 
   // The tier tabs carry `transition-colors`, and React flips the class a frame before the paint
-  // catches up — so a screenshot taken the instant the cards change shows *Rabble* still lit over a
+  // catches up, so a screenshot taken the instant the cards change shows *Rabble* still lit over a
   // grid of legendaries. Nothing is wrong with the page; the artefact is what lies. Waiting on the
   // painted colour rather than on a duration makes the shot deterministic and asserts the highlight
   // actually follows the selection.
@@ -326,12 +326,12 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
 });
 
 /*
- * MOU-162 §E5 — a crew lands while the player is watching it, and the payout reaches the HUD.
+ * MOU-162 §E5: a crew lands while the player is watching it, and the payout reaches the HUD.
  *
  * This is the one path on which a stockpile moves with no player action behind it: missions settle
  * on the poll, and the missions page mounts no `me` observer of its own, so nothing refetches
- * unless the settling poll asks it to. The static board fixture cannot reach it — every mission
- * there is born active or born resolved — which is how a payout that never reached the HUD passed
+ * unless the settling poll asks it to. The static board fixture cannot reach it: every mission
+ * there is born active or born resolved, which is how a payout that never reached the HUD passed
  * 726 unit tests and 43 e2e ones.
  *
  * The wait is real: `MISSION_POLL_MS` is 15s, and the poll is the event under test.
@@ -342,7 +342,7 @@ test('a crew that lands while the page is open pays the HUD', async ({ page }) =
   let landed = false;
 
   await installApi(page, me);
-  // Registered after `installApi`, so these take precedence — Playwright tries the most recently
+  // Registered after `installApi`, so these take precedence: Playwright tries the most recently
   // added handler first. Both flip on the same flag, the way one server answers both routes.
   const json = (data: unknown) => ({ contentType: 'application/json', body: JSON.stringify(data) });
   await page.route('**/api/missions', (route) => route.fulfill(json(landed ? settled : pending)));
@@ -353,7 +353,7 @@ test('a crew that lands while the page is open pays the HUD', async ({ page }) =
   const inFlight = page.getByRole('list', { name: 'Crews in flight' }).getByRole('listitem');
   const returned = page.getByRole('list', { name: 'Crews returned' }).getByRole('listitem');
 
-  // One crew out, one already home — which is also the proof these routes, not the catch-all,
+  // One crew out, one already home, which is also the proof these routes, not the catch-all,
   // are the ones answering.
   await expect(inFlight).toHaveText([/Deep Expedition/]);
   await expect(returned).toHaveText([/Scrap Run/]);
@@ -375,12 +375,12 @@ test('a crew that lands while the page is open pays the HUD', async ({ page }) =
 });
 
 /**
- * MOU-166 §B9 — a project that lands while the page is open puts its facts on the page.
+ * MOU-166 §B9: a project that lands while the page is open puts its facts on the page.
  *
  * The same trap the missions settlement was filed under: a research project settles lazily on the
  * `GET /api/research` read, so nothing turns a finished clock into a discovered fact unless the
  * poll asks. Every static research fixture is born either running or already idle, so the settle
- * path — the one moment the whole feature turns on — is reachable from no other test.
+ * path, the one moment the whole feature turns on, is reachable from no other test.
  *
  * The wait is real: `RESEARCH_POLL_MS` is 15s, and the poll is the event under test.
  */
@@ -390,7 +390,7 @@ test('a project that lands while the page is open shows what it found', async ({
   let landed = false;
 
   await installApi(page, lateGame);
-  // Registered after `installApi`, so this takes precedence — Playwright tries the most recently
+  // Registered after `installApi`, so this takes precedence: Playwright tries the most recently
   // added handler first.
   await page.route('**/api/research', (route) =>
     route.fulfill({
@@ -401,7 +401,7 @@ test('a project that lands while the page is open shows what it found', async ({
 
   await page.goto('/game/research');
 
-  // Running, with §F4's cross-reference showing — also the proof this route, not the catch-all,
+  // Running, with §F4's cross-reference showing: also the proof this route, not the catch-all,
   // is the one answering.
   await expect(page.getByText('Investigating the Instructor of the Young')).toBeVisible();
   await expect(page.getByText('Raid Boss')).toHaveCount(0);
@@ -423,11 +423,11 @@ test('a project that lands while the page is open shows what it found', async ({
 });
 
 /*
- * MOU-250 §G6 — the launch path crosses the client/server seam, so it is asserted on the wire.
+ * MOU-250 §G6: the launch path crosses the client/server seam, so it is asserted on the wire.
  *
  * The server refuses a `difficulty: 'hard'` template unless the launch names an officer, and the
- * client shipped with no way to name one: all four hard templates — both battles and the day-long
- * expedition — posted `{ templateId }`, took a 409, and returned the board to normal with no crew
+ * client shipped with no way to name one: all four hard templates: both battles and the day-long
+ * expedition: posted `{ templateId }`, took a 409, and returned the board to normal with no crew
  * out and nothing on screen. Every gate stayed green because the mocked handler answered any method
  * on `/api/missions` with the *board*, so no test ever reached the gate. These two cross it.
  */
@@ -435,7 +435,7 @@ test('a project that lands while the page is open shows what it found', async ({
 /**
  * The board with a crew slot free.
  *
- * The standard fixture is deliberately the *fat* case — every one of the four slots filled — which
+ * The standard fixture is deliberately the *fat* case, every one of the four slots filled, which
  * disables every Deploy button on the page under §E3's capacity rule. A launch test run against it
  * fails on a disabled control long before it reaches the §G6 gate it exists to exercise.
  */
@@ -478,14 +478,14 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
     officerId: 'off-1',
   });
 
-  // Accepted, so the board says nothing — the alert below is specific to a refusal.
+  // Accepted, so the board says nothing: the alert below is specific to a refusal.
   await expect(page.getByRole('alert')).toHaveCount(0);
 
   await settleFonts(page);
 
   /*
    * No vertical-clip guard: the missions board is a scroller, so the fold bisects whatever row it
-   * lands on by design — the same reason the Bar and base screens skip it. What *is* asserted is
+   * lands on by design: the same reason the Bar and base screens skip it. What *is* asserted is
    * the new control, and it needs its own measurement.
    *
    * A native `select` clips its own text with no ellipsis and no overflow to measure: `scrollWidth`
@@ -499,7 +499,7 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
   // The native version of this had to be measured with a canvas and a guessed arrow width, because
   // a closed `select`'s `option` elements have no box at all and the control clips its own text
   // with no overflow to see. The painted list is ordinary DOM: every option is an element with a
-  // width, so the check is the one every other guard in this suite uses — does the text fit in the
+  // width, so the check is the one every other guard in this suite uses: does the text fit in the
   // box it was given.
   await ambush.getByRole('combobox').click();
   const cut = await page.evaluate(() =>
@@ -540,7 +540,7 @@ test('a refused launch tells the player why', async ({ page }) => {
   /*
    * In the card the player clicked, and *in the viewport*. The first draft put one message at the
    * foot of the board: `toHaveText` passed on it while it sat below eight cards of scrolling grid,
-   * off-screen — a DOM assertion cannot tell "explained" from "invisible".
+   * off-screen: a DOM assertion cannot tell "explained" from "invisible".
    */
   const refusal = scrapRun.getByRole('alert');
   await expect(refusal).toHaveText('That job is too hard to run without an officer leading it');

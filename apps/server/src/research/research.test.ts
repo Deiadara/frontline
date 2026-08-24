@@ -148,12 +148,12 @@ function fakeRepos(): {
       updateEconomy: (_id: string, economy: { morale: number }) => {
         written.morale = economy.morale;
       },
-      // §G6/§H6 — settling an investigation pays its lead officer, so the double has to accept
+      // §G6/§H6: settling an investigation pays its lead officer, so the double has to accept
       // the write. Captured rather than ignored: the character-XP tests below read it back.
       updateCommanders: (_id: string, commanders: Commander[]) => {
         written.commanders = commanders;
       },
-      // §I1 — a finished project now pays the *player* as well as its lead, and `awardPlayerXp`
+      // §I1: a finished project now pays the *player* as well as its lead, and `awardPlayerXp`
       // is the only writer of `Base.level`. Captured, so the level-up tests below can read it.
       updateProgression: (_id: string, level: number, progression: { xpIntoLevel: number }) => {
         written.level = level;
@@ -165,7 +165,7 @@ function fakeRepos(): {
         written.attributes = attributes;
       },
     },
-    // §F2 — a project's clock is now cut by the crew's Analysis and Improvisation as well as by
+    // §F2: a project's clock is now cut by the crew's Analysis and Improvisation as well as by
     // the Lab. These doubles answer "no ground, nobody" so the tests below stay about the Lab and
     // the officer; the crew's cut has its own test.
     city: { controls: () => new Map() },
@@ -235,7 +235,7 @@ describe('starting a project (§B9, §F2, §F4)', () => {
     ).toEqual({ kind: 'refused', reason: 'already_running' });
   });
 
-  it('§B9/§C4 — only a Professor or Head of Research can lead an investigation', () => {
+  it('§B9/§C4: only a Professor or Head of Research can lead an investigation', () => {
     const { repos } = fakeRepos();
     const wrongRole = createCommander('spy-1', 'Nyx', 'head_spy', {}, [], {
       now: NOW.toISOString(),
@@ -263,7 +263,7 @@ describe('starting a project (§B9, §F2, §F4)', () => {
     ).toEqual({ kind: 'refused', reason: 'no_lead' });
   });
 
-  it('§F4 — the cross-reference option is refused, not silently dropped, when locked', () => {
+  it('§F4: the cross-reference option is refused, not silently dropped, when locked', () => {
     const { repos } = fakeRepos();
     const dull = professor('dull', CROSS_REFERENCE_IMPROVISATION - 1, 10);
     const bright = professor('bright', CROSS_REFERENCE_IMPROVISATION, 10);
@@ -281,7 +281,7 @@ describe('starting a project (§B9, §F2, §F4)', () => {
       }),
     ).toEqual({ kind: 'refused', reason: 'option_locked' });
 
-    // The same request from someone imaginative enough goes through — so the refusal above is the
+    // The same request from someone imaginative enough goes through, so the refusal above is the
     // gate doing its job, not the request being malformed.
     const allowed = startResearch(repos, {
       base: withBoth,
@@ -367,7 +367,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     expect(again.base.research.facts).toHaveLength(1);
   });
 
-  it('§F3 — a communicative lead gets a second fact out of the same project', () => {
+  it('§F3: a communicative lead gets a second fact out of the same project', () => {
     const quiet = professor('quiet', 10, EXTRA_FACT_COMMUNICATION - 1);
     const talker = professor('talk', 10, EXTRA_FACT_COMMUNICATION);
     const withBoth = makeBase({ commanders: [quiet, talker] });
@@ -376,7 +376,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     expect(runToCompletion(withBoth, overseer, investigate('talk')).discovered).toHaveLength(2);
   });
 
-  it('§F4 — the cross-reference adds a pairing on top of the role fact', () => {
+  it('§F4: the cross-reference adds a pairing on top of the role fact', () => {
     const bright = professor('bright', CROSS_REFERENCE_IMPROVISATION, 10);
     const settlement = runToCompletion(
       makeBase({ commanders: [bright] }),
@@ -387,7 +387,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     expect(pairingsIn(settlement.discovered)).toHaveLength(1);
   });
 
-  it('§F3 — Charisma turns a finished project into morale, and a dour Overseer does not', () => {
+  it('§F3: Charisma turns a finished project into morale, and a dour Overseer does not', () => {
     const lead = professor('p', 10, 10);
     const base = makeBase({ commanders: [lead] });
     const charismatic = makeOverseer({
@@ -420,7 +420,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     expect(settlement.discovered, 'the work was still done').toHaveLength(1);
   });
 
-  it('§F2 — training develops the Overseer and persists the new sheet', () => {
+  it('§F2: training develops the Overseer and persists the new sheet', () => {
     const before = makeOverseer({ attributes: makeAttributes(12) });
     const { repos, written } = fakeRepos();
     const base = makeBase();
@@ -442,7 +442,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     expect({ ...settlement.overseer.attributes, improvisation: 12 }).toEqual(before.attributes);
   });
 
-  it('§F2 — every attribute is trainable, and training stops at the ceiling', () => {
+  it('§F2: every attribute is trainable, and training stops at the ceiling', () => {
     const { repos } = fakeRepos();
     const maxed = makeOverseer({ attributes: makeAttributes(MAX_ATTRIBUTE) });
     expect(
@@ -485,7 +485,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
   });
 });
 
-describe('§F5 — the Overseer modifies a run that risks people', () => {
+describe('§F5: the Overseer modifies a run that risks people', () => {
   const battle = findMissionTemplate('foundry-raid');
   const standard = findMissionTemplate('scrap-run');
   if (!battle || !standard) throw new Error('expected both mission kinds on the board');
@@ -536,7 +536,7 @@ describe('§F5 — the Overseer modifies a run that risks people', () => {
     expect(stored.successChance).toBe(
       modifiedSuccessChance(battle.successChance, sharp.attributes, 'battle'),
     );
-    // No Overseer means the template's authored chance, untouched — the pre-§F5 behaviour.
+    // No Overseer means the template's authored chance, untouched: the pre-§F5 behaviour.
     expect(launchMission({ id: 'm', base, template: battle, now: NOW }).successChance).toBe(
       battle.successChance,
     );
@@ -622,7 +622,7 @@ describe('GET /research and POST /research', () => {
     expect(res.json<{ error: { code: string } }>().error.code).toBe('NO_RESEARCH_LEAD');
   });
 
-  it('§F2 — a training project runs end to end and moves the Overseer sheet on the read path', async () => {
+  it('§F2: a training project runs end to end and moves the Overseer sheet on the read path', async () => {
     const app = await makeApp();
     const token = await makePlayer(app, 'trainee');
     const before = await read(app, token);
@@ -657,7 +657,7 @@ describe('GET /research and POST /research', () => {
     expect(after.overseerAttributes[target]).toBe(before.overseerAttributes[target] + 1);
   });
 
-  it('§B9 — an investigation lands facts on the wire, and only discovered ones', async () => {
+  it('§B9: an investigation lands facts on the wire, and only discovered ones', async () => {
     const app = await makeApp();
     const token = await makePlayer(app, 'digger');
     const baseId = app.repos.bases.findByOwnerId(userIdOf(app, token))!.id;
@@ -695,7 +695,7 @@ describe('GET /research and POST /research', () => {
     });
 
     const settled = await read(app, token);
-    // Two role facts (Communication) plus a pairing (Imagination) — §F3 and §F4 on one run.
+    // Two role facts (Communication) plus a pairing (Imagination): §F3 and §F4 on one run.
     expect(settled.justDiscovered).toHaveLength(3);
     expect(settled.facts).toEqual(settled.justDiscovered);
     expect(roleFactsIn(settled.facts, 'head_spy')).toHaveLength(2);
@@ -705,7 +705,7 @@ describe('GET /research and POST /research', () => {
     //
     // The §A1 modification catalogue is lifted out first. It is authored English about *buildings*,
     // byte-identical for every crew and derived from nothing a crew has learnt, so it cannot carry
-    // role knowledge — but a substring scan over English collides with it on sight ("graFFITi"
+    // role knowledge, but a substring scan over English collides with it on sight ("graFFITi"
     // contains "fit"). Excluding it keeps this scan meaningful instead of forcing the prose to
     // avoid seven letter sequences; the test below is the catalogue's own guard.
     const { modifications: _catalogue, ...roleReachable } = settled;
@@ -717,14 +717,14 @@ describe('GET /research and POST /research', () => {
     }
   });
 
-  it('§A1 — the modification catalogue names no role, and is the same for every crew', async () => {
+  it('§A1: the modification catalogue names no role, and is the same for every crew', async () => {
     const app = await makeApp();
     const novice = await read(app, await makePlayer(app, 'mod_novice'));
 
     // Structural, not lexical. Scanning the prose for the nineteen role words is what the rest of
     // this suite does and it cannot work here: the board's own "Precision Fabricators" contains
     // `fabricator`, and it is a machine tool, not the officer post. What matters is not which
-    // English words appear — it is that no *field* is keyed by a role and that nothing in the
+    // English words appear. It is that no *field* is keyed by a role and that nothing in the
     // catalogue moves with what a crew has learnt. Both are checked directly.
     const ROLE_VALUES = new Set<string>(OFFICER_ROLES);
     for (const option of novice.modifications) {
@@ -767,7 +767,7 @@ describe('GET /research and POST /research', () => {
 });
 
 /**
- * INTERFACES §2 R2 / §G6 — the "internal processes" half of where character XP comes from.
+ * INTERFACES §2 R2 / §G6: the "internal processes" half of where character XP comes from.
  *
  * An investigation names a lead officer and runs on a clock, which is the whole of the reading.
  * A training project has neither: it develops the *Overseer*, who is not a `Commander` and carries
@@ -808,7 +808,7 @@ describe('character XP from an internal process (§G6, §H6)', () => {
     expect(written.commanders?.find((c) => c.id === lead.id)?.xpIntoLevel).toBe(paid?.xpIntoLevel);
   });
 
-  it('pays nobody for a training project — the Overseer is not a character on the books', () => {
+  it('pays nobody for a training project: the Overseer is not a character on the books', () => {
     const { repos, written } = fakeRepos();
     const trainable = makeOverseer();
     const base = makeBase({ commanders: [lead] });

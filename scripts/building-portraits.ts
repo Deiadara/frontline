@@ -3,7 +3,7 @@
  *
  *   pnpm --filter @frontline/scripts building-portraits
  *
- * The plot dialog used to show `building-<kind>.webp` — masters drawn for the *previous* plate,
+ * The plot dialog used to show `building-<kind>.webp`: masters drawn for the *previous* plate,
  * back when structures were cutouts pasted onto empty ground. Against the delivered painting they
  * are simply pictures of different buildings: the window said "The Quarters" over an illustration
  * that looks nothing like the tenement stack the player just clicked. That is what "the sprites are
@@ -15,7 +15,7 @@
  * over the plate, cropped to its own bounding box and written out with transparency. What the
  * window shows is then, by construction, the building the player is looking at.
  *
- * The masters are not deleted — a delivered `building-<kind>` still wins if one is present, so the
+ * The masters are not deleted: a delivered `building-<kind>` still wins if one is present, so the
  * board can hand over a real illustration for any structure and it drops in over the crop.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -34,7 +34,7 @@ const OUT_DIR = path.join(REPO_ROOT, 'assets');
  * How far past the outline the crop reaches, as a fraction of the shape's size.
  *
  * A tracing hugs the silhouette so the *hit area* is exactly the building. A portrait wants a
- * little of the street around it — a cutout sheared precisely along the roofline reads as damage
+ * little of the street around it: a cutout sheared precisely along the roofline reads as damage
  * rather than as a picture of a building.
  */
 const BLEED = 0.06;
@@ -99,7 +99,7 @@ async function main(): Promise<number> {
   const spec = findAssetSpec('plate-district');
   if (spec && (spec.width !== width || spec.height !== height)) {
     process.stderr.write(
-      `plate is ${width}x${height} but the manifest says ${spec.width}x${spec.height} — ` +
+      `plate is ${width}x${height} but the manifest says ${spec.width}x${spec.height}: ` +
         'the outlines are positions on the manifest size, so this would cut the wrong pixels\n',
     );
     return 1;

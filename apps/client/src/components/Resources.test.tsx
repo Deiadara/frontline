@@ -25,8 +25,8 @@ describe('ResourceIcon', () => {
   });
 
   /**
-   * Both forms occupy the same 14px box. A readout is normally half delivered and half procedural —
-   * that is the whole point of the fallback — so a size that moved with delivery would jog every
+   * Both forms occupy the same 14px box. A readout is normally half delivered and half procedural.
+   * That is the whole point of the fallback, so a size that moved with delivery would jog every
    * chip in the HUD sideways as each master lands.
    */
   it('draws both forms in the same box, so a half-delivered readout keeps its columns', () => {
@@ -48,7 +48,7 @@ describe('the readouts that use it', () => {
 
   /**
    * `CostLine` recolours a line the stockpile cannot cover by setting `color` on the row and
-   * letting the glyph inherit it through `currentColor`. So the mark must render the glyph *bare* —
+   * letting the glyph inherit it through `currentColor`. So the mark must render the glyph *bare*:
    * any element of its own between the row and the svg is a place a colour can be set, and an
    * unaffordable line would then keep a friendly-coloured mark beside hostile figures.
    *
@@ -60,7 +60,7 @@ describe('the readouts that use it', () => {
     const row = container.querySelector('span.text-oxblood-300');
     expect(row, 'a line the vault cannot cover is drawn hostile').not.toBeNull();
 
-    // The mark carries no colour of its own — not the svg, and not the wrapper that sizes it — so
+    // The mark carries no colour of its own, not the svg, and not the wrapper that sizes it, so
     // whatever the row is painted flows straight through. Asserted as "nothing sets a colour"
     // rather than as "the root is an svg": the icon gained a sizing wrapper (so a delivered `<img>`
     // and the procedural fallback come out the same size), and inheritance is what actually matters.

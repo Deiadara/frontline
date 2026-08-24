@@ -12,6 +12,7 @@ import {
   buildingParts,
   nextQueuedLevel,
   type ItemId,
+  describeBuildingRequirement,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { nexusGate, queueBuild, type BuildRefusal } from '../district/build.js';
@@ -20,7 +21,7 @@ import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { levelUpFrom } from '../progression/award.js';
 
 /**
- * Every refusal is a 409 — none of them is a malformed request, they are all the district saying
+ * Every refusal is a 409: none of them is a malformed request, they are all the district saying
  * "not yet". The client can pre-empt all five from the base it already holds, so these are the
  * honest last word on a stale tab rather than the primary way a player learns the rules.
  *
@@ -57,7 +58,7 @@ export function registerBaseRoutes(app: FastifyInstance): void {
    *
    * The base comes from the caller's own account rather than the path: a player has exactly one
    * district, so an id here would be a second way to say "mine" and a first way to try someone
-   * else's. Everything settles first — caps that left this morning are not caps you can spend on a
+   * else's. Everything settles first: caps that left this morning are not caps you can spend on a
    * Gate this afternoon, and an order that finished while the tab was open has to land before the
    * queue is measured against its six-slot limit.
    */
@@ -89,7 +90,7 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     return { base: result.base, levelUp: levelUpFrom(settled.awards) };
   });
 
-  /** §A1 — name the faction. */
+  /** §A1: name the faction. */
   app.post('/base/faction', { preHandler: app.authenticate }, (request): RenameFactionResponse => {
     const { name } = parseBody(RenameFactionRequestSchema, request.body);
     const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
@@ -109,8 +110,12 @@ function refusalMessage(
   const spec = BUILDING_CATALOG[kind];
   switch (reason) {
     case 'locked': {
-      const { needs } = nexusGate(kind, base);
-      return `${spec.name} needs the Nexus at level ${needs}`;
+      // Every unmet clause, in the order the catalogue lists them: the Nexus rung first, then the
+      // structures, then the crew's own level. One message a player can act on rather than a chain
+      // of them each revealing the next.
+      const { unmet } = nexusGate(kind, base);
+      const wanted = unmet.map(describeBuildingRequirement).join(', ');
+      return `${spec.name} needs ${wanted || 'something you do not have yet'}`;
     }
     case 'at_max_level':
       return `${spec.name} is as good as it gets at level ${BUILDING_MAX_LEVEL}`;

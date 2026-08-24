@@ -13,7 +13,7 @@ import {
 } from './weather.js';
 
 /**
- * The weather (§A4) — one roll a day for the whole city.
+ * The weather (§A4): one roll a day for the whole city.
  *
  * Two properties carry the whole design and both are measured over twenty thousand days rather
  * than asserted about one: **most days are nothing**, so a foggy morning is worth re-planning
@@ -54,7 +54,7 @@ describe('the daily roll', () => {
     }
   });
 
-  it('is a pure function of the day — the same answer every time it is asked', () => {
+  it('is a pure function of the day: the same answer every time it is asked', () => {
     expect(weatherOn('2027-03-14')).toBe(weatherOn('2027-03-14'));
     expect(weatherAt(new Date('2027-03-14T03:00:00Z'))).toBe(
       weatherAt(new Date('2027-03-14T22:00:00Z')),

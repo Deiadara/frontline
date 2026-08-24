@@ -56,7 +56,7 @@ describe('what a crew is worth', () => {
   /**
    * Every channel is driven by something.
    *
-   * A channel nobody drives is a lever the game reads and no player can ever move — the exact
+   * A channel nobody drives is a lever the game reads and no player can ever move: the exact
    * failure this whole module exists to end, reintroduced one field at a time.
    */
   it('leaves no channel without a driver', () => {
@@ -102,7 +102,7 @@ describe('what a crew is worth', () => {
      * An officer in a seat, with the seat's duties spelled out here rather than looked up.
      *
      * Which attributes a role uses is a server-side table (§B8a) and deliberately not reachable
-     * from this package — so these tests state the duties they are testing against, which is also
+     * from this package, so these tests state the duties they are testing against, which is also
      * the clearer way to read them: the rule under test is "on duty pays full, off duty pays a
      * share", and it does not depend on which role happens to carry which skill.
      */
@@ -144,7 +144,7 @@ describe('what a crew is worth', () => {
     });
 
     /**
-     * §C2 — the seat is half the hire.
+     * §C2: the seat is half the hire.
      *
      * The rule the whole assignment layer stands on: the same person, hired at the same wage, is
      * worth their full Cryptography in a seat that reads cipher traffic and a third of it in one

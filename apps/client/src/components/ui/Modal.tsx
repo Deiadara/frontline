@@ -15,7 +15,7 @@ interface ModalProps {
    * the element and the generated stylesheet's order silently picks the winner. That is the same
    * trap the coloured tags fell into, and it is why width is chosen from a list here.
    */
-  size?: 'default' | 'wide';
+  size?: 'default' | 'wide' | 'full';
   className?: string;
 }
 
@@ -24,13 +24,15 @@ const WIDTH: Record<NonNullable<ModalProps['size']>, string> = {
   // Half the frame on a 1440px browser, which is what a character file wants: a portrait and a
   // thirty-five row sheet side by side, with neither of them truncating.
   wide: 'max-w-[52rem]',
+  // A whole report: seven panels of readouts that want two columns at any real viewport.
+  full: 'max-w-[72rem]',
 };
 
 /**
  * Fixed full-screen backdrop with a centred panel; closes on Escape / backdrop click.
  *
  * **Portalled to `document.body`, and it has to be.** The game shell stacks a routed `<main>` under
- * a floating chrome layer, and a `z-index` on `<main>` makes it a stacking context — so a dialog
+ * a floating chrome layer, and a `z-index` on `<main>` makes it a stacking context, so a dialog
  * rendered inside a screen can never rise above the scenery switcher, however large its own
  * `z-50` is. It looked fine and swallowed clicks on the primary button.
  */

@@ -8,14 +8,17 @@ import {
 import { palette } from '../../theme/tokens';
 
 /*
- * The radar renders at ~128px, so the viewBox is kept tight — a much larger one scales the
+ * The radar renders at ~128px, so the viewBox is kept tight: a much larger one scales the
  * axis labels down to an illegible few pixels. SIZE then has to leave room for the label to
  * sit *outside* LABEL_R without crossing the edge, or the side labels get clipped mid-word
  * ("TEC" -> "C").
  *
  * The side labels are the binding case: `CENTER + LABEL_R + labelWidth <= SIZE`. Measured in
- * Orbitron (not the fallback — it is ~12% narrower), the widest abbreviation renders 29.3
- * viewBox units, so LABEL_R <= 60.7. 56 keeps ~4.7 units of margin and still clears MAX_R.
+ * Roboto Condensed (not the fallback), the widest abbreviation ("MEN") renders 22.0 viewBox
+ * units, so LABEL_R <= 68.0. 56 keeps ~12.0 units of margin and still clears MAX_R.
+ *
+ * That headroom used to be 4.7 units, when these labels were set in Orbitron at 29.3 units wide.
+ * The condensed face bought back 7.3 units of it.
  */
 const SIZE = 180;
 const CENTER = SIZE / 2;
@@ -34,7 +37,7 @@ const GROUP_ABBREVIATIONS: Record<AttributeGroup, string> = {
  * The character's best rating in a group. Peak rather than mean: only a handful of a
  * character's 34 attributes are ever lifted, so group means all collapse toward the 15-20
  * band (§B2) and every character would draw the same shape. The peak is also the thing a
- * player is actually reading for — what is this person great at.
+ * player is actually reading for: what is this person great at.
  */
 function peakOf(attributes: Attributes, group: AttributeGroup): number {
   return Math.max(...ATTRIBUTES_BY_GROUP[group].map((name) => attributes[name]));
@@ -120,7 +123,7 @@ export function AttributeRadar({ attributes }: { attributes: Attributes }) {
             textAnchor={anchorFor(x)}
             fill={palette.steel[400]}
             fontSize={11}
-            fontFamily="Orbitron, sans-serif"
+            fontFamily="Roboto Condensed, sans-serif"
             letterSpacing="0.5"
           >
             {GROUP_ABBREVIATIONS[group]}

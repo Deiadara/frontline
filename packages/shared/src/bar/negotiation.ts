@@ -5,7 +5,7 @@ import { reservationWage } from './wage.js';
 /**
  * Haggling with somebody who has an opinion about you (GDD §H7).
  *
- * `negotiateWage` answers one question — *would they take this?* — and it answers it the same way
+ * `negotiateWage` answers one question, *would they take this?*, and it answers it the same way
  * every time, for everybody. That is a price check, not a negotiation. What was missing is the part
  * that makes hiring a person feel like hiring a person: they say something, you move, they move,
  * and at some point they stop moving and start looking at the door.
@@ -25,7 +25,7 @@ import { reservationWage } from './wage.js';
  *   they hold out; the moral compass sets how long they will stay in the chair.
  * - **Patience that runs out.** Every exchange costs some. Lowballing costs more. Repeating
  *   yourself costs more still.
- * - **A walk-away.** When it is gone they are gone, and not for five minutes — for the day. That is
+ * - **A walk-away.** When it is gone they are gone, and not for five minutes, for the day. That is
  *   the whole reason to negotiate carefully rather than binary-searching the floor, and it is why
  *   this state is persisted rather than kept in a component.
  *
@@ -34,7 +34,7 @@ import { reservationWage } from './wage.js';
  * a character just said.
  */
 
-/** How they haggle, derived from §H4 rather than rolled — a character negotiates like themselves. */
+/** How they haggle, derived from §H4 rather than rolled: a character negotiates like themselves. */
 export interface NegotiationTemper {
   /** Exchanges they will sit through before they are done. */
   patience: number;
@@ -106,7 +106,7 @@ export type NegotiationMood = z.infer<typeof NegotiationMoodSchema>;
 /**
  * A conversation in progress. Persisted per crew, per character, per day.
  *
- * `standing` is the only number the player is shown moving, and it is the honest one — what they
+ * `standing` is the only number the player is shown moving, and it is the honest one: what they
  * are asking for *now*. The floor is never on the wire in so many words, because the whole game of
  * a negotiation is working out where it is, and the Bar already gives an honest player enough to
  * derive it.
@@ -120,7 +120,7 @@ export const NegotiationSchema = z.object({
   standing: z.number().int().positive(),
   /** The last thing the player put on the table, or `null` before they have said anything. */
   lastOffer: z.number().int().nonnegative().nullable(),
-  /** How the last exchange went — what the window draws its face and its line off. */
+  /** How the last exchange went: what the window draws its face and its line off. */
   mood: NegotiationMoodSchema,
   /** Set once they have signed or gone. Nothing more can be said either way. */
   closed: z.boolean(),
@@ -155,7 +155,7 @@ export interface NegotiationInput {
   negotiation: Negotiation;
   /** What the player just put on the table. */
   offer: number;
-  /** Their opening price against *this* crew — the floor is derived from it. */
+  /** Their opening price against *this* crew: the floor is derived from it. */
   asking: number;
   ambition: Ambition;
   moralCompass: MoralCompass;
@@ -167,7 +167,7 @@ export interface NegotiationInput {
  * The order of the checks is the order the fiction happens in. They hear the number, they decide
  * whether it is acceptable, and only if it is not do they work out how much of an insult it was and
  * whether they can be bothered to answer it. A character who has already agreed or already left
- * is returned untouched rather than throwing — a double-click must not be a crash.
+ * is returned untouched rather than throwing: a double-click must not be a crash.
  */
 export function negotiate({
   negotiation,
@@ -184,7 +184,7 @@ export function negotiate({
   const bid = Math.max(0, Math.round(offer));
   const rounds = negotiation.rounds + 1;
 
-  // Taken as made. Above their standing demand as well as their floor is a different feeling — the
+  // Taken as made. Above their standing demand as well as their floor is a different feeling: the
   // window says so, and it is the one branch where the player has definitely paid too much.
   if (bid >= floor) {
     return {
@@ -259,7 +259,7 @@ export function negotiate({
  * What they actually say.
  *
  * Four voices, because the moral compass is the half of §H4 that shows in how somebody talks about
- * money — an idealist is uncomfortable, an opportunist is enjoying himself. Picked deterministically
+ * money: an idealist is uncomfortable, an opportunist is enjoying himself. Picked deterministically
  * off the round number so a conversation replays word for word and a test can pin a line.
  *
  * Written as speech and not as UI copy. "Not enough" is a validation message; "I have got people

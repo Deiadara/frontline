@@ -4,7 +4,6 @@ import {
   UNIT_CATALOG,
   UNIT_MODIFIERS,
   addToArmy,
-  armyCapacity,
   describeRequirement,
   isHeldBy,
   isUnitUnlocked,
@@ -22,12 +21,13 @@ import {
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { unlockContextFor } from './training.js';
+import { districtPopulation } from '../district/population.js';
 
 /**
  * The unit roster (GDD §A5).
  *
  * The whole catalogue every read, locked entries included. A player deciding what to build next
- * needs to see that the Colossus wants a Garage at 16 *and* a war machine graveyard — a list that
+ * needs to see that the Colossus wants a Garage at 16 *and* a war machine graveyard: a list that
  * hid everything unavailable would hide exactly the thing that makes the campaign legible.
  */
 
@@ -46,12 +46,12 @@ export function garrisonedUnits(repos: Repositories, base: Base): Army {
 }
 
 /**
- * §A4 — the labels this unit reacts to unusually, in the player's words.
+ * §A4: the labels this unit reacts to unusually, in the player's words.
  *
  * Read off `affinities` and `immuneTo` only, never off the stat-driven baseline. That is the whole
  * editorial decision here: every unit in the game has an opinion about every label, and printing
  * thirteen rows of them would make the one line that matters unfindable. What a card shows is what
- * its *sheet does not already say* — and the sheet is right there under it.
+ * its *sheet does not already say*, and the sheet is right there under it.
  */
 function groundAffinities(unit: UnitSpec): UnitOption['affinities'] {
   const rows: UnitOption['affinities'] = [];
@@ -73,6 +73,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   const context = unlockContextFor(repos, base);
   const effects = standingEffectsFor(repos, base);
   const garrisoned = garrisonedUnits(repos, base);
+  const population = districtPopulation(repos, base, garrisoned);
 
   const units: UnitOption[] = UNIT_CATALOG.map((unit) => ({
     id: unit.id,
@@ -109,7 +110,10 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     // Garrisons count against the cap: a unit standing on a rooftop three districts away is still
     // a unit this crew is feeding.
     supplyUsed: supplyUsed(base.army) + supplyUsed(garrisoned),
-    supplyCap: armyCapacity(base.buildings),
+    // §A1: one pool, so what is left for soldiers is what the officers and assignees have not
+    // taken. Quoting the army's own share against the whole ceiling would promise room the screen
+    // cannot deliver, and the training route would then refuse an order the roster said was fine.
+    supplyCap: population.capacity - population.officers - population.assignees,
     queue: base.trainingQueue,
     resources: base.resources,
     trainingCostReduction: effects.trainingCostPercent,

@@ -20,7 +20,7 @@ import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
 
 /**
- * §A4 — how many extra sessions the crew's ground buys them today (the Gym).
+ * §A4: how many extra sessions the crew's ground buys them today (the Gym).
  *
  * Read in one place and passed to both the projection and the gate, because a screen that says
  * "2 left" over a route that refuses the second is worse than either number being wrong.
@@ -33,7 +33,7 @@ function extraSessionsFor(app: FastifyInstance, base: Base): number {
  * The Training tab and the Overseer's own profile (§F2).
  *
  * Both routes settle first. A player who left an hour ago and comes back should see the point
- * already on the sheet, not a finished bar that pays out on the next click — and settling on read
+ * already on the sheet, not a finished bar that pays out on the next click, and settling on read
  * is what makes "come back tomorrow" work without a scheduler.
  */
 
@@ -57,7 +57,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
     );
   });
 
-  /** §F2 — put one person through one hour of one thing. */
+  /** §F2: put one person through one hour of one thing. */
   app.post('/training', { preHandler: app.authenticate }, (request): TrainingResponse => {
     const { subjectId, attribute } = parseBody(StartTrainingRequestSchema, request.body);
     const now = new Date().toISOString();
@@ -104,7 +104,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
    * The Overseer's own page: who they are, and what the crew's sheet is currently buying.
    *
    * The effects are computed from the player's *own* people, so nothing here is hidden from them
-   * in the first place — this is the opposite of the §B8a role table, which is about somebody
+   * in the first place. This is the opposite of the §B8a role table, which is about somebody
    * else's fit and never leaves the server.
    */
   app.get('/overseer/me', { preHandler: app.authenticate }, (request): CrewStandingResponse => {

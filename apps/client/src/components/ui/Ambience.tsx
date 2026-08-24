@@ -2,7 +2,7 @@
  * The things living in the corners of the frame.
  *
  * A game interface is not only its controls. Disco Elysium's screen has a drawn *object* in every
- * dead corner and Arcane's cuts are full of machinery that nobody in the scene is using — both are
+ * dead corner and Arcane's cuts are full of machinery that nobody in the scene is using: both are
  * saying the same thing, which is that the frame is a place rather than a document. This layer is
  * the cheapest version of that: a few pieces of junk that have been in this room longer than the
  * player has.
@@ -15,7 +15,7 @@
  * - **Inside the frame, always.** Each piece is a fixed-size box inset from the edge, holding an
  *   `<svg>` that exactly fills it. The layout gates flag any image that spills its container or
  *   that a clipping ancestor cuts partway through, and a sprite tucked into a corner is precisely
- *   the shape that trips both — so nothing is bled off the edge, however tempting it looks.
+ *   the shape that trips both, so nothing is bled off the edge, however tempting it looks.
  * - **Quiet.** The pieces sit under the chrome, at low opacity, in the palette's own browns and
  *   irons. Ornament that competes with a button has stopped being ornament.
  * - **Barely moving.** The fly bobs three pixels over eleven seconds; a contact arcs for a frame
@@ -156,7 +156,7 @@ function HangingConduit() {
  * The whole layer.
  *
  * Mounted once in the game shell rather than per screen, so the junk stays put as a player moves
- * between the district and the roster — a fly that teleports on every navigation is worse than no
+ * between the district and the roster: a fly that teleports on every navigation is worse than no
  * fly. It sits above the artwork and below the HUD, which is what lets the patina over the top of
  * everything tie the two together.
  */
@@ -169,7 +169,7 @@ export function Ambience() {
     >
       {/* Every piece is placed against the *measured* height of the chrome rather than a constant.
           The shell publishes `--hud-h` and `--nav-h` because both bars change height with the type
-          size and with how many doors the scenery switcher is carrying — and a fly pinned 124px up
+          size and with how many doors the scenery switcher is carrying, and a fly pinned 124px up
           from the bottom ends up sitting on the nav the day that row wraps, which is exactly what
           happened the first time this shipped. */}
       {/* Lower-left, clear of the queue rail and well above the switcher. */}
@@ -204,7 +204,7 @@ export function Ambience() {
  * opposite things. The junk in the corners has to sit **under** the chrome: it is 42% opacity dark
  * metal, and the one place it must never land is on top of the queue rail's countdowns, which is
  * exactly where a piece tucked into the bottom-left corner ends up. The glass has to sit **over**
- * the chrome, because running across the panel edges is the entire reason it exists — without that
+ * the chrome, because running across the panel edges is the entire reason it exists, without that
  * the screen is a stack of separate widgets with a texture inside each one.
  */
 export function Patina() {

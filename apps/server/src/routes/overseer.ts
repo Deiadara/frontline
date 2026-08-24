@@ -58,7 +58,7 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
       const base: Base = {
         id: randomUUID(),
         ownerId: user.id,
-        // §A1 — a faction has a name from the first second, because the HUD shows one from the
+        // §A1: a faction has a name from the first second, because the HUD shows one from the
         // first second. This is a placeholder the player is expected to replace, not a decision
         // made for them: `POST /base/faction` is on the district page.
         name: defaultFactionName(user.username),
@@ -91,11 +91,11 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         ],
         buildQueue: [],
         /**
-         * §A5 — enough Razors to walk into the Rustyard on day one and win.
+         * §A5: enough Razors to walk into the Rustyard on day one and win.
          *
          * An empty army plus a Gauntlet they have not built yet is a first session with no move,
          * and so, it turned out, was four: NPC places are garrisoned now, the Rustyard's easiest
-         * holds four, and a defender at parity wins every time. Measured — eight takes it, four
+         * holds four, and a defender at parity wins every time. Measured: eight takes it, four
          * loses forty out of forty. The number has to be the one that makes the opening move
          * *available*, not the one that sounds modest.
          */
@@ -120,12 +120,12 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         app.repos.bases.insert(base);
       })();
 
-      // The sandbox switch also runs at boot, but a base does not exist until this moment — on a
+      // The sandbox switch also runs at boot, but a base does not exist until this moment: on a
       // fresh database the flag would silently do nothing until the next restart, which is exactly
       // the kind of "did I set it wrong?" that makes a dev switch useless.
       if (app.config.unlocked) {
         applyUnlockedSandbox(app.repos, user.username);
-        app.log.warn({ baseId: base.id }, 'UNLOCKED=true — new district opened at the end-game');
+        app.log.warn({ baseId: base.id }, 'UNLOCKED=true: new district opened at the end-game');
       }
 
       const opened = app.repos.bases.findById(base.id) ?? base;

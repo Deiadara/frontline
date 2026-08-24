@@ -1,5 +1,5 @@
 /**
- * @frontline/shared — the single source of truth for the Frontline domain model.
+ * @frontline/shared: the single source of truth for the Frontline domain model.
  * Every type is co-located with its Zod schema (`type X = z.infer<typeof XSchema>`).
  */
 export * from './primitives.js';
@@ -11,6 +11,7 @@ export * from './resources.js';
 export * from './factions.js';
 export * from './economy/meters.js';
 export * from './economy/infamy.js';
+export * from './economy/notoriety.js';
 export * from './economy/reputation.js';
 export * from './economy/payroll.js';
 export * from './economy/state.js';
@@ -53,6 +54,7 @@ export * from './battle/perimeter.js';
 export * from './battle/traps.js';
 export * from './battle/intel.js';
 export * from './battle/analysis.js';
+export * from './battle/boosts.js';
 export * from './api.js';
 export * from './api.battle.js';
 export * from './api.accounts.js';

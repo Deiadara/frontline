@@ -39,7 +39,7 @@ describe('deliveredUrl', () => {
     expect(deliveredUrl({ type: 'portrait', portraitId: 'overseer-1' }, procedural)).toBeNull();
   });
 
-  /** `portraitId` and `districtId` are only `z.string()` on the wire — an unknown id must not throw. */
+  /** `portraitId` and `districtId` are only `z.string()` on the wire: an unknown id must not throw. */
   it('returns null for an id with no manifest entry', () => {
     expect(
       deliveredUrl({ type: 'portrait', portraitId: 'no-such-overseer' }, delivered),

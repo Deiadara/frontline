@@ -34,7 +34,7 @@ import { AppError, parseBody } from '../errors.js';
  *
  * Two things that are the same shape: a permanent, one-off purchase that changes what the crew can
  * do, paid for in scrap plus something you cannot grind. They share a route file because they share
- * every rule — a level gate on their structure, a blueprint gate past the first tier, resources,
+ * every rule: a level gate on their structure, a blueprint gate past the first tier, resources,
  * and parts out of the satchel.
  *
  * Upgrades are *fitted*, vehicles are *counted*. That is the only real difference: fitting the same
@@ -74,14 +74,14 @@ function describeParts(parts: ItemCost): string {
 }
 
 /**
- * §A4 — what the ground takes off a workshop bill.
+ * §A4: what the ground takes off a workshop bill.
  *
  * The Armory pays for the refits (its bench will fit anything you can find a part for); the Rail
  * Yard pays for the machines (bogies, axles and drive parts by the wagonload). Two channels rather
  * than one, because they are two different locations doing two different favours, and a crew that
  * has taken the Armory should not find its vehicles quietly cheaper as well.
  *
- * `discounted` floors every line at 1, so nothing is ever free — the same rule every other price
+ * `discounted` floors every line at 1, so nothing is ever free: the same rule every other price
  * in the game is subject to.
  */
 function refitPrice(app: FastifyInstance, base: Base, cost: PartialResources): PartialResources {
@@ -209,7 +209,7 @@ export function registerWorkshopRoutes(app: FastifyInstance): void {
     },
   );
 
-  /** Build a machine. Counted, not fitted — the yard holds several. */
+  /** Build a machine. Counted, not fitted: the yard holds several. */
   app.post(
     '/workshop/vehicle',
     { preHandler: app.authenticate },

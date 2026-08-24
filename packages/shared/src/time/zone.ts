@@ -5,7 +5,7 @@ import { z } from 'zod';
  *
  * The game is run out of Greece, so **Europe/Athens is the game's clock**: every schedule, every
  * refresh and every "he is in at 18:00" is quoted in it unless a player says otherwise. That is a
- * deliberate design choice rather than a shrug at internationalisation — a shared world needs a
+ * deliberate design choice rather than a shrug at internationalisation: a shared world needs a
  * shared day, and "the black market turns over at midnight" only means something if everybody's
  * midnight is the same one. A player in another timezone can move the *display* to theirs; the day
  * boundary the rules use does not move with them.
@@ -31,7 +31,7 @@ export const GAME_TIMEZONE = 'Europe/Athens';
  *
  * A picker listing all ~400 IANA names is a picker nobody scrolls. This is one entry per populated
  * band, Athens first because it is the house clock, and any other valid IANA name still parses if
- * it arrives from somewhere else — the list is a convenience, not the validation.
+ * it arrives from somewhere else: the list is a convenience, not the validation.
  */
 export const OFFERED_TIMEZONES = [
   GAME_TIMEZONE,
@@ -94,12 +94,12 @@ function formatter(zone: string, options: Intl.DateTimeFormatOptions): Intl.Date
   return built;
 }
 
-/** `18:30` — a wall clock in the given zone. */
+/** `18:30`: a wall clock in the given zone. */
 export function formatClock(instant: Date, zone: string = GAME_TIMEZONE): string {
   return formatter(zone, { hour: '2-digit', minute: '2-digit', hour12: false }).format(instant);
 }
 
-/** `Sat 16 Aug, 18:30` — a clock with enough date on it to survive a day boundary. */
+/** `Sat 16 Aug, 18:30`: a clock with enough date on it to survive a day boundary. */
 export function formatDayClock(instant: Date, zone: string = GAME_TIMEZONE): string {
   return formatter(zone, {
     weekday: 'short',
@@ -112,7 +112,7 @@ export function formatDayClock(instant: Date, zone: string = GAME_TIMEZONE): str
 }
 
 /**
- * `GMT+3` — the short name the zone is going by at that instant.
+ * `GMT+3`: the short name the zone is going by at that instant.
  *
  * At that instant on purpose: the same zone is `GMT+2` in winter, and a label frozen at one of them
  * is a label that lies for half the year.
@@ -124,7 +124,7 @@ export function zoneLabel(instant: Date, zone: string = GAME_TIMEZONE): string {
   return parts.find((part) => part.type === 'timeZoneName')?.value ?? 'UTC';
 }
 
-/** `Athens` — the last segment of the zone name, which is the part a player reads as a place. */
+/** `Athens`: the last segment of the zone name, which is the part a player reads as a place. */
 export function zoneCity(zone: string): string {
   return (zone.split('/').pop() ?? zone).replace(/_/g, ' ');
 }
@@ -185,7 +185,7 @@ export function nextDayBoundary(instant: Date, zone: string = GAME_TIMEZONE): Da
  *
  * The Runner's sessions are drawn as UTC hours because they have to be derivable from the date
  * alone on both sides of the wire. What a player is *shown* is that hour in their own clock, which
- * needs an actual instant to resolve summer time against — so the caller passes the day it falls on.
+ * needs an actual instant to resolve summer time against, so the caller passes the day it falls on.
  */
 export function utcHourInZone(day: string, utcHour: number, zone: string = GAME_TIMEZONE): string {
   return formatClock(new Date(`${day}T${String(utcHour).padStart(2, '0')}:00:00.000Z`), zone);

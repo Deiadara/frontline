@@ -7,15 +7,15 @@ import { ramps } from '../../theme/tokens';
 /**
  * Code-drawn structures for the district (GDD §A1), on the §A2 direction: jury-rigged scrap rather
  * than clean chrome, lit by sodium ember and hextech leak. Procedural art is the shipping source
- * (board art policy) — nothing here waits on a delivered master, and a delivered master drops in
+ * (board art policy): nothing here waits on a delivered master, and a delivered master drops in
  * over the top without a TypeScript edit.
  *
  * Every sprite draws in the same 100x100 box and is anchored to the bottom edge, so a short
  * structure and a tall one still stand on the same ground line when their plots differ in height.
  *
  * Thirteen silhouettes have to be told apart at plot size, side by side, in one palette. Each is
- * therefore built around one unmistakable *shape* — a drum, a barrel vault, paired cylinders, an
- * open bay — rather than around detail that dissolves below 90px. `sprites.test.tsx` pins that no
+ * therefore built around one unmistakable *shape*: a drum, a barrel vault, paired cylinders, an
+ * open bay: rather than around detail that dissolves below 90px. `sprites.test.tsx` pins that no
  * two are identical and that every kind has one.
  */
 
@@ -43,7 +43,7 @@ function Hull({
   );
 }
 
-/** A lit window — the only thing that says anybody is home. */
+/** A lit window: the only thing that says anybody is home. */
 function Lamp({ x, y, glow = ember[300] }: { x: number; y: number; glow?: string }) {
   return <rect x={x} y={y} width={4} height={5} fill={glow} />;
 }
@@ -54,7 +54,7 @@ function Ground({ x = 12, width = 76 }: { x?: number; width?: number }) {
 }
 
 const SPRITES: Record<BuildingKind, ReactNode> = {
-  // A drum with a canted observation ring — the only round-shouldered mass, and the tallest.
+  // A drum with a canted observation ring: the only round-shouldered mass, and the tallest.
   nexus: (
     <>
       <path d="M20 40 50 18 80 40Z" fill={ferrite[500]} />
@@ -69,7 +69,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground />
     </>
   ),
-  // Three stacked containers, offset — the only stepped silhouette.
+  // Three stacked containers, offset: the only stepped silhouette.
   quarters: (
     <>
       <Hull x={16} y={62} width={68} height={32} fill={ferrite[950]} />
@@ -85,7 +85,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={10} width={80} />
     </>
   ),
-  // A barrel vault of glazing — the only curved roof, and the only green mass.
+  // A barrel vault of glazing: the only curved roof, and the only green mass.
   greenhouse: (
     <>
       <path d="M12 94 12 62q38-30 76 0v32Z" fill={ferrite[950]} />
@@ -102,7 +102,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={8} width={84} />
     </>
   ),
-  // A fat drum in a cradle with three stacks — the warm-dominant mass.
+  // A fat drum in a cradle with three stacks: the warm-dominant mass.
   generator: (
     <>
       <Hull x={26} y={44} width={48} height={50} fill={ferrite[950]} />
@@ -120,7 +120,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={8} width={84} />
     </>
   ),
-  // Widest and lowest, with a gantry over a heap — the cluttered one.
+  // Widest and lowest, with a gantry over a heap: the cluttered one.
   scrapyard: (
     <>
       <Hull x={14} y={56} width={52} height={38} />
@@ -150,7 +150,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={10} width={80} />
     </>
   ),
-  // A shuttered block with one lit hatch — the only closed front.
+  // A shuttered block with one lit hatch: the only closed front.
   apothecary: (
     <>
       <Hull x={18} y={44} width={64} height={50} fill={ferrite[950]} />
@@ -168,7 +168,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={12} width={76} />
     </>
   ),
-  // Lowest and widest by a distance — reads horizontal against everything else.
+  // Lowest and widest by a distance: reads horizontal against everything else.
   gate: (
     <>
       <Hull x={4} y={58} width={92} height={36} fill={ferrite[950]} />
@@ -186,7 +186,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Lamp x={78} y={72} />
     </>
   ),
-  // Tallest and thinnest — a louvred slab with banded status light.
+  // Tallest and thinnest: a louvred slab with banded status light.
   lab: (
     <>
       <Hull x={34} y={26} width={32} height={68} fill={ferrite[950]} />
@@ -201,7 +201,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={18} width={64} />
     </>
   ),
-  // Mostly open ground — the one plot that reads as an area rather than a building.
+  // Mostly open ground: the one plot that reads as an area rather than a building.
   gauntlet: (
     <>
       <Hull x={68} y={62} width={26} height={32} fill={ferrite[950]} />
@@ -215,7 +215,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={4} width={92} />
     </>
   ),
-  // The tidiest thing on the ground, with a ramp — deliberately at odds with its neighbours.
+  // The tidiest thing on the ground, with a ramp: deliberately at odds with its neighbours.
   infirmary: (
     <>
       <Hull x={24} y={48} width={52} height={46} fill={ferrite[500]} />
@@ -230,7 +230,7 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={10} width={80} />
     </>
   ),
-  // A deep open bay under a gantry — the only silhouette that reads as an interior.
+  // A deep open bay under a gantry: the only silhouette that reads as an interior.
   garage: (
     <>
       <Hull x={10} y={40} width={80} height={54} fill={ferrite[950]} />
@@ -259,11 +259,11 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
  *
  * The `building-*` masters were drawn when structures were cutouts pasted onto empty ground, and
  * they depict different buildings from the ones the delivered painting shows. Beside the map they
- * read as simply wrong — the window said "The Quarters" over an illustration nothing on screen
+ * read as simply wrong: the window said "The Quarters" over an illustration nothing on screen
  * looked like. `buildingPortraitUrl` returns the same building the player just clicked, because it
  * is literally those pixels, masked by the same outline the map hit-tests.
  *
- * The masters are not deleted and not graded away — `masters.ts` still measures them, and a board
+ * The masters are not deleted and not graded away: `masters.ts` still measures them, and a board
  * that delivers a new illustration matching the painting can restore the old precedence in one
  * line. What must not happen is a portrait quietly disagreeing with the map.
  *

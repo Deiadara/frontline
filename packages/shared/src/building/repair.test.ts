@@ -9,7 +9,7 @@ import {
 import type { Building } from './state.js';
 
 /**
- * §A4 — a wrecked structure repairs itself, and a bad night stops being a permanent tax.
+ * §A4: a wrecked structure repairs itself, and a bad night stops being a permanent tax.
  *
  * The rule the board asked for is "buildings automatically repair after 24 hours", and the shape it
  * is built in is the one every other clock in this game uses: a rate, a stored timestamp, and no
@@ -19,7 +19,7 @@ import type { Building } from './state.js';
  * The property worth guarding is **idempotence under re-reading**, and it is the reason the clock
  * moves up by the hours it paid for rather than to `now`. A client polling a page once a second
  * settles the same district thousands of times an hour, and the naive spelling rounds a fraction of
- * a point up to a whole one on every one of those reads — which repairs a gutted district in under
+ * a point up to a whole one on every one of those reads, which repairs a gutted district in under
  * a minute, on a build where every other assertion is green.
  */
 
@@ -102,7 +102,7 @@ describe('a structure putting itself right (§A4)', () => {
     const intact = structure(0, null);
     expect(repairedByTime(intact, at(48))).toBe(intact);
     // A row from before the clock existed: damaged, no timestamp. Nothing to settle from, and it
-    // must not be invented — the alternative is repairing it from the epoch, which is instant.
+    // must not be invented: the alternative is repairing it from the epoch, which is instant.
     const legacy = structure(60, null);
     expect(repairedByTime(legacy, at(48)).damage).toBe(60);
   });

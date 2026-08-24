@@ -4,7 +4,7 @@ import { findUnit, type Army } from '../units/index.js';
  * The ring around the fight (GDD §A4, battle rework).
  *
  * A second force, chosen before the mark and standing outside the battle proper. It never joins the
- * line and never appears in the round loop. What it does is stop people leaving — anybody breaking
+ * line and never appears in the round loop. What it does is stop people leaving: anybody breaking
  * out of the fight, and anybody being quietly pulled back out of a deployment before the fight
  * starts.
  *
@@ -13,7 +13,7 @@ import { findUnit, type Army } from '../units/index.js';
  * Not for the kills. A perimeter is an **intelligence weapon**: the losing side only ever learns
  * what happened from the people who walked home, so a ring that catches all of them means the enemy
  * gets a silence where their report should be (`battle/analysis.ts` enforces exactly that). It costs
- * you units that could have been in the line — the trade is bodies now against the other side
+ * you units that could have been in the line: the trade is bodies now against the other side
  * planning blind next time, which is the decision the whole mechanic exists to create.
  *
  * ## The rule that makes it a gamble
@@ -29,7 +29,7 @@ import { findUnit, type Army } from '../units/index.js';
  *
  * Above one because a perimeter is not a duel: somebody watching a road stops several people over
  * the course of a rout. Not much above one, because a thin ring around a mass breakout is a
- * formality — thirty people leaving at once past four is thirty people leaving.
+ * formality: thirty people leaving at once past four is thirty people leaving.
  */
 export const RUNNERS_COVERED_PER_BODY = 1.5;
 
@@ -91,7 +91,7 @@ export interface PerimeterToll {
  *
  * Rolled per individual off the passed stream, the same way the rout is, so the whole fight still
  * replays from one seed. An empty ring returns the withdrawal untouched **without drawing**, so a
- * battle nobody set a perimeter for produces the identical stream it always did — which is what lets
+ * battle nobody set a perimeter for produces the identical stream it always did, which is what lets
  * every existing engine test stay pinned to its numbers.
  */
 export function perimeterToll(fleeing: Army, perimeter: Army, next: () => number): PerimeterToll {

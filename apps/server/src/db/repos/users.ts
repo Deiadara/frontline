@@ -19,7 +19,7 @@ interface UserRow {
  *
  * Sparse because the form sends only what moved: a player changing their icon should not be able to
  * rewrite their username as a side effect of the round trip. `undefined` means "leave it", which is
- * a different instruction from `null` — and `displayName` is the one field where `null` is a real
+ * a different instruction from `null`, and `displayName` is the one field where `null` is a real
  * value, meaning "go back to being called by my username".
  */
 export interface ProfilePatch {

@@ -10,11 +10,11 @@ import {
 } from '@frontline/shared';
 
 /**
- * Who goes out on a run, and on what terms (GDD §G5–§G7).
+ * Who goes out on a run, and on what terms (GDD §G5-§G7).
  *
  * This is the §G6 branch: a hard mission needs an officer leading it, an easy one can go out on a
  * delegation of assignees alone. Which of the two it is comes off `template.difficulty`, and the
- * multipliers the crew earns come off the §G7 table — both live in `@frontline/shared`, so this
+ * multipliers the crew earns come off the §G7 table: both live in `@frontline/shared`, so this
  * file only decides *who is in the crew*, never what they are worth.
  */
 
@@ -43,7 +43,7 @@ export interface Crew {
 /**
  * Resolves the crew for a run.
  *
- * With an officer, the run is backed by the assignees already standing under them (§G5) — the
+ * With an officer, the run is backed by the assignees already standing under them (§G5): the
  * player's placement decision *is* the crew, which is what makes §G2 placement matter beyond a
  * number on a screen.
  *

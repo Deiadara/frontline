@@ -1,5 +1,4 @@
 import {
-  populationCapacity,
   assigneeBonusPercent,
   assigneeCapPerOfficer,
   assigneePool,
@@ -15,7 +14,7 @@ import {
   alignmentBand,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { populationUsed } from '../district/population.js';
+import { districtPopulation, type DistrictPopulation } from '../district/population.js';
 
 /**
  * Reading the assignee layer (GDD §G).
@@ -51,7 +50,7 @@ export function projectAssigneeOfficer(base: Base, officer: Commander): Assignee
     role: officer.role,
     assignees: placed,
     bonusPercent: assigneeBonusPercent(placed),
-    /** What one more would be worth — the number that makes the §G7 curve legible on the page. */
+    /** What one more would be worth: the number that makes the §G7 curve legible on the page. */
     nextBonusPercent:
       placed < assigneeCapPerOfficer(base.level) ? assigneeBonusPercent(placed + 1) : null,
     // Who they are, so the crew screen can open a card on them rather than listing a name.
@@ -63,8 +62,13 @@ export function projectAssigneeOfficer(base: Base, officer: Commander): Assignee
   };
 }
 
+/** The §A1 pool as the screen quotes it. */
+function housingOf(population: DistrictPopulation): AssigneesResponse['housing'] {
+  return { used: population.total, capacity: population.capacity };
+}
+
 /** The whole §G screen in one payload. */
-export function projectAssignees(base: Base): AssigneesResponse {
+export function projectAssignees(repos: Repositories, base: Base): AssigneesResponse {
   return {
     level: base.level,
     pool: assigneePool(base.level),
@@ -72,10 +76,10 @@ export function projectAssignees(base: Base): AssigneesResponse {
     unplaced: unplacedAssignees(base.assignees, base.level),
     capPerOfficer: assigneeCapPerOfficer(base.level),
     maxBonusPercent: assigneeBonusPercent(assigneeCapPerOfficer(base.level)),
-    /** §C4/§G4 — whether the player has a Professor, and so whether they can undo a placement. */
+    /** §C4/§G4: whether the player has a Professor, and so whether they can undo a placement. */
     canReskill: canReskill(base.commanders),
-    /** §A1 — the Quarters' ceiling, which is the other thing that can stop a placement. */
-    housing: { used: populationUsed(base), capacity: populationCapacity(base.buildings) },
+    /** §A1: the district's ceiling, which is the other thing that can stop a placement. */
+    housing: housingOf(districtPopulation(repos, base)),
     officers: base.commanders.map((officer) => projectAssigneeOfficer(base, officer)),
   };
 }

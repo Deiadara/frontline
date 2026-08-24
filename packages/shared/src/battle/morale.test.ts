@@ -117,7 +117,7 @@ describe('intimidation decides fights, not just morale numbers', () => {
       }
       return wins;
     };
-    // Same supply either way — Bell-Ringers cost more each, so this is fewer bodies with the sheet.
+    // Same supply either way: Bell-Ringers cost more each, so this is fewer bodies with the sheet.
     expect(held({ bell_ringers: 12 })).toBeGreaterThan(held({ sparks: 12 }));
   });
 });
@@ -197,7 +197,7 @@ describe('who gets away', () => {
     }
   });
 
-  it('accounts for every body — the dead, the fled and the caught', () => {
+  it('accounts for every body: the dead, the fled and the caught', () => {
     const losing = {
       name: 'D',
       defending: true,

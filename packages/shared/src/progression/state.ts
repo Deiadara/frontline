@@ -5,7 +5,7 @@ import { playerUnlocksBetween, type PlayerLevelUnlock } from './unlocks.js';
 
 /**
  * The stored half of player progression (GDD §I): progress towards the next level. The level
- * itself is `Base.level` and stays there (INTERFACES §2 R1) — this never restates it.
+ * itself is `Base.level` and stays there (INTERFACES §2 R1): this never restates it.
  */
 export const ProgressionStateSchema = z.object({
   /** XP banked towards the next level. Always below `playerXpToNextLevel(base.level)`. */
@@ -18,10 +18,10 @@ export function startingProgression(): ProgressionState {
 }
 
 /**
- * §I1 — the four things that pay XP, and what each is worth.
+ * §I1: the four things that pay XP, and what each is worth.
  *
  * Placeholder tuning, in the same spirit as `INFAMY_PER_RAID_WON`: the GDD names the sources but
- * not the numbers. W6 owns these values outright (INTERFACES §2 R7) — no other workstream decides
+ * not the numbers. W6 owns these values outright (INTERFACES §2 R7): no other workstream decides
  * what its own events are worth.
  *
  * `raidLost` exists because §I1 pays for *fighting* other players, not for winning; a lost raid
@@ -29,8 +29,8 @@ export function startingProgression(): ProgressionState {
  *
  * Not every entry fires yet, and the table deliberately does not say which do: §I1 enumerates the
  * sources, so pricing all of them is the deliverable, and a system that arrives later names its
- * source rather than reopening what it is worth. Only `questCompleted` has no system to fire it —
- * there is no quest system, and §I1 is the one place in the GDD that mentions quests at all. Do not
+ * source rather than reopening what it is worth. Only `questCompleted` has no system to fire it.
+ * There is no quest system, and §I1 is the one place in the GDD that mentions quests at all. Do not
  * read a key here as evidence that something awards it, and do not add a second producer for a key
  * that already has one.
  *
@@ -55,7 +55,7 @@ export const PLAYER_XP_AWARDS = {
   raidLost: 25,
   /** A project off the Archive board. The longest clock in the game, and one at a time. */
   researchCompleted: 150,
-  /** A batch off the bench. Small and frequent — the roster is meant to pay in a trickle. */
+  /** A batch off the bench. Small and frequent: the roster is meant to pay in a trickle. */
   unitTrained: 20,
   /** Signing somebody out of the Bar. Once a day at most, so it can be worth something. */
   officerHired: 70,
@@ -71,14 +71,14 @@ export interface PlayerXpAward {
   level: number;
   progression: ProgressionState;
   /**
-   * What clearing `level` costs in total — the denominator of a progress bar, not the remainder.
+   * What clearing `level` costs in total: the denominator of a progress bar, not the remainder.
    * XP still to go is `xpToNextLevel - progression.xpIntoLevel`.
    */
   xpToNextLevel: number;
   levelsGained: number;
   /** §I2 grants at the new level. Unchanged when no level was gained. */
   grants: PlayerLevelGrants;
-  /** §I3 unlocks crossed by this award — empty until the board files the catalogue. */
+  /** §I3 unlocks crossed by this award: empty until the board files the catalogue. */
   unlocks: PlayerLevelUnlock[];
 }
 
@@ -86,7 +86,7 @@ export interface PlayerXpAward {
  * Resolves one XP award end to end. Pure: the caller decides whether to persist it.
  *
  * This is the only place that turns an XP *source* into a level change, so a caller never has to
- * know the curve — it names what happened and gets back the new state.
+ * know the curve: it names what happened and gets back the new state.
  */
 export function resolvePlayerXpAward(
   current: PlayerLevelProgress,

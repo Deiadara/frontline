@@ -7,6 +7,7 @@ import {
   OFFICER_ROLES,
   TRAIT_CATALOG,
   isFlaw,
+  notorietyTier,
   reservationWage,
   type AlignmentBand,
   type AttributeName,
@@ -38,7 +39,7 @@ const BAND_STYLE: Record<AlignmentBand, string> = {
 };
 
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
-  infamy: 'Not infamous enough',
+  notoriety: 'Your name is not big enough',
   reputation: 'Wants no part of you',
 };
 
@@ -48,7 +49,7 @@ const BLOCKER_LABEL: Record<JoinBlocker, string> = {
  *
  * `cn` is `clsx`: it concatenates classes and does not resolve Tailwind conflicts, so a base
  * `text-ink-300` and a caller's `text-oxblood-300` both land on the element and the generated
- * stylesheet's order silently picks the winner — which was the base. Every coloured tag on this
+ * stylesheet's order silently picks the winner, which was the base. Every coloured tag on this
  * page was rendering steel because of it. Keeping the base to layout only makes the override the
  * only colour in play, so what a caller asks for is what renders.
  */
@@ -67,7 +68,7 @@ function Tag({ label, className = TAG_NEUTRAL }: { label: string; className?: st
   );
 }
 
-/** §H5 — the meter itself, so "too low" and "high" are visible rather than inferred. */
+/** §H5: the meter itself, so "too low" and "high" are visible rather than inferred. */
 function AlignmentMeter({ value, band }: { value: number; band: AlignmentBand }) {
   const fill =
     band === 'leaving' ? 'bg-oxblood-300' : band === 'devoted' ? 'bg-bile-300' : 'bg-brass-300';
@@ -128,25 +129,25 @@ interface RecruitCardProps {
   recruit: BarRecruit;
   filledRoles: readonly OfficerRole[];
   caps: number;
-  /** §H8 — every slot is taken, so no offer can be made however willing the character is. */
+  /** §H8: every slot is taken, so no offer can be made however willing the character is. */
   full: boolean;
-  /** §H2b — this crew has already signed somebody today. Same effect, different reason. */
+  /** §H2b: this crew has already signed somebody today. Same effect, different reason. */
   signedToday: boolean;
   pending: boolean;
-  /** §H7 — they turned an offer down and named their price. A refusal, not a deal. */
+  /** §H7: they turned an offer down and named their price. A refusal, not a deal. */
   counter: number | null;
-  /** §H7 — a wage struck in the negotiation window that nobody has signed yet. A deal, not a refusal. */
+  /** §H7: a wage struck in the negotiation window that nobody has signed yet. A deal, not a refusal. */
   agreed: number | null;
-  /** §H7 — the conversation with this character, if one has been opened today. */
+  /** §H7: the conversation with this character, if one has been opened today. */
   negotiation: Negotiation | undefined;
   onOffer: (recruitId: string, role: OfficerRole, offerWage: number) => void;
   onNegotiate: (recruitId: string) => void;
 }
 
 /**
- * One person at the Bar (§H1–§H4, §H7).
+ * One person at the Bar (§H1-§H4, §H7).
  *
- * Nothing on this card says what role they would be *good* at — the player reads the sheet and
+ * Nothing on this card says what role they would be *good* at: the player reads the sheet and
  * decides, which is what §B8 asks for. The role picker is a hiring choice (§C2), not a hint.
  */
 function RecruitCard({
@@ -203,7 +204,7 @@ function RecruitCard({
 
       {recruit.traits.length > 0 && (
         <div className="flex min-w-0 flex-wrap gap-1.5">
-          {/* §B7 — a flaw is a reason *not* to hire, so it must not read as another credential. */}
+          {/* §B7: a flaw is a reason *not* to hire, so it must not read as another credential. */}
           {recruit.traits.map((trait) => (
             <DescribedTag
               key={trait}
@@ -220,22 +221,22 @@ function RecruitCard({
         </div>
       )}
 
-      {recruit.requirement.minInfamy > 0 && (
+      {recruit.requirement.minNotoriety > 0 && (
         <p className="min-w-0 break-words font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-          Wants a crew at{' '}
-          <span className="tabular-nums text-ink-200">{recruit.requirement.minInfamy}</span> infamy
+          Will sit down with a crew the street calls{' '}
+          <span className="text-ink-200">{notorietyTier(recruit.requirement.minNotoriety)}</span>
         </p>
       )}
 
       {recruit.hired ? null : recruit.assessment.interested ? (
         <div className="mt-auto flex min-w-0 flex-col gap-2 pt-1">
           {negotiation !== undefined && !negotiation.closed && (
-            <p className="min-w-0 break-words font-hand text-[19px] leading-snug text-brass-100">
+            <p className="min-w-0 break-words font-stamp text-[14px] leading-snug text-brass-100">
               Mid-conversation. They are asking {negotiation.standing.toLocaleString()} a week.
             </p>
           )}
           {negotiation?.mood === 'walked' && (
-            <p className="min-w-0 break-words font-hand text-[19px] leading-snug text-oxblood-300">
+            <p className="min-w-0 break-words font-stamp text-[14px] leading-snug text-oxblood-300">
               They walked. Nothing more to say to you today.
             </p>
           )}
@@ -281,10 +282,10 @@ function RecruitCard({
                 placeholder={String(counter ?? asking ?? 0)}
                 value={offer}
                 onChange={(event) => setOffer(event.target.value)}
-                className="w-full min-w-0 rounded-sm border border-surface-600 bg-surface-900 px-2 py-1.5 font-hand text-[19px] tabular-nums text-ink-100"
+                className="w-full min-w-0 rounded-sm border border-surface-600 bg-surface-900 px-2 py-1.5 font-stamp text-[14px] tabular-nums text-ink-100"
               />
             </label>
-            {/* §H7 — the door into the conversation, beside the field that skips it. Both stay:
+            {/* §H7: the door into the conversation, beside the field that skips it. Both stay:
                 a player who knows the number they want should not have to sit through a
                 negotiation to offer it, and a player who does not now has somewhere to find out. */}
             <Button
@@ -380,7 +381,7 @@ function EmptyRow({ text }: { text: string }) {
 }
 
 /**
- * The Bar (GDD §H1) — today's roster and the crew it has already given you.
+ * The Bar (GDD §H1): today's roster and the crew it has already given you.
  *
  * The roster is the same for every player on the same UTC day (§H2), which the header says out
  * loud: it is a shared room, not a personalised shortlist.
@@ -394,17 +395,17 @@ export function BarPage() {
    *
    * Deliberately **not** the same map as `counters`. A counter-offer is a refusal carrying a price
    * ("turned it down; they will sign for N"); an agreement is a yes. Writing an accepted wage into
-   * the counter map is the bug this pair of maps exists to make impossible — it made the card
+   * the counter map is the bug this pair of maps exists to make impossible: it made the card
    * announce "Turned it down" the moment somebody said yes, and hired nobody.
    */
   const [agreed, setAgreed] = useState<Record<string, number>>({});
-  /** §H7 — which conversation is open, if any. One at a time: it is a table, not a phone bank. */
+  /** §H7, which conversation is open, if any. One at a time: it is a table, not a phone bank. */
   const [talkingTo, setTalkingTo] = useState<string | null>(null);
   /**
    * Conversations this session has moved on, over the ones the read arrived with.
    *
-   * The negotiate call deliberately does not refetch the Bar — a whole-roster reload mid-sentence
-   * would swap the window's state out from under the player — so the card behind the window needs
+   * The negotiate call deliberately does not refetch the Bar: a whole-roster reload mid-sentence
+   * would swap the window's state out from under the player, so the card behind the window needs
    * somewhere to learn that the standing demand has changed.
    */
   const [talks, setTalks] = useState<Record<string, Negotiation>>({});
@@ -413,7 +414,7 @@ export function BarPage() {
   const recruits = data?.recruits ?? [];
   const officers = data?.officers ?? [];
   const full = data !== undefined && data.slotsUsed >= data.slotsTotal;
-  // §H2b — the shared room's other limit. Distinct from `full`: one is about the crew's own
+  // §H2b: the shared room's other limit. Distinct from `full`: one is about the crew's own
   // recruit slots, the other about how many people the whole city may take out of the room today.
   const signedToday = data !== undefined && data.hiresLeftToday === 0;
 
@@ -459,10 +460,10 @@ export function BarPage() {
       icon="bar"
       lede="Same faces in here whoever you are, and every crew in the city is reading the same list. Sign somebody and they walk out of it. For everybody."
     >
-      <InfoNote tone="warn">
+      <InfoNote tone="warn" label="How the Bar works">
         Every crew in the city is reading this same list, and signing somebody takes them off it for
         all of them. You get one signature a day. So the question is never whether you can afford
-        this person — it is whether they are the one worth spending today on.
+        this person. It is whether they are the one worth spending today on.
       </InfoNote>
 
       <Panel
@@ -501,7 +502,8 @@ export function BarPage() {
               </span>
             ) : (
               <>
-                Street reads <span className="text-ink-200">{data?.reputation ?? '—'}</span>
+                Street reads{' '}
+                <span className="text-ink-200">{data?.reputation ?? 'nothing yet'}</span>
               </>
             )}
           </span>
@@ -509,7 +511,7 @@ export function BarPage() {
       >
         {/*
          * Two columns only from `xl`. A recruit card carries the whole 32-attribute sheet (§B6),
-         * and at 1024px a two-up grid squeezes its four columns to 61px — enough to ellipsise
+         * and at 1024px a two-up grid squeezes its four columns to 61px: enough to ellipsise
          * `communication` and `marksmanship`, which is fixed copy and so a permanent defect
          * rather than a fat-content edge case.
          */}

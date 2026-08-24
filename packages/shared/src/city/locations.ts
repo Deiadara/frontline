@@ -6,15 +6,15 @@ import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
 /**
  * The things inside a district that are worth taking (GDD §A4).
  *
- * A district is not a single objective. It is a handful of **locations** — a gas station, a
- * graveyard, a planetarium, somebody's lair — each held by exactly one party, each takeable on its
+ * A district is not a single objective. It is a handful of **locations**: a gas station, a
+ * graveyard, a planetarium, somebody's lair: each held by exactly one party, each takeable on its
  * own, and each worth something for as long as you keep it. Take every location in a district and
  * the district is yours, which pays again.
  *
  * ## This is the build
  *
- * There is no tech tree here and there is not meant to be one. What a crew *is* — fast, rich,
- * feared, well-read, able to field an Abomination — is the set of locations it holds, and the map
+ * There is no tech tree here and there is not meant to be one. What a crew *is*: fast, rich,
+ * feared, well-read, able to field an Abomination: is the set of locations it holds, and the map
  * is the character sheet. That is the board-game shape the design is after: you do not research
  * cheaper trades, you take the Downtown Market off whoever has it, and you keep it or you do not.
  *
@@ -23,7 +23,7 @@ import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
  *   * **Every location does exactly one thing, and says so.** A location whose reward cannot be
  *     stated in a sentence is a location a player cannot plan around.
  *   * **Levels are the investment, and capture is the risk.** A location is captured at level 1
- *     and can be worked up to {@link MAX_LOCATION_LEVEL} for resources — and the day somebody
+ *     and can be worked up to {@link MAX_LOCATION_LEVEL} for resources, and the day somebody
  *     takes it off you it goes back to 1 for them. Nobody inherits your work.
  *   * **Ground is not neutral.** Every kind carries environment labels (`labels.ts`) that decide
  *     which units are worth bringing, so taking a smuggler's tunnel is a different problem from
@@ -43,6 +43,7 @@ export const LOCATION_KINDS = [
   'gas_station',
   'nuclear_plant',
   'soup_kitchen',
+  'refugee_camp',
   // --- money and trade ---
   'market',
   'downtown_market',
@@ -90,7 +91,7 @@ export type LocationKind = z.infer<typeof LocationKindSchema>;
 /**
  * What holding a location is worth.
  *
- * A closed union, and every member is read by something — the same rule the building catalogue
+ * A closed union, and every member is read by something: the same rule the building catalogue
  * lives by. A bonus that cannot be spelled as one of these does not get written, because a number
  * on a screen that never moves is worse than no number.
  *
@@ -118,7 +119,7 @@ export type HoldBonus =
   | { kind: 'vision'; districts: number }
   /** A percentage more infamy off everything that earns any (§D8). */
   | { kind: 'infamy_gain'; percent: number }
-  /** One resource goes further than it should — the same barrel does more work. */
+  /** One resource goes further than it should: the same barrel does more work. */
   | { kind: 'resource_yield'; resource: ResourceKey; percent: number }
   /** Every crew that is out comes home sooner (§E). */
   | { kind: 'mission_speed'; percent: number }
@@ -138,15 +139,22 @@ export type HoldBonus =
   | { kind: 'salvage_refund'; percent: number }
   /** What a scout brings home, and what the city tells you without being asked. */
   | { kind: 'intel'; percent: number }
-  /** Flat points on every officer's attributes in one group — training the crew cannot buy. */
-  | { kind: 'officer_group'; group: AttributeGroup; flat: number };
+  /** Flat points on every officer's attributes in one group, training the crew cannot buy. */
+  | { kind: 'officer_group'; group: AttributeGroup; flat: number }
+  /**
+   * §A1: beds, on top of the flat {@link POPULATION_PER_LOCATION} every held location gives.
+   *
+   * For the handful of locations that are somewhere people actually live or eat. A camp at the
+   * green belt fence houses hundreds; a Cinema houses nobody, however much they like it there.
+   */
+  | { kind: 'population'; flat: number };
 
 /**
  * How far a location can be worked up, and what each level is worth.
  *
  * Captured at 1 and upgraded three times, which is the shape the board asked for: a location is a
  * post on a board, and the interesting question about a post is whether it is worth pouring
- * anything into when somebody could take it tomorrow. `LEVEL_SCALE` is what the pouring buys —
+ * anything into when somebody could take it tomorrow. `LEVEL_SCALE` is what the pouring buys:
  * level 4 is two and a half times level 1, so a fully worked Gas Station beats two fresh ones and
  * losing it hurts accordingly.
  */
@@ -159,14 +167,14 @@ export const UPGRADE_COST_SCALE: readonly number[] = [1, 2.2, 4.5];
 
 export interface LocationSpec {
   label: string;
-  /** One line for the map tooltip — what the location *is*. */
+  /** One line for the map tooltip: what the location *is*. */
   blurb: string;
   /** What holding it buys, in the player's words. Derived text would read like a spreadsheet. */
   reward: string;
   /**
    * Everything holding it is worth, at level 1. A list rather than a single bonus, because half
-   * the interesting locations do two things — a Gas Station is oil *and* the scrap off the forecourt
-   * — and folding that into one channel would make them all read the same.
+   * the interesting locations do two things: a Gas Station is oil *and* the scrap off the forecourt,
+   * and folding that into one channel would make them all read the same.
    */
   bonuses: readonly HoldBonus[];
   /**
@@ -179,7 +187,7 @@ export interface LocationSpec {
   /** What the first upgrade costs. The second and third scale by {@link UPGRADE_COST_SCALE}. */
   upgradeCost: PartialResources;
   /**
-   * What each upgrade actually *is*, in three short lines — one for level 2, 3 and 4.
+   * What each upgrade actually *is*, in three short lines: one for level 2, 3 and 4.
    *
    * Authored rather than generated, and it is the difference between a build order and a place:
    * "+50% oil" is a number going up, and "you get the underground tanks pumping again" is a thing
@@ -289,7 +297,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb:
       'Two cooling towers, a turbine hall with the roof half off, and a reactor building nobody has opened on purpose.',
     reward:
-      'High-quality metal out of the turbine hall — and enough power on tap that every barrel of oil you burn goes further.',
+      'High-quality metal out of the turbine hall, and enough power on tap that every barrel of oil you burn goes further.',
     bonuses: [
       { kind: 'resource', resource: 'highQualityMetal', perHour: 5 },
       { kind: 'resource_yield', resource: 'oil', percent: 12 },
@@ -310,6 +318,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [
       { kind: 'resource', resource: 'food', perHour: 14 },
       { kind: 'unit_morale', flat: 6 },
+      { kind: 'population', flat: 15 },
     ],
     baseDefense: 1,
     labels: [L('crammed', 3), L('noisy', 2)],
@@ -318,6 +327,26 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       'A second serving line, so the queue clears before the food does.',
       'Cold store out the back. Nothing is thrown away at the end of a day any more.',
       'Bread ovens. People come here who did not have to, which is worth more than the bread.',
+    ],
+  },
+
+  refugee_camp: {
+    label: 'Fence Camp',
+    blurb:
+      'Two thousand people along the green belt fence, in whatever they could carry, because the food is on the other side of it.',
+    reward:
+      'More people than any building in your district could house, and every one of them looking for a reason to be useful.',
+    bonuses: [
+      { kind: 'population', flat: 50 },
+      { kind: 'resource', resource: 'caps', perHour: 6 },
+    ],
+    baseDefense: 1,
+    labels: [L('crammed', 3), L('open', 2), L('noisy', 2), L('cold', 1)],
+    upgradeCost: { caps: 240, food: 200 },
+    upgrades: [
+      'Standpipes and latrines. The camp stops being an outbreak waiting to happen.',
+      'Timber and sheet steel go up where the tarpaulins were. It becomes a place people stay.',
+      'A gate, a roll, and somebody keeping it. Two thousand becomes a number you can call on.',
     ],
   },
 
@@ -388,7 +417,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb:
       'Nine metres of bronze with one arm raised, and a plinth the Combine has repeatedly failed to have removed.',
     reward:
-      'Standing under it costs you less with the people who deal in the dark — and taking it is a statement the whole city hears.',
+      'Standing under it costs you less with the people who deal in the dark, and taking it is a statement the whole city hears.',
     bonuses: [
       { kind: 'black_market_discount', percent: 15 },
       { kind: 'intimidation', flat: 6 },
@@ -401,7 +430,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       'Floodlights. It is the first thing anybody sees coming into the district.',
       'A standing crowd, most nights. What is said under it is repeated everywhere.',
     ],
-    /** §D8 — the one location whose *capture* is the event, not its output. */
+    /** §D8: the one location whose *capture* is the event, not its output. */
     captureInfamy: 6,
   },
 
@@ -438,7 +467,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     label: 'Watchtower',
     blurb:
       'A lattice mast with a cabin on top, a working pair of glasses, and a line of sight over four districts.',
-    reward: 'Everything your scouts do, they do better — everywhere in the city, not just here.',
+    reward: 'Everything your scouts do, they do better: everywhere in the city, not just here.',
     bonuses: [
       { kind: 'intel', percent: 20 },
       { kind: 'vision', districts: 1 },
@@ -510,7 +539,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     upgradeCost: { caps: 560, scrap: 320, oil: 100 },
     upgrades: [
       'A gantry crane over the north field. Whole hulls instead of what could be carried.',
-      'The sunk row is dug out and drained — the best of it was always at the bottom.',
+      'The sunk row is dug out and drained: the best of it was always at the bottom.',
       'A cutting shop on site, so what leaves is stock rather than wreckage.',
     ],
   },
@@ -578,7 +607,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     label: 'Rail Yard',
     blurb: 'Sidings, a turntable, and rolling stock that will move if pushed hard enough.',
     reward:
-      'Bogies, axles and drive parts by the wagonload — everything the garage has been improvising.',
+      'Bogies, axles and drive parts by the wagonload: everything the garage has been improvising.',
     bonuses: [
       { kind: 'vehicle_parts', percent: 20 },
       { kind: 'travel_speed', percent: 10 },
@@ -848,7 +877,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb:
       'Terraced plots up the cut, the older half subsided, and a lodge at the gate with a light on.',
     reward:
-      'Holding this ground says something the city does not forget — and what is buried here was buried with its rings on.',
+      'Holding this ground says something the city does not forget, and what is buried here was buried with its rings on.',
     bonuses: [
       { kind: 'infamy_gain', percent: 15 },
       { kind: 'resource', resource: 'caps', perHour: 10 },
@@ -873,7 +902,7 @@ export function clampLevel(level: number): number {
  * One bonus as it stands at a level.
  *
  * Rounded, and rounded *outward from zero on the magnitude* rather than truncated, so a small
- * bonus at level 1 still moves at level 2 — a 3% discount that scales to 4.5 and truncates back to
+ * bonus at level 1 still moves at level 2: a 3% discount that scales to 4.5 and truncates back to
  * 4 is an upgrade a player paid for and cannot see.
  */
 export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
@@ -881,7 +910,7 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
   const scale = LEVEL_SCALE[at - 1] as number;
   const grow = (value: number): number => Math.round(value * scale);
   /**
-   * The same, for channels counted in whole small things — sessions, syringes, districts seen.
+   * The same, for channels counted in whole small things: sessions, syringes, districts seen.
    *
    * `round(1 × 1.5)` and `round(1 × 2)` are both 2, so a Gym at level 3 paid exactly what it paid
    * at level 2 and the player had bought nothing. Floored at one step per level, so every upgrade
@@ -903,6 +932,7 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
     case 'unit_morale':
     case 'intimidation':
     case 'officer_group':
+    case 'population':
       return { ...bonus, flat: grow(bonus.flat) };
     default:
       return { ...bonus, percent: grow(bonus.percent) };
@@ -946,7 +976,7 @@ export function upgradeNote(kind: LocationKind, level: number): string | null {
  *
  * Deliberately inverted against intuition, and the board asked for it that way: an *easy* location
  * to fortify pays the most per level. The rubble-and-rebar barricade you can add to all afternoon
- * is worth more per level than the spire you can barely drill into — the hard ones are already
+ * is worth more per level than the spire you can barely drill into: the hard ones are already
  * defensible, so what you can add to them is marginal.
  */
 export const FORTIFY_DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
@@ -976,7 +1006,7 @@ export const LocationSchema = z.object({
 });
 export type Location = z.infer<typeof LocationSchema>;
 
-/** The zero of {@link TerritoryEffects} — also the answer for a crew holding nothing. */
+/** The zero of {@link TerritoryEffects}: also the answer for a crew holding nothing. */
 export interface TerritoryEffects {
   /** Added to whatever the district's own structures produce. */
   perHour: PartialResources;
@@ -996,17 +1026,17 @@ export interface TerritoryEffects {
   travelSpeedPercent: number;
   /** How many of the nearest districts are visible without scouting them.  */
   visionRange: number;
-  /** §D8 — a percentage more infamy off everything that earns any. */
+  /** §D8: a percentage more infamy off everything that earns any. */
   infamyGainPercent: number;
   /** Per resource: the same amount does this much more work than it should. */
   resourceYieldPercent: PartialResources;
-  /** §E — every crew that is out is home sooner. */
+  /** §E: every crew that is out is home sooner. */
   missionSpeedPercent: number;
   marketDiscountPercent: number;
   blackMarketDiscountPercent: number;
   refitDiscountPercent: number;
   vehiclePartsPercent: number;
-  /** §F2 — extra sessions in the day. */
+  /** §F2: extra sessions in the day. */
   extraTrainingSessions: number;
   /** Adrenaline syringes on hand before a fight. */
   battleStims: number;
@@ -1022,6 +1052,14 @@ export interface TerritoryEffects {
   intelYieldPercent: number;
   /** Flat points on every officer's attributes in a group. What the Chapel and the Station give. */
   officerGroupFlat: Partial<Record<AttributeGroup, number>>;
+  /**
+   * §A1: beds the map adds to the district's own.
+   *
+   * `POPULATION_PER_LOCATION` for every location held, plus whatever the locations that house
+   * people give on top. Folded in `territoryEffectsFor`, because the flat-per-location part is a
+   * fact about *how many* you hold rather than about any one of them.
+   */
+  populationBonus: number;
 }
 
 export function noTerritoryEffects(): TerritoryEffects {
@@ -1054,10 +1092,11 @@ export function noTerritoryEffects(): TerritoryEffects {
     salvageRefundPercent: 0,
     intelYieldPercent: 0,
     officerGroupFlat: {},
+    populationBonus: 0,
   };
 }
 
-/** Folds one bonus into a running total. Mutates `into` — it is the accumulator of a reduce. */
+/** Folds one bonus into a running total. Mutates `into`. It is the accumulator of a reduce. */
 export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): TerritoryEffects {
   switch (bonus.kind) {
     case 'resource':
@@ -1147,6 +1186,9 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
     case 'intel':
       into.intelYieldPercent += bonus.percent;
       return into;
+    case 'population':
+      into.populationBonus += bonus.flat;
+      return into;
     case 'officer_group':
       into.officerGroupFlat = {
         ...into.officerGroupFlat,
@@ -1231,6 +1273,8 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `+${bonus.percent}% intel`;
     case 'officer_group':
       return `+${bonus.flat} to officer ${GROUP_LABELS[bonus.group]} skills`;
+    case 'population':
+      return `+${bonus.flat} population`;
   }
 }
 
@@ -1257,6 +1301,6 @@ for (const kind of LOCATION_KINDS) {
     throw new Error(`${kind} has no upgrade price, so it can never be worked up`);
   }
   if (spec.labels.length === 0) {
-    throw new Error(`${kind} has no environment labels — every ground fights like something`);
+    throw new Error(`${kind} has no environment labels: every ground fights like something`);
   }
 }

@@ -24,7 +24,7 @@ function show(levelUp?: { level: number; levelsGained: number }) {
 }
 
 /**
- * MOU-227 — the raid response is the only place this level-up is reported, so the report modal is
+ * MOU-227: the raid response is the only place this level-up is reported, so the report modal is
  * where the player finds out. What is asserted is the *grants*: the level number alone does not
  * tell them the raid just bought a bigger assignee pool.
  */
@@ -34,7 +34,7 @@ describe('BattleResultModal announces the level-up the raid paid for (§I2)', ()
 
     const banner = screen.getByRole('region', { name: 'Level up' });
     expect(banner).toHaveTextContent('LEVEL 4');
-    // Level 4 is where §G3's per-officer cap turns over from 1 to 2 — a real change to announce.
+    // Level 4 is where §G3's per-officer cap turns over from 1 to 2: a real change to announce.
     const grants = playerLevelGrants(4);
     expect(banner).toHaveTextContent(`Assignee pool${grants.assigneePool}`);
     expect(banner).toHaveTextContent(`Assignees / officer${grants.assigneeCapPerOfficer}`);
@@ -56,7 +56,7 @@ describe('BattleResultModal announces the level-up the raid paid for (§I2)', ()
   it('shows nothing at all when the raid did not cross a level', () => {
     show();
 
-    // Presence is the whole signal — an empty or zeroed banner would be a false announcement.
+    // Presence is the whole signal: an empty or zeroed banner would be a false announcement.
     expect(screen.queryByRole('region', { name: 'Level up' })).toBeNull();
     // The rest of the report is untouched by its absence.
     expect(screen.getByText('VICTORY')).toBeInTheDocument();

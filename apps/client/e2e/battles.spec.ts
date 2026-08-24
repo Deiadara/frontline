@@ -10,45 +10,113 @@ import {
 test.use({ viewport: { width: 1280, height: 800 } });
 
 /**
- * The board (§A4, battle rework), through the browser.
+ * The Battles page (§A4, battle rework), through the browser.
  *
  * The unit tests already pin the rules. What only a browser can answer is whether the screen a
  * player actually gets **says** what the rules mean: that a fight you called and a fight you are
  * defending read as different things, that an enemy force you cannot count reads as unknown rather
  * than as zero, and that the report is a document somebody would read rather than a wall of
  * numbers. All three are things a green unit suite has shipped wrong before.
+ *
+ * The page is a list and a detail now, so the browser is also the only place that can say the two
+ * halves agree: picking a row has to change what the detail is about.
  */
 
-test('the board shows what is coming, who it is against, and what you have there', async ({
-  page,
-}) => {
+test('the list scans, and opening a fight says what is on the ground', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/battles');
 
-  await expect(page.getByRole('heading', { name: 'The Board' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Battles' })).toBeVisible();
   await expect(page.getByTestId('board-infamy')).toHaveText(`${battles.infamy} infamy`);
 
   const coming = page.getByTestId('coming-battles');
   await expect(coming.getByText('Kessler Press')).toBeVisible();
   await expect(coming.getByText('The Bonefield')).toBeVisible();
 
-  // The fight this crew called: their own force is exact, because it is theirs.
-  const mine = page.getByTestId(`battle-${battles.coming[0]!.battle.id}`);
-  await expect(mine.getByText('32', { exact: true })).toBeVisible();
+  // The first fight opens by default, so the page never lands on an empty column.
+  const mine = battles.coming[0]!;
+  const detail = page.getByTestId(`battle-detail-${mine.battle.id}`);
+  await expect(detail).toBeVisible();
+
+  // The board's own request: what you have there, unit by unit, rather than one body count.
+  const forces = page.getByTestId('battle-forces');
+  for (const unitId of Object.keys(mine.muster!.army)) {
+    await expect(forces.getByTestId(`force-${unitId}`)).toBeVisible();
+  }
 
   // The one they are defending: the other side is running dark, so it says so rather than "0".
-  const theirs = page.getByTestId(`battle-${battles.coming[1]!.battle.id}`);
-  await expect(theirs.getByText('unknown')).toBeVisible();
-  await expect(theirs.getByText('Nothing. They are running dark.')).toBeVisible();
+  const theirs = battles.coming[1]!;
+  await page.getByTestId(`battle-${theirs.battle.id}`).click();
+  const other = page.getByTestId(`battle-detail-${theirs.battle.id}`);
+  await expect(other).toBeVisible();
+  await expect(other.getByText('Unknown')).toBeVisible();
+  await expect(other.getByText('Nothing. They are running dark.')).toBeVisible();
 
   await settleFonts(page);
-  // Scoped to the panels themselves rather than to the page: this screen's scroll lives inside the
-  // sheet, and the fold of a scroller cuts its last row by design. What must not be cut is anything
-  // *inside* a card, which is what the two sweeps below actually measure.
+  /*
+   * The fold taken out of the way first.
+   *
+   * This screen's scroll lives inside the sheet, and the fold of a scroller cuts its last row by
+   * design: the detail column is taller than a laptop and is meant to be. Growing the viewport to
+   * the height of the content is what lets the sweep measure the *layout* rather than how far down
+   * the page happened to be, and it is what the market's and the district's sweeps already do.
+   */
+  await page.setViewportSize({ width: 1280, height: 2000 });
+  await settleFonts(page);
   await expectNothingClippedVertically(page, '[data-testid="coming-battles"]');
-  await expectNothingClippedVertically(page, '[data-testid="sacrifices"]');
+  await expectNothingClippedVertically(page, '[data-testid="name-buys"]');
   await expectNoImagesClipped(page, 'main section');
   await page.screenshot({ path: 'e2e-out/battles-board.png', fullPage: true });
+});
+
+/**
+ * §D7: what a name buys, and what it refuses to sell.
+ *
+ * The fixture's crew has finished no research and has one officer, so most of the shelf is on the
+ * table only in the sense of being visible. That is the state worth pinning: a boost you cannot see
+ * is a boost you never go and earn.
+ */
+test('the boost picker prices one fight, and says who has not offered the rest', async ({
+  page,
+}) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/battles');
+
+  const buys = page.getByTestId('name-buys');
+  await expect(buys).toBeVisible();
+  await expect(page.getByTestId('buy-boost')).toBeDisabled();
+
+  await page.getByTestId('boost-picker').click();
+  const open = battles.coming[0]!.boosts.find((option) => option.available)!;
+  const shut = battles.coming[0]!.boosts.find((option) => !option.available)!;
+  await expect(page.getByRole('option', { name: new RegExp(open.name) })).toBeVisible();
+  await expect(page.getByRole('option', { name: new RegExp(shut.name) })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+
+  await page.getByRole('option', { name: new RegExp(open.name) }).click();
+  await expect(buys.getByText(open.effect)).toBeVisible();
+  await expect(page.getByTestId('buy-boost')).toBeEnabled();
+
+  await settleFonts(page);
+  await expectNothingClippedVertically(page, '[data-testid="name-buys"]');
+  await page.screenshot({ path: 'e2e-out/battles-boost.png', fullPage: true });
+});
+
+/** The reports and your own ground are behind the switch now, so the switch has to work. */
+test('the tabs move between what is coming, what came back and what you hold', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/battles');
+
+  await page.getByTestId('battles-tab-reports').click();
+  await expect(page.getByTestId('battle-reports')).toBeVisible();
+
+  await page.getByTestId('battles-tab-ground').click();
+  await expect(page.getByTestId('structures')).toBeVisible();
+
+  await page.getByTestId('battles-tab-coming').click();
+  await expect(page.getByTestId('coming-battles')).toBeVisible();
 });
 
 test('a report reads as a document, and a silent one says so instead of showing an empty table', async ({
@@ -57,6 +125,7 @@ test('a report reads as a document, and a silent one says so instead of showing 
   await installApi(page, lateGame);
   await page.goto('/game/battles');
 
+  await page.getByTestId('battles-tab-reports').click();
   await page.getByTestId('read-fight-3').click();
   const report = page.getByTestId('battle-report');
   await expect(report).toBeVisible();

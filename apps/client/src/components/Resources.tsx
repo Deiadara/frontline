@@ -24,7 +24,7 @@ interface ResourceMeta {
 
 const glyph = (path: ReactNode) => (
   <svg viewBox="0 0 16 16" className="h-full w-full" fill="none" aria-hidden="true">
-    {/* Sized by the wrapper `ResourceIcon` puts around it — see the note there. */}
+    {/* Sized by the wrapper `ResourceIcon` puts around it: see the note there. */}
     {path}
   </svg>
 );
@@ -119,7 +119,7 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
   },
 };
 
-/** Fixed display order — taken from the shared schema so a new resource cannot be dropped. */
+/** Fixed display order: taken from the shared schema so a new resource cannot be dropped. */
 export const RESOURCE_ORDER: readonly ResourceKey[] = RESOURCE_KEYS;
 
 /**
@@ -164,7 +164,7 @@ interface ResourceChipProps {
   kind: ResourceKey;
   value: number;
   /**
-   * What the Apothecary will hold. Omitted where there is no ceiling to show — the readouts that
+   * What the Apothecary will hold. Omitted where there is no ceiling to show: the readouts that
    * are not the HUD.
    */
   capacity?: number;
@@ -176,7 +176,7 @@ interface ResourceChipProps {
  * Five stockpiles, two meters and an identity share one row, and a late-game player carries
  * six-figure numbers in all five. Spelled out with separators they wrap the bar onto a second line,
  * which costs the artwork ~50px on every screen in the game. A player scanning the bar is asking
- * "roughly how much, and is it going up" — a question `125K` answers as well as `125,000` and in
+ * "roughly how much, and is it going up": a question `125K` answers as well as `125,000` and in
  * half the width. Anyone who wants the digit is one hover away.
  */
 export function compactAmount(value: number): string {
@@ -187,10 +187,10 @@ export function compactAmount(value: number): string {
 }
 
 /**
- * How full the Apothecary is, 0–1. Undefined capacity reads as empty rather than as full.
+ * How full the Apothecary is, 0-1. Undefined capacity reads as empty rather than as full.
  *
  * Clamped at both ends: raids and mission pay are deliberately *not* clamped to storage (see
- * `applyProduction`), so a district can legitimately sit over its own ceiling — and a bar that
+ * `applyProduction`), so a district can legitimately sit over its own ceiling, and a bar that
  * rendered 140% would run out of its own track.
  */
 export function fillFraction(value: number, capacity: number | undefined): number {
@@ -205,13 +205,13 @@ export const STORAGE_WARN_AT = 0.9;
  * Icon, value, and how close the ceiling is.
  *
  * The bar underneath is the Grepolis move and it earns its two pixels: "how much do I have" is
- * only half the question a player is asking, and the other half — *am I about to waste what I am
- * producing* — is invisible in a bare number. Production stops dead at the ceiling while raid loot
+ * only half the question a player is asking, and the other half: *am I about to waste what I am
+ * producing*: is invisible in a bare number. Production stops dead at the ceiling while raid loot
  * and mission pay still land, so a full stockpile is a real, silent loss that a fill bar turns into
  * something you can see across the room.
  *
- * The chip itself stays compact and wordless. Everything else — the resource's name, the exact
- * figure, the ceiling — lives in the hover card, because five of these plus two meters and an
+ * The chip itself stays compact and wordless. Everything else: the resource's name, the exact
+ * figure, the ceiling: lives in the hover card, because five of these plus two meters and an
  * identity have to share one row over the artwork.
  */
 export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
@@ -225,7 +225,7 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
       : `${meta.label}: ${amount.toLocaleString()} of ${Math.round(capacity).toLocaleString()}`;
 
   /*
-   * Icon left, reading right — rather than icon-and-number over a full-width bar.
+   * Icon left, reading right: rather than icon-and-number over a full-width bar.
    *
    * The glyph is the thing a player finds the chip by, so it gets its own lighter tile and four
    * more pixels. Putting the fill bar *beside* the icon instead of under the whole chip is what
@@ -367,7 +367,7 @@ export function ResourceGrid({ resources, className }: ResourceGridProps) {
 /**
  * What a purchase costs, against what is in the vault. A line the stockpile cannot cover is drawn
  * in the hostile ramp, so the player reads *which* material is short rather than only that the
- * button is dead (GDD §D3 — oil is the one that usually is).
+ * button is dead (GDD §D3: oil is the one that usually is).
  */
 export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resources }) {
   const entries = RESOURCE_ORDER.filter((kind) => (cost[kind] ?? 0) > 0);

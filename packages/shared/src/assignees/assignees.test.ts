@@ -31,14 +31,14 @@ const professor = createCommander('prof', 'Vela', 'professor');
 const scout = createCommander('scout', 'Rix', 'scout');
 const trader = createCommander('trader', 'Bex', 'trader');
 
-describe('§G7 — the bonus table', () => {
+describe('§G7: the bonus table', () => {
   /**
    * The twelve percentages are written out here by hand, on purpose. Reading them back off
    * `ASSIGNEE_BONUS_PERCENT` would assert the table against itself and pass under any corruption
    * of it; W4 owns these numbers, so hard-coding them is the point of the test, not a smell.
    *
    * They are also not a curve. The step at n=6 is +5.5 after three +4.5 steps, and at n=12 it is
-   * +5.0 after a +2.0 — if a future change "smooths" the table, these rows are what fails.
+   * +5.0 after a +2.0, if a future change "smooths" the table, these rows are what fails.
    */
   it.each([
     [1, 5],
@@ -68,7 +68,7 @@ describe('§G7 — the bonus table', () => {
     expect(assigneeBonusPercent(12)).toBe(50);
   });
 
-  /** The extension rows (13–24), and the block milestones the board's own rhythm implies. */
+  /** The extension rows (13-24), and the block milestones the board's own rhythm implies. */
   it('continues past twelve on the board’s rhythm, to 75% at 24', () => {
     expect(ASSIGNEE_BONUS_PERCENT).toHaveLength(24);
     expect(MAX_ASSIGNEES_PER_OFFICER).toBe(24);
@@ -80,7 +80,7 @@ describe('§G7 — the bonus table', () => {
     expect([at(6), at(12) - at(6), at(18) - at(12), at(24) - at(18)]).toEqual([29, 21, 15, 10]);
   });
 
-  it('clamps past the end of the table — the 25th body is worth nothing', () => {
+  it('clamps past the end of the table: the 25th body is worth nothing', () => {
     for (const count of [25, 26, 40, 100, 1000]) {
       expect(assigneeBonusPercent(count)).toBe(75);
     }
@@ -122,7 +122,7 @@ describe('§G7 — the bonus table', () => {
   });
 });
 
-describe('§G5 — the same table drives time and power', () => {
+describe('§G5: the same table drives time and power', () => {
   it('reads one bonus for both, so they cannot drift', () => {
     for (let count = 0; count <= 13; count += 1) {
       const bonus = assigneeBonus(count);
@@ -144,7 +144,7 @@ describe('§G5 — the same table drives time and power', () => {
   });
 });
 
-describe('§G3/§G3a — the per-officer cap', () => {
+describe('§G3/§G3a: the per-officer cap', () => {
   it('is 1 at the start and 2 from level 4', () => {
     expect(assigneeCapPerOfficer(1)).toBe(1);
     expect(assigneeCapPerOfficer(2)).toBe(1);
@@ -156,8 +156,8 @@ describe('§G3/§G3a — the per-officer cap', () => {
 
   /**
    * §G3a has no ceiling and there is no maximum player level, so the entitlement climbs forever
-   * while the §G7 table is finite. Placement stops where the table does — at whatever length it
-   * has, not at a number written here — because the first assignee past the end is worth 0% and
+   * while the §G7 table is finite. Placement stops where the table does: at whatever length it
+   * has, not at a number written here, because the first assignee past the end is worth 0% and
    * would be stranded behind an officer with no feedback saying so.
    */
   it('follows the table’s length, not a hardcoded number', () => {
@@ -172,7 +172,7 @@ describe('§G3/§G3a — the per-officer cap', () => {
   });
 });
 
-describe('§G8 — the pool', () => {
+describe('§G8: the pool', () => {
   it('starts at 2 and grows by 1 a level, +1 more every fifth', () => {
     expect(assigneePool(1)).toBe(2);
     expect(assigneePool(2)).toBe(3);
@@ -192,7 +192,7 @@ describe('§G8 — the pool', () => {
   });
 });
 
-describe('§G2 — placing what a level-up handed over', () => {
+describe('§G2: placing what a level-up handed over', () => {
   const officers = [scout, trader, professor];
 
   it('places into an empty crew', () => {
@@ -241,7 +241,7 @@ describe('§G2 — placing what a level-up handed over', () => {
     }
   });
 
-  it('never takes an assignee back — that is §G4 reskilling', () => {
+  it('never takes an assignee back. That is §G4 reskilling', () => {
     const placed = placeAssignees(startingAssignees(), {
       officers,
       commanderId: 'scout',
@@ -264,7 +264,7 @@ describe('§G2 — placing what a level-up handed over', () => {
   });
 });
 
-describe('§G4/§C4 — reskilling is the Professor’s process', () => {
+describe('§G4/§C4: reskilling is the Professor’s process', () => {
   it('needs a Professor on the books', () => {
     expect(canReskill([scout, trader])).toBe(false);
     expect(canReskill([scout, professor])).toBe(true);
@@ -321,7 +321,7 @@ describe('§G4/§C4 — reskilling is the Professor’s process', () => {
   });
 });
 
-describe('§G6 — hard needs an officer, easy can go without', () => {
+describe('§G6: hard needs an officer, easy can go without', () => {
   it('refuses a hard job with nobody in charge', () => {
     const terms = delegationTerms({ difficulty: 'hard', hasOfficer: false, assignees: 12 });
     expect(terms.allowed).toBe(false);
@@ -335,7 +335,7 @@ describe('§G6 — hard needs an officer, easy can go without', () => {
     expect(terms.successMultiplier).toBe(1);
   });
 
-  it('lets assignees alone run an easy job — slower and with worse odds', () => {
+  it('lets assignees alone run an easy job: slower and with worse odds', () => {
     const alone = delegationTerms({ difficulty: 'easy', hasOfficer: false, assignees: 2 });
     const led = delegationTerms({ difficulty: 'easy', hasOfficer: true, assignees: 2 });
 
@@ -355,8 +355,8 @@ describe('§G6 — hard needs an officer, easy can go without', () => {
 
   /**
    * The §G6 invariant, at every crew size the table covers: holding the people fixed, losing the
-   * officer is strictly slower and strictly worse odds. That — not a comparison against some other
-   * crew — is what "slower and with a lower success chance" fixes.
+   * officer is strictly slower and strictly worse odds. That, not a comparison against some other
+   * crew: is what "slower and with a lower success chance" fixes.
    */
   it('is strictly worse on both axes for the same crew, at every size', () => {
     for (let assignees = 1; assignees <= MAX_ASSIGNEES_PER_OFFICER; assignees += 1) {
@@ -371,7 +371,7 @@ describe('§G6 — hard needs an officer, easy can go without', () => {
     const led = delegationTerms({ difficulty: 'easy', hasOfficer: true, assignees: 12 });
     expect(delegatedMinutes(60, led)).toBe(30);
     expect(delegatedMinutes(1, led)).toBe(1);
-    // 0.97 × 1.5 would be 1.455 — a chance can never pass certainty.
+    // 0.97 × 1.5 would be 1.455: a chance can never pass certainty.
     expect(delegatedSuccessChance(0.97, led)).toBe(1);
     expect(delegatedSuccessChance(0.5, led)).toBeCloseTo(0.75, 10);
     expect(delegatedSuccessChance(0, led)).toBe(0);
@@ -385,7 +385,7 @@ describe('AssigneeStateSchema', () => {
     });
     expect(AssigneeStateSchema.safeParse({ placements: { scout: -1 } }).success).toBe(false);
     expect(AssigneeStateSchema.safeParse({ placements: { scout: 1.5 } }).success).toBe(false);
-    // Zero is not a stored value — an empty officer is an absent key (one shape per arrangement).
+    // Zero is not a stored value: an empty officer is an absent key (one shape per arrangement).
     expect(AssigneeStateSchema.safeParse({ placements: { scout: 0 } }).success).toBe(false);
   });
 });

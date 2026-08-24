@@ -1,6 +1,6 @@
 -- Research and hidden-info discovery (MOU-166, GDD §B9, §F2).
 --
--- Number allocated by the CTO on MOU-232 under INTERFACES.md R6 — do not renumber, the runner keys
+-- Number allocated by the CTO on MOU-232 under INTERFACES.md R6: do not renumber, the runner keys
 -- `schema_migrations` on the file name and a rename re-applies the migration. `0006_recruitment.sql`
 -- was allocated to W5 and had not landed when this was written, which is exactly the trap R6 exists
 -- to close: `git log` is not the allocator.
@@ -10,7 +10,7 @@
 --
 -- There is deliberately **no facts table** and no per-role columns. What a crew has discovered is a
 -- short, append-only list of `DiscoveredFact` values, and the hidden role requirement table it is
--- derived from must never acquire a database representation of any kind (§B8a, INTERFACES R4) —
+-- derived from must never acquire a database representation of any kind (§B8a, INTERFACES R4):
 -- a `role_requirements` table would be the leak this whole workstream is built not to be.
 --
 -- Following `0005_progression.sql` rather than `0003_economy.sql`: the DEFAULT is a *valid*

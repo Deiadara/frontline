@@ -9,7 +9,7 @@ describe('bundle partition', () => {
     expect([...placed].sort()).toEqual(ART_MANIFEST.map((spec) => spec.key).sort());
   });
 
-  it('leaves no bundle empty — an empty one is a dead screen', () => {
+  it('leaves no bundle empty: an empty one is a dead screen', () => {
     for (const name of ASSET_BUNDLES) expect(BUNDLE_SPECS[name].length).toBeGreaterThan(0);
   });
 

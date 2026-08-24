@@ -4,7 +4,7 @@ import { BUILDING_CATALOG, CENTRAL_BUILDING, type BuildingKind } from './kinds.j
 import { buildingLevel, type Building } from './state.js';
 
 /**
- * What a level costs and how long it takes (§A1, §D3 — oil is what building consumes).
+ * What a level costs and how long it takes (§A1, §D3: oil is what building consumes).
  *
  * Two separate curves on purpose. Materials climb gently enough that a level-20 structure is a
  * campaign rather than a wall; the clock climbs much harder, because *time* is what paces a
@@ -17,7 +17,7 @@ export const BUILDING_COST_GROWTH = 1.28;
 /**
  * The clock multiplies by this per level: level 20 takes ~1050x level 1.
  *
- * With the catalogue's 20-70 second first levels that is the ladder the board asked for — seconds
+ * With the catalogue's 20-70 second first levels that is the ladder the board asked for: seconds
  * at the start, a few minutes by level 10, and the better part of a working day at the top before
  * the Nexus takes its cut.
  */
@@ -59,7 +59,7 @@ export function buildDiscountFor(
   };
 }
 
-/** The undiscounted price of raising `kind` **to** `level` — level 1 being the first construction. */
+/** The undiscounted price of raising `kind` **to** `level`: level 1 being the first construction. */
 export function baseBuildingCost(kind: BuildingKind, level: number): PartialResources {
   const growth = BUILDING_COST_GROWTH ** (level - 1);
   const { baseCost } = BUILDING_CATALOG[kind];
@@ -74,7 +74,7 @@ export function baseBuildingCost(kind: BuildingKind, level: number): PartialReso
  * What this district actually pays to raise `kind` to `level`.
  *
  * The whole bundle scales, not just the oil, so a structure never gets cheaper in any one resource
- * as it climbs. Rounded to whole units — resources are counted, not measured — and floored at 1 for
+ * as it climbs. Rounded to whole units, resources are counted, not measured, and floored at 1 for
  * any line the catalogue charges at all, so a deep discount can never make a material free.
  */
 export function buildingCost(

@@ -107,7 +107,7 @@ describe('when a fight may be called for (§A4)', () => {
     expect(scheduleRefusal(at('2026-08-16T19:30:00.000Z'), NOON)).toBe('too_soon');
   });
 
-  /** "Up to one second before the fight" — the board's rule, stated literally. */
+  /** "Up to one second before the fight": the board's rule, stated literally. */
   it('keeps deployment open until one second before the mark, and shuts it after', () => {
     const mark = at('2026-08-16T20:00:00.000Z');
     expect(deploymentIsOpen(mark, at('2026-08-16T19:59:59.000Z'))).toBe(true);
@@ -148,7 +148,7 @@ describe('what may be declared against (§A4)', () => {
     );
   });
 
-  /** A breach re-opens the ordinary route in as well — the door is off its hinges. */
+  /** A breach re-opens the ordinary route in as well: the door is off its hinges. */
   it('lets locations be attacked again while the gate is down', () => {
     expect(
       declarationRefusal(location, { shut: true, breached: true, inhabited: true }),
@@ -255,7 +255,7 @@ describe('traps (§A4)', () => {
   });
 
   /**
-   * The rule that stops a trap being a wall. It takes a bite and the attack happens anyway — the
+   * The rule that stops a trap being a wall. It takes a bite and the attack happens anyway: the
    * only exception is the one where there is nothing left to attack with.
    */
   it('takes a bounded bite and leaves the attack standing', () => {
@@ -358,7 +358,7 @@ describe('the report (§A5)', () => {
     expect(winner.units.length).toBeGreaterThan(0);
     const shares = winner.units.reduce((sum, unit) => sum + unit.damageShare, 0);
     expect(shares).toBeCloseTo(1, 6);
-    // Sorted by damage, hardest first — the table is the answer to "which of these earned it".
+    // Sorted by damage, hardest first: the table is the answer to "which of these earned it".
     for (let i = 1; i < winner.units.length; i += 1) {
       expect(winner.units[i - 1]!.damage).toBeGreaterThanOrEqual(winner.units[i]!.damage);
     }

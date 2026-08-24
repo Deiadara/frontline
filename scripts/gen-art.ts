@@ -5,11 +5,11 @@
  * `STYLE_ANCHOR + SUBJECT + FRAMING` for each entry, hands it to a pluggable {@link ImageBackend},
  * writes the returned bytes as a **lossless PNG master** under `art-src/` and drops a
  * `*.provenance.json` beside it. Turning a master into its ART-BIBLE §6 delivery file
- * (`spec.file` — WebP at `ASSET_CLASS_SPECS[class].quality`) and the 1×/2× split belong to the
+ * (`spec.file`: WebP at `ASSET_CLASS_SPECS[class].quality`) and the 1×/2× split belong to the
  * AssetPack step; masters live outside the app bundle and are never shipped (ART-BIBLE §6).
  *
- * A backend is asked for `spec.source`, not `spec.file`'s resolution. For 14 assets those differ —
- * no backend renders 512×512 with alpha, and none renders 16:9 with alpha at all — so the manifest
+ * A backend is asked for `spec.source`, not `spec.file`'s resolution. For 14 assets those differ:
+ * no backend renders 512×512 with alpha, and none renders 16:9 with alpha at all, so the manifest
  * declares the nearest producible render plus the `spec.postProcess` steps (`downscale`, `matte`)
  * that close the gap. The steps are recorded in provenance and applied by the AssetPack encode
  * step; declaring them is what keeps the substitution deliberate instead of silent.
@@ -22,8 +22,8 @@
  *   FRONTLINE_ART_BACKEND=fal FAL_KEY=… pnpm --filter @frontline/scripts gen-art --all
  *
  * `--dry-run` makes **zero** network calls and is what CI exercises; it exits non-zero on any
- * validation failure. A funded run must name its selection — `--only KEYS` or `--all` — so the
- * whole manifest is never billed by accident. No backend is activated by default — see ADR 0001
+ * validation failure. A funded run must name its selection, `--only KEYS` or `--all`, so the
+ * whole manifest is never billed by accident. No backend is activated by default: see ADR 0001
  * §6.2 for why there is deliberately no key-free route.
  */
 import { createHash } from 'node:crypto';
@@ -52,7 +52,7 @@ import {
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** ADR 0001 §5.1 / ART-BIBLE §6 — masters live outside the shipped asset tree. */
+/** ADR 0001 §5.1 / ART-BIBLE §6: masters live outside the shipped asset tree. */
 export const DEFAULT_OUT_DIR = path.join(REPO_ROOT, 'art-src');
 
 export interface ImageRequest {
@@ -61,7 +61,7 @@ export interface ImageRequest {
   prompt: string;
   negative: string;
   seed: number;
-  /** `spec.source` — what the backend is asked for, which is not always what ships. */
+  /** `spec.source`: what the backend is asked for, which is not always what ships. */
   width: number;
   height: number;
   alpha: boolean;
@@ -75,11 +75,11 @@ export interface ImageBackend {
   model: string;
   /** Licence statement for the licensing register (ART-BIBLE §9). */
   licence: string;
-  /** ART-PROMPTS §8.3 — whether `styleRefPaths` actually reach the model. */
+  /** ART-PROMPTS §8.3: whether `styleRefPaths` actually reach the model. */
   supportsStyleRefs: boolean;
-  /** ART-BIBLE §6 — whether the backend can return a genuinely transparent master. */
+  /** ART-BIBLE §6: whether the backend can return a genuinely transparent master. */
   supportsAlpha: boolean;
-  /** ART-BIBLE §9 — whether re-running the same seed reproduces the file. */
+  /** ART-BIBLE §9: whether re-running the same seed reproduces the file. */
   honorsSeed: boolean;
   generate(req: ImageRequest): Promise<Uint8Array>;
 }
@@ -90,13 +90,13 @@ export interface Provenance {
   masterFile: string;
   /** The ART-BIBLE §6 delivery file the encode step produces from the master. */
   deliveryFile: string;
-  /** What the backend was asked to render — differs from the delivery spec for 14 assets. */
+  /** What the backend was asked to render: differs from the delivery spec for 14 assets. */
   source: AssetSource;
   /** The declared steps the encode step must apply to turn this master into `deliveryFile`. */
   postProcess: readonly PostProcessStep[];
   backend: ImageBackendName;
   model: string;
-  /** `null` when the backend exposes no seed (gpt-image-1) — the asset is then not reproducible. */
+  /** `null` when the backend exposes no seed (gpt-image-1): the asset is then not reproducible. */
   seed: number | null;
   promptSha256: string;
   /** Whether the ART-PROMPTS §8.3 consistency references were passed to the backend. */
@@ -117,7 +117,7 @@ export function assemblePrompt(spec: AssetSpec): string {
 }
 
 /**
- * The one way a NEGATIVE list is expressed to a model that has no negative-prompt parameter — the
+ * The one way a NEGATIVE list is expressed to a model that has no negative-prompt parameter: the
  * gpt-image-1 adapter and every hand-pasted chat-UI route must fold it identically, or two runs of
  * the same asset are two different prompts.
  */
@@ -127,7 +127,7 @@ export function foldNegativeIntoProse(prompt: string, negative: string): string 
 
 /**
  * The provenance digest (ADR 0001 §6.4). Hashes the assembled prompt **before** any negative fold,
- * alongside the shared NEGATIVE — so a prompt or negative edit is visible whichever route rendered
+ * alongside the shared NEGATIVE, so a prompt or negative edit is visible whichever route rendered
  * the asset.
  */
 export function hashPrompt(prompt: string): string {
@@ -209,14 +209,14 @@ export function createBackend(name: ImageBackendName, env: Env): ImageBackend {
 
 function requireKey(env: Env, variable: string, backend: string): string {
   const key = env[variable];
-  if (!key) throw new Error(`${variable} is unset — required by the "${backend}" backend`);
+  if (!key) throw new Error(`${variable} is unset: required by the "${backend}" backend`);
   return key;
 }
 
 const FalResponseSchema = z.object({ images: z.array(z.object({ url: z.string() })).min(1) });
 
 /**
- * fal.ai FLUX.2 [pro] — the recommended default (ADR 0001 §6.6).
+ * fal.ai FLUX.2 [pro]: the recommended default (ADR 0001 §6.6).
  *
  * The endpoint, model id and field names below follow fal's documented queue/sync conventions but
  * were **not** exercised against the live API (no account, no key, nothing spent). Treat the first
@@ -227,7 +227,7 @@ export function createFalBackend(env: Env): ImageBackend {
   return {
     name: 'fal',
     model,
-    licence: 'fal.ai — commercial use per the model page (ADR 0001 §6.1); output rights per §6.4',
+    licence: 'fal.ai: commercial use per the model page (ADR 0001 §6.1); output rights per §6.4',
     supportsStyleRefs: true,
     supportsAlpha: BACKEND_CAPABILITIES.fal.alpha,
     honorsSeed: true,
@@ -266,7 +266,7 @@ const OpenAiResponseSchema = z.object({ data: z.array(z.object({ b64_json: z.str
 export type OpenAiSize = '1024x1024' | '1024x1536' | '1536x1024';
 
 /**
- * OpenAI gpt-image-1 — used for the four overseer portraits (ADR 0001 §6.6).
+ * OpenAI gpt-image-1: used for the four overseer portraits (ADR 0001 §6.6).
  *
  * gpt-image-1 exposes neither a seed nor a negative prompt, so reproducibility is weaker than fal
  * (`honorsSeed: false`) and the negative list is folded into the prompt. Style references go
@@ -279,14 +279,14 @@ export function createOpenAiBackend(env: Env): ImageBackend {
   return {
     name: 'openai',
     model,
-    licence: 'OpenAI gpt-image-1 — output ownership unresolved, see ADR 0001 §6.4',
+    licence: 'OpenAI gpt-image-1: output ownership unresolved, see ADR 0001 §6.4',
     supportsStyleRefs: true,
     supportsAlpha: BACKEND_CAPABILITIES.openai.alpha,
     honorsSeed: false,
     async generate(req) {
       assertProducible('openai', req);
       const key = requireKey(env, 'OPENAI_API_KEY', 'openai');
-      // Unreachable while the size table and the capability table agree — pinned by a test.
+      // Unreachable while the size table and the capability table agree: pinned by a test.
       const size = openAiSize(req.width, req.height);
       if (size === null) throw new Error(unproducibleMessage('openai', requestSource(req)));
 
@@ -328,7 +328,7 @@ async function openAiGenerate(
   });
 }
 
-/** ART-PROMPTS §8.3 — the two approved references are passed as `image[]` edit inputs. */
+/** ART-PROMPTS §8.3: the two approved references are passed as `image[]` edit inputs. */
 async function openAiEdit(
   key: string,
   model: string,
@@ -377,14 +377,14 @@ function describeSource({ width, height, alpha }: AssetSource): string {
 function unproducibleMessage(backend: ImageBackendName, source: AssetSource): string {
   const { sizes, alpha } = BACKEND_CAPABILITIES[backend];
   const supported = sizes === null ? 'any size' : sizes.map(([w, h]) => `${w}×${h}`).join(', ');
-  return `${backend} cannot render ${describeSource(source)} — it supports ${supported}, ${alpha ? 'with' : 'no'} alpha`;
+  return `${backend} cannot render ${describeSource(source)}: it supports ${supported}, ${alpha ? 'with' : 'no'} alpha`;
 }
 
 /**
  * Why a backend cannot render `source`, or `null` when it can. {@link backendCanProduce} owns the
  * decision so there is exactly one capability table; this only explains it. Silently substituting a
  * size or dropping alpha would manufacture an ART-BIBLE §10 rejection at cost, so every caller
- * refuses instead — in `--dry-run` before the money, and in the adapters as a last line.
+ * refuses instead: in `--dry-run` before the money, and in the adapters as a last line.
  */
 export function unproducibleSource(backend: ImageBackendName, source: AssetSource): string | null {
   return backendCanProduce(backend, source) ? null : unproducibleMessage(backend, source);
@@ -400,21 +400,21 @@ const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 /**
  * `output_format: 'png'` is unverified wire format on both backends. If a provider ignores or
  * renames it we would write a JPEG into `<key>.png` and only find out when the encode step chokes,
- * long after the run is paid for — so the master's own bytes are the source of truth.
+ * long after the run is paid for, so the master's own bytes are the source of truth.
  */
 export function assertPngMaster(key: string, bytes: Uint8Array): void {
   if (bytes.length < PNG_MAGIC.length || PNG_MAGIC.some((byte, index) => bytes[index] !== byte)) {
     throw new Error(
-      `${key}: backend returned non-PNG bytes — masters must be lossless PNG (ART-BIBLE §6)`,
+      `${key}: backend returned non-PNG bytes: masters must be lossless PNG (ART-BIBLE §6)`,
     );
   }
 }
 
-/** Error bodies name the offending field — the only diagnostic an unverified wire format has. */
+/** Error bodies name the offending field: the only diagnostic an unverified wire format has. */
 async function describeFailure(response: Response, backend: string): Promise<Error> {
   const body = (await response.text().catch(() => '')).trim().slice(0, 500);
   return new Error(
-    `${backend} request failed: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`,
+    `${backend} request failed: ${response.status} ${response.statusText}${body ? `: ${body}` : ''}`,
   );
 }
 
@@ -454,7 +454,7 @@ export interface CliOptions {
   outDir: string;
   /** Asset keys to generate; empty means the whole manifest. */
   only: readonly string[];
-  /** Consent to a funded run over the whole manifest — see {@link assertSelectionWasChosen}. */
+  /** Consent to a funded run over the whole manifest: see {@link assertSelectionWasChosen}. */
   all: boolean;
 }
 
@@ -506,7 +506,7 @@ function parseOnlyKeys(value: string): string[] {
 
 /**
  * The wildcard is free to *reach* and expensive to *run*: no selector means the whole manifest, so a
- * bare `gen-art` on a machine holding credentials bills for all 45 assets — one stray Enter, or a
+ * bare `gen-art` on a machine holding credentials bills for all 45 assets: one stray Enter, or a
  * wrapper that drops its args, and the money is spent. A funded full-manifest run therefore has to
  * name itself with `--all`. `--dry-run` and `--emit-prompts` keep the wildcard: neither spends, and
  * the dry run is the documented way to see what `--all` would cost before paying it.
@@ -529,7 +529,7 @@ export function selectSpecs(only: readonly string[]): readonly AssetSpec[] {
 }
 
 /**
- * ART-PROMPTS §8.1 — plates and planes first (they set the world's value key), then the two assets
+ * ART-PROMPTS §8.1: plates and planes first (they set the world's value key), then the two assets
  * that become the style references, then everything that depends on them. Stable within each tier.
  */
 export function orderForGeneration(specs: readonly AssetSpec[]): readonly AssetSpec[] {
@@ -543,9 +543,9 @@ export function orderForGeneration(specs: readonly AssetSpec[]): readonly AssetS
 /** One `--emit-prompts` record: everything a hand- or robot-driven chat UI needs to render an asset. */
 export interface EmittedPrompt {
   key: string;
-  /** The exact prose to paste — `assemblePrompt` with NEGATIVE folded in, never a paraphrase. */
+  /** The exact prose to paste: `assemblePrompt` with NEGATIVE folded in, never a paraphrase. */
   prompt: string;
-  /** `spec.source` — what to ask the UI for, which is not always what ships. */
+  /** `spec.source`: what to ask the UI for, which is not always what ships. */
   width: number;
   height: number;
   /** `spec.aspect`; `validateAssetSpec` pins the source to the delivery ratio, so it covers both. */
@@ -557,7 +557,7 @@ export interface EmittedPrompt {
 }
 
 /**
- * ART-PROMPTS §0 — a chat UI has neither a negative-prompt field nor a seed, so the negative is
+ * ART-PROMPTS §0: a chat UI has neither a negative-prompt field nor a seed, so the negative is
  * folded into the prose exactly as the gpt-image-1 adapter folds it and the seed travels as data.
  */
 export function emitPrompt(spec: AssetSpec): EmittedPrompt {
@@ -607,7 +607,7 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
     if (selected === undefined) {
       // Otherwise the run starts, bills for every pinned asset it reaches, and only then throws.
       problems.push(
-        `${spec.key}: not pinned to a backend and FRONTLINE_ART_BACKEND is unset — set it to "fal" or "openai"`,
+        `${spec.key}: not pinned to a backend and FRONTLINE_ART_BACKEND is unset: set it to "fal" or "openai"`,
       );
       continue;
     }
@@ -616,7 +616,7 @@ export function validateRun(specs: readonly AssetSpec[], outDir: string, env: En
       problems.push(`${spec.key}: unknown FRONTLINE_ART_BACKEND "${selected}"`);
       continue;
     }
-    // The guard runs against `spec.source` — the thing the backend is actually asked for.
+    // The guard runs against `spec.source`: the thing the backend is actually asked for.
     const unproducible = unproducibleSource(parsed.data, spec.source);
     if (unproducible !== null) problems.push(`${spec.key}: ${unproducible}`);
   }
@@ -666,7 +666,7 @@ export async function generate(
     const request = buildImageRequest(spec, outDir);
     if (request.styleRefPaths.length > 0 && !backend.supportsStyleRefs) {
       process.stderr.write(
-        `warning: ${spec.key} generated without its style references — ${backend.name} cannot carry them\n`,
+        `warning: ${spec.key} generated without its style references: ${backend.name} cannot carry them\n`,
       );
     }
 
@@ -695,7 +695,7 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   }
 
   // Before `validateRun`: a chat UI is not one of the two backends, so the selectability gate has
-  // nothing to say here — and this mode must run on a machine holding no credentials at all.
+  // nothing to say here, and this mode must run on a machine holding no credentials at all.
   if (options.emitPrompts) {
     process.stdout.write(`${JSON.stringify(specs.map(emitPrompt), null, 2)}\n`);
     return 0;
@@ -725,7 +725,7 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
       );
     }
     // Most of these pins are capability-forced rather than chosen, and they move the bill several
-    // times over — the gate that runs before the money is the place to say which backend gets what.
+    // times over: the gate that runs before the money is the place to say which backend gets what.
     process.stdout.write(
       `backends: ${tally(specs.map((spec) => resolveBackendName(spec, env)))}\n`,
     );
@@ -743,7 +743,7 @@ export async function main(argv: readonly string[], env: Env): Promise<number> {
   return 0;
 }
 
-/** `name count, name count` — used for both the backend split and the post-process split. */
+/** `name count, name count`: used for both the backend split and the post-process split. */
 function tally(values: readonly string[]): string {
   const counts = new Map<string, number>();
   for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
@@ -758,7 +758,7 @@ function describePostProcess(spec: AssetSpec): string {
 
 /**
  * Printed on both paths, because a paid run otherwise ends with 44 "generating …" lines and no hint
- * that 14 of the masters are not the assets — and this runner never produces a delivery file.
+ * that 14 of the masters are not the assets, and this runner never produces a delivery file.
  */
 function postProcessSummary(specs: readonly AssetSpec[]): string {
   const pending = specs.filter((spec) => spec.postProcess.length > 0);
@@ -766,7 +766,7 @@ function postProcessSummary(specs: readonly AssetSpec[]): string {
   const steps = tally(pending.flatMap((spec) => spec.postProcess));
   return (
     `${pending.length} master(s) are not the delivery image (${steps}).\n` +
-    `Run \`pnpm --filter @frontline/scripts encode-art\` to apply these — until it has run, those ` +
+    `Run \`pnpm --filter @frontline/scripts encode-art\` to apply these, until it has run, those ` +
     `delivery files do not exist.\n`
   );
 }

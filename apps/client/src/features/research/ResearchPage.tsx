@@ -45,9 +45,9 @@ import { PageShell } from '../game/PageShell';
 import { useStartTech } from '../../lib/queries';
 
 /**
- * Research & discovery (GDD §B9, §F2–§F4).
+ * Research & discovery (GDD §B9, §F2-§F4).
  *
- * Everything role-related on this page is rendered from `facts` — the crew's own discovered facts,
+ * Everything role-related on this page is rendered from `facts`: the crew's own discovered facts,
  * shipped by `GET /api/research`. The consultation panel calls `consultOnAssignment` from
  * `@frontline/shared` *in the browser*, over the recruit sheets the Bar already serves: there is no
  * server-side judgement to leak, because there is no server-side judgement (§B8a, INTERFACES R4).
@@ -78,7 +78,7 @@ function EmptyRow({ text }: { text: string }) {
   return <p className="px-4 py-6 text-center text-xs text-ink-300">{text}</p>;
 }
 
-/** A live countdown on the project in flight — the same tick the missions page runs. */
+/** A live countdown on the project in flight: the same tick the missions page runs. */
 function useTick(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -89,7 +89,7 @@ function useTick(active: boolean): number {
   return now;
 }
 
-/** What the crew is on, in one line — the three project kinds each read differently. */
+/** What the crew is on, in one line: the three project kinds each read differently. */
 function titleOf(project: ActiveResearch['project']): string {
   switch (project.kind) {
     case 'investigation':
@@ -136,7 +136,7 @@ interface StartFormProps {
   onStart: (project: Parameters<ReturnType<typeof useStartResearch>['mutate']>[0]) => void;
 }
 
-/** §B9 + §F2 + §F4 — the two things the crew can be put on, and the option one of them unlocks. */
+/** §B9 + §F2 + §F4: the two things the crew can be put on, and the option one of them unlocks. */
 function StartForm({ data, pending, onStart }: StartFormProps) {
   const [role, setRole] = useState<OfficerRole | ''>('');
   const [leadId, setLeadId] = useState('');
@@ -209,7 +209,7 @@ function StartForm({ data, pending, onStart }: StartFormProps) {
               />
             </label>
 
-            {/* §F4 — an option that is *locked*, and says why, rather than quietly doing nothing. */}
+            {/* §F4: an option that is *locked*, and says why, rather than quietly doing nothing. */}
             <label
               className={cn(
                 'flex items-start gap-2 border p-2',
@@ -332,7 +332,7 @@ const BLOCKER_TEXT: Record<ModificationBlocker, string> = {
 };
 
 /**
- * §A1 — the sixty-five modifications, grouped by the structure they go in.
+ * §A1: the sixty-five modifications, grouped by the structure they go in.
  *
  * The whole catalogue is shown, not just the startable ones: what raising the Lab would unlock is
  * exactly the information a player needs *before* they raise it, and a list that hid everything
@@ -413,7 +413,7 @@ function ModificationsSection({ data, pending, onStart }: StartFormProps) {
   );
 }
 
-/** §B9 — what the crew has actually learned, grouped by the position it is about. */
+/** §B9: what the crew has actually learned, grouped by the position it is about. */
 function FactsPanel({ facts }: { facts: readonly DiscoveredFact[] }) {
   const roles = [
     ...new Set(facts.flatMap((fact) => (fact.kind === 'role_attribute' ? [fact.role] : []))),
@@ -476,7 +476,7 @@ function FactsPanel({ facts }: { facts: readonly DiscoveredFact[] }) {
 }
 
 /**
- * §B9 — "feedback you can ask for about a potential assignment for a given role".
+ * §B9: "feedback you can ask for about a potential assignment for a given role".
  *
  * Computed here, in the browser, from the recruit sheets the Bar already serves and the facts this
  * crew has earned. No ranking and no total: the discovered attributes, read off each sheet, and the
@@ -654,7 +654,7 @@ export function ResearchPage() {
         )}
       </Panel>
 
-      {/* The Lab's own tree. Four tracks, three rungs each, and every locked one says why —
+      {/* The Lab's own tree. Four tracks, three rungs each, and every locked one says why,
           which is where a player learns that the Runner's barrow is on their critical path. */}
       <Panel
         title="Standing programmes"

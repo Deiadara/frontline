@@ -24,7 +24,7 @@ const REFUSAL_ERRORS: Record<TrainingRefusal, { code: ErrorCode; message: string
   locked: { code: 'UNIT_LOCKED', message: 'You cannot field those yet' },
   queue_full: { code: 'TRAINING_QUEUE_FULL', message: 'The bench is full' },
   already_have_one: { code: 'UNIT_LOCKED', message: 'There is only ever one of those' },
-  no_supply: { code: 'NO_SUPPLY', message: 'Your Gauntlet cannot support any more' },
+  no_supply: { code: 'NO_SUPPLY', message: 'Your district has nowhere to put any more' },
   cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the cost' },
 };
 

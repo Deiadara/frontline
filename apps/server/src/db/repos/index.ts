@@ -24,7 +24,7 @@ export interface Repositories {
   bar: BarRepo;
   /** Who holds the city, and who has seen it (GDD §A4). */
   city: CityRepo;
-  /** The trading board — listings between players. */
+  /** The trading board: listings between players. */
   market: MarketRepo;
   /** The back room: slot turnover, receipts, and boosts nobody has spent yet. */
   blackMarket: BlackMarketRepo;

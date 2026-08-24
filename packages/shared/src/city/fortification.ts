@@ -10,12 +10,12 @@ import {
  * Digging in (GDD §A4).
  *
  * Five levels on any location you hold, each costing more materials and more time than the last. What
- * differs between one location and another is not the price — it is what the work is *worth*, and
+ * differs between one location and another is not the price. It is what the work is *worth*, and
  * that is a property of the ground: rubble and rebar you can keep adding to, spire ferrocrete you
  * can barely drill.
  *
  * The inversion is deliberate and is the board's: **easy ground pays the most per level.** Hard
- * ground is already defensible — the catalogue's `baseDefense` says so — so what you can add to it
+ * ground is already defensible, the catalogue's `baseDefense` says so, so what you can add to it
  * is marginal. A location that is both hard to take *and* rewards fortifying would be strictly best,
  * and there would be nothing to choose.
  */
@@ -30,7 +30,7 @@ export const FORTIFY_BASE_COST: PartialResources = {
   highQualityMetal: 8,
 };
 
-/** Level 5 costs ~8.4x level 1 — a real commitment on one location rather than a rounding error. */
+/** Level 5 costs ~8.4x level 1: a real commitment on one location rather than a rounding error. */
 export const FORTIFY_COST_GROWTH = 1.7;
 
 /** Seconds for the first level. Level 5 lands a little over an hour later. */
@@ -43,7 +43,7 @@ export function fortifyBonusPercent(difficulty: FortifyDifficulty, level: number
   return FORTIFY_PERCENT_PER_LEVEL[difficulty] * at;
 }
 
-/** The most fortification is ever worth on this ground — 25% / 20% / 15%. */
+/** The most fortification is ever worth on this ground: 25% / 20% / 15%. */
 export function maxFortifyBonusPercent(difficulty: FortifyDifficulty): number {
   return fortifyBonusPercent(difficulty, FORTIFY_MAX_LEVEL);
 }
@@ -51,7 +51,7 @@ export function maxFortifyBonusPercent(difficulty: FortifyDifficulty): number {
 /**
  * What raising a location **to** `level` costs.
  *
- * The price is the same on every kind of ground — the board's call, and it is what keeps the
+ * The price is the same on every kind of ground: the board's call, and it is what keeps the
  * easy/medium/hard axis about *reward* rather than quietly becoming a second cost axis.
  */
 export function fortifyCost(level: number): PartialResources {
@@ -80,7 +80,7 @@ export interface FortifyQuote {
   level: number;
   cost: PartialResources;
   seconds: number;
-  /** The defence this level takes the location to, in total — not what the level alone adds. */
+  /** The defence this level takes the location to, in total, not what the level alone adds. */
   bonusPercent: number;
 }
 

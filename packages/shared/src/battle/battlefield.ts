@@ -34,7 +34,7 @@ export const BattlefieldSchema = z.object({
   /** Which `CombatContext`s hold here. Both sides read the same list. */
   contexts: z.array(z.enum(COMBAT_CONTEXTS)),
   /**
-   * What the ground is *like* (`city/labels.ts`) — the location's own labels folded together with
+   * What the ground is *like* (`city/labels.ts`): the location's own labels folded together with
    * whatever the sky and the clock are doing. Both sides fight in the same weather.
    */
   labels: z.array(z.object({ id: z.enum(ENV_LABEL_IDS), tier: z.number().int().min(1).max(4) })),
@@ -42,7 +42,7 @@ export const BattlefieldSchema = z.object({
   weather: z.string(),
   /** Percentage the holder's effective toughness is raised by ground and digging in. */
   fortifyPercent: z.number().min(0),
-  /** The location's own `baseDefense`, 0..10 — how defensible it is before anybody works on it. */
+  /** The location's own `baseDefense`, 0..10: how defensible it is before anybody works on it. */
   baseDefense: z.number().min(0),
   /** How many bodies per side can be in contact at once. See {@link FRONTAGE_BY_CONTEXT}. */
   frontage: z.number().positive(),
@@ -67,6 +67,7 @@ export const LOCATION_CONTEXTS: Record<LocationKind, readonly CombatContext[]> =
   gas_station: ['open_ground', 'urban'],
   nuclear_plant: ['indoor', 'underground'],
   soup_kitchen: ['indoor', 'urban'],
+  refugee_camp: ['open_ground', 'urban'],
   // money and trade
   market: ['urban'],
   downtown_market: ['indoor', 'urban'],
@@ -117,7 +118,7 @@ export const LOCATION_CONTEXTS: Record<LocationKind, readonly CombatContext[]> =
  * behind the first ten is not fighting, they are queuing. Open ground has room for a real line.
  *
  * This is what makes the terrain a *decision* rather than a modifier. On narrow ground the answer
- * to a big army is a small good one, because the big one cannot deploy — and the roster already has
+ * to a big army is a small good one, because the big one cannot deploy, and the roster already has
  * the units for it (`tunnel_rat`, `close_quarters`) waiting for the ground to be worth something.
  *
  * The **narrowest** applicable context wins: a corridor inside a building is a corridor.
@@ -129,7 +130,7 @@ export const FRONTAGE_BY_CONTEXT: Partial<Record<CombatContext, number>> = {
   open_ground: 48,
 };
 
-/** Ground with nothing to say about its shape — a home district, an unlisted location. */
+/** Ground with nothing to say about its shape: a home district, an unlisted location. */
 export const DEFAULT_FRONTAGE = 30;
 
 export function frontageFor(
@@ -140,7 +141,7 @@ export function frontageFor(
     .map((context) => FRONTAGE_BY_CONTEXT[context])
     .filter((width): width is number => width !== undefined);
   const base = widths.length === 0 ? DEFAULT_FRONTAGE : Math.min(...widths);
-  // `Crammed` is not only a percentage on a sheet — it is literally how many people fit. Reading
+  // `Crammed` is not only a percentage on a sheet. It is literally how many people fit. Reading
   // it into the width is what makes a smuggler's tunnel a different problem rather than the same
   // fight at a discount, and it is the one lever a big army cannot answer by being bigger.
   return Math.max(1, Math.round(base * frontageFactor(labels)));
@@ -200,13 +201,13 @@ export function battlefieldFor(input: BattlefieldInput): Battlefield {
 
 /**
  * A crew's own district under raid (GDD §A4). There is no fortification to speak of and no location
- * kind — a home district is streets and structures, so it fights urban, and at night if it is
+ * kind: a home district is streets and structures, so it fights urban, and at night if it is
  * night.
  */
 export function homeBattlefield(locationName: string, at: Date): Battlefield {
   const night = isNight(at);
   const contexts: CombatContext[] = night ? ['urban', 'night'] : ['urban'];
-  // A district is streets, so it has no labels of its own — but the sky is over it like everywhere
+  // A district is streets, so it has no labels of its own, but the sky is over it like everywhere
   // else, and a raid called for a snowy night is a raid in the snow.
   const weather = weatherAt(at);
   const labels = mergeLabels(weatherLabels(weather, night));
@@ -221,7 +222,7 @@ export function homeBattlefield(locationName: string, at: Date): Battlefield {
   };
 }
 
-/** An empty field — for tests and for anything that has to fight nowhere in particular. */
+/** An empty field, for tests and for anything that has to fight nowhere in particular. */
 export function bareBattlefield(locationName = 'open ground'): Battlefield {
   return {
     locationName,

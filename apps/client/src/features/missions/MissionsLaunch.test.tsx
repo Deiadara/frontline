@@ -22,7 +22,7 @@ import { useSession } from '../../store/session';
  *
  * Mocked at `fetch` rather than at `lib/queries` on purpose. The gate this covers is a *required
  * request field*: the server refuses every hard template unless the launch names an officer, and a
- * hook-level mock asserts only that some object reached `mutate` — it cannot see what went on the
+ * hook-level mock asserts only that some object reached `mutate`: it cannot see what went on the
  * wire, which is exactly how a client that never sent `officerId` passed every gate while four of
  * the eight templates were unlaunchable.
  */
@@ -51,7 +51,7 @@ const officer = (officerId: string, name: string, assignees: number) => ({
   level: 1,
 });
 
-/** §G — a roster with people on the books, so a hard run has somebody to lead it. */
+/** §G: a roster with people on the books, so a hard run has somebody to lead it. */
 const staffed: AssigneesResponse = {
   level: 6,
   pool: 8,
@@ -64,7 +64,7 @@ const staffed: AssigneesResponse = {
   officers: [officer('off-1', 'Reza Malik', 3), officer('off-2', 'Odile Marchetti', 1)],
 };
 
-/** The starting state: a base with no officers at all (§H — you hire them at the Bar). */
+/** The starting state: a base with no officers at all (§H: you hire them at the Bar). */
 const unstaffed: AssigneesResponse = {
   ...staffed,
   level: 1,
@@ -77,7 +77,7 @@ const unstaffed: AssigneesResponse = {
 
 /**
  * A launch the server accepted. Spelled out rather than stubbed loosely because the client
- * validates every 2xx body through `LaunchMissionResponseSchema` — a placeholder that does not
+ * validates every 2xx body through `LaunchMissionResponseSchema`: a placeholder that does not
  * satisfy it fails the mutation, and every assertion below about a *successful* launch would then
  * be passing for the wrong reason.
  */
@@ -101,7 +101,7 @@ const accepted: LaunchMissionResponse = {
 
 const fetchMock = vi.fn();
 
-/** A launch refusal in the shared error envelope — what the §G6 gate actually returns. */
+/** A launch refusal in the shared error envelope: what the §G6 gate actually returns. */
 const NEEDS_OFFICER = {
   ok: false,
   status: 409,
@@ -190,13 +190,13 @@ const picker = (name: string) => within(card(name)).getByRole('combobox');
 /**
  * Wait for the roster itself, not for the control that renders it.
  *
- * An easy card's picker exists before the officers arrive — it always offers the "nobody" option —
+ * An easy card's picker exists before the officers arrive: it always offers the "nobody" option,
  * so waiting on the `combobox` is satisfied by an *empty* roster. That made every easy-card
  * assertion below vacuous: selecting an officer silently did nothing because the option was not in
  * the DOM yet, and "unled by default" passed because there was nobody to lead it either way.
  *
  * The picker is no longer a native `<select>`, whose options are in the DOM whether it is open or
- * not — a painted list only exists while it is open. So the signal is now the *hard* card's
+ * not: a painted list only exists while it is open. So the signal is now the *hard* card's
  * trigger, which defaults to the first officer and therefore reads their name the moment the
  * roster lands. Still the roster rather than the control, and still not satisfiable by an empty one.
  */
@@ -218,7 +218,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('§G6 — the officer a launch has to name', () => {
+describe('§G6: the officer a launch has to name', () => {
   it('sends the leading officer for a hard template', async () => {
     stubApi({ assignees: staffed });
     renderBoard();
@@ -283,14 +283,14 @@ describe('§G6 — the officer a launch has to name', () => {
     // merely *loading* too, so that condition is satisfied before the empty roster is even known.
     await within(card('Convoy Ambush')).findByText(/Hire one at the Bar/);
     expect(deploy('Convoy Ambush')).toBeDisabled();
-    // The easy work is still live — this is a §G6 gate, not a dead board.
+    // The easy work is still live. This is a §G6 gate, not a dead board.
     expect(deploy('Scrap Run')).toBeEnabled();
   });
 
   /**
    * The board renders off a static template list, so it is on screen a full round trip before the
    * roster is. Reading "not loaded" as "nobody hired" told a player with a full crew to go hire an
-   * officer — on all four hard cards, on every visit — and then silently replaced it once the
+   * officer, on all four hard cards, on every visit, and then silently replaced it once the
    * officers landed.
    */
   it('does not claim the player has no officers while the roster is still loading', async () => {
@@ -333,7 +333,7 @@ describe('a refused launch', () => {
   });
 
   /**
-   * MOU-280 — a launch settles the board before it decides, and the settle is not rolled back when
+   * MOU-280: a launch settles the board before it decides, and the settle is not rolled back when
    * it then refuses. The board's own poll re-resolves nothing, so this refusal is the only response
    * that will ever carry that level-up: dropping it here loses the moment outright.
    */
@@ -345,7 +345,7 @@ describe('a refused launch', () => {
     fireEvent.click(deploy('Scrap Run'));
 
     expect(await screen.findByRole('region', { name: 'Level up' })).toHaveTextContent('LEVEL 4');
-    // And the refusal itself is still explained — the banner does not replace the reason.
+    // And the refusal itself is still explained: the banner does not replace the reason.
     expect(screen.getByRole('alert')).toHaveTextContent(/officer leading it/);
   });
 
@@ -398,7 +398,7 @@ describe('the board says which way a job points at the Combine (§A3, §D8)', ()
 
   it('keeps both badges inside the card it belongs to', async () => {
     // Two tags in a header is the one place this change can overflow, and the zero-visual-bugs bar
-    // is a hard one — so the badge and the kind tag are asserted to sit in the same card, wrapped.
+    // is a hard one, so the badge and the kind tag are asserted to sit in the same card, wrapped.
     stubApi({ assignees: staffed });
     renderBoard();
     await rosterLoaded();

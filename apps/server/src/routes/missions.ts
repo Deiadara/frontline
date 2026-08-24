@@ -15,7 +15,7 @@ import { CONCURRENT_MISSION_LIMIT, launchMission } from '../missions/launch.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { resolveDueMissions } from '../missions/resolve.js';
 
-/** The caller's own base — a player runs missions from their one base or from nowhere. */
+/** The caller's own base: a player runs missions from their one base or from nowhere. */
 function requireOwnBase(app: FastifyInstance, ownerId: string): Base {
   const base = app.repos.bases.findByOwnerId(ownerId);
   if (!base) {
@@ -50,7 +50,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const now = new Date();
     const own = requireOwnBase(app, request.currentUser.id);
 
-    // §G6 — naming somebody who does not work here is a 404, not an unled run: silently demoting it
+    // §G6: naming somebody who does not work here is a 404, not an unled run: silently demoting it
     // to a delegation would charge the §G6 penalty for what is really a stale tab or a typo.
     //
     // Checked *before* the settle so a doomed request never banks one (MOU-280): the settle's
@@ -73,12 +73,12 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       );
     }
 
-    // §F5 — the run rides on the player's own character, so the Overseer is read here and the
+    // §F5: the run rides on the player's own character, so the Overseer is read here and the
     // modified chance is frozen onto the row by `launchMission`.
     const overseer = request.currentUser.overseerId
       ? app.repos.overseers.findById(request.currentUser.overseerId)
       : undefined;
-    // §G6 — hard runs need an officer; easy ones can go out on assignees alone. The crew also
+    // §G6: hard runs need an officer; easy ones can go out on assignees alone. The crew also
     // fixes the §G5/§G7 multipliers, which `launchMission` freezes onto the row beside §F5's.
     //
     // This sizes the delegation off `base.level`, which the settle above may just have raised, so
@@ -104,8 +104,8 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       terms: crew.terms,
       officer,
       admin: app.config.admin,
-      // §A4 — the ground this crew holds takes time off the road (the Smuggler's Tunnel).
-      missionSpeedPercent: standingEffectsFor(app.repos, base, now).missionSpeedPercent,
+      // §A4: the ground this crew holds takes time off the road (the Smuggler's Tunnel).
+      missionSpeedPercent: standingEffectsFor(app.repos, base).missionSpeedPercent,
     });
     app.repos.missions.insert(stored);
     // The settle above is the only place this level-up is ever reported: the next `GET /missions`
@@ -114,10 +114,10 @@ export function registerMissionRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * §E — turn a crew around.
+   * §E: turn a crew around.
    *
    * Not a cancel: the mission stays on the books and still settles, it just settles as a failure
-   * with nothing in the bag. The clock is not rewritten either — `recalledAt` is recorded and the
+   * with nothing in the bag. The clock is not rewritten either: `recalledAt` is recorded and the
    * return leg is derived from it, so the report afterwards can still say how long the run was
    * meant to take and how far they got before the order reached them.
    */

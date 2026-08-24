@@ -55,20 +55,20 @@ export interface BasesRepo {
   findByOwnerId(ownerId: string): Base | undefined;
   /**
    * The AI rival garrisoning a district, if one is there. A district can hold several
-   * bases, so this answers only "is there a bot here?" — the one question raid targeting
+   * bases, so this answers only "is there a bot here?": the one question raid targeting
    * asks. The seed mints at most one rival per district.
    */
   findBotByDistrictId(districtId: string): Base | undefined;
-  /** Public projections of every base — never exposes resources, buildings or commanders. */
+  /** Public projections of every base: never exposes resources, buildings or commanders. */
   listSummaries(): BaseSummary[];
   updateResources(baseId: string, resources: Resources): void;
   updateEconomy(baseId: string, economy: EconomyState): void;
-  /** §F2 — the training board and the officers it pays out to, written together. */
+  /** §F2: the training board and the officers it pays out to, written together. */
   updateTraining(baseId: string, training: TrainingState, commanders: Commander[]): void;
   /**
    * The market and workshop writes: stockpile and satchel move together.
    *
-   * One statement, because every trade, purchase and refit spends from both — and a crash between
+   * One statement, because every trade, purchase and refit spends from both, and a crash between
    * two updates would take the caps without handing over the parts, or the other way round.
    */
   updateHoldings(baseId: string, resources: Resources, inventory: Inventory): void;
@@ -77,11 +77,11 @@ export interface BasesRepo {
   /** What is parked in the yard. */
   updateFleet(baseId: string, fleet: Fleet): void;
   /**
-   * Writes a level-up as one statement (GDD §I2). Level and banked XP move together — a partial
+   * Writes a level-up as one statement (GDD §I2). Level and banked XP move together: a partial
    * write would leave progress sitting above its own level's threshold.
    */
   updateProgression(baseId: string, level: number, progression: ProgressionState): void;
-  /** Where the fungible pool is standing (GDD §G). Placements only — the pool size is derived. */
+  /** Where the fungible pool is standing (GDD §G). Placements only: the pool size is derived. */
   updateAssignees(baseId: string, assignees: AssigneeState): void;
   /**
    * The officers on the books (GDD §H). Recruitment, the §H5 alignment drift and the §H6
@@ -100,7 +100,7 @@ export interface BasesRepo {
    * standing the building up would charge for a level nobody got.
    */
   updateDistrict(baseId: string, buildings: Building[], queue: BuildQueue): void;
-  /** §A1 — the faction's name. The only field on a base a player types. */
+  /** §A1: the faction's name. The only field on a base a player types. */
   updateName(baseId: string, name: string): void;
   /**
    * The units at home and the training queue behind them (§A5), as one statement.
@@ -157,7 +157,7 @@ function rowToSummary(row: BaseSummaryRow): BaseSummary {
  * A stockpile on its way to storage, checked for numbers that are not numbers.
  *
  * `JSON.stringify` turns `NaN` and `Infinity` into `null` without a word, and `ResourcesSchema`
- * refuses `null` — so a single arithmetic hole anywhere upstream writes a row that the *next boot*
+ * refuses `null`, so a single arithmetic hole anywhere upstream writes a row that the *next boot*
  * cannot read, and the server does not start. That is exactly what happened: one `Building` that
  * had skipped the parser had no `damage`, the storage ceiling came out `NaN`, the sandbox stored a
  * stockpile of five nulls, and the process died on the following read with a Zod error pointing at
@@ -182,7 +182,7 @@ function countable(resources: Resources, baseId: string): Resources {
     if (!Number.isInteger(amount)) {
       throw new Error(
         `refusing to store a fractional ${key} (${String(amount)}) for base ${baseId}: ` +
-          'stockpiles are whole units — bank the whole part and carry the rest',
+          'stockpiles are whole units: bank the whole part and carry the rest',
       );
     }
   }

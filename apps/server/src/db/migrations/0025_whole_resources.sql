@@ -1,7 +1,7 @@
 -- Stockpiles are whole units now, so every row written before that rule has to be made whole.
 --
 -- `ResourcesSchema` gained `.int()`, which turns a stored `37772.751872` into a row the next boot
--- cannot parse — the same failure mode as `0024_repair_null_stockpiles.sql`, arriving from the
+-- cannot parse: the same failure mode as `0024_repair_null_stockpiles.sql`, arriving from the
 -- other direction. The fractions came from production accrual, which quoted output per hour and
 -- wrote whatever a settle of arbitrary length produced straight into the column. That is fixed at
 -- the source: whole units go to the stockpile and the remainder is carried in
@@ -11,7 +11,7 @@
 -- columns hold. Down rather than up, deliberately: a repair must never hand a crew resources it did
 -- not earn, and the fraction being dropped is at most one unit of one thing.
 --
--- `productionCarry` itself needs no repair — it is defaulted on the schema, so a base written
+-- `productionCarry` itself needs no repair. It is defaulted on the schema, so a base written
 -- before it existed parses as owing nothing, which is exactly true.
 
 -- The stockpile.

@@ -25,7 +25,6 @@ import {
   MAX_TRAINING_QUEUE,
   addToArmy,
   alreadyHolds,
-  armyCapacity,
   armySize,
   splitDueTraining,
   supplyQueued,
@@ -37,6 +36,8 @@ import {
   trainingCompletesAt,
   type Army,
 } from './training.js';
+import { POPULATION_PER_LOCATION, districtPopulationCapacity } from '../building/population.js';
+import { noTerritoryEffects } from '../city/locations.js';
 
 /**
  * The units (GDD §A5).
@@ -127,7 +128,7 @@ describe('the catalogue (§A5)', () => {
     for (const unit of UNIT_CATALOG) {
       for (const id of unit.modifiers) expect(UNIT_MODIFIERS[id], `${unit.id}/${id}`).toBeDefined();
     }
-    // And every modifier in the table is actually carried by somebody — a condition the engine
+    // And every modifier in the table is actually carried by somebody: a condition the engine
     // would have to implement for nobody is a condition worth deleting.
     const carried = new Set(UNIT_CATALOG.flatMap((unit) => unit.modifiers));
     for (const id of Object.keys(UNIT_MODIFIERS)) expect(carried.has(id as never), id).toBe(true);
@@ -223,12 +224,30 @@ describe('unlocking them (§A5)', () => {
 });
 
 describe('making them (§A5)', () => {
-  it('lets a crew with no Gauntlet field a handful, and far more with one', () => {
-    expect(armyCapacity([])).toBeGreaterThan(0);
-    expect(armyCapacity([building('gauntlet', 10)])).toBeGreaterThan(armyCapacity([]));
-    expect(armyCapacity([building('gauntlet', 20)])).toBeGreaterThan(
-      armyCapacity([building('gauntlet', 10)]),
-    );
+  /**
+   * §A1: the army comes out of the district's population, which the Quarters raise.
+   *
+   * This used to assert a separate Gauntlet-driven army ceiling. There is one pool now, so what
+   * has to hold is that a crew with nothing built can still field somebody, and that building
+   * where people sleep is what makes room for more of them.
+   */
+  it('lets a crew with nothing built field a handful, and far more once it has Quarters', () => {
+    const nothing = districtPopulationCapacity([], noTerritoryEffects());
+    const housed = districtPopulationCapacity([building('quarters', 10)], noTerritoryEffects());
+    const wellHoused = districtPopulationCapacity([building('quarters', 20)], noTerritoryEffects());
+    expect(nothing).toBeGreaterThan(0);
+    expect(housed).toBeGreaterThan(nothing);
+    expect(wellHoused).toBeGreaterThan(housed);
+  });
+
+  /** And the ground raises it too, which is what makes taking a location worth beds. */
+  it('houses more people for every location the crew holds', () => {
+    const bare = districtPopulationCapacity([building('quarters', 4)], noTerritoryEffects());
+    const holding = districtPopulationCapacity([building('quarters', 4)], {
+      ...noTerritoryEffects(),
+      populationBonus: POPULATION_PER_LOCATION * 3,
+    });
+    expect(holding - bare).toBe(POPULATION_PER_LOCATION * 3);
   });
 
   it('counts a Colossus as rather more than one soldier', () => {

@@ -5,10 +5,10 @@ import { playerLevelGrants } from '../progression/grants.js';
 import { MAX_ASSIGNEES_PER_OFFICER } from './bonus.js';
 
 /**
- * Where the fungible pool is standing (GDD §G1–§G3, §G8).
+ * Where the fungible pool is standing (GDD §G1-§G3, §G8).
  *
  * §G1 makes assignees interchangeable with no individual identity, so there are no assignee
- * records anywhere — only a count under each officer. The pool *size* is not stored either: §G8
+ * records anywhere: only a count under each officer. The pool *size* is not stored either: §G8
  * makes it a pure function of `Base.level`, which W6 already owns in `playerLevelGrants`. Storing
  * a second copy would let the two drift, and a level-up would need a migration to hand out its
  * own grant.
@@ -29,13 +29,13 @@ export function startingAssignees(): AssigneeState {
 }
 
 /**
- * §G3/§G3a — how many assignees may stand under any one officer, at `level`.
+ * §G3/§G3a: how many assignees may stand under any one officer, at `level`.
  *
  * This resolves the question W6 handed over in `progression/grants.ts`. §G3a states
  * `max(1, floor(level / 2))` with no ceiling and there is no maximum player level, so the formula
  * grows forever; the §G7 table is finite. Placement therefore stops where the table does.
  *
- * The rule is not "12" — it is **whatever `ASSIGNEE_BONUS_PERCENT` has a row for**, which the board
+ * The rule is not "12". It is **whatever `ASSIGNEE_BONUS_PERCENT` has a row for**, which the board
  * has since extended to 24. The reason is unchanged and is what makes the cap correct at any table
  * length: the first assignee past the end is provably worth 0%, so letting a player park one there
  * would strand a pool grant behind an officer where it does nothing, with no feedback saying so.
@@ -49,7 +49,7 @@ export function assigneeCapPerOfficer(level: number): number {
   return Math.min(playerLevelGrants(level).assigneeCapPerOfficer, MAX_ASSIGNEES_PER_OFFICER);
 }
 
-/** §G8 — the whole pool at `level`, placed or not. Read from W6; never restated here. */
+/** §G8: the whole pool at `level`, placed or not. Read from W6; never restated here. */
 export function assigneePool(level: number): number {
   return playerLevelGrants(level).assigneePool;
 }
@@ -65,7 +65,7 @@ export function placedAssignees(state: AssigneeState): number {
 }
 
 /**
- * §G2 — the ones a level-up handed over that the player has not placed yet.
+ * §G2: the ones a level-up handed over that the player has not placed yet.
  *
  * Floored at zero rather than allowed to go negative: a placement map that outgrew its pool is a
  * state a *shrinking* grant table could produce, and a read path must render it, not throw.
@@ -75,7 +75,7 @@ export function unplacedAssignees(state: AssigneeState, level: number): number {
 }
 
 export type PlacementRefusal =
-  /** No officer on the books by that id — §G1 places assignees *under officers*, not loose. */
+  /** No officer on the books by that id: §G1 places assignees *under officers*, not loose. */
   | 'unknown_officer'
   /** Asked for a non-positive number of assignees. */
   | 'not_positive'
@@ -88,10 +88,10 @@ export type PlacementResult =
   { kind: 'placed'; state: AssigneeState } | { kind: 'refused'; reason: PlacementRefusal };
 
 /**
- * §G2 — place `count` of the unplaced pool under one officer.
+ * §G2: place `count` of the unplaced pool under one officer.
  *
  * Placement only ever *adds*. Taking assignees back off an officer is §G4 reskilling, which is a
- * Professor-run process and costs the player something to reach — see `./reskilling.js`. Keeping
+ * Professor-run process and costs the player something to reach: see `./reskilling.js`. Keeping
  * the two apart is what gives the Professor a job: if a plain placement call could also unplace,
  * reskilling would be a no-op wrapper around it.
  */
@@ -101,7 +101,7 @@ export function placeAssignees(
     officers: readonly Commander[];
     commanderId: string;
     count: number;
-    /** `Base.level` (INTERFACES R1) — the pool and the cap both hang off it. */
+    /** `Base.level` (INTERFACES R1): the pool and the cap both hang off it. */
     level: number;
   },
 ): PlacementResult {
@@ -127,7 +127,7 @@ export function placeAssignees(
  *
  * Fired when an officer leaves (§H5 says a badly-aligned one threatens to). Without this their
  * count would sit in the map forever, counted against the pool by `placedAssignees` and reachable
- * by nobody — the player would silently lose grants every time somebody walked out.
+ * by nobody: the player would silently lose grants every time somebody walked out.
  */
 export function pruneAssignees(
   state: AssigneeState,

@@ -5,7 +5,7 @@ import type { AppDatabase } from '../index.js';
  *
  * The rest of the database stores *state*: what a district looks like now. This stores the
  * transitions, which is the only thing that can answer "how did it get like this" after a bad
- * restore, a balance argument or a bug report. Nothing reads it to make a decision — the moment a
+ * restore, a balance argument or a bug report. Nothing reads it to make a decision: the moment a
  * rule depends on history, history stops being safe to prune and starts being state with a worse
  * schema.
  *

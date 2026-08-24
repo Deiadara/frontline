@@ -61,7 +61,7 @@ export interface DeclarationWindow {
  * The band of marks open right now.
  *
  * `earliest` rounds *up* off the eight-hour floor and `latest` rounds *down* off the day ceiling, so
- * neither bound can be widened by rounding — a window that rounded outwards would quietly hand a
+ * neither bound can be widened by rounding: a window that rounded outwards would quietly hand a
  * declaring crew seven hours and fifty-nine minutes of notice on the defender.
  */
 export function declarationWindow(now: Date): DeclarationWindow {

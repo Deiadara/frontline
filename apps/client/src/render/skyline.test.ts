@@ -58,8 +58,8 @@ describe('generateSkyline', () => {
    * for them the overshoot is exactly zero. That is the shape of the real invariant: `>= 0` for the
    * three low bands, and a bounded, deliberate, plane-clipped overhang for `sky`.
    *
-   * Asserting `>= 0` for all four (as this test used to) passes at seed 3 by luck — 21 of the 800
-   * (band, seed) pairs below 200 fail it, first at `sky` seed 10 — so it was a red waiting for
+   * Asserting `>= 0` for all four (as this test used to) passes at seed 3 by luck: 21 of the 800
+   * (band, seed) pairs below 200 fail it, first at `sky` seed 10, so it was a red waiting for
    * someone else's unrelated fixture-seed change.
    */
   const MAX_OVERSHOOT = 0.08 * 900;
@@ -124,7 +124,7 @@ describe('generateSkyline', () => {
   // Counter-test to the one above: overlap alone is also satisfied by a pure taper, so without
   // this the silhouette could silently regress to the planned-tower read that W9 exists to kill
   // and the suite would stay green (ART-BIBLE §5).
-  it('accretes outward as well as inward — storeys overhang the one below', () => {
+  it('accretes outward as well as inward: storeys overhang the one below', () => {
     // Measures *width growth*, not edge excursion: a narrower storey shifted sideways already
     // pokes past one edge of the one below, so an edge test is satisfied by a pure taper that
     // merely leans and would not catch a regression to the planned-tower silhouette.
@@ -149,15 +149,15 @@ describe('generateSkyline', () => {
     expect(wider / storeys).toBeGreaterThan(0.2);
   });
 
-  /** Ground-storey extent — the footprint the mass actually stands on. */
+  /** Ground-storey extent: the footprint the mass actually stands on. */
   const baseOf = (tower: { outline: { x: number; y: number }[] }) => {
     const baseY = Math.max(...tower.outline.map((p) => p.y));
     const xs = tower.outline.filter((p) => p.y === baseY).map((p) => p.x);
     return { left: Math.min(...xs), right: Math.max(...xs) };
   };
 
-  // `sprawl` is documented as the single bound on every horizontal excursion — overhanging storeys,
-  // lean, and the scrap sheds at the foot — and nothing pinned it. The cap that enforces it for
+  // `sprawl` is documented as the single bound on every horizontal excursion: overhanging storeys,
+  // lean, and the scrap sheds at the foot, and nothing pinned it. The cap that enforces it for
   // storeys (`Math.min(width, 2 * reach)` in `accretedOnto`, which is what keeps `reach - half`
   // non-negative so the `dx` clamp range cannot invert) could be deleted with the whole suite green.
   it.each(BANDS)('%s: keeps every storey within `sprawl` of the ground it stands on', (band) => {
@@ -197,7 +197,7 @@ describe('generateSkyline', () => {
         ) as [(typeof group)[number], (typeof group)[number]];
         const wall = baseOf(parent);
         const foot = baseOf(shed);
-        // Flush against one ground-floor wall — no gap of open air between shed and mass. Exact by
+        // Flush against one ground-floor wall: no gap of open air between shed and mass. Exact by
         // construction up to the rounding in `centre ± width / 2`, hence the epsilon.
         expect(
           Math.min(Math.abs(foot.left - wall.right), Math.abs(foot.right - wall.left)),
@@ -262,7 +262,7 @@ describe('generateSkyline', () => {
   // Honest scope: this is a regression net, not evidence. At the shipped profile the nearest
   // cross-middle pair sits ~325px apart against an 80px `MAX_GANTRY_SPAN`, so the case is
   // unreachable and deleting the `spannable` guard in `strutsBetween` does not fail this test.
-  // It earns its place by catching a *profile* change — widening `fore.width` to close that gap
+  // It earns its place by catching a *profile* change: widening `fore.width` to close that gap
   // makes it fail immediately, which is how the guard came to exist.
   it('never bridges the clickable middle of the foreground plane', () => {
     for (let seed = 0; seed < 60; seed += 1) {

@@ -10,7 +10,7 @@ import type { Building } from './state.js';
  * What the district's installed modifications add up to (§A1).
  *
  * One pass over every structure, one total per effect, read by whichever formula owns that effect.
- * Nothing here knows *which* structure contributed — that is the point of a district-wide effect,
+ * Nothing here knows *which* structure contributed. That is the point of a district-wide effect,
  * and it is why the one local effect is excluded and read separately by
  * {@link localProductionPercent}.
  */
@@ -24,7 +24,7 @@ const ZERO: DistrictEffects = Object.freeze(
  * The ceiling on any single "less of a bad thing" effect, in percent.
  *
  * Reductions stack additively, and three structures' worth of the same effect could otherwise reach
- * 100% — a build that costs nothing and finishes instantly. Capped rather than made multiplicative
+ * 100%: a build that costs nothing and finishes instantly. Capped rather than made multiplicative
  * so a player reading "+20% off build time" on a card sees exactly 20 percentage points arrive,
  * right up until the cap tells them plainly that it did not.
  */

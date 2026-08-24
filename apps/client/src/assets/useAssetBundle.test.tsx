@@ -30,7 +30,7 @@ describe('useAssetBundle', () => {
   it('renders ready on the first paint when the bundle is fully procedural', () => {
     const loader = createArtLoader({ specs: SPECS, delivered: new Map() });
     render(<Probe loader={loader} />);
-    // No intermediate 'idle'/'loading' text ever hits the DOM — nothing to flash.
+    // No intermediate 'idle'/'loading' text ever hits the DOM: nothing to flash.
     expect(screen.getByTestId('state')).toHaveTextContent('ready 1');
   });
 

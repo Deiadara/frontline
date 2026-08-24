@@ -22,7 +22,7 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * Lazy, like every other clock in this game: nothing runs on a timer, and an hour that finished
  * while nobody was looking is banked the next time anybody reads the board. The one thing that is
- * *not* like the others is where the gain lands — a session on the Overseer writes the `overseers`
+ * *not* like the others is where the gain lands: a session on the Overseer writes the `overseers`
  * table and a session on an officer writes the base's officer blob, so this is the only settler in
  * the codebase that touches two tables. Both writes go inside one transaction at the call site.
  */
@@ -89,7 +89,7 @@ export function projectTraining(
   base: Base,
   overseer: Overseer | undefined,
   now: string,
-  /** §A4 — sessions the ground adds on top of the day's allowance. The Gym. */
+  /** §A4: sessions the ground adds on top of the day's allowance. The Gym. */
   extraSessions = 0,
 ): TrainingResponse {
   const state = rollDay(base.training, now);

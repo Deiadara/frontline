@@ -2,10 +2,10 @@ import { z } from 'zod';
 import { assigneePowerMultiplier, assigneeSpeedMultiplier } from './bonus.js';
 
 /**
- * §G6 — who is allowed to run a job, and what it costs to run it without an officer.
+ * §G6, who is allowed to run a job, and what it costs to run it without an officer.
  *
  * "Hard missions and internal processes require an officer. Easy ones can be run by a delegation
- * of assignees alone — but slower and with a lower success chance."
+ * of assignees alone, but slower and with a lower success chance."
  *
  * Both halves are real branches here, and both are exercised. The difficulty is authored on the
  * job (see `MissionTemplate.difficulty`), not inferred from its kind or its length: a day-long
@@ -16,29 +16,29 @@ import { assigneePowerMultiplier, assigneeSpeedMultiplier } from './bonus.js';
 export const MissionDifficultySchema = z.enum(['easy', 'hard']);
 export type MissionDifficulty = z.infer<typeof MissionDifficultySchema>;
 
-/** §G6 — hard work needs somebody in charge. Internal processes read this too. */
+/** §G6: hard work needs somebody in charge. Internal processes read this too. */
 export function requiresOfficer(difficulty: MissionDifficulty): boolean {
   return difficulty === 'hard';
 }
 
 /**
- * §G6 — what running on assignees alone costs.
+ * §G6: what running on assignees alone costs.
  *
  * The GDD says "slower and with a lower success chance" without numbers, so these are W4's, in the
  * same spirit as W6's `PLAYER_XP_AWARDS`: half again as long, and a third off the odds.
  *
- * What §G6 actually fixes is the comparison at a *fixed* crew — the same people are slower and
- * likelier to fail with nobody in charge — and that is the invariant the tests pin. It is not a
+ * What §G6 actually fixes is the comparison at a *fixed* crew: the same people are slower and
+ * likelier to fail with nobody in charge, and that is the invariant the tests pin. It is not a
  * claim that an officerless run always loses to an officer-led one: twelve assignees with no
  * officer (1.5 × 0.5 = 0.75) do beat a bare officer with nobody under them (1.0), and they should.
- * Twelve people is a lot of labour, and §G3 already rations it — reaching a delegation that size
+ * Twelve people is a lot of labour, and §G3 already rations it: reaching a delegation that size
  * costs level 24, by which point the crew has officers to spare.
  */
 export const OFFICERLESS_DURATION_MULTIPLIER = 1.5;
 export const OFFICERLESS_SUCCESS_MULTIPLIER = 0.67;
 
 export type DelegationRefusal =
-  /** §G6 — a hard job with nobody in charge. */
+  /** §G6: a hard job with nobody in charge. */
   | 'needs_officer'
   /** An easy job with neither an officer nor a single assignee to send. */
   | 'nobody_to_send';
@@ -88,12 +88,12 @@ export function delegationTerms(args: {
   return { allowed: true, refusal: null, ...terms };
 }
 
-/** A duration in whole minutes under `terms`, floored at one — a job always takes some time. */
+/** A duration in whole minutes under `terms`, floored at one: a job always takes some time. */
 export function delegatedMinutes(minutes: number, terms: DelegationTerms): number {
   return Math.max(1, Math.round(minutes * terms.durationMultiplier));
 }
 
-/** A success chance under `terms`, kept inside 0..1 — §G7 can push a 0.97 job past certainty. */
+/** A success chance under `terms`, kept inside 0..1: §G7 can push a 0.97 job past certainty. */
 export function delegatedSuccessChance(chance: number, terms: DelegationTerms): number {
   return Math.min(1, Math.max(0, chance * terms.successMultiplier));
 }

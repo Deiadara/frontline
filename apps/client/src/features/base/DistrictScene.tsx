@@ -1,69 +1,84 @@
 import {
   BUILDING_CATALOG,
   buildingLevel,
-  isBuildingUnlocked,
+  describeBuildingRequirement,
+  unmetForQueue,
   type Building,
   type BuildingKind,
+  type BuildingRequirement,
   type BuildQueue,
 } from '@frontline/shared';
-import { useState, type CSSProperties, type KeyboardEvent } from 'react';
+import type { CSSProperties } from 'react';
 import { deliveredUrl } from '../../assets/delivered';
+import { HoverCard } from '../../components/ui/HoverCard';
+import { Icon } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
 import { useMeasuredSize, type MeasuredSize } from '../../lib/useMeasuredHeight';
-import { chrome, ramps } from '../../theme/tokens';
+import { ramps } from '../../theme/tokens';
 import {
   DISTRICT_ASPECT,
   DISTRICT_BACK_EDGE,
   DISTRICT_BAND,
-  DISTRICT_PLATE,
   DISTRICT_SITES_BY_DEPTH,
-  siteBounds,
   siteCentroid,
   siteDepth,
-  sitePoints,
+  type DistrictSite,
 } from './plots';
 
 /**
- * The district as a place (GDD §A1): one painted street, with twelve buildings in it that answer to
- * the pointer.
+ * The district as a place (GDD §A1): one painted street, with twelve buildings in it and a name
+ * plate under each one.
  *
- * The Grepolis move, and the thing that changed with the delivered plate: the structures are **not**
- * cutouts pasted onto ground any more. `plate-district` is a finished painting of the whole
- * district, buildings included, so there is nothing to paste — what the scene adds is an
- * *interaction layer* traced onto it. Each building has a polygon around its own silhouette
- * (`plots.ts`), and that polygon is the control:
+ * The Grepolis arrangement, and the thing that changed with the delivered plate: the structures are
+ * **not** cutouts pasted onto ground any more. `plate-district` is a finished painting of the whole
+ * district, buildings included, so there is nothing to paste: what the scene adds is a row of
+ * **controls**, one per building, hung at the ground line of the building it names.
  *
- *   * pointing at it **lights the building itself** — a warm wash blended over the painted pixels,
- *     inside the outline, so what brightens is the roof and the walls rather than a rectangle
- *     around them;
- *   * clicking it opens that structure's dialog;
- *   * a structure that has not been built yet is **shuttered** rather than absent: the painting
- *     draws it either way, so an unbuilt plot is a dark scrim over its outline with a dashed edge,
- *     which reads as a place waiting for work.
+ * ## Why a plate rather than the building itself
  *
- * The outline is what the browser hit-tests, not a box around it, so the Cistern beside the
- * Scrapyard and the Gate over the road each answer for exactly their own pixels — a class of bug
- * (click a greenhouse, select a tower) that the old rectangular plots needed a rasterising test to
- * keep out and that the shape rules out by construction.
+ * This replaced an interaction layer of traced polygons: each building's real silhouette,
+ * hit-tested by the browser, lighting up under the pointer and carrying a dark scrim when it was
+ * not built yet. It was accurate and it was a bad control, for three reasons a player feels in the
+ * first minute.
  *
- * A plot is in one of four states, and each has to be legible at a glance: standing, being worked
- * on, empty and buildable, or empty and locked behind the Nexus. Names are shown on hover and focus
- * for a structure that is simply standing — a permanent plate on each of twelve buildings would
- * bury the painting — but `working`, `vacant` and `locked` keep theirs, because those three are what
- * a player scans the district *for*.
+ *   * **Nothing said it was there.** The opening move of the game was moving a cursor over a
+ *     painting hoping something would happen.
+ *   * **It fought the artwork.** The wash and the scrim were composited over the plate, so the
+ *     better the painting got, the worse the interface looked on top of it.
+ *   * **It was work to hit.** A shape you have to find is a shape you have to find every time.
+ *
+ * A plate is legible at a glance, always in the same place, has an obvious hit box, and reads as a
+ * sign on a building rather than as a hole cut in a picture. The outlines are still authored and
+ * still earn their keep: `plots.ts` positions the plates from them, and `building-portraits` cuts
+ * the dialog's art with them. They are simply not what the pointer talks to.
+ *
+ * ## Four states, and a locked one is still a control
+ *
+ * Standing, being worked on, empty and buildable, or locked. A locked plate wears a padlock and,
+ * on hover, drops a note listing **every** clause still in the way (§I3): the Nexus rung, the
+ * other structures, and the crew's own level. Clicking it opens the same dialog everything else
+ * opens: a shut door that cannot be examined is the failure the whole gating system is trying to
+ * avoid.
  */
 
 interface DistrictSceneProps {
   buildings: readonly Building[];
   queue: BuildQueue;
+  /**
+   * §I3: the crew's own level, because half the ladder is gated on it rather than on the district.
+   *
+   * Passed in rather than read from a query here: the scene is drawn for somebody else's district
+   * on the city screen too, and the level that decides what *you* may build is always yours.
+   */
+  playerLevel: number;
   selected: BuildingKind | null;
   onSelect: (kind: BuildingKind) => void;
   /**
    * Somebody else's ground: draw it, do not offer to build on it.
    *
    * The scene is reused to show a neighbour's district on the city screen. Everything is the same
-   * except that a plot stops being a control — there is nothing on another crew's land for you to
-   * order — so outlines become plain marks and the unbuilt ones are not drawn at all: a scrim on
+   * except that a plot stops being a control. There is nothing on another crew's land for you to
+   * order, so outlines become plain marks and the unbuilt ones are not drawn at all: a scrim on
    * somebody else's lot reads as an invitation.
    */
   readOnly?: boolean;
@@ -80,229 +95,184 @@ const PLATE_STYLES: Record<PlotState, string> = {
 };
 
 /**
- * The states that keep a name plate even when the player is not pointing at them — which is every
- * state except a structure that is simply standing.
- *
- * A standing building is its own label: the painting shows what it is. What the painting cannot say
- * is that this one is being worked on, or that it is not really there yet, and those are the three
- * a player is looking for. Hiding them behind a hover made the one plot worth clicking — vacant and
- * unlocked — the only plot with nothing written on it.
- */
-const ALWAYS_PLATED: readonly PlotState[] = ['working', 'vacant', 'locked'];
-
-/**
- * How the outline is painted in each state.
- *
- * `fill` is composited over the painting, so the two shuttered states darken and the two live ones
- * are either clear or washed with light. The wash uses `screen`, which can only ever *add* — a
- * `normal`-blended warm fill would grey the building down as it lit it, which is the opposite of
- * what a highlight is for.
- */
-interface Paint {
-  fill: string;
-  blend?: 'screen';
-  stroke: string;
-  strokeWidth: number;
-  dashed?: boolean;
-}
-
-const CLEAR: Paint = { fill: 'rgba(0,0,0,0)', stroke: 'rgba(0,0,0,0)', strokeWidth: 0 };
-
-const SCRIM: Record<'vacant' | 'locked', Paint> = {
-  vacant: {
-    fill: 'rgba(6,9,14,0.58)',
-    stroke: 'rgba(148,163,184,0.55)',
-    strokeWidth: 2.5,
-    dashed: true,
-  },
-  locked: {
-    fill: 'rgba(4,6,10,0.76)',
-    stroke: 'rgba(100,116,139,0.5)',
-    strokeWidth: 2.5,
-    dashed: true,
-  },
-};
-
-const WORKING: Paint = {
-  fill: 'rgba(255,164,72,0.13)',
-  blend: 'screen',
-  stroke: 'rgba(255,176,88,0.85)',
-  strokeWidth: 3,
-};
-
-/** Pointed at, focused or selected — the building lights up. */
-const LIT: Paint = {
-  fill: 'rgba(255,214,150,0.20)',
-  blend: 'screen',
-  stroke: 'rgba(255,226,176,0.95)',
-  strokeWidth: 3,
-};
-
-/** A shuttered plot under the pointer: the scrim lifts, so it reads as reachable rather than dead. */
-const LIT_SCRIM: Record<'vacant' | 'locked', Paint> = {
-  vacant: { ...SCRIM.vacant, fill: 'rgba(6,9,14,0.30)', stroke: 'rgba(255,226,176,0.95)' },
-  locked: { ...SCRIM.locked, fill: 'rgba(4,6,10,0.52)', stroke: 'rgba(255,226,176,0.85)' },
-};
-
-/**
- * The district's box: as wide as the frame will take, with the **buildings** in the clear.
+ * The district's box: **edge to edge**, with the buildings in the clear.
  *
  * Two rules pull against each other here and both are real.
  *
- * The board asked for a district that covers the screen it is in, and it is right to: an earlier
- * version fitted the whole painting into the room the chrome left over and drew a 940px picture
- * adrift in a field of empty background at 1440×900, with the game's best artwork shrunk into the
- * middle of it. But the floating HUD and the scenery switcher are opaque bars, and a building under
- * one of them is a building the pointer cannot reach — the version that simply filled the width put
- * the Quarters and the Lab behind the stockpile, where they were visible and dead.
+ * The board asked for a district that covers the screen it is in, and it is right to: fitting the
+ * whole painting into the room the chrome left over drew a 1250px picture in a 1440px frame with a
+ * ninety-pixel slab of background down each side, and the game's best artwork ended up looking like
+ * a screenshot pasted on a page. But the floating HUD and the scenery switcher are bars, and a
+ * building under one of them is a building the pointer cannot reach.
  *
- * What dissolves it is that the plate's top and bottom edges are *empty ground*. The structures live
- * in a band ({@link DISTRICT_BAND}) that is about nine tenths of the picture, so the thing to fit
- * between the bars is that band, not the plate. Then the margins are what slides under the chrome —
- * roofline and street, which is exactly what a floating bar should be covering — and the painting
- * grows until either the buildings fill the gap or the picture fills the frame, whichever comes
- * first. On a desk-sized viewport that is edge to edge; on a short one the picture stops short at
- * the sides rather than hiding a door.
+ * What dissolves it is that the plate's top and bottom edges are *empty ground*. The structures
+ * live in a band ({@link DISTRICT_BAND}) that is about nine tenths of the picture, so the picture
+ * takes the full width of the frame and that band is centred in the room the bars leave. Roofline
+ * and street slide under the chrome, which is exactly what a floating bar should be covering.
+ *
+ * On a frame short enough that the band still does not fit, the overflow is split evenly top and
+ * bottom rather than being allowed to pile up at one end, and {@link plateTop} then pulls every
+ * name plate back inside the clear band. That is the half that makes the bleed safe: the plates are
+ * the controls, so as long as they are reachable, a roofline under the stockpile costs nothing.
  *
  * `band` is the height between the bars, measured from a probe laid on the CSS variables the shell
- * publishes; zero (the city screen's preview, and jsdom, which has no layout) means no chrome, and
- * the plate simply fills the room.
+ * publishes; zero (jsdom, which has no layout) means no chrome, and the plate simply fills the room.
  */
 export function fitted(room: MeasuredSize, band: MeasuredSize, bleed = true): CSSProperties {
   if (room.width <= 0 || room.height <= 0) {
     return { width: '100%', aspectRatio: DISTRICT_ASPECT };
   }
-  const clear = band.height > 0 ? band.height : room.height;
-  // Not bleeding — the city screen's preview — is the plain reading: the whole picture, inside the
-  // box, uncropped. Only the district screen has bars over the world to hide margins under.
-  const share = bleed ? (DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100 : 1;
-  const height = Math.min(clear / share, room.width / DISTRICT_ASPECT);
+  // Not bleeding, the city screen's preview: the plain reading, the whole picture inside the box.
+  // Only the district screen has bars over the world to hide margins under.
+  if (!bleed) {
+    const height = Math.min(room.height, room.width / DISTRICT_ASPECT);
+    return { width: Math.round(height * DISTRICT_ASPECT), height: Math.round(height) };
+  }
+  const height = room.width / DISTRICT_ASPECT;
   return {
-    width: Math.round(height * DISTRICT_ASPECT),
+    width: Math.round(room.width),
     height: Math.round(height),
-    // Hang the picture off the top of the clear band by its own empty margin, so the first
-    // building's roofline lands just under the HUD however tall the HUD has become.
-    marginTop: bleed ? Math.round(-(DISTRICT_BAND.top / 100) * height) : 0,
+    marginTop: Math.round(bleedOffset(height, band.height > 0 ? band.height : room.height)),
   };
 }
 
 /**
- * A padlock, hung on a structure the Nexus has not authorised yet.
+ * How far up the picture is pulled inside the clear band, in pixels.
  *
- * Drawn rather than a glyph, and for a reason a 🔒 in the name plate cannot meet: the plate is a
- * line of 10px type at the bottom of a shape, and on a dark painting at this scale nobody reads it.
- * A lock has to be **the thing you see when you look at the building** — so it sits at the middle
- * of the outline, sized to the shape it belongs to, in the same sodium brass as every other thing
- * the interface asks you to want.
- *
- * In SVG user units on the plate, so it scales with the picture on every viewport and cannot drift
- * from the outline it is hung on.
+ * Negative: the picture starts above the band, because the first thing down it is empty ground.
+ * The building band is centred in whatever room the bars leave, so a frame with room to spare puts
+ * the structures in the middle of it and a frame without splits the shortfall evenly.
  */
-function Padlock({ x, y, size }: { x: number; y: number; size: number }) {
-  const w = size;
-  const body = w * 0.78;
-  const shackle = w * 0.42;
-  return (
-    <g
-      transform={`translate(${x - w / 2} ${y - w / 2})`}
-      aria-hidden="true"
-      style={{ pointerEvents: 'none' }}
-    >
-      {/* A pool of shade under it, so the lock reads on a lit roof as well as on a dark one. */}
-      <ellipse cx={w / 2} cy={w * 0.92} rx={w * 0.46} ry={w * 0.12} fill="rgba(4,6,10,0.55)" />
-      {/* The shackle: drawn open at the bottom, which is what makes the silhouette read as a lock
-          rather than as a keyhole or a bag. */}
-      <path
-        d={`M ${(w - shackle) / 2} ${w * 0.4}
-            v ${-w * 0.1}
-            a ${shackle / 2} ${shackle / 2} 0 0 1 ${shackle} 0
-            v ${w * 0.1}`}
-        fill="none"
-        stroke={chrome.brass[300]}
-        strokeWidth={w * 0.1}
-        strokeLinecap="round"
-      />
-      <rect
-        x={(w - body) / 2}
-        y={w * 0.38}
-        width={body}
-        height={w * 0.5}
-        rx={w * 0.08}
-        fill="rgba(12,14,20,0.92)"
-        stroke={chrome.brass[300]}
-        strokeWidth={w * 0.07}
-      />
-      {/* The keyhole. Two shapes, because a circle alone reads as a rivet. */}
-      <circle cx={w / 2} cy={w * 0.58} r={w * 0.075} fill={chrome.brass[300]} />
-      <rect
-        x={w / 2 - w * 0.03}
-        y={w * 0.58}
-        width={w * 0.06}
-        height={w * 0.16}
-        fill={chrome.brass[300]}
-      />
-    </g>
-  );
+function bleedOffset(height: number, clear: number): number {
+  const top = (DISTRICT_BAND.top / 100) * height;
+  const occupied = ((DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100) * height;
+  return -top + (clear - occupied) / 2;
 }
 
-function paintFor(state: PlotState, lit: boolean): Paint {
-  if (state === 'vacant' || state === 'locked') {
-    return lit ? LIT_SCRIM[state] : SCRIM[state];
-  }
-  if (lit) return LIT;
-  return state === 'working' ? WORKING : CLEAR;
+/**
+ * Room a name plate needs at the edge of the clear band, in pixels.
+ *
+ * The plate is a fixed 22px of type hung three quarters below its anchor, so a plate anchored this
+ * far inside the band is a plate wholly inside it. Fixed rather than measured because it is: the
+ * type size does not move with the viewport.
+ */
+const PLATE_CLEARANCE = 26;
+
+/**
+ * Where a structure's plate hangs, as a percentage of the picture, pulled inside the clear band.
+ *
+ * The anchor is the building's ground line and that is where the plate wants to be. What this adds
+ * is a floor and a ceiling: on a frame short enough that the picture bleeds past the bars, a plate
+ * at the front or the back of the district would otherwise sit under the scenery switcher or the
+ * stockpile, visible and unclickable, which is the exact failure the traced-polygon version had.
+ * A plate that has been pulled in is still under its own building; it is a few pixels higher up it.
+ *
+ * `insetTop` is what the *screen* puts over the picture on top of the shell's own bars: the
+ * district's title row. The picture runs under it, deliberately, and a plate must not.
+ */
+export function plateTop(
+  anchorPercent: number,
+  height: number,
+  clear: number,
+  insetTop = 0,
+): number {
+  if (height <= 0 || clear <= 0) return anchorPercent;
+  const offset = bleedOffset(height, clear);
+  const asPercent = (pixels: number): number => ((pixels - offset) / height) * 100;
+  const lowest = asPercent(clear - PLATE_CLEARANCE);
+  const highest = asPercent(insetTop + PLATE_CLEARANCE);
+  // A band too short to hold a plate at all would invert the two: leave the anchor alone rather
+  // than clamping to a nonsense window.
+  if (lowest <= highest) return anchorPercent;
+  return Math.min(lowest, Math.max(highest, anchorPercent));
 }
 
 export function DistrictScene({
   buildings,
   queue,
+  playerLevel,
   selected,
   onSelect,
   readOnly = false,
 }: DistrictSceneProps) {
   const plate = deliveredUrl({ type: 'plate', plate: 'district' });
-  // Hover and focus are held in React rather than left to CSS because the name plate is an HTML
-  // element outside the `<svg>`: no selector reaches from a polygon to it, and putting the plates
-  // inside the SVG would mean re-implementing a bordered, letter-spaced, font-swapping label in
-  // `<text>`, which is the one part of this screen that already works.
-  const [pointed, setPointed] = useState<BuildingKind | null>(null);
   const [frameRef, room] = useMeasuredSize();
   const [bandRef, band] = useMeasuredSize();
+  // A second probe, inset by whatever the screen itself floats over the picture. The band above is
+  // what the *painting* gets; this is what a *control* gets, and the difference is the district's
+  // title row, which the artwork runs under and a name plate may not.
+  const [safeRef, safe] = useMeasuredSize();
   const scene = fitted(room, band, !readOnly);
+  // What `plateTop` needs to pull a plate back inside the bars: the picture it is hung on, and the
+  // room the chrome left. Zero for the city screen's preview, which has no chrome and no bleed.
+  const pictureHeight = readOnly ? 0 : Number(scene.height) || 0;
+  const clear = readOnly ? 0 : band.height;
+  const insetTop = readOnly ? 0 : Math.max(0, band.height - safe.height);
 
   const sites = DISTRICT_SITES_BY_DEPTH.map((site) => {
     const level = buildingLevel(buildings, site.kind);
+    /*
+     * Judged against the district the **queue** will produce, not the one standing right now.
+     *
+     * The same reading the plot dialog and the build route use, and they have to agree or the
+     * screen contradicts itself: a player who has already paid for the Nexus level that opens the
+     * Gate was shown a padlock and a note reading "You need: The Nexus at 4" over a dialog
+     * offering to build it. The map was answering a question nobody had asked: what is possible
+     * *this second*, while everything else answered what is possible once the orders you have
+     * already placed land.
+     *
+     * Read once and carried, because the plate needs both answers: whether it is locked and what
+     * by. Deriving the boolean here and the reasons again inside the plate would be two calls that
+     * can disagree, and the one that disagrees is the one nobody is looking at.
+     */
+    const unmet = unmetForQueue(site.kind, buildings, queue, playerLevel);
     const state: PlotState = queue.some((entry) => entry.kind === site.kind)
       ? 'working'
       : level > 0
         ? 'standing'
-        : isBuildingUnlocked(site.kind, buildings)
+        : unmet.length === 0
           ? 'vacant'
           : 'locked';
-    return { site, level, state };
+    return { site, level, state, unmet };
   }).filter(({ level }) => !readOnly || level > 0);
 
   return (
-    // The whole painting, fitted to whatever room the chrome leaves, and **never** cropped.
+    // The whole painting, edge to edge, and **never** cropped horizontally.
     //
-    // Cover was the obvious way to fill a viewport of any shape and it is wrong here: it crops, and
-    // there is nothing on this plate that can be cropped. Every outline was traced on the whole
-    // painting, so a cut edge is not a lost margin — it is twelve polygons pointing at pixels that
-    // have moved.
+    // Cover was the obvious way to fill a viewport of any shape and it is wrong here: it crops the
+    // sides, and there is nothing across the width of this plate that can be cropped. Every outline
+    // was traced on the whole painting, so a cut edge is not a lost margin. It is twelve polygons
+    // pointing at pixels that have moved. What the frame *does* take is the empty ground off the
+    // top and bottom, which is why the picture takes the full width and lets its own margins slide
+    // under the bars.
     <div
       ref={frameRef}
-      // No ground of its own. Where the picture cannot reach — a viewport too wide for the shape of
-      // the plate — what shows through is the shell's own backdrop, which is this same painting
+      // No ground of its own. Where the picture cannot reach: a viewport too wide for the shape of
+      // the plate: what shows through is the shell's own backdrop, which is this same painting
       // blurred and pushed back. A flat slab of `surface-950` there is the thing that made the
       // district read as a picture sitting on a page; the blur reads as the rest of the city.
       className="absolute inset-0 overflow-hidden"
       data-testid="district-frame"
     >
+      {/* What a *control* is allowed to occupy: the chrome's room, less whatever the screen itself
+          floats over the picture. Zero-sized and invisible; it exists to be measured. */}
+      {!readOnly && (
+        <div
+          ref={safeRef}
+          aria-hidden
+          className="pointer-events-none absolute left-0 right-0"
+          style={{
+            top: 'var(--scene-safe-top, var(--scene-top, var(--hud-h, 0px)))',
+            bottom: 'var(--scene-bottom, var(--nav-h, 0px))',
+          }}
+        />
+      )}
+
       {/* The room the floating chrome leaves, as a box rather than as arithmetic.
           `--hud-h` and `--nav-h` are published by the shell from its own measurements, so this
           tracks a HUD that wrapped to a second row or a nav that grew a door, on any viewport,
           without either component knowing the other exists. Read-only means the preview panel on
-          the city screen, which has no chrome over it — and would otherwise inherit the shell's
+          the city screen, which has no chrome over it, and would otherwise inherit the shell's
           variables and inset itself inside somebody else's frame. */}
       <div
         ref={bandRef}
@@ -315,7 +285,7 @@ export function DistrictScene({
             ? { top: 0, bottom: 0 }
             : {
                 // `--scene-top`/`--scene-bottom` are what the *screen* adds on top of the shell's
-                // own bars — the district's title row, for one. Falling back to the shell's
+                // own bars: the district's title row, for one. Falling back to the shell's
                 // variables keeps the scene correct anywhere it is used without one.
                 top: 'var(--scene-top, var(--hud-h, 0px))',
                 bottom: 'var(--scene-bottom, var(--nav-h, 0px))',
@@ -325,7 +295,7 @@ export function DistrictScene({
         <div
           // Sized in pixels, from a measurement, rather than by CSS.
           //
-          // The obvious spelling — a percentage width with `aspect-ratio` and a `max-height` — is
+          // The obvious spelling, a percentage width with `aspect-ratio` and a `max-height`, is
           // subtly broken, and broken *silently*: `aspect-ratio` derives the height from the width,
           // and a `max-height` then clamps that height **without giving the width back**. On a short
           // viewport the box quietly stops being the plate's shape, and the image inside it crops to
@@ -347,111 +317,37 @@ export function DistrictScene({
             />
           )}
 
-          {/* The `viewBox` is the plate's own pixel size, so the overlay scales with the picture and
-            a stroke stays the same weight in both axes — a `0 0 100 100` box stretched onto a 16:9
-            scene draws horizontal edges thinner than vertical ones. */}
-          <svg
-            viewBox={`0 0 ${DISTRICT_PLATE.width} ${DISTRICT_PLATE.height}`}
-            className="absolute inset-0 h-full w-full"
-            data-testid="district-plots"
-          >
-            {sites.map(({ site, level, state }) => {
-              const spec = BUILDING_CATALOG[site.kind];
-              const lit = !readOnly && (selected === site.kind || pointed === site.kind);
-              const paint = paintFor(state, lit);
-              return (
-                <polygon
-                  key={site.kind}
-                  points={sitePoints(site)}
-                  data-testid={`plot-${site.kind}`}
-                  {...(readOnly
-                    ? { role: 'img' }
-                    : {
-                        role: 'button',
-                        tabIndex: 0,
-                        'aria-pressed': selected === site.kind,
-                        onClick: () => onSelect(site.kind),
-                        onKeyDown: (event: KeyboardEvent<SVGPolygonElement>) => {
-                          // A `<polygon role="button">` is not a `<button>`, so the two keys a button
-                          // answers to have to be answered here or the district is mouse-only.
-                          if (event.key !== 'Enter' && event.key !== ' ') return;
-                          event.preventDefault();
-                          onSelect(site.kind);
-                        },
-                        onPointerEnter: () => setPointed(site.kind),
-                        onPointerLeave: () => setPointed((at) => (at === site.kind ? null : at)),
-                        onFocus: () => setPointed(site.kind),
-                        onBlur: () => setPointed((at) => (at === site.kind ? null : at)),
-                      })}
-                  aria-label={`${spec.name}, ${describe(state, level, site.kind)}`}
-                  fill={paint.fill}
-                  stroke={paint.stroke}
-                  strokeWidth={paint.strokeWidth}
-                  strokeLinejoin="round"
-                  {...(paint.dashed === true ? { strokeDasharray: '10 7' } : {})}
-                  style={{
-                    // `all` rather than the default, so the outline answers the pointer on its
-                    // interior even while that interior is painted with a fully transparent fill —
-                    // which is what a built structure's resting state is.
-                    pointerEvents: readOnly ? 'none' : 'all',
-                    ...(paint.blend === undefined ? {} : { mixBlendMode: paint.blend }),
-                    ...(lit ? { filter: `drop-shadow(0 0 14px ${chrome.brass[300]}aa)` } : {}),
-                    outline: 'none',
-                    transition: 'fill 120ms linear, stroke 120ms linear',
-                  }}
-                />
-              );
-            })}
-
-            {/* The locks, after every outline so they are never drawn under a neighbour's scrim.
-              Sized off the shape they hang on — a lock the same size on the Cistern and on the
-              Scrapyard would swamp the one and vanish on the other. */}
-            {sites
-              .filter(({ state }) => state === 'locked')
-              .map(({ site }) => {
-                const centre = siteCentroid(site);
-                const box = siteBounds(site);
-                return (
-                  <Padlock
-                    key={`lock-${site.kind}`}
-                    x={(centre.x / 100) * DISTRICT_PLATE.width}
-                    y={(centre.y / 100) * DISTRICT_PLATE.height}
-                    size={
-                      Math.min(
-                        ((box.width / 100) * DISTRICT_PLATE.width) / 2.6,
-                        ((box.height / 100) * DISTRICT_PLATE.height) / 2.6,
-                      ) || 40
-                    }
-                  />
-                );
-              })}
-          </svg>
-
-          {/* The name plates, in HTML over the outlines: bordered, letter-spaced display type that
-            has to survive a font swap without growing out of the scene. Inert, so the polygon
-            underneath is still what the pointer finds. */}
-          <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-            {sites.map(({ site, level, state }) => {
-              const spec = BUILDING_CATALOG[site.kind];
-              const shown = selected === site.kind || pointed === site.kind;
-              const centre = siteCentroid(site);
-              return (
-                <span
-                  key={site.kind}
-                  data-testid={`nameplate-${site.kind}`}
-                  style={{ left: `${centre.x}%`, top: `${siteDepth(site)}%` }}
-                  className={cn(
-                    'absolute z-10 -translate-x-1/2 -translate-y-1/2',
-                    'whitespace-nowrap border px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.12em]',
-                    'transition-opacity',
-                    PLATE_STYLES[state],
-                    shown || ALWAYS_PLATED.includes(state) ? 'opacity-100' : 'opacity-0',
-                  )}
-                >
-                  {spec.shortName} {plate_(state, level)}
-                </span>
-              );
-            })}
+          {/*
+           * The controls (§A1). Grepolis' arrangement: the painting shows the buildings, and a
+           * **name plate under each one** is the thing you click.
+           *
+           * This replaced a traced polygon per building that lit up and answered the pointer. The
+           * outlines were accurate, they hit-tested the real silhouette, and they were a bad
+           * control for three reasons a player feels immediately. Nothing said they were there, so
+           * the first minute of the game was moving a cursor over a painting hoping something
+           * happened. The lit-up wash and the dark scrim were painted *over* the artwork, so the
+           * better the plate got the worse the interface looked. And a shape you have to find is a
+           * shape somebody on a laptop trackpad has to find twice.
+           *
+           * A label under the building is legible at a glance, always in the same place, has an
+           * obvious hit box, and reads as a sign on a building rather than as a hole cut in a
+           * picture. The outlines still exist and still earn their keep. They are what `plots.ts`
+           * positions these from, and what `building-portraits` cuts the dialog art with.
+           */}
+          <div className="absolute inset-0" data-testid="district-plots">
+            {sites.map(({ site, level, state, unmet }) => (
+              <PlotLabel
+                key={site.kind}
+                site={site}
+                level={level}
+                state={state}
+                unmet={unmet}
+                selected={selected === site.kind}
+                readOnly={readOnly}
+                topPercent={plateTop(siteDepth(site), pictureHeight, clear, insetTop)}
+                onSelect={() => onSelect(site.kind)}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -459,15 +355,179 @@ export function DistrictScene({
   );
 }
 
-/** The trailing half of a name plate: the level, or the symbol standing in for one. */
+/**
+ * One structure's name plate: the control the district is played through.
+ *
+ * Anchored at the **bottom** of the building's traced outline and hung below it, so it reads as a
+ * sign under the thing it names rather than as a sticker over it. `siteDepth` is the lowest point
+ * of the silhouette, which is the building's ground line, so this lands where a sign would.
+ *
+ * A single `<button>`, always: even locked. A locked plot that could not be clicked would be a
+ * dead square with no way to find out anything about it, which is exactly the failure §I3 asks the
+ * rest of the game to avoid; clicking one opens the same dialog and it explains itself.
+ *
+ * The hover note is `HoverCard` rather than a `title`: a native tooltip is slow, unstyleable,
+ * invisible to touch and impossible to read at the bottom of a dark painting.
+ */
+function PlotLabel({
+  site,
+  level,
+  state,
+  unmet,
+  selected,
+  readOnly,
+  topPercent,
+  onSelect,
+}: {
+  site: DistrictSite;
+  level: number;
+  state: PlotState;
+  unmet: readonly BuildingRequirement[];
+  selected: boolean;
+  readOnly: boolean;
+  /** The building's ground line, pulled inside the clear band. See {@link plateTop}. */
+  topPercent: number;
+  onSelect: () => void;
+}) {
+  const spec = BUILDING_CATALOG[site.kind];
+  const centre = siteCentroid(site);
+  const name = `${spec.name}, ${describe(state, level, unmet)}`;
+
+  const face = (
+    <span
+      className={cn(
+        'flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-0.5',
+        'font-display text-[11px] font-semibold uppercase tracking-[0.1em] shadow-lifted',
+        PLATE_STYLES[state],
+        selected && 'ring-1 ring-inset ring-brass-300',
+      )}
+    >
+      {state === 'locked' && (
+        <Icon name="lock" aria-hidden className="h-3 w-3 shrink-0 text-brass-300" />
+      )}
+      <span>{spec.shortName}</span>
+      {plate_(state, level) !== '' && (
+        <span className="tabular-nums opacity-75">{plate_(state, level)}</span>
+      )}
+    </span>
+  );
+
+  // Somebody else's ground: a caption, not a control.
+  if (readOnly) {
+    return (
+      <span
+        data-testid={`plot-${site.kind}`}
+        aria-hidden="true"
+        style={{ left: `${centre.x}%`, top: `${topPercent}%` }}
+        className="pointer-events-none absolute z-10 -translate-x-1/2"
+      >
+        {face}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      style={{ left: `${centre.x}%`, top: `${topPercent}%` }}
+      // Three quarters of the plate hangs *below* the building's ground line, which is what makes
+      // it read as a sign under the building rather than a sticker on it, and the quarter that
+      // does not is what keeps it inside `LABEL_ALLOWANCE` at the smallest plate the game draws.
+      className="absolute z-10 -translate-x-1/2 -translate-y-1/4"
+    >
+      <HoverCard
+        data-testid={`plot-${site.kind}`}
+        label={name}
+        onActivate={onSelect}
+        card={<PlotNote kind={site.kind} state={state} level={level} unmet={unmet} />}
+        className="transition-transform duration-150 hover:-translate-y-0.5 active:translate-y-0"
+      >
+        {face}
+      </HoverCard>
+    </span>
+  );
+}
+
+/**
+ * The note that drops out of a plate on hover (§I3).
+ *
+ * For a locked plot this is the whole point of the feature: **every** unmet clause, in the
+ * catalogue's own order, so a player learns the route rather than discovering it one refusal at a
+ * time. A structure gated on the Nexus, another building and the crew's level says all three at
+ * once, because "raise the Nexus" followed by "now build Quarters" followed by "now reach level 7"
+ * is the same information delivered as three disappointments.
+ *
+ * Every other state gets a note too, and cheaply: the structure's own one-line job. A card that
+ * only ever appeared on the things you cannot have would teach players to ignore it.
+ */
+function PlotNote({
+  kind,
+  state,
+  level,
+  unmet,
+}: {
+  kind: BuildingKind;
+  state: PlotState;
+  level: number;
+  unmet: readonly BuildingRequirement[];
+}) {
+  const spec = BUILDING_CATALOG[kind];
+  return (
+    <div className="flex max-w-[15rem] flex-col gap-1.5">
+      <p className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-brass-300">
+        {spec.name}
+        {state === 'standing' && ` · Lv ${level}`}
+      </p>
+
+      {state === 'locked' ? (
+        <>
+          <p className="font-body text-[12px] leading-relaxed text-ink-300">Not yet. You need:</p>
+          <ul className="flex flex-col gap-0.5">
+            {unmet.map((clause) => (
+              <li
+                key={describeBuildingRequirement(clause)}
+                className="flex items-baseline gap-1.5 font-display text-[11px] uppercase tracking-[0.1em] text-ink-100"
+              >
+                <span aria-hidden className="text-brass-300">
+                  ▸
+                </span>
+                {/* Its own element, so the clause is addressable as one string: by a test, and by
+                    anything that has to read the list back out. */}
+                <span>{describeBuildingRequirement(clause)}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="font-body text-[12px] leading-relaxed text-ink-200">{spec.role}</p>
+      )}
+
+      <p className="font-body text-[11px] leading-relaxed text-ink-300">
+        {state === 'working'
+          ? 'Work is under way. Open it to see what is left.'
+          : state === 'vacant'
+            ? 'Ready to build. Open it for the price and the clock.'
+            : state === 'locked'
+              ? 'Open it anyway: a shut door still tells you what it is for.'
+              : 'Open it for the price of the next level.'}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The trailing half of a name plate: the level, or the symbol standing in for one.
+ *
+ * A locked plate says nothing here: the padlock at the *front* of the plate already says it, and
+ * a lock glyph at both ends was two marks for one fact.
+ */
 function plate_(state: PlotState, level: number): string {
-  if (state === 'locked') return '🔒';
+  if (state === 'locked') return '';
   if (state === 'working') return level > 0 ? `Lv ${level} ▲` : '▲';
-  return level > 0 ? `Lv ${level}` : '—';
+  return level > 0 ? `Lv ${level}` : '';
 }
 
 /** The same four states in words, for the accessible name. The plate's glyphs say nothing aloud. */
-function describe(state: PlotState, level: number, kind: BuildingKind): string {
+function describe(state: PlotState, level: number, unmet: readonly BuildingRequirement[]): string {
   switch (state) {
     case 'working':
       return level > 0 ? `level ${level}, upgrade under way` : 'under construction';
@@ -476,7 +536,8 @@ function describe(state: PlotState, level: number, kind: BuildingKind): string {
     case 'vacant':
       return 'vacant plot';
     case 'locked':
-      return `locked, needs the Nexus at level ${BUILDING_CATALOG[kind].requiresNexusLevel}`;
+      // Every clause, not the first: a screen reader gets the same route the hover note draws.
+      return `locked, needs ${unmet.map(describeBuildingRequirement).join(', ')}`;
   }
 }
 
@@ -487,7 +548,7 @@ function describe(state: PlotState, level: number, kind: BuildingKind): string {
  * the top of the frame shows is the perimeter the district ends at ({@link DISTRICT_BACK_EDGE}).
  *
  * Deliberately almost bare: a busy placeholder gets read as the design and then argued with. It is
- * a backstop for a missing file rather than a rehearsal of the painting — the outlines are traced
+ * a backstop for a missing file rather than a rehearsal of the painting: the outlines are traced
  * on the delivered plate and mean nothing without it, so what this has to do is be obviously not
  * the district rather than pretend to be it.
  *

@@ -13,7 +13,7 @@ replays nothing.
 
 A snapshot is a **whole database**, taken with `VACUUM INTO` inside a single read transaction. It
 has no `-wal` sidecar of its own, it is defragmented, and it carries its own `schema_migrations`
-table — so a restore never needs a migration re-run and never needs anything replayed on top.
+table, so a restore never needs a migration re-run and never needs anything replayed on top.
 
 Snapshots are taken every **10 minutes** (`BACKUP_INTERVAL_MS`) and the newest **24** are kept
 (`BACKUP_KEEP`), which is a rolling window of four hours. The admin bench (`/game/admin`) lists what
@@ -25,7 +25,7 @@ is currently on disk with its timestamp and size, so the choice can be made with
 # 1. Stop the server. Nothing below is safe against a live writer.
 #    (Ctrl-C the dev process, or stop the service.)
 
-# 2. Move the damaged database aside — all three files. The -wal is part of the
+# 2. Move the damaged database aside: all three files. The -wal is part of the
 #    database's persistent state, and leaving it next to a restored main file is
 #    the classic way to corrupt the thing you just restored.
 mkdir -p ./corrupt
@@ -53,7 +53,7 @@ sqlite3 backups/frontline-2026-08-16T09-50-00-000Z.sqlite \
 ```
 
 `integrity_check` answering `ok` and a plausible row count is the whole check. If a snapshot is
-damaged, take the next one down the list — they are independent files, not a chain.
+damaged, take the next one down the list. They are independent files, not a chain.
 
 ## What was lost
 
@@ -80,7 +80,7 @@ sqlite3 ./corrupt/frontline.sqlite \
 Researched rather than assumed, and the sources are in the module doc on
 `apps/server/src/db/backup.ts`. The short version:
 
-- **Server-authoritative, single source of truth.** Browser storage is borrowed, not owned — it has
+- **Server-authoritative, single source of truth.** Browser storage is borrowed, not owned. It has
   quotas, eviction policies and no persistence guarantee, and several mobile in-app browsers treat
   it as a cache. Nothing about a player's progress lives in the browser; the client holds a JWT and
   a react-query cache and that is all.

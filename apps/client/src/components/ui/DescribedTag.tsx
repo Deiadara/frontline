@@ -7,7 +7,7 @@ import { cn } from '../../lib/cn';
  * Ambitions, moral compasses and traits are all the same shape on a card: a single word in a box,
  * carrying a rule the player is expected to know. `Justice` decides who will sign with a
  * revolutionary crew and who will not; `Marked Face` takes eight points off stealth. None of that
- * is guessable from the word, and a `title` attribute is not an answer — it arrives after a second
+ * is guessable from the word, and a `title` attribute is not an answer. It arrives after a second
  * of stillness, on a delay no player waits through, and is invisible on the way past.
  *
  * So the word stays short and the explanation is one hover away, in the same card the HUD uses.

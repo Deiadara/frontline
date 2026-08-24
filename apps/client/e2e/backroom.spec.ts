@@ -9,7 +9,7 @@ import {
 } from './harness';
 
 /**
- * The three screens half B added — the Black Market, Settings and the bench — plus the ambience layer
+ * The three screens half B added, the Black Market, Settings and the bench, plus the ambience layer
  * that now runs over all of them.
  *
  * Every screen is measured at 1024 as well as at 1280. 1024 is where the chrome runs out of room:
@@ -37,7 +37,7 @@ async function open(page: Page, path: string, width: number, height: number): Pr
 /**
  * The layout sweeps, run with the fold taken out of the way.
  *
- * A document sheet scrolls, and the fold of a scroller cuts its last row *by design* — which the
+ * A document sheet scrolls, and the fold of a scroller cuts its last row *by design*, which the
  * clipped-text gate reports as a defect if it is pointed at a screen that is mid-scroll. Growing the
  * viewport to the full height of the content removes the fold without changing a single width, so
  * what is measured is the layout rather than how far down the page happened to be. The narrow-height
@@ -105,9 +105,11 @@ test.describe('the black market', () => {
 
   test('counts down to the refresh and names the clock it is counting on', async ({ page }) => {
     await open(page, '/game/market/black', 1280, 720);
-    // The countdown is a duration, not a wall clock, so it reads the same wherever the player is —
-    // and the copy beside it says which midnight it is counting to.
+    // The countdown is a duration, not a wall clock, so it reads the same wherever the player is.
+    // Which midnight it is counting to is in the note beside it, which is a hover now: the clock is
+    // live and stays on the page, the rule is reference and does not.
     await expect(page.getByTestId('black-refresh')).toContainText(/\d/);
+    await page.getByTestId('info-note').hover();
     await expect(page.getByText(/turns over at midnight Athens time/)).toBeVisible();
   });
 
@@ -145,13 +147,17 @@ test.describe('settings', () => {
     await page.getByTestId('settings-timezone').click();
     await page.getByRole('option', { name: /New York/ }).click();
     await expect(preview).not.toHaveText(athens ?? '');
-    // Same instant, different wall clock — which is the whole point of the setting.
+    // Same instant, different wall clock, which is the whole point of the setting.
     await expect(preview).toContainText('GMT-4');
   });
 
   test('offers a glyph to be recognised by', async ({ page }) => {
     await open(page, '/game/settings', 1280, 720);
     const icons = page.getByTestId('settings-icons').getByRole('button');
+    // `count()` does not auto-wait, so it has to be read *after* an assertion that does. Without
+    // one it samples whatever the DOM held on the first tick, which on a slow cold Vite start is
+    // nothing at all.
+    await expect(icons.first()).toBeVisible();
     expect(await icons.count()).toBeGreaterThan(4);
     await icons.nth(1).click();
     await expect(icons.nth(1)).toHaveAttribute('aria-pressed', 'true');
@@ -180,20 +186,20 @@ test.describe('the bench', () => {
   test('is a door in the scenery switcher when the build has one', async ({ page }) => {
     await open(page, '/game', 1280, 720);
     await expect(page.getByTestId('nav-bench')).toBeVisible();
-    await expect(page.getByTestId('nav-settings')).toBeVisible();
+    await expect(page.getByTestId('hud-settings')).toBeVisible();
   });
 
   test('is not a door when the server says there is no bench', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     // `/me` is what says whether this build has a bench. It used to be discovered by calling the
     // bench and reading a 404, which worked but made every production session log a failed request
-    // on every page — so the answer moved onto a call the shell was already making, and this is the
+    // on every page, so the answer moved onto a call the shell was already making, and this is the
     // build that answers no.
     await installApi(page, lateGame);
     await page.goto('/game');
     await settleFonts(page);
 
-    await expect(page.getByTestId('nav-settings')).toBeVisible();
+    await expect(page.getByTestId('hud-settings')).toBeVisible();
     await expect(page.getByTestId('nav-bench')).toHaveCount(0);
   });
 });
@@ -222,7 +228,7 @@ test.describe('the scenery switcher with two more doors', () => {
       // Position alone does not catch the real failure mode, which took a mutation to find: a row
       // that does not wrap does not spill, it *shrinks*. Every door stays politely inside the bar
       // at 65px while "WORKSHOP" runs out past both its edges and collides with the door beside
-      // it. The label's own `scrollWidth` is no help either — nothing constrains the span, so it
+      // it. The label's own `scrollWidth` is no help either: nothing constrains the span, so it
       // simply grows and overflows its parent. What has to be measured is the label against the
       // door, which is the thing that actually got smaller.
       const spilling = await nav.evaluate((bar) =>
@@ -269,7 +275,7 @@ test.describe('the ambience layer', () => {
       await open(page, path, 1280, 720);
       // The sprites are `<svg>` in fixed boxes tucked inside the frame; the gate that would catch a
       // corner-bled sprite is the image one, and it is the reason none of them run off the edge.
-      // Scoped to the ambience layer itself — the backdrop it sits over is over-scaled by design.
+      // Scoped to the ambience layer itself: the backdrop it sits over is over-scaled by design.
       await expectNoImagesClipped(page, '[data-testid="ambience"]');
     }
   });

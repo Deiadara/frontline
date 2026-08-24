@@ -1,6 +1,6 @@
 -- Declared battles, the forces moved up for them, gates and traps (GDD §A4, battle rework).
 --
--- Number allocated under INTERFACES.md R6/R9 — do not renumber, the runner keys
+-- Number allocated under INTERFACES.md R6/R9: do not renumber, the runner keys
 -- `schema_migrations` on the file name and a rename re-applies the migration.
 --
 -- Four pieces of state, and the split is the same one `place_control` made: world state lives in
@@ -19,12 +19,12 @@
 -- stops one stack of Razors being promised to six fights at once.
 --
 -- `district_gates` records a breach. Everything else about a gate is derived from `place_control`
--- every time it is read — a district is shut exactly when one party holds all of it — but "somebody
+-- every time it is read, a district is shut exactly when one party holds all of it, but "somebody
 -- kicked this in at 04:12" is a fact about the past that no amount of reading the present recovers.
 --
 -- The trap goes on `place_control` rather than in a table of its own: it belongs to the ground the
 -- same way a garrison and a fortification level do, and it is destroyed by the same event that
--- takes those — the place changing hands.
+-- takes those: the place changing hands.
 
 CREATE TABLE scheduled_battles (
   id TEXT PRIMARY KEY,

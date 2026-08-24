@@ -28,7 +28,7 @@ describe('the shelf', () => {
   it('is five slots and one take a day, as numbers rather than as constants', () => {
     // Written as literals on purpose. Every other assertion in this file derives its expectation
     // from `BLACK_MARKET_SLOTS`, so lowering that constant to four leaves the whole suite green
-    // while the shelf quietly loses a slot — the shape of tautology that hides a half-implemented
+    // while the shelf quietly loses a slot: the shape of tautology that hides a half-implemented
     // change. These three lines are the independent anchor: they say what the board asked for.
     expect(BLACK_MARKET_SLOTS).toBe(5);
     expect(BLACK_MARKET_TAKES_PER_DAY).toBe(1);
@@ -251,7 +251,7 @@ describe('the stash of boosts', () => {
   });
 
   /**
-   * Two of a thing do **not** stack (board — "you can use the same boost only once").
+   * Two of a thing do **not** stack (board. "You can use the same boost only once").
    *
    * The rule this replaced said they did, and the shape that ends one way: the correct play becomes
    * hoarding a fortnight of infamy into six syringes and deleting somebody with a number no defence
@@ -289,7 +289,7 @@ describe('the stash of boosts', () => {
 });
 
 /**
- * §D8 — one shelf for the whole city, priced and stocked for the company the dealer is keeping.
+ * §D8: one shelf for the whole city, priced and stocked for the company the dealer is keeping.
  *
  * The shelf is the only shared thing in the game, which is what makes this necessary rather than
  * decorative: a fixed catalogue is either unaffordable to the crews who need it or free to the
@@ -301,7 +301,7 @@ describe('what the city’s average level does to the back room', () => {
   it('reads the average off the players, and floors it at the reference', () => {
     expect(averageCityLevel([10, 20, 30])).toBe(20);
     // An empty city, and a city of nothing but level-zero rows, both read as the reference rather
-    // than as zero — a divide by nobody must not make everything free.
+    // than as zero: a divide by nobody must not make everything free.
     expect(averageCityLevel([])).toBe(1);
     expect(averageCityLevel([0, -4])).toBe(1);
   });
@@ -334,7 +334,7 @@ describe('what the city’s average level does to the back room', () => {
     const applied = blackMarketBoost(syringes, 30)!;
     expect(late).toContain(`+${applied.offensePercent}% offense`);
     expect(late).not.toContain(`+${syringes.boost!.offensePercent}% offense`);
-    // Anything that is not a boost keeps its authored line — there are no figures in it to move.
+    // Anything that is not a boost keeps its authored line. There are no figures in it to move.
     const blueprint = Object.values(BLACK_MARKET_GOODS).find((spec) => !spec.boost)!;
     expect(blackMarketEffect(blueprint, 30)).toBe(blueprint.effect);
   });

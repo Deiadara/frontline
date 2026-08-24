@@ -9,7 +9,7 @@ import {
 /**
  * ############################ SERVER-SIDE ONLY ############################
  *
- * Which skills each seat actually puts to work — and, like `requirements.ts` beside it, never
+ * Which skills each seat actually puts to work, and, like `requirements.ts` beside it, never
  * shipped. It reads as a job description rather than a candidate profile, but it overlaps what a
  * role wants closely enough that publishing it would publish half of §B8's hidden table, and
  * `hidden-table.leak.test.ts` fails if any per-role structure appears in `packages/shared`.
@@ -30,7 +30,7 @@ import {
  * of what they had been hired as. So a cryptographer sat in the Fabricator's chair improved your
  * intel exactly as much as one sat as Head Spy, and the nineteen role slots were a filing system
  * rather than a decision. Now a person contributes their full rating only in the attributes their
- * seat uses, and {@link OFF_DUTY_SHARE} of it everywhere else — they are still in the room, they
+ * seat uses, and {@link OFF_DUTY_SHARE} of it everywhere else. They are still in the room, they
  * are simply not doing that job.
  *
  * Each row is deliberately wider than that role's `primary`: a Head Spy is hired for Stealth and
@@ -64,7 +64,7 @@ export function roleUses(role: OfficerRole, attribute: AttributeName): boolean {
   return ROLE_DUTIES[role].includes(attribute);
 }
 
-/** One officer, ready for `crewSheet` — their sheet and the duties of the chair they are in. */
+/** One officer, ready for `crewSheet`: their sheet and the duties of the chair they are in. */
 export function seatedMember(attributes: Attributes, role: OfficerRole): CrewMember {
   return { attributes, duties: ROLE_DUTIES[role] };
 }

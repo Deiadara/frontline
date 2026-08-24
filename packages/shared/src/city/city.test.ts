@@ -57,7 +57,7 @@ import {
 /**
  * The city (GDD §A4).
  *
- * Where a claim can be checked against something other than the constant that produced it, it is —
+ * Where a claim can be checked against something other than the constant that produced it, it is:
  * the unified bonus is asserted to be *different in kind* from the locations it sits over, and the
  * fortification ladder is asserted in percentages the board named rather than against the table
  * that produces them.
@@ -216,7 +216,7 @@ describe('digging in (§A4)', () => {
     expect(maxFortifyBonusPercent('hard')).toBe(15);
   });
 
-  it('costs the same on every kind of ground — the difference is what it buys', () => {
+  it('costs the same on every kind of ground: the difference is what it buys', () => {
     // The board's call, and it is what keeps easy/medium/hard a reward axis rather than a second
     // price axis. Asserted directly because it would be very easy to "fix" by accident.
     expect(fortifyCost(3)).toEqual(fortifyCost(3));
@@ -247,8 +247,8 @@ describe('who holds what (§A4)', () => {
   /**
    * The shape of the first hour, and the one thing about the map a new player actually meets.
    *
-   * Every location in the city used to start held, which meant every district was **shut** — one party
-   * holding all of it is what arms a gate — and the only legal move anywhere was to break a door
+   * Every location in the city used to start held, which meant every district was **shut**: one party
+   * holding all of it is what arms a gate, and the only legal move anywhere was to break a door
    * down. The split below is what replaced that: the Combine locks its ground, and independent
    * ground is squatted rather than owned.
    */
@@ -418,7 +418,7 @@ describe('what territory is worth (§A4)', () => {
 
 describe('NPC garrisons (§A3, §A4)', () => {
   /**
-   * Every location used to start with an empty garrison — held on paper and defended by nobody, so
+   * Every location used to start with an empty garrison: held on paper and defended by nobody, so
    * the whole city map could be taken by one Razor for free. Found by trying to write a test that
    * needed somebody to fight and discovering there was never anybody there.
    */
@@ -453,7 +453,7 @@ describe('NPC garrisons (§A3, §A4)', () => {
      * Every *garrisoned* location in the district, not the first one in the list.
      *
      * Only the best few locations in an open district are squatted at all (`squattedIn`), so
-     * `locations[0]` is very often empty ground — and asserting on it made this test a statement
+     * `locations[0]` is very often empty ground, and asserting on it made this test a statement
      * about the authoring order of one array. Adding two locations to the Rustyard was enough to
      * turn it green-to-red without a single rule changing.
      */
@@ -501,9 +501,9 @@ describe('NPC garrisons (§A3, §A4)', () => {
 /**
  * The map is a location, and a location has to hold together.
  *
- * These are the two properties the layout was rebuilt for. Both are invisible in a screenshot —
+ * These are the two properties the layout was rebuilt for. Both are invisible in a screenshot:
  * ten markers scattered at random look exactly like ten markers arranged on purpose until you try
- * to read them — which is why they are pinned here rather than left to whoever moves a district
+ * to read them, which is why they are pinned here rather than left to whoever moves a district
  * next.
  */
 describe("the city's geography", () => {
@@ -514,7 +514,7 @@ describe("the city's geography", () => {
   };
 
   /**
-   * Height *is* difficulty. Not strictly — two districts may share a rung — but the correlation has
+   * Height *is* difficulty. Not strictly, two districts may share a rung, but the correlation has
    * to be strong enough that "further up" reads as "harder" without a legend.
    */
   it('gets harder the further up the map you go', () => {
@@ -554,7 +554,7 @@ describe("the city's geography", () => {
     expect(Math.abs(spire.position.x - 0.5)).toBeLessThan(0.12);
   });
 
-  /** ART-BIBLE §6.3 — every anchor inside the plate's safe box. */
+  /** ART-BIBLE §6.3: every anchor inside the plate's safe box. */
   it('keeps every district inside the map plate', () => {
     for (const district of CITY_DISTRICTS) {
       expect(district.position.x, district.id).toBeGreaterThanOrEqual(0.08);

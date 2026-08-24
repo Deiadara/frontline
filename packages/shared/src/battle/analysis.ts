@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EnvLabelSchema, WeatherKindSchema } from '../city/index.js';
 import { UnitTierSchema, type Army } from '../units/index.js';
 import type { Simulation, SideState } from './engine.js';
 import { moraleState, MORALE_STATE_LABELS } from './morale.js';
@@ -8,7 +9,7 @@ import { BattleSideSchema, type BattleSide } from './scheduled.js';
 /**
  * The report a player actually reads afterwards (GDD §A5, battle rework).
  *
- * `report.ts` writes the *prose* — the four lines that make a defeat legible. This writes the
+ * `report.ts` writes the *prose*: the four lines that make a defeat legible. This writes the
  * **ledger**: who was there, what they did, what it cost, and which of them earned their supply.
  * The two are deliberately separate and both are on the payload, because they answer different
  * questions and a player wants both: the narrative tells you what happened, the ledger tells you
@@ -24,7 +25,7 @@ import { BattleSideSchema, type BattleSide } from './scheduled.js';
  *
  * {@link reportReaches} is the single enforcement point, and the server refuses to hand over an
  * analysis it says no to rather than sending a redacted one. A redacted report still leaks the shape
- * of what was withheld — the count of hidden rows, the fact that a fight happened at all — and the
+ * of what was withheld, the count of hidden rows, the fact that a fight happened at all, and the
  * whole point of a perimeter is to buy a silence.
  */
 
@@ -32,7 +33,7 @@ export const UnitPerformanceSchema = z.object({
   unitId: z.string().min(1),
   name: z.string().min(1),
   tier: UnitTierSchema,
-  /** One of a kind. Called out separately in the report — a legend's day is its own paragraph. */
+  /** One of a kind. Called out separately in the report: a legend's day is its own paragraph. */
   unique: z.boolean(),
   /** Bodies that walked onto the ground. */
   started: z.number().int().nonnegative(),
@@ -90,6 +91,20 @@ export const BattleAnalysisSchema = z.object({
   legends: z.array(z.string()),
   /** The one sentence at the top. Everything else is detail under it. */
   headline: z.string(),
+  /**
+   * §A4: the sky the fight actually happened under, and what the ground was like.
+   *
+   * The labels decide a real share of the outcome: Anodics at +46% in a press hall, a Colossus
+   * losing a fifth of itself to a corridor, and for a while the report said nothing about any of
+   * it. A player read a loss with no way to learn that they had sent riflemen into `Crammed IV` on
+   * a foggy night, which makes the whole system a hidden dice roll rather than a thing to plan
+   * around.
+   *
+   * Stored on the analysis rather than recomputed when the card is drawn: the ground is a fact
+   * about a moment that has passed, and the weather will have moved by the time anybody reads it.
+   */
+  weather: WeatherKindSchema,
+  ground: z.array(EnvLabelSchema),
 });
 export type BattleAnalysis = z.infer<typeof BattleAnalysisSchema>;
 
@@ -258,13 +273,17 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     trap: input.trap,
     legends: legendLines([attacker, defender]),
     headline: headlineFor(simulation, attacker, defender),
+    // Copied off the battlefield the engine actually fought on, so the card and the fight cannot
+    // disagree about the weather.
+    weather: simulation.battlefield.weather as BattleAnalysis['weather'],
+    ground: simulation.battlefield.labels,
   };
 }
 
 /**
  * Whether this side is told what happened.
  *
- * The winner always is. The loser is only if somebody got home to tell them — which is the entire
+ * The winner always is. The loser is only if somebody got home to tell them, which is the entire
  * reason a perimeter is worth the bodies it costs.
  */
 export function reportReaches(side: BattleSide, analysis: BattleAnalysis): boolean {

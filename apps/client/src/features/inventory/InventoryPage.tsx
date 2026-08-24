@@ -53,7 +53,7 @@ export function InventoryPage() {
       wide
     >
       {total === 0 && (
-        <InfoNote>
+        <InfoNote label="How the satchel fills">
           Nothing yet. Missions bring things back, and the Runner sells what the city has not
           already taken.{' '}
           <Link to="/game/market" className="text-brass-300 underline">

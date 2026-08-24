@@ -23,7 +23,7 @@ import { OverseerPortrait } from './OverseerPortrait';
  * Who you are, and what the people around you are worth (§F1, §F2).
  *
  * The second half is the part that did not exist. A sheet of thirty-five numbers is unreadable
- * unless it says what the numbers *do*, and until now they did nothing at all — so this page is
+ * unless it says what the numbers *do*, and until now they did nothing at all, so this page is
  * built the other way round from a character sheet: it leads with the outcomes, and each outcome
  * names the attributes that moved it and the crew's rating in each. A player asking "why is my
  * research slow" gets the answer on one line, along with who they would need to hire to fix it.
@@ -94,7 +94,7 @@ export function OverseerProfilePage() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-5">
-          <InfoNote>
+          <InfoNote label="Whose numbers these are">
             Every number below is the best anyone on your books has, yourself included. Hiring a
             specialist raises it; so does an hour in the Training tab. Nothing here is about how
             well somebody suits their job, which is yours to judge.
@@ -174,7 +174,7 @@ function ChannelRow({
       // `painted::before` is a soft-light layer, and soft-light is a *blend*: one of them over a
       // panel is the intended texture, but twenty-two of them stacked down one scrolling column
       // washed the whole column out to a pale grey static field with the type barely readable
-      // through it. Measured, not guessed — dropping the class from these rows alone restores the
+      // through it. Measured, not guessed: dropping the class from these rows alone restores the
       // page, with the same class left in place on the block above and on the shell. There is a
       // gate for it in `visual.spec.ts`; put `painted` back here and it fails.
       className="rounded-sm border border-surface-600/70 bg-surface-800/50 px-3 py-2"
@@ -204,7 +204,7 @@ function ChannelRow({
   );
 }
 
-/** A trait's whole mechanical effect, written out — the rule behind the name. */
+/** A trait's whole mechanical effect, written out: the rule behind the name. */
 function traitDetail(trait: TraitId): string {
   return Object.entries(TRAIT_CATALOG[trait].bonus)
     .map(

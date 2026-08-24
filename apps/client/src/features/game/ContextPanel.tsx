@@ -6,7 +6,7 @@ import { cn } from '../../lib/cn';
  * The right-hand panel: whichever district is selected on the map (GDD §A4).
  *
  * It answers three questions and stops: whose is it, how far away is it, and what can I do about
- * it. Anything about the *inside* of a district belongs to the district view — this panel is the
+ * it. Anything about the *inside* of a district belongs to the district view: this panel is the
  * map's caption, not a second screen.
  */
 

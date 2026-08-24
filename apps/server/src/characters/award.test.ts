@@ -13,7 +13,7 @@ import type { Repositories } from '../db/repos/index.js';
 /**
  * The Gauntlet's training bonus reaching an officer's sheet.
  *
- * `characterXpBonus` was computed by `building/standing.ts` and read by nothing — the same dead
+ * `characterXpBonus` was computed by `building/standing.ts` and read by nothing: the same dead
  * wiring the Gate had, found by listing exported functions with no consumers outside their own
  * file. A structure that raises a number nobody reads is a structure that does nothing.
  */

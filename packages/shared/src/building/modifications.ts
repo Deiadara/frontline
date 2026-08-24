@@ -2,11 +2,11 @@ import { z } from 'zod';
 import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
 
 /**
- * Building modifications (GDD §A1) — the second axis a structure improves along.
+ * Building modifications (GDD §A1): the second axis a structure improves along.
  *
  * A modification is **not** a level. Levels are bought with materials and time; a modification is
  * *researched*, needs a Lead Engineer on the books to run the work, and then stays installed. Each
- * structure offers five, and holds at most {@link MAX_MODIFICATION_SLOTS} of them — so the choice
+ * structure offers five, and holds at most {@link MAX_MODIFICATION_SLOTS} of them, so the choice
  * is which three of the five this district is, and it is not reversible on a whim.
  *
  * Slots open as the structure grows, at {@link MODIFICATION_SLOT_LEVELS}.
@@ -20,7 +20,7 @@ import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
  * implementation, which is exactly the dead-`output` mistake the structure catalogue was rewritten
  * to remove. A modification whose effect cannot be spelled as one of these does not get written.
  *
- * Every kind is oriented so that **more is better**, including the ones that shrink a number — a
+ * Every kind is oriented so that **more is better**, including the ones that shrink a number: a
  * `build_time_reduction` of 10 means builds take 10% less time. A player comparing two figures
  * should never have to remember which way one of them points.
  */
@@ -586,11 +586,11 @@ export function modificationsFor(kind: BuildingKind): ModificationSpec[] {
   return MODIFICATIONS.filter((mod) => mod.building === kind);
 }
 
-/** How many each structure offers — asserted, so a missing entry cannot ship quietly. */
+/** How many each structure offers: asserted, so a missing entry cannot ship quietly. */
 export const MODIFICATIONS_PER_BUILDING = 5;
 
 /**
- * Structure levels at which a modification slot opens (§A1 — "unlocked when the building reaches
+ * Structure levels at which a modification slot opens (§A1: "unlocked when the building reaches
  * lvl 5, 10 and 20"). Three entries, so three is also the cap.
  */
 export const MODIFICATION_SLOT_LEVELS: readonly number[] = [5, 10, 20];
@@ -615,9 +615,9 @@ export const MODIFICATION_BLOCKERS = [
   'not_built',
   /** Built, but every slot its level has opened is already full. */
   'no_slot',
-  /** §C4 — nobody on the books holds the Lead Engineer post. */
+  /** §C4: nobody on the books holds the Lead Engineer post. */
   'no_lead_engineer',
-  /** Another project is already on the bench (§B9 — one at a time). */
+  /** Another project is already on the bench (§B9: one at a time). */
   'research_busy',
   'cannot_afford',
 ] as const;

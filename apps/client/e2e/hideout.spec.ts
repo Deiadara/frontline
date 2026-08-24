@@ -3,14 +3,20 @@
  *
  * The board's bar is "no cut text or images, no overflow, no overlapping elements, at every
  * supported viewport". The plots are outlines traced on the painted plate in *percentages* of a
- * scene box, so the failure mode is not one bad viewport — it is a nudged vertex that lands wrong at
+ * scene box, so the failure mode is not one bad viewport. It is a nudged vertex that lands wrong at
  * every viewport at once, or a name plate whose text is wider than the scene that clips it.
  * `plots.test.ts` pins the tracing as plane geometry; this pins what the browser actually laid out
  * and actually hit-tests, which is the only place font metrics, borders and compositing exist.
  *
  * Screenshots land in `screenshots/hideout/` so the board can open the whole matrix at once.
  */
-import { BUILDING_KINDS, findAssetSpec, type Building } from '@frontline/shared';
+import {
+  BUILDING_CATALOG,
+  BUILDING_KINDS,
+  describeBuildingRequirement,
+  findAssetSpec,
+  type Building,
+} from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import { base, lateGame, lateGameBase, me } from './fixtures';
 import {
@@ -24,7 +30,7 @@ import {
  * A hideout with every plot standing at `level`, over `lateGame`'s late-game stockpile.
  *
  * Both fat cases only exist at the top of the curve: the widest name plate the catalogue can
- * produce is `Apothecary Lv 20` — two digits under the longest short name — and the widest cost
+ * produce is `Apothecary Lv 20`, two digits under the longest short name, and the widest cost
  * line is the level-20 Garage, five figures across four materials. `lateGame` on its own is a
  * *rich* base still wearing the starting two structures, so it renders neither.
  */
@@ -37,7 +43,23 @@ function districtAt(level: number): typeof lateGame {
     damage: 0,
     garrisons: 0,
   }));
-  return { ...lateGame, base: { ...lateGameBase, buildings } };
+  // The crew's level as well as the district's (§I3): half the ladder is gated on it, so a
+  // fixture that maxed the buildings and left the crew at 1 would draw a district full of locks.
+  return { ...lateGame, base: { ...lateGameBase, level, buildings } };
+}
+
+/**
+ * A district as a new crew actually has it: the two structures `POST /overseer` mints, crew level 1.
+ *
+ * The fixture the *lock* cases need. `districtAt(1)` builds every plot at level 1, which unlocks
+ * nothing: it stands everything, and a standing structure is never locked.
+ */
+function freshDistrict(): typeof lateGame {
+  const buildings: Building[] = [
+    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0, garrisons: 0 },
+  ];
+  return { ...lateGame, base: { ...lateGameBase, level: 1, buildings, buildQueue: [] } };
 }
 
 interface Size {
@@ -81,14 +103,14 @@ async function boxes(page: Page, selector: string): Promise<Box[]> {
   }, selector);
 }
 
-/** Every plot outline on the plate. */
-const PLOTS = '[data-testid="district-plots"] polygon';
+/** Every structure's name plate: the control the district is played through (§A1). */
+const PLOTS = '[data-testid="district-plots"] [data-testid^="plot-"]';
 
 /**
  * Wait for the scene to be the shape of the plate before measuring anything on it.
  *
  * The scene sizes itself from a measurement of the room the chrome leaves, and the chrome measures
- * *itself* — so there is a window, one or two frames wide, in which the district is laid out
+ * *itself*, so there is a window, one or two frames wide, in which the district is laid out
  * against sizes that have not settled. Anything read inside that window is a reading of a page the
  * player never sees, and it flaps: the same assertion passed and failed in the same run.
  */
@@ -109,14 +131,14 @@ async function settleDistrict(page: Page): Promise<void> {
 }
 
 /**
- * Every plot is laid out inside the scene — measured from the DOM, after the display font has
+ * Every plot is laid out inside the scene: measured from the DOM, after the display font has
  * swapped in.
  *
  * Overlap is not measured here any more, and deliberately: the plots are polygons now, the browser
  * hit-tests the outline rather than a box around it, and `plots.test.ts` proves the twelve outlines
  * are disjoint as plane geometry. What a DOM sweep could still measure is their *bounding boxes*,
- * which legitimately touch — the Nexus tower's box clips the corner of the Garage's without either
- * shape reaching the other — so a bounding-box gate here would report the painting as a defect.
+ * which legitimately touch: the Nexus tower's box clips the corner of the Garage's without either
+ * shape reaching the other, so a bounding-box gate here would report the painting as a defect.
  * What replaced it is the ownership hit test below, which asks the browser the real question.
  *
  * Name plates are checked separately from the outlines on purpose: a plate is `nowrap` text on its
@@ -136,7 +158,7 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
   // First, because everything below is measured *against* this box and would happily agree with a
   // box of the wrong shape. That is not hypothetical: a `max-height` clamp once left this 1368×525
   // where the plate is 16:9, `object-cover` cropped a third of the picture away, and every
-  // assertion in this file stayed green — the outlines were laid out correctly in the box, and the
+  // assertion in this file stayed green: the outlines were laid out correctly in the box, and the
   // box was no longer the picture.
   const spec = findAssetSpec('plate-district');
   expect(spec, 'the district plate must be in the manifest').toBeDefined();
@@ -165,27 +187,19 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
     );
   }
 
-  // The plate a player can actually see: pointing at one building reveals its name, and that is the
-  // element that can outgrow the room it was placed in once the display font lands.
-  const middle = Math.floor(plots.length / 2);
-  const named = plots[middle];
-  await page.locator(PLOTS).nth(middle).hover();
-  await settleFonts(page);
-
-  // Read by *computed* opacity, not by class: the hidden state keeps its `opacity-0` class and the
-  // hovered one overrides it, so a class selector would find every plate hidden.
-  const plates = await page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>('[data-testid^="nameplate-"]')]
-      .filter((el) => Number(getComputedStyle(el).opacity) > 0.5)
-      .map((el) => {
+  // Every plate is permanent now, so there is nothing to hover first, and the whole set is
+  // measured rather than whichever one a hover happened to reveal. The failure this catches is a
+  // plate whose text outgrows the room it was placed in once the display font lands, which happens
+  // to the widest name (`Apothecary Lv 20`) at the narrowest viewport.
+  const plates = await page.evaluate(
+    (selector) =>
+      [...document.querySelectorAll<HTMLElement>(selector)].map((el) => {
         const { left, right } = el.getBoundingClientRect();
         return { label: el.textContent?.trim() ?? '', left, right };
       }),
+    PLOTS,
   );
-  expect(
-    plates.length,
-    `no name plate appeared for ${named?.label ?? 'the hovered plot'}`,
-  ).toBeGreaterThan(0);
+  expect(plates.length, 'no name plates were drawn at all').toBe(BUILDING_KINDS.length);
   for (const plate of plates) {
     expect(plate.left, `${plate.label} runs off the left of the scene`).toBeGreaterThanOrEqual(
       scene.left - SLACK_PX,
@@ -195,54 +209,77 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
     );
   }
 
-  // ...and the painting the outlines are traced on is actually drawn, whole. Everything above
-  // measures the overlay, which would lay out identically over a plate that never loaded.
-  await expectNoImagesClipped(page, '[data-testid="district-frame"]');
+  /*
+   * ...and the painting the outlines are traced on is actually drawn, and drawn edge to edge.
+   * Everything above measures the overlay, which would lay out identically over a plate that never
+   * loaded.
+   *
+   * Not "drawn whole": the plate is deliberately taller than the room the bars leave, and its own
+   * empty top and bottom margins pass under them. What has to hold is the pair of properties that
+   * bleed is *for*: real pixels arrived, and the picture reaches both sides of the frame with no
+   * slab of page background down either edge, which is the defect this replaced.
+   */
+  const painting = await page.evaluate(() => {
+    const frame = document.querySelector('[data-testid="district-frame"]');
+    const img = document.querySelector<HTMLImageElement>('[data-testid="district-plate"]');
+    if (!frame || !img) return null;
+    const outer = frame.getBoundingClientRect();
+    const inner = img.getBoundingClientRect();
+    return {
+      loaded: img.complete && img.naturalWidth > 0,
+      left: inner.left - outer.left,
+      right: outer.right - inner.right,
+      width: inner.width,
+    };
+  });
+  expect(painting, 'the district plate must be in the frame').not.toBeNull();
+  expect(painting?.loaded, 'the district plate did not load').toBe(true);
+  expect(painting?.left ?? 99, 'bare ground down the left of the district').toBeLessThanOrEqual(1);
+  expect(painting?.right ?? 99, 'bare ground down the right of the district').toBeLessThanOrEqual(
+    1,
+  );
 }
 
 /**
- * Does the building under the pointer answer for itself?
+ * Can a player actually click every building?
  *
- * The one question the whole tracing exists to get right, asked the way the browser answers it:
- * sample points spread across each outline's own **interior** and call `elementFromPoint` at each.
+ * The district is played through a **name plate under each building** now (§A1), not through a
+ * traced outline over it, so this is the question the old outline-ownership gate was asking in a
+ * form that matches the control that exists: for each plate, sample the four corners and the centre
+ * of its own box and ask the browser what is there.
  *
- * Sampled toward the vertices rather than only at the centre, because a centre stays clear under
- * almost any mistake — that is how the rectangular layout this replaced passed a click test while a
- * quarter of the Greenhouse answered for the Nexus. But the samples stop short of the boundary, at
- * `INTERIOR_REACH` of the way out, and that bound is doing real work now that the district is full
- * bleed: the painting runs under the floating HUD and the scenery switcher, so the extreme top and
- * bottom rows of pixels legitimately belong to a bar. What must hold is that every building has a
- * **usable interior** — a player who aims at the building hits the building.
+ * The outlines have not gone anywhere: they still decide where each plate hangs and what the
+ * dialog's portrait is cut from, but nothing hit-tests them any more, so a gate that walked their
+ * interiors would be measuring a layer no player can reach.
+ *
+ * What this catches, and caught the day it was written: a plate covered by something else. The
+ * in-flight rail sat on the Scrapyard's plate, visible, named, and impossible to click, which is
+ * exactly the failure mode the outline gate existed to prevent, arriving through the new control.
  */
-async function expectEveryBuildingOwnsItsOwnEdges(page: Page): Promise<void> {
+async function expectEveryBuildingIsReachable(page: Page): Promise<void> {
   await settleDistrict(page);
   const stolen = await page.evaluate((selector) => {
-    /** How far from the centre toward each vertex the interior is sampled. */
-    const INTERIOR_REACH = 0.72;
+    /** How far in from each corner to sample, so a 1px rounding is not a failure. */
+    const INSET = 3;
     const wrong: string[] = [];
-    for (const plot of document.querySelectorAll<SVGPolygonElement>(selector)) {
-      const mine = plot.getAttribute('data-testid') ?? '?';
-      const screen = plot.getScreenCTM();
-      if (!screen) continue;
-      const at = (point: DOMPoint): { x: number; y: number } => ({
-        x: point.x * screen.a + point.y * screen.c + screen.e,
-        y: point.x * screen.b + point.y * screen.d + screen.f,
-      });
-      const corners = [...plot.points].map(at);
-      const centre = {
-        x: corners.reduce((total, p) => total + p.x, 0) / corners.length,
-        y: corners.reduce((total, p) => total + p.y, 0) / corners.length,
-      };
-      for (const point of [
-        centre,
-        ...corners.map((corner) => ({
-          x: centre.x + (corner.x - centre.x) * INTERIOR_REACH,
-          y: centre.y + (corner.y - centre.y) * INTERIOR_REACH,
-        })),
-      ]) {
+    for (const plate of document.querySelectorAll<HTMLElement>(selector)) {
+      const mine = plate.getAttribute('data-testid') ?? '?';
+      const box = plate.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0) {
+        wrong.push(`${mine} has no box at all`);
+        continue;
+      }
+      const points = [
+        { x: box.left + box.width / 2, y: box.top + box.height / 2 },
+        { x: box.left + INSET, y: box.top + INSET },
+        { x: box.right - INSET, y: box.top + INSET },
+        { x: box.left + INSET, y: box.bottom - INSET },
+        { x: box.right - INSET, y: box.bottom - INSET },
+      ];
+      for (const point of points) {
         const found = document.elementFromPoint(point.x, point.y);
+        // `closest` walks up to the plate itself: the text inside a plate is the plate.
         const owner =
-          found?.getAttribute('data-testid') ??
           found?.closest('[data-testid]')?.getAttribute('data-testid') ??
           found?.tagName ??
           'nothing';
@@ -251,7 +288,29 @@ async function expectEveryBuildingOwnsItsOwnEdges(page: Page): Promise<void> {
     }
     return wrong.slice(0, 8);
   }, PLOTS);
-  expect(stolen, `outlines answering for the wrong building: ${stolen.join(' | ')}`).toEqual([]);
+  expect(stolen, `plates a player cannot click: ${stolen.join(' | ')}`).toEqual([]);
+}
+
+/** Every structure in the catalogue has a plate, and no two plates overlap each other. */
+async function expectPlatesDoNotCollide(page: Page): Promise<void> {
+  await settleDistrict(page);
+  const overlaps = await page.evaluate((selector) => {
+    const plates = [...document.querySelectorAll<HTMLElement>(selector)].map((plate) => ({
+      id: plate.getAttribute('data-testid') ?? '?',
+      box: plate.getBoundingClientRect(),
+    }));
+    const bad: string[] = [];
+    for (let i = 0; i < plates.length; i += 1) {
+      for (let j = i + 1; j < plates.length; j += 1) {
+        const a = plates[i]!.box;
+        const b = plates[j]!.box;
+        const hit = a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        if (hit) bad.push(`${plates[i]!.id} overlaps ${plates[j]!.id}`);
+      }
+    }
+    return bad.slice(0, 6);
+  }, PLOTS);
+  expect(overlaps, `name plates on top of each other: ${overlaps.join(' | ')}`).toEqual([]);
 }
 
 async function expectNoDocumentOverflow(page: Page): Promise<void> {
@@ -281,6 +340,11 @@ for (const size of VIEWPORTS) {
       await expectNoDocumentOverflow(page);
       // The HUD's resource glyphs and the nav's icons, at the width that squeezes them hardest.
       // Both are fixed bars rather than scrollers, so nothing here is cut by design.
+      //
+      // Not the scene. The plate is deliberately full-bleed: it takes the whole width of the frame
+      // and lets its own empty top and bottom margins pass under the floating bars, which is what
+      // "the district *is* the screen" means and what `plateTop` then keeps every control clear of.
+      // Sweeping it here would report the art direction as a defect.
       await expectNoImagesClipped(page, 'header');
       await expectNoImagesClipped(page, 'nav');
       // Scoped to the scene: this page is a document scroller, so its own fold cuts the last row
@@ -318,7 +382,7 @@ for (const size of VIEWPORTS) {
      * Positive control for the assertion above.
      *
      * `expectNothingClippedVertically` walks clipping ancestors, and it was taught to stop at a
-     * `position: fixed` box — which is correct (a modal is laid out against the viewport, not
+     * `position: fixed` box, which is correct (a modal is laid out against the viewport, not
      * against the scrolling page it happens to sit inside) and is also exactly the kind of change
      * that can quietly turn a gate off. So: cut the dialog for real, and check it goes red.
      */
@@ -333,7 +397,7 @@ for (const size of VIEWPORTS) {
       // 260px, not 120: the height has to leave the body **partially** visible, because a cut is
       // what this gate reports and a row squeezed to nothing is hidden rather than sliced. At 120px
       // the header and footer alone fill the box, the body collapses to zero, and the gate is
-      // correctly quiet — which reads exactly like a gate that has stopped working.
+      // correctly quiet, which reads exactly like a gate that has stopped working.
       await page.addStyleTag({
         content: '[role="dialog"] { max-height: 260px !important; overflow-y: hidden !important; }',
       });
@@ -345,7 +409,7 @@ for (const size of VIEWPORTS) {
 }
 
 /**
- * The district with every plot standing — what it looks like once it has been played, and the only
+ * The district with every plot standing: what it looks like once it has been played, and the only
  * state that shows all thirteen silhouettes at once. Screenshot-only: the geometry gates above
  * already run over the thirteen *plots*, which are in the same place whether or not they are built.
  */
@@ -367,31 +431,29 @@ test.describe('a district that has been played', () => {
    * Every structure can be clicked, and clicking it selects **it**.
    *
    * This is the end-to-end half: real DOM, real stacking, real handler. Playwright clicks each
-   * outline at the centre of its bounding box, which is the *easy* point — it stays clear under
-   * almost any tracing mistake — so the edges are checked separately, right after, by
-   * {@link expectEveryBuildingOwnsItsOwnEdges}.
+   * plate at the centre of its box, which is the *easy* point, so the corners are checked
+   * separately, right after, by {@link expectEveryBuildingIsReachable}.
    */
   test('every structure answers its own click', async ({ page }) => {
     await installApi(page, districtAt(20));
     await page.goto('/game/base');
     await settleFonts(page);
 
-    await expectEveryBuildingOwnsItsOwnEdges(page);
+    await expectEveryBuildingIsReachable(page);
 
     for (const kind of BUILDING_KINDS) {
       const plot = page.locator(`[data-testid="plot-${kind}"]`);
       await plot.click({ timeout: 4000 });
-      await expect(plot, `${kind} did not answer its own click`).toHaveAttribute(
-        'aria-pressed',
-        'true',
+      // The dialog it opened is *that* structure's, which is the whole claim: a plate that opened
+      // its neighbour's window would be indistinguishable from one that worked.
+      const dialog = page.getByRole('dialog');
+      await expect(dialog, `${kind} did not answer its own click`).toBeVisible();
+      await expect(dialog.getByRole('heading', { level: 2 })).toHaveText(
+        BUILDING_CATALOG[kind].name,
       );
-      // ...and it is the only one that did.
-      await expect(page.locator('[data-testid^="plot-"][aria-pressed="true"]')).toHaveCount(1);
-      // Selecting a plot opens its dialog over the whole scene, so it has to go before the next
-      // plot can be reached — otherwise every structure after the first fails on the backdrop
-      // rather than on anything about the district.
+      // The dialog covers the whole scene, so it has to go before the next plate can be reached.
       await page.keyboard.press('Escape');
-      await expect(page.getByRole('dialog')).toBeHidden();
+      await expect(dialog).toBeHidden();
     }
   });
 
@@ -399,7 +461,7 @@ test.describe('a district that has been played', () => {
    * The positive control for the ownership gate above.
    *
    * A hit test that cannot go red is not a hit test, and this one is easy to write in a way that
-   * quietly passes — `elementFromPoint` returning `null`, or the whole overlay sitting behind
+   * quietly passes: `elementFromPoint` returning `null`, or the whole overlay sitting behind
    * something inert, both read as "nothing stolen". So: put a transparent sheet over the district,
    * the exact failure a stray full-frame overlay would cause, and check the gate says so.
    */
@@ -407,7 +469,7 @@ test.describe('a district that has been played', () => {
     await installApi(page, districtAt(20));
     await page.goto('/game/base');
     await settleFonts(page);
-    await expectEveryBuildingOwnsItsOwnEdges(page);
+    await expectEveryBuildingIsReachable(page);
 
     await page.evaluate(() => {
       const thief = document.createElement('div');
@@ -415,43 +477,61 @@ test.describe('a district that has been played', () => {
       thief.style.cssText = 'position:fixed;inset:0;z-index:9999;background:transparent';
       document.body.append(thief);
     });
-    await expect(expectEveryBuildingOwnsItsOwnEdges(page)).rejects.toThrow(/answers as thief/);
+    await expect(expectEveryBuildingIsReachable(page)).rejects.toThrow(/answers as thief/);
   });
 
   /**
-   * Pointing at a building lights **that** building, and nothing else.
+   * Pointing at a plate drops a note out of it saying how to unlock the building (§I3).
    *
-   * The wash is painted inside the outline, so the failure this catches is a hover that leaks: one
-   * `pointed` state shared across the district would light all twelve, and a `group-hover` left over
-   * from the pasted-sprite layout would light none.
+   * The one behaviour that replaced the lit-up outline, and a better one: a wash over a painting
+   * told a player *that* something was there, and this tells them what to do about it. Measured on
+   * a locked structure, because that is the case the note exists for, and on a district a fresh
+   * crew actually has, so the clauses in it are the ones a new player meets.
    */
-  test('lights the building under the pointer, and only that one', async ({ page }) => {
+  test('a locked plate says what would unlock it, on hover', async ({ page }) => {
+    await installApi(page, freshDistrict());
+    await page.goto('/game/base');
+    await settleFonts(page);
+
+    const garage = page.getByTestId('plot-garage');
+    await expect(garage).toBeVisible();
+    await garage.hover();
+
+    const note = page.getByText('Not yet. You need:');
+    await expect(note).toBeVisible();
+    // Every clause, not the first rung: the Nexus level, the structures and the crew's own level.
+    for (const clause of BUILDING_CATALOG.garage.requires) {
+      await expect(
+        page.getByText(describeBuildingRequirement(clause), { exact: true }),
+      ).toBeVisible();
+    }
+  });
+
+  /** And a plate that is *not* locked says what the building does instead: never nothing. */
+  test('an unlocked plate explains the building rather than the lock', async ({ page }) => {
     await installApi(page, districtAt(20));
     await page.goto('/game/base');
     await settleFonts(page);
 
-    const resting = await page.locator('[data-testid="plot-nexus"]').evaluate((el) => ({
-      fill: getComputedStyle(el).fill,
-      stroke: getComputedStyle(el).strokeWidth,
-    }));
+    await page.getByTestId('plot-nexus').hover();
+    await expect(page.getByText(BUILDING_CATALOG.nexus.role)).toBeVisible();
+    await expect(page.getByText('Not yet. You need:')).toHaveCount(0);
+  });
 
-    await page.locator('[data-testid="plot-nexus"]').hover();
-    const lit = await page.locator('[data-testid="plot-nexus"]').evaluate((el) => ({
-      fill: getComputedStyle(el).fill,
-      stroke: getComputedStyle(el).strokeWidth,
-    }));
-    expect(lit, 'the pointed building did not light up').not.toEqual(resting);
+  /** Twelve plates, none on top of another: the layout claim the outlines used to make. */
+  test('gives every structure its own plate, and none of them collide', async ({ page }) => {
+    await installApi(page, districtAt(20));
+    await page.goto('/game/base');
+    await settleFonts(page);
 
-    // The name plate comes with it, and it is the one for this building.
-    await expect(page.getByTestId('nameplate-nexus')).toHaveCSS('opacity', '1');
-    // ...while a neighbour that is simply standing stays dark. Read on the Gauntlet rather than the
-    // Quarters: this fixture has the Quarters in the build queue, and a plot being worked on carries
-    // a permanent plate by design, so asserting on it would have passed whatever hover did.
-    await expect(page.getByTestId('nameplate-gauntlet')).toHaveCSS('opacity', '0');
+    for (const kind of BUILDING_KINDS) {
+      await expect(page.getByTestId(`plot-${kind}`)).toBeVisible();
+    }
+    await expectPlatesDoNotCollide(page);
   });
 
   /**
-   * The positive control for {@link expectNoImagesClipped} — a guard that cannot be made to fail is
+   * The positive control for {@link expectNoImagesClipped}: a guard that cannot be made to fail is
    * not a guard, and this family has a long record of looking covered and not being.
    *
    * Both halves are injected as CSS rather than by editing the component, so the control tests the
@@ -462,13 +542,20 @@ test.describe('a district that has been played', () => {
   test('the image gate goes red on a plate that is not drawn whole', async ({ page }) => {
     await installApi(page, districtAt(20));
     await page.goto('/game/base');
-    // Scoped to the frame, which is the element with `overflow-hidden` on it. `visibleBand` walks
-    // clipping ancestors and stops *at* the scope, so scoping to the scene inside it made the gate
-    // structurally unable to see a cut — it reported a deliberately sliced sprite as fine.
-    const frame = '[data-testid="district-frame"]';
+    /*
+     * Scoped to the **scene**, not to the frame around it.
+     *
+     * `visibleBand` walks clipping ancestors and stops at the scope, and the frame is the element
+     * with `overflow-hidden` on it: the plate takes the full width of the frame and lets its own
+     * empty top and bottom margins pass under the floating bars, so a sweep that walked as far as
+     * the frame would find the shipped district permanently "sliced" and the control would have no
+     * baseline to start from. Inside the scene the plate is `inset-0` and fills it exactly, which
+     * is the invariant worth a control: both mutations below break it, and neither of them is the
+     * bleed.
+     */
     const scene = '[data-testid="district-scene"]';
     const rejection = async (): Promise<string> =>
-      expectNoImagesClipped(page, frame).then(
+      expectNoImagesClipped(page, scene).then(
         () => 'the gate passed',
         (error: Error) => error.message,
       );
@@ -486,14 +573,14 @@ test.describe('a district that has been played', () => {
       }, css);
 
     // Baseline: the gate is quiet on the district the assertions above just approved.
-    await expectNoImagesClipped(page, frame);
+    await expectNoImagesClipped(page, scene);
 
     await mutate(`${scene} [data-testid="district-plate"] { height: 0 !important; }`);
     expect(await rejection(), 'a plate with no height must be reported').toContain('collapsed');
 
     // Put back, so the second mutation is measured on its own rather than on the first's wreckage.
     await mutate('');
-    await expectNoImagesClipped(page, frame);
+    await expectNoImagesClipped(page, scene);
 
     // Pushed off its box, which on a plate fitted exactly to the scene is how it leaves the frame.
     await mutate(`${scene} [data-testid="district-plate"] { margin-top: -12% !important; }`);
@@ -506,7 +593,7 @@ test.describe('a district that has been played', () => {
 /**
  * The whole §A1/§D3 loop through the real client: pick an empty plot, pay for it, watch the order
  * appear in the queue. The build response is what the page re-renders from, so a client that
- * dropped the body would leave the queue empty here — which no unit test mocking the hook can see.
+ * dropped the body would leave the queue empty here, which no unit test mocking the hook can see.
  */
 test.describe('building in the district (§A1, §D3)', () => {
   test('an empty plot becomes an order in the queue', async ({ page }) => {
@@ -569,7 +656,7 @@ test.describe('building in the district (§A1, §D3)', () => {
 
     await page.getByRole('button', { name: /^The Garage,/ }).click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByText(/NEEDS THE NEXUS AT LEVEL 12/)).toBeInViewport({ ratio: 1 });
+    await expect(dialog.getByText(/NEEDS THE NEXUS AT 12/)).toBeInViewport({ ratio: 1 });
     await expect(dialog.getByRole('button', { name: 'Queue build' })).toBeDisabled();
   });
 });

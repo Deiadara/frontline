@@ -9,7 +9,7 @@ interface BattleResultModalProps {
   result: BattleResult;
   resources: Resources;
   targetName: string;
-  /** §I1 pays for the raid win or lose — set only when this raid's XP crossed a level. */
+  /** §I1 pays for the raid win or lose: set only when this raid's XP crossed a level. */
   levelUp?: LevelUp | undefined;
   onClose: () => void;
 }

@@ -7,7 +7,7 @@ import type { ItemCost } from './inventory.js';
  * Resources are the *wage* of a mission; items are the *find*. The difference matters: a payout a
  * player can predict is a chore, and one they cannot is a reason to keep sending people out. So
  * this is a roll, it is weighted hard against the exotic end, and a short scrap run essentially
- * never produces anything — the odds scale with how long the crew was out and how badly the work
+ * never produces anything: the odds scale with how long the crew was out and how badly the work
  * could have gone.
  *
  * Deterministic from a seed the mission already carries, like everything else that resolves on the
@@ -31,7 +31,7 @@ const RARITY_WEIGHT: Readonly<Record<ItemRarity, number>> = {
 /**
  * How many chances at a find a run gets.
  *
- * One per half hour, capped — and a failed run gets half of them, rounded down, because a crew
+ * One per half hour, capped, and a failed run gets half of them, rounded down, because a crew
  * that came back empty-handed still came back through the same streets.
  */
 export function salvageRolls(totalMinutes: number, succeeded: boolean): number {
@@ -47,7 +47,7 @@ export const SALVAGE_HIT_CHANCE = 0.45;
  * What a run turned up.
  *
  * `random` is injected rather than taken from `Math.random` so the server can hand it a seeded
- * stream — a mission's outcome and its finds have to come from the same reproducible source, or
+ * stream: a mission's outcome and its finds have to come from the same reproducible source, or
  * two reads of the same finished run disagree about what is in the satchel.
  */
 export function rollSalvage(

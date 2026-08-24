@@ -13,7 +13,7 @@ import type { Battlefield } from './battlefield.js';
  * From a unit's sheet to the numbers it fights with.
  *
  * One rule governs the whole pipeline, and it is Heroes III's: **bonuses add, reductions
- * multiply.** Three +25% modifiers make +75%, not ×1.95 — so stacking stays legible and a player
+ * multiply.** Three +25% modifiers make +75%, not ×1.95, so stacking stays legible and a player
  * can do the arithmetic in their head. Reductions compose the other way, `×(1−a)×(1−b)`, so no
  * amount of armour and resistance ever reaches zero damage. Getting those two backwards is how a
  * combat system ends up with an unkillable stack, and it is the single most common way this class
@@ -74,7 +74,7 @@ const clamp = (value: number, low: number, high: number): number =>
 /**
  * The percentage a unit's own modifiers are worth here.
  *
- * Summed, not multiplied — see the module note. Contexts that do not hold contribute nothing at
+ * Summed, not multiplied: see the module note. Contexts that do not hold contribute nothing at
  * all rather than a fraction: a sheet that says "in built-up ground" is a promise about built-up
  * ground, and partial credit for fighting *near* some would make it unreadable.
  */
@@ -124,7 +124,7 @@ export function effectiveStats(
    * What the ground and the sky are worth to *this* unit (`city/labels.ts`).
    *
    * Read off the **upgraded** sheet rather than the catalogue one, so a refit that adds armour
-   * genuinely changes how a unit copes with the cold — the alternative is a workshop upgrade that
+   * genuinely changes how a unit copes with the cold: the alternative is a workshop upgrade that
    * moves eleven numbers and is invisible to the one system built to read them.
    *
    * Summed with the context modifiers rather than multiplied against them, for the reason at the
@@ -138,7 +138,7 @@ export function effectiveStats(
   // harder. This is the one place percentages land on vitality rather than on offense.
   //
   // `defensePercent` is what the Gate is for (§A1). It was computed by `districtDefense` and read
-  // by nothing at all — the structure whose entire job is raid protection did not appear anywhere
+  // by nothing at all: the structure whose entire job is raid protection did not appear anywhere
   // in a fight. Capped, because a Gate at 20 produces 120 and a defender at +120% toughness on top
   // of fortification is a district nobody can raid.
   const held = side.defending ? battlefield.fortifyPercent + territory.defensePercent : 0;

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Morale (GDD §D4) — a 0..100 meter the district drifts around.
+ * Morale (GDD §D4): a 0..100 meter the district drifts around.
  *
  * Infamy used to live here beside it, on the same 0..100 scale. It does not any more: it is an
  * uncapped point total with its own module (`economy/infamy.ts`), because a score you can fill up
@@ -19,7 +19,7 @@ export const STARTING_MORALE = 60;
 /**
  * Morale lost per pay-week the crew went short (§D4, feeding the §H5 officer alignment meter).
  * Counted in *missed paydays*, never in caps: a large shortfall on a large payroll is still one
- * payday missed, and that is what a crew reacts to. Wages bite harder than rations — people will
+ * payday missed, and that is what a crew reacts to. Wages bite harder than rations: people will
  * tighten their belts for a week, but they notice an empty envelope immediately.
  */
 export const MORALE_PER_UNPAID_WAGE_WEEK = -3;
@@ -38,7 +38,7 @@ export function clampMeter(value: number): Meter {
   return Math.min(METER_MAX, Math.max(METER_MIN, value));
 }
 
-/** Immutable meter nudge — the only way a meter should ever be moved. */
+/** Immutable meter nudge: the only way a meter should ever be moved. */
 export function adjustMeter(value: Meter, delta: number): Meter {
   return clampMeter(value + delta);
 }

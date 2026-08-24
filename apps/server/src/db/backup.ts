@@ -11,7 +11,7 @@ import type { AppDatabase } from './index.js';
  * and not yet in `frontline.sqlite`. Copying the main file alone is the classic way to take a backup
  * that silently loses the last few minutes, or worse, captures a torn page mid-checkpoint. SQLite's
  * own advice is that the `-wal` file is part of the database's persistent state and must travel with
- * it — so we do not copy files at all.
+ * it, so we do not copy files at all.
  *
  * `VACUUM INTO` is the sanctioned online backup: it runs inside a single read transaction, so what
  * lands is one consistent instant, and what it writes is a *defragmented* single file with no
@@ -23,7 +23,7 @@ import type { AppDatabase } from './index.js';
  * Every ten minutes, which is the board's number and a sensible one: the worst case is ten minutes
  * of a player's evening, and at this database's size a snapshot costs milliseconds. The timer is
  * `unref`'d so it never holds the process open on shutdown, and a failed snapshot is logged and
- * skipped rather than thrown — a backup that can take the server down with it has inverted its own
+ * skipped rather than thrown: a backup that can take the server down with it has inverted its own
  * purpose.
  *
  * ## Retention
@@ -50,7 +50,7 @@ export const BACKUP_KEEP = 24;
 const PREFIX = 'frontline-';
 const SUFFIX = '.sqlite';
 
-/** `frontline-2026-08-16T12-30-00-000Z.sqlite` — sortable, and legal on every filesystem. */
+/** `frontline-2026-08-16T12-30-00-000Z.sqlite`: sortable, and legal on every filesystem. */
 export function backupFileName(at: Date): string {
   return `${PREFIX}${at.toISOString().replace(/[:.]/g, '-')}${SUFFIX}`;
 }
@@ -101,7 +101,7 @@ export function listBackups(directory: string): BackupFile[] {
 /**
  * Takes one snapshot and prunes the old ones. Returns the file written.
  *
- * `VACUUM INTO` refuses to run inside a transaction, which is why nothing here wraps it in one —
+ * `VACUUM INTO` refuses to run inside a transaction, which is why nothing here wraps it in one,
  * and why this must never be called from a handler that is already in `db.transaction`.
  */
 export function takeBackup(db: AppDatabase, directory: string, at = new Date()): string {

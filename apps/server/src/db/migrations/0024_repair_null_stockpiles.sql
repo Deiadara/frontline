@@ -7,8 +7,8 @@
 -- the next boot threw reading a column nothing had knowingly touched, and the server would not
 -- start at all.
 --
--- Both ends are closed in code now — the arithmetic no longer produces NaN, and the repository
--- refuses to store a non-finite amount — but neither helps a database that is already holding the
+-- Both ends are closed in code now: the arithmetic no longer produces NaN, and the repository
+-- refuses to store a non-finite amount, but neither helps a database that is already holding the
 -- nulls. This is the only thing that can, and a player should not have to delete their game.
 --
 -- Repaired to the *starting* stockpile rather than to zero: zero is a real state a crew can be in
@@ -19,7 +19,7 @@
 -- null keeps the four.
 --
 -- The five literals are `STARTING_RESOURCES`, which SQL cannot import. `stockpile-integrity.test.ts`
--- asserts the repaired row equals that constant, so the two cannot drift apart in silence — which
+-- asserts the repaired row equals that constant, so the two cannot drift apart in silence, which
 -- they already had once: these were copied from `0003_economy.sql` and were two values stale by the
 -- time anybody looked.
 

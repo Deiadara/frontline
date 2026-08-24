@@ -16,7 +16,7 @@ import { ADMIN_ACTION_SECONDS, adminCost, adminMinutes, adminSeconds } from './m
  * Admin mode has two claims and they pull against each other, so both are pinned here:
  *
  *  - a click costs **five seconds and nothing**, and
- *  - the *rules* are untouched — refusals still refuse, and the interface is still shown the real
+ *  - the *rules* are untouched: refusals still refuse, and the interface is still shown the real
  *    price, which is why nothing in the response envelope changes shape.
  *
  * The second one is what makes it a testing mode rather than a different game, and it is the half
@@ -132,7 +132,7 @@ describe('a build in admin mode', () => {
   });
 
   /**
-   * Admin mode opens the gates too (board — "I can do anything I want in admin mode").
+   * Admin mode opens the gates too (board. "I can do anything I want in admin mode").
    *
    * This reverses what this file used to assert. The old rule was "only the price and the clock are
    * waived; refusals still refuse", which is a defensible testing mode and is not the one that was
@@ -160,7 +160,7 @@ describe('a build in admin mode', () => {
   /**
    * ...but only the gates that are rules about progress.
    *
-   * A refusal that is a statement about *reality* stands, because waiving it does not open a door —
+   * A refusal that is a statement about *reality* stands, because waiving it does not open a door:
    * it writes a district that cannot be read back. The catalogue's last level is the clearest case:
    * there is no twenty-first Nexus to queue, in any mode.
    */
@@ -224,7 +224,7 @@ describe('the bench', () => {
     const raised = up.json<{ admin: AdminSnapshot }>().admin;
     expect(raised.buildings.every((entry) => entry.level === BUILDING_MAX_LEVEL)).toBe(true);
 
-    // Level zero is a real instruction — the stage before a structure exists is one a reviewer
+    // Level zero is a real instruction: the stage before a structure exists is one a reviewer
     // needs to be able to get back to.
     const down = await app.inject({
       method: 'POST',
@@ -277,7 +277,7 @@ describe('the bench', () => {
     expect(base.level).toBe(17);
     expect(base.economy.infamy).toBe(4_200);
     expect(base.resources.scrap).toBe(12_345);
-    // Absent keys are left alone rather than zeroed — a knob that sets scrap must not empty the oil.
+    // Absent keys are left alone rather than zeroed: a knob that sets scrap must not empty the oil.
     expect(base.resources.oil).toBeGreaterThan(0);
   });
 

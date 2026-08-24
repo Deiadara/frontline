@@ -22,7 +22,7 @@ import { applyUnlockedSandbox, UNLOCKED_LEVEL } from './sandbox.js';
  * The sandbox switch, checked against the thing it exists for: can a reviewer see the end-game?
  *
  * "Everything is unlocked" is a claim about *gates*, not about numbers, so the assertions below ask
- * the game's own gate functions rather than comparing levels — a base that is level 20 but still
+ * the game's own gate functions rather than comparing levels: a base that is level 20 but still
  * fails `isBuildingUnlocked` would satisfy a naive check and show a reviewer the same locked plots
  * they were trying to get past.
  */
@@ -70,7 +70,7 @@ function seedFreshPlayer(repos: Repositories, username = 'Nikos'): Base {
   return base;
 }
 
-describe('UNLOCKED — the end-game sandbox', () => {
+describe('UNLOCKED: the end-game sandbox', () => {
   it('is off unless the environment says exactly "true"', () => {
     expect(loadConfig({}).unlocked).toBe(false);
     expect(loadConfig({ UNLOCKED: 'true' }).unlocked).toBe(true);
@@ -85,7 +85,9 @@ describe('UNLOCKED — the end-game sandbox', () => {
     const base = seedFreshPlayer(repos);
     // The control: without the switch, most of the catalogue is locked. If this ever stopped being
     // true the assertion below would pass for free.
-    const locked = BUILDING_KINDS.filter((kind) => !isBuildingUnlocked(kind, base.buildings));
+    const locked = BUILDING_KINDS.filter(
+      (kind) => !isBuildingUnlocked(kind, base.buildings, base.level),
+    );
     expect(locked.length).toBeGreaterThan(5);
   });
 
@@ -104,7 +106,7 @@ describe('UNLOCKED — the end-game sandbox', () => {
       expect(standing?.level, kind).toBe(BUILDING_MAX_LEVEL);
       // The gate function, not the level: this is the thing the client asks before it draws a plot
       // as buildable, so it is the thing that decides whether a reviewer sees the end-game.
-      expect(isBuildingUnlocked(kind, after.buildings), kind).toBe(true);
+      expect(isBuildingUnlocked(kind, after.buildings, after.level), kind).toBe(true);
     }
   });
 
@@ -118,7 +120,7 @@ describe('UNLOCKED — the end-game sandbox', () => {
     expect(after?.level).toBe(UNLOCKED_LEVEL);
 
     // Near the ceiling, under it. A flat six-figure handout was twenty times what a maxed
-    // Apothecary can hold, which pinned every capacity bar in the HUD to full and red — an
+    // Apothecary can hold, which pinned every capacity bar in the HUD to full and red: an
     // end-game that spends its whole life warning about a state it can never leave.
     const ceiling = storageCapacity(after?.buildings ?? []);
     for (const [key, value] of Object.entries(after?.resources ?? {})) {

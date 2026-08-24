@@ -19,7 +19,7 @@ import { openDatabase, runMigrations, type AppDatabase } from './index.js';
  * moment before it was taken.
  *
  * The WAL case is the sharp one. The database runs in WAL mode, so a freshly written row lives in
- * the `-wal` sidecar rather than in the main file — a backup taken by copying `frontline.sqlite`
+ * the `-wal` sidecar rather than in the main file: a backup taken by copying `frontline.sqlite`
  * would come back missing it, silently and only under load. `VACUUM INTO` is what avoids that, and
  * the test that would fail without it is the round-trip below.
  */
@@ -171,7 +171,7 @@ describe('the schedule', () => {
     const dir = workspace();
     const db = liveDatabase(dir);
     const backups = path.join(dir, 'backups');
-    // No `onBackup`. Written the obvious way — `onBackup?.(takeBackup(...))` — this schedule
+    // No `onBackup`. Written the obvious way, `onBackup?.(takeBackup(...))`, this schedule
     // silently did nothing at all here, because optional call syntax never evaluates its argument
     // when the callee is undefined. The work must not live inside the notification.
     const stop = startBackupSchedule({ db, directory: backups, intervalMs: 10 });

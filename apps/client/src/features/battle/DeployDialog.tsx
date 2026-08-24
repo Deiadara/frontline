@@ -1,4 +1,11 @@
-import { findUnit, infamyToField, type Army, type BattleView } from '@frontline/shared';
+import {
+  findUnit,
+  meetsNotoriety,
+  notorietyTier,
+  notorietyToField,
+  type Army,
+  type BattleView,
+} from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -9,20 +16,21 @@ import { cn } from '../../lib/cn';
  * Moving people to a fight that has not happened yet (GDD §A4).
  *
  * Two columns per unit, and the split is the whole decision: **the line** is the battle army, and
- * **the ring** is the perimeter — bodies that stand outside the fight and take down whoever tries to
+ * **the ring** is the perimeter: bodies that stand outside the fight and take down whoever tries to
  * leave it. A body can be in one or the other and the ring never fights, so every unit put on it is
  * a unit not helping you win. That is the trade, and putting the two counts side by side is the
  * only honest way to present it.
  *
  * Everything here is a **delta**, so the same dialog sends people and pulls them back. A negative
- * number is a withdrawal, and a withdrawal past a ring the other side has already set costs bodies
- * — which is why the numbers already on the ground are shown rather than assumed to be zero.
+ * number is a withdrawal, and a withdrawal past a ring the other side has already set costs bodies,
+ * which is why the numbers already on the ground are shown rather than assumed to be zero.
  */
 
 interface DeployDialogProps {
   view: BattleView;
   army: Army;
-  infamy: number;
+  /** §D7: the crew's rank, which is what decides who will take a contract. */
+  notoriety: number;
   pending: boolean;
   error: unknown;
   onClose: () => void;
@@ -32,7 +40,7 @@ interface DeployDialogProps {
 export function DeployDialog({
   view,
   army,
-  infamy,
+  notoriety,
   pending,
   error,
   onClose,
@@ -95,8 +103,8 @@ export function DeployDialog({
         ) : (
           rows.map((unit) => {
             const atHome = army[unit.id] ?? 0;
-            const gate = infamyToField(unit.id);
-            const locked = gate > infamy;
+            const gate = notorietyToField(unit.id);
+            const locked = !meetsNotoriety(notoriety, gate);
             return (
               <div
                 key={unit.id}
@@ -112,7 +120,7 @@ export function DeployDialog({
                   </span>
                   <span className="block font-body text-[11px] text-ink-300">
                     {locked
-                      ? `Needs ${gate} infamy before they will sign`
+                      ? `Will not sign for a crew under ${notorietyTier(gate)}`
                       : `${atHome} at home · ${onGround[unit.id] ?? 0} in the line · ${onRing[unit.id] ?? 0} on the ring`}
                   </span>
                 </span>

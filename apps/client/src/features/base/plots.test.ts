@@ -14,13 +14,13 @@ import {
   type ScenePoint,
 } from './plots';
 import type { CSSProperties } from 'react';
-import { fitted } from './DistrictScene';
+import { fitted, plateTop } from './DistrictScene';
 
 /**
  * The district's interaction layer: twelve outlines traced onto one painting.
  *
- * These numbers were read off `plate-district` by hand — printed under a grid, rendered back over
- * the painting, corrected by eye — which makes them exactly the kind of data that is right today and
+ * These numbers were read off `plate-district` by hand: printed under a grid, rendered back over
+ * the painting, corrected by eye, which makes them exactly the kind of data that is right today and
  * quietly wrong after the next pass. What is measured here is everything about a tracing that can be
  * checked without opening the image: that it is inside the frame, that it is a *shape* rather than a
  * box, that it is convex (which is what makes the cheap non-overlap test below exact), and that no
@@ -38,7 +38,7 @@ const cross = (o: ScenePoint, a: ScenePoint, b: ScenePoint): number =>
 const at = (site: DistrictSite, i: number): ScenePoint =>
   site.shape[i % site.shape.length] as ScenePoint;
 
-/** The outward normals of every edge — the only axes a convex pair can be separated along. */
+/** The outward normals of every edge: the only axes a convex pair can be separated along. */
 function axes(site: DistrictSite): ScenePoint[] {
   return site.shape.map((_, i) => {
     const [x1, y1] = at(site, i);
@@ -87,7 +87,7 @@ describe('the district layout (GDD §A1)', () => {
    * Nothing may leave the frame on any side.
    *
    * The scene is `overflow-hidden` and the plate is fitted to it exactly, so a vertex outside 0..100
-   * is a piece of hit area over nothing — and, at the top, a building the player can see and cannot
+   * is a piece of hit area over nothing, and, at the top, a building the player can see and cannot
    * click.
    */
   it('keeps every outline inside the scene', () => {
@@ -107,12 +107,12 @@ describe('the district layout (GDD §A1)', () => {
    * Convexity is not an aesthetic rule, it is what the two checks below stand on: the
    * separating-axis test is exact only for convex shapes, and a concave outline's area centroid can
    * fall outside it, which would hang a name plate on the building next door. The buildings in the
-   * painting are blocks seen from above, so tracing them convex costs nothing — where it would not,
+   * painting are blocks seen from above, so tracing them convex costs nothing: where it would not,
    * the shape has to be split and these tests have to be rewritten rather than relaxed.
    *
    * A turn of exactly zero passes: three points on one straight run of the Gate's palisade are a
-   * redundant vertex, not a dent. What rules out the degenerate case where *every* turn is zero — a
-   * polygon flattened onto a line — is the area, which is asserted first.
+   * redundant vertex, not a dent. What rules out the degenerate case where *every* turn is zero: a
+   * polygon flattened onto a line: is the area, which is asserted first.
    */
   it('traces every building as a clockwise convex outline', () => {
     for (const site of DISTRICT_SITES) {
@@ -148,7 +148,7 @@ describe('the district layout (GDD §A1)', () => {
    *
    * The failure this catches is the cheap one: somebody re-tracing a building in a hurry types its
    * bounding rectangle, the picture still looks fine, and the plot silently goes back to claiming
-   * its neighbour's roof — which is the entire failure mode the old rectangular plots had and the
+   * its neighbour's roof, which is the entire failure mode the old rectangular plots had and the
    * reason this layer was redrawn. Four corners standing on two x values and two y values *is* a
    * bounding box, whatever it is called, so that is the shape that is refused.
    *
@@ -220,7 +220,7 @@ describe('the district layout (GDD §A1)', () => {
  * The scene box is the plate's shape, or the painting is cropped.
  *
  * This is measured because it failed silently once and cost a third of the picture. The CSS
- * spelling it replaced — a percentage width with `aspect-ratio` and a `max-height` — clamps the
+ * spelling it replaced, a percentage width with `aspect-ratio` and a `max-height`, clamps the
  * height and keeps the width, so on a short viewport the box quietly stops being 16:9 and the
  * `object-cover` image inside it crops to fit. Every layout gate stayed green: the outlines were
  * still laid out correctly *in the box*, and the box was no longer the picture.
@@ -231,50 +231,70 @@ describe('fitting the painting into the room the chrome leaves', () => {
   /** The band the buildings occupy, in pixels, for a plate of the given height. */
   const bandOf = (box: CSSProperties): number =>
     (Number(box.height) * (DISTRICT_BAND.bottom - DISTRICT_BAND.top)) / 100;
+  /** Where the building band starts and ends, measured from the top of the clear band. */
+  const occupies = (box: CSSProperties): { top: number; bottom: number } => {
+    const offset = Number(box.marginTop);
+    const height = Number(box.height);
+    return {
+      top: offset + (DISTRICT_BAND.top / 100) * height,
+      bottom: offset + (DISTRICT_BAND.bottom / 100) * height,
+    };
+  };
 
-  it('takes the full width of the frame when the chrome leaves room for it', () => {
-    // 810px of clear band is more than the 731px the buildings need at 1440 wide, so width wins.
-    const box = fitted(room(1440, 900), room(1440, 810));
-    expect(Number(box.width)).toBe(1440);
-    expect(ratio(box)).toBeCloseTo(DISTRICT_ASPECT, 2);
-  });
-
-  /**
-   * The whole point of the band. A short viewport cannot show the plate at full width *and* keep
-   * every building out from under the bars, and what gives is the width — the painting stops short
-   * at the sides, where the shell's blurred backdrop carries on, rather than sliding a door under
-   * the stockpile.
-   */
-  it('gives up width before it lets a building go under the chrome', () => {
-    const box = fitted(room(1440, 900), room(1440, 525));
-    expect(Number(box.width)).toBeLessThan(1440);
-    expect(bandOf(box)).toBeCloseTo(525, 0);
-  });
-
-  it('never crops: height always follows from width', () => {
-    for (const width of [800, 1024, 1440, 1920, 2560]) {
-      const box = fitted(room(width, 400), room(width, 300));
+  it('takes the full width of the frame, at every viewport', () => {
+    for (const [width, clear] of [
+      [1024, 500],
+      [1280, 503],
+      [1440, 736],
+      [1920, 916],
+      [2560, 1200],
+    ] as const) {
+      const box = fitted(room(width, clear + 200), room(width, clear));
+      expect(Number(box.width), `${width}px`).toBe(width);
       expect(ratio(box), `${width}px`).toBeCloseTo(DISTRICT_ASPECT, 2);
     }
   });
 
   /**
-   * The buildings' band lands exactly on the clear band, so the plate's empty top margin is what
-   * passes under the HUD — that is what the negative offset is for, and getting its sign wrong
-   * would push the Quarters *further* under the bar rather than out from under it.
+   * The margins are what slide under the bars, and only the margins, whenever there is room for
+   * that. A frame with more clear band than the buildings need puts them squarely in the middle of
+   * it, which is the arrangement the board asked for.
    */
-  it('hangs the picture so the first roofline clears the top bar', () => {
+  it('centres the buildings in the clear band when they fit in it', () => {
+    const box = fitted(room(1440, 900), room(1440, 810));
+    const band = occupies(box);
+    expect(band.top).toBeGreaterThan(0);
+    expect(810 - band.bottom).toBeCloseTo(band.top, 0);
+  });
+
+  /**
+   * And when they do not fit, the shortfall is split rather than piling up at one end. Letting it
+   * all fall to the bottom would put the Infirmary under the scenery switcher and the Quarters in
+   * clear air, which is the version that loses a control rather than a roofline.
+   */
+  it('splits the overflow evenly when the band is shorter than the buildings', () => {
     const box = fitted(room(1440, 900), room(1440, 525));
-    expect(Number(box.marginTop)).toBeCloseTo(-(DISTRICT_BAND.top / 100) * Number(box.height), 0);
-    expect(Number(box.marginTop)).toBeLessThan(0);
+    const band = occupies(box);
+    expect(band.top).toBeLessThan(0);
+    // Within a pixel and a half: the offset is rounded to a whole pixel, and both ends carry it.
+    expect(Math.abs(band.bottom - 525 - -band.top)).toBeLessThanOrEqual(1.5);
+  });
+
+  it('never crops sideways: height always follows from width', () => {
+    for (const width of [800, 1024, 1440, 1920, 2560]) {
+      const box = fitted(room(width, 400), room(width, 300));
+      expect(ratio(box), `${width}px`).toBeCloseTo(DISTRICT_ASPECT, 2);
+      expect(bandOf(box), `${width}px`).toBeGreaterThan(0);
+    }
   });
 
   /** The city screen's preview has no bars over it, so it gets the plain reading. */
   it('fits the whole plate, unshifted, where nothing floats over it', () => {
-    const box = fitted(room(1440, 900), room(1440, 600), false);
+    // Short and wide: the preview's own box is the only constraint, and it is never cropped.
+    const box = fitted(room(1440, 600), room(1440, 600), false);
     expect(Number(box.height)).toBe(600);
     expect(ratio(box)).toBeCloseTo(DISTRICT_ASPECT, 2);
-    expect(box.marginTop).toBe(0);
+    expect(box.marginTop).toBeUndefined();
   });
 
   it('falls back to the CSS spelling before the frame has been measured', () => {
@@ -282,5 +302,72 @@ describe('fitting the painting into the room the chrome leaves', () => {
       width: '100%',
       aspectRatio: DISTRICT_ASPECT,
     });
+  });
+});
+
+/**
+ * Pulling a name plate back inside the bars.
+ *
+ * The other half of the bleed, and the half that keeps it honest: the picture is allowed to run
+ * under the chrome, and a *control* is not. Every one of these is a plate that would otherwise be
+ * visible and unclickable, which is exactly the failure the plates replaced.
+ */
+describe('keeping every plate reachable', () => {
+  const height = 810;
+  const clear = 525;
+
+  it('leaves a plate alone when it is already well inside the band', () => {
+    const roomy = 810;
+    // Real ground lines: the Lab is the highest building on the plate and the Infirmary the lowest.
+    for (const anchor of [Math.min(...DISTRICT_SITES.map(siteDepth)), 50, 80]) {
+      expect(plateTop(anchor, height, roomy), `${anchor}%`).toBeCloseTo(anchor, 5);
+    }
+  });
+
+  it('pulls the front row up off the bottom bar, and the back row down off the top one', () => {
+    const lowest = plateTop(91, height, clear);
+    const highest = plateTop(1, height, clear);
+    expect(lowest).toBeLessThan(91);
+    expect(highest).toBeGreaterThan(1);
+  });
+
+  it('puts every plate inside the clear band, at every viewport the game is played at', () => {
+    for (const [width, band] of [
+      [1024, 400],
+      [1280, 503],
+      [1440, 736],
+      [1920, 916],
+    ] as const) {
+      const picture = width / DISTRICT_ASPECT;
+      const offset =
+        -(DISTRICT_BAND.top / 100) * picture +
+        (band - ((DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100) * picture) / 2;
+      for (const site of DISTRICT_SITES) {
+        const top = (plateTop(siteDepth(site), picture, band) / 100) * picture + offset;
+        expect(top, `${site.kind} at ${width}`).toBeGreaterThanOrEqual(0);
+        expect(top, `${site.kind} at ${width}`).toBeLessThanOrEqual(band);
+      }
+    }
+  });
+
+  /** The title row floats over the picture too, and a plate must not end up behind it. */
+  it('clears whatever the screen itself puts over the top of the painting', () => {
+    const inset = 48;
+    const picture = 810;
+    const band = 736;
+    const offset =
+      -(DISTRICT_BAND.top / 100) * picture +
+      (band - ((DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100) * picture) / 2;
+    for (const site of DISTRICT_SITES) {
+      const top = (plateTop(siteDepth(site), picture, band, inset) / 100) * picture + offset;
+      expect(top, site.kind).toBeGreaterThanOrEqual(inset);
+    }
+  });
+
+  it('leaves the anchor alone rather than inventing a window it cannot honour', () => {
+    expect(plateTop(50, 0, 500)).toBe(50);
+    expect(plateTop(50, 810, 0)).toBe(50);
+    // A band too short to hold a plate at all: no legal answer, so the honest one is the anchor.
+    expect(plateTop(50, 810, 10)).toBe(50);
   });
 });

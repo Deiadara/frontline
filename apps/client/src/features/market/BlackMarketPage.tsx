@@ -31,7 +31,7 @@ import { usePlayerZone } from '../settings/usePlayerZone';
  *
  * It used to be called the Back Room and painted in the same brass and iris as the shop it hangs
  * off, which undid the door: two tabs, one palette, one place. It is now the only screen in the
- * game built out of `soot` and `tangerine` — a colour pair that appears nowhere else, sits darker
+ * game built out of `soot` and `tangerine`: a colour pair that appears nowhere else, sits darker
  * than any other surface, and reads as a hazard placard rather than as a storefront. A player who
  * has been here once knows where they are before they have read a word.
  *
@@ -85,7 +85,7 @@ export function MarketTabs({ active }: { active: 'market' | 'black' }) {
  *
  * Everywhere else in the game a category badge picks a colour off the whole chrome ramp. Here they
  * are all tangerine and differ only in weight, because the room's whole read is that it has two
- * colours — four hues on a shelf would put the market's rainbow back on the wrong side of the door.
+ * colours: four hues on a shelf would put the market's rainbow back on the wrong side of the door.
  * The glyph is what tells the kinds apart, which is what a glyph is for.
  */
 const KIND_TONE: Record<BlackMarketKind, string> = {
@@ -117,7 +117,7 @@ function SlotCard({
   slotIndex: number;
   affordable: boolean;
   infamy: number;
-  /** What it costs *here* — the catalogue price weighted by the city's average level (§D8). */
+  /** What it costs *here*: the catalogue price weighted by the city's average level (§D8). */
   price: number;
   /** And what it does here, with this city's figures already written into it. */
   effect: string;
@@ -146,7 +146,7 @@ function SlotCard({
           >
             {BLACK_MARKET_KIND_LABELS[spec.kind]}
           </span>
-          <span className="mt-1 block font-hand text-[22px] leading-tight text-tangerine-100">
+          <span className="mt-1 block font-stamp text-[16px] leading-tight text-tangerine-100">
             {spec.name}
           </span>
         </span>
@@ -183,7 +183,7 @@ function SlotCard({
 function StashPanel({ market }: { market: BlackMarketResponse }) {
   const held = Object.entries(market.stash).filter(([, count]) => count > 0);
   // Weighted by the same city average the shelf is priced against, so what the bag says it is
-  // worth is what the fight will apply. Duplicates count once — see `stashBoost`.
+  // worth is what the fight will apply. Duplicates count once: see `stashBoost`.
   const total = stashBoost(market.stash, market.cityLevel);
 
   return (
@@ -270,16 +270,25 @@ export function BlackMarketPage() {
     >
       <MarketTabs active="black" />
 
-      <InfoNote tone="warn">
-        Five things sit on the shelf, the same five for everybody in the city, and{' '}
-        <strong>you may take {data.takesPerDay} of them a day</strong>. Anything taken is replaced
-        at once, so the shelf is never bare — and whatever you are looking at may be gone a minute
-        from now. The whole shelf turns over at midnight {zoneCity(zone)} time —{' '}
-        <span className="tabular-nums" data-testid="black-refresh">
-          {formatRemaining(refreshesIn)}
-        </span>{' '}
-        from now, at {formatClock(new Date(data.refreshesAt), zone)}.
-      </InfoNote>
+      {/* The clock is not a rule, so it does not go behind a hover: it is the one thing on this
+          screen that is changing while the player looks at it, and the whole shelf turns over when
+          it runs out. The rule beside it does go behind one. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-2 rounded-sm border border-brass-500/50 bg-brass-500/10 px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em] text-brass-100">
+          <Icon name="clock" aria-hidden className="h-3.5 w-3.5" />
+          Turns over in
+          <span className="tabular-nums text-brass-300" data-testid="black-refresh">
+            {formatRemaining(refreshesIn)}
+          </span>
+        </span>
+        <InfoNote tone="warn" label="How the shelf works">
+          Five things sit on the shelf, the same five for everybody in the city, and{' '}
+          <strong>you may take {data.takesPerDay} of them a day</strong>. Anything taken is replaced
+          at once, so the shelf is never bare, and whatever you are looking at may be gone a minute
+          from now. The whole shelf turns over at midnight {zoneCity(zone)} time, at{' '}
+          {formatClock(new Date(data.refreshesAt), zone)}.
+        </InfoNote>
+      </div>
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,2.6fr)_minmax(0,1fr)]">
         <Panel

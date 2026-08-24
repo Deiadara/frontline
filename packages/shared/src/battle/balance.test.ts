@@ -12,12 +12,12 @@ import { simulate } from './engine.js';
  * correct arithmetic:
  *
  * - **Nothing is unbeatable.** A unit that wins every matchup is not a strong unit, it is the end
- *   of the decision — everyone builds it and the roster collapses to one row.
+ *   of the decision: everyone builds it and the roster collapses to one row.
  * - **The graph has cycles.** A ↠ B ↠ C ↠ A is what "some counter others" *means*. Without a cycle
  *   the roster is a power ranking with extra steps, however many resistances are written on it.
  *
  * This is also the harness that found the real bug in the armour curve: 0 A.D.'s per-point falloff
- * on a 0–100 stat made the heavy tier untouchable, which showed up here as a unit at 21 of 21 and
+ * on a 0-100 stat made the heavy tier untouchable, which showed up here as a unit at 21 of 21 and
  * nowhere else.
  *
  * Unique units are excluded. They are one-of-a-kind by design and a fight of sixty Colossi is not a
@@ -84,7 +84,7 @@ describe('the roster is a web, not a ladder', () => {
   });
 
   /**
-   * A support unit is allowed to lose every straight fight — a Stitcher's whole job is to be
+   * A support unit is allowed to lose every straight fight: a Stitcher's whole job is to be
    * somewhere else on the field. What is not allowed is a unit that *wins* every one.
    */
   it('has no unit that beats the entire roster', () => {
@@ -100,7 +100,7 @@ describe('the roster is a web, not a ladder', () => {
       const inTier = ROSTER.filter((unit) => unit.tier === tier);
       return inTier.reduce((total, unit) => total + BEATS.get(unit.id)!.size, 0) / inTier.length;
     };
-    // Heavier units are better at the same supply — they are gated behind campaigns, not price.
+    // Heavier units are better at the same supply. They are gated behind campaigns, not price.
     expect(wins('heavy')).toBeGreaterThan(wins('rabble'));
     // ...but not so much better that the lower tiers stop beating anything.
     expect(wins('rabble')).toBeGreaterThan(2);

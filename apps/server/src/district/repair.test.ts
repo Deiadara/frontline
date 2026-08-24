@@ -7,10 +7,10 @@ import type { FastifyInstance } from 'fastify';
 import { settleDistrict } from './settle.js';
 
 /**
- * §A4 — the repair clock reaching the database.
+ * §A4: the repair clock reaching the database.
  *
  * `building/repair.test.ts` proves the arithmetic. What this proves is the half that arithmetic
- * cannot: that a read *settles* it and *writes it down*. The failure it exists for is a quiet one —
+ * cannot: that a read *settles* it and *writes it down*. The failure it exists for is a quiet one:
  * the settle recomputes the repair correctly on every read, hands the caller a repaired district,
  * and never persists it, so the next read starts from the wrecked row again and the place never
  * actually comes back. Every unit test stays green through that.
@@ -54,7 +54,7 @@ async function makeStack(): Promise<{ app: FastifyInstance; base: Base; token: s
  *
  * The district's own clock goes back with it, because that is the only district this can be: a
  * place that was hit half a day ago is a place nobody has settled since. Leaving
- * `productionSettledAt` at "now" would build a state the game cannot reach — and the settle would
+ * `productionSettledAt` at "now" would build a state the game cannot reach, and the settle would
  * take its short-window exit and do nothing, which is correct behaviour being measured on an
  * impossible input.
  */

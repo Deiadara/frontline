@@ -31,7 +31,7 @@ import {
   UNIT_SUBJECTS,
 } from './prompts.js';
 
-/** ART-BIBLE §7 — the `class` segment of every filename. */
+/** ART-BIBLE §7: the `class` segment of every filename. */
 export const ASSET_CLASSES = [
   'portrait',
   'district',
@@ -48,7 +48,7 @@ export const AssetClassSchema = z.enum(ASSET_CLASSES);
 export type AssetClass = z.infer<typeof AssetClassSchema>;
 
 /**
- * ART-BIBLE §6 — aspect ratios are fixed; changing one is a layout change.
+ * ART-BIBLE §6: aspect ratios are fixed; changing one is a layout change.
  *
  * `1672:941` (1.7768) is the district plate's, and it exists because the delivered painting is that
  * shape. The district scene reads its aspect from the plate rather than the other way round, so
@@ -60,11 +60,11 @@ export type AssetClass = z.infer<typeof AssetClassSchema>;
 export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '1672:941']);
 export type AssetAspect = z.infer<typeof AssetAspectSchema>;
 
-/** ADR 0001 §6.1 — the backends `scripts/gen-art.ts` knows how to drive. */
+/** ADR 0001 §6.1: the backends `scripts/gen-art.ts` knows how to drive. */
 export const ImageBackendNameSchema = z.enum(['fal', 'openai']);
 export type ImageBackendName = z.infer<typeof ImageBackendNameSchema>;
 
-/** What a backend is actually asked to render — see {@link AssetSpec.source}. */
+/** What a backend is actually asked to render: see {@link AssetSpec.source}. */
 export const AssetSourceSchema = z.object({
   width: z.number().int().positive(),
   height: z.number().int().positive(),
@@ -75,9 +75,9 @@ export type AssetSource = z.infer<typeof AssetSourceSchema>;
 /**
  * A declared master→delivery step the AssetPack encode stage (ADR 0001 §4.1) must apply.
  *
- * - `downscale` — resample the master to the ART-BIBLE §6 delivery resolution.
- * - `matte` — cut an alpha channel out of an opaque master.
- * - `trim` — crop a keyed master to its own alpha bounding box.
+ * - `downscale`: resample the master to the ART-BIBLE §6 delivery resolution.
+ * - `matte`: cut an alpha channel out of an opaque master.
+ * - `trim`: crop a keyed master to its own alpha bounding box.
  *
  * The first two exist because no text-to-image parameter delivers the result directly. Declaring
  * them makes the substitution deliberate and auditable rather than something a backend does
@@ -85,7 +85,7 @@ export type AssetSource = z.infer<typeof AssetSourceSchema>;
  *
  * `trim` exists because a cutout's *file* is not its artwork. The delivered structures carry
  * between 11 and 105 px of empty canvas under their feet, and a scene that stands them on a ground
- * line has no way to know which — so a bottom-aligned row of them stands at eleven different
+ * line has no way to know which, so a bottom-aligned row of them stands at eleven different
  * heights. Cropping to the alpha box makes the file mean the building, which is what every consumer
  * of a cutout already assumes.
  */
@@ -94,12 +94,12 @@ export const POST_PROCESS_STEPS = ['downscale', 'matte', 'trim'] as const;
 /**
  * How a master that is not already the delivery shape is brought to it.
  *
- * - `crop` — the delivery is exactly `width × height`. A master of another aspect is centre-cropped
+ * - `crop`: the delivery is exactly `width × height`. A master of another aspect is centre-cropped
  *   to it, losing whatever sat outside the frame. Right for anything the layout gives a fixed box:
  *   an icon, a portrait, a full-bleed plate.
- * - `contain` — `width × height` is a *bounding box*. The master keeps its own aspect and is scaled
+ * - `contain`: `width × height` is a *bounding box*. The master keeps its own aspect and is scaled
  *   until its longest side meets the bound, so nothing is ever cut. Right for a cutout that the
- *   scene positions rather than fills — a wide greenhouse and a tall tower are both correct, and
+ *   scene positions rather than fills: a wide greenhouse and a tall tower are both correct, and
  *   cropping either to a square would be the pipeline overruling the drawing.
  */
 export const ASSET_FITS = ['crop', 'contain'] as const;
@@ -111,18 +111,18 @@ export type PostProcessStep = z.infer<typeof PostProcessStepSchema>;
 export interface BackendCapabilities {
   /** The resolutions the backend accepts, or `null` when it takes an arbitrary size. */
   sizes: readonly (readonly [width: number, height: number])[] | null;
-  /** ART-BIBLE §6 — whether it can return a master with a real alpha channel. */
+  /** ART-BIBLE §6: whether it can return a master with a real alpha channel. */
   alpha: boolean;
 }
 
 /**
- * ADR 0001 §6.1 — what each backend can actually be asked for. This is capability data, not a
+ * ADR 0001 §6.1: what each backend can actually be asked for. This is capability data, not a
  * preference: prose in the FRAMING block is neither a size nor a transparency parameter, so an
  * asset whose {@link AssetSpec.source} no backend satisfies cannot be generated at all.
  */
 export const BACKEND_CAPABILITIES: Readonly<Record<ImageBackendName, BackendCapabilities>> = {
   // FLUX.2 [pro] documents no transparency parameter of any kind (verified, ADR §6.1.1).
-  // `null` is an approximation: `image_size` is not arbitrary but bounded — 256–2560 per side,
+  // `null` is an approximation: `image_size` is not arbitrary but bounded: 256-2560 per side,
   // both divisible by 16, area ≤ 4194304. Every source size the manifest produces today clears
   // all four, so widening it to `null` moves no routing; a source outside those bounds would.
   fal: { sizes: null, alpha: false },
@@ -151,7 +151,7 @@ export function backendsForSource(source: AssetSource): readonly ImageBackendNam
   return ImageBackendNameSchema.options.filter((name) => backendCanProduce(name, source));
 }
 
-/** Lower-kebab identifier. Never string-concatenated by hand — see {@link resolveAssetKey}. */
+/** Lower-kebab identifier. Never string-concatenated by hand: see {@link resolveAssetKey}. */
 export const AssetKeySchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 export type AssetKey = z.infer<typeof AssetKeySchema>;
 
@@ -164,7 +164,7 @@ export const AssetPromptSchema = z.object({
 export type AssetPrompt = z.infer<typeof AssetPromptSchema>;
 
 /**
- * ART-BIBLE §7 — `variant` ∈ `damaged` | `selected` | `night` | `alt1..n`. Matched against the
+ * ART-BIBLE §7: `variant` ∈ `damaged` | `selected` | `night` | `alt1..n`. Matched against the
  * filename tail, so a future domain id ending in one of these words (a district `halcyon-night`)
  * would parse as subject `halcyon` + variant `night` and fail as an unresolvable subject.
  */
@@ -176,7 +176,7 @@ export const ASSET_FILE_PATTERN = new RegExp(
   `^(${ASSET_CLASSES.join('|')})-(${SUBJECT_PATTERN})(?:-(${VARIANT_PATTERN}))?(@2x)?\\.(webp|png)$`,
 );
 
-/** Version suffixes are banned — the file is versioned by git, not by its name (ART-BIBLE §7). */
+/** Version suffixes are banned: the file is versioned by git, not by its name (ART-BIBLE §7). */
 const BANNED_SUFFIX_PATTERN = /-(?:v\d+|final|latest|new|old|copy|fixed)(?=[-@.]|$)/;
 
 export const AssetSpecSchema = z.object({
@@ -189,7 +189,7 @@ export const AssetSpecSchema = z.object({
   alpha: z.boolean(),
   /**
    * What the backend is asked to render. Equals the delivery spec above unless no backend can
-   * produce that directly (512×512 alpha icons, 16:9 alpha planes) — then it is the nearest thing
+   * produce that directly (512×512 alpha icons, 16:9 alpha planes), then it is the nearest thing
    * one *can* produce, and {@link AssetSpec.postProcess} says how to get from here to there.
    */
   source: AssetSourceSchema,
@@ -198,7 +198,7 @@ export const AssetSpecSchema = z.object({
   /** Whether {@link AssetSpec.width}×{@link AssetSpec.height} is an exact size or a bound. */
   fit: AssetFitSchema,
   /**
-   * ART-BIBLE §6 — the fraction of the delivery that must end up transparent. Declared only where
+   * ART-BIBLE §6: the fraction of the delivery that must end up transparent. Declared only where
    * the bible states a floor, and enforced by the encode step: a fore plane that fails it smothers
    * the map, and neither a text-to-image prompt nor an automatic matte can be trusted to hit it.
    */
@@ -223,18 +223,18 @@ export interface AssetClassSpec {
   alpha: boolean;
   /** Class-wide {@link AssetSpec.source} override; absent means "render it at delivery size". */
   source?: AssetSource;
-  /** Defaults to `crop` — the delivery is exactly `width × height`. See {@link AssetFit}. */
+  /** Defaults to `crop`: the delivery is exactly `width × height`. See {@link AssetFit}. */
   fit?: AssetFit;
 }
 
-/** ART-BIBLE §6 — source resolution, aspect, delivery format and default transparency per class. */
+/** ART-BIBLE §6: source resolution, aspect, delivery format and default transparency per class. */
 export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
   portrait: { width: 1024, height: 1536, aspect: '3:4', ext: 'webp', quality: 90, alpha: false },
   district: { width: 1024, height: 1024, aspect: '1:1', ext: 'webp', quality: 90, alpha: false },
   plate: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', quality: 92, alpha: false },
-  // Sky is opaque, far/fore carry alpha — the manifest overrides per plane.
+  // Sky is opaque, far/fore carry alpha: the manifest overrides per plane.
   plane: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', quality: 90, alpha: true },
-  // A structure has to sit on the district's ground plane, so it ships with alpha — but every
+  // A structure has to sit on the district's ground plane, so it ships with alpha, but every
   // master that has actually arrived is painted on a flat white field instead, which is what an
   // illustrator hands over and what the backends produce when asked for transparency. Declaring an
   // opaque source makes `matte` the encode step for the class rather than a per-key exception, and
@@ -274,7 +274,7 @@ export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
 
 /**
  * The two assets approved first and then passed to every later generation as style references
- * (ART-PROMPTS §8.2–§8.3).
+ * (ART-PROMPTS §8.2-§8.3).
  */
 export const STYLE_REFERENCE_KEYS = ['district-neon-docks', 'portrait-overseer-1'] as const;
 
@@ -287,7 +287,7 @@ const UNREFERENCED_KEYS: readonly AssetKey[] = [
   ...STYLE_REFERENCE_KEYS,
 ];
 
-/** ART-PROMPTS §0.3 — `<class-base> + index`, so any asset can be regenerated without a log. */
+/** ART-PROMPTS §0.3: `<class-base> + index`, so any asset can be regenerated without a log. */
 const SEED_BASE = {
   portrait: 110000,
   district: 120000,
@@ -308,10 +308,10 @@ const toSnake = (subject: string): string => subject.replaceAll('-', '_');
 const kebabFromCamel = (id: string): string =>
   id.replace(/([a-z\d])([A-Z])/g, '$1-$2').toLowerCase();
 
-/** The icon ids, in `RESOURCE_KEYS` order — that order fixes the seeds. */
+/** The icon ids, in `RESOURCE_KEYS` order: that order fixes the seeds. */
 const RESOURCE_ICON_IDS: readonly string[] = RESOURCE_KEYS.map(kebabFromCamel);
 
-/** The delivery half of a spec — what ships, as opposed to what the backend renders. */
+/** The delivery half of a spec: what ships, as opposed to what the backend renders. */
 type Delivery = Pick<AssetSpec, 'width' | 'height' | 'alpha'>;
 
 /**
@@ -365,7 +365,7 @@ function draft(spec: DraftSpec): Omit<AssetSpec, 'styleRefs'> {
     source,
     postProcess: postProcessFor(source, delivery, fit),
     fit,
-    // A capability-pinned backend is not a preference — the other one physically cannot deliver.
+    // A capability-pinned backend is not a preference: the other one physically cannot deliver.
     backend: spec.backend ?? soleCapableBackend(source),
   };
 }
@@ -386,7 +386,7 @@ const portraitDrafts = OVERSEER_PRESETS.map((preset, index) =>
       subject: subjectFor(PORTRAIT_SUBJECTS, preset.portraitId, 'portrait'),
       framing: FRAMING.portrait,
     },
-    // ADR 0001 §6.6 — gpt-image-1 leads on faces with specific direction.
+    // ADR 0001 §6.6: gpt-image-1 leads on faces with specific direction.
     backend: 'openai',
   }),
 );
@@ -404,7 +404,7 @@ const districtDrafts = CITY_DISTRICTS.map((district, index) =>
 );
 
 /**
- * The far and fore planes ship transparent, but nothing renders 16:9 with alpha — gpt-image-1 has
+ * The far and fore planes ship transparent, but nothing renders 16:9 with alpha: gpt-image-1 has
  * no 16:9 size at all and FLUX.2 has no alpha. ART-BIBLE §6 also wants the fore plane ≥55%
  * transparent, which no text-to-image parameter delivers, so the cut was always a post-process.
  */
@@ -429,18 +429,18 @@ const DISTRICT_PLATE_DELIVERY = {
  * The keys allowed to differ from their class's §6 size, and what they must be instead.
  *
  * A table rather than a skip: an asset off its class size is still checked, just against a number
- * written down here. Adding a key is the deliberate act — a second asset drifting off the class
+ * written down here. Adding a key is the deliberate act: a second asset drifting off the class
  * table without an entry still fails {@link validateAssetSpec}.
  */
 const SIZE_EXCEPTIONS: Readonly<
   Partial<Record<AssetKey, Pick<AssetSpec, 'width' | 'height' | 'aspect'>>>
 > = { 'plate-district': DISTRICT_PLATE_DELIVERY };
 
-/** ART-BIBLE §6 — "the fore plane must be ≥55% transparent or it smothers the map". */
+/** ART-BIBLE §6: "the fore plane must be ≥55% transparent or it smothers the map". */
 const FORE_PLANE_MIN_TRANSPARENCY = 0.55;
 
 /**
- * ART-BIBLE §6 — "far plane ≥30% or it hides the sky". Its prompt paints the top forty percent of
+ * ART-BIBLE §6: "far plane ≥30% or it hides the sky". Its prompt paints the top forty percent of
  * the canvas fully transparent, so the floor sits under that ask: enough slack for a skyline drawn
  * high in frame, still far above a matte that only cut a sliver and left the sky plane covered.
  */
@@ -526,7 +526,7 @@ const iconDrafts = [
       prompt: { subject: DISTRICT_KIND_ICON_SUBJECTS[kind], framing: FRAMING.icon },
     }),
   ),
-  // §A4 — one marker per *kind* of location rather than one per location. Forty-two locations on
+  // §A4: one marker per *kind* of location rather than one per location. Forty-two locations on
   // the map share these, and a player reads the kind off the marker: two substations should look
   // like two substations.
   ...LOCATION_KINDS.map((kind, index) =>
@@ -539,7 +539,7 @@ const iconDrafts = [
   ),
 ];
 
-/** Every asset the MVP needs, in ART-PROMPTS §1–§7 order. */
+/** Every asset the MVP needs, in ART-PROMPTS §1-§7 order. */
 export const ART_MANIFEST: readonly AssetSpec[] = [
   ...portraitDrafts,
   ...districtDrafts,
@@ -597,7 +597,7 @@ function assetKeyFor(ref: AssetRef): AssetKey {
 
 /**
  * The only supported way to turn a domain id into an `AssetKey`. Throws when the id has no
- * manifest entry — an unresolvable subject is a build failure, not a warning (ART-BIBLE §7).
+ * manifest entry: an unresolvable subject is a build failure, not a warning (ART-BIBLE §7).
  */
 export function resolveAssetKey(ref: AssetRef): AssetKey {
   const key = tryResolveAssetKey(ref);
@@ -608,7 +608,7 @@ export function resolveAssetKey(ref: AssetRef): AssetKey {
 }
 
 /**
- * The same resolution for ids that arrive at runtime rather than from a domain constant — a
+ * The same resolution for ids that arrive at runtime rather than from a domain constant: a
  * `portraitId` or `districtId` off the wire is only `z.string()`, so a view asking it for art
  * must be able to get "no such asset" back instead of a thrown render.
  */
@@ -746,7 +746,7 @@ function sourceProblems(spec: AssetSpec): string[] {
 
   if (source.width < spec.width || source.height < spec.height) {
     problems.push(
-      `${spec.key} renders at ${source.width}×${source.height}, smaller than its ${spec.width}×${spec.height} delivery — upscaling invents detail`,
+      `${spec.key} renders at ${source.width}×${source.height}, smaller than its ${spec.width}×${spec.height} delivery: upscaling invents detail`,
     );
   }
   if (source.width * spec.height !== source.height * spec.width) {
@@ -755,7 +755,7 @@ function sourceProblems(spec: AssetSpec): string[] {
     );
   }
   if (source.alpha && !spec.alpha) {
-    problems.push(`${spec.key} renders with alpha but ships opaque — render it opaque instead`);
+    problems.push(`${spec.key} renders with alpha but ships opaque: render it opaque instead`);
   }
 
   const expected = postProcessFor(source, delivery, spec.fit);

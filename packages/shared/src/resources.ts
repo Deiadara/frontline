@@ -4,20 +4,20 @@ import { z } from 'zod';
  * The five base resources (GDD §D1 food, §D2 caps, §D3 oil, §D5 scrap, §D6 high-quality metal).
  *
  * `caps` is the currency: officer wages are paid in caps (§D2, §H7). `scrap` and high-quality
- * metal are deliberately distinct (§D6) — scrap is the salvage floor, high-quality metal is the
+ * metal are deliberately distinct (§D6): scrap is the salvage floor, high-quality metal is the
  * scarce input. This set *replaces* the MVP's credits/power/data/alloy outright (§D9); there is
  * no live player data, so the migration is destructive.
  *
  * ## Whole numbers, everywhere
  *
  * A stockpile is a count of things. There is no such thing as `37772.751872` bottle caps, and a
- * readout carrying six decimal places is not a rounding cosmetic — it is the game telling the
+ * readout carrying six decimal places is not a rounding cosmetic. It is the game telling the
  * player that the number is not a count of anything. Every amount here is an integer and the
  * schema is the gate: a fraction fails to parse at the wire and at the database, loudly, at the
  * line that produced it.
  *
  * Production is the one place that legitimately generates fractions, because output is quoted per
- * hour and a settle can be a second long. It does not round them away — it banks the whole units
+ * hour and a settle can be a second long. It does not round them away: it banks the whole units
  * and carries the remainder (`EconomyState.productionCarry`), so a player polling every second
  * still earns exactly what a player who came back in the morning earns. See `accrueProduction`.
  */
@@ -34,7 +34,7 @@ export type Resources = z.infer<typeof ResourcesSchema>;
 export type ResourceKey = keyof Resources;
 
 /**
- * Every resource key in display order — derived from the schema, so a resource added to
+ * Every resource key in display order: derived from the schema, so a resource added to
  * `ResourcesSchema` can never be silently missing from a readout.
  */
 export const RESOURCE_KEYS = Object.keys(ResourcesSchema.shape) as readonly ResourceKey[];
@@ -42,7 +42,7 @@ export const RESOURCE_KEYS = Object.keys(ResourcesSchema.shape) as readonly Reso
 /** One resource *name*, for anything a player picks rather than a stockpile the server writes. */
 export const ResourceKeySchema = z.enum(['caps', 'food', 'oil', 'scrap', 'highQualityMetal']);
 
-/** Partial bundle — used for costs, outputs and battle rewards. Whole units, like the stockpile. */
+/** Partial bundle: used for costs, outputs and battle rewards. Whole units, like the stockpile. */
 export const PartialResourcesSchema = ResourcesSchema.partial();
 export type PartialResources = z.infer<typeof PartialResourcesSchema>;
 
@@ -50,7 +50,7 @@ export type PartialResources = z.infer<typeof PartialResourcesSchema>;
  * The one bundle of resource amounts that is *allowed* to be fractional, and the only signed one.
  *
  * Production is quoted per hour and settles on whatever window the last read left, so it makes
- * fractions of a unit — and, for oil, fractions of a *burn*. They are carried in
+ * fractions of a unit, and, for oil, fractions of a *burn*. They are carried in
  * `EconomyState.productionCarry` rather than rounded into or out of the stockpile; see
  * `accrueProduction` for why the sign matters.
  *
@@ -74,7 +74,7 @@ export type FractionalResources = z.infer<typeof FractionalResourcesSchema>;
  *
  * Sized against the level-1 `BUILDING_CATALOG` prices so the opening is tight but not dead: every
  * empty plot is affordable on its own, three of them can be raised, and then **oil** is what runs
- * out — GDD §D3's sink is what ends the first session, not an arbitrary wall. The level-2 Command
+ * out: GDD §D3's sink is what ends the first session, not an arbitrary wall. The level-2 Command
  * Center stays out of reach, so the cap that holds the village down has to be earned.
  * `build.test.ts` pins both halves of that shape.
  */
@@ -91,7 +91,7 @@ export const STARTING_RESOURCES: Resources = {
  *
  * The storage key is not a word anybody says: `highQualityMetal` is a field name, "HQ metal" is
  * what is written on a crate. One table, so a picker, a listing and a readout all say the same
- * thing — the market had its own private copy of this and the two had already drifted.
+ * thing: the market had its own private copy of this and the two had already drifted.
  */
 export const RESOURCE_LABELS: Readonly<Record<ResourceKey, string>> = {
   caps: 'Caps',
@@ -109,7 +109,7 @@ export function canAfford(stock: Resources, cost: PartialResources): boolean {
 /**
  * Immutable spend: `stock` with `cost` taken off it.
  *
- * Callers must check {@link canAfford} first — `ResourcesSchema` refuses negatives, so an
+ * Callers must check {@link canAfford} first: `ResourcesSchema` refuses negatives, so an
  * unaffordable spend would be caught only on the way back out of the database, one layer too late
  * to say anything useful to the player.
  */
@@ -131,12 +131,29 @@ export function addResources(a: Resources, b: PartialResources): Resources {
 }
 
 /**
+ * Two *partial* bundles, added.
+ *
+ * Distinct from {@link addResources}, which takes a full stockpile on the left and answers with
+ * one. This is for combining two things a fight or a trade produced before either has touched
+ * anybody's books, a raid's plunder and a Bone Market refund, say, where "absent" has to stay
+ * absent rather than becoming a zero somebody then displays.
+ */
+export function mergeResources(a: PartialResources, b: PartialResources): PartialResources {
+  const total: PartialResources = { ...a };
+  for (const key of RESOURCE_KEYS) {
+    const amount = (a[key] ?? 0) + (b[key] ?? 0);
+    if (amount !== 0) total[key] = amount;
+  }
+  return total;
+}
+
+/**
  * A stockpile forced back to whole, non-negative units.
  *
  * The repair function, not a licence to be sloppy: every producer is expected to hand over integers
  * of its own, and the schema refuses anything else. This exists for the two places that are reading
- * numbers they did not compute — a save written before the rule existed, and the sandbox filling a
- * district to a derived ceiling — where throwing would cost a player their game over an old row.
+ * numbers they did not compute: a save written before the rule existed, and the sandbox filling a
+ * district to a derived ceiling: where throwing would cost a player their game over an old row.
  *
  * Floors rather than rounds. A stockpile is what you are holding, and the one direction it must
  * never move on its own is up.
@@ -165,7 +182,7 @@ export interface ResourceLore {
  *
  * Five numbers along the top of the screen with an icon each, and nothing anywhere in the game
  * that said what any of them were for. A player could reach the mid game without ever learning
- * that high-quality metal is the thing gating their best units — the number simply sat there going
+ * that high-quality metal is the thing gating their best units: the number simply sat there going
  * up. This is the copy behind the window that opens when a resource is pointed at, and it is
  * deliberately concrete: "the Garage, and every vehicle in it" teaches, "a valuable material" does
  * not.

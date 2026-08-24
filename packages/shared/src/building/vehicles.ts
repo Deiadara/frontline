@@ -7,7 +7,7 @@ import type { PartialResources } from '../resources.js';
  * What the Garage builds (GDD §A1, garage extension).
  *
  * The Garage was a structure with a hold bonus and nothing to do. It is now the only place in the
- * game that shortens the *road* — every other bonus makes a fight go better or a build go faster,
+ * game that shortens the *road*: every other bonus makes a fight go better or a build go faster,
  * and none of them touch the hours a crew spends walking to a district three streets over. On a
  * map where travel time is the real cost of acting, that is the most valuable thing a building can
  * sell.
@@ -41,7 +41,7 @@ export interface VehicleSpec {
   cost: PartialResources;
   parts: ItemCost;
   buildSeconds: number;
-  /** Percent off the road, for the first of its kind. Later ones are worth less — see the fold. */
+  /** Percent off the road, for the first of its kind. Later ones are worth less: see the fold. */
   travelSpeedPercent: number;
   /** However many are built, this line contributes at most this much. */
   maxTravelSpeedPercent: number;

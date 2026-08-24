@@ -22,7 +22,7 @@ export function LockedDoor({ area, level }: { area: GatedArea; level: number }) 
 
   return (
     // The chrome floats over the top and bottom of this box, so the sign is inset by the measured
-    // height of both — the same two custom properties `PageShell` reads. Without them the window is
+    // height of both: the same two custom properties `PageShell` reads. Without them the window is
     // centred on the *viewport* and its heading disappears behind the HUD, which is precisely the
     // failure a locked door must not have: the one thing it exists to say is its own name.
     //
@@ -42,7 +42,7 @@ export function LockedDoor({ area, level }: { area: GatedArea; level: number }) 
           tone="oxblood"
           icon={<Icon name="lock" className="h-full w-full text-surface-950" />}
           figure={
-            <span className="font-hand text-[24px] leading-none text-oxblood-100">
+            <span className="font-stamp text-[18px] leading-none text-oxblood-100">
               Opens at level {opensAt}
             </span>
           }

@@ -3,7 +3,7 @@
  *
  * A battle has to replay identically from its persisted row (see `docs/ARCHITECTURE.md`), so the
  * roll cannot come from `Math.random()`. The seed is a string because that is what the battle row
- * stores and what a replay hands back — callers never deal in the 32-bit internal state.
+ * stores and what a replay hands back: callers never deal in the 32-bit internal state.
  */
 
 /** FNV-1a. Spreads seeds that differ only in their last characters, which sequential ids do. */
@@ -18,7 +18,7 @@ export function seedFrom(text: string): number {
 }
 
 /**
- * mulberry32 — a 32-bit generator. Small and well-distributed enough for a win/lose draw, and it
+ * mulberry32: a 32-bit generator. Small and well-distributed enough for a win/lose draw, and it
  * *advances*, so a future model needing several draws per battle gets them from one seed rather
  * than having to re-hash.
  */

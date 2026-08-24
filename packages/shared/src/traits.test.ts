@@ -32,7 +32,7 @@ describe('the trait catalogue (§B7)', () => {
     }
   });
 
-  it('moves at least one attribute — a trait that does nothing is not a trait', () => {
+  it('moves at least one attribute: a trait that does nothing is not a trait', () => {
     for (const id of TRAIT_IDS) {
       const amounts = Object.values(TRAIT_CATALOG[id].bonus);
       expect(amounts.length, id).toBeGreaterThan(0);
@@ -73,7 +73,7 @@ describe('the trait catalogue (§B7)', () => {
 
   /**
    * Recruits draw uniformly from `TRAIT_IDS`, so the pool's composition *is* the flaw rate. Stated
-   * as a bound rather than an exact ratio, so adding traits does not fail this — but tipping the
+   * as a bound rather than an exact ratio, so adding traits does not fail this, but tipping the
    * pool into mostly-downside would, because that is a balance change, not a content addition.
    */
   it('keeps flaws a minority of the pool', () => {

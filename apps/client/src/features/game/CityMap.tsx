@@ -23,7 +23,7 @@ interface CityMapProps {
   districts: readonly District[];
   bases: readonly BaseSummary[];
   /**
-   * §A4 — what this crew knows about each district, keyed by id.
+   * §A4: what this crew knows about each district, keyed by id.
    *
    * Passed alongside the districts rather than replacing them because the scene's geometry is a
    * pure function of the *map* and only its colouring is a function of what has been seen. Keeping
@@ -36,13 +36,13 @@ interface CityMapProps {
   /**
    * Screen-space the chrome is sitting on, in CSS pixels.
    *
-   * The canvas is full-bleed — the painted city runs edge to edge, which is the point. The
+   * The canvas is full-bleed: the painted city runs edge to edge, which is the point. The
    * *districts* are not: the intel panel floats over the right of the map, and a district under it
    * is a district you have to drag out from underneath before you can click it. At 1024 that panel
    * covered everything past x = 0.65, which is a third of the city.
    *
    * So the backdrop fills the frame and the nodes are laid out into what is left of it. That is the
-   * usual split — full-bleed art, interactive content inside a safe area — and it keeps every
+   * usual split, full-bleed art, interactive content inside a safe area, and it keeps every
    * district reachable at every viewport without moving the map.
    */
   safeArea?: { right?: number; top?: number; bottom?: number };
@@ -53,14 +53,14 @@ const hex = (value: string): number => Number.parseInt(value.replace('#', ''), 1
 /**
  * What a district's marker says at a glance (§A4).
  *
- * Ownership first, then allegiance — the question a player is asking when they look at the map is
+ * Ownership first, then allegiance: the question a player is asking when they look at the map is
  * "whose is that", and only after that "what is it". Unscouted ground is smog: legible as a place
  * that exists, illegible as anything else, which is exactly what fog should feel like.
  */
 /**
  * Marker colours, from the interface palette rather than the art ramps.
  *
- * These are chrome — they say whose ground a district is, which is information the app draws over
+ * These are chrome: they say whose ground a district is, which is information the app draws over
  * the city rather than something painted into it. Verdigris for yours, oxblood for hostile, brass
  * for unclaimed: the same three the rest of the interface uses, so a colour means one thing
  * everywhere instead of one thing on the map and another in a dialog.
@@ -81,7 +81,7 @@ const NEUTRAL_COLOR = hex(chrome.brass[300]);
  */
 function labelStyle(fontSize: number, fill: number): TextStyleOptions {
   return {
-    fontFamily: 'Rajdhani, sans-serif',
+    fontFamily: 'Roboto Condensed, sans-serif',
     fontSize,
     fontWeight: '600',
     fill,
@@ -99,7 +99,7 @@ function labelStyle(fontSize: number, fill: number): TextStyleOptions {
 
 const LABEL_STYLE = labelStyle(12, hex(chrome.ink[200]));
 
-const LABEL_FONT = '600 12px Rajdhani';
+const LABEL_FONT = '600 12px "Roboto Condensed"';
 
 async function labelFontsReady(): Promise<void> {
   const fonts: FontFaceSet | undefined = document.fonts;
@@ -150,7 +150,7 @@ function layoutWidth(scene: Scene): number {
  *
  * The same argument as `layoutWidth`, and it was found the same way: the stockpile bar is 60px on a
  * wide screen and four times that on a narrow one, and the two hardest districts in the game sit at
- * the top of the map. At 1024 the Combine Spire and Blacksite 7 were drawn *underneath* the HUD —
+ * the top of the map. At 1024 the Combine Spire and Blacksite 7 were drawn *underneath* the HUD:
  * on screen, in the DOM, and impossible to click.
  */
 function layoutBand(scene: Scene): { top: number; height: number } {
@@ -202,8 +202,8 @@ function updateTooltip(
 const FACE_ALPHA = 0.85;
 /**
  * Over a delivered illustration the same colour stays on as a scrim rather than dropping to the
- * ring. `districtColor` is a threat code, not decoration — a bot-garrisoned district is magenta —
- * and a node is only 8–14px across, so a hairline ring does not carry it. The ring cannot carry it
+ * ring. `districtColor` is a threat code, not decoration: a bot-garrisoned district is magenta,
+ * and a node is only 8-14px across, so a hairline ring does not carry it. The ring cannot carry it
  * at all on the selected node, where the stroke turns steel.
  *
  * A scrim and not `art.tint`: tint multiplies, so dark art times magenta and dark art times cyan
@@ -356,11 +356,11 @@ function drawBaseMarker(scene: Scene, base: BaseSummary, slot: MarkerSlot): Cont
 // ─── scene builders ──────────────────────────────────────────────────────────
 
 /**
- * How a delivered plane master is fitted to the frame: **cover** — scaled uniformly by whichever
+ * How a delivered plane master is fitted to the frame: **cover**: scaled uniformly by whichever
  * axis needs the most, then centred, so the surplus is cropped off the other axis.
  *
  * A plane is painted at the live `scene.width × scene.height`, which no fixed-size master will
- * match at every viewport. `contain` would letterbox, and the bars would be transparent — the empty
+ * match at every viewport. `contain` would letterbox, and the bars would be transparent: the empty
  * stage showing straight through the background. `stretch` would squash a skyline into something
  * that reads as a rendering fault at any aspect but the master's own. Cover is the only rule that
  * is both full-bleed and undistorted; the price is that a master must keep its load-bearing
@@ -376,7 +376,7 @@ function coverSprite(texture: Texture, width: number, height: number): Sprite {
 
 /**
  * One plane's art at the frame's size: the delivered master once its texture is in hand, and the
- * procedural painting until then — including for a key that resolves to a file, because a delivered
+ * procedural painting until then: including for a key that resolves to a file, because a delivered
  * plane is fetched over the network and must not leave the background blank while it travels.
  */
 function paintPlane(
@@ -399,7 +399,7 @@ interface PlaneScene {
 }
 
 /**
- * Rebuilds the background planes. Called on mount, on resize, and when the city bundle settles —
+ * Rebuilds the background planes. Called on mount, on resize, and when the city bundle settles,
  * not on every prop change, since plane geometry is seeded from dimensions, not data.
  */
 export function buildPlanes(scene: PlaneScene, loader: ArtLoader = artLoader): void {
@@ -473,7 +473,7 @@ export function CityMap(props: CityMapProps) {
     /**
      * `Application.destroy()` tears down plugins that only exist after `init()` resolves, so
      * destroying a not-yet-initialised app throws. Under StrictMode the effect is torn down
-     * before `init()` settles, and that throw used to unmount the whole game screen — hence
+     * before `init()` settles, and that throw used to unmount the whole game screen: hence
      * the flag: only the side that owns a live app destroys it.
      */
     let initialized = false;
@@ -495,13 +495,13 @@ export function CityMap(props: CityMapProps) {
         el.appendChild(app.canvas);
 
         // Pixi boots at its 800×600 default; without this the canvas leaves a dead band in the
-        // frame and every district — positioned as a fraction of the frame — lands off-canvas.
+        // frame and every district, positioned as a fraction of the frame, lands off-canvas.
         const rect = el.getBoundingClientRect();
         const width = Math.round(rect.width);
         const height = Math.round(rect.height);
         app.renderer.resize(width, height);
 
-        // Start fetching the city bundle — procedural keys resolve synchronously.
+        // Start fetching the city bundle: procedural keys resolve synchronously.
         artLoader.ensure('city');
 
         // Build the parallax plane containers (draw order = PARALLAX_PLANES order).
@@ -528,7 +528,7 @@ export function CityMap(props: CityMapProps) {
         // `nodes` sits above `fore`, not under it. In the old elevation view a foreground mass
         // passing in front of a marker was a depth cue; in a plan view there is no "in front",
         // only "on top", and a near block drawn over a district's name is just a label a player
-        // cannot read — "The Undergrid" was rendering as "…grid".
+        // cannot read: "The Undergrid" was rendering as "…grid".
         for (const id of ['sky', 'far', 'mid', 'fore', 'nodes', 'atmosphere'] as PlaneId[]) {
           const c = planes.get(id);
           if (c) viewport.addChild(c);
@@ -572,7 +572,7 @@ export function CityMap(props: CityMapProps) {
           applyParallax(planes, camera);
         });
 
-        // Grain boil at 12 Hz — advance uses absolute time since creation.
+        // Grain boil at 12 Hz: advance uses absolute time since creation.
         const startTime = performance.now();
         app.ticker.add(() => {
           postFx.advance(performance.now() - startTime);
@@ -590,7 +590,7 @@ export function CityMap(props: CityMapProps) {
           resizeViewport(viewport, w, h);
 
           // The vignette is sized in world units, so it is rebuilt rather than scaled. Swap the
-          // reference too — otherwise the next resize destroys a dead object and leaves this one
+          // reference too: otherwise the next resize destroys a dead object and leaves this one
           // stacked on the scene, darkening the map one multiply-blend at a time.
           vignette.destroy();
           vignette = createVignette(w, h);
@@ -635,7 +635,7 @@ export function CityMap(props: CityMapProps) {
 
   // The safe width is published rather than left for a reader to recompute. A district's screen
   // position is `position.x * layoutWidth`, and anything outside this component that needs to point
-  // at one — a test driving the canvas, most of all — would otherwise keep a second copy of that
+  // at one, a test driving the canvas, most of all, would otherwise keep a second copy of that
   // arithmetic and silently drift from it.
   return (
     <div

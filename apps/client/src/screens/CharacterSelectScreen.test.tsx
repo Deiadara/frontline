@@ -29,7 +29,7 @@ describe('CharacterSelectScreen', () => {
     }
   });
 
-  // B6/F6: the four options are unchanged, and each one shows its *whole* sheet — every
+  // B6/F6: the four options are unchanged, and each one shows its *whole* sheet: every
   // attribute, not a role-relevant subset.
   it('renders the full attribute sheet and a radar for all four presets', () => {
     renderScreen();
@@ -45,7 +45,7 @@ describe('CharacterSelectScreen', () => {
     );
   });
 
-  // B7: traits are public — they are half of what a player has to guess fit from, since the
+  // B7: traits are public. They are half of what a player has to guess fit from, since the
   // requirement table itself is hidden (B8).
   it('names each preset trait', () => {
     renderScreen();

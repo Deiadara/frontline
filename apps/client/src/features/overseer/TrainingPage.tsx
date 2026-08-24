@@ -62,11 +62,10 @@ export function TrainingPage() {
   }
 
   const subject = data.subjects.find((one) => one.id === chosen) ?? data.subjects[0];
-  const spent = data.perDay - data.sessionsLeft;
 
   return (
     <PageShell title="An hour is an hour, spend it on something" icon="crew" wide>
-      <InfoNote>
+      <InfoNote label="How a day works">
         {data.perDay} sessions a day, an hour each, {data.gainPerSession} points a session. Nobody
         drills the same thing twice running, so the day after a hard run is a day for reading.
         Unspent hours do not carry over.
@@ -77,15 +76,18 @@ export function TrainingPage() {
           // THE DAY //
         </span>
         <div className="flex items-center gap-1.5" data-testid="training-allowance">
+          {/* Spent from the **right**, which is the way every meter a player has ever seen empties:
+              a bar drains towards its start, and the lit run on the left is what is left. Lighting
+              the tail instead read as "three sessions have arrived" rather than "three are gone". */}
           {Array.from({ length: data.perDay }, (_, index) => (
             <span
               key={index}
               aria-hidden
               className={cn(
                 'h-2.5 w-7 rounded-sm border',
-                index < spent
-                  ? 'border-surface-600 bg-surface-700'
-                  : 'border-brass-300/70 bg-brass-300/40',
+                index < data.sessionsLeft
+                  ? 'border-brass-300/70 bg-brass-300/40'
+                  : 'border-surface-600 bg-surface-700',
               )}
             />
           ))}
@@ -235,17 +237,16 @@ function SubjectRow({
        * Wrapping, not truncating.
        *
        * A person's name is the one label on this rail that a player has to be able to read, and
-       * `Marcus "Bulwark" Kane` no longer fits on one line in the stamped face — it is a wider
-       * letterform than the condensed sans it replaced. Ellipsising it is a cut label, which is
+       * `Marcus "Bulwark" Kane` does not fit on one line in the stamped face. It is a wider
+       * letterform than the condensed sans around it. Ellipsising it is a cut label, which is
        * what the layout gate is for and what the board's bar forbids; the row growing a line is
        * free, because this rail is a list rather than a table with an aligned column.
        *
-       * The name itself is set in the pen. It is a *name*, which is the exact category of lettering
-       * the typographic pass is about, and Caveat is narrower than Special Elite at the same
-       * optical size, so it earns back the width in the bargain.
+       * The name is set in the stamped face because it is a *name*, the exact category of
+       * lettering that face exists for. It pays for that in width, and `break-words` covers it.
        */}
       <span className="min-w-0 flex-1">
-        <span className="block break-words font-hand text-[18px] leading-[1.15] text-ink-100">
+        <span className="block break-words font-stamp text-[13px] leading-[1.15] text-ink-100">
           {subject.name}
         </span>
         <span className="block break-words font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
@@ -266,13 +267,13 @@ function SubjectRow({
  *
  * The row itself is deliberately plain: a name and a number. It used to carry the drill's title
  * underneath as a second line, and thirty-five of those turned the tab into a wall of small grey
- * text with the ratings — the thing a player is actually comparing — lost inside it. The drill,
+ * text with the ratings, the thing a player is actually comparing, lost inside it. The drill,
  * what the attribute does, and what the hour buys all live one hover away, and the *decision*
  * lives behind a click.
  *
  * Clicking never trains. It opens the drill, which is where the Train button is. An hour is one
  * of five a day and cannot be taken back, so a stray click on a dense grid of thirty-five targets
- * must not be able to spend one — and the dialog is also the only place with room to say what the
+ * must not be able to spend one, and the dialog is also the only place with room to say what the
  * hour is actually for.
  */
 function DrillButton({
@@ -297,7 +298,7 @@ function DrillButton({
 
   return (
     <HoverCard
-      label={`${ATTRIBUTE_LABELS[name]} — ${drill.title}`}
+      label={`${ATTRIBUTE_LABELS[name]}: ${drill.title}`}
       card={
         <div className="flex flex-col gap-1.5">
           <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
@@ -420,7 +421,7 @@ function DrillDialog({
           </p>
         </div>
         {/* The channel label is a noun phrase, not a clause, so it is set as a field rather than
-            dropped into a sentence — "It lands on what theirs does not" reads as a typo. */}
+            dropped into a sentence: "It lands on what theirs does not" reads as a typo. */}
         <dl className="flex flex-wrap items-baseline gap-x-2 gap-y-1 border-t border-surface-700 pt-3">
           <dt className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
             Feeds

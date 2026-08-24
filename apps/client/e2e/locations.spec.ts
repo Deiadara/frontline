@@ -11,7 +11,7 @@ import {
 /**
  * The city as a board (GDD §A4): locations, what the ground is like, and working one up.
  *
- * Three things a player has to be able to *see*, and none of them are visible to a unit test —
+ * Three things a player has to be able to *see*, and none of them are visible to a unit test:
  * the environment labels with their tiers, the level a location has been worked up to, and the
  * upgrade offer with the authored sentence saying what it buys. All three arrive on the same card,
  * so they are measured on the same card.
@@ -63,8 +63,11 @@ test.describe('a district full of locations', () => {
     for (const location of RUSTYARD.locations) {
       const card = page.getByTestId(`location-${location.id}`);
       const chips = card.getByTestId('labels').locator('[data-tier]');
+      // `expect(...).not.toHaveCount(0)` before `count()`, and the order matters: `count()` is a
+      // one-shot read with no auto-waiting, so on a busy run it can be taken before React has put
+      // the first card's chips in the DOM and report an empty row that is merely not there *yet*.
+      await expect(chips, location.id).not.toHaveCount(0);
       const count = await chips.count();
-      expect(count, location.id).toBeGreaterThan(0);
 
       const texts: string[] = [];
       for (let i = 0; i < count; i += 1) {
@@ -133,13 +136,23 @@ test.describe('the weather over the city', () => {
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute('data-weather', 'stormy');
     await expect(banner).toContainText('Storm');
-    // Wet, and worse than it would be in plain rain — plus dark, because it is half past eleven.
+    // Wet, and worse than it would be in plain rain: plus dark, because it is half past eleven.
     await expect(banner.getByTestId('label-wet')).toHaveAttribute('data-tier', '3');
     await expect(banner.getByTestId('label-dark')).toBeVisible();
   });
 
+  /*
+   * The layout sweep, run with the fold taken out of the way.
+   *
+   * A district page scrolls, and the fold of a scroller cuts its last row *by design*: seven
+   * location cards do not fit a laptop and are not meant to. Growing the viewport to the height of
+   * the content removes the fold without changing a single width, so what is measured is the
+   * layout rather than how far down the page happened to be. This is the same argument, and the
+   * same fix, the market's own sweep makes.
+   */
   test('lays out cleanly with a full sky over a full district', async ({ page }) => {
     await openDistrict(page, '2026-12-04T23:30:00.000Z');
+    await page.setViewportSize({ width: 1280, height: 2600 });
     await expectNothingClippedVertically(page);
     await expectNoImagesClipped(page);
   });

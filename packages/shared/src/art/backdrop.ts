@@ -2,9 +2,9 @@
  * The **backdrop stack**: the full-frame 16:9 assets the district map paints behind and in front of
  * its nodes, ordered back to front.
  *
- * It answers the one question the manifest alone cannot — *which of them can still be seen once
+ * It answers the one question the manifest alone cannot, *which of them can still be seen once
  * every file has been delivered*. Occlusion is a property of the stack, not of the asset:
- * `plate-city` is declared opaque (ART-BIBLE §6 — the plate is the base image and carries no alpha),
+ * `plate-city` is declared opaque (ART-BIBLE §6: the plate is the base image and carries no alpha),
  * so every stack member behind it stops contributing a pixel the moment the plate lands as a real
  * file. Ordering a master for one of those is wasted work, which is why `scripts/order-art.ts`
  * files them apart from the sets the board is asked to draw.
@@ -16,7 +16,7 @@ import { ART_MANIFEST, type AssetKey, type AssetSpec } from './manifest.js';
 
 /**
  * Back to front. Mirrors the asset-bearing rows of `PARALLAX_PLANES`
- * (`apps/client/src/render/layers.ts`), which is what actually draws them — a client test pins the
+ * (`apps/client/src/render/layers.ts`), which is what actually draws them: a client test pins the
  * two orders together, so a plane reordered there fails rather than silently changing who is
  * occluded here.
  */
@@ -38,7 +38,7 @@ function isOpaque(key: AssetKey): boolean {
  * Membership is derived, never listed: any stack member sitting behind an `alpha: false` one is
  * occluded, so a plane added behind the plate inherits this by existing and one moved in front of
  * it loses it. Every stack member is the same full-frame 16:9 size, so opacity alone settles
- * coverage — an opaque member leaves no edge uncovered.
+ * coverage: an opaque member leaves no edge uncovered.
  *
  * Assets outside the stack are never occluded: `splash-auth` is opaque and 16:9 too, but it is a
  * screen of its own, not a layer of the map.

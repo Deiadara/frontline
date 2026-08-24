@@ -12,7 +12,7 @@ import { openDatabase, runMigrations, type AppDatabase } from './index.js';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
 
-/** Every migration up to but not including `stopBefore` — the schema a legacy save was written by. */
+/** Every migration up to but not including `stopBefore`: the schema a legacy save was written by. */
 function migrateUpTo(db: AppDatabase, stopBefore: string): void {
   db.exec(
     `CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -42,7 +42,7 @@ const NOW = '2026-08-16T12:00:00.000Z';
  * JSON a pre-removal district would have had, which is exactly what is sitting in anyone's database
  * right now.
  */
-describe('0014 — dropping the Commons from saved districts', () => {
+describe('0014: dropping the Commons from saved districts', () => {
   const legacyBase = (buildings: unknown[], queue: unknown[] = []) => {
     const db = openDatabase(':memory:');
     migrateUpTo(db, DROP_COMMONS);
@@ -85,7 +85,7 @@ describe('0014 — dropping the Commons from saved districts', () => {
 
     const after = buildingsAfter(db);
     expect(after.map((b) => b.kind)).toEqual(['nexus', 'quarters']);
-    // Not just the kind — the surviving rows keep their levels, so the rebuild is a filter and not
+    // Not just the kind: the surviving rows keep their levels, so the rebuild is a filter and not
     // a re-creation from defaults.
     expect(after.map((b) => b.level)).toEqual([3, 2]);
   });
@@ -123,7 +123,7 @@ describe('0014 — dropping the Commons from saved districts', () => {
 
   /**
    * The Cistern's fifth modification was renamed with the morale it fed. Its id is derived from its
-   * name, so an installed copy under the old id reads as *not installed* — the player keeps the
+   * name, so an installed copy under the old id reads as *not installed*: the player keeps the
    * effect and gets the slot back, which is the quiet half of this migration.
    */
   it('renames the Cistern modification the Commons took its name from', () => {
@@ -163,7 +163,7 @@ describe('0014 — dropping the Commons from saved districts', () => {
  * the schema rather than as old data. No fixture built from the current model can produce this
  * state, so it is written by hand, exactly as it sits in anybody's database right now.
  */
-describe('0015 — renaming the attribute sheet', () => {
+describe('0015: renaming the attribute sheet', () => {
   const OLD_SHEET = {
     strength: 20,
     endurance: 21,

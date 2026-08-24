@@ -37,7 +37,7 @@ beforeEach(() => {
 });
 
 /**
- * MOU-227 §7 — the server reports a level-up on the settling response *only*. The page polls every
+ * MOU-227 §7: the server reports a level-up on the settling response *only*. The page polls every
  * few seconds, so anything read straight off `data` would flash for one interval and disappear
  * before the player looked up. These pin the latch.
  */

@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
 /**
- * Who holds a place and who pays for a job — GDD §A3.
+ * Who holds a place and who pays for a job: GDD §A3.
  *
  * §A3 gives NPC content exactly **one** antagonist: the Government, a tyranny. Everything the
  * player fights that is not another crew is the same enemy, so its name, its garrisons and the
  * fiction of a mission all come from here rather than being re-invented per district or per
- * mission brief. Anything that is *not* the state is `independent` — other crews, the markets,
+ * mission brief. Anything that is *not* the state is `independent`: other crews, the markets,
  * scavenger ground. There is deliberately no third faction: a second antagonist would contradict
  * "the main enemy is the Government".
  */
@@ -74,7 +74,7 @@ export const MISSION_STANCE_SPECS: Readonly<Record<MissionStance, MissionStanceS
 };
 
 /**
- * §A3 — enemy composition. What the Combine actually puts on the ground, scaled by how hard the
+ * §A3: enemy composition. What the Combine actually puts on the ground, scaled by how hard the
  * site is: it answers a hydroponics fence with a patrol and its own spire with the household
  * guard. Ordered by `minDifficulty` ascending; `governmentGarrisonFor` takes the last band a
  * difficulty reaches, so the table stays readable as a ladder.
@@ -86,7 +86,7 @@ export interface GovernmentGarrison {
   units: string;
 }
 
-/** The composition every Combine site fields at minimum — also the fallback below the ladder. */
+/** The composition every Combine site fields at minimum: also the fallback below the ladder. */
 const LIGHTEST_GARRISON: GovernmentGarrison = {
   minDifficulty: 1,
   units: 'a Combine sanitation patrol and a pair of drone spotters',

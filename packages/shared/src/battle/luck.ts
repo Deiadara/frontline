@@ -2,7 +2,7 @@
  * The luck a side draws on the day (GDD §A5).
  *
  * Drawn **after both forces are committed**, which is the whole point of it: it cannot be planned
- * around, only survived. Grepolis rolls its luck the same way and for the same reason — a fight
+ * around, only survived. Grepolis rolls its luck the same way and for the same reason: a fight
  * whose every input is known before you commit is a spreadsheet, and one where luck is drawn first
  * would let a player wait for a good roll.
  *
@@ -13,8 +13,8 @@
  * It touches two things and nothing else:
  *
  * - **Critical strikes.** Added as percentage points to a unit's own `lethality`, not multiplied
- *   into it. Multiplying makes luck worth almost nothing to the units that need it most — a Razor
- *   at 8% lethality would gain 0.4 points from a perfect roll — while percentage points move the
+ *   into it. Multiplying makes luck worth almost nothing to the units that need it most: a Razor
+ *   at 8% lethality would gain 0.4 points from a perfect roll, while percentage points move the
  *   rabble meaningfully and the assassins barely at all, which is the right way round.
  * - **Getting away.** The same points on the flee roll, so a lucky crew that loses still brings
  *   more of itself home. Luck cannot save a fight; it can save the people in one.

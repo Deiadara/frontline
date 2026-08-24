@@ -1,5 +1,5 @@
 /**
- * The reference attrition curve — the thing this engine is calibrated *against*.
+ * The reference attrition curve: the thing this engine is calibrated *against*.
  *
  * Browser strategy games have converged on one formula for a one-shot fight, and it has been load
  *-bearing in shipped games for two decades: the loser is wiped out, and the **winner loses
@@ -27,7 +27,7 @@ export const ATTRITION_K_LARGE = 1.25;
  *
  * Travian's `2 · (1.8592 − N^0.015)`, clamped. Below the clamp it is 1.5 and above it 1.25, which
  * is the whole behaviour: a hundred-body skirmish is decided cleanly, a thousand-body assault
- * grinds both sides down. Reproduced rather than invented — the shape is the part that has been
+ * grinds both sides down. Reproduced rather than invented: the shape is the part that has been
  * tested by other people's players for twenty years.
  */
 export function attritionExponent(bodies: number): number {
@@ -38,7 +38,7 @@ export function attritionExponent(bodies: number): number {
 /**
  * The fraction of the winning side that dies, given both sides' power.
  *
- * Returns 1 when the two are equal — an even fight destroys both armies, which is correct and is
+ * Returns 1 when the two are equal: an even fight destroys both armies, which is correct and is
  * why nobody attacks into one.
  */
 export function winnerLossFraction(winnerPower: number, loserPower: number): number {

@@ -13,12 +13,12 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBattles } from './resolve.js';
 
 /**
- * §I1 — fighting pays XP, through the fight the game actually has.
+ * §I1: fighting pays XP, through the fight the game actually has.
  *
  * This replaces the two suites that drove `POST /api/city/attack`. They measured a real thing and
  * their route is gone, and the gap they left behind was not small: with the instant path removed
  * and nothing wired into the settler, **no fight in the game paid anything**, and every unit test
- * of `awardPlayerXp` stayed green because the function was still perfectly correct — nobody was
+ * of `awardPlayerXp` stayed green because the function was still perfectly correct. Nobody was
  * calling it.
  *
  * So this stands where that hole was: the real routes, the real settler, and the crew's own
@@ -117,7 +117,7 @@ async function fight(stack: Stack): Promise<void> {
 const xpOf = (stack: Stack): number =>
   stack.app.repos.bases.findById(stack.baseId)?.progression.xpIntoLevel ?? -1;
 
-describe('§I1 — what a settled fight pays', () => {
+describe('§I1: what a settled fight pays', () => {
   it('pays the winner', async () => {
     const stack = await makeStack('attacker');
     const before = xpOf(stack);
@@ -145,7 +145,7 @@ describe('§I1 — what a settled fight pays', () => {
     await fight(stack);
 
     // The settler runs on every city read. A battle it has already resolved must not pay again,
-    // and the guard for that is `resolvedAt` rather than anything in the award path — which is
+    // and the guard for that is `resolvedAt` rather than anything in the award path, which is
     // exactly why it is worth checking from out here.
     settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
     settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());

@@ -39,15 +39,15 @@ import { useServerClock } from '../missions/useServerClock';
  * floating over the world. It used to be a 224px column in the bottom-left corner, which was fine
  * while the district was a picture in the middle of the screen and became a real bug when the
  * district filled it: the column sat squarely on the Cistern, which is the smallest building on the
- * plate, and buried it completely — visible, labelled, and impossible to click. A horizontal strip
+ * plate, and buried it completely: visible, labelled, and impossible to click. A horizontal strip
  * costs a fortieth of the picture instead of a third of it, and because it is in flow the shell
  * measures it into `--nav-h`, so the district lays itself out *above* it and covers nothing at all.
  *
  * Each chip opens the same detail window the rows used to, because the reason a player looks at a
  * countdown is to decide whether to go and do something about it.
  *
- * It reads what the shell already polls — `/me` carries both queues, `/research` the project in
- * flight — so it costs no extra request and cannot disagree with the page it links to.
+ * It reads what the shell already polls: `/me` carries both queues, `/research` the project in
+ * flight, so it costs no extra request and cannot disagree with the page it links to.
  */
 
 interface Entry {
@@ -163,7 +163,7 @@ const MISSION_PHASE_WORD: Record<string, string> = {
  * The screens the rail is drawn on.
  *
  * The world ones. A document page fills the frame with a sheet, and a floating panel over the
- * bottom-left corner of a sheet is not chrome — it is something covering the page you are reading.
+ * bottom-left corner of a sheet is not chrome. It is something covering the page you are reading.
  * On the map and in the district it floats over artwork and hides nothing, which is exactly what
  * Grepolis does with it.
  */
@@ -201,7 +201,7 @@ export function QueueRail() {
           type="button"
           onClick={() => setOpened(entry.id)}
           data-testid={`queue-rail-${entry.id}`}
-          title={`${entry.kind} — ${entry.what}`}
+          title={`${entry.kind}: ${entry.what}`}
           className={cn(
             'glass painted rivets group relative flex shrink-0 items-center gap-2 overflow-hidden rounded-sm',
             'border border-surface-600/80 py-1 pl-1.5 pr-2.5 text-left transition-colors hover:border-brass-300/70',
@@ -241,8 +241,8 @@ export function QueueRail() {
  * One clock, opened.
  *
  * The rail has room for a countdown and four words. This is where the rest goes: what exactly is
- * happening, where, when it lands as a wall-clock time rather than a duration, and — for a crew
- * that is still out — the one button that changes any of it.
+ * happening, where, when it lands as a wall-clock time rather than a duration, and, for a crew
+ * that is still out: the one button that changes any of it.
  *
  * Recall is deliberately not a "cancel". Nothing is undone: the crew turns around and walks back
  * the way they came, which takes exactly as long as getting that far did, and they arrive with

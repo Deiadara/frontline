@@ -4,7 +4,7 @@ import type { AppDatabase } from '../index.js';
 /**
  * The Bar's shared state (GDD §H2, §H2b) and the private half of it (§H7).
  *
- * The roster itself is still never stored — it is computed from the UTC date and the per-seat
+ * The roster itself is still never stored. It is computed from the UTC date and the per-seat
  * turnover counts this repo holds, so two players asking on the same day with the same counters are
  * served the same room. What is stored is only what a player has *done* to it: who they hired, and
  * how far into a conversation they have talked themselves.
@@ -20,12 +20,12 @@ export interface BarHire {
 
 export interface BarRepo {
   /**
-   * Turnover per seat for `day`, indexed by seat number — `[0, 2, 0, ...]` meaning seat 1 has been
+   * Turnover per seat for `day`, indexed by seat number: `[0, 2, 0, ...]` meaning seat 1 has been
    * hired out of twice. Seats nobody has taken have no row and read as 0, so a fresh day needs no
    * rows written before it can be read.
    */
   generations(day: string, seats: number): number[];
-  /** How many people this player has hired today — the §H2b limit reads this. */
+  /** How many people this player has hired today: the §H2b limit reads this. */
   hiresBy(userId: string, day: string): number;
   /**
    * Records a hire and moves the seat on, as one statement pair inside the caller's transaction.
@@ -33,7 +33,7 @@ export interface BarRepo {
    * person standing there for the next player to hire again.
    */
   recordHire(hire: BarHire, slot: number): void;
-  /** §H7 — every conversation this player has open today, keyed by recruit id. */
+  /** §H7: every conversation this player has open today, keyed by recruit id. */
   negotiations(userId: string, day: string): Record<string, Negotiation>;
   /** One conversation, or `undefined` when they have not spoken to this character yet. */
   negotiation(userId: string, day: string, recruitId: string): Negotiation | undefined;
@@ -65,7 +65,7 @@ interface NegotiationRow {
 /**
  * A stored row as the domain reads it.
  *
- * `mood` is widened back to the enum by the caller's schema rather than validated here — the repo's
+ * `mood` is widened back to the enum by the caller's schema rather than validated here: the repo's
  * job is the shape, and a mood this build does not know about is a parse error worth seeing at the
  * boundary rather than a silent fallback five layers in.
  */

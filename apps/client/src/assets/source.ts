@@ -11,7 +11,7 @@ import type { AssetClass, AssetKey, AssetSpec } from '@frontline/shared';
 
 export type AssetSource =
   | { kind: 'file'; key: AssetKey; url: string }
-  /** ADR §5.3 — the interim look. Seeded so the same key paints the same way every run. */
+  /** ADR §5.3: the interim look. Seeded so the same key paints the same way every run. */
   | { kind: 'procedural'; key: AssetKey; class: AssetClass; seed: number };
 
 /**
@@ -28,7 +28,7 @@ export const DELIVERED_ART: ReadonlyMap<string, string> = new Map(
   ).map(([path, url]) => [path.slice(path.lastIndexOf('/') + 1), url]),
 );
 
-/** ART-BIBLE §6 — every raster ships at 1× and 2×; `plate-city.webp` → `plate-city@2x.webp`. */
+/** ART-BIBLE §6: every raster ships at 1× and 2×; `plate-city.webp` → `plate-city@2x.webp`. */
 export function retinaName(file: string): string {
   const dot = file.lastIndexOf('.');
   return dot < 0 ? `${file}@2x` : `${file.slice(0, dot)}@2x${file.slice(dot)}`;

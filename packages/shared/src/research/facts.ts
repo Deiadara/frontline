@@ -11,14 +11,14 @@ import { OfficerRoleSchema, type OfficerRole } from '../roles.js';
 /**
  * What research has taught this crew about hiring (GDD §B9).
  *
- * ####################### THE PUBLIC HALF — NO HIDDEN TABLE #######################
+ * ####################### THE PUBLIC HALF: NO HIDDEN TABLE #######################
  *
  * §B9 is the one feature allowed to put role knowledge on the wire, which makes it the one most
  * able to defeat §B8a. The containment is structural rather than careful: everything a player is
- * ever told is a **discovered fact**, and this module — which is compiled into the client bundle —
+ * ever told is a **discovered fact**, and this module, which is compiled into the client bundle:
  * can only ever *read* facts. It has no access to the hidden requirement table and cannot import
- * it — the W1 leak guard fails the build if anything under `packages/shared` so much as names it,
- * which is why this comment does not either — and there is nothing here that could reconstruct a
+ * it: the W1 leak guard fails the build if anything under `packages/shared` so much as names it,
+ * which is why this comment does not either, and there is nothing here that could reconstruct a
  * weight, an ordering or a fit score even given every fact in the game.
  *
  * Minting facts is the server's job and lives in `apps/server/src/research/discover.ts`.
@@ -30,7 +30,7 @@ import { OfficerRoleSchema, type OfficerRole } from '../roles.js';
  *  2. **Capped below the profile.** `MAX_ROLE_FACTS` is strictly less than the five attributes
  *     every template carries, so a complete profile is not reachable by grinding.
  *  3. **Reveal order carries no signal.** The server reveals in canonical attribute order, never
- *     in weight order — otherwise the sequence itself would spell out the ordering the fact
+ *     in weight order: otherwise the sequence itself would spell out the ordering the fact
  *     bodies withhold.
  *
  * #################################################################################
@@ -50,7 +50,7 @@ export const MAX_ROLE_FACTS = 3;
  */
 export const MAX_PAIRINGS = 12;
 
-/** "The Head Spy job leans on Stealth" — §B9's feedback about an assignment for a given role. */
+/** "The Head Spy job leans on Stealth": §B9's feedback about an assignment for a given role. */
 export const RoleAttributeFactSchema = z.object({
   kind: z.literal('role_attribute'),
   role: OfficerRoleSchema,
@@ -59,7 +59,7 @@ export const RoleAttributeFactSchema = z.object({
 export type RoleAttributeFact = z.infer<typeof RoleAttributeFactSchema>;
 
 /**
- * "Deception and Hacking go together" — §B9's *what pairs well with what*, and deliberately
+ * "Deception and Hacking go together": §B9's *what pairs well with what*, and deliberately
  * role-free: it names no job, so collecting one never extends any role's profile past
  * `MAX_ROLE_FACTS`.
  *
@@ -77,7 +77,7 @@ export const DiscoveredFactSchema = z.discriminatedUnion('kind', [
 ]);
 export type DiscoveredFact = z.infer<typeof DiscoveredFactSchema>;
 
-/** Canonical position of an attribute — the order everything here sorts and reveals in. */
+/** Canonical position of an attribute: the order everything here sorts and reveals in. */
 export function attributeIndex(attribute: AttributeName): number {
   return ATTRIBUTE_NAMES.indexOf(attribute);
 }
@@ -88,7 +88,7 @@ export function makePairing(a: AttributeName, b: AttributeName): PairingFact {
   return { kind: 'pairing', attributes: [ordered[0], ordered[1]] };
 }
 
-/** Stable identity of a fact — what de-duplication and "do we already know this?" run on. */
+/** Stable identity of a fact: what de-duplication and "do we already know this?" run on. */
 export function factKey(fact: DiscoveredFact): string {
   return fact.kind === 'pairing'
     ? `pairing:${fact.attributes[0]}+${fact.attributes[1]}`
@@ -132,18 +132,18 @@ export function roleFullyResearched(facts: readonly DiscoveredFact[], role: Offi
  */
 export interface AssignmentNote {
   attribute: AttributeName;
-  /** The candidate's own rating — already on their visible sheet, restated for convenience. */
+  /** The candidate's own rating: already on their visible sheet, restated for convenience. */
   value: number;
   /** `attributeTier`'s public reading of that rating. Not a fit score: it knows nothing of `role`. */
   tier: AttributeTier;
 }
 
 /**
- * §B9 — "feedback you can ask for about a potential assignment for a given role".
+ * §B9: "feedback you can ask for about a potential assignment for a given role".
  *
  * Pure over a **visible sheet** and the crew's **discovered facts**, which is the whole safety
  * argument: the client can and does call this itself, so there is no server-side judgement to
- * leak. Nothing is ranked, scored or totalled — the player is handed the attributes they have
+ * leak. Nothing is ranked, scored or totalled: the player is handed the attributes they have
  * earned the right to know about and draws their own conclusion, exactly as §B8 requires.
  *
  * A role nothing is known about yields an empty list, which is the honest answer.

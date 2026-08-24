@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { PartialResources } from '../resources.js';
 
 /**
- * The thirteen parts of a district (GDD §A1) — what the crew actually builds on its own ground.
+ * The thirteen parts of a district (GDD §A1): what the crew actually builds on its own ground.
  *
  * This list *replaces* the MVP's six structures outright. The old names were a placeholder set
  * with no economy behind them; these are the ones the board named, and each one has exactly one
@@ -31,7 +31,7 @@ export type BuildingKind = z.infer<typeof BuildingKindSchema>;
 
 /**
  * The one structure every other one answers to (§A1). Named rather than spelled out at each use:
- * three separate rules key off it — the level cap, the unlock ladder and the build discount — and
+ * three separate rules key off it, the level cap, the unlock ladder and the build discount, and
  * a string literal repeated three times is three places to get it wrong.
  */
 export const CENTRAL_BUILDING: BuildingKind = 'nexus';
@@ -42,9 +42,20 @@ export const CENTRAL_BUILDING: BuildingKind = 'nexus';
  */
 export const BUILDING_MAX_LEVEL = 20;
 
+/**
+ * One condition on laying a structure's first level. **All** of a structure's clauses must hold.
+ *
+ * Deliberately the same shape as `UnitRequirement` (`units/catalog.ts`): the game already has one
+ * vocabulary for "you cannot have this yet", and a second one that meant the same thing in
+ * different words would be a second thing to learn and a second thing to render.
+ */
+export type BuildingRequirement =
+  | { kind: 'building'; building: BuildingKind; level: number }
+  | { kind: 'player_level'; level: number };
+
 export interface BuildingSpec {
   name: string;
-  /** Short label for the district plot — the full `name` is too wide under a sprite. */
+  /** Short label for the district plot: the full `name` is too wide under a sprite. */
   shortName: string;
   description: string;
   /**
@@ -57,22 +68,42 @@ export interface BuildingSpec {
    */
   role: string;
   /**
-   * Nexus level required before the first level of this may be built (§A1 — "unlocks new buildings
-   * based on its level"). The Nexus's own entry is 0: nothing gates the thing that does the gating.
+   * Everything that must be true before the **first** level of this may be laid (§A1, §I3).
+   *
+   * **All** clauses must hold. Two kinds, and having both is the point:
+   *
+   *   * `building`: another structure standing at a level. This is the Grepolis shape: a Gauntlet
+   *     needs somewhere to put the people it trains, so it needs Quarters. The Nexus clause every
+   *     structure carries is just the most important instance of this, not a separate rule.
+   *   * `player_level`: the crew's own level (§I). The Nexus ladder says the *district* is ready;
+   *     this says the *crew* is. A district can be a fortress run by people with no idea what to do
+   *     with a Lab, and the late structures should wait for both.
+   *
+   * Several structures carry one clause, several carry two, and the heavy ones carry three, which
+   * is what makes the build order a route through the game rather than a queue.
    */
-  requiresNexusLevel: number;
-  /** Cost of level 1 before the Nexus discount. Every level above scales it — see `buildingCost`. */
+  requires: readonly BuildingRequirement[];
+  /** Cost of level 1 before the Nexus discount. Every level above scales it: see `buildingCost`. */
   baseCost: PartialResources;
   /** Seconds to raise level 1, before the Nexus discount. See `buildingBuildSeconds`. */
   baseSeconds: number;
   /**
-   * Power drawn at level 1. The Generator is the only 0 — it supplies rather than draws.
+   * Power drawn at level 1. The Generator is the only 0: it supplies rather than draws.
    *
    * Power is not a resource and is never banked: the Generator burns oil to hold the grid up, and
    * what matters is whether supply covers draw *right now*. See `power.ts`.
    */
   basePowerDraw: number;
 }
+
+/** Terser than writing the discriminated union out twelve times below. */
+const needs = (building: BuildingKind, level: number): BuildingRequirement => ({
+  kind: 'building',
+  building,
+  level,
+});
+const nexus = (level: number): BuildingRequirement => needs(CENTRAL_BUILDING, level);
+const crew = (level: number): BuildingRequirement => ({ kind: 'player_level', level });
 
 export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
   nexus: {
@@ -81,7 +112,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'A commandeered transit hub with the maps still on the walls. Everything the district decides, it decides here.',
     role: 'Caps every other structure at its own level, unlocks new ones as it grows, and takes time and materials off every other upgrade.',
-    requiresNexusLevel: 0,
+    requires: [],
     baseCost: { caps: 400, scrap: 200, oil: 60 },
     baseSeconds: 45,
     basePowerDraw: 4,
@@ -92,7 +123,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they cannot sleep in.',
     role: 'Houses the crew. Officers and assignees both need a bed, and nobody can be placed without one.',
-    requiresNexusLevel: 1,
+    requires: [nexus(1)],
     baseCost: { caps: 120, scrap: 90, oil: 10 },
     baseSeconds: 20,
     basePowerDraw: 2,
@@ -103,7 +134,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Grow lamps over stacked trays, humming on district power. The only food down here nobody had to fight for.',
     role: 'Grows food around the clock. The Cistern raises the yield.',
-    requiresNexusLevel: 1,
+    requires: [nexus(1)],
     baseCost: { caps: 100, scrap: 70, food: 40, oil: 10 },
     baseSeconds: 20,
     basePowerDraw: 3,
@@ -114,7 +145,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'A turbine block running on whatever burns. It is loud, it is filthy, and the lights are on because of it.',
     role: 'Burns oil to power the district. Everything else draws on it, and a district short of power runs slow.',
-    requiresNexusLevel: 1,
+    requires: [nexus(1)],
     baseCost: { caps: 150, scrap: 110, oil: 30 },
     baseSeconds: 30,
     basePowerDraw: 0,
@@ -125,7 +156,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Torch work, press lines and a sorting floor. Where wreckage is taken apart and something useful is made out of it.',
     role: 'Strips salvage into scrap, fuel and the occasional length of good metal.',
-    requiresNexusLevel: 2,
+    requires: [nexus(2), needs('generator', 1)],
     baseCost: { caps: 140, scrap: 120, oil: 20 },
     baseSeconds: 25,
     basePowerDraw: 5,
@@ -136,7 +167,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Settling tanks, sand filters and a UV stage bolted on last. The Combine meters the water; this crew does not.',
     role: 'Treats water for the district, which raises what the Greenhouse yields and how many the Quarters can hold.',
-    requiresNexusLevel: 3,
+    requires: [nexus(3), needs('greenhouse', 2)],
     baseCost: { caps: 160, scrap: 130, oil: 20 },
     baseSeconds: 30,
     basePowerDraw: 4,
@@ -147,7 +178,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Racks, cages and a ledger nobody else can read. Half dispensary, half the only honest warehouse in the district.',
     role: 'Holds the stockpile. Production stops at the ceiling it sets, so a full district is a district wasting its own output.',
-    requiresNexusLevel: 3,
+    requires: [nexus(3), needs('scrapyard', 2), crew(3)],
     baseCost: { caps: 180, scrap: 140, oil: 25 },
     baseSeconds: 35,
     basePowerDraw: 2,
@@ -158,7 +189,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Ferrocrete, razorwire and a firing step. The first thing anyone coming for this district has to get through.',
     role: 'Defends the district. A raider has to beat what stands here before they touch anything behind it.',
-    requiresNexusLevel: 4,
+    requires: [nexus(4), needs('scrapyard', 3)],
     baseCost: { caps: 100, scrap: 220, oil: 30 },
     baseSeconds: 30,
     basePowerDraw: 3,
@@ -169,7 +200,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Ideas, not devices.',
     role: 'Cuts the time every research project takes. Investigations, training and modification work all move faster.',
-    requiresNexusLevel: 6,
+    requires: [nexus(6), needs('apothecary', 2), crew(5)],
     baseCost: { caps: 260, scrap: 130, oil: 40, highQualityMetal: 10 },
     baseSeconds: 50,
     basePowerDraw: 6,
@@ -180,7 +211,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'A run of welded obstacles, a mat that has seen better decades, and somebody shouting. People come out of it better than they went in.',
     role: 'Trains the crew. Officers earn more from every job they are sent on.',
-    requiresNexusLevel: 8,
+    requires: [nexus(8), needs('quarters', 4), needs('gate', 2), crew(7)],
     baseCost: { caps: 280, scrap: 180, oil: 40, highQualityMetal: 8 },
     baseSeconds: 55,
     basePowerDraw: 4,
@@ -191,7 +222,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Four beds, a printer for the drugs the Combine will not sell down here, and a medic who does not ask.',
     role: 'Looks after the crew. A district with a working infirmary takes a missed payday or a lean week far better.',
-    requiresNexusLevel: 10,
+    requires: [nexus(10), needs('cistern', 4), needs('lab', 2), crew(10)],
     baseCost: { caps: 300, scrap: 160, oil: 45, highQualityMetal: 14 },
     baseSeconds: 60,
     basePowerDraw: 5,
@@ -202,16 +233,62 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Pits, a gantry crane and a half-built rotor nobody will discuss. Motors first, vehicles after, and eventually something that flies.',
     role: 'Runs a motor pool: cracks fuel out of salvage and turns out the good metal the heavy work needs.',
-    requiresNexusLevel: 12,
+    requires: [nexus(12), needs('scrapyard', 6), needs('generator', 6), crew(14)],
     baseCost: { caps: 340, scrap: 240, oil: 60, highQualityMetal: 20 },
     baseSeconds: 50,
     basePowerDraw: 7,
   },
 };
 
+/**
+ * The Nexus level in a structure's clause list, or 0 for the Nexus itself.
+ *
+ * The ladder is still the spine of the build order, so it stays readable as a number even though it
+ * is stored as one clause among several. Derived rather than duplicated: a structure whose Nexus
+ * clause is retuned cannot end up with two different answers to "when does this open".
+ */
+export function nexusLevelFor(kind: BuildingKind): number {
+  for (const clause of BUILDING_CATALOG[kind].requires) {
+    if (clause.kind === 'building' && clause.building === CENTRAL_BUILDING) return clause.level;
+  }
+  return 0;
+}
+
 /** Every kind whose first level the district may not lay until the Nexus reaches `nexusLevel`. */
 export function buildingsUnlockedAt(nexusLevel: number): BuildingKind[] {
   return BUILDING_KINDS.filter(
-    (kind) => BUILDING_CATALOG[kind].requiresNexusLevel === nexusLevel && kind !== CENTRAL_BUILDING,
+    (kind) => nexusLevelFor(kind) === nexusLevel && kind !== CENTRAL_BUILDING,
   );
+}
+
+/**
+ * One clause, in the player's words: the line the district's hover note is built out of.
+ *
+ * Written as what is *needed* rather than as what is missing, so the same sentence serves a locked
+ * plot ("The Nexus at 6") and a satisfied one on a card that lists both.
+ */
+export function describeBuildingRequirement(clause: BuildingRequirement): string {
+  return clause.kind === 'player_level'
+    ? `Crew level ${clause.level}`
+    : `${BUILDING_CATALOG[clause.building].name} at ${clause.level}`;
+}
+
+/**
+ * Guards the ladder at module load.
+ *
+ * Three ways to write a structure nobody can ever build, all of them easy to type and none of them
+ * visible on a screen: a clause naming a structure that does not exist, a structure that requires
+ * itself, and a Nexus clause above the level ceiling.
+ */
+for (const kind of BUILDING_KINDS) {
+  for (const clause of BUILDING_CATALOG[kind].requires) {
+    if (clause.kind !== 'building') continue;
+    if (!BUILDING_KINDS.includes(clause.building)) {
+      throw new Error(`${kind} needs ${clause.building}, which is not a structure`);
+    }
+    if (clause.building === kind) throw new Error(`${kind} requires itself`);
+    if (clause.level > BUILDING_MAX_LEVEL) {
+      throw new Error(`${kind} needs ${clause.building} at ${clause.level}, past the ceiling`);
+    }
+  }
 }

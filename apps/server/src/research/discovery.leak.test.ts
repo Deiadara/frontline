@@ -22,7 +22,7 @@ import {
 import { TOTAL_PAIRINGS, discoverableAttributes, nextPairing, nextRoleFact } from './discover.js';
 
 /**
- * B8a/INTERFACES R4 — hiring insight is the one feature allowed to put role knowledge on the wire,
+ * B8a/INTERFACES R4: hiring insight is the one feature allowed to put role knowledge on the wire,
  * so it is the one that has to prove it did not put the *table* there.
  *
  * W1's guard (`../roles/hidden-table.leak.test.ts`) scans `packages/shared/src`, `apps/client/src`
@@ -36,8 +36,8 @@ import { TOTAL_PAIRINGS, discoverableAttributes, nextPairing, nextRoleFact } fro
  * matters most is `carries no weight information`, which is the *derived* leak the W1 header
  * explicitly says its own scans cannot catch.
  *
- * A note on scope: this file guards the discovery engine. The response-body half — that the real
- * `GET /research` body carries nothing more than what is proved safe here — is asserted at the
+ * A note on scope: this file guards the discovery engine. The response-body half: that the real
+ * `GET /research` body carries nothing more than what is proved safe here: is asserted at the
  * bottom, over the route.
  */
 
@@ -65,9 +65,9 @@ describe('discovery never reconstructs the hidden table', () => {
       expect(learned.length, `${role} yielded more than the cap`).toBe(MAX_ROLE_FACTS);
       expect(
         learned.length,
-        `${role}'s whole profile is reachable — B8 says it must not be`,
+        `${role}'s whole profile is reachable: B8 says it must not be`,
       ).toBeLessThan(template.length);
-      // What *is* revealed is genuinely part of the template — hints have to be true (§B9).
+      // What *is* revealed is genuinely part of the template: hints have to be true (§B9).
       for (const attribute of learned) expect(template).toContain(attribute);
     }
   });
@@ -76,20 +76,20 @@ describe('discovery never reconstructs the hidden table', () => {
    * The derived leak, and the assertion with the teeth.
    *
    * A fact body carries no number, so the only channel left is *which* attributes come out and in
-   * *what order*. Both are computed from `ATTRIBUTE_NAMES` position, so re-weighting a role — same
-   * attributes, permuted weights and permuted declaration order — must not move the reveal at all.
+   * *what order*. Both are computed from `ATTRIBUTE_NAMES` position, so re-weighting a role: same
+   * attributes, permuted weights and permuted declaration order: must not move the reveal at all.
    *
    * This and the two tests below cover different routes back to the table, and no one of them
    * covers all of them. Measured against two mutants of `discoverableAttributes`:
    *
-   *  - sorting by weight (heaviest first) — caught here, by the canonical-order test, and by the
+   *  - sorting by weight (heaviest first): caught here, by the canonical-order test, and by the
    *    vacuity control;
-   *  - returning `attributeWeightsOf` order untouched — caught *only* by the canonical-order test
+   *  - returning `attributeWeightsOf` order untouched: caught *only* by the canonical-order test
    *    and the vacuity control, and caught here only because the fixture below reverses key order
    *    as well as rotating values.
    *
    * Both mutants matter: all 19 `weights` literals are authored descending, so a declaration-order
-   * reveal leaks the weight-5 primary as fact #1 for every role — the same leak as sorting, by a
+   * reveal leaks the weight-5 primary as fact #1 for every role: the same leak as sorting, by a
    * different route. `requirements.test.ts` pins that descending-order coincidence.
    */
   it('carries no weight information: reveal is invariant under re-weighting', () => {
@@ -100,7 +100,7 @@ describe('discovery never reconstructs the hidden table', () => {
       // Move both channels a reveal could ride, keeping membership identical: the weight *values*
       // rotate across the same attributes, and `.reverse()` flips the key insertion order so the
       // declaration order `Object.entries` hands back is reversed too. Rotating values alone is
-      // not enough — `attributeWeightsOf` returns declaration order, which a value rotation
+      // not enough: `attributeWeightsOf` returns declaration order, which a value rotation
       // leaves untouched, so a reveal that simply rode that order would sail through.
       const rotated = Object.fromEntries(
         weights
@@ -119,7 +119,7 @@ describe('discovery never reconstructs the hidden table', () => {
     }
   });
 
-  it('would fire on a weight-ordered reveal — the invariance check is not vacuous', () => {
+  it('would fire on a weight-ordered reveal: the invariance check is not vacuous', () => {
     // Positive control. `weightedAttributesOf` is exactly the banned ordering, so the two must
     // disagree somewhere; if they agreed everywhere, the test above would prove nothing.
     const disagreeing = OFFICER_ROLES.filter((role) => {
@@ -128,7 +128,7 @@ describe('discovery never reconstructs the hidden table', () => {
     });
     expect(
       disagreeing.length,
-      'canonical order matches weight order everywhere — the check is vacuous',
+      'canonical order matches weight order everywhere: the check is vacuous',
     ).toBeGreaterThan(OFFICER_ROLES.length / 2);
   });
 
@@ -164,7 +164,7 @@ describe('discovery never reconstructs the hidden table', () => {
     expect(TOTAL_PAIRINGS).toBeGreaterThan(MAX_PAIRINGS * 4);
   });
 
-  it('emits nothing but attribute names — no weight, no score, anywhere in a fact', () => {
+  it('emits nothing but attribute names: no weight, no score, anywhere in a fact', () => {
     const everything: DiscoveredFact[] = [
       ...OFFICER_ROLES.flatMap(grind),
       ...(() => {
@@ -198,7 +198,7 @@ describe('discovery never reconstructs the hidden table', () => {
 
   /**
    * The consultation is where insight actually reaches a player (§B9), and it is deliberately a
-   * pure function in `@frontline/shared` — a package the W1 guard proves cannot name the hidden
+   * pure function in `@frontline/shared`: a package the W1 guard proves cannot name the hidden
    * module. This asserts the consequence rather than the structure: permuting which attribute
    * holds which rating preserves the sheet as a multiset and destroys its alignment to every role
    * at once, so a consultation that ranked candidates by fit would move and this one does not.
@@ -229,15 +229,15 @@ describe('discovery never reconstructs the hidden table', () => {
       OFFICER_ROLES.length,
     );
 
-    // The consultation reports the same *attributes* either way — its content is decided by the
-    // facts, not by fit — and each reported value is simply what is on the sheet it was handed.
+    // The consultation reports the same *attributes* either way: its content is decided by the
+    // facts, not by fit, and each reported value is simply what is on the sheet it was handed.
     const straight = consultOnAssignment(sheet, role, facts);
     const permuted = consultOnAssignment(rotated, role, facts);
     expect(permuted.map((note) => note.attribute)).toEqual(straight.map((note) => note.attribute));
     for (const note of straight) expect(note.value).toBe(sheet[note.attribute]);
     for (const note of permuted) expect(note.value).toBe(rotated[note.attribute]);
 
-    // And nothing aggregates: no total, no rank, no verdict — just the lines (§B8).
+    // And nothing aggregates: no total, no rank, no verdict: just the lines (§B8).
     expect(Object.keys(straight[0] ?? {})).toEqual(['attribute', 'value', 'tier']);
   });
 

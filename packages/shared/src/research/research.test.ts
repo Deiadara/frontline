@@ -83,7 +83,7 @@ describe('the consultation reads the sheet it is given (§B9)', () => {
   });
 });
 
-describe('§F2 — developing an attribute', () => {
+describe('§F2: developing an attribute', () => {
   it('moves one attribute by one step and leaves the rest alone', () => {
     const before = makeAttributes(20);
     const after = developAttribute(before, 'improvisation');
@@ -91,7 +91,7 @@ describe('§F2 — developing an attribute', () => {
     expect({ ...after, improvisation: 20 }).toEqual(before);
   });
 
-  it('covers every attribute — §B6 has no per-role subset', () => {
+  it('covers every attribute: §B6 has no per-role subset', () => {
     const sheet = makeAttributes(20);
     for (const name of ATTRIBUTE_NAMES) {
       expect(canDevelop(sheet, name)).toBe(true);
@@ -100,7 +100,7 @@ describe('§F2 — developing an attribute', () => {
   });
 });
 
-describe('§F3 — Charisma turns a result into morale', () => {
+describe('§F3: Charisma turns a result into morale', () => {
   it('runs from nothing to the cap, and is monotone in between', () => {
     expect(moraleFromLeadership(makeAttributes(0))).toBe(0);
     expect(moraleFromLeadership(makeAttributes(100))).toBe(MAX_RESEARCH_MORALE);
@@ -134,7 +134,7 @@ describe('a project runs on the clock frozen onto its row', () => {
     expect(researchProgressAt(active, at(-100))).toBe(0);
   });
 
-  it('ignores a retune of the catalogue — the row keeps its own duration', () => {
+  it('ignores a retune of the catalogue: the row keeps its own duration', () => {
     const legacy: ActiveResearch = { ...active, durationMinutes: 5 };
     expect(isResearchDue(legacy, at(5))).toBe(true);
     expect(isResearchDue(active, at(5))).toBe(false);

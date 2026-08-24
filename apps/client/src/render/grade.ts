@@ -1,8 +1,8 @@
 /**
- * The whole-scene post-FX chain — ADR 0001 §5.4 and ART-BIBLE §3.3/§8.
+ * The whole-scene post-FX chain: ADR 0001 §5.4 and ART-BIBLE §3.3/§8.
  *
  * Built as a composable unit and returned, never mounted here; wiring it onto the scene root is
- * phase 2. Named filter imports only — `pixi-filters`' barrel pulls all 40+ shaders into the bundle.
+ * phase 2. Named filter imports only: `pixi-filters`' barrel pulls all 40+ shaders into the bundle.
  */
 import { AdjustmentFilter } from 'pixi-filters/adjustment';
 import { AdvancedBloomFilter } from 'pixi-filters/advanced-bloom';
@@ -10,13 +10,13 @@ import { ColorMapFilter } from 'pixi-filters/color-map';
 import { FillGradient, Graphics, NoiseFilter, type Filter, type Texture } from 'pixi.js';
 import { ramps } from '../theme/tokens';
 
-/** ADR §5.4 — filters each cost a render-target ping-pong. Measure before adding a fifth. */
+/** ADR §5.4: filters each cost a render-target ping-pong. Measure before adding a fifth. */
 export const MAX_SCENE_FILTER_PASSES = 4;
 
-/** ART-BIBLE §8 — grain boils at 12 Hz, matching hand-drawn animation, not at frame rate. */
+/** ART-BIBLE §8: grain boils at 12 Hz, matching hand-drawn animation, not at frame rate. */
 export const GRAIN_BOIL_HZ = 12;
 
-/** ADR §5.5 — `low` drops bloom on GPUs that cannot hold 60 fps with it. */
+/** ADR §5.5: `low` drops bloom on GPUs that cannot hold 60 fps with it. */
 export type PostFxTier = 'low' | 'high';
 
 export type PostFxPass = 'grade' | 'bloom' | 'grain';
@@ -31,7 +31,7 @@ export function postFxPasses(tier: PostFxTier): readonly PostFxPass[] {
 }
 
 /**
- * Deterministic 0–1 grain seed for the boil step covering `elapsedMs`. Holding one seed for the
+ * Deterministic 0-1 grain seed for the boil step covering `elapsedMs`. Holding one seed for the
  * whole 1/12 s step is what makes the grain read as paint rather than as video noise.
  */
 export function grainSeed(elapsedMs: number): number {
@@ -47,7 +47,7 @@ export interface PostFxOptions {
    * contrast/saturation push, which is why the chain works with zero art on disk.
    */
   lut?: Texture | undefined;
-  /** ART-BIBLE §8 — reduced motion keeps the static grade and stops the boil. */
+  /** ART-BIBLE §8: reduced motion keeps the static grade and stops the boil. */
   reducedMotion?: boolean | undefined;
 }
 
@@ -60,7 +60,7 @@ export interface PostFxChain {
   destroy(): void;
 }
 
-/** ART-BIBLE §3.3 — only emissives bloom, so the threshold sits well above the structural mids. */
+/** ART-BIBLE §3.3: only emissives bloom, so the threshold sits well above the structural mids. */
 const BLOOM_THRESHOLD = 0.62;
 
 function gradeFilter(lut: Texture | undefined): Filter {
@@ -70,7 +70,7 @@ function gradeFilter(lut: Texture | undefined): Filter {
 }
 
 function bloomFilter(): Filter {
-  // ADR §5.4 — half resolution (`pixelSize: 2`) is visually identical at our scale and ~4× cheaper.
+  // ADR §5.4: half resolution (`pixelSize: 2`) is visually identical at our scale and ~4× cheaper.
   return new AdvancedBloomFilter({
     threshold: BLOOM_THRESHOLD,
     bloomScale: 1.1,
@@ -125,7 +125,7 @@ export const VIGNETTE_STOPS = [
   { offset: 1, alpha: 0.62 },
 ] as const;
 
-/** `#rrggbbaa` stops — `FillGradient` carries the falloff in the alpha channel. */
+/** `#rrggbbaa` stops: `FillGradient` carries the falloff in the alpha channel. */
 export function vignetteColorStops(): { offset: number; color: string }[] {
   return VIGNETTE_STOPS.map((stop) => ({
     offset: stop.offset,
@@ -136,11 +136,11 @@ export function vignetteColorStops(): { offset: number; color: string }[] {
 }
 
 /**
- * The vignette plane. ADR §4.1: a multiply-blended radial `Graphics`, not a filter — it costs no
+ * The vignette plane. ADR §4.1: a multiply-blended radial `Graphics`, not a filter. It costs no
  * render-target pass, which is what keeps the chain inside the §5.4 budget. Sits on the `grade`
  * plane, so it is sized to the screen rather than to the map.
  *
- * `FillGradient` bakes its ramp through a 2D canvas, so this needs a real browser — jsdom cannot
+ * `FillGradient` bakes its ramp through a 2D canvas, so this needs a real browser: jsdom cannot
  * construct it. The falloff data and its stop colours are unit-tested; the plane itself is
  * verified in Chromium.
  */
@@ -157,7 +157,7 @@ export function createVignette(width: number, height: number): Graphics {
   const g = new Graphics();
   g.label = 'vignette';
   g.blendMode = 'multiply';
-  // A full-screen `Graphics` is hit-testable by default, and this one sits above everything — so
+  // A full-screen `Graphics` is hit-testable by default, and this one sits above everything, so
   // without this it silently swallows every click on the map underneath it.
   g.eventMode = 'none';
   g.rect(0, 0, width, height).fill(gradient);

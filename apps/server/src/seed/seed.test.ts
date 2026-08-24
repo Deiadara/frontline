@@ -214,7 +214,7 @@ describe('seedMvpWorld', () => {
 
     const res = await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) });
     expect(res.statusCode).toBe(200);
-    // §A4 — crews live on residential ground, and the map carries them on their own district.
+    // §A4: crews live on residential ground, and the map carries them on their own district.
     const bases = res
       .json<CityResponse>()
       .districts.flatMap((entry) => (entry.base ? [entry.base] : []));
@@ -266,8 +266,8 @@ describe('seeded dev login', () => {
 /*
  * The raid tests were here, and they went with `POST /api/city/raid` (board, battle rework).
  *
- * What they measured — that a raid moves a bounded share of the victim's stockpile, that a home
- * district never changes hands, and that it is left disrupted afterwards — is all still true and
+ * What they measured: that a raid moves a bounded share of the victim's stockpile, that a home
+ * district never changes hands, and that it is left disrupted afterwards: is all still true and
  * all still tested. It happens through the declared path now: break the gate, then hit a structure
  * behind it. `battle/siege.test.ts` covers the loot bound and `battle/battle.test.ts` the settle.
  */

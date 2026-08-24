@@ -3,14 +3,14 @@ import { cn } from '../../lib/cn';
 /**
  * A clock, drawn.
  *
- * Ten screens in this game had a running thing on them — a build, a batch on the bench, a project, a
- * mission in flight, a drill — and every one of them drew its own bar out of two spans and a
+ * Ten screens in this game had a running thing on them: a build, a batch on the bench, a project, a
+ * mission in flight, a drill, and every one of them drew its own bar out of two spans and a
  * hard-coded height. Ten copies of the same widget, three different track colours, and two of them
  * with no remaining time on the bar at all, which is the one number a player actually wants: not
  * *how far in*, but *how long left*.
  *
- * This is the one bar. It is painted rather than plotted — a groove in the panel with a loaded
- * brush stroke in it, a ragged leading edge, and the time in the hand face where the stroke ends —
+ * This is the one bar. It is painted rather than plotted: a groove in the panel with a loaded
+ * brush stroke in it, a ragged leading edge, and the time in the hand face where the stroke ends,
  * because a flat rounded pill filling up left to right is the single most "framework" object an
  * interface can contain, and this game is meant to look like somebody made it.
  *
@@ -37,7 +37,7 @@ const TICK: Record<ProgressTone, string> = {
 };
 
 export interface ProgressBarProps {
-  /** How far through, `0`..`1`. Clamped rather than trusted — a stale clock can overshoot. */
+  /** How far through, `0`..`1`. Clamped rather than trusted: a stale clock can overshoot. */
   progress: number;
   /**
    * What is running, in a word or two. Read out with the percentage, so it must name the *thing*
@@ -74,7 +74,7 @@ export function ProgressBar({
           </span>
           {/* The number a player is actually waiting on, in the hand face and given the room to be
               read as a phrase rather than as a field. */}
-          <span className={cn('shrink-0 font-hand text-[17px] leading-none', TICK[tone])}>
+          <span className={cn('shrink-0 font-stamp text-[13px] leading-none', TICK[tone])}>
             {remaining}
           </span>
         </span>

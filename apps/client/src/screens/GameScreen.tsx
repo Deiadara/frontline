@@ -11,7 +11,7 @@ import { TopHud } from '../features/game/TopHud';
  * The game shell: one screen, the world behind it, and the chrome floating on top.
  *
  * The old shell was a header over a row of [sidebar | content], so every screen was a panel in a
- * frame and the artwork was a picture inside it. This is the other way round — the routed screen
+ * frame and the artwork was a picture inside it. This is the other way round: the routed screen
  * *is* the viewport, and the HUD and the scenery switcher are layers over it. That is what makes a
  * town view read as a place you are standing in rather than as an illustration on a page.
  *
@@ -47,7 +47,7 @@ export function GameScreen() {
     >
       {/* One backdrop for the whole shell rather than one per screen. The district and the city
           map paint over it completely; every other screen is a document, and letting the place show
-          through behind it — blurred back, dimmed down — is what keeps the game from feeling like a
+          through behind it, blurred back, dimmed down, is what keeps the game from feeling like a
           set of forms you tab between. */}
       <SceneBackdrop />
 
@@ -65,25 +65,25 @@ export function GameScreen() {
         <div ref={hudRef}>
           <TopHud
             overseer={overseer}
-            faction={base.name}
+            base={base}
             resources={base.resources}
             economy={base.economy}
             buildings={base.buildings}
           />
         </div>
-        {/* The world's middle stays clear — nothing floats over it at all. */}
+        {/* The world's middle stays clear: nothing floats over it at all. */}
         <div className="min-h-0 flex-1" />
         {/* The rail and the switcher are measured together, and `--nav-h` is the pair. A screen
             that lays itself out around the chrome cares how much of the bottom is taken, not how
-            many bars are taking it — and the rail comes and goes with what the crew is doing. */}
+            many bars are taking it, and the rail comes and goes with what the crew is doing. */}
         <div ref={navRef}>
           <QueueRail />
           <BottomNav />
         </div>
       </div>
 
-      {/* Above the chrome, below any dialog. The glass has to cross the panel edges to do its job —
-          that is what stops the screen reading as a stack of separate widgets — but a modal is a
+      {/* Above the chrome, below any dialog. The glass has to cross the panel edges to do its job.
+          That is what stops the screen reading as a stack of separate widgets, but a modal is a
           thing the player is being asked to read, and nothing gets to sit on top of that. */}
       <div className="pointer-events-none absolute inset-0 z-50">
         <Patina />

@@ -4,7 +4,7 @@ import { z } from 'zod';
  * What a battle unit *is* (GDD §A5).
  *
  * Every figure is on the same 0..100 scale the character sheet uses (§B1), with two deliberate
- * exceptions called out on the fields themselves — vitality is hit points and loot capacity is
+ * exceptions called out on the fields themselves: vitality is hit points and loot capacity is
  * kilograms, and neither means anything as a percentage.
  *
  * Every figure here is read by the battle engine (`battle/`), and the sheet was written first for
@@ -74,7 +74,7 @@ export interface UnitModifierSpec {
 }
 
 /**
- * The named modifiers units carry — "Urban Bonus", "Night Operations" and the rest.
+ * The named modifiers units carry: "Urban Bonus", "Night Operations" and the rest.
  *
  * A shared table rather than free text per unit, so two units that fight better in the dark say so
  * the same way, and so the engine has a finite set of conditions to implement rather than an open
@@ -167,7 +167,7 @@ export const UNIT_MODIFIER_IDS = Object.keys(UNIT_MODIFIERS) as UnitModifierId[]
 export const UnitStatsSchema = z.object({
   /** 0..100. How fast it crosses the city and closes ground. */
   speed: z.number().int().min(0).max(100),
-  /** Hit points — **not** a 0..100 rating. A Colossus is worth twenty Razors and says so here. */
+  /** Hit points, **not** a 0..100 rating. A Colossus is worth twenty Razors and says so here. */
   vitality: z.number().int().positive(),
   /** 0..100. How easily it breaks and runs, and how well it resists being frightened. */
   morale: z.number().int().min(0).max(100),
@@ -189,9 +189,9 @@ export const UnitStatsSchema = z.object({
   offense: z.number().int().min(0).max(100),
   /** 0..100. Chance to avoid an attack outright. */
   evasion: z.number().int().min(0).max(100),
-  /** 0..100. How hard it is to spot **while infiltrating** — not once a fight has started. */
+  /** 0..100. How hard it is to spot **while infiltrating**, not once a fight has started. */
   stealth: z.number().int().min(0).max(100),
-  /** Kilograms of salvage it can carry home. Every resource has a weight — see `raid.ts`. */
+  /** Kilograms of salvage it can carry home. Every resource has a weight: see `raid.ts`. */
   lootCapacity: z.number().int().min(0),
   /** 0..100. What it does to an enemy's morale by turning up. */
   intimidation: z.number().int().min(0).max(100),

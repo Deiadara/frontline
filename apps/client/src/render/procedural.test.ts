@@ -14,7 +14,7 @@ const procedural = (key: string): AssetSource => ({
 });
 
 describe('paintProcedural', () => {
-  it('declines a delivered file — the caller uses the texture instead', () => {
+  it('declines a delivered file: the caller uses the texture instead', () => {
     const file: AssetSource = { kind: 'file', key: 'plane-city-far', url: '/plane-city-far.webp' };
     expect(paintProcedural(file, 800, 600)).toBeNull();
   });

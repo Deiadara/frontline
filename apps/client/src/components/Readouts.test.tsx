@@ -6,8 +6,8 @@ import { fillFraction, ResourceChip, STORAGE_WARN_AT } from './Resources';
 
 /**
  * The HUD is a row of numbers with no words on it, and everything that makes those numbers *mean*
- * something is one hover away. That is a deliberate trade — the compact form is what keeps the bar
- * to one line over the artwork — but it only pays off if the hover actually carries the missing
+ * something is one hover away. That is a deliberate trade: the compact form is what keeps the bar
+ * to one line over the artwork, but it only pays off if the hover actually carries the missing
  * half, so this is where the missing half is pinned.
  */
 
@@ -20,14 +20,14 @@ describe('the stockpile ceiling', () => {
 
   /**
    * Raids and mission pay are deliberately *not* clamped to storage, so a district can legitimately
-   * sit over its own ceiling — and a bar that rendered 140% would run out of its own track.
+   * sit over its own ceiling, and a bar that rendered 140% would run out of its own track.
    */
   it('never runs past the end of the bar, however far over the ceiling a raid puts you', () => {
     expect(fillFraction(4000, 1000)).toBe(1);
     expect(fillFraction(-50, 1000)).toBe(0);
   });
 
-  /** No ceiling means nothing to draw — an unknown capacity must not read as "full". */
+  /** No ceiling means nothing to draw: an unknown capacity must not read as "full". */
   it('reads empty rather than full when there is no ceiling to show', () => {
     expect(fillFraction(900, undefined)).toBe(0);
     expect(fillFraction(900, 0)).toBe(0);
@@ -42,7 +42,7 @@ describe('the stockpile ceiling', () => {
   });
 
   /**
-   * The ceiling is the Apothecary's, and it is supposed to *grow* with it — otherwise the bar is
+   * The ceiling is the Apothecary's, and it is supposed to *grow* with it: otherwise the bar is
    * reporting a constant and the structure's one mechanic does nothing.
    */
   it('rises with the Apothecary, which is the whole point of the structure', () => {
@@ -52,7 +52,7 @@ describe('the stockpile ceiling', () => {
       ]);
     expect(at(1)).toBeGreaterThan(at(0));
     expect(at(10)).toBeGreaterThan(at(5));
-    // Compounding, not linear — the late levels have to be worth their price.
+    // Compounding, not linear: the late levels have to be worth their price.
     expect(at(10) - at(9)).toBeGreaterThan(at(2) - at(1));
   });
 });
@@ -71,7 +71,7 @@ describe('what a resource chip says when you look at it', () => {
     expect(within(card).getByText(/20,000/)).toBeInTheDocument();
   });
 
-  /** Keyboard, not just pointer — a card only a mouse can open is a card half of players never see. */
+  /** Keyboard, not just pointer: a card only a mouse can open is a card half of players never see. */
   it('opens on focus as well as on hover', () => {
     render(<ResourceChip kind="caps" value={10} capacity={100} />);
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
@@ -80,8 +80,8 @@ describe('what a resource chip says when you look at it', () => {
   });
 
   /**
-   * A full stockpile is a silent, continuous loss — production stops dead while raid loot still
-   * lands — so the one state worth shouting about is the one just before it.
+   * A full stockpile is a silent, continuous loss: production stops dead while raid loot still
+   * lands, so the one state worth shouting about is the one just before it.
    */
   it('warns when the ceiling is close, and does not before', () => {
     const { unmount } = render(<ResourceChip kind="scrap" value={100} capacity={1000} />);

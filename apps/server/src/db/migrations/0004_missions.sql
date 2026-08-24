@@ -1,6 +1,6 @@
 -- Missions, travel and timers (MOU-162, GDD §E).
 --
--- Number allocated by the CTO under INTERFACES.md R6/R8 — do not renumber, the runner keys
+-- Number allocated by the CTO under INTERFACES.md R6/R8: do not renumber, the runner keys
 -- `schema_migrations` on the file name and a rename re-applies the migration.
 --
 -- R8 also requires this file to stand alone: `0005_progression.sql` lands independently and the
@@ -12,7 +12,7 @@
 -- resolution: retuning a template must not retime or re-price a run already in flight.
 --
 -- `seed` is the reason the timer is authoritative. The outcome is rolled from it, so resolving a
--- mission is a pure function of this row — the answer is the same whether the owner is watching
+-- mission is a pure function of this row: the answer is the same whether the owner is watching
 -- the countdown or opens the game a week later. It is server-only and never leaves the process;
 -- if it were derivable from `id`, a client could read its own future.
 

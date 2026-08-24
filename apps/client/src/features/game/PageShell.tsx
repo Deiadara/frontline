@@ -1,13 +1,15 @@
 import type { ReactNode } from 'react';
 import { deliveredUrl } from '../../assets/delivered';
+import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon, type IconName } from '../../components/ui/Icon';
+import { InfoWindow } from '../../components/ui/InfoWindow';
 import { Quote } from '../../components/ui/Quote';
 import { cn } from '../../lib/cn';
 
 /**
  * The frame every screen that is *not* a place gets.
  *
- * The roster, the missions board, research and the bar are documents — lists you read — but the
+ * The roster, the missions board, research and the bar are documents, lists you read, but the
  * game is still a district you are standing in, and losing that between clicks is what makes a
  * browser game feel like a spreadsheet with art on it. So the district stays behind them, pushed
  * back with a blur and a dim, and the document floats on it in a single readable column. It is the
@@ -16,7 +18,7 @@ import { cn } from '../../lib/cn';
  * **The scroll is inside the sheet, not on the page.** A document that scrolls the whole viewport
  * takes its own heading off the top of the screen, so a player three screens down a roster has lost
  * the one label telling them where they are, and the scrollbar runs the full height of the artwork.
- * Scrolling the sheet's body keeps the title, the count and any filter pinned where they were put —
+ * Scrolling the sheet's body keeps the title, the count and any filter pinned where they were put,
  * which is the entire reason a games UI puts a window on the world instead of a page under it.
  *
  * The backdrop is `aria-hidden` and inert. It is scenery, and a screen reader that announced the
@@ -44,16 +46,16 @@ export const WIDE_CONTENT_WIDTH = 'mx-auto w-full max-w-[104rem]';
 interface PageShellProps {
   /** The screen's own name, shown as its heading. */
   title: string;
-  /** The icon this screen is known by in the scenery switcher — same glyph, so the two agree. */
+  /** The icon this screen is known by in the scenery switcher: same glyph, so the two agree. */
   icon?: IconName;
-  /** A short line under the title. Optional — most screens say enough with a title. */
+  /** A short line under the title. Optional: most screens say enough with a title. */
   lede?: string;
   /**
    * A line under the title that is *not* information: a fragment of the city talking.
    *
    * Separate from `lede` because the two want opposite typography. A lede is read at a glance and
    * set small and quiet; a quotation is meant to be read once, properly, and set as lettering. A
-   * screen may carry either but not both — two lines under a heading is a subtitle and a slogan
+   * screen may carry either but not both: two lines under a heading is a subtitle and a slogan
    * arguing.
    */
   quote?: string;
@@ -75,14 +77,14 @@ export function SceneBackdrop({ className }: { className?: string }) {
           alt=""
           // Over-scaled on purpose: a blur samples past its own edges, so an unscaled image shows a
           // soft transparent rim on all four sides. `data-scenery` is how the layout gates know
-          // this one is meant to run past the frame — see `expectNothingClippedHorizontally`.
+          // this one is meant to run past the frame: see `expectNothingClippedHorizontally`.
           data-scenery
           className="h-full w-full scale-110 object-cover opacity-[0.62] blur-[5px] saturate-[0.75]"
         />
       )}
       {/* Dimmed until the type on top of it is comfortable, and no further. Pushed back too hard
           it stops being a place and becomes a dark texture, which is the same as having no
-          backdrop at all — and then a login is a form again. */}
+          backdrop at all, and then a login is a form again. */}
       <div className="absolute inset-0 bg-surface-950/45" />
     </div>
   );
@@ -126,7 +128,7 @@ export function PageShell({
               {/* The hand face, because the name of a place is the one label on the screen that is
                   not a field. Larger than the stamped equivalent it replaced: a pen stroke needs
                   the size to read as a stroke rather than as a wobble. */}
-              <h1 className="font-hand text-[30px] font-semibold leading-[1.1] text-ink-100">
+              <h1 className="font-stamp text-[22px] font-semibold leading-[1.1] text-ink-100">
                 {title}
               </h1>
               {lede !== undefined && (
@@ -142,7 +144,7 @@ export function PageShell({
               {/* Inside the scrolling body rather than in the pinned header: a quotation is read
                   once on arrival, and a pinned one would keep a line of poetry on screen for the
                   whole time a player is working three screens down a roster. */}
-              {quote !== undefined && <Quote className="max-w-prose">{quote}</Quote>}
+              {quote !== undefined && <Quote>{quote}</Quote>}
               {children}
             </div>
           </div>
@@ -153,33 +155,60 @@ export function PageShell({
 }
 
 /**
- * A short standing note about how something works.
+ * A standing note about how something works, folded behind one chip.
  *
  * Rules a player is expected to *know* have to be written somewhere they will actually be read, and
- * the two places that never work are a wiki and a one-time tooltip. These sit next to the thing they
- * describe, permanently, and stay quiet: they are the smallest type on the screen and the only
- * element in the interface with no interaction on it at all.
+ * the two places that never work are a wiki and a one-time tooltip. They were pinned above the
+ * thing they describe, permanently, and that turned out to be a third place that does not work: a
+ * paragraph that never changes is a paragraph a player reads once and then looks past forever,
+ * while it goes on taking sixty pixels off the top of every screen it is on.
+ *
+ * So it is a chip now, with the note on a torn scrap of paper on hover. The words are unchanged and
+ * one movement away; the screen underneath gets its room back. This is how every strategy game of
+ * this shape does it, and the reason is the same: the rule is reference material, and reference
+ * material belongs where the pointer is, not where the content should be.
  */
 export function InfoNote({
   children,
   tone = 'neutral',
+  /** What the chip says, and what the note is titled. Short: it is a label, not a summary. */
+  label = 'How this works',
 }: {
   children: ReactNode;
   tone?: 'neutral' | 'warn';
+  label?: string;
 }) {
   return (
-    <aside
-      className={cn(
-        'flex items-start gap-2.5 rounded-sm border px-3.5 py-2.5 text-xs leading-relaxed',
-        tone === 'warn'
-          ? 'border-brass-500/45 bg-brass-500/10 text-brass-100'
-          : 'border-iris-500/40 bg-iris-500/10 text-ink-200',
-      )}
+    <HoverCard
+      size="window"
+      label={label}
+      data-testid="info-note"
+      // The page body is a stretching column, so a chip dropped straight into it would run the
+      // whole width and read as the banner it replaced.
+      className="self-start"
+      card={
+        <InfoWindow
+          eyebrow="How it works"
+          title={label}
+          tone={tone === 'warn' ? 'oxblood' : 'iris'}
+          icon={<Icon name="info" className="h-full w-full text-brass-300" />}
+        >
+          <div className="font-body text-[14px] leading-relaxed text-ink-100">{children}</div>
+        </InfoWindow>
+      }
     >
-      <span className={tone === 'warn' ? 'text-brass-300' : 'text-iris-300'}>
-        <Icon name="info" className="mt-px h-4 w-4" />
+      <span
+        className={cn(
+          'flex items-center gap-1.5 rounded-sm border px-2.5 py-1',
+          'font-display text-[11px] font-bold uppercase tracking-[0.14em]',
+          tone === 'warn'
+            ? 'border-brass-500/50 bg-brass-500/10 text-brass-100'
+            : 'border-iris-500/45 bg-iris-500/10 text-iris-100',
+        )}
+      >
+        <Icon name="info" aria-hidden className="h-3.5 w-3.5" />
+        {label}
       </span>
-      <p className="min-w-0">{children}</p>
-    </aside>
+    </HoverCard>
   );
 }

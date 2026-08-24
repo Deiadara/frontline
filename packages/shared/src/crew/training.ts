@@ -14,7 +14,7 @@ import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
  *
  * Levelling was the only thing that moved a sheet, which meant a player who wanted a better
  * Cryptography had exactly one move: go and do something unrelated until a level arrived, then
- * spend the point. Training is the other road — small, daily, and *chosen*. It is also the only
+ * spend the point. Training is the other road: small, daily, and *chosen*. It is also the only
  * system in the game where the player says out loud what kind of crew they are building.
  *
  * ## The three rules, and why each exists
@@ -69,7 +69,7 @@ export const TrainingStateSchema = z.object({
   used: z.number().int().min(0),
   sessions: z.array(TrainingSessionSchema),
   /**
-   * What each person trained most recently — the memory the no-repeat rule reads.
+   * What each person trained most recently: the memory the no-repeat rule reads.
    *
    * Written when a session *starts*, not when it finishes, so queueing Stamina twice in a row is
    * refused at the point the player asks for it rather than an hour later.
@@ -96,7 +96,7 @@ export function rollDay(state: TrainingState, now: string): TrainingState {
 /**
  * How many sessions this crew may still start today.
  *
- * `extra` is what the ground adds (§A4) — the Gym is one more session in a day than the day has
+ * `extra` is what the ground adds (§A4): the Gym is one more session in a day than the day has
  * room for, and at level 4 it is four more. Threaded through here rather than added at the call
  * site so the count on the screen and the gate in `trainingBlocker` cannot disagree about it.
  */
@@ -174,7 +174,7 @@ export interface TrainingGain {
  * Everything that has finished, taken off the board.
  *
  * Pure: it says what was earned and hands back the remaining state. Applying a gain to a sheet
- * means writing to two different tables — the Overseer's own row and the base's officer blob — and
+ * means writing to two different tables, the Overseer's own row and the base's officer blob, and
  * that belongs to whoever owns those, not to a rule.
  */
 export function settleTraining(
@@ -205,8 +205,8 @@ export function applyGain(sheet: Attributes, gain: TrainingGain): Attributes {
 /**
  * What the hour actually looks like.
  *
- * The board asked for a title on each one — a workout for something physical, the right book for
- * something mental — and the reason to write thirty-five rather than four is that four means the
+ * The board asked for a title on each one: a workout for something physical, the right book for
+ * something mental, and the reason to write thirty-five rather than four is that four means the
  * Training tab shows the same sentence five times a day forever. These are the closest this game
  * gets to saying what a day in the district is like, so they are specific: a place, a piece of
  * equipment, somebody else in the room.

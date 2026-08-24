@@ -25,7 +25,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *
  * The client cannot: it would have to decode twelve images to a canvas at start-up to recover
  * numbers that change only when a master does. This package already has libvips, so the check lives
- * here — and its failure message is the fix, because the table is generated, not judged.
+ * here, and its failure message is the fix, because the table is generated, not judged.
  *
  * Both halves matter and they fail differently. A stale **aspect** means the delivered drawing is
  * not the shape the table says it is, which is the number anything laying a master out has to trust.
@@ -39,9 +39,9 @@ const ASSET_DIR = path.join(REPO_ROOT, 'assets');
 interface Tone {
   width: number;
   height: number;
-  /** Mean luminance of the opaque pixels, 0–255. */
+  /** Mean luminance of the opaque pixels, 0-255. */
   lum: number;
-  /** Mean HSV saturation of the opaque pixels, 0–1. */
+  /** Mean HSV saturation of the opaque pixels, 0-1. */
   sat: number;
 }
 
@@ -97,8 +97,8 @@ describe('the delivered structure masters', () => {
 
   /**
    * Every structure whose master has landed is measured. The ones that have not are skipped rather
-   * than failed — an undelivered structure falls back to its procedural sprite, which needs neither
-   * an aspect nor a grade — but the skip is announced, so a suite that has quietly stopped checking
+   * than failed: an undelivered structure falls back to its procedural sprite, which needs neither
+   * an aspect nor a grade, but the skip is announced, so a suite that has quietly stopped checking
    * anything cannot pass for a suite that checked everything.
    */
   it('has masters to measure', () => {
@@ -119,7 +119,7 @@ describe('the delivered structure masters', () => {
   });
 
   /**
-   * The delivery is cropped to its own artwork — the manifest's `trim` step.
+   * The delivery is cropped to its own artwork: the manifest's `trim` step.
    *
    * Without it a structure's file is its drawing plus however much empty canvas the illustrator
    * left, which ran from 11px to 105px under the feet. A scene that stands buildings on a ground
@@ -168,14 +168,14 @@ describe('the delivered structure masters', () => {
   /**
    * And the grade actually closes the gap it exists to close.
    *
-   * The table above could be arithmetically correct and still be pointed at the wrong target — a
+   * The table above could be arithmetically correct and still be pointed at the wrong target: a
    * pull of zero derives cleanly and grades nothing. This measures the *result*, and it says two
    * different things because the grade makes two different promises:
    *
    *   * an uncapped structure lands within a quarter-stop of the portrait target, where the ungraded
    *     set ran from two thirds of it to nearly double;
-   *   * a structure held at {@link MAX_BRIGHTEN} stays **darker** than the target — the cap can only
-   *     ever leave one dark — and is still closer than it was ungraded, so the cap is a limit on
+   *   * a structure held at {@link MAX_BRIGHTEN} stays **darker** than the target: the cap can only
+   *     ever leave one dark, and is still closer than it was ungraded, so the cap is a limit on
    *     the correction rather than an escape from it.
    */
   it('leaves every structure a quarter-stop from the portrait target, or dark on purpose', () => {

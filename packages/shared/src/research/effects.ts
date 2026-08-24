@@ -7,7 +7,7 @@ import {
 import type { MissionKind } from '../missions.js';
 
 /**
- * What attributes actually *do* (GDD §F3–§F5).
+ * What attributes actually *do* (GDD §F3-§F5).
  *
  * §F4 gives attributes two jobs beyond being a number on a sheet: they are **bonuses**, and some
  * **unlock new actions**. §F5 adds the second use, **modifiers on outcomes**. The board named four
@@ -16,34 +16,34 @@ import type { MissionKind } from '../missions.js';
  *
  * | §F3 example                                   | Live mechanic                                    |
  * | --------------------------------------------- | ------------------------------------------------ |
- * | **Charisma** → leading people, raising morale  | `moraleFromLeadership` — a finished project lifts morale by the Overseer's charisma |
- * | **Communication** → better ideas out of people | `extraFactsFrom` — a talkative lead gets a second fact out of the same investigation |
- * | **Imagination** → coming up with new things    | `unlocksCrossReference` — §F4's worked example, the option that stays locked otherwise |
- * | A **physical** attribute → keeping things in check | `overseerMissionEdge` — §F5's worked example, Speed and Stealth on a run that risks people |
+ * | **Charisma** → leading people, raising morale  | `moraleFromLeadership`: a finished project lifts morale by the Overseer's charisma |
+ * | **Communication** → better ideas out of people | `extraFactsFrom`: a talkative lead gets a second fact out of the same investigation |
+ * | **Imagination** → coming up with new things    | `unlocksCrossReference`: §F4's worked example, the option that stays locked otherwise |
+ * | A **physical** attribute → keeping things in check | `overseerMissionEdge`: §F5's worked example, Speed and Stealth on a run that risks people |
  *
  * The thresholds sit just above `attributeTier`'s `strong` boundary (28) and below the
  * recruitment ceiling (40): reachable by choosing the right person for the job, not by default.
  */
 
-/** §F4 — the Imagination the lead researcher needs before the cross-reference option unlocks. */
+/** §F4: the Imagination the lead researcher needs before the cross-reference option unlocks. */
 export const CROSS_REFERENCE_IMPROVISATION = 30;
 
-/** §F3 — Communication at or above this gets an extra fact out of the same investigation. */
+/** §F3: Communication at or above this gets an extra fact out of the same investigation. */
 export const EXTRA_FACT_COMMUNICATION = 30;
 
 /**
- * §F4 — "researching something new: if the person on it has high enough **Imagination**, an option
+ * §F4: "researching something new: if the person on it has high enough **Imagination**, an option
  * unlocks that would otherwise stay locked".
  *
  * The option is the cross-reference: instead of only answering the question asked, an imaginative
- * lead also notices a pairing — §B9's *what goes with what*.
+ * lead also notices a pairing: §B9's *what goes with what*.
  */
 export function unlocksCrossReference(attributes: Attributes): boolean {
   return attributes.improvisation >= CROSS_REFERENCE_IMPROVISATION;
 }
 
 /**
- * §F3 — "**Communication** inspires better ideas out of your people". A lead who can actually
+ * §F3: "**Communication** inspires better ideas out of your people". A lead who can actually
  * debrief the crew comes back with one more fact than the investigation was worth.
  */
 export function extraFactsFrom(attributes: Attributes): number {
@@ -54,22 +54,22 @@ export function extraFactsFrom(attributes: Attributes): number {
 export const MAX_RESEARCH_MORALE = 4;
 
 /**
- * §F3 — "**Charisma** → leading people, raising morale". Landing a result in front of the crew is
+ * §F3: "**Charisma** → leading people, raising morale". Landing a result in front of the crew is
  * worth something; how much depends on who is doing the telling.
  *
- * Feeds W2's morale meter (INTERFACES R5) — it does not open a second one.
+ * Feeds W2's morale meter (INTERFACES R5). It does not open a second one.
  */
 export function moraleFromLeadership(attributes: Attributes): number {
   return Math.round((attributes.charisma / MAX_ATTRIBUTE) * MAX_RESEARCH_MORALE);
 }
 
 /**
- * §F5 — "a raid to steal resources: good **Speed** and **Stealth** on your character raise the
+ * §F5: "a raid to steal resources: good **Speed** and **Stealth** on your character raise the
  * team's success chance".
  *
  * Only `battle` runs are modified. §E5 makes those the ones that *risk your people*, which is what
  * the board's raid is; a standard scrap run is not a raid and gets no edge. Per-template edge
- * attributes would be a better model, but `MissionTemplate` is W3's to extend — this stays on the
+ * attributes would be a better model, but `MissionTemplate` is W3's to extend. This stays on the
  * one axis the board actually specified.
  */
 export const MISSION_EDGE_ATTRIBUTES: Record<MissionKind, readonly AttributeName[]> = {
@@ -112,11 +112,11 @@ export function modifiedSuccessChance(
   return Math.min(1, Math.max(0, successChance + overseerMissionEdge(attributes, kind)));
 }
 
-/** §F2 — how far one completed training project moves the attribute it targeted. */
+/** §F2: how far one completed training project moves the attribute it targeted. */
 export const TRAINING_STEP = 1;
 
 /**
- * §F2 — "You can **develop any of them**". Every attribute is trainable, including ones with no
+ * §F2. "You can **develop any of them**". Every attribute is trainable, including ones with no
  * bearing on how the Overseer was built (§B6), and training stops at the ceiling rather than
  * throwing.
  */
@@ -124,7 +124,7 @@ export function developAttribute(attributes: Attributes, attribute: AttributeNam
   return { ...attributes, [attribute]: clampAttribute(attributes[attribute] + TRAINING_STEP) };
 }
 
-/** Whether `attribute` has anywhere left to go — a project that would gain nothing is refused. */
+/** Whether `attribute` has anywhere left to go: a project that would gain nothing is refused. */
 export function canDevelop(attributes: Attributes, attribute: AttributeName): boolean {
   return attributes[attribute] < MAX_ATTRIBUTE;
 }

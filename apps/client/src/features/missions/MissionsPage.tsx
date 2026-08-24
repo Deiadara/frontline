@@ -37,14 +37,14 @@ const KIND_LABEL: Record<MissionKind, string> = {
   battle: 'Battle',
 };
 
-/** Battles read hot, standard work reads cool — the §E5 risk difference at a glance. */
+/** Battles read hot, standard work reads cool: the §E5 risk difference at a glance. */
 const KIND_STYLE: Record<MissionKind, string> = {
   standard: 'border-brass-300/50 text-brass-300',
   battle: 'border-oxblood-500/50 text-oxblood-300',
 };
 
 /**
- * §A3/§D8 — which way the job points at the Combine, shown only when it points at all. A badge on
+ * §A3/§D8, which way the job points at the Combine, shown only when it points at all. A badge on
  * every card would be noise; a badge on the ones that move a reputation counter is the warning the
  * player needs before committing a crew.
  */
@@ -74,7 +74,7 @@ function Tag({ label, className }: { label: string; className?: string }) {
 }
 
 /**
- * §E4 — travel and mission time are shown as two separate figures, never rolled into one, with
+ * §E4: travel and mission time are shown as two separate figures, never rolled into one, with
  * the §E8 total spelled out underneath so the player can see where it came from.
  */
 function TimingBreakdown({ template }: { template: MissionTemplate }) {
@@ -97,7 +97,7 @@ function TimingBreakdown({ template }: { template: MissionTemplate }) {
 
 /**
  * Nothing here truncates. These cells are the narrowest text on the page and the copy is fixed,
- * so a clipped label would be a permanent defect rather than a fat-content edge case — the
+ * so a clipped label would be a permanent defect rather than a fat-content edge case: the
  * §E4 figures wrap instead.
  */
 function TimingCell({ label, value, hint }: { label: string; value: string; hint: string }) {
@@ -111,11 +111,11 @@ function TimingCell({ label, value, hint }: { label: string; value: string; hint
 }
 
 /**
- * The §G roster as this board knows it — who may lead a run here.
+ * The §G roster as this board knows it, who may lead a run here.
  *
  * Three states, not a list and a flag: an absent roster is not an empty one, and a roster the
  * server refused to hand over is neither. Collapsing any pair of them puts a false sentence in
- * front of the player — "Hire one at the Bar" is a lie to a fully staffed crew, and "Reading the
+ * front of the player: "Hire one at the Bar" is a lie to a fully staffed crew, and "Reading the
  * roster…" is a lie once the read has failed and (`retry: false`) will not be tried again.
  */
 type Roster =
@@ -123,7 +123,7 @@ type Roster =
   | { status: 'error' }
   | { status: 'ready'; officers: readonly AssigneeOfficer[] };
 
-/** The officers a card may offer — nobody, until the roster has actually arrived. */
+/** The officers a card may offer: nobody, until the roster has actually arrived. */
 function rosterOfficers(roster: Roster): readonly AssigneeOfficer[] {
   return roster.status === 'ready' ? roster.officers : [];
 }
@@ -133,13 +133,13 @@ interface MissionCardProps {
   roster: Roster;
   disabled: boolean;
   pending: boolean;
-  /** Why this card's last launch was refused, if it was — the server's own words. */
+  /** Why this card's last launch was refused, if it was: the server's own words. */
   refusal: string | null;
   onLaunch: (templateId: string, officerId?: string) => void;
 }
 
 /**
- * §G6 — who is leading this run.
+ * §G6, who is leading this run.
  *
  * The gate is server-side (`MISSION_NEEDS_OFFICER`), so the card has to be able to *satisfy* it:
  * a hard run with no officer named is refused outright, which without this control made every
@@ -159,7 +159,7 @@ function LeaderPicker({
 }) {
   const needsOfficer = requiresOfficer(template.difficulty);
   const officers = rosterOfficers(roster);
-  /** Easy work always has something to offer — §G6's delegation. Hard work needs a real name. */
+  /** Easy work always has something to offer: §G6's delegation. Hard work needs a real name. */
   const canPick = !needsOfficer || officers.length > 0;
   return (
     <label className="flex min-w-0 flex-col gap-1">
@@ -168,7 +168,7 @@ function LeaderPicker({
       </span>
       {/*
        * A failed read is said out loud on *every* card, not just the ones it disables. An easy card
-       * keeps its select — §G6 lets that work go out on a delegation — but the roster it should be
+       * keeps its select, §G6 lets that work go out on a delegation, but the roster it should be
        * offering is missing from it, and an unexplained "Nobody" is the same absent-read-rendered-
        * as-empty-roster lie MOU-248 found on the hard cards, only quieter: a stocked player is
        * silently denied the officer they are entitled to put on an easy run for the §G5/§G7 bonus.
@@ -183,8 +183,8 @@ function LeaderPicker({
       )}
       {/*
        * "You have nobody" is only true once the roster has actually answered. The officers arrive on
-       * their own query, one round trip behind the board — which renders immediately off a static
-       * template list — so treating "not loaded" as "empty" told every player with a full crew to go
+       * their own query, one round trip behind the board, which renders immediately off a static
+       * template list, so treating "not loaded" as "empty" told every player with a full crew to go
        * hire an officer, on all four hard cards, on every visit to this page. A read that failed is
        * not a read that is still arriving either: this query never retries and is never polled, so
        * "Reading the roster…" would sit there for the life of the page.
@@ -205,7 +205,7 @@ function LeaderPicker({
         /*
          * The name alone in the label, and the role as the hint underneath.
          *
-         * A native `<select>` clipped the long ones without so much as an ellipsis — this control
+         * A native `<select>` clipped the long ones without so much as an ellipsis: this control
          * is one column of a three-up card grid, and "The Ghost of Sector Nine" is not a short
          * name. The painted list draws itself at whatever width the names need, so the role can
          * come back as a second line: it earns nothing mechanically (§G5/§G7 pay for the assignees
@@ -217,7 +217,7 @@ function LeaderPicker({
           value={leader?.officerId ?? ''}
           onChange={onPick}
           options={[
-            // §G6's easy branch — an explicit choice, not the absence of one.
+            // §G6's easy branch: an explicit choice, not the absence of one.
             ...(needsOfficer
               ? []
               : [{ value: '', label: 'Nobody', hint: 'Assignees alone, and slower for it' }]),
@@ -234,13 +234,13 @@ function LeaderPicker({
   );
 }
 
-/** One entry on the board — the pre-commit screen for a single mission (§E4). */
+/** One entry on the board: the pre-commit screen for a single mission (§E4). */
 function MissionCard({ template, roster, disabled, pending, refusal, onLaunch }: MissionCardProps) {
   const [pickedId, setPickedId] = useState('');
   const officers = rosterOfficers(roster);
   /*
-   * A hard run cannot go out unled, so the first officer stands in until the player picks somebody
-   * — deriving the leader instead of seeding state keeps this correct across the load: the officer
+   * A hard run cannot go out unled, so the first officer stands in until the player picks somebody:
+   * deriving the leader instead of seeding state keeps this correct across the load: the officer
    * list arrives on its own query, and a `useState` default would have latched the empty roster.
    */
   const leader =
@@ -287,7 +287,7 @@ function MissionCard({ template, roster, disabled, pending, refusal, onLaunch }:
       {/*
        * The refusal sits in the card the player clicked, not at the foot of the board. The board is
        * eight cards in a scrolling grid, so a single message under the last one is off-screen for
-       * anybody who deployed from the top — rendered, reported by a DOM assertion, and invisible to
+       * anybody who deployed from the top: rendered, reported by a DOM assertion, and invisible to
        * the player, which is the same silent failure it exists to end.
        */}
       {refusal && (
@@ -388,11 +388,11 @@ function ReturnedRow({ mission }: { mission: Mission }) {
 const RETURNED_LIMIT = 6;
 
 /**
- * The crews that came home most recently — by *return* time, not launch time.
+ * The crews that came home most recently: by *return* time, not launch time.
  *
  * The server hands the board back in launch order, which is right for the in-flight list and
  * wrong for this one: a day-long expedition returns long after the short runs launched behind it,
- * so ordering by launch buries it under them and a bounded list drops it entirely — the player's
+ * so ordering by launch buries it under them and a bounded list drops it entirely: the player's
  * longest run is the one with no evidence it ever paid. Sorting is stable, so a batch that
  * settled on the same read keeps the server's launch order as its tiebreak.
  */
@@ -412,7 +412,7 @@ function EmptyRow({ text }: { text: string }) {
 }
 
 /**
- * The dedicated missions page (GDD §E3) — every crew that is away with its timer, the board they
+ * The dedicated missions page (GDD §E3): every crew that is away with its timer, the board they
  * were sent from (§E4), and what the last few brought back.
  */
 export function MissionsPage() {
@@ -430,7 +430,7 @@ export function MissionsPage() {
 
   /*
    * A crew can level the player up while this page is simply *open*, and the server announces that
-   * on the settling response only — the next poll says nothing. So it is latched here rather than
+   * on the settling response only: the next poll says nothing. So it is latched here rather than
    * read straight from `data`, or it would flash for one poll interval and vanish.
    *
    * Keyed on the value, which is safe precisely because `level` strictly increases: two separate
@@ -533,7 +533,7 @@ export function MissionsPage() {
                 launch.mutate(
                   { templateId, ...(officerId ? { officerId } : {}) },
                   // A launch settles the board first, so this response is the only place a crew
-                  // that landed on it is ever reported — including when the launch is then
+                  // that landed on it is ever reported: including when the launch is then
                   // refused, since the settle is not rolled back (MOU-280).
                   {
                     onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp),

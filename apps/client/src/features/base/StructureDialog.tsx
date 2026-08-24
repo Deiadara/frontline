@@ -11,6 +11,8 @@ import {
   canAfford,
   findBuilding,
   isUnlockedForQueue,
+  unmetForQueue,
+  describeBuildingRequirement,
   modificationCapacity,
   modificationsFor,
   nextModificationSlotLevel,
@@ -41,10 +43,10 @@ import { formatDuration } from './format';
 
 /**
  * One plot's dialog: what stands there, what the next level costs and takes, what it does, and the
- * one action that orders it (GDD §A1, §D3 — oil is what building and upgrading consume).
+ * one action that orders it (GDD §A1, §D3: oil is what building and upgrading consume).
  *
  * Every gate the server enforces is mirrored here so the button is dead *with a reason* rather than
- * alive until a 409 — and it is mirrored by calling the same shared functions the route calls, so
+ * alive until a 409, and it is mirrored by calling the same shared functions the route calls, so
  * the two cannot drift into disagreeing about why.
  */
 
@@ -69,7 +71,7 @@ export function StructureDialog({
   const spec = BUILDING_CATALOG[kind];
   const standing = findBuilding(buildings, kind);
 
-  const unlocked = isUnlockedForQueue(kind, buildings, buildQueue);
+  const unlocked = isUnlockedForQueue(kind, buildings, buildQueue, base.level);
   const nextLevel = unlocked ? nextQueuedLevel(kind, buildings, buildQueue) : null;
   const cost = nextLevel === null ? null : buildingCost(kind, nextLevel, buildings);
   const seconds = nextLevel === null ? null : buildingBuildSeconds(kind, nextLevel, buildings);
@@ -93,22 +95,22 @@ export function StructureDialog({
       className="border-brass-300/30"
     >
       {/* A plain block, not a <header>: `role=dialog` is not sectioning content, so a <header>
-          here still maps to the page's `banner` landmark — the same ambiguity the district page
+          here still maps to the page's `banner` landmark: the same ambiguity the district page
           dropped its own <header> to avoid, and it would make `locator('header')` match twice
           whenever a plot dialog is open. */}
       {/* `shrink-0` on both the header and the footer, so the only thing a short viewport
           squeezes is the scrollable body between them. Without it flexbox takes the space out of
-          whichever child will give — and a header that gives up four pixels clips its own text
+          whichever child will give, and a header that gives up four pixels clips its own text
           against the modal's `max-h`, which is a defect no assertion about the *body* can see. */}
       {/* The plate the town-view dialog is built around: the structure's own portrait, framed and
           riveted, with the level stamped on the frame. The painting on the district shows the
           building in its street at the size the street gives it; this is the one place a player
           sees the thing itself, which is what the delivered masters are for now that the plate
-          paints its own buildings. Shown whether or not it is standing — dimmed when it is not,
+          paints its own buildings. Shown whether or not it is standing: dimmed when it is not,
           because "here is what you would be building" is the question a vacant plot is asking. */}
       <div className="flex shrink-0 items-stretch gap-4 border-b border-surface-600/60 px-5 py-4">
         {/* The picture, at a size worth opening a window for. It used to be an 80px thumbnail in
-            the corner of a wall of type, which is a favicon rather than a portrait — and the point
+            the corner of a wall of type, which is a favicon rather than a portrait, and the point
             of this window is to show the player the building they just clicked. */}
         <span className="rivets relative block h-32 w-32 shrink-0 rounded-sm border border-brass-500/45 bg-surface-900/70 p-1.5">
           <StructureSprite kind={kind} built lit={standing !== undefined} />
@@ -144,13 +146,13 @@ export function StructureDialog({
       {/* Two columns, the way a town-view building window is laid out: what it is on the left,
           what an order costs on the right.
 
-          Not decoration — arithmetic. The window carries a portrait, prose, a bonus, a price, a
+          Not decoration: arithmetic. The window carries a portrait, prose, a bonus, a price, a
           clock, the grid and the modification slots, and stacking all of that in one column ran it
           past `max-h-[calc(100vh-2rem)]` at 720px and 800px tall, which put the modification list
           under the fold with nothing to say it was there. Two columns halve the run. Single column
           below `sm`, where there is no width to split. */}
       <div className="grid min-h-0 gap-x-5 gap-y-4 overflow-y-auto p-5 sm:grid-cols-2">
-        {/* §A1 — what the order costs, which is what the window is opened to find out. First, and
+        {/* §A1: what the order costs, which is what the window is opened to find out. First, and
             on its own, rather than the fourth label/value pair down a column. */}
         <Section
           title={
@@ -173,7 +175,7 @@ export function StructureDialog({
                   Takes <span className="tabular-nums text-ink-100">{formatDuration(seconds)}</span>
                 </p>
               )}
-              {/* §A1 — the handful of levels that ask for a part as well as a price. Kept apart
+              {/* §A1: the handful of levels that ask for a part as well as a price. Kept apart
                   from the cost line, because a part is a *gate*: no amount of waiting produces
                   one, and a player has to know to go and look for it. */}
               {nextLevel !== null && buildingNeedsParts(kind, nextLevel) && (
@@ -219,7 +221,7 @@ export function StructureDialog({
         </Section>
 
         {/* What the level actually buys and what it costs to run, from the same shared functions
-            the server settles with — the two numbers somebody choosing between two upgrades is
+            the server settles with: the two numbers somebody choosing between two upgrades is
             comparing, side by side rather than a column apart. */}
         <Section title="What it gives">
           <dl className="flex flex-col gap-2.5">
@@ -260,7 +262,7 @@ export function StructureDialog({
           )}
         </Section>
 
-        <Section title={`Modifications — ${slots.used} of ${slots.slots} slots`}>
+        <Section title={`Modifications: ${slots.used} of ${slots.slots} slots`}>
           <ul className="flex flex-col gap-1.5">
             {modificationsFor(kind).map((mod) => {
               const fitted = standing?.modifications.includes(mod.id) ?? false;
@@ -332,14 +334,18 @@ function cnRow(fitted: boolean): string {
 /**
  * Why there is no next level: locked behind the Nexus, held down by it, or the end of the content.
  *
- * Judged against the *projected* district, the same reading the server's gate uses — so a player
+ * Judged against the *projected* district, the same reading the server's gate uses, so a player
  * who has already queued the Nexus level that unlocks this plot is told they can build, not told to
  * go and do the thing they have just done.
  */
 function ceilingReason(kind: BuildingKind, base: Base): string {
   const projected = projectedBuildings(base.buildings, base.buildQueue);
-  if (!isUnlockedForQueue(kind, base.buildings, base.buildQueue)) {
-    return `NEEDS THE NEXUS AT LEVEL ${BUILDING_CATALOG[kind].requiresNexusLevel}`;
+  // Every unmet clause (§A1, §I3), not the Nexus rung alone: a structure can be waiting on another
+  // building and on the crew's own level at the same time, and naming one of the three sends a
+  // player off to do a thing that will not unlock it.
+  const unmet = unmetForQueue(kind, base.buildings, base.buildQueue, base.level);
+  if (unmet.length > 0) {
+    return `NEEDS ${unmet.map(describeBuildingRequirement).join(' · ').toUpperCase()}`;
   }
   if (kind === CENTRAL_BUILDING) return `MAXED AT LEVEL ${BUILDING_MAX_LEVEL}`;
   if (structureLevelCap(kind, projected) === BUILDING_MAX_LEVEL) {
@@ -352,7 +358,7 @@ function ceilingReason(kind: BuildingKind, base: Base): string {
  * One panel of the window, with its own heading.
  *
  * The body used to be a run of label-over-value rows separated by hairlines, which reads as one
- * long list of facts however it is arranged in columns — the player has to read every label to
+ * long list of facts however it is arranged in columns: the player has to read every label to
  * find the one they came for. A section is a *place*: the price is in the box called "Build this",
  * the slots are in the box called "Modifications", and a glance lands in the right box before any
  * word has been read.

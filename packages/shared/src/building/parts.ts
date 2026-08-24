@@ -4,7 +4,7 @@ import type { BuildingKind } from './kinds.js';
 /**
  * The levels a structure cannot be raised past on scrap alone (§A1, items extension).
  *
- * Resources are the *pace* of a district — you always get more of them eventually, so a cost in
+ * Resources are the *pace* of a district: you always get more of them eventually, so a cost in
  * scrap is a cost in time. Parts are a *gate*: a Cistern at level ten needs a Coolant Cell, and no
  * amount of patience produces one. That is what makes the market a place a builder has to go rather
  * than a screen a trader visits.
@@ -55,7 +55,7 @@ export function buildingParts(kind: BuildingKind, level: number): ItemCost {
   return BUILDING_PART_GATES[kind]?.[level] ?? {};
 }
 
-/** Whether this level asks for anything at all — the cheap check the UI does per plot. */
+/** Whether this level asks for anything at all: the cheap check the UI does per plot. */
 export function buildingNeedsParts(kind: BuildingKind, level: number): boolean {
   return Object.keys(buildingParts(kind, level)).length > 0;
 }

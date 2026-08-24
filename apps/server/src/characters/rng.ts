@@ -4,7 +4,7 @@
  */
 export type Rng = () => number;
 
-/** mulberry32 — fast, and good enough for content rolls. */
+/** mulberry32: fast, and good enough for content rolls. */
 export function createRng(seed: number): Rng {
   let state = seed >>> 0;
   return () => {
@@ -39,7 +39,7 @@ export function sample<T>(rng: Rng, items: readonly T[], count: number): T[] {
 }
 
 /**
- * Pick `count` distinct members with probability proportional to weight — Efraimidis-Spirakis:
+ * Pick `count` distinct members with probability proportional to weight: Efraimidis-Spirakis:
  * key each item as `u ** (1 / weight)` and keep the largest keys, which is exactly weighted
  * sampling without replacement in one pass. A non-positive `count` picks none.
  */

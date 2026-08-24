@@ -10,3 +10,4 @@ export * from './standing.js';
 export * from './queue.js';
 export * from './vehicles.js';
 export * from './parts.js';
+export * from './population.js';

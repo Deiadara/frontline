@@ -8,10 +8,10 @@ import {
 } from '@frontline/shared';
 
 /*
- * MVP ONLY — replace before any public deployment.
+ * MVP ONLY: replace before any public deployment.
  *
  * The whole seeded world: one hardcoded operator account whose password is committed to
- * this repository, and one AI rival base. Nothing here is authored content — it exists so
+ * this repository, and one AI rival base. Nothing here is authored content: it exists so
  * the game is playable end to end from a cold database. Before this ships anywhere public
  * the account must go and the rival must come from real content/AI systems.
  */
@@ -21,7 +21,7 @@ export const MVP_PLAYER = MVP_DEV_CREDENTIALS;
 
 /** Everything needed to mint the single AI rival base. */
 interface BotBlueprint {
-  /** Login is impossible for this account (see seedMvpWorld) — the name is display-only. */
+  /** Login is impossible for this account (see seedMvpWorld): the name is display-only. */
   username: string;
   baseName: string;
   /** Resolved through `findOverseerPreset`; the rival fields a real overseer. */
@@ -29,7 +29,7 @@ interface BotBlueprint {
   level: number;
   /*
    * The rival's stat sheet. These three fields are staged input for the real battle
-   * engine — none of them is read by the placeholder engine, which pays out the target
+   * engine: none of them is read by the placeholder engine, which pays out the target
    * district's `rewards` and never touches the defender. Raiding the rival therefore does
    * not (yet) move a single credit out of this stockpile.
    */
@@ -37,7 +37,7 @@ interface BotBlueprint {
   /** Defensive structures plus the economy that pays for them. */
   buildings: Building[];
   commanders: Commander[];
-  /** §A5 — what the rival can put on the ground. Enough to be a real defence, not a wall. */
+  /** §A5: what the rival can put on the ground. Enough to be a real defence, not a wall. */
   army: Army;
 }
 
@@ -50,7 +50,7 @@ export const MVP_BOT: BotBlueprint = {
   /**
    * A district built the way a rival would build one: the Nexus high enough to authorise a Gate,
    * and then the Gate raised to the cap. `districtDefense` reads that Gate when the player raids
-   * here, so the rival is measurably harder to take than bare ground — which is the point of
+   * here, so the rival is measurably harder to take than bare ground, which is the point of
    * seeding a rival with structures at all.
    */
   buildings: [

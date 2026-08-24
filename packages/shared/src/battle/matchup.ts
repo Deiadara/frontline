@@ -2,7 +2,7 @@ import { UNIT_MODIFIERS, type UnitModifierId } from '../units/index.js';
 import type { Effective } from './effects.js';
 
 /**
- * What happens when one stack shoots at another — the interaction layer.
+ * What happens when one stack shoots at another: the interaction layer.
  *
  * Everything that makes this game's fights more than a subtraction lives here, and it is built out
  * of four independent multipliers rather than a hand-written counter table. A table of "X beats Y"
@@ -12,21 +12,21 @@ import type { Effective } from './effects.js';
  * The four:
  *
  * 1. **Damage type against resistance** (Wesnoth). A resistance is a percentage off, and a
- *    *negative* resistance is a vulnerability — which is how a unit ends up nearly immune to one
+ *    *negative* resistance is a vulnerability, which is how a unit ends up nearly immune to one
  *    thing and made of paper against another.
  * 2. **Armour** (0 A.D.). Exponential, not subtractive: each point multiplies incoming damage by
  *    {@link ARMOR_FALLOFF}, so armour never reaches zero damage and the tenth point is worth less
  *    than the first. Subtractive armour is what makes a heavy unit unkillable by anything cheap.
- * 3. **Engagement** — reach and closing. This is the range/speed half of the design, and the two
+ * 3. **Engagement**: reach and closing. This is the range/speed half of the design, and the two
  *    terms are deliberately asymmetric; see {@link engagementEdge}.
- * 4. **Situational modifiers that depend on the target** — `vs_armor` and `vs_low_morale`. The
+ * 4. **Situational modifiers that depend on the target**: `vs_armor` and `vs_low_morale`. The
  *    other contexts are properties of the ground and were resolved once in `effects.ts`.
  */
 
 /**
  * Each point of armour multiplies incoming damage by this.
  *
- * 0 A.D.'s idea, but **not** 0 A.D.'s number. Its armour values run 0–10 and ours run 0–100, and
+ * 0 A.D.'s idea, but **not** 0 A.D.'s number. Its armour values run 0-10 and ours run 0-100, and
  * carrying its per-point falloff across meant the Colossus took 1.6% of incoming damage and the
  * heavy tier could not be hurt by anything at all. Calibrated for this scale instead: armour 5
  * takes 94%, armour 45 takes 55%, and the heaviest sheet in the game at 95 still takes 28%.
@@ -39,7 +39,7 @@ export const MAX_RESISTANCE = 85;
 /** ...and a vulnerability may not double damage outright. */
 export const MIN_RESISTANCE = -60;
 
-/** How much a full reach advantage is worth — the volley you land before they arrive. */
+/** How much a full reach advantage is worth: the volley you land before they arrive. */
 export const REACH_WEIGHT = 0.45;
 
 /** ...and a full closing advantage, against something that wanted to stay at range. */
@@ -69,7 +69,7 @@ export function damageTypeMultiplier(attacker: Effective, defender: Effective): 
   return 1 - clamp(raw, MIN_RESISTANCE, MAX_RESISTANCE) / 100;
 }
 
-/** Exponential armour — see the module note on why this is not a subtraction. */
+/** Exponential armour: see the module note on why this is not a subtraction. */
 export function armorMultiplier(armor: number): number {
   return ARMOR_FALLOFF ** Math.max(0, armor);
 }
@@ -83,7 +83,7 @@ export function armorMultiplier(armor: number): number {
  *
  * **Closing** is `speed − their speed`, weighted by *how much they were relying on range*. A fast
  * unit gets nothing extra for catching another fast unit, and nothing for catching a wall of
- * shields — but catching something that wanted to be far away and was built for it is the whole
+ * shields, but catching something that wanted to be far away and was built for it is the whole
  * play. That is "fast units kill snipers easier", and it is why closing reads the target's `range`
  * rather than its own: a Sniper is fragile *because it is a Sniper*, and the sheet already says so.
  *
@@ -152,7 +152,7 @@ export interface Exchange {
  *
  * Dodging is the one term that reads both sheets: evasion is what you do when you see it coming,
  * so an attacker who closed the distance faster than the defender could react gets part of it
- * back. Never all of it — a floor of {@link MIN_DODGE_KEPT} means speed cannot delete evasion.
+ * back. Never all of it: a floor of {@link MIN_DODGE_KEPT} means speed cannot delete evasion.
  */
 export const MIN_DODGE_KEPT = 0.35;
 
@@ -171,7 +171,7 @@ export function exchange(
   const surprise = clamp(attacker.speed - defender.speed, 0, 100) / 100;
   const dodge = 1 - (defender.evasion / 100) * Math.max(MIN_DODGE_KEPT, 1 - surprise);
 
-  // Luck is added to lethality in points, not multiplied into it — a Razor at 8% gains half again
+  // Luck is added to lethality in points, not multiplied into it: a Razor at 8% gains half again
   // from a good day and a Specter at 80% barely notices, which is the right way round.
   const lethality = clamp(attacker.lethality + luck, 0, 100);
   const crit = 1 + (lethality / 100) * CRIT_BONUS;
@@ -184,12 +184,12 @@ export function exchange(
 }
 
 /**
- * How attractive a target is to this attacker — what drives who shoots at whom.
+ * How attractive a target is to this attacker: what drives who shoots at whom.
  *
  * This is the whole counter system, and it is one number. Rather than an authored "X counters Y"
  * table, every stack picks its target by *expected damage per body of enemy health*, so an
  * armour-piercing unit walks toward the heavies, a fast unit runs down the shooters and a Terror
- * unit finishes whatever is already breaking — all without any of those three being written down
+ * unit finishes whatever is already breaking: all without any of those three being written down
  * anywhere as a rule. A new unit with a new sheet slots into the same arithmetic.
  *
  * Divided by vitality so that "efficient to kill" beats "big": focusing a Colossus with rifles

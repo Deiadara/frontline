@@ -21,7 +21,7 @@ import { settleBaseEconomy } from './settle.js';
 const dbs: AppDatabase[] = [];
 afterEach(() => dbs.splice(0).forEach((db) => db.close()));
 
-/** 2026-08-10 and 2026-08-17 are Mondays — the pay-week boundaries either side of the base. */
+/** 2026-08-10 and 2026-08-17 are Mondays: the pay-week boundaries either side of the base. */
 const FOUNDED = '2026-08-13T09:30:00.000Z';
 const NEXT_MONDAY = new Date('2026-08-17T00:00:00.000Z');
 
@@ -70,7 +70,7 @@ function seedBase(repos: Repositories, officerCount: number, weeklyWage: number)
     fittedUpgrades: [],
     fleet: {},
     // §F2 discounts the wage book off Authority and Negotiation, and these tests are about the
-    // payroll arithmetic rather than about the discount — so the crew here has neither. The
+    // payroll arithmetic rather than about the discount, so the crew here has neither. The
     // discount has its own test below, where it is the only thing moving.
     commanders: officers.map((id) =>
       createCommander(id, id, 'head_spy', { authority: 0, negotiation: 0 }),
@@ -85,7 +85,7 @@ function seedBase(repos: Repositories, officerCount: number, weeklyWage: number)
  * INTERFACES.md R6: `0003_attribute_model.sql` sorts before `0003_economy.sql` and clears `bases`,
  * so the economy migration's backfill never runs in a combined migration. The fresh-insert path is
  * therefore the only thing that can produce a valid `economy_json`, and the column's `DEFAULT '{}'`
- * would not satisfy `EconomyStateSchema` — so a base that skipped the write would fail to read back.
+ * would not satisfy `EconomyStateSchema`, so a base that skipped the write would fail to read back.
  */
 describe('the migrated schema (INTERFACES.md R6)', () => {
   it('round-trips a schema-valid economy through a freshly inserted base', () => {
@@ -187,7 +187,7 @@ describe('settleBaseEconomy', () => {
   });
 
   /**
-   * §D4 — the consequence that makes payroll more than bookkeeping. Asserted through the *persisted*
+   * §D4: the consequence that makes payroll more than bookkeeping. Asserted through the *persisted*
    * base, because a penalty computed and then dropped on the way to the database is exactly the
    * shape of the bug this replaced.
    */
@@ -213,7 +213,7 @@ describe('settleBaseEconomy', () => {
   });
 
   /**
-   * §D8a — the street's record of whether the wage book was met. Read back off the *persisted*
+   * §D8a: the street's record of whether the wage book was met. Read back off the *persisted*
    * base for the same reason the morale assertions are: a tally computed and then dropped on the
    * way to the database looks identical from inside the settle.
    */

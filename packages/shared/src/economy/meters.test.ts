@@ -38,7 +38,7 @@ describe('infamyForRaidWon (§D7, §A3)', () => {
     );
   });
 
-  /** The ordering is the whole point — stated directly so a retune cannot quietly invert it. */
+  /** The ordering is the whole point: stated directly so a retune cannot quietly invert it. */
   it('ranks a seat above an outpost above the street', () => {
     expect(infamyForRaidWon(seat)).toBeGreaterThan(infamyForRaidWon(outpost));
     expect(infamyForRaidWon(outpost)).toBeGreaterThan(infamyForRaidWon(street));
@@ -68,7 +68,7 @@ describe('MISSION_INFAMY_DELTA (§D7, §A3)', () => {
     expect(MISSION_INFAMY_DELTA.unaligned).toEqual({ success: 0, failure: 0 });
   });
 
-  it('never lowers infamy — there is no mechanic that takes a name back', () => {
+  it('never lowers infamy. There is no mechanic that takes a name back', () => {
     for (const stance of MISSION_STANCES) {
       for (const outcome of ['success', 'failure'] as const) {
         expect(MISSION_INFAMY_DELTA[stance][outcome]).toBeGreaterThanOrEqual(0);

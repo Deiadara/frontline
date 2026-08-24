@@ -38,13 +38,19 @@ import type { Repositories } from '../db/repos/index.js';
  * Reading the city (GDD §A4).
  *
  * The fog is enforced **here**, on the way out, and nowhere else. A district this crew has not
- * scouted returns no locations at all — not a redacted list, not zeroes. That is the only version
+ * scouted returns no locations at all, not a redacted list, not zeroes. That is the only version
  * that cannot leak: a client cannot render what was never sent, and there is one function to check
  * rather than one per field.
  */
 
 /** Everything the city read needs, gathered once rather than per district. */
 export interface CityContext {
+  /**
+   * §F2/§A4: how much a scout report tells this crew beyond the bare count, people and ground
+   * folded together. Exposed so the battle board reads the same figure the city view does instead
+   * of re-deriving it from a different fold, which is how the two came to disagree.
+   */
+  intelYieldPercent: number;
   base: Base;
   controls: Map<string, LocationControl>;
   visible: Set<string>;
@@ -52,7 +58,7 @@ export interface CityContext {
   /** A crew's name by base id, for "who holds this". */
   nameOf: (baseId: string) => string;
   /**
-   * §F2 — how much of somebody else's garrison count this crew fails to bring back, in percent.
+   * §F2: how much of somebody else's garrison count this crew fails to bring back, in percent.
    *
    * The holder's counter-intelligence minus this crew's own reading. Zero for a location we hold, and
    * for the unaligned holders, who keep no secrets worth the name.
@@ -64,7 +70,18 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
   const controls = repos.city.controls();
   const effects = standingEffectsFor(repos, base);
   const names = new Map(repos.bases.listSummaries().map((summary) => [summary.id, summary.name]));
-  const reading = crewEffectsFor(repos, base).intelYieldPercent;
+  /*
+   * What a scout brings home: **the people and the ground together**.
+   *
+   * `crewEffectsFor` is the crew-only fold, and reading it here was a silent hole. `intelYield`
+   * became a `TerritoryEffects` channel when the Watchtower arrived: precisely so a location and
+   * a Head Spy would push the same lever, and this line kept asking the fold that has no
+   * locations in it. The Watchtower's whole advertised reward ("everything your scouts do, they
+   * do better") moved nothing at all, and neither did the Planetarium's or the Pirate Radio's.
+   *
+   * `effects` on the line above is already the combined fold, so this costs nothing.
+   */
+  const reading = effects.intelYieldPercent;
   // One lookup per rival, cached for the whole projection: a district page draws a dozen locations
   // and most of them belong to the same two or three crews.
   const resistance = new Map<string, number>();
@@ -73,6 +90,7 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
     base,
     controls,
     effects,
+    intelYieldPercent: reading,
     visible: visibleDistricts(repos, base, controls, effects),
     nameOf: (baseId) => names.get(baseId) ?? 'a crew nobody knows',
     blurAgainst: (baseId) => {
@@ -92,8 +110,8 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
  * Which districts this crew can see inside.
  *
  * Three ways in, and they compose: your own district is always visible, anywhere you have sent
- * people stays visible, and a Satellite Uplink shows you the nearest few without walking into them
- * — which is the whole reason that location is worth taking.
+ * people stays visible, and a Satellite Uplink shows you the nearest few without walking into them,
+ * which is the whole reason that location is worth taking.
  */
 export function visibleDistricts(
   repos: Repositories,
@@ -164,7 +182,7 @@ export function projectCity(repos: Repositories, base: Base, now: Date): CityRes
   };
 }
 
-/** One location as its holder's opponent sees it — or, for a location you hold, in full. */
+/** One location as its holder's opponent sees it, or, for a location you hold, in full. */
 export function projectLocation(
   location: (typeof CITY_LOCATIONS)[number],
   control: LocationControl,
@@ -199,7 +217,7 @@ export function projectLocation(
     fortification: control.fortification,
     fortifyingUntil: control.fortifyingUntil,
     defense: locationDefense(location, control),
-    // §F2 — what a scout can actually count. Exact on our own ground; on somebody else's, only as
+    // §F2: what a scout can actually count. Exact on our own ground; on somebody else's, only as
     // sharp as their cryptography lets it be.
     garrisonSize: mine
       ? garrisonSize(control)
@@ -215,7 +233,7 @@ export function projectLocation(
      * What the ground is like *right now* (§A4).
      *
      * The location's authored labels folded with the day's sky and the hour, which is exactly what
-     * `battlefieldFor` will compute when the fight actually happens — the same two calls in the
+     * `battlefieldFor` will compute when the fight actually happens: the same two calls in the
      * same order. A screen that promised `Crammed IV, Wet II` and a fight that produced something
      * else would be worse than showing nothing.
      */

@@ -22,7 +22,7 @@ describe('StructureSprite', () => {
   /**
    * The picture is the building **cut out of the district painting**, addressed by structure.
    *
-   * It used to be `building-<kind>.webp` — a separate illustration, drawn for the previous plate,
+   * It used to be `building-<kind>.webp`: a separate illustration, drawn for the previous plate,
    * of a different building with the same name. Beside the map that reads as simply wrong, which is
    * how it was reported. The portrait is now those pixels, masked by the outline the map hit-tests.
    */

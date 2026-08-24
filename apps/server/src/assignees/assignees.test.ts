@@ -102,7 +102,7 @@ describe('GET /api/assignees (§G)', () => {
     expect(body.capPerOfficer).toBe(2);
     expect(body.placed).toBe(0);
     expect(body.unplaced).toBe(5);
-    // The best reachable bonus is the cap's row, not 50% — the cap bites long before the table ends.
+    // The best reachable bonus is the cap's row, not 50%: the cap bites long before the table ends.
     expect(body.maxBonusPercent).toBe(10);
     expect(body.officers).toHaveLength(1);
     expect(body.officers[0]).toMatchObject({ assignees: 0, bonusPercent: 0, nextBonusPercent: 5 });
@@ -119,8 +119,8 @@ describe('GET /api/assignees (§G)', () => {
 
   /**
    * §H5 lets a badly-aligned officer walk out, and that path knows nothing about §G. Without the
-   * sweep in `settleAssignees` their placement would sit in the map forever — counted against the
-   * pool, reachable by nobody — and the player would lose a grant every time somebody quit.
+   * sweep in `settleAssignees` their placement would sit in the map forever: counted against the
+   * pool, reachable by nobody, and the player would lose a grant every time somebody quit.
    */
   it('returns a departed officer’s assignees to the pool', async () => {
     const stack = await makeStack();
@@ -178,7 +178,7 @@ describe('POST /api/assignees/place (§G2)', () => {
     expect(overCap.statusCode).toBe(409);
     expect(overCap.json<{ error: { code: string } }>().error.code).toBe('ASSIGNEES_AT_CAP');
 
-    // Pool exhaustion is a different refusal from the cap. Level 10: pool 13, cap 5 — park all
+    // Pool exhaustion is a different refusal from the cap. Level 10: pool 13, cap 5: park all
     // thirteen across three officers, then ask a fourth for one more. That request is well inside
     // the cap and still has nobody to draw on.
     const drained = await makeStack('drained');
@@ -225,7 +225,7 @@ describe('POST /api/assignees/reskill (§G4/§C4)', () => {
     expect(res.json<{ error: { code: string } }>().error.code).toBe('NO_PROFESSOR');
   });
 
-  it('reassigns everyone at once — the only way an assignee comes back off an officer', async () => {
+  it('reassigns everyone at once: the only way an assignee comes back off an officer', async () => {
     const stack = await makeStack();
     const [commander, professor] = staff(stack, ['field_commander', 'professor'], 10);
     stack.repos.bases.updateAssignees(stack.base.id, { placements: { [commander!.id]: 4 } });
@@ -249,7 +249,7 @@ describe('POST /api/assignees/reskill (§G4/§C4)', () => {
     const [commander, professor] = staff(stack, ['field_commander', 'professor'], 4);
     stack.repos.bases.updateAssignees(stack.base.id, { placements: { [commander!.id]: 2 } });
 
-    // Level 4: cap 2, pool 5 — but 2 + 2 is legal, so reach for the cap instead.
+    // Level 4: cap 2, pool 5, but 2 + 2 is legal, so reach for the cap instead.
     const res = await stack.app.inject({
       method: 'POST',
       url: '/api/assignees/reskill',
@@ -272,7 +272,7 @@ describe('§G6 at the launch gate', () => {
   it('has both difficulties on the board, and they are not just kind renamed', () => {
     expect(hard.length).toBeGreaterThan(0);
     expect(easy.length).toBeGreaterThan(0);
-    // `deep-expedition` is a *standard* mission that is nonetheless hard — a full day beyond the
+    // `deep-expedition` is a *standard* mission that is nonetheless hard: a full day beyond the
     // wire. If difficulty were derived from `kind` this would be impossible to express.
     const expedition = findMissionTemplate('deep-expedition') as MissionTemplate;
     expect(expedition.kind).toBe('standard');
@@ -295,7 +295,7 @@ describe('§G6 at the launch gate', () => {
     }
   });
 
-  it('lets an easy mission go out on assignees alone — slower and with worse odds', async () => {
+  it('lets an easy mission go out on assignees alone: slower and with worse odds', async () => {
     const stack = await makeStack();
     staff(stack, ['field_commander'], 10);
     const siphon = findMissionTemplate('fuel-siphon') as MissionTemplate;
@@ -310,7 +310,7 @@ describe('§G6 at the launch gate', () => {
     expect(alone.statusCode).toBe(200);
     const unled = alone.json<{ mission: Mission }>().mission;
 
-    // Level 10: pool 13, cap 5 — so the delegation is 5 strong, worth 23.5% (§G7).
+    // Level 10: pool 13, cap 5, so the delegation is 5 strong, worth 23.5% (§G7).
     const delegation = 5;
     expect(assigneeBonusPercent(delegation)).toBe(23.5);
     // 45 × (1 − 0.235) × 1.5 = 51.6 → 52. Slower than the authored 45 despite the bonus.

@@ -1,12 +1,12 @@
 import type { PartialResources } from '@frontline/shared';
 
 /**
- * Admin / testing mode — the whole game, immediately, without pretending the prices are different.
+ * Admin / testing mode: the whole game, immediately, without pretending the prices are different.
  *
  * The `UNLOCKED` sandbox raised one seeded account to the end state on boot. That answers "what does
  * level 20 look like" and nothing else: a reviewer still could not watch a build go up, because a
  * build takes hours, and could not try the same build twice, because the second one costs materials
- * the first one spent. This is the other half — a mode where **every clock is five seconds and
+ * the first one spent. This is the other half: a mode where **every clock is five seconds and
  * nothing is charged**, so a design pass can walk the whole game in an afternoon.
  *
  * Two rules make it a testing mode rather than a cheat:
@@ -43,7 +43,7 @@ export function adminSeconds(realSeconds: number, admin: boolean): number {
  * The same, for the systems that hold their clocks in minutes.
  *
  * Rounded up to a whole minute rather than to zero: research is settled off a `durationMinutes`
- * integer, and a project of length zero would complete inside the same request that started it —
+ * integer, and a project of length zero would complete inside the same request that started it,
  * which skips the running state a reviewer is often there to look at. One minute is the floor the
  * research module already imposes on itself.
  */
@@ -55,7 +55,7 @@ export function adminMinutes(realMinutes: number, admin: boolean): number {
  * What is actually taken out of the stockpile.
  *
  * Empty in admin mode, which every `spendResources` call treats as a no-op. The *quoted* cost is
- * untouched — this is applied at the moment of payment and nowhere earlier, so affordability checks,
+ * untouched. This is applied at the moment of payment and nowhere earlier, so affordability checks,
  * the numbers on the button and the numbers in the tooltip all still come from the real price.
  */
 export function adminCost(cost: PartialResources, admin: boolean): PartialResources {
@@ -73,7 +73,7 @@ export function adminCaps(caps: number, admin: boolean): number {
 }
 
 /**
- * The refusals admin mode waives (board — "I can do anything I want in admin mode").
+ * The refusals admin mode waives (board. "I can do anything I want in admin mode").
  *
  * This is the second half of the mode, and it reverses an earlier decision on purpose. The rule
  * used to be "only the price and the clock are overridden; refusals still refuse", which is a
@@ -83,12 +83,12 @@ export function adminCaps(caps: number, admin: boolean): number {
  *
  * What is waived is every gate that is a **rule about progress**: a structure the Nexus has not
  * authorised, a unit that is not unlocked, a queue that is full, a daily allowance that is spent, a
- * roster with no beds. What is *not* waived is anything that is a statement about **reality** — a
+ * roster with no beds. What is *not* waived is anything that is a statement about **reality**: a
  * unit that does not exist, a level above the last one, a project already running, an officer
  * already hired, a role already filled. Waiving those does not open a door, it produces a district
  * that cannot be parsed on the next read, and a reviewer looking at a broken save learns nothing.
  *
- * Membership is stated once, here, rather than as an `if (admin)` beside each gate — so what admin
+ * Membership is stated once, here, rather than as an `if (admin)` beside each gate, so what admin
  * mode does is one list somebody can read, and a new refusal is closed by default.
  */
 const WAIVED: ReadonlySet<string> = new Set([

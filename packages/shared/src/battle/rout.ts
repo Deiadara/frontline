@@ -5,7 +5,7 @@ import type { SideState, Stack } from './engine.js';
 /**
  * Who gets away (GDD §A4).
  *
- * The board's rule was a coin flip per body, and the coin flip is still the *base* — what changed
+ * The board's rule was a coin flip per body, and the coin flip is still the *base*: what changed
  * is that the sheet now tilts it. A Road Reaver on a bike and a Colossus that walks do not have
  * the same odds of leaving a lost fight, and a system where they do makes speed a stat that only
  * matters on the way in.
@@ -17,7 +17,7 @@ import type { SideState, Stack } from './engine.js';
  * - **Breaking early.** A stack that routed in round two walked away from a fight that was still
  *   happening; one that held to the end was still standing there when it ended.
  * - **Whose ground it is.** Withdrawing across a district you do not hold costs more.
- * - **The day's luck.** The one thing on this list nobody chose — see `luck.ts`.
+ * - **The day's luck.** The one thing on this list nobody chose: see `luck.ts`.
  *
  * Clamped at both ends, so no unit is ever certain to escape and none is ever doomed. A certainty
  * either way would collapse the decision it exists to create.
@@ -44,7 +44,7 @@ export const AWAY_PENALTY = 0.08;
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(high, Math.max(low, value));
 
-/** The fastest thing the other side has on the field — what a withdrawal has to outrun. */
+/** The fastest thing the other side has on the field: what a withdrawal has to outrun. */
 export function pursuitSpeed(enemy: SideState): number {
   return enemy.stacks.reduce(
     (fastest, stack) => (stack.alive > 0 ? Math.max(fastest, stack.effective.speed) : fastest),

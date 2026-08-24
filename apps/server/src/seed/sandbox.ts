@@ -10,7 +10,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 
 /**
- * `UNLOCKED=true` — the whole game, standing, on the seeded dev account.
+ * `UNLOCKED=true`: the whole game, standing, on the seeded dev account.
  *
  * A design pass cannot judge what it cannot see, and almost everything interesting here is behind
  * twenty levels of Nexus: the late structures, the units they authorise, a stockpile with enough
@@ -18,12 +18,12 @@ import type { Repositories } from '../db/repos/index.js';
  * first hour and calls that the game.
  *
  * So this is a **sandbox switch**, not a cheat. Off unless the environment says otherwise, it only
- * ever touches the seeded dev account, and it is applied on every boot rather than only at creation
- * — a flag you have to delete the database to try is a flag nobody tries.
+ * ever touches the seeded dev account, and it is applied on every boot rather than only at creation:
+ * a flag you have to delete the database to try is a flag nobody tries.
  *
  * It deliberately fabricates nothing the rules could not produce: every value below is one the game
  * would eventually reach, so what a reviewer looks at is the real end-game rather than a mock of it.
- * Research is pointedly left alone for that reason — facts are *discovered*, and writing them in
+ * Research is pointedly left alone for that reason: facts are *discovered*, and writing them in
  * would be inventing a state the mechanic does not have.
  */
 
@@ -48,7 +48,7 @@ export function maxedBuildings(): Building[] {
  * How full the stockpile is left, as a share of what a level-20 Apothecary holds.
  *
  * Just under the ceiling on purpose. The first version of this handed out a flat 900,000 of
- * everything, which is roughly twenty times what the rules allow a district to store — so every
+ * everything, which is roughly twenty times what the rules allow a district to store, so every
  * capacity bar in the HUD pinned to full and went red, and the end-game a reviewer was shown was
  * one permanently screaming that it was overflowing. Near-full is the interesting state and a real
  * one: the bars read as nearly-there, the warning copy is one raid away, and nothing on screen is a
@@ -76,7 +76,7 @@ export interface SandboxSummary {
  * Raises the seeded dev account to the end-game state, in place.
  *
  * Idempotent: it writes the same values every boot, so restarting with the flag on is a no-op after
- * the first time — and turning the flag *off* leaves the account where the switch left it rather
+ * the first time, and turning the flag *off* leaves the account where the switch left it rather
  * than rolling progress back, because an unlock that un-unlocks is a data-loss bug wearing a
  * feature's clothes.
  */

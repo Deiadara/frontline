@@ -7,7 +7,7 @@ import { PLAYER_LEVEL_MIN } from './curve.js';
  * §I3 shipped as an empty extension point for a long time, on the rule that the catalogue was the
  * board's to file rather than an agent's to invent. The board filed it: four screens behind a
  * gentle early gate, and a run of milestones at the round numbers that give a high level something
- * to be *for*. This is that catalogue, and it is still the only place an unlock is declared — a
+ * to be *for*. This is that catalogue, and it is still the only place an unlock is declared: a
  * system that wants to know whether something is open asks {@link isPlayerUnlockActive} rather than
  * comparing a level to a number of its own.
  *
@@ -17,7 +17,7 @@ import { PLAYER_LEVEL_MIN } from './curve.js';
  *   the start, and what a level buys is the right to walk through. A door that vanished until it
  *   opened would hide the shape of the game from the player who most needs to see it.
  * - **Milestones** are the round-number rewards. Every one of them bends a rule some other module
- *   already enforces — a daily limit, a broker's cut — rather than adding a system of its own, so a
+ *   already enforces, a daily limit, a broker's cut, rather than adding a system of its own, so a
  *   milestone is a constant moving, not a feature to keep alive.
  */
 
@@ -83,20 +83,20 @@ const AREA_COPY: Readonly<Record<GatedArea, { name: string; description: string 
  * kind of reward that is worth reaching a big level for: a player at 40 does not need another
  * screen, they need the thing they have been doing every day to stop being rationed.
  *
- * The ladder is `MILESTONE_STEP` apart on purpose — 40, 50, 60, 70 — so the pattern is legible from
+ * The ladder is `MILESTONE_STEP` apart on purpose, 40, 50, 60, 70, so the pattern is legible from
  * the first one and a new rung is a row here plus the constant it bends. Anything added below 40
  * belongs on the doors above instead; the early game is already dense.
  */
 export const MILESTONE_STEP = 10;
 export const FIRST_MILESTONE_LEVEL = 40;
 
-/** Level 40 — two signings a day at the Bar instead of one. */
+/** Level 40: two signings a day at the Bar instead of one. */
 export const MILESTONE_SECOND_SIGNATURE = 'second_signature';
-/** Level 50 — two takes a day off the Black Market shelf instead of one. */
+/** Level 50: two takes a day off the Black Market shelf instead of one. */
 export const MILESTONE_STANDING_INVITATION = 'standing_invitation';
-/** Level 60 — the Broker stops taking half. */
+/** Level 60: the Broker stops taking half. */
 export const MILESTONE_BROKERS_RESPECT = 'brokers_respect';
-/** Level 70 — the day's supply run is no longer bounded by what the district can hold. */
+/** Level 70: the day's supply run is no longer bounded by what the district can hold. */
 export const MILESTONE_DEEP_POCKETS = 'deep_pockets';
 
 const MILESTONES: readonly PlayerLevelUnlock[] = [
@@ -167,7 +167,7 @@ export function areaUnlockLevel(area: GatedArea): number {
 }
 
 /**
- * What levelling from `fromLevel` to `toLevel` just opened up — the announcement a level-up shows.
+ * What levelling from `fromLevel` to `toLevel` just opened up: the announcement a level-up shows.
  *
  * Half-open on the low side (`fromLevel` was already reached, so its unlocks are old news) and
  * inclusive on the high side. A multi-level award therefore reports every unlock it crossed.

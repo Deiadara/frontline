@@ -38,7 +38,7 @@ describe('grainSeed', () => {
     expect(grainSeed(stepMs * 2)).not.toBe(grainSeed(stepMs));
   });
 
-  it('is deterministic and normalised to 0–1', () => {
+  it('is deterministic and normalised to 0-1', () => {
     for (const ms of [0, 41, 83, 1000, 60_000]) {
       const seed = grainSeed(ms);
       expect(seed).toBe(grainSeed(ms));

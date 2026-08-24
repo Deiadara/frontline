@@ -56,7 +56,7 @@ describe('what a structure is worth', () => {
   /**
    * The figure is the shared function's, not a copy of it.
    *
-   * Checked on the Apothecary because storage is the one bonus whose formula is exponential — a
+   * Checked on the Apothecary because storage is the one bonus whose formula is exponential: a
    * hand-rolled linear stand-in would agree with it at the bottom of the curve and diverge by tens
    * of thousands at the top, which is exactly the drift a spot check at level 1 would miss.
    */

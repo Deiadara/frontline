@@ -14,7 +14,7 @@ import {
 } from './locations.js';
 
 /**
- * Levels (§A4) — the board-game half of a location.
+ * Levels (§A4): the board-game half of a location.
  *
  * A location is a post you take, work up, and lose. The three properties that makes interesting
  * are all measured here: an upgrade is always worth something, an upgrade always costs more than

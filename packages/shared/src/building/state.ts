@@ -6,6 +6,7 @@ import {
   BUILDING_CATALOG,
   CENTRAL_BUILDING,
   type BuildingKind,
+  type BuildingRequirement,
 } from './kinds.js';
 import { MAX_BUILDING_GARRISONS } from './damage.js';
 import {
@@ -17,7 +18,7 @@ import {
 /**
  * One structure standing in the district: how far up it is, and which of its five modifications
  * were fitted (§A1). Levels and modifications are deliberately separate fields because they are
- * separate currencies — one is bought with materials and a clock, the other is researched.
+ * separate currencies: one is bought with materials and a clock, the other is researched.
  */
 export const BuildingSchema = z.object({
   id: IdSchema,
@@ -25,11 +26,11 @@ export const BuildingSchema = z.object({
   level: z.number().int().min(1).max(BUILDING_MAX_LEVEL),
   /**
    * Installed modification ids, at most one slot's worth each. Defaulted so a row written before
-   * modifications existed still parses — the field is additive, unlike the kind rename beside it.
+   * modifications existed still parses: the field is additive, unlike the kind rename beside it.
    */
   modifications: z.array(ModificationIdSchema).max(MAX_MODIFICATION_SLOTS).default([]),
   /**
-   * How badly it has been wrecked, 0..100 (§A4, battle rework). Costs it up to half its job — see
+   * How badly it has been wrecked, 0..100 (§A4, battle rework). Costs it up to half its job: see
    * `building/damage.ts`. Defaulted, so a structure written before sieges existed reads as intact.
    */
   damage: z.number().min(0).max(100).default(0),
@@ -44,8 +45,8 @@ export const BuildingSchema = z.object({
    *
    * **Optional**, not defaulted, and that is a deliberate difference from `damage` beside it. A
    * default makes the field required on the way *out* of the parser, which would have meant writing
-   * `damagedAt: null` into every structure literal in the codebase — forty-odd of them, most in
-   * test fixtures that have nothing to do with sieges — to say the thing that "absent" already
+   * `damagedAt: null` into every structure literal in the codebase: forty-odd of them, most in
+   * test fixtures that have nothing to do with sieges: to say the thing that "absent" already
    * says. Absent, null and "never hit" are the same state, and every reader treats them as one.
    */
   damagedAt: IsoDateTimeSchema.nullable().optional(),
@@ -69,9 +70,33 @@ export function buildingLevel(buildings: readonly Building[], kind: BuildingKind
   return findBuilding(buildings, kind)?.level ?? 0;
 }
 
-/** Whether the Nexus is far enough along for this plot to be laid at all (§A1). */
-export function isBuildingUnlocked(kind: BuildingKind, buildings: readonly Building[]): boolean {
-  return buildingLevel(buildings, CENTRAL_BUILDING) >= BUILDING_CATALOG[kind].requiresNexusLevel;
+/**
+ * The clauses this district does **not** yet satisfy (§A1, §I3): empty when the plot may be laid.
+ *
+ * Returns the unmet ones rather than a boolean, because every caller that wants the boolean also
+ * wants the reason a moment later: the district's hover note, the plot dialog's refusal line and
+ * the route's error message are all the same list rendered three ways. A predicate would mean
+ * computing the answer twice and risking two different answers.
+ */
+export function unmetRequirements(
+  kind: BuildingKind,
+  buildings: readonly Building[],
+  playerLevel: number,
+): BuildingRequirement[] {
+  return BUILDING_CATALOG[kind].requires.filter((clause) =>
+    clause.kind === 'player_level'
+      ? playerLevel < clause.level
+      : buildingLevel(buildings, clause.building) < clause.level,
+  );
+}
+
+/** Whether every clause holds and this plot may be laid at all (§A1, §I3). */
+export function isBuildingUnlocked(
+  kind: BuildingKind,
+  buildings: readonly Building[],
+  playerLevel: number,
+): boolean {
+  return unmetRequirements(kind, buildings, playerLevel).length === 0;
 }
 
 /**
@@ -91,7 +116,7 @@ export function structureLevelCap(kind: BuildingKind, buildings: readonly Buildi
  * The level a build or upgrade would produce, or `null` when the structure can go no higher.
  *
  * This reads the structures actually *standing*. What the queue has already paid for is the build
- * queue's business — see `nextQueuedLevel`, which stacks on top of this.
+ * queue's business: see `nextQueuedLevel`, which stacks on top of this.
  */
 export function nextStructureLevel(
   kind: BuildingKind,

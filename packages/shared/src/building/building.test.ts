@@ -7,6 +7,8 @@ import {
   BUILDING_MAX_LEVEL,
   CENTRAL_BUILDING,
   buildingsUnlockedAt,
+  describeBuildingRequirement,
+  nexusLevelFor,
 } from './kinds.js';
 import {
   MAX_MODIFICATION_SLOTS,
@@ -21,6 +23,7 @@ import {
 import {
   buildingLevel,
   isBuildingUnlocked,
+  unmetRequirements,
   modificationCapacity,
   nextStructureLevel,
   structureLevelCap,
@@ -76,7 +79,7 @@ import {
 } from './queue.js';
 
 /**
- * The district (GDD §A1) — thirteen structures, a build queue, a power grid and sixty-five
+ * The district (GDD §A1): thirteen structures, a build queue, a power grid and sixty-five
  * modifications.
  *
  * Where a claim can be checked against something other than the constant that produced it, it is:
@@ -96,7 +99,7 @@ const build = (kind: (typeof BUILDING_KINDS)[number], level: number): Building =
   garrisons: 0,
 });
 
-/** A district with everything standing at `level` — the fat case most ceilings are read at. */
+/** A district with everything standing at `level`: the fat case most ceilings are read at. */
 const fullDistrict = (level: number): Building[] =>
   BUILDING_KINDS.map((kind) => build(kind, level));
 
@@ -118,8 +121,8 @@ describe('the catalogue (§A1)', () => {
   });
 
   it('gates nothing behind the Nexus but itself, and unlocks the rest as it grows', () => {
-    expect(BUILDING_CATALOG[CENTRAL_BUILDING].requiresNexusLevel).toBe(0);
-    const gates = BUILDING_KINDS.map((kind) => BUILDING_CATALOG[kind].requiresNexusLevel);
+    expect(nexusLevelFor(CENTRAL_BUILDING)).toBe(0);
+    const gates = BUILDING_KINDS.map(nexusLevelFor);
     for (const gate of gates) {
       expect(gate).toBeGreaterThanOrEqual(0);
       expect(gate).toBeLessThan(BUILDING_MAX_LEVEL);
@@ -165,9 +168,66 @@ describe('level caps and unlocks (§A1)', () => {
   });
 
   it('locks a structure until the Nexus reaches its gate, then unlocks it', () => {
-    const gate = BUILDING_CATALOG.garage.requiresNexusLevel;
-    expect(isBuildingUnlocked('garage', [build('nexus', gate - 1)])).toBe(false);
-    expect(isBuildingUnlocked('garage', [build('nexus', gate)])).toBe(true);
+    const gate = nexusLevelFor('garage');
+    // Everything *except* the Nexus clause satisfied, so this isolates the Nexus rung.
+    const rest = (nexus: number) => [
+      build('nexus', nexus),
+      build('scrapyard', 20),
+      build('generator', 20),
+    ];
+    expect(isBuildingUnlocked('garage', rest(gate - 1), 99)).toBe(false);
+    expect(isBuildingUnlocked('garage', rest(gate), 99)).toBe(true);
+  });
+
+  /**
+   * §A1/§I3: the Grepolis shape: a structure waits on the *district* and on the *crew*.
+   *
+   * Both halves asserted from a district that satisfies everything else, so each case names one
+   * unmet clause and nothing else. Without the isolation a test like this passes for the wrong
+   * reason forever the moment any other rung moves.
+   */
+  it('holds a structure back on another structure, and on the crew’s own level', () => {
+    const maxed = BUILDING_KINDS.filter((kind) => kind !== 'garage').map((kind) => build(kind, 20));
+
+    // Everything standing, crew too green: the level clause alone is unmet.
+    const green = unmetRequirements('garage', maxed, 1);
+    expect(green).toHaveLength(1);
+    expect(green[0]).toEqual({ kind: 'player_level', level: 14 });
+
+    // Veteran crew, no Scrapyard: the building clause alone is unmet.
+    const noYard = maxed.filter((building) => building.kind !== 'scrapyard');
+    const missing = unmetRequirements('garage', noYard, 99);
+    expect(missing).toHaveLength(1);
+    expect(missing[0]).toEqual({ kind: 'building', building: 'scrapyard', level: 6 });
+
+    // And both at once, which is the case the ladder is built out of.
+    expect(unmetRequirements('garage', noYard, 1)).toHaveLength(2);
+  });
+
+  it('says every clause in words a player can act on', () => {
+    for (const kind of BUILDING_KINDS) {
+      for (const clause of BUILDING_CATALOG[kind].requires) {
+        const line = describeBuildingRequirement(clause);
+        expect(line, kind).toMatch(/\d/);
+        expect(line.length, kind).toBeGreaterThan(8);
+      }
+    }
+  });
+
+  /** A ladder where nothing waits on the crew is a ladder with one axis. */
+  it('gates some structures on the crew and some only on the district', () => {
+    const onCrew = BUILDING_KINDS.filter((kind) =>
+      BUILDING_CATALOG[kind].requires.some((clause) => clause.kind === 'player_level'),
+    );
+    const onOthers = BUILDING_KINDS.filter((kind) =>
+      BUILDING_CATALOG[kind].requires.some(
+        (clause) => clause.kind === 'building' && clause.building !== CENTRAL_BUILDING,
+      ),
+    );
+    expect(onCrew.length).toBeGreaterThanOrEqual(3);
+    expect(onOthers.length).toBeGreaterThanOrEqual(5);
+    // And several carry both, which is what "sometimes both" has to mean to be true.
+    expect(onCrew.filter((kind) => onOthers.includes(kind)).length).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -187,7 +247,7 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
   });
 
   it('makes the top of the tree a campaign rather than a wall', () => {
-    // ~100x from level 1 to level 20 — expensive enough to pace, cheap enough to reach.
+    // ~100x from level 1 to level 20: expensive enough to pace, cheap enough to reach.
     const ratio = BUILDING_COST_GROWTH ** (BUILDING_MAX_LEVEL - 1);
     expect(ratio).toBeGreaterThan(50);
     expect(ratio).toBeLessThan(200);
@@ -195,7 +255,7 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
 
   /**
    * The board asked for seconds at the start, minutes in the middle and hours at the end. Asserted
-   * in those units rather than against the growth constant — this is the one claim in the module
+   * in those units rather than against the growth constant. This is the one claim in the module
    * that a reader can check against the request itself.
    */
   it('runs seconds → minutes → hours across the twenty levels', () => {
@@ -251,7 +311,7 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
   it('leaves a new district able to afford its first few plots', () => {
     const affordable = BUILDING_KINDS.filter(
       (kind) =>
-        isBuildingUnlocked(kind, NEW_DISTRICT) &&
+        isBuildingUnlocked(kind, NEW_DISTRICT, 1) &&
         canAfford(STARTING_RESOURCES, buildingCost(kind, 1, NEW_DISTRICT)),
     );
     // Not a formality: this is the whole opening. A starting stockpile that covers nothing is a
@@ -260,7 +320,7 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
   });
 });
 
-describe('the power grid (§A1 — the Generator)', () => {
+describe('the power grid (§A1: the Generator)', () => {
   it('supplies linearly and draws sub-linearly, so the Generator stays a level or two ahead', () => {
     expect(powerGrid([build('generator', 1)]).supply).toBe(POWER_SUPPLY_PER_GENERATOR_LEVEL);
     expect(powerGrid([build('generator', 10)]).supply).toBe(POWER_SUPPLY_PER_GENERATOR_LEVEL * 10);
@@ -297,7 +357,7 @@ describe('the power grid (§A1 — the Generator)', () => {
     ]);
 
     expect(idle.oilPerHour).toBeGreaterThan(0);
-    // A barely-loaded level-1 Generator must not burn its full rate — that is what would starve a
+    // A barely-loaded level-1 Generator must not burn its full rate. That is what would starve a
     // new crew before they could build anything that makes oil.
     expect(idle.oilPerHour).toBeLessThan(OIL_BURN_PER_GENERATOR_LEVEL);
     expect(loaded.oilPerHour).toBeGreaterThan(idle.oilPerHour);
@@ -344,7 +404,7 @@ describe('what the district makes (§A1)', () => {
     const burningOnly = districtProduction(NEW_DISTRICT);
     expect(burningOnly.perHour.oil ?? 0).toBeLessThan(0);
 
-    // The Scrapyard is the first oil source, and it unlocks at Nexus 2 — so the loop closes as
+    // The Scrapyard is the first oil source, and it unlocks at Nexus 2, so the loop closes as
     // soon as a player can reach it, which is what stops a new crew running dry.
     const withSource = districtProduction([...NEW_DISTRICT, build('scrapyard', 1)]);
     expect(withSource.perHour.oil ?? 0).toBeGreaterThan(0);
@@ -378,7 +438,7 @@ describe('what the district makes (§A1)', () => {
 
   it('pays out a rate below one an hour instead of rounding it to nothing', () => {
     // The Scrapyard makes a quarter of a high-quality metal per level-hour. Settled a minute at a
-    // time, an accrual that rounded each step would pay zero for ever — which is exactly the bug a
+    // time, an accrual that rounded each step would pay zero for ever, which is exactly the bug a
     // whole-number stockpile invites. Eight hours drip-fed must bank what eight hours pays.
     const district = [build('nexus', 1), build('generator', 2), build('scrapyard', 1)];
     const stock: Resources = { ...STARTING_RESOURCES, highQualityMetal: 0 };
@@ -407,7 +467,7 @@ describe('what the district makes (§A1)', () => {
   it('does not take a whole barrel off the readout for a fraction of a barrel burned', () => {
     // A district with nothing but a Nexus and a Generator makes no oil and burns some, so a settle
     // covering half a minute produces about -0.012 oil. Accumulating the running total and flooring
-    // it debits a whole unit the instant anybody opens the page — arithmetically conserved, because
+    // it debits a whole unit the instant anybody opens the page: arithmetically conserved, because
     // the carry holds 0.98 of a barrel, and visibly wrong. The live flow caught exactly this.
     const district = [build('nexus', 1), build('generator', 1)];
     const stock: Resources = { ...STARTING_RESOURCES };
@@ -513,7 +573,7 @@ describe('what the district is worth to the crew (§A1)', () => {
     expect(driftMorale(clampMeter(0), clampMeter(100), MORALE_HALF_LIFE_HOURS)).toBeCloseTo(50, 6);
   });
 
-  it('is frequency-independent — the same elapsed time gives the same answer', () => {
+  it('is frequency-independent: the same elapsed time gives the same answer', () => {
     const oneGo = driftMorale(clampMeter(20), clampMeter(80), 6);
     let stepped = clampMeter(20);
     for (let i = 0; i < 12; i += 1) stepped = driftMorale(stepped, clampMeter(80), 0.5);
@@ -656,10 +716,13 @@ describe('the build queue (§A1)', () => {
   });
 
   it('lets a player queue the Nexus and the thing it unlocks in the same breath', () => {
-    const gate = BUILDING_CATALOG.gate.requiresNexusLevel;
-    expect(isUnlockedForQueue('gate', NEW_DISTRICT, [])).toBe(false);
+    const gate = nexusLevelFor('gate');
+    // The Gate also waits on the Scrapyard, so the district here has one standing: the clause
+    // under test is the Nexus one, and leaving the other unmet would prove nothing about it.
+    const yard = [...NEW_DISTRICT, build('scrapyard', 3)];
+    expect(isUnlockedForQueue('gate', yard, [], 99)).toBe(false);
     const queue: BuildQueue = [entry('nexus', gate, NOW, 60)];
-    expect(isUnlockedForQueue('gate', NEW_DISTRICT, queue)).toBe(true);
+    expect(isUnlockedForQueue('gate', yard, queue, 99)).toBe(true);
   });
 
   it('stacks repeat orders for the same plot', () => {
@@ -693,7 +756,7 @@ describe('the build queue (§A1)', () => {
   it('never treats a later order as done while an earlier one is still running', () => {
     const queue: BuildQueue = [
       entry('nexus', 2, NOW, 3600),
-      // Deliberately already "finished" by its own clock — the queue is sequential, so it is not.
+      // Deliberately already "finished" by its own clock: the queue is sequential, so it is not.
       entry('quarters', 1, new Date(NOW.getTime() - HOUR_MS), 60),
     ];
     expect(splitDueQueue(queue, NOW).due).toHaveLength(0);

@@ -18,7 +18,7 @@ import { Modal } from '../../components/ui/Modal';
  * Choosing who goes (GDD §A5).
  *
  * One control per unit type the crew actually has, and a running total of what the selection can
- * carry home — because loot capacity is the one stat that decides a raid before it starts, and a
+ * carry home, because loot capacity is the one stat that decides a raid before it starts, and a
  * player who has to work it out on paper will not work it out at all.
  *
  * When the ground has been scouted it also **forecasts the fight**, by running the real engine

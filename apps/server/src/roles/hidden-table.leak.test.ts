@@ -20,27 +20,27 @@ import { barDay, barRoster } from '../bar/roster.js';
 import { ROLE_REQUIREMENTS, roleFit } from './requirements.js';
 
 /**
- * B8/B8a — the role requirement table is server-side only.
+ * B8/B8a: the role requirement table is server-side only.
  *
  * "Never exposed to players" is not something code review can hold on its own, so this test is
  * the enforcement. It guards the two ways the table could actually reach a player:
  *
- *  1. **By import** — anything under `packages/shared` or `apps/client` naming the hidden module
+ *  1. **By import**: anything under `packages/shared` or `apps/client` naming the hidden module
  *     or one of its exports would be compiled straight into the client bundle.
- *  2. **By value** — the table (or one role's weights) being re-declared or re-exported from
+ *  2. **By value**: the table (or one role's weights) being re-declared or re-exported from
  *     `@frontline/shared`, which the client imports wholesale.
  *
- * What it does *not* catch: a leak that is *derived* rather than copied — an equivalent heuristic
+ * What it does *not* catch: a leak that is *derived* rather than copied: an equivalent heuristic
  * recomputed under a different name, or the table being inferable from data the server does ship.
  * Both are review questions, and the second is a live one: recruit sheets currently expose enough
  * of the weight ordering to reconstruct the table (MOU-160 F1). Passing this file means the table
  * was not copied; it does not mean the table is secret.
  *
  * W5 (the Bar) and W7 (research hints) put role data on the wire for the first time. When they
- * do, extend this with a response-body assertion — hints are allowed, the raw table is not.
+ * do, extend this with a response-body assertion: hints are allowed, the raw table is not.
  *
  * W5/MOU-164 lands that response-body assertion, at the bottom of this file. It is the *first* one
- * here: the MOU-164 brief said W3 had already added one at this site, and it had not — the last
+ * here: the MOU-164 brief said W3 had already added one at this site, and it had not: the last
  * commit to touch this file before W5 was `9f4a83c`, which only widened the token list.
  */
 
@@ -51,7 +51,7 @@ const CLIENT_REACHABLE_DIRS = ['packages/shared/src', 'apps/client/src', 'apps/c
 
 /**
  * Naming the hidden module or any of its exports. `fit`/`suitability`/`star rating` are in here
- * because B8 bans the *derived* indicator just as firmly as the table itself — and so is
+ * because B8 bans the *derived* indicator just as firmly as the table itself, and so is
  * `rollRecruit`, which lives in the generator but hands back the affinity that shaped a roll,
  * which is the same hint by another name.
  *
@@ -140,7 +140,7 @@ function roleKeyedLeaksIn(root: unknown): string[] {
     .filter(([, value]) => {
       const keys = Object.keys(value);
       // Two role ids already make a table. Requiring all 19 (`keys.length >= roleIds.size`) let
-      // any partial copy — 18 roles, or one nested a level down — through untouched.
+      // any partial copy, 18 roles, or one nested a level down, through untouched.
       if (keys.length < 2 || !keys.every((key) => roleIds.has(key))) return false;
       // Public role metadata (display names) is fine; anything structured is a fit hint.
       return Object.values(value).some((entry) => typeof entry !== 'string');
@@ -183,7 +183,7 @@ describe('the hidden role requirement table', () => {
   });
 
   // Guards the guards: both scans above only mean something if they fire on a leak that is
-  // *not* a byte-identical copy of the table — the shapes the previous exact-equality and
+  // *not* a byte-identical copy of the table: the shapes the previous exact-equality and
   // all-19-keys checks let through.
   it('catches a partial, re-ordered or nested copy', () => {
     const [first, second] = OFFICER_ROLES;
@@ -208,13 +208,13 @@ describe('the hidden role requirement table', () => {
 });
 
 /**
- * INTERFACES R4 — the response-body half of the guard (W5/MOU-164).
+ * INTERFACES R4: the response-body half of the guard (W5/MOU-164).
  *
  * The scans above cover `packages/shared/src`, `apps/client/src` and `apps/client/e2e`. A server
  * route is outside all three, so nothing above would notice the Bar's roster shipping the affinity
  * that shaped a roll. These assertions run the real projection and read what actually comes back.
  *
- * The token and value scans are reused rather than reimplemented — same machinery, new root. What
+ * The token and value scans are reused rather than reimplemented: same machinery, new root. What
  * they cannot catch on their own is a *derived* leak: a number that happens to track role fit
  * under an innocent name. `permuted` is the answer to that one, and it is the assertion with the
  * teeth: permuting which attribute holds which rating preserves the whole sheet as a multiset and
@@ -266,7 +266,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     filledRoles: on.commanders.map((officer) => officer.role),
   });
 
-  it('is a non-trivial body — the assertions below must have something to read', () => {
+  it('is a non-trivial body: the assertions below must have something to read', () => {
     const body = rosterResponse();
     expect(body.recruits.length).toBeGreaterThan(4);
     expect(body.recruits.some((recruit) => recruit.askingWage !== null)).toBe(true);
@@ -315,7 +315,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     }
   });
 
-  it('would fire on a leak — the permutation check is not vacuous', () => {
+  it('would fire on a leak: the permutation check is not vacuous', () => {
     // A positive control for the assertion above: `roleFit` is exactly the shape of hint R4 bans,
     // and rotating the sheet has to move it. Without this, a projection that dropped every derived
     // number would pass the permutation test by having nothing left to compare.

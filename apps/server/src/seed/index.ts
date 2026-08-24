@@ -23,7 +23,7 @@ export interface SeedMvpWorldOptions {
   repos: Repositories;
 }
 
-/** What this boot actually created — logged by `index.ts`. */
+/** What this boot actually created: logged by `index.ts`. */
 export interface MvpSeedSummary {
   playerUsername: string;
   createdPlayer: boolean;
@@ -55,7 +55,7 @@ function seedStep(db: AppDatabase, step: () => boolean): boolean {
 /**
  * Seeds the MVP world: the hardcoded dev operator plus the single AI rival base.
  *
- * Idempotent by design — it only ever inserts rows that are missing, so restarting the
+ * Idempotent by design: it only ever inserts rows that are missing, so restarting the
  * server never resets progress, rewrites a password or duplicates the rival. It also
  * repairs a half-seeded world rather than assuming an all-or-nothing previous run.
  */

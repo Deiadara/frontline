@@ -4,7 +4,7 @@ import { clampAttribute, type AttributeName, type Attributes } from './attribute
 /**
  * Traits (GDD §B7, §B4a).
  *
- * A trait is a discrete thing a character either has or does not — not a 0..100 rating. Some
+ * A trait is a discrete thing a character either has or does not, not a 0..100 rating. Some
  * characters carry one, and it moves a couple of attributes by a flat amount.
  *
  * Traits are public: players see them, and they are half of what a player has to guess a
@@ -17,7 +17,7 @@ import { clampAttribute, type AttributeName, type Attributes } from './attribute
  * tag on a recruit card is a real judgement: the same discrete on/off thing can just as easily be
  * a reason not to hire.
  *
- * Both kinds are the same shape — a flaw is simply a `bonus` with negative numbers — so nothing
+ * Both kinds are the same shape, a flaw is simply a `bonus` with negative numbers, so nothing
  * downstream branches on `kind`. It exists so the roll can be weighted and the UI can colour them
  * differently without pattern-matching on the sign of a lookup.
  *
@@ -27,7 +27,7 @@ import { clampAttribute, type AttributeName, type Attributes } from './attribute
  */
 
 export const TRAIT_IDS = [
-  // Boons — the board's original six, then the extension.
+  // Boons: the board's original six, then the extension.
   'wired_reflexes',
   'gutter_born',
   'field_surgeon',
@@ -74,7 +74,7 @@ export interface Trait {
   kind: TraitKind;
   /**
    * Flat changes applied on top of the rolled sheet, clamped to the 0..100 scale. Positive on a
-   * boon, negative on a flaw — never mixed, so a trait is unambiguously one or the other.
+   * boon, negative on a flaw: never mixed, so a trait is unambiguously one or the other.
    */
   bonus: Partial<Record<AttributeName, number>>;
 }
@@ -279,7 +279,7 @@ export const TRAIT_CATALOG: Record<TraitId, Trait> = {
   },
 };
 
-/** The traits that help, and the traits that hurt — derived, never listed twice. */
+/** The traits that help, and the traits that hurt: derived, never listed twice. */
 export const TRAIT_BOONS: readonly TraitId[] = TRAIT_IDS.filter(
   (id) => TRAIT_CATALOG[id].kind === 'boon',
 );
@@ -301,8 +301,8 @@ export function findTrait(id: string): Trait | undefined {
 /**
  * Apply every trait's bonus to a sheet. Ratings stay on the 0..100 scale.
  *
- * This builds a sheet; it is not a read-time view. Stored sheets — generated characters and
- * `OVERSEER_PRESETS` alike — already have their bonuses in them, so calling this on one double
+ * This builds a sheet; it is not a read-time view. Stored sheets: generated characters and
+ * `OVERSEER_PRESETS` alike: already have their bonuses in them, so calling this on one double
  * counts the trait.
  */
 export function applyTraitBonuses(attributes: Attributes, traits: readonly TraitId[]): Attributes {

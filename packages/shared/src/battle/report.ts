@@ -15,9 +15,9 @@ import type { Simulation, SideState, Stack } from './engine.js';
  *
  * So each finding carries a visibility, and the three are used for different things:
  *
- * - `shared` — both sides saw it happen. The ground, the outcome, who broke.
- * - `own` — only the side it belongs to. Your own units' modifiers; the enemy's are theirs.
- * - `implied` — never stated as a number, only as its consequence. "Your Snipers never got a shot
+ * - `shared`: both sides saw it happen. The ground, the outcome, who broke.
+ * - `own`: only the side it belongs to. Your own units' modifiers; the enemy's are theirs.
+ * - `implied`: never stated as a number, only as its consequence. "Your Snipers never got a shot
  *   off" is the whole of what a player is told about an engagement multiplier of 0.4, and it is
  *   enough to act on without being enough to solve.
  */
@@ -32,7 +32,7 @@ export type FindingKind = z.infer<typeof FindingKindSchema>;
 
 export const BattleFindingSchema = z.object({
   side: z.enum(['attacker', 'defender']),
-  /** What the finding is about — so a reader can group or filter without parsing the prose. */
+  /** What the finding is about, so a reader can group or filter without parsing the prose. */
   kind: FindingKindSchema,
   visibility: FindingVisibilitySchema,
   text: z.string(),
@@ -103,7 +103,7 @@ function engagementFindings(
   return findings;
 }
 
-/** Resistances that mattered — stated as an effect, never as the percentage on the sheet. */
+/** Resistances that mattered: stated as an effect, never as the percentage on the sheet. */
 function resistanceFindings(
   simulation: Simulation,
   side: SideState,
@@ -133,7 +133,7 @@ function resistanceFindings(
       }
     }
   }
-  // One is a lesson; six is a table. Keep the sharpest, and never the same sentence twice — the
+  // One is a lesson; six is a table. Keep the sharpest, and never the same sentence twice: the
   // loop walks every pair, so two stacks of the same kind used to produce the line twice over.
   const seen = new Set<string>();
   return findings
@@ -141,7 +141,7 @@ function resistanceFindings(
     .slice(0, 2);
 }
 
-/** What the ground was worth. Shared — both sides stood on it. */
+/** What the ground was worth. Shared: both sides stood on it. */
 function groundFindings(battlefield: Battlefield): BattleFinding[] {
   const named = battlefield.contexts
     .filter((context) => context !== 'defending' && context !== 'outnumbered')
@@ -191,7 +191,7 @@ const started = (side: SideState): number =>
   side.stacks.reduce((total, stack) => total + stack.started, 0);
 
 /**
- * The narrative log — the part a player actually reads.
+ * The narrative log: the part a player actually reads.
  *
  * Written as events rather than as figures. The numbers are all on the report beside it; this is
  * the thing that has to make a defeat legible in four lines.

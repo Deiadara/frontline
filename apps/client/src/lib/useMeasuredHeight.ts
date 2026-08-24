@@ -8,7 +8,7 @@ export interface MeasuredSize {
 /**
  * An element's content box, as a live measurement.
  *
- * The chrome floats over the world, so everything under it has to know how big it is — and none of
+ * The chrome floats over the world, so everything under it has to know how big it is, and none of
  * those sizes are constants: the stockpile strip grows a row when the numbers get long enough to
  * wrap, the scenery switcher grows with the type size, and the room left for the district is
  * whatever those two did not take. Every screen used to clear the chrome with a hard-coded `pt-24`,
@@ -20,7 +20,7 @@ export interface MeasuredSize {
  *
  * The first reading is taken in a **layout** effect, before the browser paints, and that is not a
  * detail. A `ResizeObserver`'s first callback is asynchronous, so a consumer that sizes itself from
- * this would otherwise lay out once at whatever it falls back to and correct itself a frame later —
+ * this would otherwise lay out once at whatever it falls back to and correct itself a frame later,
  * which is a flash to a player and, worse, a real window in which the district was the wrong size
  * and its buildings were under the chrome. Anything measured off a live browser in that window is a
  * measurement of the wrong page.
@@ -54,7 +54,7 @@ export function useMeasuredSize<T extends HTMLElement = HTMLDivElement>(): [
  * The content box, read straight off the DOM.
  *
  * `clientWidth`/`clientHeight` include the padding and exclude the border, so the padding comes back
- * off — and they are integers, which is why the observer's `contentRect` is preferred once it
+ * off, and they are integers, which is why the observer's `contentRect` is preferred once it
  * starts reporting. This is the pre-paint reading, not the ongoing one.
  */
 function contentBox(node: HTMLElement): MeasuredSize {

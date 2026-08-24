@@ -44,7 +44,7 @@ function Silhouette() {
 /**
  * Portrait locked to a fixed aspect box (per the layout rules). Shows the painted portrait once
  * `portrait-<portraitId>` has been delivered, and the deterministic gradient + silhouette until
- * then — the delivered-or-procedural call belongs to `deliveredUrl`, not to this component.
+ * then: the delivered-or-procedural call belongs to `deliveredUrl`, not to this component.
  */
 export function OverseerPortrait({
   portraitId,

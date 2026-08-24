@@ -6,10 +6,13 @@
     <meta name="color-scheme" content="dark" />
     <title>Frontline</title>
     <!-- Fonts are self-hosted (see public/fonts/README.md) and declared in src/fonts.css. The
-         display face is preloaded because layout is measured against it. -->
+         interface face is preloaded because layout is measured against it. Roboto Condensed is
+         one variable file per subset, so this single request covers all four weights; only the
+         latin subset is preloaded, since latin-ext is reached by accented input the UI does not
+         produce on its own. -->
     <link
       rel="preload"
-      href="/fonts/orbitron-latin.woff2"
+      href="/fonts/roboto-condensed-latin.woff2"
       as="font"
       type="font/woff2"
       crossorigin

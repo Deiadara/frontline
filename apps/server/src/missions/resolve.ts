@@ -67,7 +67,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      *
      * So there is no roll to make and nothing to pay: they turned around somewhere on the road and
      * walked back. It settles as a failure rather than as a third outcome, because everything
-     * downstream — morale, infamy, the §D8 tally, the officer's XP — already knows what to do with
+     * downstream, morale, infamy, the §D8 tally, the officer's XP, already knows what to do with
      * a failure, and "went out, achieved nothing, came home" is what a failure *is*. What it is
      * not is a way to dodge the consequences of having gone.
      */
@@ -87,7 +87,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      * What they found, as opposed to what they were paid.
      *
      * Drawn from the *same* seed the outcome came from, one draw further along the stream, so a
-     * mission's finds are as reproducible as whether it worked — two reads of the same finished
+     * mission's finds are as reproducible as whether it worked: two reads of the same finished
      * run cannot disagree about what is in the satchel. A recalled crew found nothing, because
      * they never got anywhere.
      */
@@ -108,10 +108,10 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       rewards,
       found,
       moraleDelta: template ? MISSION_MORALE_DELTA[template.kind][outcome] : 0,
-      // §D7/§A3 — a blow that lands on the state is heard on the street. Keyed off the same
+      // §D7/§A3: a blow that lands on the state is heard on the street. Keyed off the same
       // retired-template fallback as the rest: a run whose template is gone comes home silent.
       infamyDelta: template ? MISSION_INFAMY_DELTA[template.stance][outcome] : 0,
-      // §A3/§D8 — which way the job pointed at the Combine. A run whose template has since been
+      // §A3/§D8, which way the job pointed at the Combine. A run whose template has since been
       // retired comes home politically silent for the same reason it comes home empty: there is
       // nothing left on the board to say what it was.
       stance: template?.stance ?? 'unaligned',
@@ -134,7 +134,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     economy: {
       ...base.economy,
       morale: settlements.reduce((acc, s) => adjustMeter(acc, s.moraleDelta), base.economy.morale),
-      // §D7 — through `gainInfamy`, the same seam the battle settler banks through.
+      // §D7: through `gainInfamy`, the same seam the battle settler banks through.
       //
       // It was `adjustMeter`, left over from when infamy was a 0..100 meter, and that clamped it at
       // a hundred: a crew already at the old ceiling banked *nothing* from a mission, silently, and
@@ -142,7 +142,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       // runs every day. Nothing but spending takes a name back, which is why a negative delta is
       // worth zero rather than a deduction.
       infamy: settlements.reduce((acc, s) => gainInfamy(acc, s.infamyDelta), base.economy.infamy),
-      // §D8 — missions are the second live writer of the one reputation tally (the first is
+      // §D8: missions are the second live writer of the one reputation tally (the first is
       // POST /battle). Folded in launch order through the shared recorder so the §D8 drift is
       // applied exactly once, by the same function, however many crews came home on this call.
       reputationTally: settlements.reduce<ReputationTally>(
@@ -156,7 +156,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   repos.bases.updateHoldings(settled.id, settled.resources, settled.inventory);
   repos.bases.updateEconomy(settled.id, settled.economy);
 
-  // INTERFACES R7 — §I1 makes a mission completing an XP source. W6 owns the whole XP side, so this
+  // INTERFACES R7: §I1 makes a mission completing an XP source. W6 owns the whole XP side, so this
   // only names what happened: one award per crew that came home, success or failure, priced by
   // `PLAYER_XP_AWARDS` and levelled by W6's engine. Threaded through `awardPlayerXp` so a
   // multi-mission settlement banks every award and the base handed back carries the level it
@@ -171,7 +171,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     return awarded.award;
   });
 
-  // INTERFACES R2 — §H6 pays the *officer* who led each run, for the time it kept them engaged.
+  // INTERFACES R2: §H6 pays the *officer* who led each run, for the time it kept them engaged.
   // Priced off the clock frozen on the row, like the rewards above, so a retune cannot re-pay a
   // character for a run that has already happened. Folded in one call because two runs led by the
   // same officer are one sheet, and paying them separately would drop a level between the two.

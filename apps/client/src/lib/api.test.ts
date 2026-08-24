@@ -113,7 +113,7 @@ describe('apiFetch', () => {
    * `levelUp` is an extra riding along on the envelope, not part of why the call failed, so a
    * malformed one must not be able to take the refusal *message* down with it: the whole-object
    * parse would fail and `apiFetch` would fall back to `UNKNOWN` / `res.statusText`, leaving the
-   * player with no reason at all. Hardening — the shared build makes this unreachable today.
+   * player with no reason at all. Hardening: the shared build makes this unreachable today.
    */
   it('keeps the refusal message when the level-up rides along malformed', async () => {
     fetchMock.mockResolvedValueOnce(

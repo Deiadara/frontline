@@ -6,7 +6,7 @@ import {
 } from '../attributes.js';
 
 /**
- * The per-character level (GDD §H6, §H6a) — INTERFACES §2 R1's `Commander.level`.
+ * The per-character level (GDD §H6, §H6a): INTERFACES §2 R1's `Commander.level`.
  *
  * This is emphatically **not** player progression. `Base.level` (W6) is the one player level and
  * nothing here reads, mirrors or recomputes it; what a character level buys is attribute points on
@@ -30,16 +30,16 @@ export function characterXpToNextLevel(level: number): number {
   return (CHARACTER_XP_LEVEL_STEP * from * (from + 1)) / 2;
 }
 
-/** §H6 — "5 skill points to add" on every level-up. */
+/** §H6: "5 skill points to add" on every level-up. */
 export const CHARACTER_LEVEL_POINTS = 5;
 
 /**
- * §H6a — of those 5, how many the player assigns by hand.
+ * §H6a: of those 5, how many the player assigns by hand.
  *
  * §H6's board text is *"2 separate points you can individually assign"*, which does not say what
  * the other 3 do. The CEO's reading is that they auto-allocate along the character's affinities;
  * it is provisional and flagged to the board. **This constant and `autoAllocatedAttributes` below
- * are the whole of that reading** — flipping it to "all 5 are player-assigned" is changing this
+ * are the whole of that reading**: flipping it to "all 5 are player-assigned" is changing this
  * one number to 5, and nothing else in the codebase moves.
  */
 export const CHARACTER_LEVEL_PLAYER_POINTS = 2;
@@ -48,7 +48,7 @@ export const CHARACTER_LEVEL_PLAYER_POINTS = 2;
 export const CHARACTER_LEVEL_AUTO_POINTS = CHARACTER_LEVEL_POINTS - CHARACTER_LEVEL_PLAYER_POINTS;
 
 /**
- * §H6a — the attributes the auto-allocated points land on: the ones the character is already best
+ * §H6a: the attributes the auto-allocated points land on: the ones the character is already best
  * at, ties broken by canonical attribute order.
  *
  * "Along the character's affinities" is read off the *visible* sheet, not off the hidden role
@@ -79,7 +79,7 @@ export interface CharacterAdvance extends CharacterProgress {
 }
 
 /**
- * Adds character XP and applies every level-up it pays for (§H6). Pure — the caller persists it.
+ * Adds character XP and applies every level-up it pays for (§H6). Pure: the caller persists it.
  *
  * Each level immediately spends its 3 auto points on the sheet and banks the 2 player points, so a
  * character who levels twice while nobody is looking is holding 4 assignable points, not 2.
@@ -107,7 +107,7 @@ export function applyCharacterXp(current: CharacterProgress, xp: number): Charac
 }
 
 /**
- * §H6 — spend one of the player-assigned points on `attribute`.
+ * §H6: spend one of the player-assigned points on `attribute`.
  *
  * Returns `null` when there is nothing to spend, so the caller decides whether that is a 400 or a
  * no-op rather than this module throwing on a read path.
@@ -128,26 +128,26 @@ export function spendCharacterPoint(
 }
 
 /**
- * INTERFACES §2 R2 — where character XP comes from.
+ * INTERFACES §2 R2: where character XP comes from.
  *
  * The GDD never says. §I1 lists XP sources for the *player*; §H6 says characters "evolve slowly"
  * and stops. The CTO's reading, provisional and flagged to the board alongside §H6a:
  *
  * > A character earns XP from the missions and internal processes **they are assigned to**
- * > (§E, §G6) — the only per-character activity the GDD defines.
+ * > (§E, §G6): the only per-character activity the GDD defines.
  *
  * This function is the whole of that reading, so a board correction is a one-line change here.
  *
- * Both halves of the reading are live, and both pay through `awardCharacterXp` — the mirror of the
+ * Both halves of the reading are live, and both pay through `awardCharacterXp`: the mirror of the
  * player-XP award INTERFACES R7 describes:
  *
- *   * **Missions** (§E) — the officer on `Mission.officerId` is paid for the run's total minutes.
- *   * **Internal processes** (§G6) — a research investigation names a `leadOfficerId` and runs on a
+ *   * **Missions** (§E): the officer on `Mission.officerId` is paid for the run's total minutes.
+ *   * **Internal processes** (§G6): a research investigation names a `leadOfficerId` and runs on a
  *     clock, so its lead is paid for the project's duration.
  *
  * Nothing else in the game assigns a *named character* to a timed job. Assignees deliberately do
  * not pay: §G1 makes them a fungible pool with no individual identity, so there is no one to
- * credit. A training project does not pay either — it develops the Overseer, who carries no
+ * credit. A training project does not pay either: it develops the Overseer, who carries no
  * character level of their own.
  */
 export function characterXpForActivity(minutesEngaged: number): number {

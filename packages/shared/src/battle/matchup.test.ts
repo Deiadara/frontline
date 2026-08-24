@@ -30,7 +30,7 @@ const unit = (id: string): UnitSpec => {
   return found;
 };
 
-/** A unit on bare ground with nothing helping it — the sheet and nothing else. */
+/** A unit on bare ground with nothing helping it: the sheet and nothing else. */
 const bare = (id: string) =>
   effectiveStats(
     unit(id),
@@ -133,8 +133,8 @@ describe('armour', () => {
   it('diminishes rather than subtracts, and never reaches zero', () => {
     expect(armorMultiplier(0)).toBe(1);
     expect(armorMultiplier(10)).toBeCloseTo(ARMOR_FALLOFF ** 10, 6);
-    // Calibrated for a 0..100 stat: armour 45 takes about half, and the heaviest sheet in the game
-    // — the Colossus at 95 — still takes over a quarter. An earlier constant borrowed straight from
+    // Calibrated for a 0..100 stat: armour 45 takes about half, and the heaviest sheet in the game,
+    // the Colossus at 95, still takes over a quarter. An earlier constant borrowed straight from
     // 0 A.D.'s 0..10 scale put that last figure at 1.6%, which made the heavy tier unkillable.
     expect(armorMultiplier(45)).toBeGreaterThan(0.5);
     expect(armorMultiplier(45)).toBeLessThan(0.6);
@@ -184,7 +184,7 @@ describe('targeting is where the counters actually happen', () => {
 describe('intimidation works on low morale', () => {
   /**
    * The mechanical half of the brief. A Terror unit is worth nothing against a steady enemy and a
-   * third again as much against one already coming apart — so intimidation is not a stat that
+   * third again as much against one already coming apart, so intimidation is not a stat that
    * makes you hit harder, it is a stat that makes *the next thing* hit harder.
    */
   it('pays a terror unit more against a shaken target than a steady one', () => {

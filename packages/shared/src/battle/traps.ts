@@ -8,7 +8,7 @@ import type { Army } from '../units/training.js';
  *
  * A trap is the defensive counterpart to a perimeter: it costs materials rather than bodies, it
  * fires once, and it fires *before* anybody has decided anything. The board's rule is exact and it
- * is the interesting part — **the attack still goes through**. A trap does not turn an assault back;
+ * is the interesting part: **the attack still goes through**. A trap does not turn an assault back;
  * it takes a bite out of it and then the fight happens anyway. The only case where it stops an
  * attack outright is the one where it left nothing standing to attack with, which is a thing that
  * only happens to somebody who came with four people.
@@ -19,7 +19,7 @@ import type { Army } from '../units/training.js';
  *
  * ## Deterministic on purpose
  *
- * No roll. A trap is a known quantity to the person who laid it — that is what they paid for — and
+ * No roll. A trap is a known quantity to the person who laid it, that is what they paid for, and
  * a random one would be a lottery ticket rather than a plan. The victims are taken across the
  * attacking stacks in proportion to their size, so a trap cannot be baited by putting one Razor in
  * front of the Colossus.
@@ -80,7 +80,7 @@ export function trapsAvailable(technologies: readonly string[]): TrapSpec[] {
   return TRAP_CATALOG.filter((spec) => technologies.includes(spec.requiresTech));
 }
 
-/** A trap sitting on a location, waiting. One per location — see the module note on why not three. */
+/** A trap sitting on a location, waiting. One per location: see the module note on why not three. */
 export const ArmedTrapSchema = z.object({
   trapId: z.string().min(1),
   armedAt: IsoDateTimeSchema,

@@ -77,7 +77,7 @@ describe('the mission board', () => {
       MISSION_TEMPLATES.filter((t) => t.stance === stance);
 
     expect(new Set(MISSION_TEMPLATES.map((t) => t.stance))).toEqual(new Set(MISSION_STANCES));
-    // "The main enemy" — more of the board points at the government than any other way.
+    // "The main enemy": more of the board points at the government than any other way.
     expect(byStance('against_government').length).toBeGreaterThan(byStance('unaligned').length);
     expect(byStance('against_government').length).toBeGreaterThan(
       byStance('for_government').length,
@@ -96,7 +96,7 @@ describe('the mission board', () => {
     }
   });
 
-  it('spans §E7 — a couple of minutes at one end, a full day at the other', () => {
+  it('spans §E7: a couple of minutes at one end, a full day at the other', () => {
     const durations = MISSION_TEMPLATES.map((t) => t.durationMinutes);
     expect(Math.min(...durations)).toBeLessThanOrEqual(3);
     expect(Math.max(...durations)).toBe(MISSION_MAX_DURATION_MINUTES);

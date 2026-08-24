@@ -47,7 +47,7 @@ export const EFFECT_SCALE = 0.25;
 /**
  * The channels an attribute can push on.
  *
- * The first fifteen are `TerritoryEffects` fields — attributes and captured ground push the same
+ * The first fifteen are `TerritoryEffects` fields: attributes and captured ground push the same
  * levers, which is why holding a Fight Pit and hiring a brawler feel like the same kind of gain.
  * The rest are crew-only: they describe things a piece of ground cannot do for you.
  */
@@ -140,7 +140,7 @@ export interface CrewOnlyEffects {
    * How much of a large force can actually be brought to bear at once (§A5).
    *
    * The teamwork channel. Combat width (`battle/battlefield.ts`) means bodies past the frontage are
-   * queuing rather than fighting, which is what stops "bring everything" being the whole game — and
+   * queuing rather than fighting, which is what stops "bring everything" being the whole game, and
    * this is the one thing that widens it. A crew that can co-ordinate gets more of a big force into
    * contact; a crew that cannot may as well have left half of them at home.
    *
@@ -183,12 +183,12 @@ export interface AttributeEffect {
  *
  * Exactly one channel each, on purpose. An attribute that pushed four levers a little would be
  * impossible to feel and impossible to shop for; an attribute that pushes one lever hard is a
- * reason to hire a specific person. Several attributes share a channel — that is fine and it is
+ * reason to hire a specific person. Several attributes share a channel. That is fine and it is
  * how a channel gets deep: Resolve and Composure and Leadership all hold a line, and a crew with
  * all three holds it through anything.
  */
 export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>> = {
-  // Physical — what a body does when the plan stops working.
+  // Physical: what a body does when the plan stops working.
   strength: {
     channel: 'unitOffensePercent',
     summary: 'Doors, walls and people give way faster when somebody strong is leaning on them.',
@@ -220,7 +220,7 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     summary: 'Nobody logs a raid they never noticed. Nobody sends anyone after it either.',
   },
 
-  // Mental — the difference between a plan and a hope.
+  // Mental: the difference between a plan and a hope.
   organization: {
     channel: 'cohesionPercent',
     summary: 'Everyone knows where they are meant to be, so a big push arrives as one thing.',
@@ -258,7 +258,7 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     summary: 'People take less to work under someone they would rather not disappoint.',
   },
 
-  // Social — the crew is people, and people are a system.
+  // Social: the crew is people, and people are a system.
   leadership: {
     channel: 'cohesionPercent',
     summary: 'Four hundred people doing one thing, because somebody is telling them what it is.',
@@ -292,7 +292,7 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     summary: 'Talks to the crews you are not fighting, and their people hear where to go.',
   },
 
-  // Technical — the district runs on somebody knowing how it works.
+  // Technical: the district runs on somebody knowing how it works.
   engineering: {
     channel: 'productionPercent',
     summary: 'The line runs at the rate it was rated for instead of the rate it settled into.',
@@ -339,7 +339,7 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
   },
 };
 
-/** Which attributes drive a channel. Derived — the table above is the only place they are paired. */
+/** Which attributes drive a channel. Derived: the table above is the only place they are paired. */
 export function attributesDriving(channel: EffectChannel): AttributeName[] {
   return ATTRIBUTE_NAMES.filter((name) => ATTRIBUTE_EFFECTS[name].channel === channel);
 }
@@ -373,7 +373,7 @@ export const OFF_DUTY_SHARE = 0.35;
  * nineteen seats and everything they know is available to the crew all the time.
  *
  * Note what this is **not**: a role. Which attributes a seat uses is a server-side table for the
- * same reason the fit table is (§B8a) — it overlaps what a role wants closely enough that
+ * same reason the fit table is (§B8a): it overlaps what a role wants closely enough that
  * publishing it would be publishing half the hidden table. The mechanism lives here; the content
  * is passed in.
  */
@@ -397,7 +397,7 @@ export interface CrewMember {
  * and sitting them as Head Spy rather than as Fabricator is the other half. Before it, the two
  * assignments produced literally identical numbers and the §G screen was decoration.
  *
- * Best-of rather than a sum, for the reason at the top of this file — but best-of *after* the
+ * Best-of rather than a sum, for the reason at the top of this file, but best-of *after* the
  * discount, so a brilliant person in the wrong chair can genuinely be beaten by an ordinary one in
  * the right chair, which is the sentence the whole rule exists to make true.
  */
@@ -503,7 +503,7 @@ export function discounted(cost: PartialResources, percent: number): PartialReso
  *
  * Coarsening rather than lying: the number reported is the true count rounded to a grain, so it is
  * never further from the truth than half a grain and never systematically high or low. A blurred
- * report says "about forty" — which is what a scout actually comes back with — instead of a
+ * report says "about forty", which is what a scout actually comes back with, instead of a
  * fabricated forty-three that a player would plan against and be wrong.
  */
 export const INTEL_PERCENT_PER_GRAIN = 8;
@@ -515,11 +515,11 @@ export function blurredCount(exact: number, blurPercent: number): number {
 }
 
 /**
- * §F2 — the ones the medics get back.
+ * §F2: the ones the medics get back.
  *
  * A share of a force's dead come off the casualty list before it is applied. Whole units only,
  * rounded down, so a chief medic on a small skirmish saves nobody and on a real fight saves a
- * squad — which is roughly how a field hospital works. Capped well under half: medicine changes
+ * squad, which is roughly how a field hospital works. Capped well under half: medicine changes
  * how bad a loss is, and is not allowed to make a fight free.
  */
 export const MAX_CASUALTY_RECOVERY = 40;

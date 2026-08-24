@@ -5,7 +5,7 @@ import wordmarkUrl from './wordmark.webp';
  * The game's wordmark.
  *
  * Deliberately *not* a manifest asset. `ART_MANIFEST` is an order sheet for art that can be
- * regenerated — every entry resolves to a domain id, carries a prompt, and must name a backend that
+ * regenerated: every entry resolves to a domain id, carries a prompt, and must name a backend that
  * could produce it. A 64:27 transparent brand plate satisfies none of those: it has no domain id,
  * no backend renders that shape with alpha, and there is no interim look to fall back to because a
  * game with no name on the door is not a state worth modelling. So it ships as an ordinary import,

@@ -11,7 +11,7 @@ import {
  * ############################ SERVER-SIDE ONLY ############################
  *
  * B8 is a design rule, not a preference: what a role needs is internal to the game and is never
- * exposed to a player. No star ratings, no suitability score, no derived fit indicator — players
+ * exposed to a player. No star ratings, no suitability score, no derived fit indicator: players
  * guess from the attributes and traits they can see, and buy partial hints with the §B9 research
  * task (Professor / Head of Research) later.
  *
@@ -21,7 +21,7 @@ import {
  *
  * ##########################################################################
  *
- * Each role's `primary` is the attribute that is genuinely its own (B3, B5) — no two roles share
+ * Each role's `primary` is the attribute that is genuinely its own (B3, B5): no two roles share
  * one. Weights are relative, not normalised; anything unlisted weighs nothing.
  */
 
@@ -110,11 +110,11 @@ export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
 };
 
 /**
- * How well a sheet matches a role, 0..100 — the weighted mean of the attributes the role cares
+ * How well a sheet matches a role, 0..100: the weighted mean of the attributes the role cares
  * about.
  *
  * This number never leaves the server. It is the input to internal resolution (how well the
- * officer performs) and, later, to the §B9 research hints — never to a response body.
+ * officer performs) and, later, to the §B9 research hints: never to a response body.
  */
 export function roleFit(attributes: Attributes, role: OfficerRole): number {
   const { weights } = ROLE_REQUIREMENTS[role];
@@ -127,14 +127,14 @@ export function roleFit(attributes: Attributes, role: OfficerRole): number {
   return weighted / total;
 }
 
-/** The role's template attributes in descending weight order — what the role "is about". */
+/** The role's template attributes in descending weight order: what the role "is about". */
 export function weightedAttributesOf(role: OfficerRole): AttributeName[] {
   return (Object.entries(ROLE_REQUIREMENTS[role].weights) as [AttributeName, number][])
     .sort((a, b) => b[1] - a[1])
     .map(([name]) => name);
 }
 
-/** The role's template as weighted entries — what a character shaped for it is drawn from. */
+/** The role's template as weighted entries: what a character shaped for it is drawn from. */
 export function attributeWeightsOf(role: OfficerRole): [AttributeName, number][] {
   return Object.entries(ROLE_REQUIREMENTS[role].weights) as [AttributeName, number][];
 }

@@ -48,7 +48,7 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
    *
    * The username check is the same shape as registration's: look, then write, with no `await`
    * between them so Node's single loop keeps the pair atomic and two players renaming to the same
-   * thing cannot both pass. Renaming to your *own* current name is not a collision — a form that
+   * thing cannot both pass. Renaming to your *own* current name is not a collision: a form that
    * resends every field would otherwise refuse to change the icon.
    */
   app.patch('/settings/profile', { preHandler: app.authenticate }, (request): SettingsResponse => {
@@ -82,7 +82,7 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
   /**
    * Changing a passphrase.
    *
-   * The current one is required even though the request already carries a valid token — see
+   * The current one is required even though the request already carries a valid token: see
    * `ChangePasswordRequestSchema`. The answer deliberately carries no new token: the JWT holds only
    * `{sub}`, so it survives a password change, and minting a fresh one would imply a revocation
    * this system does not do.

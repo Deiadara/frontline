@@ -133,7 +133,7 @@ describe('OVERSEER_PRESETS', () => {
   });
 
   // Pins the one meaning `attributes` has: the *effective* sheet, trait bonuses already in it.
-  // The presets are the standing proof — the fixer's negotiation is 35 and silver_tongue grants
+  // The presets are the standing proof: the fixer's negotiation is 35 and silver_tongue grants
   // +8, so reading these as pre-trait would put them at 43, past the §B2a ceiling of 40. Nothing
   // may apply a preset's bonuses a second time, and this fails if someone tries.
   it('stores sheets with trait bonuses already applied', () => {
@@ -145,7 +145,7 @@ describe('OVERSEER_PRESETS', () => {
     );
     expect(
       breached.map((preset) => preset.presetId),
-      'applying a preset trait again breaks §B2a — sheets are post-trait, not raw',
+      'applying a preset trait again breaks §B2a: sheets are post-trait, not raw',
     ).toContain('fixer');
   });
 });

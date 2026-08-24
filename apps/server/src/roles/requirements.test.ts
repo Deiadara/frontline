@@ -82,7 +82,7 @@ describe('roleFit', () => {
     expect(roleFit(wasted, 'head_spy')).toBe(roleFit(flat, 'head_spy'));
   });
 
-  // C2: the same character can be slotted anywhere — well or badly. A sheet built for one role
+  // C2: the same character can be slotted anywhere: well or badly. A sheet built for one role
   // must not accidentally be the best sheet for every role.
   it('separates roles: a role-shaped sheet fits that role best', () => {
     for (const role of OFFICER_ROLES) {

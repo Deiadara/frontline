@@ -9,6 +9,7 @@ import {
   startingProgression,
   startingResearch,
   type Base,
+  type BuildQueue,
   type BuildStructureRequest,
   type BuildStructureResponse,
   type MeResponse,
@@ -76,7 +77,7 @@ const me: MeResponse = {
 };
 
 /**
- * The district after the Quarters were ordered — what the server sends back on a successful build.
+ * The district after the Quarters were ordered: what the server sends back on a successful build.
  *
  * Note what it is *not*: a standing structure. Ordering a level puts it in the queue and takes the
  * materials; the level itself lands on a later read, which is the whole point of the queue.
@@ -138,7 +139,7 @@ function renderDistrict() {
   );
 }
 
-/** The reports drawer starts closed — the district is the screen, not a document under it. */
+/** The reports drawer starts closed: the district is the screen, not a document under it. */
 const openReports = () => fireEvent.click(screen.getByTestId('reports-toggle'));
 
 const plot = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name},`) });
@@ -164,7 +165,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('§A1 — the district is a place, not a list', () => {
+describe('§A1: the district is a place, not a list', () => {
   it('stands every structure in the catalogue on its own clickable plot', async () => {
     stubApi();
     renderDistrict();
@@ -182,8 +183,15 @@ describe('§A1 — the district is a place, not a list', () => {
     await waitFor(() => expect(plot('The Nexus')).toHaveAccessibleName(/level 1/));
     // Unlocked at Nexus 1 and not yet built.
     expect(plot('The Quarters')).toHaveAccessibleName(/vacant plot/);
-    // Unlocked at Nexus 12 — the third state, and the one a six-structure village had no room for.
-    expect(plot('The Garage')).toHaveAccessibleName(/locked, needs the Nexus at level 12/);
+    /*
+     * §A1/§I3: locked, and the accessible name carries the **whole** route rather than the first
+     * rung of it. A screen reader gets exactly what the hover note draws: the Nexus level, the two
+     * structures and the crew level, in the catalogue's order.
+     */
+    expect(plot('The Garage')).toHaveAccessibleName(/locked, needs/);
+    expect(plot('The Garage')).toHaveAccessibleName(/The Nexus at 12/);
+    expect(plot('The Garage')).toHaveAccessibleName(/The Scrapyard at 6/);
+    expect(plot('The Garage')).toHaveAccessibleName(/Crew level 14/);
   });
 
   it('opens the plot dialog on click, and closes it again', async () => {
@@ -199,28 +207,9 @@ describe('§A1 — the district is a place, not a list', () => {
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
-
-  it('names the faction, and offers to rename it', async () => {
-    stubApi();
-    renderDistrict();
-
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('The Ninth Street Crew'),
-    );
-
-    // The whole plaque is the control now, so it is named for the thing it *is* plus the thing it
-    // does — which is what a player reads on hover and what a screen reader announces.
-    fireEvent.click(screen.getByRole('button', { name: /rename your faction/i }));
-    fireEvent.change(screen.getByLabelText('Faction name'), { target: { value: 'Vermilion' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Vermilion'),
-    );
-  });
 });
 
-describe('§D3 — building and upgrading consume materials, and take time', () => {
+describe('§D3: building and upgrading consume materials, and take time', () => {
   it('quotes the catalogue cost and the clock, then sends the order', async () => {
     stubApi();
     renderDistrict();
@@ -252,7 +241,7 @@ describe('§D3 — building and upgrading consume materials, and take time', () 
     fireEvent.click(plot('The Quarters'));
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Queue build' }));
 
-    // The plot says it is being worked on — not that it is standing, which it is not.
+    // The plot says it is being worked on, not that it is standing, which it is not.
     await waitFor(() => expect(plot('The Quarters')).toHaveAccessibleName(/under construction/));
     openReports();
     expect(
@@ -286,7 +275,7 @@ describe('§D3 — building and upgrading consume materials, and take time', () 
    *
    * `POST /base/build` runs `settleBase` on its first line and only then asks whether the order can
    * be given: by the time a 409 comes back the server has banked an hour of production, paid a wage
-   * week and may have crossed a player level — the route puts a `levelUp` on the *error* for
+   * week and may have crossed a player level: the route puts a `levelUp` on the *error* for
    * exactly that reason. A mutation that only invalidates `onSuccess` therefore tells the player
    * "you cannot afford that" over a stockpile that has since moved, possibly past the price.
    *
@@ -316,7 +305,7 @@ describe('§D3 — building and upgrading consume materials, and take time', () 
     stubApi();
     renderDistrict();
 
-    // The Generator is level 1 and so is the Nexus — §A1's ceiling, not a money problem.
+    // The Generator is level 1 and so is the Nexus: §A1's ceiling, not a money problem.
     await waitFor(() => expect(plot('The Generator')).toBeInTheDocument());
     fireEvent.click(plot('The Generator'));
 
@@ -331,7 +320,7 @@ describe('§D3 — building and upgrading consume materials, and take time', () 
     await waitFor(() => expect(plot('The Garage')).toBeInTheDocument());
     fireEvent.click(plot('The Garage'));
 
-    expect(within(dialog()).getByText(/NEEDS THE NEXUS AT LEVEL 12/)).toBeInTheDocument();
+    expect(within(dialog()).getByText(/NEEDS THE NEXUS AT 12/)).toBeInTheDocument();
     expect(within(dialog()).getByRole('button', { name: 'Queue build' })).toBeDisabled();
   });
 
@@ -357,7 +346,7 @@ describe('§D3 — building and upgrading consume materials, and take time', () 
   });
 });
 
-describe('§A1 — the grid and what the district makes', () => {
+describe('§A1: the grid and what the district makes', () => {
   it('reports draw against supply, and calls a brownout what it is', async () => {
     stubApi();
     renderDistrict();
@@ -381,7 +370,7 @@ describe('§A1 — the grid and what the district makes', () => {
   });
 });
 
-describe('§I1 — building things pays XP', () => {
+describe('§I1: building things pays XP', () => {
   it('announces a level the build itself paid for', async () => {
     stubApi({ build: { ok: true, status: 200, body: { ...queued, levelUp: levelUp() } } });
     renderDistrict();
@@ -415,7 +404,7 @@ function levelUp() {
  * Somebody else's district, on the city screen.
  *
  * The same scene, drawn read-only. Two things have to hold and neither is visible in a screenshot:
- * a plot on another crew's ground must not be a control — there is nothing there for you to order —
+ * a plot on another crew's ground must not be a control. There is nothing there for you to order,
  * and an empty lot must not be drawn at all, because a survey flag on land you do not own reads as
  * an invitation to build on it.
  */
@@ -430,6 +419,7 @@ describe("a neighbour's district (§A4)", () => {
       <DistrictScene
         buildings={theirs}
         queue={[]}
+        playerLevel={20}
         selected={null}
         onSelect={() => undefined}
         readOnly
@@ -445,44 +435,135 @@ describe("a neighbour's district (§A4)", () => {
   });
 
   it('offers no control over ground that is not yours', () => {
-    // The *behaviour*, not the ARIA role. Asserting the role alone passed against an outline that
-    // had been given `role="img"` and kept its handler — the mutation kept the attribute and kept
+    // The *behaviour*, not the ARIA role. Asserting the role alone passed against an element that
+    // had been given `role="img"` and kept its handler: the mutation kept the attribute and kept
     // the control, which is exactly the bug the test was written to catch.
     const onSelect = vi.fn();
     render(
-      <DistrictScene buildings={theirs} queue={[]} selected={null} onSelect={onSelect} readOnly />,
+      <DistrictScene
+        buildings={theirs}
+        queue={[]}
+        playerLevel={20}
+        selected={null}
+        onSelect={onSelect}
+        readOnly
+      />,
     );
 
     const plot = screen.getByTestId('plot-nexus');
-    expect(plot).not.toHaveAttribute('tabindex');
     fireEvent.click(plot);
     fireEvent.keyDown(plot, { key: 'Enter' });
     expect(onSelect).not.toHaveBeenCalled();
-    // Still named, so it is readable and reachable — it is a picture of a building, not a button.
-    expect(screen.getByRole('img', { name: /^The Nexus,/ })).toBeInTheDocument();
+    // A caption on somebody else's building: still drawn, and not a button.
     expect(screen.queryByRole('button', { name: /^The Nexus,/ })).not.toBeInTheDocument();
   });
 
-  it('answers the keyboard on your own district, which a polygon does not do for free', () => {
+  /**
+   * The name plate is a real `<button>`, which is the whole reason it replaced a traced polygon.
+   *
+   * A `<polygon role="button">` gets none of a button's behaviour: Enter and Space had to be
+   * handled by hand, and forgetting one of them produced a district playable only with a mouse.
+   * What is asserted here is therefore the element itself: a `button` needs no `tabindex`, no key
+   * handler and no `aria-pressed` shim to be operable, and the browser cannot forget half of it.
+   */
+  it('makes every plate a real button, so the keyboard works without being reimplemented', () => {
     const onSelect = vi.fn();
-    render(<DistrictScene buildings={theirs} queue={[]} selected={null} onSelect={onSelect} />);
+    render(
+      <DistrictScene
+        buildings={theirs}
+        queue={[]}
+        playerLevel={20}
+        selected={null}
+        onSelect={onSelect}
+      />,
+    );
 
     const plot = screen.getByTestId('plot-nexus');
-    expect(plot).toHaveAttribute('tabindex', '0');
-    // A `<polygon role="button">` gets none of a `<button>`'s behaviour, so both keys a button
-    // answers to are handled by hand — and a district that can only be played with a mouse is
-    // exactly what forgetting one of them produces.
-    fireEvent.keyDown(plot, { key: 'Enter' });
-    fireEvent.keyDown(plot, { key: ' ' });
-    expect(onSelect).toHaveBeenCalledTimes(2);
+    expect(plot.tagName).toBe('BUTTON');
+    expect(plot).not.toHaveAttribute('tabindex');
+    fireEvent.click(plot);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
 
-    fireEvent.keyDown(plot, { key: 'a' });
-    expect(onSelect).toHaveBeenCalledTimes(2);
+  /**
+   * The map and the dialog answer the same question (§A1).
+   *
+   * A prerequisite sitting in the build queue counts as met: `isUnlockedForQueue` is what the plot
+   * dialog and the server route both read, and for a while the map read the standing district
+   * instead. A player who had already paid for the Nexus level that opens a plot was shown a
+   * padlock and a note listing the rung they had just bought, over a dialog offering to build it.
+   */
+  it('stops calling a plot locked once its prerequisite is in the queue', () => {
+    const standing = [
+      { id: 'n1', kind: 'nexus' as const, level: 3, modifications: [], damage: 0, garrisons: 0 },
+      {
+        id: 'n2',
+        kind: 'scrapyard' as const,
+        level: 3,
+        modifications: [],
+        damage: 0,
+        garrisons: 0,
+      },
+    ];
+    const draw = (queue: BuildQueue) =>
+      render(
+        <DistrictScene
+          buildings={standing}
+          queue={queue}
+          playerLevel={20}
+          selected={null}
+          onSelect={() => undefined}
+        />,
+      );
+
+    // The Gate wants the Nexus at 4 and a Scrapyard at 3. One rung short, it is locked.
+    const shut = draw([]);
+    expect(shut.getByTestId('plot-gate')).toHaveAccessibleName(/locked/);
+    shut.unmount();
+
+    // With that rung ordered, it is not: even though nothing has finished building.
+    const queued = draw([
+      {
+        id: 'q1',
+        kind: 'nexus',
+        level: 4,
+        startedAt: new Date().toISOString(),
+        durationSeconds: 600,
+      },
+    ]);
+    expect(queued.getByTestId('plot-gate')).toHaveAccessibleName(/vacant plot/);
+  });
+
+  /** §I3: a locked plate is still a control, and hovering it says what is in the way. */
+  it('explains a locked plot on hover rather than being a dead square', async () => {
+    render(
+      <DistrictScene
+        buildings={[
+          { id: 'n1', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
+        ]}
+        queue={[]}
+        playerLevel={1}
+        selected={null}
+        onSelect={() => undefined}
+      />,
+    );
+
+    const garage = screen.getByTestId('plot-garage');
+    fireEvent.mouseEnter(garage);
+    await waitFor(() => expect(screen.getByText('Not yet. You need:')).toBeInTheDocument());
+    expect(screen.getByText('The Nexus at 12')).toBeInTheDocument();
+    expect(screen.getByText('Crew level 14')).toBeInTheDocument();
   });
 
   it('still opens the dialog on your own district, which is the control case', () => {
     render(
-      <DistrictScene buildings={theirs} queue={[]} selected={null} onSelect={() => undefined} />,
+      <DistrictScene
+        buildings={theirs}
+        queue={[]}
+        playerLevel={20}
+        selected={null}
+        onSelect={() => undefined}
+      />,
     );
     expect(screen.getByRole('button', { name: /^The Nexus,/ })).toBeInTheDocument();
   });

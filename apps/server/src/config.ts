@@ -8,7 +8,7 @@ const EnvSchema = z.object({
   JWT_SECRET: z.string().min(1).default('dev-secret-change-me'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   /**
-   * Sandbox switch — raises the seeded dev account to the end-game state on every boot.
+   * Sandbox switch: raises the seeded dev account to the end-game state on every boot.
    *
    * Anything but a literal `true` leaves it off, including `1` and `yes`. A flag that turns a
    * feature on for several spellings is a flag that turns on by accident.
@@ -18,14 +18,14 @@ const EnvSchema = z.object({
     .optional()
     .transform((value) => value === 'true'),
   /**
-   * Admin / testing mode — every clock flattened to five seconds, nothing charged.
+   * Admin / testing mode: every clock flattened to five seconds, nothing charged.
    *
    * **Default on**, which is the opposite spelling of `UNLOCKED` above and deliberately so. This is
    * the build the board runs, and a testing mode you have to remember to switch on is a testing
    * mode nobody is in. Turning it off is the explicit act: `ADMIN=false`, and nothing else counts.
    *
    * What it does not do is hide itself. The HUD carries a badge whenever it is on, and every price
-   * on every screen is still the real one — see `admin/mode.ts`.
+   * on every screen is still the real one: see `admin/mode.ts`.
    */
   ADMIN: z.enum(['true', 'false']).optional(),
   /** Vitest sets this. See {@link adminDefault} for why the config cares. */
@@ -77,7 +77,7 @@ export interface AppConfig {
  * the alarming number: the other 388 quietly stopped exercising the economy and would have gone on
  * passing through any pricing bug anybody introduced.
  *
- * A test that wants either mode says so — `admin.test.ts` builds both — and this only decides what
+ * A test that wants either mode says so, `admin.test.ts` builds both, and this only decides what
  * silence means.
  */
 export function adminDefault(nodeEnv: string | undefined): boolean {

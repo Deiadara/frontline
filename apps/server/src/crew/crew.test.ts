@@ -294,8 +294,8 @@ describe("the Overseer's own page", () => {
 /**
  * One positive control per channel.
  *
- * Each measures the same call twice — once with a crew that has the driving attribute and once
- * with a crew that does not — and requires the two to differ. A wiring that got dropped passes
+ * Each measures the same call twice: once with a crew that has the driving attribute and once
+ * with a crew that does not, and requires the two to differ. A wiring that got dropped passes
  * every other test in the suite and fails exactly these.
  */
 describe('an attribute changes an outcome', () => {

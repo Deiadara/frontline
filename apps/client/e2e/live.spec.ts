@@ -11,7 +11,7 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
 /**
  * REAL end-to-end: no `/api` interception. This drives the actual UI against the real
  * Fastify server (both servers are started by playwright.config.ts against a throwaway
- * database) and exercises the MOU-113 flow — log in as the seeded operator, pick an
+ * database) and exercises the MOU-113 flow: log in as the seeded operator, pick an
  * overseer, find the AI rival on the city map, inspect the base, raid the rival and see
  * the salvage land. Every step is captured at both supported viewports.
  */
@@ -28,7 +28,7 @@ const botDistrict = findDistrict(BOT_DISTRICT_ID);
 if (!botDistrict) throw new Error('fixture error: the bot district is missing from the city map');
 
 /**
- * What ordering the Quarters costs (GDD §D3) — spent in STEP 4, before the raid.
+ * What ordering the Quarters costs (GDD §D3): spent in STEP 4, before the raid.
  *
  * The Quarters because they are the cheapest thing a level-1 Nexus authorises, and the shortest:
  * this is the one test that waits for a real build to land against a real server clock, and the
@@ -48,7 +48,7 @@ function isBenign(text: string): boolean {
   return /favicon/i.test(text) || /ResizeObserver loop/i.test(text);
 }
 
-/** The origins this flow is allowed to touch — everything else is a third-party dependency. */
+/** The origins this flow is allowed to touch: everything else is a third-party dependency. */
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
 
 /**
@@ -81,7 +81,7 @@ async function clickDistrict(page: Page, position: { x: number; y: number }): Pr
  * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
  * out into the frame less whatever chrome is covering it and publishes that inset as
  * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
- * the district it was aimed at — and the further right the district, the worse the miss.
+ * the district it was aimed at, and the further right the district, the worse the miss.
  */
 async function districtPoint(
   page: Page,
@@ -106,13 +106,13 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
 }) => {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
-  // A failed third-party fetch is invisible to both listeners below — Chromium reports it on
-  // `requestfailed`, never as a console message — so the hosted-webfont regression MOU-197 closed
+  // A failed third-party fetch is invisible to both listeners below: Chromium reports it on
+  // `requestfailed`, never as a console message, so the hosted-webfont regression MOU-197 closed
   // has to be watched for by origin. `visual.spec.ts` guards `/overseer`; this is the whole flow.
   const offOrigin: string[] = [];
   page.on('request', (req) => {
     const url = new URL(req.url());
-    // `blob:` and `data:` are the page handing bytes to itself — Pixi builds its image-decode
+    // `blob:` and `data:` are the page handing bytes to itself: Pixi builds its image-decode
     // workers that way, two per session. They have no hostname, so an origin test reads them as
     // off-origin, and the guard would then fail on the renderer starting up rather than on anything
     // being fetched from a third party. Nothing leaves the machine either way.
@@ -167,7 +167,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   /*
    * The one place `POST /api/base/build` is exercised end to end: real route, real ledger, real
    * §I1 award. Every other build test stubs the response, so this is what would catch a spend the
-   * server refuses for a reason the client mirrored wrongly — the district says it can afford the
+   * server refuses for a reason the client mirrored wrongly: the district says it can afford the
    * Quarters, so the server must agree.
    */
   const quarters = page.getByRole('button', { name: /^The Quarters,/ });
@@ -175,13 +175,16 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await quarters.click();
   const plotDialog = page.getByRole('dialog');
   await plotDialog.getByRole('button', { name: 'Queue build' }).click();
-  // The order is placed, not finished — which is the whole contract of the queue.
+  // The order is placed, not finished, which is the whole contract of the queue.
   await expect(quarters).toHaveAttribute('aria-label', /under construction/);
   await plotDialog.getByRole('button', { name: 'Close' }).click();
-  // The queue is a report on the district rather than part of it, so it lives in the drawer.
+  // The queue is a report on the district rather than part of it, so it lives in the report window.
   const reports = page.getByTestId('reports-toggle');
   await reports.click();
   await expect(page.getByTestId('build-queue')).toContainText('The Quarters');
+  // Shut again before touching the district: it is a modal, and the picture is behind it.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('district-reports')).toHaveCount(0);
   // §D3: the oil left the HUD's ledger *at order time*, not a second counter of the district's
   // own. Matched as a whole chip value, so it cannot pass on some other resource that happens to
   // contain the digits.
@@ -189,15 +192,17 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await shootEveryViewport(page, 'district-queued');
 
   /*
-   * And then it lands — the one place the lazy build settle runs against a real clock and a real
+   * And then it lands: the one place the lazy build settle runs against a real clock and a real
    * database rather than a stubbed response. `buildingBuildSeconds` at the bottom of the tree is
    * tens of seconds, and the page polls every five, so the timeout is that plus a wide margin for
    * a loaded CI box rather than a number picked to be comfortable.
    */
   await expect(quarters).toHaveAttribute('aria-label', /level 1/, { timeout: 90_000 });
+  await page.getByTestId('reports-toggle').click();
   await expect(page.getByTestId('build-queue')).toHaveCount(0);
-  await reports.click();
   await shootEveryViewport(page, 'district-built');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('district-reports')).toHaveCount(0);
 
   // --- STEP 5: walk into the city and take a place off the looters (§A4) ---
   await page.getByRole('link', { name: 'City', exact: true }).click();
@@ -229,7 +234,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    * This step used to press "Take it" and read a victory banner, because a fight resolved the
    * instant it was ordered. It does not any more, and there is no way to fake that here: a
    * declaration is legal only hours out, and the settler runs when the mark passes. So what a live
-   * session can prove is the whole of the loop up to the mark, which is the part a player does —
+   * session can prove is the whole of the loop up to the mark, which is the part a player does:
    * the call goes on the board, the squad leaves the roster for it, and pulling them back puts
    * them where they were.
    */
@@ -248,9 +253,10 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(page.getByRole('dialog')).toBeHidden();
   await shootEveryViewport(page, 'fight-called');
 
-  // It is on the board, with the mark on it, and it is public.
-  await page.getByRole('link', { name: 'Board', exact: true }).click();
-  await expect(page.getByRole('heading', { name: /Coming/i }).first()).toBeVisible();
+  // It is on the Battles page, with the mark on it, and it is public. Reached from the standing
+  // bar rather than from the scenery switcher, which is where the door lives now.
+  await page.getByTestId('hud-battles').click();
+  await expect(page.getByTestId('coming-battles')).toBeVisible();
   await shootEveryViewport(page, 'battle-board');
 
   // --- STEP 6: the roster reflects what the city has opened up (§A5) ---

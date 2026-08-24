@@ -9,7 +9,7 @@ import { lateGame, me, missionsResponse } from './fixtures';
 import { installApi, settleFonts } from './harness';
 
 /**
- * W10 (GDD §A3) — the Combine is on screen in two locations: the intel panel names who holds a
+ * W10 (GDD §A3): the Combine is on screen in two locations: the intel panel names who holds a
  * district, and the mission board badges which way a job points at the state.
  *
  * Both additions are *extra text in a row that was already full*, which is the one way this change
@@ -19,7 +19,7 @@ import { installApi, settleFonts } from './harness';
  */
 
 /**
- * The widths this project actually gates on — `live.spec.ts`'s `VIEWPORTS` plus the narrowest
+ * The widths this project actually gates on: `live.spec.ts`'s `VIEWPORTS` plus the narrowest
  * desktop above them, which is the tightest case the two-tag header has to survive. Deliberately
  * not a phone width: the shell does not reflow below ~1000px today (the whole right-hand column
  * clips), so a 390px assertion would be measuring a pre-existing gap rather than this change.
@@ -44,7 +44,7 @@ async function overflowing(page: Page): Promise<string[]> {
  * word in half to fit ("COURIE / R / CONTRA / CT").
  *
  * `overflowing` above cannot see this: a mid-word break is not overflow, `scrollWidth` matches
- * `clientWidth` and the text is technically all on screen — it is just unreadable. This is the
+ * `clientWidth` and the text is technically all on screen. It is just unreadable. This is the
  * exact regression the Combine badge caused, because the tag group cannot shrink and squeezed the
  * heading beside it, so it is measured rather than eyeballed.
  */
@@ -93,7 +93,7 @@ async function escaping(page: Page, container: string): Promise<string[]> {
  * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
  * out into the frame less whatever chrome is covering it and publishes that inset as
  * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
- * the district it was aimed at — and the further right the district, the worse the miss.
+ * the district it was aimed at, and the further right the district, the worse the miss.
  */
 async function districtPoint(
   page: Page,
@@ -130,8 +130,8 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
       const ambush = page
         .locator('article')
         .filter({ has: page.getByRole('heading', { name: 'Convoy Ambush' }) });
-      // The board is a scroller — the existing suite skips the vertical-clip guard here for the
-      // same reason — so a card is scrolled to before anything is asserted about being on screen.
+      // The board is a scroller: the existing suite skips the vertical-clip guard here for the
+      // same reason, so a card is scrolled to before anything is asserted about being on screen.
       await ambush.scrollIntoViewIfNeeded();
       await expect(ambush).toBeVisible();
       // The badge has to be *in the viewport*, not merely in the DOM: a tag pushed out of its row
@@ -170,7 +170,7 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
     await expect(
       card('Courier Contract').getByText(MISSION_STANCE_SPECS.for_government.label),
     ).toBeInViewport();
-    // Unaligned scavenging carries no stance badge at all — the badge is a warning, not a label.
+    // Unaligned scavenging carries no stance badge at all: the badge is a warning, not a label.
     await card('Scrap Run').scrollIntoViewIfNeeded();
     for (const spec of Object.values(MISSION_STANCE_SPECS)) {
       await expect(card('Scrap Run').getByText(spec.label)).toHaveCount(0);
@@ -205,7 +205,7 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
       await select(page, seat.position);
 
       await expect(page.getByRole('heading', { name: seat.name })).toBeVisible();
-      // §A3 — a seat of the Combine's power says so, and names what is standing on it.
+      // §A3: a seat of the Combine's power says so, and names what is standing on it.
       await expect(page.getByText('Seat of power')).toBeInViewport();
       await expect(page.getByText(new RegExp(garrisonOf(seat)))).toBeInViewport();
 
@@ -226,7 +226,7 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
 
     await select(page, outpost.position);
     await expect(page.getByText(new RegExp(garrisonOf(outpost)))).toBeInViewport();
-    // An outpost is Combine ground but not a seat of its power — the two must read apart.
+    // An outpost is Combine ground but not a seat of its power: the two must read apart.
     await expect(page.getByText('Seat of power')).toHaveCount(0);
 
     await select(page, street.position);

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-/** Opaque entity id (uuid or similar) — always a non-empty string. */
+/** Opaque entity id (uuid or similar): always a non-empty string. */
 export const IdSchema = z.string().min(1);
 export type Id = z.infer<typeof IdSchema>;
 

@@ -6,8 +6,8 @@ import { addToArmy, takeFromArmy, type Army } from '@frontline/shared';
  * A crew's units live in exactly one of: the roster at home (`base.army`), a garrison on a location
  * (`location_control.garrison`), a deployment for a coming fight, or the ring outside it. Every move
  * between those is one of the four functions here, and they are shared rather than re-declared per
- * module because the city actions and the siege deployments were about to grow a private copy each
- * — and the copy that drifts is the one that lets a stack be in two locations at once.
+ * module because the city actions and the siege deployments were about to grow a private copy each,
+ * and the copy that drifts is the one that lets a stack be in two locations at once.
  */
 
 export const forceSize = (force: Army): number =>

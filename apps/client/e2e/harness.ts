@@ -3,8 +3,10 @@ import {
   negotiate,
   negotiateWage,
   negotiationLine,
+  notorietyUpgradeCost,
   openNegotiation,
   type BarRecruit,
+  type Base,
   type Commander,
   type MeResponse,
   type OfficerRole,
@@ -36,14 +38,14 @@ import {
 } from './fixtures';
 
 /** The display webfont every geometry assertion has to be measured against. */
-const DISPLAY_FONT = 'Orbitron';
+const DISPLAY_FONT = 'Roboto Condensed';
 
 /**
  * Wait until layout is measured against the font the player actually sees.
  *
- * `src/fonts.css` declares Orbitron with `font-display: swap`, so text is laid out in the ~12%
- * narrower fallback until it lands. A geometry assertion that races the swap measures a screen
- * nobody renders — and, worse, passes *because* of the narrower metrics. Awaiting `fonts.ready`
+ * `src/fonts.css` declares Roboto Condensed with `font-display: swap`, so text is laid out in the
+ * wider fallback until it lands. A geometry assertion that races the swap measures a screen
+ * nobody renders, and, worse, passes *because* of the narrower metrics. Awaiting `fonts.ready`
  * alone is not enough either: if the font request fails, that resolves immediately and every
  * guard goes vacuously green, so the load is asserted rather than assumed.
  */
@@ -63,7 +65,7 @@ export async function settleFonts(page: Page): Promise<void> {
  * No text may be left half-drawn by a clipping edge.
  *
  * The layout guards only ever compared `scrollWidth` to `clientWidth`, which says nothing about a
- * container whose *bottom* edge runs through the middle of a card — the defect that shipped green
+ * container whose *bottom* edge runs through the middle of a card: the defect that shipped green
  * on the character-select grid, where 57px of hidden overflow sliced two cards through the digits
  * of an attribute row. Text scrolled entirely out of view is fine (that is what scrolling is for);
  * text the edge bisects is not, however little scrolling would recover it.
@@ -72,7 +74,7 @@ export async function settleFonts(page: Page): Promise<void> {
  * then re-judged against an outer one. Leaves only: a straddling wrapper is merely the parent of
  * whatever really straddles, and reporting both buries the offender.
  *
- * `root` narrows the sweep to one subtree, for a screen whose *page* is a document scroller — the
+ * `root` narrows the sweep to one subtree, for a screen whose *page* is a document scroller: the
  * fold of a scrolling region cuts its last row by design, so sweeping the whole body there reports
  * ordinary scrolling as a defect. Clipping ancestors are still walked to the top of the document,
  * so narrowing the sweep never weakens what it measures about the elements it does look at.
@@ -88,7 +90,7 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
      *
      * The list is the spec's: a transform, a perspective, a filter or backdrop-filter, a
      * `will-change` naming one of those, or paint containment. Any of them re-parents a fixed
-     * descendant onto this box — so it clips again, and the walk below has to notice.
+     * descendant onto this box, so it clips again, and the walk below has to notice.
      */
     const containsFixed = (style: CSSStyleDeclaration): boolean =>
       style.transform !== 'none' ||
@@ -104,8 +106,8 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
       let [top, bottom] = [at.top, at.bottom];
 
       // A `position: fixed` box is laid out against the viewport, not against its DOM parents, so
-      // the overflow of the ancestors above it does not cut it. Walking past that — as this did
-      // until MOU-4xx — reports every modal rendered inside a scrolling page as clipped, which is
+      // the overflow of the ancestors above it does not cut it. Walking past that, as this did
+      // until MOU-4xx: reports every modal rendered inside a scrolling page as clipped, which is
       // both wrong and exactly the kind of false red that gets a gate switched off. The escape
       // ends at an ancestor that establishes a containing block for fixed descendants, because
       // that one really does clip it again.
@@ -149,21 +151,21 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
  *
  * The board's bar is "no cut text **or images**", and only the text half was gated:
  * {@link expectNothingClippedVertically} skips every element that has children or holds no text,
- * and an `<svg>` fails both tests — so every procedural sprite and every resource glyph in the game
+ * and an `<svg>` fails both tests, so every procedural sprite and every resource glyph in the game
  * was invisible to it. `StructureSprite` is the sharp case. Its span is `min-h-0 w-full flex-1`, so
  * the sprite's height is only ever whatever the name plate leaves over; squeezed to zero, or grown
  * past the plot it stands on, it stayed green on every gate we had.
  *
  * Three defects, one sweep:
- *  - **collapsed** — a rendered image with no area, i.e. art the player is simply not shown;
- *  - **spilling** — an image drawn outside the box it was placed in, which lands it on a neighbour;
- *  - **sliced** — an image an `overflow` ancestor cuts partway through, on either axis.
+ *  - **collapsed**: a rendered image with no area, i.e. art the player is simply not shown;
+ *  - **spilling**: an image drawn outside the box it was placed in, which lands it on a neighbour;
+ *  - **sliced**: an image an `overflow` ancestor cuts partway through, on either axis.
  *
  * An image clipped away *entirely* is left alone, exactly as the text guard leaves fully-scrolled
  * text alone: that is what a scroller does. For the same reason the walk up the clipping ancestors
  * stops at `root` rather than running to the top of the document: a caller narrows the sweep to a
  * region precisely because the page *outside* it scrolls, and every scrolling page cuts whatever
- * lands on its fold. Measured, not assumed — sweeping past the scope reported the village's own
+ * lands on its fold. Measured, not assumed: sweeping past the scope reported the village's own
  * backdrop as sliced at 1280x720, where 14px of the scene simply sits below the fold.
  */
 export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<void> {
@@ -213,7 +215,7 @@ export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<
 
     for (const el of scope.querySelectorAll('svg, img, canvas')) {
       // `checkVisibility` answers "does this generate a box at all" without conflating it with
-      // "does that box have area" — which is the very defect below, so the two must stay apart.
+      // "does that box have area", which is the very defect below, so the two must stay apart.
       if (!el.checkVisibility()) continue;
       // Scenery is *meant* to run past its frame: the shell's backdrop is over-scaled on purpose
       // so a blur has pixels to sample past its own edges. `visual.spec.ts` honours the same
@@ -262,36 +264,66 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     localStorage.setItem('frontline.token', JSON.stringify({ state: { token }, version: 0 }));
   }, TOKEN);
 
+  /*
+   * The session, and it moves.
+   *
+   * Everything else in this harness answers from a frozen fixture, which is right: a screenshot of
+   * a fixed state is what these runs are for. §D7's ladder is the exception, because the whole
+   * mechanic is a *change* to the crew, and a `/me` that kept answering with the pre-purchase rank
+   * would let the client write the new one into its cache, refetch, quietly revert, and still pass
+   * whichever assertion happened to run first.
+   */
+  let session = meResponse;
+
   await page.route('**/api/**', async (route) => {
     const { pathname } = new URL(route.request().url());
     const json = (data: unknown, status = 200) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
 
-    if (pathname.endsWith('/api/me')) return json(meResponse);
+    if (pathname.endsWith('/api/me')) return json(session);
     if (pathname.endsWith('/api/city')) return json(city);
     // The base screen reads `GET /base/:id`, not `/me`. Serving one fixed base regardless of the
-    // session made `installApi(page, lateGame)` a half-fixture — a late-game HUD over a starting
-    // base — so the detail follows whichever session was installed.
-    if (pathname.includes('/api/base/')) return json({ base: meResponse.base ?? baseDetail.base });
+    // session made `installApi(page, lateGame)` a half-fixture: a late-game HUD over a starting
+    // base, so the detail follows whichever session was installed.
+    if (pathname.includes('/api/base/')) return json({ base: session.base ?? baseDetail.base });
     if (pathname.endsWith('/api/battle')) return json(battle);
-    // §A4 — the board. Every write answers with the whole board plus the crew, so one handler
+    // §A4: the board. Every write answers with the whole board plus the crew, so one handler
     // covers the read and all five writes; a write that answered with a different shape would be
     // a hole in the fixture, which is the contract these runs are measured against.
     if (pathname.includes('/api/battles')) {
-      return json(
-        route.request().method() === 'GET'
-          ? battles
-          : { battles, base: meResponse.base ?? baseDetail.base },
-      );
+      if (route.request().method() === 'GET') return json(battles);
+      const own = session.base ?? baseDetail.base;
+      /*
+       * §D7: the ladder actually moves.
+       *
+       * Answering this write with the unchanged crew would let a client that never re-read the
+       * response pass: the chip would keep saying what it said before and the run would be green.
+       * The arithmetic is the shared function the server itself calls, so a fixture cannot drift
+       * from the rule it is standing in for.
+       */
+      if (pathname.endsWith('/api/battles/notoriety')) {
+        const cost = notorietyUpgradeCost(own.economy.notoriety) ?? 0;
+        const climbed: Base = {
+          ...own,
+          economy: {
+            ...own.economy,
+            infamy: Math.max(0, own.economy.infamy - cost),
+            notoriety: own.economy.notoriety + 1,
+          },
+        };
+        session = { ...session, base: climbed };
+        return json({ battles, base: climbed });
+      }
+      return json({ battles, base: own });
     }
-    // §A4 — the city writes all answer with the district they touched, so one handler covers them.
+    // §A4: the city writes all answer with the district they touched, so one handler covers them.
     // `/api/city/attack` and `/api/city/raid` used to need their own line here, because they
     // answered with a battle report; they are gone with the instant fight they resolved.
     if (
       pathname.endsWith('/api/city/scout') ||
       pathname.endsWith('/api/city/garrison') ||
       pathname.endsWith('/api/city/fortify') ||
-      // §A4 — working a location up. Without a line here it fell through to the district read
+      // §A4: working a location up. Without a line here it fell through to the district read
       // below and answered a POST with a district, which is a 200 that changes nothing.
       pathname.endsWith('/api/city/upgrade')
     ) {
@@ -301,7 +333,7 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     if (pathname.endsWith('/api/units')) return json(unitsResponse);
     /*
      * Method-aware, deliberately. Fulfilling `/api/missions` for *any* method served the board
-     * payload to a launch too — a shape `LaunchMissionResponseSchema` cannot even parse — so no
+     * payload to a launch too, a shape `LaunchMissionResponseSchema` cannot even parse, so no
      * e2e ever reached the §G6 officer gate and a launch path that refused half the board shipped
      * green. The fixture is the contract here; a method-blind handler is a hole in it.
      */
@@ -310,13 +342,13 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       return json(launchResponse());
     }
     /*
-     * §H7 — the conversation, run through the *real* model rather than answered with a canned
+     * §H7: the conversation, run through the *real* model rather than answered with a canned
      * reply.
      *
      * `negotiate` and `negotiationLine` are pure and live in `@frontline/shared`, which is exactly
      * where the server gets them from, so this fixture produces the same answer the server would
      * for the same offer. A hard-coded reply here would let a client that sent the wrong body, or
-     * mis-read the response, pass every run — the failure mode this harness has already been bitten
+     * mis-read the response, pass every run: the failure mode this harness has already been bitten
      * by once on `/api/missions`.
      */
     if (pathname.endsWith('/api/bar/negotiate')) {
@@ -349,7 +381,7 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
      *
      * That absence is why the "agrees but never joins the crew" bug shipped: `/api/bar/hire` fell
      * through to the 404 catch-all, so a test could drive the whole negotiation, press the button,
-     * and see nothing happen — exactly as a player did. A route the app calls and the fixture does
+     * and see nothing happen: exactly as a player did. A route the app calls and the fixture does
      * not answer is a hole in the contract, not a missing convenience.
      *
      * The wage rule is the real one: `negotiateWage` is the same shared function the server hires
@@ -391,17 +423,17 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     if (pathname.endsWith('/api/assignees')) {
       return json((meResponse.base?.level ?? 1) > 1 ? assigneesFat : assigneesStart);
     }
-    // Before the bare `/api/overseer` handler below, which does not match a sub-path — and would
+    // Before the bare `/api/overseer` handler below, which does not match a sub-path, and would
     // answer a profile read with a 201 character-creation payload if it were reordered.
     if (pathname.endsWith('/api/overseer/me')) return json(crewStanding);
     if (pathname.endsWith('/api/training')) return json(trainingResponse);
     // Every market write answers with the whole board, so one handler covers the read and all five
-    // writes — the fixture *is* the contract, and a write that answered with a different shape
+    // writes: the fixture *is* the contract, and a write that answered with a different shape
     // would be a hole in it.
     if (pathname.includes('/api/market'))
       return json(route.request().method() === 'GET' ? market : { market });
     // The back room. Read and write answer with the same shape wrapped differently, exactly as the
-    // front of the market does — the fixture *is* the contract, so a write that answered with
+    // front of the market does: the fixture *is* the contract, so a write that answered with
     // something else would be a hole in it.
     if (pathname.includes('/api/black-market')) {
       return json(route.request().method() === 'GET' ? blackMarket : { blackMarket });
@@ -442,7 +474,7 @@ function hiredOfficer(recruit: BarRecruit, role: OfficerRole): Commander {
  * A document sheet must stay dark enough to read.
  *
  * The game is a dark interface with light type on it, and the textures that make it feel painted
- * are *blends* — `painted` and `washed` are soft-light layers. One of them over a panel is the
+ * are *blends*: `painted` and `washed` are soft-light layers. One of them over a panel is the
  * intended effect. Several stacked down one scrolling column compound, and the page comes out as a
  * pale grey static field with the type barely legible through it. That is what happened to the
  * Overseer's file the first time it was built, and every gate in this suite passed it: the DOM was
@@ -451,7 +483,7 @@ function hiredOfficer(recruit: BarRecruit, role: OfficerRole): Commander {
  *
  * Measured as the share of the sheet that is *pale* rather than as a mean, because a mean is
  * dragged around by how much artwork happens to be on the page. Calibrated across every document
- * screen in the game (2%–7% pale) against the broken build (83%), so the bound below sits about
+ * screen in the game (2%-7% pale) against the broken build (83%), so the bound below sits about
  * four times above the worst healthy page and three times under the failure.
  */
 const MAX_PALE_SHARE = 0.25;
@@ -483,6 +515,6 @@ export async function expectSheetNotWashedOut(
 
   expect(
     pale,
-    `${(pale * 100).toFixed(0)}% of the sheet is pale — a blend layer is washing the page out`,
+    `${(pale * 100).toFixed(0)}% of the sheet is pale: a blend layer is washing the page out`,
   ).toBeLessThan(MAX_PALE_SHARE);
 }

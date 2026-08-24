@@ -1,7 +1,7 @@
 import {
   BUILDING_CATALOG,
   CITY_DISTRICTS,
-  INFAMY_SACRIFICES,
+  BATTLE_BOOSTS,
   TRAP_CATALOG,
   buildingEffectiveness,
   declarableSlots,
@@ -11,18 +11,23 @@ import {
   deploymentIsOpen,
   deployedSize,
   findDistrict,
-  findSacrifice,
+  boostAvailable,
+  boostCoverage,
+  describeBoostEffect,
+  describeBoostUnlock,
+  findTech,
   hasInfamy,
   intelQualityLine,
   observedForceSize,
   reportReaches,
+  type Army,
   type BattleReportView,
   type BattleSide,
   type BattleView,
   type BattlesResponse,
   type Base,
   type DistrictGateView,
-  type SacrificeOption,
+  type BattleBoostOption,
   type ScheduledBattle,
   type StructureDefence,
   type TrapOption,
@@ -39,7 +44,7 @@ import { residentOf, targetName } from './ground.js';
  *
  * The fog is enforced **here**, on the way out, the same way the city view enforces it: a caller is
  * told what they can see and nothing else is put on the payload. That matters more on this screen
- * than on any other, because the thing being hidden is the one thing worth hiding — what the other
+ * than on any other, because the thing being hidden is the one thing worth hiding: what the other
  * side has moved up. A field that was sometimes null would leak by its own shape, so the enemy's
  * composition is not a nullable field: it does not exist. What exists is a *count*, and only when
  * this crew's intelligence is good enough to have one.
@@ -61,7 +66,7 @@ function musterOf(repos: Repositories, battle: ScheduledBattle, side: BattleSide
 /**
  * What this crew can make out of the other side's force.
  *
- * Their counter-intelligence and the force's own stealth against this crew's reading — one figure,
+ * Their counter-intelligence and the force's own stealth against this crew's reading: one figure,
  * and it decides between an exact count, a rounded one and nothing at all. The **ring is never in
  * the count**: it is standing outside the fight, and a player who could see it coming would never
  * walk into one, which is the whole of what it is for.
@@ -104,6 +109,8 @@ function viewOf(
   const attackerName = repos.bases.findById(battle.attackerBaseId)?.name ?? 'a crew nobody knows';
 
   const enemy = side ? readEnemy(repos, battle, side, reading) : { size: null, quality: '' };
+  const muster = side ? musterOf(repos, battle, side) : null;
+  const deployment = side ? repos.sieges.deployment(battle.id, side) : undefined;
 
   return {
     battle,
@@ -112,13 +119,17 @@ function viewOf(
     role: side ?? 'bystander',
     side,
     deploymentOpen: deploymentIsOpen(new Date(battle.scheduledFor), now),
-    muster: side ? musterOf(repos, battle, side) : null,
+    muster,
     enemySize: enemy.size,
     enemyIntel: side ? enemy.quality : 'You are not in this one.',
     opponentName:
       side === 'defender'
         ? attackerName
         : (defenderBase?.name ?? holderLabel(battle.defender.kind)),
+    // A bystander is not buying anything for a fight they are not in, and sending them the shelf
+    // would be sending them the caller's own research and officer list.
+    boosts: side ? boostsFor(base, muster?.army ?? {}) : [],
+    boostId: deployment?.boostId ?? null,
   };
 }
 
@@ -178,15 +189,28 @@ function trapsFor(base: Base): TrapOption[] {
   });
 }
 
-function sacrificesFor(base: Base): SacrificeOption[] {
-  return INFAMY_SACRIFICES.map((spec) => ({
+/**
+ * §D7: what this crew's name will buy on this particular fight.
+ *
+ * `reach` is computed against the force they have actually deployed, which is the number that makes
+ * the drop-down honest: "+35% defence for your heavy units" on a force with no heavy units in it is
+ * worth nothing, and a player should be able to see that before they pay rather than after.
+ */
+function boostsFor(base: Base, force: Army): BattleBoostOption[] {
+  const crew = {
+    technologies: base.research.technologies,
+    roles: base.commanders.map((officer) => officer.role),
+  };
+  return BATTLE_BOOSTS.map((spec) => ({
     id: spec.id,
     name: spec.name,
     description: spec.description,
     cost: spec.cost,
-    hours: spec.hours,
-    effect: `+${spec.magnitude} on ${spec.channel.replace(/Percent|Flat/, '')} for ${spec.hours}h`,
+    effect: describeBoostEffect(spec.effect),
+    source: describeBoostUnlock(spec.unlock, (id) => findTech(id)?.name ?? id),
+    reach: Math.round(boostCoverage(spec.effect, force) * 100),
     affordable: hasInfamy(base.economy.infamy, spec.cost),
+    available: boostAvailable(spec.unlock, crew),
   }));
 }
 
@@ -213,14 +237,18 @@ function gatesFor(
   });
 }
 
-/** A breach that has run out is a gate standing again — read once, here. */
+/** A breach that has run out is a gate standing again: read once, here. */
 function gateIsBrokenAt(brokenUntil: string | null, now: Date): boolean {
   return brokenUntil !== null && Date.parse(brokenUntil) > now.getTime();
 }
 
 export function projectBattles(repos: Repositories, base: Base, now: Date): BattlesResponse {
-  const visible = cityContextFor(repos, base).visible;
-  const reading = crewEffectsFor(repos, base).intelYieldPercent;
+  // One context, read once: the same fold the city view uses, so the two screens cannot report a
+  // different quality of intel about the same rival. It was two folds and they disagreed. This
+  // one had no locations in it, so a Watchtower made the city page sharper and the board blind.
+  const context = cityContextFor(repos, base);
+  const visible = context.visible;
+  const reading = context.intelYieldPercent;
 
   const coming = repos.sieges
     .pending()
@@ -229,19 +257,11 @@ export function projectBattles(repos: Repositories, base: Base, now: Date): Batt
     )
     .map((battle) => viewOf(repos, base, battle, reading, now));
 
-  const running = base.economy.sacrifice;
-  const runningSpec = running ? findSacrifice(running.id) : undefined;
-
   return {
     coming,
     reports: reportsFor(repos, base),
     slots: declarableSlots(now).map((slot) => slot.toISOString()),
     infamy: base.economy.infamy,
-    sacrifices: sacrificesFor(base),
-    sacrificeRunning:
-      running && runningSpec && Date.parse(running.until) > now.getTime()
-        ? `${runningSpec.name}, until ${running.until}`
-        : null,
     gates: gatesFor(repos, visible, now),
     structures: structuresOf(base),
     traps: trapsFor(base),

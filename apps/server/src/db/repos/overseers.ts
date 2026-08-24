@@ -23,7 +23,7 @@ export interface NewOverseer {
 export interface OverseersRepo {
   insert(input: NewOverseer): void;
   findById(id: string): Overseer | undefined;
-  /** GDD §F2 — the Overseer develops an attribute, which is the only thing that moves this sheet. */
+  /** GDD §F2: the Overseer develops an attribute, which is the only thing that moves this sheet. */
   updateAttributes(id: string, attributes: Attributes): void;
 }
 

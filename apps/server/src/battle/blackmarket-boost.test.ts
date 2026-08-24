@@ -19,7 +19,7 @@ import { settleBattles } from './resolve.js';
  *
  * A battle boost is bought with infamy days before anybody declares anything, sits in a stash, and
  * is worth exactly nothing until a battle resolves. Two halves of the game were built against that
- * contract independently — the market side stashes it, the battle side is supposed to spend it —
+ * contract independently: the market side stashes it, the battle side is supposed to spend it,
  * and a contract with nobody standing on both sides of it is the classic location for a feature to be
  * *shipped* and *inert*. So this test stands on both sides: it buys the thing through the real
  * route and then reads what the engine was handed.
@@ -210,7 +210,7 @@ describe('contraband reaches the fight', () => {
   /**
    * The board's rule: the same boost counts **once**, however many are in the bag.
    *
-   * Two of a thing stacking is the shape that ends one way — the correct play becomes hoarding a
+   * Two of a thing stacking is the shape that ends one way: the correct play becomes hoarding a
    * fortnight of infamy into six syringes and deleting somebody with a number no defence was
    * balanced against. The second crate is not wasted, though: it is the next fight's.
    */

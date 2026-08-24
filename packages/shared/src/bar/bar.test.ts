@@ -61,7 +61,7 @@ const EVERY_DISPOSITION: Disposition[] = AMBITIONS.flatMap((ambition) =>
   MORAL_COMPASSES.map((moralCompass) => ({ ambition, moralCompass })),
 );
 
-describe('§H4 — reading the crew off its reputation word', () => {
+describe('§H4: reading the crew off its reputation word', () => {
   it('never scores outside the stance band, for any character against any word', () => {
     for (const disposition of EVERY_DISPOSITION) {
       for (const reputation of REPUTATION_LABELS) {
@@ -98,16 +98,21 @@ describe('§H4 — reading the crew off its reputation word', () => {
   });
 });
 
-describe('§H3 + §H4 — who will talk to you', () => {
+describe('§H3 + §H4, who will talk to you', () => {
   const anyone: Disposition = { ambition: 'wealth', moralCompass: 'pragmatist' };
 
-  it('shuts the door on a crew below the infamy the character demands (§H3)', () => {
-    const gated = assessJoin(anyone, { minInfamy: 40 }, { infamy: 39, reputation: 'Cautious' });
+  it('shuts the door on a crew below the rank the character demands (§H3)', () => {
+    const gated = assessJoin(anyone, { minNotoriety: 4 }, { notoriety: 3, reputation: 'Cautious' });
     expect(gated.meetsRequirement).toBe(false);
     expect(gated.interested).toBe(false);
-    expect(gated.blockers).toContain('infamy');
+    // A full wallet does not open it: what is short is the rank, and only the rank.
+    expect(gated.blockers).toContain('notoriety');
 
-    const cleared = assessJoin(anyone, { minInfamy: 40 }, { infamy: 40, reputation: 'Cautious' });
+    const cleared = assessJoin(
+      anyone,
+      { minNotoriety: 4 },
+      { notoriety: 4, reputation: 'Cautious' },
+    );
     expect(cleared.meetsRequirement).toBe(true);
     expect(cleared.interested).toBe(true);
     expect(cleared.blockers).toEqual([]);
@@ -119,8 +124,8 @@ describe('§H3 + §H4 — who will talk to you', () => {
     const hostile: Disposition = { ambition: 'knowledge', moralCompass: 'pragmatist' };
     const assessment = assessJoin(
       hostile,
-      { minInfamy: 0 },
-      { infamy: 100, reputation: 'Reckless' },
+      { minNotoriety: 0 },
+      { notoriety: 3, reputation: 'Reckless' },
     );
     expect(assessment.meetsRequirement).toBe(true);
     expect(assessment.stance).toBe(JOIN_REFUSAL_STANCE);
@@ -131,19 +136,23 @@ describe('§H3 + §H4 — who will talk to you', () => {
   it('reports both gates when both are shut', () => {
     const hostile: Disposition = { ambition: 'knowledge', moralCompass: 'pragmatist' };
     expect(
-      assessJoin(hostile, { minInfamy: 50 }, { infamy: 0, reputation: 'Reckless' }).blockers,
-    ).toEqual(['infamy', 'reputation']);
+      assessJoin(hostile, { minNotoriety: 5 }, { notoriety: 0, reputation: 'Reckless' }).blockers,
+    ).toEqual(['notoriety', 'reputation']);
   });
 
-  it('lets a single objection through — refusal takes both halves of §H4', () => {
+  it('lets a single objection through: refusal takes both halves of §H4', () => {
     const half: Disposition = { ambition: 'knowledge', moralCompass: 'idealist' };
-    const assessment = assessJoin(half, { minInfamy: 0 }, { infamy: 0, reputation: 'Reckless' });
+    const assessment = assessJoin(
+      half,
+      { minNotoriety: 0 },
+      { notoriety: 0, reputation: 'Reckless' },
+    );
     expect(assessment.stance).toBe(-1);
     expect(assessment.interested).toBe(true);
   });
 });
 
-describe('§H5 — the alignment meter', () => {
+describe('§H5: the alignment meter', () => {
   it('threatens to leave at the low threshold and not one point above it', () => {
     expect(threatensToLeave(ALIGNMENT_LEAVE_THRESHOLD)).toBe(true);
     expect(alignmentBand(ALIGNMENT_LEAVE_THRESHOLD)).toBe('leaving');
@@ -252,7 +261,7 @@ describe('§H5 — the alignment meter', () => {
   it('pays a durable bonus only where both halves of §H4 approve', () => {
     // Entered at every step (above) and *rested* at only two: `alignmentTarget(1)` is exactly
     // ALIGNMENT_BONUS_THRESHOLD, so a stance +1 officer settles on the first alignment that pays
-    // nothing and stays there. That is the decision, not an accident of the constants — asserted
+    // nothing and stays there. That is the decision, not an accident of the constants: asserted
     // across the stance range so that moving either constant has to come back through it.
     for (let stance = STANCE_MIN; stance < STANCE_MAX; stance++) {
       expect(alignmentSkillBonus(alignmentTarget(stance))).toBe(0);
@@ -272,7 +281,7 @@ describe('§H5 — the alignment meter', () => {
   });
 });
 
-describe('§H6/§H6a — the character level', () => {
+describe('§H6/§H6a: the character level', () => {
   const sheet = makeAttributes(18, { stealth: 34, logic: 30, hacking: 28, medicine: 9 });
   const fresh = {
     level: CHARACTER_LEVEL_MIN,
@@ -362,7 +371,7 @@ describe('§H6/§H6a — the character level', () => {
     expect(spendCharacterPoint(maxed, 'medicine')?.attributes.medicine).toBe(MAX_ATTRIBUTE);
   });
 
-  it('costs strictly more at every level — "characters evolve slowly" (§H6)', () => {
+  it('costs strictly more at every level: "characters evolve slowly" (§H6)', () => {
     for (let level = CHARACTER_LEVEL_MIN; level < 20; level++) {
       expect(characterXpToNextLevel(level + 1)).toBeGreaterThan(characterXpToNextLevel(level));
     }
@@ -372,7 +381,7 @@ describe('§H6/§H6a — the character level', () => {
   });
 });
 
-describe('§H7 — negotiating a salary', () => {
+describe('§H7: negotiating a salary', () => {
   const ordinary = makeAttributes(18);
   const excellent = makeAttributes(18, { stealth: 38, logic: 36, hacking: 34, deception: 32 });
 
@@ -416,7 +425,7 @@ describe('§H7 — negotiating a salary', () => {
   });
 });
 
-describe('§H7 — the first payment covers the rest of the week', () => {
+describe('§H7: the first payment covers the rest of the week', () => {
   // W2's payroll engine owns the arithmetic; what W5 has to get right is *which* clock it hands
   // over. These pin the two boundaries the issue calls out by name.
   const MONDAY = new Date('2026-08-10T00:00:00.000Z');
@@ -490,7 +499,7 @@ describe('haggling with somebody who has an opinion about you (§H7)', () => {
     expect(say(open(), FLOOR - 1).accepted).toBe(false);
   });
 
-  it('agrees at the number offered — haggling well is worth caps', () => {
+  it('agrees at the number offered: haggling well is worth caps', () => {
     const turn = say(open(), FLOOR);
     expect(turn.negotiation.lastOffer).toBe(FLOOR);
     expect(turn.negotiation.standing).toBe(FLOOR);
@@ -554,7 +563,7 @@ describe('haggling with somebody who has an opinion about you (§H7)', () => {
     expect(after.negotiation).toEqual(state);
   });
 
-  it('gives the impatient less room than the patient — the personality is the point', () => {
+  it('gives the impatient less room than the patient: the personality is the point', () => {
     const grinder = negotiationTemper('wealth', 'pragmatist');
     const shortFuse = negotiationTemper('notoriety', 'ruthless');
     expect(grinder.patience).toBeGreaterThan(shortFuse.patience);

@@ -4,7 +4,7 @@ import { ATTRIBUTE_NAMES, type Attributes } from '../attributes.js';
  * Salary negotiation (GDD §H7).
  *
  * §H7 splits cleanly in two and only the first half is here: *what number the two sides agree on*.
- * Moving the caps — the weekly payday, the prorated first payment — is W2's payroll engine
+ * Moving the caps, the weekly payday, the prorated first payment, is W2's payroll engine
  * (`../economy/payroll.js`), and this module deliberately does not reimplement any of it.
  */
 
@@ -14,7 +14,7 @@ export const RECRUIT_BASE_WAGE = 12;
 /**
  * Rating at which an attribute stops being free. It is the recruitment base mean, so an ordinary
  * sheet prices at close to `RECRUIT_BASE_WAGE` and what a player pays for is the tail above
- * average — the part that actually distinguishes one recruit from the next (§B2).
+ * average: the part that actually distinguishes one recruit from the next (§B2).
  */
 export const WAGE_FREE_RATING = 18;
 
@@ -40,11 +40,11 @@ function ratingAboveAverage(attributes: Attributes): number {
 }
 
 /**
- * §H7 — the weekly wage in caps a character opens the negotiation at.
+ * §H7: the weekly wage in caps a character opens the negotiation at.
  *
  * Priced off the sheet the player can already see plus what the character makes of the crew
  * (§H4): someone drawn to your reputation works for less, someone holding their nose charges for
- * it. Nothing here reads the hidden role table — a wage that tracked role fit would be exactly
+ * it. Nothing here reads the hidden role table: a wage that tracked role fit would be exactly
  * the §B8 hint, on the wire, with a price tag on it.
  */
 export function askingWage(attributes: Attributes, stance: number): number {
@@ -52,7 +52,7 @@ export function askingWage(attributes: Attributes, stance: number): number {
   return Math.max(RECRUIT_BASE_WAGE, Math.round(merit * (1 - WAGE_STANCE_DISCOUNT * stance)));
 }
 
-/** §H7 — the lowest weekly wage this character will sign for. */
+/** §H7: the lowest weekly wage this character will sign for. */
 export function reservationWage(asking: number): number {
   return Math.ceil(asking * WAGE_RESERVATION_FRACTION);
 }
@@ -64,7 +64,7 @@ export interface WageNegotiation {
 }
 
 /**
- * §H7 — the character's answer to an offer.
+ * §H7: the character's answer to an offer.
  *
  * An offer at or above their reservation is taken as made, so haggling well is worth caps. Below
  * it they counter halfway back towards their asking price rather than repeating it, which makes a

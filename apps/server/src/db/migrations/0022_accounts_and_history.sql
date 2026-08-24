@@ -20,7 +20,7 @@
 --
 -- It is deliberately schemaless in the payload and strict in the envelope. A typed column per event
 -- kind would need a migration for every new kind, and the first thing anybody would do is stop
--- writing events rather than write a migration. The envelope — who, what, when — is what queries
+-- writing events rather than write a migration. The envelope, who, what, when, is what queries
 -- are written against, and it is fixed.
 --
 -- Nothing reads this table to decide anything. It is history: for recovering what a corrupted save

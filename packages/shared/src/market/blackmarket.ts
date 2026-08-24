@@ -7,7 +7,7 @@ import { dayInZone, GAME_TIMEZONE } from '../time/zone.js';
  * The back room of the market (black-market extension).
  *
  * The market proper is a shop: you turn caps and resources into things, and the only question is
- * whether you can afford it. This is the other kind of transaction — the shelf here is stocked with
+ * whether you can afford it. This is the other kind of transaction: the shelf here is stocked with
  * things that are not for sale anywhere, and what it takes is **infamy**, which you cannot farm and
  * cannot trade. It is the sink that gives a reputation for violence somewhere to go.
  *
@@ -21,7 +21,7 @@ import { dayInZone, GAME_TIMEZONE } from '../time/zone.js';
  *
  * ## One a day, and the shelf never empties
  *
- * A crew may take **one thing per day**. Not one per slot, not one per kind — one. That is what
+ * A crew may take **one thing per day**. Not one per slot, not one per kind: one. That is what
  * makes the five a *choice* rather than a shopping list, and it is why the prices can be steep
  * without the screen turning into a grind.
  *
@@ -63,7 +63,7 @@ export const BLACK_MARKET_SLOTS = 5;
 export const BLACK_MARKET_TAKES_PER_DAY = 1;
 
 /**
- * §I3 — and how many a crew the door knows may empty.
+ * §I3, and how many a crew the door knows may empty.
  *
  * `MILESTONE_STANDING_INVITATION` at level 50 is the only thing that has ever moved this. One
  * extra, not an unlimited shelf: the point of the daily limit is that the five things on it are a
@@ -87,7 +87,7 @@ export function blackMarketTakesPerDay(level: number): number {
 export const BattleBoostSchema = z.object({
   /** Added to every unit's offense, as a percentage. */
   offensePercent: z.number(),
-  /** Added to defence — armour and the will to stand in front of something. */
+  /** Added to defence: armour and the will to stand in front of something. */
   defensePercent: z.number(),
   /** Added to the force's morale, which is what decides whether a bad round becomes a rout. */
   moralePercent: z.number(),
@@ -106,9 +106,9 @@ export interface BlackMarketGoodSpec {
   effect: string;
   /** The price, in infamy. Nothing here is priced in anything else. */
   infamy: number;
-  /** Battle boosts only — what the next fight gets. */
+  /** Battle boosts only: what the next fight gets. */
   boost?: BattleBoost;
-  /** Everything else — what lands in the satchel. */
+  /** Everything else: what lands in the satchel. */
   grants?: ItemCost;
 }
 
@@ -121,7 +121,7 @@ export interface BlackMarketGoodSpec {
  * treat and blueprints the thing you wait for.
  */
 const SPECS: readonly BlackMarketGoodSpec[] = [
-  // Battle boosts — one fight each, and they are what a crew comes back for.
+  // Battle boosts: one fight each, and they are what a crew comes back for.
   {
     id: 'adrenaline_syringes',
     kind: 'battle_boost',
@@ -168,7 +168,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     boost: { offensePercent: 26, defensePercent: 0, moralePercent: -8 },
   },
 
-  // Contraband — parts and materiel that never reaches the Runner's barrow.
+  // Contraband: parts and materiel that never reaches the Runner's barrow.
   {
     id: 'crate_neural_shunts',
     kind: 'contraband',
@@ -216,13 +216,13 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     grants: { ceramic_plate: 8 },
   },
 
-  // Off-book refits — the parts an upgrade needs, sold as a set, so a line opens early.
+  // Off-book refits: the parts an upgrade needs, sold as a set, so a line opens early.
   {
     id: 'refit_hardshell',
     kind: 'unit_upgrade',
     name: 'Hardshell Refit Kit',
     description: 'Everything the Gauntlet needs for a carapace, in one crate, minus the paperwork.',
-    effect: 'Eight Ceramic Plates and two Coolant Cells — a Hardshell Rig without the wait.',
+    effect: 'Eight Ceramic Plates and two Coolant Cells: a Hardshell Rig without the wait.',
     infamy: 380,
     grants: { ceramic_plate: 8, coolant_cell: 2 },
   },
@@ -231,7 +231,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'unit_upgrade',
     name: 'Wetwork Refit Kit',
     description: 'Shunts, optics and a sealed bag of things the fitter will not name.',
-    effect: 'Two Neural Shunts and three Optic Clusters — cybernetics fitted out of hours.',
+    effect: 'Two Neural Shunts and three Optic Clusters: cybernetics fitted out of hours.',
     infamy: 420,
     grants: { neural_shunt: 2, optic_cluster: 3 },
   },
@@ -240,12 +240,12 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'unit_upgrade',
     name: "Gunsmith's Set",
     description: "Servos, cores and a jig, in a toolbox with somebody else's name on it.",
-    effect: 'Four Scrap Servos and two Targeting Cores — the weapons line, off the books.',
+    effect: 'Four Scrap Servos and two Targeting Cores: the weapons line, off the books.',
     infamy: 340,
     grants: { scrap_servo: 4, targeting_core: 2 },
   },
 
-  // Blueprints — the rare shelf, and the reason to check every day.
+  // Blueprints: the rare shelf, and the reason to check every day.
   {
     id: 'stolen_cybernetics_plans',
     kind: 'blueprint',
@@ -307,7 +307,7 @@ const KIND_WEIGHT: Readonly<Record<BlackMarketKind, number>> = {
   blueprint: 1,
 };
 
-/** FNV-1a then an LCG — the same derivation the Runner's barrow uses, kept local for the same reason. */
+/** FNV-1a then an LCG: the same derivation the Runner's barrow uses, kept local for the same reason. */
 function rngFrom(seed: string): () => number {
   let hash = 0x811c9dc5;
   for (let index = 0; index < seed.length; index++) {
@@ -326,7 +326,7 @@ function rngFrom(seed: string): () => number {
  *
  * This is the load-bearing decision in the whole module, and it replaced something that looked
  * simpler and was wrong. The first version drew each slot in turn and re-rolled anything an earlier
- * slot had already taken — which made every slot's contents depend on every other slot's. Emptying
+ * slot had already taken, which made every slot's contents depend on every other slot's. Emptying
  * slot 2 then collided with slot 4's draw, slot 4 silently became a different thing, and a player
  * who had been looking at slot 4 got told it had "moved on" by somebody else's purchase five feet
  * away. A gate caught it; nothing about the code said it.
@@ -359,7 +359,7 @@ function decksFor(day: string): string[][] {
  * happen.
  *
  * Rarity survives because the sequence is built in *passes*: everything appears in pass one,
- * everything with weight above one appears again in pass two, and so on — so a common item comes
+ * everything with weight above one appears again in pass two, and so on, so a common item comes
  * round six times as often as a blueprint. Each pass is rotated by one, which is what keeps the
  * item at the end of a pass different from the item at the start of the next.
  */
@@ -386,7 +386,7 @@ function sequenceFor(day: string, index: number, deck: readonly string[]): strin
   }
 
   // The rotation keeps a pass boundary clean, but it cannot see the seam where the sequence wraps
-  // round to its own start — and that seam is a real generation boundary for any slot the city
+  // round to its own start, and that seam is a real generation boundary for any slot the city
   // works all the way through in a day. Collapsing neighbours and then trimming the wrap costs one
   // entry of weight and makes the "a refill is always something else" rule hold everywhere rather
   // than almost everywhere.
@@ -401,7 +401,7 @@ function sequenceFor(day: string, index: number, deck: readonly string[]): strin
  * The shelf is **one shared shelf for the whole city**, and it is the only thing in the game that
  * is. That is what makes this necessary rather than decorative: a fixed catalogue is either
  * unaffordable to the crews who need it or free to the crews who do not, depending entirely on how
- * far along everybody else happens to be — and a fixed *effect* is a rounding error at level fifty
+ * far along everybody else happens to be, and a fixed *effect* is a rounding error at level fifty
  * and a decisive advantage at level three, which is the same problem read the other way.
  *
  * So both move with the room. The dealer reads the street, prices what it will bear, and stocks
@@ -421,8 +421,8 @@ export const BLACK_MARKET_POTENCY_PER_LEVEL = 0.03;
 /**
  * The ceiling on the potency multiplier.
  *
- * Prices may run away — infamy is earned faster in a veteran city too, so the two curves track each
- * other — but a boost may not. Doubling every figure on the crate turns a +18% syringe into +36%,
+ * Prices may run away: infamy is earned faster in a veteran city too, so the two curves track each
+ * other, but a boost may not. Doubling every figure on the crate turns a +18% syringe into +36%,
  * which is past the point where a defence can be built against it at all. Capped at half again.
  */
 export const MAX_BLACK_MARKET_POTENCY = 1.5;
@@ -459,7 +459,7 @@ export function blackMarketEffect(spec: BlackMarketGoodSpec, cityLevel: number):
   if (!boost) return spec.effect;
 
   // Written from the numbers rather than authored, because the authored line has the *catalogue's*
-  // figures baked into its prose — and a card that reads "+18% offense" over a fight that applied
+  // figures baked into its prose, and a card that reads "+18% offense" over a fight that applied
   // +27% is the card lying, which is worse than the card being plain.
   const parts = [
     ['offense', boost.offensePercent],
@@ -553,7 +553,7 @@ export interface TakeRequest {
   infamy: number;
   /** How many things this crew has already taken today. */
   takenToday: number;
-  /** §I3 — the player level, which is what decides how many takes a day they get. */
+  /** §I3: the player level, which is what decides how many takes a day they get. */
   level: number;
   /** The city's average player level, which is what the price is weighted by. */
   cityLevel: number;
@@ -569,7 +569,7 @@ export function takeRefusal(request: TakeRequest): BlackMarketRefusal | null {
   const spec = findBlackMarketGood(slot.goodId);
   if (!spec) return 'unknown_slot';
   if (request.takenToday >= blackMarketTakesPerDay(request.level)) return 'daily_limit';
-  // The weighted price, not the catalogue's — what the dealer is asking in *this* city.
+  // The weighted price, not the catalogue's: what the dealer is asking in *this* city.
   if (request.infamy < blackMarketPrice(spec, request.cityLevel)) return 'not_enough_infamy';
   return null;
 }
@@ -611,7 +611,7 @@ export function takeFromStash(stash: BoostStash, goodId: string): BoostStash {
  * plan around.
  *
  * **The same boost counts once, however many are in the bag** (board). Different crates stack;
- * duplicates do not. Two of a thing stacking is the shape that ends one way — the correct play
+ * duplicates do not. Two of a thing stacking is the shape that ends one way: the correct play
  * becomes hoarding a fortnight of infamy into six syringes and deleting somebody with a number no
  * defence was balanced against, and every fight before that one is spent saving up rather than
  * fighting. One of each is a bag a defender can reason about and an attacker can still build.
@@ -636,7 +636,7 @@ export function stashBoost(stash: BoostStash, cityLevel: number): BattleBoost {
  * The bag after a fight has taken what it was allowed to take: **one of each**.
  *
  * The other half of "the same boost only once". A fight applies one syringe, so a fight consumes
- * one syringe — clearing the whole bag instead would make the second one a crate a player paid
+ * one syringe: clearing the whole bag instead would make the second one a crate a player paid
  * infamy for and never got to open, and stacking it would put the rule back.
  *
  * Called win or lose. A boost is bought for *a* battle, not for a won one.

@@ -3,7 +3,7 @@ import { randomInt, type Rng } from '../characters/rng.js';
 /**
  * Names for the Bar's roster (GDD §H1).
  *
- * Flavour only — a name is never read by a mechanic. It lives server-side with the rest of roster
+ * Flavour only: a name is never read by a mechanic. It lives server-side with the rest of roster
  * generation so the whole roster stays one pure function of the UTC date (§H2a).
  */
 
@@ -89,7 +89,7 @@ function pick<T>(rng: Rng, items: readonly T[]): T {
   return chosen;
 }
 
-/** One name. Same rng state, same name — the roster has to be reproducible (§H2a). */
+/** One name. Same rng state, same name: the roster has to be reproducible (§H2a). */
 export function rollName(rng: Rng): string {
   const given = pick(rng, GIVEN_NAMES);
   if (rng() < HANDLE_CHANCE) return `${given} "${pick(rng, HANDLES)}"`;

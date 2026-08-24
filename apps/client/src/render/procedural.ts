@@ -1,5 +1,5 @@
 /**
- * Paints the `{ kind: 'procedural' }` half of the asset seam — ADR 0001 §5.3.
+ * Paints the `{ kind: 'procedural' }` half of the asset seam: ADR 0001 §5.3.
  *
  * `assets/source.ts` resolves every manifest key to either a delivered file or a procedural
  * fallback; this module is what draws the fallback. Nothing here is reached once real art lands in
@@ -7,7 +7,7 @@
  * painting with no code change.
  *
  * Geometry comes pre-computed and seeded from `skyline.ts` so it is unit-tested; this file only
- * turns it into display objects. `FillGradient` bakes through a 2D canvas, so — like `grade.ts` —
+ * turns it into display objects. `FillGradient` bakes through a 2D canvas, so, like `grade.ts`:
  * construction needs a real browser and is verified in Chromium, not jsdom.
  */
 import { findAssetSpec, type AssetKey } from '@frontline/shared';
@@ -55,7 +55,7 @@ function groundPlane(width: number, height: number, fill: string): Graphics {
 /**
  * Air over the ground, per band.
  *
- * A plan view has no horizon to fade into, so this is not aerial perspective — it is the smog that
+ * A plan view has no horizon to fade into, so this is not aerial perspective. It is the smog that
  * sits *in* the streets. It pools toward the bottom of each band, which is the direction the camera
  * is looking away down, and it is what keeps a far block from reading as sharply as a near one.
  *
@@ -91,7 +91,7 @@ function bandFog(band: DepthBand, width: number, height: number): Graphics | nul
 }
 
 /**
- * One band of the plan: ground, water, lanes, blocks, roofs, lamps — in that order, because that is
+ * One band of the plan: ground, water, lanes, blocks, roofs, lamps: in that order, because that is
  * the order they sit in on the ground.
  *
  * Lamps are drawn into their own additive layer rather than per roof. Two reasons: the bloom pass
@@ -176,7 +176,7 @@ function paintBand(key: AssetKey, width: number, height: number, seed: number): 
 
 /**
  * The seam itself: hand it whatever `ArtLoader.sourceOf` returned. A delivered file is *not* this
- * module's job — the caller uses the texture — so a `file` source yields `null`.
+ * module's job, the caller uses the texture, so a `file` source yields `null`.
  */
 export function paintProcedural(
   source: AssetSource | undefined,
@@ -190,8 +190,8 @@ export function paintProcedural(
  * The interim painting for a map key, whatever that key resolves to today.
  *
  * {@link paintProcedural} is the seam and rightly declines a delivered file. This is what the
- * caller draws in the gap *before* that file's texture is in hand — and if the fetch fails so it
- * never arrives at all — so a plane whose master has landed is never a hole in the background.
+ * caller draws in the gap *before* that file's texture is in hand, and if the fetch fails so it
+ * never arrives at all, so a plane whose master has landed is never a hole in the background.
  */
 export function paintPlaneFallback(key: AssetKey, width: number, height: number): Container | null {
   const spec = findAssetSpec(key);

@@ -4,20 +4,20 @@ import { simulate, type SideSetup } from './engine.js';
 /**
  * What a fight is likely to cost, before committing to it (GDD §A5).
  *
- * A Monte Carlo run of **the same engine the server will use** — not a model of it, not a formula
+ * A Monte Carlo run of **the same engine the server will use**, not a model of it, not a formula
  * that approximates it. That is the whole design constraint: a simulator that is a second
  * implementation drifts from the real one the first time either is tuned, and then it is worse than
  * having none, because the player is planning against a lie.
  *
  * What it deliberately cannot do is see through fog. It is given the garrison *the player knows
- * about*, which on unscouted ground is nothing — so the forecast is only ever as good as the
+ * about*, which on unscouted ground is nothing, so the forecast is only ever as good as the
  * scouting behind it, and a confident number on bad intelligence is the player's own risk.
  */
 
 /**
  * The unit a forecast assumes when all it knows is a head count.
  *
- * Fog of war (§A4) hides an enemy garrison's *composition* and shows only its size — deliberately,
+ * Fog of war (§A4) hides an enemy garrison's *composition* and shows only its size: deliberately,
  * and the forecast may not quietly undo that. So an estimate against unscouted composition stands
  * a middling defensive regular in for every body and the screen says out loud that it is doing so.
  *
@@ -43,7 +43,7 @@ export interface Forecast {
   defenderSurvival: number;
   /** Mean rounds. A short fight is a decided one. */
   rounds: number;
-  /** How many runs went into it — so a caller can say "of 60" rather than imply certainty. */
+  /** How many runs went into it, so a caller can say "of 60" rather than imply certainty. */
   runs: number;
 }
 
@@ -66,7 +66,7 @@ const survival = (side: { stacks: { started: number; alive: number }[] }): numbe
  * Runs the fight `runs` times and averages it.
  *
  * Seeded from `seed` plus the run index rather than from a clock, so the same plan against the same
- * intelligence forecasts the same way twice — a number that flickers while a player is reading it
+ * intelligence forecasts the same way twice: a number that flickers while a player is reading it
  * is a number they stop trusting.
  */
 export function forecast(input: ForecastInput): Forecast {

@@ -374,8 +374,8 @@ describe('GET /api/city', () => {
   /**
    * What is standing on a neighbour's ground is public; what they *know* is not.
    *
-   * A structure is a building on a street — anyone walking past can see how far it has been built
-   * up — so the district view carries it and the client draws their district the same way it draws
+   * A structure is a building on a street: anyone walking past can see how far it has been built
+   * up, so the district view carries it and the client draws their district the same way it draws
    * yours. The line this test exists to hold is where that stops: no stockpile, no research, no
    * roles, and nothing at all until the ground has been scouted.
    */
@@ -449,7 +449,7 @@ describe('GET /api/city', () => {
       expect(building.level).toBeGreaterThan(0);
     }
 
-    // Their home can never be taken — only robbed. That is what makes the AI a neighbour rather
+    // Their home can never be taken: only robbed. That is what makes the AI a neighbour rather
     // than a target, and it is a property of the ground, not of the UI that draws it.
     expect(seen.district.kind).toBe('residential');
 

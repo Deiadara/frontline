@@ -5,7 +5,7 @@ import type { BuildingKind } from '@frontline/shared';
  * read as one set of portraits.
  *
  * None of this is taste. Every number here was measured off the files in `assets/`, and
- * `scripts/district-masters.test.ts` re-measures them against this table — so a redrawn master that
+ * `scripts/district-masters.test.ts` re-measures them against this table, so a redrawn master that
  * changes shape or tone fails a gate instead of quietly glowing a stop brighter than the eleven
  * beside it.
  *
@@ -36,24 +36,24 @@ export const STRUCTURE_ASPECT: Readonly<Record<BuildingKind, number>> = {
 
 /** A structure's tonal correction, as the two CSS filter functions that apply it. */
 export interface StructureGrade {
-  /** Multiplier on every channel — `filter: brightness()`. */
+  /** Multiplier on every channel: `filter: brightness()`. */
   brightness: number;
-  /** Multiplier on chroma about the luma axis — `filter: saturate()`. */
+  /** Multiplier on chroma about the luma axis: `filter: saturate()`. */
   saturate: number;
 }
 
 /**
- * The tone twelve portraits are brought onto, as mean luminance (0–255) and mean HSV saturation.
+ * The tone twelve portraits are brought onto, as mean luminance (0-255) and mean HSV saturation.
  *
  * A **constant**, and it did not use to be. The masters were once cutouts pasted onto the district's
  * painted ground, so the thing they had to agree with was the plate, and the target was measured off
  * it. The delivered plate paints its own buildings; these are now the portrait in a structure's
- * window, framed on chrome, and what they have to agree with is *each other* — twelve icons in
+ * window, framed on chrome, and what they have to agree with is *each other*: twelve icons in
  * identical frames, one of them a stop hotter than the rest, is the only way this set can look
  * wrong now.
  *
- * The numbers are the tone the set was approved at — what the ground the masters were cut for
- * measured — so pinning them changed nothing on screen. Pinning them is what stopped the delivered
+ * The numbers are the tone the set was approved at: what the ground the masters were cut for
+ * measured, so pinning them changed nothing on screen. Pinning them is what stopped the delivered
  * plate, which measures 33.2, from silently dragging all twelve portraits down with it.
  */
 export const PORTRAIT_TARGET_LUMINANCE = 59.55;
@@ -65,7 +65,7 @@ export const PORTRAIT_TARGET_SATURATION = 0.2641;
  * **Not 1.** The twelve masters run from a mean luminance of 40 to one of 108, and normalising all
  * of them onto a single number would be the renderer overruling the drawings: a generator with a lit
  * furnace *should* read brighter than a scrapyard. Pulling most of the way closes the odd-one-out
- * gap — the graded set spans 55 to 71 — while leaving the order and the reasons for it intact.
+ * gap, the graded set spans 55 to 71, while leaving the order and the reasons for it intact.
  *
  * Saturation is pulled less than luminance, because the giveaway is brightness. One portrait a stop
  * hotter than its neighbours reads as a mistake from across the room; one slightly more colourful
@@ -78,7 +78,7 @@ export const GRADE_SATURATION_PULL = 0.6;
  * The most a master may be brightened.
  *
  * Brightening is a plain per-channel multiply, so it lifts a highlight as hard as it lifts a
- * shadow — and the two masters that measure dark are dark because most of their *area* is dirt,
+ * shadow, and the two masters that measure dark are dark because most of their *area* is dirt,
  * not because anything in them is dim. The Scrapyard's chain-link rail was already the brightest
  * thing on that lot; ×1.27 clipped it into a white outline around the building. Darkening has no
  * equivalent failure, so it is not capped: a building can always be in shadow.

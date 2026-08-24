@@ -27,7 +27,7 @@ describe('resolveAssetSource', () => {
     });
   });
 
-  it('prefers a delivered file the moment one appears — the zero-code-change drop-in', () => {
+  it('prefers a delivered file the moment one appears: the zero-code-change drop-in', () => {
     const delivered = new Map([['plate-city.webp', '/art/plate-city.webp']]);
     expect(resolveAssetSource(plate, delivered)).toEqual({
       kind: 'file',

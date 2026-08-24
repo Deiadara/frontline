@@ -45,7 +45,7 @@ function AttributeRow({ name, value }: { name: AttributeName; value: number }) {
 
 /**
  * The full sheet, Football-Manager style: every attribute the character has, in its group
- * (GDD §B4a). Every human carries every attribute (§B6), so nothing here is filtered by role —
+ * (GDD §B4a). Every human carries every attribute (§B6), so nothing here is filtered by role,
  * and nothing here hints at which role the character would suit (§B8).
  */
 export function AttributeSheet({ attributes }: { attributes: Attributes }) {

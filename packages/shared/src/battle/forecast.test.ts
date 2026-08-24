@@ -38,7 +38,7 @@ describe('the pre-battle forecast', () => {
 
   /**
    * The same plan forecasts the same way twice. A number that flickers while a player reads it is a
-   * number they stop trusting — and it would also make the screen impossible to test.
+   * number they stop trusting, and it would also make the screen impossible to test.
    */
   it('is stable for the same plan', () => {
     expect(plan({ razors: 20, snipers: 4 }, { wardens: 10 })).toEqual(

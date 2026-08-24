@@ -1,4 +1,6 @@
 import {
+  districtPopulationCapacity,
+  noTerritoryEffects,
   ALIGNMENT_LEAVE_THRESHOLD,
   ALIGNMENT_MAX,
   ALIGNMENT_START,
@@ -9,7 +11,7 @@ import {
   MAX_RECRUITMENT_ATTRIBUTE,
   MORAL_COMPASSES,
   PAY_WEEK_MS,
-  RECRUIT_MAX_MIN_INFAMY,
+  RECRUIT_MAX_MIN_NOTORIETY,
   REPUTATION_LABELS,
   alignmentTarget,
   askingWage,
@@ -130,7 +132,7 @@ interface Written {
   commanders?: Commander[];
   caps?: number;
   wages?: Record<string, number>;
-  /** §H2b — the seat the hire turned over, and how many times this player has signed today. */
+  /** §H2b: the seat the hire turned over, and how many times this player has signed today. */
   turnedOver?: number;
   hiresToday: number;
 }
@@ -163,7 +165,7 @@ function fakeRepos(hiresToday = 0): {
    * A crew holding nothing.
    *
    * The §H5 alignment settler folds the crew's own effects, and a crew's effects now include what
-   * the *ground* adds to its officers (§A4 — the Chapel, the Broadcast Station). So a double that
+   * the *ground* adds to its officers (§A4: the Chapel, the Broadcast Station). So a double that
    * omits the city repo is a double the code under test cannot run against, which is the double
    * being wrong rather than the code being fragile: an empty map is what "this crew holds nothing"
    * actually looks like.
@@ -180,7 +182,7 @@ function fakeRepos(hiresToday = 0): {
 /** The two §H2b fields every `hireRecruit` call needs, defaulted so cases can ignore them. */
 const SIGNER = { userId: 'user-1', seat: 0 };
 
-describe('§H2/§H2a — one global roster, generated from the UTC date', () => {
+describe('§H2/§H2a: one global roster, generated from the UTC date', () => {
   it('serves two different accounts the identical roster on the same UTC day', async () => {
     const { app } = await makeApp();
     const first = await readBar(app, await makePlayer(app, 'operator_one'));
@@ -209,7 +211,7 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
     expect(barDay(new Date('2026-08-14T00:00:00.000Z'))).toBe('2026-08-14');
   });
 
-  it('is a pure function of the day — same answer every time it is asked', () => {
+  it('is a pure function of the day: same answer every time it is asked', () => {
     expect(barRoster('2026-08-13')).toEqual(barRoster('2026-08-13'));
     // Recomputed independently rather than memoised: distinct object identities, equal values.
     expect(barRoster('2026-08-13')[0]).not.toBe(barRoster('2026-08-13')[0]);
@@ -219,8 +221,8 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
     for (const day of ['2026-01-01', '2026-08-13', '2026-12-31', '2027-02-28']) {
       for (const recruit of barRoster(day)) {
         expect(recruit.name.length).toBeGreaterThan(2);
-        expect(recruit.requirement.minInfamy).toBeGreaterThanOrEqual(0);
-        expect(recruit.requirement.minInfamy).toBeLessThanOrEqual(RECRUIT_MAX_MIN_INFAMY);
+        expect(recruit.requirement.minNotoriety).toBeGreaterThanOrEqual(0);
+        expect(recruit.requirement.minNotoriety).toBeLessThanOrEqual(RECRUIT_MAX_MIN_NOTORIETY);
         for (const name of ATTRIBUTE_NAMES) {
           expect(recruit.attributes[name]).toBeLessThanOrEqual(MAX_RECRUITMENT_ATTRIBUTE);
         }
@@ -231,7 +233,7 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
   it('holds the open-door floor at the measured three', () => {
     // Every other assertion about the floor is written *relative* to this constant, so all of them
     // move with it and none of them pin it: lowering it to 1 leaves the whole W5 suite green while
-    // cutting a brand-new crew's worst day down to a single willing recruit — the worst day offers
+    // cutting a brand-new crew's worst day down to a single willing recruit: the worst day offers
     // exactly the floor, measured. An empty Bar stays unreachable either way (`recruitAt` forces
     // both gates), so what moves is how much choice a new crew gets, and that is a decision worth
     // pinning rather than deriving. The three HTTP cases below also lean on it for their
@@ -247,12 +249,12 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
     for (let day = 0; day < 400; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
       const roster = barRoster(key);
-      expect(roster.filter((r) => r.requirement.minInfamy === 0).length).toBeGreaterThanOrEqual(
+      expect(roster.filter((r) => r.requirement.minNotoriety === 0).length).toBeGreaterThanOrEqual(
         BAR_OPEN_DOOR_FLOOR,
       );
       for (const reputation of words) {
         const willing = roster.filter(
-          (r) => assessJoin(r, r.requirement, { infamy: 0, reputation }).interested,
+          (r) => assessJoin(r, r.requirement, { notoriety: 0, reputation }).interested,
         );
         expect(
           willing.length,
@@ -262,7 +264,7 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
     }
   });
 
-  it('leaves the ungated seats free to be anyone else — the floor is a floor, not the roster', () => {
+  it('leaves the ungated seats free to be anyone else: the floor is a floor, not the roster', () => {
     // A guarantee that quietly flattened every recruit into the same safe disposition would pass
     // the check above and gut §H3/§H4 entirely.
     const gated = new Set<number>();
@@ -270,7 +272,7 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
     for (let day = 0; day < 200; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
       barRoster(key).forEach((recruit, index) => {
-        if (recruit.requirement.minInfamy > 0) gated.add(index);
+        if (recruit.requirement.minNotoriety > 0) gated.add(index);
         compasses.add(recruit.moralCompass);
       });
     }
@@ -292,14 +294,14 @@ describe('§H2/§H2a — one global roster, generated from the UTC date', () => 
   });
 });
 
-describe('§H3/§H4 — the roster as one particular crew sees it', () => {
-  it('locks a recruit whose infamy gate the crew has not cleared, and unlocks it when they do', () => {
-    const gated = barRoster('2026-08-13').find((r) => r.requirement.minInfamy > 0);
+describe('§H3/§H4: the roster as one particular crew sees it', () => {
+  it('locks a recruit whose §H3 gate the crew has not cleared, and unlocks it when they do', () => {
+    const gated = barRoster('2026-08-13').find((r) => r.requirement.minNotoriety > 0);
     if (!gated) throw new Error('expected the roster to contain at least one gated recruit');
 
     const quiet = makeBase();
     const notorious = makeBase({
-      economy: { ...quiet.economy, infamy: RECRUIT_MAX_MIN_INFAMY },
+      economy: { ...quiet.economy, notoriety: RECRUIT_MAX_MIN_NOTORIETY },
     });
     expect(
       wageAskedOf(gated, assessAgainst(notorious, gated, NOW).stance),
@@ -307,7 +309,7 @@ describe('§H3/§H4 — the roster as one particular crew sees it', () => {
     ).toBeGreaterThan(0);
     // The gate itself is asserted through the route below; here it is enough that the crew's own
     // numbers, not the recruit's, are what changed.
-    expect(quiet.economy.infamy).toBeLessThan(gated.requirement.minInfamy);
+    expect(quiet.economy.notoriety).toBeLessThan(gated.requirement.minNotoriety);
   });
 
   it('quotes a higher wage to a crew the character dislikes (§H4 → §H7)', () => {
@@ -321,9 +323,9 @@ describe('§H3/§H4 — the roster as one particular crew sees it', () => {
   });
 });
 
-describe('§H7/§H8 — hiring out of the Bar', () => {
+describe('§H7/§H8: hiring out of the Bar', () => {
   const recruit = () => {
-    const found = barRoster('2026-08-13').find((r) => r.requirement.minInfamy === 0);
+    const found = barRoster('2026-08-13').find((r) => r.requirement.minNotoriety === 0);
     if (!found) throw new Error('expected an ungated recruit');
     return found;
   };
@@ -354,6 +356,36 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
     expect(written.wages).toEqual({ [hire.id]: asking });
     expect(result.base.economy.payroll.wages[hire.id]).toBe(asking);
     expect(written.commanders?.map((c) => c.id)).toEqual([hire.id]);
+  });
+
+  /**
+   * §A1: an officer needs a bed like anybody else, and the army is in the same pool now.
+   *
+   * The interesting half is the second assertion. A crew whose district is full of *soldiers* is a
+   * crew that cannot hire, which is the whole point of merging the two ceilings: it used to be
+   * possible to fill the barracks and the Quarters independently and never notice either.
+   */
+  it('refuses a signing the district has no bed for, soldiers included', () => {
+    const hire = recruit();
+    const sign = (base: Base) =>
+      hireRecruit(fakeRepos().repos, {
+        ...SIGNER,
+        base,
+        recruit: hire,
+        role: 'head_spy',
+        offerWage: wageAskedOf(hire, assessAgainst(base, hire, NOW).stance),
+        now: NOW,
+      });
+
+    const bare = makeBase();
+    expect(sign(bare).kind).toBe('hired');
+
+    // Razors are one body each, so a roster the size of the whole pool leaves nowhere to put an
+    // officer. Nothing about the Bar changed; what changed is who else is sleeping there.
+    const packed = makeBase({
+      army: { razors: districtPopulationCapacity(bare.buildings, noTerritoryEffects()) },
+    });
+    expect(sign(packed)).toEqual({ kind: 'refused', reason: 'no_housing' });
   });
 
   it('takes the prorated first payment at recruitment (§H7)', () => {
@@ -499,7 +531,7 @@ describe('§H7/§H8 — hiring out of the Bar', () => {
   });
 });
 
-describe('§H5 — alignment drifts to what they make of the crew', () => {
+describe('§H5: alignment drifts to what they make of the crew', () => {
   const officerWho = (ambition: Commander['ambition'], moralCompass: Commander['moralCompass']) =>
     createCommander('o1', 'Test', 'scout', {}, [], {
       ambition,
@@ -509,7 +541,7 @@ describe('§H5 — alignment drifts to what they make of the crew', () => {
 
   it('falls below the leave threshold for someone who hates what the crew has become', () => {
     // `Reckless` is one of the four words a live mechanic can produce today, and a knowledge-driven
-    // pragmatist reads it at -2 — the only stance whose target sits under §H5's threshold.
+    // pragmatist reads it at -2: the only stance whose target sits under §H5's threshold.
     const officer = officerWho('knowledge', 'pragmatist');
     expect(alignmentTarget(reputationStance(officer, 'Reckless'))).toBeLessThan(
       ALIGNMENT_LEAVE_THRESHOLD,
@@ -537,15 +569,15 @@ describe('§H5 — alignment drifts to what they make of the crew', () => {
 
   it('refreshes the anchor of an officer who is sitting exactly on their target', () => {
     // The write gate is the age of the anchor, not movement of the value. An officer whose stance
-    // is 0 targets ALIGNMENT_START and so never moves at all — gating on movement pinned their
+    // is 0 targets ALIGNMENT_START and so never moves at all: gating on movement pinned their
     // anchor to hire time for their whole tenure, and the next word that gave them a stance then
     // collected the entire accumulated window in one read.
     const writes: Commander[][] = [];
     const repos = {
       bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
       // §F2 reads the crew's own sheets to work out how much of a slide it holds off. Answering
-      // "nobody" — and "no ground", since §A4's Chapel and Broadcast Station lift officer sheets
-      // before that fold — keeps these two tests about the anchor rather than about the hold.
+      // "nobody", and "no ground", since §A4's Chapel and Broadcast Station lift officer sheets
+      // before that fold: keeps these two tests about the anchor rather than about the hold.
       users: { findById: () => undefined },
       city: { controls: () => new Map() },
     } as unknown as Parameters<typeof settleOfficerAlignment>[0];
@@ -563,7 +595,7 @@ describe('§H5 — alignment drifts to what they make of the crew', () => {
     expect(writes).toHaveLength(1);
     expect(officer?.alignmentUpdatedAt).toBe(threeWeeks.toISOString());
 
-    // A word they read at +1, one second later, is worth one second of drift — not three weeks of
+    // A word they read at +1, one second later, is worth one second of drift, not three weeks of
     // it. Against a stale anchor this read returned 74.8.
     const aSecondLater = new Date(threeWeeks.getTime() + 1000);
     if (!officer) throw new Error('expected the settled officer');
@@ -576,8 +608,8 @@ describe('§H5 — alignment drifts to what they make of the crew', () => {
     const repos = {
       bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
       // §F2 reads the crew's own sheets to work out how much of a slide it holds off. Answering
-      // "nobody" — and "no ground", since §A4's Chapel and Broadcast Station lift officer sheets
-      // before that fold — keeps these two tests about the anchor rather than about the hold.
+      // "nobody", and "no ground", since §A4's Chapel and Broadcast Station lift officer sheets
+      // before that fold: keeps these two tests about the anchor rather than about the hold.
       users: { findById: () => undefined },
       city: { controls: () => new Map() },
     } as unknown as Parameters<typeof settleOfficerAlignment>[0];
@@ -643,7 +675,7 @@ describe('the Bar over HTTP', () => {
      *
      * `toBeGreaterThan(0)` was a date-dependent flake and it went off on a Sunday evening: the
      * payment covers what is left of the pay week, so in the last hours before the Monday boundary
-     * a modest wage prorates to under half a cap and rounds to zero — which is the documented
+     * a modest wage prorates to under half a cap and rounds to zero, which is the documented
      * behaviour, correctly implemented, failing a test that had only ever run mid-week.
      *
      * A cap of tolerance because the clock moves between the route's read and this one.
@@ -675,7 +707,7 @@ describe('the Bar over HTTP', () => {
     expect(roster.officers.map((one) => one.name)).toContain(target.name);
     expect(roster.officers.find((one) => one.name === target.name)?.role).toBe('head_spy');
 
-    // §H2b — they have left the room, and somebody else is in their seat. Both halves matter: a
+    // §H2b. They have left the room, and somebody else is in their seat. Both halves matter: a
     // roster that merely greyed them out would still be a private catalogue, and one that emptied
     // the seat would shrink the shared room every time anybody hired.
     expect(after.recruits.map((r) => r.id)).not.toContain(target.id);
@@ -688,7 +720,7 @@ describe('the Bar over HTTP', () => {
     expect(bystander.recruits[seat]?.id).toBe(after.recruits[seat]?.id);
   });
 
-  it('§H2b — allows one hire a day and refuses the second', async () => {
+  it('§H2b: allows one hire a day and refuses the second', async () => {
     const { app } = await makeApp();
     const token = await makePlayer(app, 'eager_operator');
     const bar = await readBar(app, token);
@@ -749,7 +781,7 @@ describe('the Bar over HTTP', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it('§H2b — 404s a recruit whose seat has already turned over', async () => {
+  it('§H2b: 404s a recruit whose seat has already turned over', async () => {
     const { app } = await makeApp();
     const quick = await makePlayer(app, 'quick_operator');
     const slow = await makePlayer(app, 'slow_operator');
@@ -774,7 +806,7 @@ describe('the Bar over HTTP', () => {
     ).toBe(200);
 
     // The stale tab now holds an id naming a generation that seat has moved past. It must not
-    // sign the replacement by accident — the generation is in the id precisely so it cannot.
+    // sign the replacement by accident: the generation is in the id precisely so it cannot.
     const stale = await app.inject({
       method: 'POST',
       url: '/api/bar/hire',
@@ -806,7 +838,7 @@ describe('the Bar over HTTP', () => {
         payload: { officerId: target.id, attribute },
       });
 
-    // Nothing banked yet — a fresh hire is level 1 and has never levelled.
+    // Nothing banked yet: a fresh hire is level 1 and has never levelled.
     const empty = await assign('stealth');
     expect(empty.statusCode).toBe(409);
     expect(empty.json<{ error: { code: string } }>().error.code).toBe('NO_POINTS');
@@ -832,7 +864,7 @@ describe('the Bar over HTTP', () => {
     expect(officer.attributes.stealth).toBe(before + 1);
   });
 
-  it('needs a base — recruiting from nowhere is a 409, not a crash', async () => {
+  it('needs a base: recruiting from nowhere is a 409, not a crash', async () => {
     const { app } = await makeApp();
     const register = await app.inject({
       method: 'POST',

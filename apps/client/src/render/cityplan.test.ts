@@ -19,7 +19,7 @@ const H = 900;
 const plan = (band: DepthBand, seed = 42): CityPlan => generateCityPlan(band, W, H, seed);
 
 describe('the city plan', () => {
-  it('is deterministic — the same seed paints the same city', () => {
+  it('is deterministic: the same seed paints the same city', () => {
     expect(plan('far', 7)).toEqual(plan('far', 7));
   });
 
@@ -60,7 +60,7 @@ describe('the city plan', () => {
         const xs = block.outline.map((p) => p.x);
         const ys = block.outline.map((p) => p.y);
         // The block's own outline is jittered, so the bound is its bounding box plus the jitter a
-        // roof is allowed — measured against the block, not against a constant.
+        // roof is allowed: measured against the block, not against a constant.
         const slack = Math.max(...xs) - Math.min(...xs);
         for (const roof of block.roofs) {
           for (const point of roof.outline) {
@@ -77,7 +77,7 @@ describe('the city plan', () => {
   /**
    * Nothing is a rectangle.
    *
-   * Right angles everywhere are the tell of a generated city — it reads as a spreadsheet seen from
+   * Right angles everywhere are the tell of a generated city. It reads as a spreadsheet seen from
    * above. Every roof is a jittered quad, so no two opposite edges should be exactly parallel.
    */
   it('draws no perfect rectangles', () => {
@@ -95,7 +95,7 @@ describe('the city plan', () => {
    * Lit roofs are the minority, on every band.
    *
    * A lamp means somebody is in. If most roofs carry one the signal is gone and the map is just
-   * bright — and the bloom pass, which thresholds on brightness, would catch the whole city.
+   * bright, and the bloom pass, which thresholds on brightness, would catch the whole city.
    */
   it('lights a minority of roofs', () => {
     for (const band of ['far', 'mid', 'fore'] as const) {
@@ -106,7 +106,7 @@ describe('the city plan', () => {
     }
   });
 
-  /** Near bands carry bigger, fewer roofs — which is what reads as depth in a plan. */
+  /** Near bands carry bigger, fewer roofs, which is what reads as depth in a plan. */
   it('draws the near band larger than the far one', () => {
     const area = (band: DepthBand) => {
       const roofs = plan(band).blocks.flatMap((b) => b.roofs);
@@ -120,7 +120,7 @@ describe('the city plan', () => {
     expect(area('fore')).toBeGreaterThan(area('far'));
   });
 
-  /** The canal crosses the whole plane — a river that stops halfway is a pond. */
+  /** The canal crosses the whole plane: a river that stops halfway is a pond. */
   it('cuts the canal from edge to edge', () => {
     const canal = plan('fore').canal;
     expect(canal).not.toBeNull();
@@ -140,7 +140,7 @@ describe('the city plan', () => {
     expect(width(large) / width(small)).toBeCloseTo(2, 1);
   });
 
-  /** ART-BIBLE §2.1 — whole ramp stops only, never an invented intermediate hue. */
+  /** ART-BIBLE §2.1: whole ramp stops only, never an invented intermediate hue. */
   it('paints only with ramp stops', () => {
     const stops = new Set(Object.values(ramps).flatMap((ramp) => Object.values(ramp)));
     for (const band of BANDS) {

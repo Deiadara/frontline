@@ -11,7 +11,7 @@ import { cn } from '../../lib/cn';
  * is the whole reason the tier is a numeral rather than three copies of the word.
  *
  * Eight tones rather than thirteen. Labels that mean the same kind of thing to a player wear the
- * same colour — Cold and Snowy are both the frost tone, Hot and Noisy are both ember — so the row
+ * same colour, Cold and Snowy are both the frost tone, Hot and Noisy are both ember, so the row
  * reads as two or three *sorts* of trouble rather than as thirteen unrelated stickers. A player
  * scanning six districts is looking for "is this the cold one or the poisonous one", not for a
  * legend.

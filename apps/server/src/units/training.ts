@@ -4,15 +4,12 @@ import {
   MAX_TRAINING_QUEUE,
   addToArmy,
   alreadyHolds,
-  armyCapacity,
   canAfford,
   heldPlaceKindsOf,
   isHeldBy,
   isUnitUnlocked,
   spendResources,
   splitDueTraining,
-  supplyQueued,
-  supplyUsed,
   trainingCost,
   trainingSeconds,
   trainingStartsAt,
@@ -27,6 +24,7 @@ import { adminCost, adminSeconds, adminWaives } from '../admin/mode.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { awardPlayerXp } from '../progression/award.js';
+import { districtPopulation } from '../district/population.js';
 
 /**
  * Making units (GDD §A5).
@@ -49,7 +47,7 @@ export type TrainingResult =
   | { kind: 'refused'; reason: TrainingRefusal }
   | { kind: 'queued'; base: Base; order: TrainingOrder };
 
-/** What this crew's territory does to unlocks — the place kinds it currently holds. */
+/** What this crew's territory does to unlocks: the place kinds it currently holds. */
 export function unlockContextFor(repos: Repositories, base: Base): UnlockContext {
   const controls = repos.city.controls();
   return {
@@ -63,7 +61,7 @@ export function unlockContextFor(repos: Repositories, base: Base): UnlockContext
 
 export interface TrainingSettlement {
   base: Base;
-  /** §I1 — one award per batch that landed. Empty on a read that finished nothing. */
+  /** §I1: one award per batch that landed. Empty on a read that finished nothing. */
   awards: PlayerXpAward[];
 }
 
@@ -104,7 +102,7 @@ export interface TrainInput {
    * Testing mode: five seconds on the bench, no materials (`admin/mode.ts`).
    *
    * The supply cap is *not* waived. A free army that ignores supply is not the game with the
-   * waiting removed, it is a different game — and supply is one of the things a reviewer is here
+   * waiting removed, it is a different game, and supply is one of the things a reviewer is here
    * to feel.
    */
   admin?: boolean;
@@ -113,7 +111,7 @@ export interface TrainInput {
 /**
  * Puts a batch on the bench.
  *
- * Supply is claimed at **order** time, counting the queue as well as the standing army — a crew
+ * Supply is claimed at **order** time, counting the queue as well as the standing army: a crew
  * cannot queue five Colossi against a cap that holds one and discover the problem an hour later.
  */
 export function queueTraining(repos: Repositories, input: TrainInput): TrainingResult {
@@ -139,9 +137,11 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
   }
 
   const effects = standingEffectsFor(repos, base);
-  const cap = armyCapacity(base.buildings);
-  const claimed = supplyUsed(base.army) + supplyQueued(base.trainingQueue) + unit.supply * count;
-  if (claimed > cap) {
+  // §A1: soldiers come out of the district's population, alongside the officers and the placed
+  // assignees. `districtPopulation` has already counted everything standing, garrisons and the
+  // training bench included, so what this order needs is only what it adds on top.
+  const population = districtPopulation(repos, base);
+  if (unit.supply * count > population.spare) {
     const refused = refuse('no_supply');
     if (refused) return refused;
   }

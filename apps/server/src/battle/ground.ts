@@ -18,8 +18,8 @@ import type { Repositories } from '../db/repos/index.js';
 /**
  * Reading the ground a declaration names (GDD §A4, battle rework).
  *
- * One module, because the three questions a declaration asks — *is this district shut*, *is its gate
- * currently down*, and *who am I actually calling out* — are all read off the same two tables and
+ * One module, because the three questions a declaration asks: *is this district shut*, *is its gate
+ * currently down*, and *who am I actually calling out*: are all read off the same two tables and
  * were going to be answered three times over otherwise: once by the route that validates a call,
  * once by the settler that runs it, and once by the screen that draws it. Three readings of the
  * control table is three chances for the map and the rules to disagree.
@@ -47,7 +47,7 @@ export function districtStandingFor(
 /**
  * Who a declaration is actually calling out.
  *
- * For a location, whoever holds it. For a gate or a structure behind one, whoever holds the district —
+ * For a location, whoever holds it. For a gate or a structure behind one, whoever holds the district,
  * which, since a gate is only armed when one party holds all of it, is a single answer rather than a
  * committee.
  */

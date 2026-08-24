@@ -15,7 +15,7 @@ import { ArmySchema, type Army } from '../units/training.js';
  * - **The gate.** When one party holds *every* location in a district, the district is shut: there is
  *   no seam to walk through and the only thing to attack is the way in. That is what "the gate is
  *   armed" means, and it is why a crew that finishes a district gets a breathing space rather than a
- *   free-for-all — anybody who wants in has to break the door first, in public, with a day's notice.
+ *   free-for-all: anybody who wants in has to break the door first, in public, with a day's notice.
  * - **A building.** Only inside the {@link GATE_BREACH_HOURS} window a broken gate opens, and only
  *   where somebody actually lives. This is the loot-and-wreck phase: a home district can never be
  *   taken (that rule has not moved), so what a breach buys is the chance to take things out of it
@@ -26,7 +26,7 @@ import { ArmySchema, type Army } from '../units/training.js';
  *
  * ## What a declaration is not
  *
- * It is not a commitment of troops. Nobody is sent when a battle is declared — that is
+ * It is not a commitment of troops. Nobody is sent when a battle is declared. That is
  * {@link BattleDeployment}, it happens over the hours afterwards, and it can be undone right up to
  * the mark. Declaring names the ground and starts the clock, and nothing else.
  */
@@ -38,7 +38,7 @@ export type BattleTargetKind = z.infer<typeof BattleTargetKindSchema>;
 /**
  * Every target carries its district.
  *
- * Redundant for a location — the catalogue knows which district a location is in — and worth it anyway:
+ * Redundant for a location, the catalogue knows which district a location is in, and worth it anyway:
  * the settler reads whose ground it was for §D7 and §D8 on every single resolution, and a lookup
  * that can fail is a lookup that will, on the one row whose location was renamed.
  */
@@ -55,8 +55,8 @@ export const GATE_BREACH_HOURS = 24;
 /**
  * A district's front door.
  *
- * `armed` is derived from the control table every time it is asked — a district is shut exactly when
- * one party holds all of it — so it can never disagree with the map. `brokenUntil` is the one piece
+ * `armed` is derived from the control table every time it is asked: a district is shut exactly when
+ * one party holds all of it, so it can never disagree with the map. `brokenUntil` is the one piece
  * of stored state, because "somebody kicked this in at 04:12" is a fact about the past that no
  * amount of reading the present recovers.
  */
@@ -141,7 +141,7 @@ export type BattleSide = z.infer<typeof BattleSideSchema>;
  * Units here have **left the crew's roster**. They are not a reservation against it: a stack that is
  * deployed cannot also be defending home, cannot be garrisoned somewhere else, and cannot be trained
  * over. Withdrawing puts them back. Modelling it as a booking against the army instead was the first
- * design and it fell over immediately — a crew could declare six fights and promise the same twenty
+ * design and it fell over immediately: a crew could declare six fights and promise the same twenty
  * Razors to all of them.
  *
  * `perimeter` is the second force and it is not part of the battle army. See `battle/perimeter.ts`.
@@ -153,6 +153,14 @@ export const BattleDeploymentSchema = z.object({
   side: BattleSideSchema,
   army: ArmySchema.default({}),
   perimeter: ArmySchema.default({}),
+  /**
+   * §D7: the one boost this side bought for this fight, or null.
+   *
+   * On the deployment rather than on the battle because both sides get one, and paid for at the
+   * moment it is chosen rather than at the mark: a crew that buys a boost and then withdraws has
+   * still spent the name. Changing it refunds nothing, which is what stops it being a shop.
+   */
+  boostId: z.string().min(1).nullable().default(null),
   updatedAt: IsoDateTimeSchema,
 });
 export type BattleDeployment = z.infer<typeof BattleDeploymentSchema>;
@@ -186,7 +194,7 @@ export const ScheduledBattleSchema = z.object({
    * occupation: the survivors become the location's garrison, they defend it against whoever comes to
    * take it back, and they are not available for anything until they are pulled out.
    *
-   * Defaulted, so a row written before the flag existed reads as a raid — which is what those
+   * Defaulted, so a row written before the flag existed reads as a raid, which is what those
    * fights actually were.
    */
   holdAfterCapture: z.boolean().default(false),
@@ -205,12 +213,12 @@ export function deployedSize(deployment: Pick<BattleDeployment, 'army' | 'perime
   return count(deployment.army) + count(deployment.perimeter);
 }
 
-/** A participant that has committed nothing at all — which is a legal state right up to the mark. */
+/** A participant that has committed nothing at all, which is a legal state right up to the mark. */
 export function emptyDeployment(
   battleId: string,
   baseId: string | null,
   side: BattleSide,
   at: string,
 ): BattleDeployment {
-  return { battleId, baseId, side, army: {}, perimeter: {}, updatedAt: at };
+  return { battleId, baseId, side, army: {}, perimeter: {}, boostId: null, updatedAt: at };
 }

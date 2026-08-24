@@ -35,6 +35,9 @@ import { cn } from '../../lib/cn';
 const GAP = 8;
 const EDGE = 10;
 
+/** How long an interactive card survives the pointer leaving it. Long enough to cross the gap. */
+const LEAVE_GRACE_MS = 160;
+
 export interface HoverCardProps {
   /** What the card says. Rendered only while open, so its content can be as rich as it likes. */
   card: ReactNode;
@@ -66,11 +69,21 @@ export interface HoverCardProps {
    * How much room the card takes.
    *
    * `tip` is a sentence or two beside the thing it explains. `window` is a framed panel roughly
-   * six times its area — for the handful of things worth a proper look: a resource, a unit, an
+   * six times its area, for the handful of things worth a proper look: a resource, a unit, an
    * item. The frame is drawn by the caller; this only sets the width and drops the tooltip's
    * padding, since a window supplies its own.
    */
   size?: 'tip' | 'window';
+  /**
+   * Whether the card itself can be pointed at.
+   *
+   * Off by default, and that is the right default: a card that eats pointer events sits over the
+   * thing behind it, and almost every card here is prose. Turn it on when the card carries a
+   * control of its own: the notoriety ladder's Upgrade Tier button is the case it exists for.
+   * The card then stays open while the pointer is on its way across the gap, which is the whole
+   * difference between a button and a button nobody can reach.
+   */
+  interactive?: boolean;
   'data-testid'?: string;
 }
 
@@ -88,13 +101,42 @@ export function HoverCard({
   onActivate,
   disabled = false,
   size = 'tip',
+  interactive = false,
   'data-testid': testId,
 }: HoverCardProps) {
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const closing = useRef<ReturnType<typeof setTimeout> | null>(null);
   const id = useId();
+
+  /**
+   * Leaving an interactive card is a *delayed* close, because the pointer has to cross the gap
+   * between the chip and the card to reach the control inside it. Everything else closes at once.
+   */
+  const cancelClose = useCallback(() => {
+    if (closing.current !== null) {
+      clearTimeout(closing.current);
+      closing.current = null;
+    }
+  }, []);
+
+  const show = useCallback(() => {
+    cancelClose();
+    setOpen(true);
+  }, [cancelClose]);
+
+  const hide = useCallback(() => {
+    if (!interactive) {
+      setOpen(false);
+      return;
+    }
+    cancelClose();
+    closing.current = setTimeout(() => setOpen(false), LEAVE_GRACE_MS);
+  }, [cancelClose, interactive]);
+
+  useEffect(() => cancelClose, [cancelClose]);
 
   /**
    * Measured after paint, not guessed.
@@ -148,7 +190,7 @@ export function HoverCard({
           className,
         )}
         // Disabled rather than `disabled`: a disabled button takes no pointer events at all, so
-        // the card explaining *why* it is disabled would never open — which is the one moment it
+        // the card explaining *why* it is disabled would never open, which is the one moment it
         // is worth reading.
         aria-disabled={onActivate !== undefined && disabled ? true : undefined}
         onClick={onActivate !== undefined && !disabled ? onActivate : undefined}
@@ -156,10 +198,10 @@ export function HoverCard({
         title={label}
         aria-describedby={open ? id : undefined}
         aria-expanded={open}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
         data-testid={testId}
       >
         {children}
@@ -171,11 +213,17 @@ export function HoverCard({
             ref={cardRef}
             id={id}
             role="tooltip"
+            onMouseEnter={interactive ? show : undefined}
+            onMouseLeave={interactive ? hide : undefined}
             className={cn(
-              'pointer-events-none z-[200] w-max',
+              'z-[200] w-max',
+              interactive ? 'pointer-events-auto' : 'pointer-events-none',
               size === 'window'
                 ? 'max-w-[26rem]'
-                : 'glass-strong painted washed rivets brushed max-w-[17rem] rounded-md px-3.5 py-3 shadow-panel',
+                : // A torn scrap of paper with a hand-inked rule round it, not a rounded rectangle
+                  // with a hairline border. The card is the game's most-read surface and it was the
+                  // one that looked most like a form.
+                  'scrap max-w-[17rem] px-4 py-3.5',
               // Invisible for the one frame between mounting and being measured, so it never
               // flashes at the top-left corner on its way to where it belongs.
               placement === null && 'opacity-0',
@@ -183,7 +231,7 @@ export function HoverCard({
             /*
              * `position` inline rather than via the `fixed` class. `.glass-strong` declares
              * `position: relative` and is authored in `index.css`'s `@layer utilities`, which
-             * Tailwind appends after its own — equal specificity, later source, so the class loses.
+             * Tailwind appends after its own: equal specificity, later source, so the class loses.
              * The card then positions against the document rather than the viewport, which happens
              * to look correct on a short page and drops it below the fold on a long one.
              */

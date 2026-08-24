@@ -11,7 +11,7 @@ import { ArmySchema } from './units/index.js';
  *
  * A separate module from `api.ts` on purpose: this is a whole feature's worth of DTOs and it has its
  * own reasons for being shaped the way it is, most of which are about **what a payload is allowed to
- * contain**. Everything here is written from one side's point of view — the caller's — because the
+ * contain**. Everything here is written from one side's point of view, the caller's, because the
  * fog is enforced by not sending things rather than by flagging them, exactly as the city view does.
  */
 
@@ -24,7 +24,7 @@ export type BattleRole = z.infer<typeof BattleRoleSchema>;
  * What the caller has standing on one side of a coming fight.
  *
  * Exact for their own, because it is theirs. The enemy's is a *count* and only when their
- * counter-intelligence lets it be one — see `battle/intel.ts` — which is why `enemySize` is
+ * counter-intelligence lets it be one, see `battle/intel.ts`, which is why `enemySize` is
  * nullable and `enemyForce` does not exist at all. A composition field that was sometimes null
  * would be a field a client could learn something from by its shape.
  */
@@ -35,6 +35,31 @@ export const BattleMusterSchema = z.object({
   size: z.number().int().nonnegative(),
 });
 export type BattleMuster = z.infer<typeof BattleMusterSchema>;
+
+/**
+ * One thing a name will buy for one fight (§D7), priced against what the caller currently has.
+ *
+ * Sent per battle rather than once for the screen, because affordability and reach are both facts
+ * about *that* fight: the same boost is a different figure against a force of Razors and a force of
+ * Juggernauts, and `reach` is what lets the drop-down say so before the money is spent.
+ */
+export const BattleBoostOptionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  description: z.string(),
+  cost: z.number().int().nonnegative(),
+  /** What it does, in the player's words: "+30% attack for your heavy units". */
+  effect: z.string(),
+  /** Where it came from, or the empty string for the ones anybody may buy. */
+  source: z.string(),
+  /** 0..100: how much of what the caller has on the ground this one actually reaches. */
+  reach: z.number().int().min(0).max(100),
+  /** The crew has the points. */
+  affordable: z.boolean(),
+  /** The Lab or the right officer has put it on the table. */
+  available: z.boolean(),
+});
+export type BattleBoostOption = z.infer<typeof BattleBoostOptionSchema>;
 
 export const BattleViewSchema = z.object({
   battle: ScheduledBattleSchema,
@@ -50,17 +75,21 @@ export const BattleViewSchema = z.object({
   muster: BattleMusterSchema.nullable(),
   /** What the caller can make out of the other side, or null when they cannot make out anything. */
   enemySize: z.number().int().nonnegative().nullable(),
-  /** One line about how good that reading is. Always present — "nothing" is a reading. */
+  /** One line about how good that reading is. Always present: "nothing" is a reading. */
   enemyIntel: z.string(),
   /** Who the caller is up against, in the words the map uses. */
   opponentName: z.string(),
+  /** §D7: every boost this crew could put on this fight. Empty for a bystander. */
+  boosts: z.array(BattleBoostOptionSchema),
+  /** The one already bought for this fight, or null. One per battle, and it is not refundable. */
+  boostId: z.string().nullable(),
 });
 export type BattleView = z.infer<typeof BattleViewSchema>;
 
 /**
  * A finished fight as one participant is told about it.
  *
- * `analysis` is null when the report did not reach them — the loser with nobody home. `redacted`
+ * `analysis` is null when the report did not reach them: the loser with nobody home. `redacted`
  * says which of the two it is, so a client can print the silence rather than an empty table.
  */
 export const BattleReportViewSchema = z.object({
@@ -81,7 +110,7 @@ export const StructureDefenceSchema = z.object({
   label: z.string(),
   level: z.number().int().positive(),
   damage: z.number().min(0).max(100),
-  /** 0..1 — how much of its job it is still doing. */
+  /** 0..1: how much of its job it is still doing. */
   effectiveness: z.number().min(0).max(1),
   garrisons: z.number().int().min(0),
 });
@@ -98,23 +127,11 @@ export const TrapOptionSchema = z.object({
 });
 export type TrapOption = z.infer<typeof TrapOptionSchema>;
 
-/** An infamy sink, priced against what the caller currently has. */
-export const SacrificeOptionSchema = z.object({
-  id: z.string().min(1),
-  name: z.string(),
-  description: z.string(),
-  cost: z.number().int().nonnegative(),
-  hours: z.number().int().positive(),
-  effect: z.string(),
-  affordable: z.boolean(),
-});
-export type SacrificeOption = z.infer<typeof SacrificeOptionSchema>;
-
 /**
  * One district's front door, as the caller can see it.
  *
  * Sent for every district this crew can see into, because "may I attack a location here, or only the
- * gate" is a question the district screen has to answer *before* the player presses anything — and
+ * gate" is a question the district screen has to answer *before* the player presses anything, and
  * deriving it on the client from who holds what would be a second copy of the rule.
  */
 export const DistrictGateViewSchema = z.object({
@@ -134,11 +151,8 @@ export const BattlesResponseSchema = z.object({
   reports: z.array(BattleReportViewSchema),
   /** The half-hour marks a declaration could name right now. */
   slots: z.array(IsoDateTimeSchema),
-  /** §D7 — what the caller's name is worth, and what it will buy. */
+  /** §D7: what the caller's name is worth. Boosts are priced per fight, on each `BattleView`. */
   infamy: z.number().int().nonnegative(),
-  sacrifices: z.array(SacrificeOptionSchema),
-  /** The sacrifice currently burning, as a line of text, or null. */
-  sacrificeRunning: z.string().nullable(),
   /** Every district this crew can see into, and whether its gate is armed or down. */
   gates: z.array(DistrictGateViewSchema),
   structures: z.array(StructureDefenceSchema),
@@ -189,8 +203,17 @@ export const GarrisonStructureRequestSchema = z.object({
 });
 export type GarrisonStructureRequest = z.infer<typeof GarrisonStructureRequestSchema>;
 
-export const SacrificeInfamyRequestSchema = z.object({ sacrificeId: z.string().min(1) });
-export type SacrificeInfamyRequest = z.infer<typeof SacrificeInfamyRequestSchema>;
+/**
+ * Buying the one boost a fight is allowed (§D7).
+ *
+ * `boostId` is never null: there is no un-buying. A crew that has picked one has already spent the
+ * name, and offering a refund would make the drop-down a browser rather than a decision.
+ */
+export const BuyBattleBoostRequestSchema = z.object({
+  battleId: IdSchema,
+  boostId: z.string().min(1),
+});
+export type BuyBattleBoostRequest = z.infer<typeof BuyBattleBoostRequestSchema>;
 
 /** Every write on this feature answers with the whole screen plus the caller's own crew. */
 export const BattleMutationResponseSchema = z.object({

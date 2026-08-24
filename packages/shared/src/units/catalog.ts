@@ -8,13 +8,13 @@ import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js'
 /**
  * The battle units (GDD §A5).
  *
- * Five tiers, and what separates them is not only power — it is **what you had to do with the
+ * Five tiers, and what separates them is not only power. It is **what you had to do with the
  * world to get them**. Rabble needs a Gauntlet, or in one case nothing at all. Specialists need
  * something researched or a specific augment fitted. Heavy units need a clinic you took off
  * somebody. Legendary units need a location on the map *and* a structure at the top of its tree: the
  * Colossus is built out of a war machine graveyard because that is where the hulls are.
  *
- * That is the whole design intent of the requirement list below — a unit roster is a readout of a
+ * That is the whole design intent of the requirement list below: a unit roster is a readout of a
  * campaign, not a shopping list.
  */
 
@@ -63,7 +63,7 @@ export interface UnitSpec {
    * Percentage points **per tier** added to what an environment label is already worth to this
    * unit (`city/labels.ts`).
    *
-   * Almost every unit leaves this empty and is answered by the label's own stat rule — a
+   * Almost every unit leaves this empty and is answered by the label's own stat rule: a
    * Juggernaut cooks in the heat because it is wearing ninety-five points of armour, not because
    * somebody typed a row for it. What goes here is the handful of cases a sheet genuinely cannot
    * express: Anodics fight *better* in a room full of noise, and no combination of their eleven
@@ -126,7 +126,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     /**
-     * Nothing at all — the only unit in the game with no requirement.
+     * Nothing at all: the only unit in the game with no requirement.
      *
      * A crew that has not built a Gauntlet yet must still be able to put *somebody* on the street,
      * or the first session has no move in it: the opening district holds a Nexus and a Generator,
@@ -166,8 +166,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * The cheapest thing in the game that can take a hit.
      *
      * Rabble tier and priced like it, but with a Warden's constitution and a middling everything
-     * else — the unit a new crew fields when it does not yet know what fight it is walking into.
-     * What they are *for* is the ground, not the sheet: a room, a tunnel, a factory floor with a
+     * else: the first unit worth fielding in numbers once there is a Gauntlet to train them in.
+     * (Razors remain the one thing a crew with no barracks can put on the street; that is their
+     * whole job, and nothing else is allowed to take it.)
+     *
+     * What Anodics are *for* is the ground, not the sheet: a room, a tunnel, a factory floor with a
      * press running. Fight them in a yard and they are worse than Razors.
      */
     cost: { caps: 55, food: 15, scrap: 10 },
@@ -194,7 +197,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * **Noisy** is the headline and it is not a metaphor: they are running on something that turns
      * a room full of machinery into a reason to keep going, and a press hall or a full tavern is
      * where they are worth twice what they cost. **Crammed** doubles down on the close-quarters
-     * modifier they already carry. **Open** is the bill for both — in a yard with sightlines they
+     * modifier they already carry. **Open** is the bill for both: in a yard with sightlines they
      * are a slow target with a bottle.
      *
      * **Eerie** is the quiet one: they are far too wired to be unnerved by anything, which is not
@@ -688,7 +691,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     modifiers: ['ambush', 'night_operations'],
     /**
      * They hunt by nose, so the two labels that blind everybody else are the two they are best in.
-     * What stops them is noise — a press hall is a dog with no ears — and anything that makes the
+     * What stops them is noise, a press hall is a dog with no ears, and anything that makes the
      * handler's job harder makes theirs impossible.
      */
     affinities: { dark: 7, foggy: 9, noisy: -7, eerie: -4 },
@@ -909,6 +912,15 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A single massive machine that functions like a walking fortress. It arrives slowly.',
     trainedAt: 'garage',
     unique: true,
+    /**
+     * A crane, and there are two in the city.
+     *
+     * Some things can only be assembled standing up, which is what a Construction Site is for. The
+     * Spire has one and so does Datavault Sigma: deliberately, because for a while the Spire had
+     * the only one, and the Spire is the *end* of the game: a legendary unit gated on the last
+     * district anybody takes is a legendary unit nobody ever fields. Sigma is difficulty 6, which
+     * puts the Colossus in the same band as the Specter and the Juggernaut.
+     */
     requires: [structure('garage', 16), structure('generator', 14), holds('construction_site')],
     cost: { caps: 2200, scrap: 900, oil: 600, highQualityMetal: 400 },
     trainSeconds: 5400,
@@ -930,7 +942,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     }),
     modifiers: ['breaching', 'armor_piercing'],
     // A walking fortress is a machine: it is not frightened and it does not breathe. What it is,
-    // is enormous — it cannot get into half the ground on the map and it cooks in its own plate.
+    // is enormous: it cannot get into half the ground on the map and it cooks in its own plate.
     immuneTo: ['eerie', 'toxic'],
     affinities: { crammed: -8, hot: -5, wet: -4 },
   },
@@ -1001,14 +1013,14 @@ export function isUnitId(value: string): boolean {
 
 export const UNIT_IDS: readonly string[] = UNIT_CATALOG.map((unit) => unit.id);
 
-/** Validated against the catalogue rather than declared as an enum of literals — one list. */
+/** Validated against the catalogue rather than declared as an enum of literals: one list. */
 export const UnitIdSchema = z.string().refine(isUnitId, { message: 'unknown unit' });
 
 export function unitsInTier(tier: UnitTier): UnitSpec[] {
   return UNIT_CATALOG.filter((unit) => unit.tier === tier);
 }
 
-/** Which units holding a location of this kind would open up — read back off the requirements. */
+/** Which units holding a location of this kind would open up: read back off the requirements. */
 export function unitsUnlockedByLocation(locationKind: LocationKind): UnitSpec[] {
   return UNIT_CATALOG.filter((unit) =>
     unit.requires.some((need) => need.kind === 'location' && need.locationKind === locationKind),

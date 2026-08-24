@@ -3,8 +3,10 @@ import {
   findLocation,
   startingHolder,
   GATE_BREACH_HOURS,
-  INFAMY_SACRIFICES,
-  INFAMY_TO_FIELD,
+  BATTLE_BOOSTS,
+  NOTORIETY_FIRST_COST,
+  findBattleBoost,
+  NOTORIETY_TO_FIELD,
   MAX_BUILDING_GARRISONS,
   declarationWindow,
   deployedSize,
@@ -92,7 +94,7 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
   });
 
   // Every district in the city starts wholly held by one NPC party, which means every gate in the
-  // city starts armed — see the test that pins exactly that. Most of what is worth testing here is
+  // city starts armed: see the test that pins exactly that. Most of what is worth testing here is
   // about a district with a seam in it, so the fixture opens one.
   const ramp = app.repos.city.control('rustyard-ramp')!;
   app.repos.city.put({ ...ramp, holder: { kind: 'unoccupied' }, garrison: {} });
@@ -112,14 +114,14 @@ function shutTheRustyard(stack: Stack): void {
  * Every location in the Rustyard, read off the catalogue rather than typed.
  *
  * A hard-coded list of four silently stopped shutting the district the day two more were added to
- * it — `shutTheRustyard` still returned, the gate was never armed, and three tests about the gate
+ * it: `shutTheRustyard` still returned, the gate was never armed, and three tests about the gate
  * rule went red for a reason that had nothing to do with the gate rule.
  */
 const RUSTYARD_LOCATIONS: readonly string[] = (findDistrict('rustyard')?.locations ?? []).map(
   (location) => location.id,
 );
 
-/** The one the looters are actually standing on — an empty lot has nobody to answer a call. */
+/** The one the looters are actually standing on: an empty lot has nobody to answer a call. */
 const SQUATTED_RUSTYARD_LOCATION: string = (() => {
   const district = findDistrict('rustyard');
   const held = district?.locations.find(
@@ -206,7 +208,7 @@ describe('calling a fight (§A4)', () => {
     expect(coming).toHaveLength(1);
     expect(coming[0]!.role).toBe('attacker');
     expect(coming[0]!.targetName).toBe(findLocation(SQUATTED_RUSTYARD_LOCATION)?.name);
-    // The other side exists from the moment the call is made — an NPC answers a call the same day.
+    // The other side exists from the moment the call is made: an NPC answers a call the same day.
     expect(coming[0]!.enemySize).not.toBe(0);
   });
 
@@ -336,7 +338,7 @@ describe('moving people up to it (§A4)', () => {
     expect(view.muster?.size).toBe(2);
   });
 
-  /** §D7 — the heaviest things on the roster will not take a contract from a nobody. */
+  /** §D7: the heaviest things on the roster will not take a contract from a nobody. */
   it('refuses to field a unit the crew has not earned the name for', async () => {
     const stack = await makeStack();
     const base = stack.repos.bases.findById(stack.baseId)!;
@@ -350,7 +352,7 @@ describe('moving people up to it (§A4)', () => {
 
     stack.repos.bases.updateEconomy(base.id, {
       ...base.economy,
-      infamy: INFAMY_TO_FIELD.legendary,
+      notoriety: NOTORIETY_TO_FIELD.legendary,
     });
     expect((await deploy(stack, battleId, { the_colossus: 1 })).statusCode).toBe(200);
   });
@@ -358,7 +360,7 @@ describe('moving people up to it (§A4)', () => {
   /**
    * The other end of the deployment window. Past the mark there is nothing left to move people to:
    * the settler at the top of every handler has already run the fight, so the call 404s rather than
-   * refusing — which is the honest answer, since the row is no longer a coming fight.
+   * refusing, which is the honest answer, since the row is no longer a coming fight.
    */
   it('has nothing left to deploy into once the mark has passed', async () => {
     const stack = await makeStack();
@@ -429,7 +431,7 @@ describe('resolving it (§A4)', () => {
   });
 
   /**
-   * §D7 — killing is what raises a name, and the ledger has no ceiling.
+   * §D7: killing is what raises a name, and the ledger has no ceiling.
    *
    * Asserted as an exact sum rather than as a floor. A floor passes with the kill term deleted,
    * because taking the ground pays a flat bonus on its own that is larger than six Razors.
@@ -498,7 +500,7 @@ describe('resolving it (§A4)', () => {
 
   /**
    * The rule the ring is bought for. A stub engine reports nobody home, so the loser is told
-   * nothing — not a redacted table, nothing.
+   * nothing, not a redacted table, nothing.
    */
   it('withholds the report from a loser nobody came back to', async () => {
     const stack = await makeStack('silenced', decided('defender', { fled: {} }));
@@ -523,50 +525,115 @@ describe('resolving it (§A4)', () => {
   });
 });
 
-describe('the two things a name buys (§D7)', () => {
-  it('spends infamy on a sacrifice, and refuses when the name is not worth it', async () => {
-    const stack = await makeStack();
-    const spec = INFAMY_SACRIFICES[0]!;
+describe('what a name buys (§D7)', () => {
+  /** The first boost anybody may buy, and the only one this bare stack has on the table. */
+  const open = () => BATTLE_BOOSTS.find((spec) => spec.unlock.kind === 'open')!;
 
-    const broke = await stack.app.inject({
+  const buy = (stack: Stack, battleId: string, boostId: string) =>
+    stack.app.inject({
       method: 'POST',
-      url: '/api/battles/sacrifice',
+      url: '/api/battles/boost',
       headers: auth(stack.token),
-      payload: { sacrificeId: spec.id },
+      payload: { battleId, boostId },
     });
+
+  it('buys one boost for one fight, and refuses when the name is not worth it', async () => {
+    const stack = await makeStack();
+    const spec = open();
+    const declared = await declare(stack);
+    const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
+
+    const broke = await buy(stack, battleId, spec.id);
     expect(broke.statusCode).toBe(409);
     expect(errorCode(broke)).toBe('NOT_ENOUGH_INFAMY');
 
     const base = stack.repos.bases.findById(stack.baseId)!;
     stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: spec.cost + 10 });
 
-    const paid = await stack.app.inject({
-      method: 'POST',
-      url: '/api/battles/sacrifice',
-      headers: auth(stack.token),
-      payload: { sacrificeId: spec.id },
-    });
+    const paid = await buy(stack, battleId, spec.id);
     expect(paid.statusCode).toBe(200);
     const after = paid.json<BattleMutationResponse>();
     expect(after.base.economy.infamy).toBe(10);
-    expect(after.battles.sacrificeRunning).not.toBeNull();
+    expect(after.battles.coming[0]!.boostId).toBe(spec.id);
   });
 
-  it('runs one sacrifice at a time', async () => {
+  it('offers nothing an officer or the Lab has not put on the table', async () => {
     const stack = await makeStack();
-    const spec = INFAMY_SACRIFICES[0]!;
+    const gated = BATTLE_BOOSTS.find((spec) => spec.unlock.kind !== 'open')!;
+    const declared = await declare(stack);
+    const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
     const base = stack.repos.bases.findById(stack.baseId)!;
-    stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: spec.cost * 3 });
+    stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 100_000 });
 
-    const send = () =>
+    const view = (await board(stack)).coming[0]!;
+    expect(view.boosts.find((option) => option.id === gated.id)!.available).toBe(false);
+
+    const refused = await buy(stack, battleId, gated.id);
+    expect(refused.statusCode).toBe(403);
+  });
+
+  it('replaces the boost rather than stacking it, and charges again for the change of mind', async () => {
+    const stack = await makeStack();
+    const [first, second] = BATTLE_BOOSTS.filter((spec) => spec.unlock.kind === 'open');
+    const declared = await declare(stack);
+    const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    const purse = first!.cost + second!.cost + 5;
+    stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: purse });
+
+    expect((await buy(stack, battleId, first!.id)).statusCode).toBe(200);
+    const changed = await buy(stack, battleId, second!.id);
+    expect(changed.statusCode).toBe(200);
+    const after = changed.json<BattleMutationResponse>();
+    expect(after.battles.coming[0]!.boostId).toBe(second!.id);
+    expect(after.base.economy.infamy).toBe(5);
+  });
+
+  it('prices a boost against the force actually standing on the ground', async () => {
+    const stack = await makeStack();
+    const declared = await declare(stack);
+    const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
+    await deploy(stack, battleId, { razors: 4 });
+
+    const view = (await board(stack)).coming[0]!;
+    const wholeForce = view.boosts.find(
+      (option) => findBattleBoost(option.id)!.effect.kind === 'force',
+    )!;
+    const legends = view.boosts.find((option) => {
+      const effect = findBattleBoost(option.id)!.effect;
+      return effect.kind === 'tier' && effect.tier === 'legendary';
+    })!;
+    // Everything you sent is everything you sent; a boost on legends against four Razors is not.
+    expect(wholeForce.reach).toBe(100);
+    expect(legends.reach).toBe(0);
+  });
+
+  it('climbs the ladder, and the rank stays when the wallet is spent back down', async () => {
+    const stack = await makeStack();
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      infamy: NOTORIETY_FIRST_COST + 5,
+    });
+
+    const climb = () =>
       stack.app.inject({
         method: 'POST',
-        url: '/api/battles/sacrifice',
+        url: '/api/battles/notoriety',
         headers: auth(stack.token),
-        payload: { sacrificeId: spec.id },
       });
-    expect((await send()).statusCode).toBe(200);
-    expect((await send()).statusCode).toBe(409);
+
+    const bought = await climb();
+    expect(bought.statusCode).toBe(200);
+    const after = bought.json<BattleMutationResponse>();
+    expect(after.base.economy.notoriety).toBe(1);
+    expect(after.base.economy.infamy).toBe(5);
+
+    // The second rung costs three times the first, so five points does not reach it.
+    const short = await climb();
+    expect(short.statusCode).toBe(409);
+    expect(errorCode(short)).toBe('NOT_ENOUGH_INFAMY');
+    expect(stack.repos.bases.findById(stack.baseId)!.economy.notoriety).toBe(1);
   });
 });
 

@@ -10,7 +10,7 @@ import { buildingLevel, findBuilding, type Building } from './state.js';
  * Six structures reach the crew through this module: the Quarters and the Generator set what morale
  * settles at, the Gate sets what a raider has to beat, the Lab shortens research, the Gauntlet pays
  * officers more for the same work, and the Infirmary takes the edge off a bad week. Five of them do
- * their *whole* job here — the Quarters is the exception, because it also houses people, and that
+ * their *whole* job here: the Quarters is the exception, because it also houses people, and that
  * is `population.ts`. Everything else is one exported function, so "what does the Infirmary actually
  * do" has exactly one answer.
  */
@@ -23,7 +23,7 @@ import { buildingLevel, findBuilding, type Building } from './state.js';
  *
  * This is the difference between a mechanic and a rounding error. A flat bonus applied per
  * settlement would pay a player for refreshing the page, and a per-hour trickle would pay them for
- * staying away; drifting towards a target is frequency-independent — the same elapsed time gives
+ * staying away; drifting towards a target is frequency-independent: the same elapsed time gives
  * the same answer however many times it was read along the way.
  *
  * Events still move morale directly: a mission comes home (`MISSION_MORALE_DELTA`), a payday is
@@ -73,19 +73,19 @@ export const DEFENSE_PER_GATE_LEVEL = 6;
  * What a raider has to beat before they touch anything behind it.
  *
  * Added to the target's own difficulty by the battle engine, so a well-gated district is harder to
- * take than a bare one on the same ground. It is read for *whichever side is defending* — which is
+ * take than a bare one on the same ground. It is read for *whichever side is defending*, which is
  * why the bot rival's Gate already makes a difference today, and why a player's own Gate starts
  * paying the moment crews can raid each other.
  */
 export function districtDefense(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  // A Gate that has been kicked in is worth less until it is rebuilt — which is most of what a
+  // A Gate that has been kicked in is worth less until it is rebuilt, which is most of what a
   // breach is *for*, and the reason a second raid inside the window is easier than the first.
   const gate =
     buildingLevel(buildings, 'gate') *
     DEFENSE_PER_GATE_LEVEL *
     buildingEffectiveness(findBuilding(buildings, 'gate'));
-  // §A4 — people stationed inside the structures themselves, up to three per structure. The one
+  // §A4: people stationed inside the structures themselves, up to three per structure. The one
   // defence that costs bodies rather than materials.
   return Math.round(gate * (1 + effects.defense_percent / 100) + garrisonDefensePercent(buildings));
 }
@@ -126,7 +126,7 @@ export function hardshipReduction(buildings: readonly Building[]): number {
   );
 }
 
-/** Percentage points on what a won raid brings home. Modifications only — no structure grants it. */
+/** Percentage points on what a won raid brings home. Modifications only: no structure grants it. */
 export function raidLootBonus(buildings: readonly Building[]): number {
   return districtEffects(buildings).raid_loot_percent;
 }

@@ -20,7 +20,7 @@ import { npcMuster } from './npc.js';
  * Calling a fight (GDD §A4, battle rework).
  *
  * A declaration is public, timed and cheap: it commits no units and costs no materials. What it
- * costs is surprise — the whole point of the rework is that the defender is told, and told early
+ * costs is surprise: the whole point of the rework is that the defender is told, and told early
  * enough to do something about it.
  *
  * Everything a declaration can be refused for is in {@link DECLARE_REFUSALS}, and each check runs in
@@ -33,7 +33,7 @@ import { npcMuster } from './npc.js';
  * How many unresolved calls one crew may have out.
  *
  * Three. Declarations are free, so without a cap the correct opening move is to call every location in
- * the city at once and decide later which one you actually meant — which turns a public commitment
+ * the city at once and decide later which one you actually meant, which turns a public commitment
  * into noise and makes the defender's day's notice worthless.
  */
 export const MAX_PENDING_DECLARATIONS = 3;
@@ -83,7 +83,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   const district = findDistrict(target.districtId);
   if (!district) return { kind: 'refused', reason: 'unscouted' };
 
-  // The same visibility the map computed, uplink range included — deriving it twice from different
+  // The same visibility the map computed, uplink range included: deriving it twice from different
   // inputs is how a screen and a rule quietly disagree about what a crew can see.
   if (!cityContextFor(repos, base).visible.has(district.id)) {
     return { kind: 'refused', reason: 'unscouted' };
@@ -129,7 +129,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   repos.sieges.putDeployment(emptyDeployment(battle.id, base.id, 'attacker', at));
 
   // The defending side's row exists from the moment the call is made, so both participants have
-  // somewhere to move people to. An NPC fills theirs immediately (§A3 — they answer a call the same
+  // somewhere to move people to. An NPC fills theirs immediately (§A3: they answer a call the same
   // day it is made); a crew fills theirs when they get round to it, or does not.
   const defendingBase = defender.kind === 'faction' ? defender.baseId : null;
   repos.sieges.putDeployment({

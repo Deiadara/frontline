@@ -6,11 +6,11 @@ import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 /**
  * The market's two traders (GDD §D, market extension).
  *
- * ## The Runner — in town four hours a day, and never the same four
+ * ## The Runner: in town four hours a day, and never the same four
  *
  * A vendor who is always there is a shop, and a shop is a menu: a player buys what they need when
  * they need it and the market stops being a place. The Runner is in the district for two two-hour
- * sessions each UTC day, and *which* hours changes every day. That does three things at once — it
+ * sessions each UTC day, and *which* hours changes every day. That does three things at once. It
  * gives the day a shape, it makes a blueprint you wanted and missed sting, and it gives players a
  * reason to tell each other when he is in.
  *
@@ -19,7 +19,7 @@ import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
  * Both are derived from the UTC date alone: no table, no scheduler, no row anybody has to write.
  * Two servers, two months apart, agree about what he was selling on any given day.
  *
- * ## The Broker — always open, and always taking half
+ * ## The Broker: always open, and always taking half
  *
  * The other end of the same idea. He will turn any resource into any other at a flat fifty
  * percent, which is a terrible rate and exactly the point: it is the floor under every shortage,
@@ -83,7 +83,7 @@ export type VendorSession = z.infer<typeof VendorSessionSchema>;
 /**
  * When the Runner is in, on this day.
  *
- * Two sessions, two hours each, never overlapping and never adjacent — a four-hour block would be
+ * Two sessions, two hours each, never overlapping and never adjacent: a four-hour block would be
  * one session wearing two hats, and the whole point is that missing one still leaves the other.
  * The second is drawn from the hours far enough from the first to guarantee it.
  */
@@ -217,7 +217,7 @@ export function vendorStockFor(day: string): VendorLine[] {
 }
 
 /**
- * §I3 — what the Broker keeps once a crew is worth being careful with.
+ * §I3: what the Broker keeps once a crew is worth being careful with.
  *
  * `MILESTONE_BROKERS_RESPECT` is the only thing that has ever moved this rate. Sixty-five percent
  * back rather than fifty is a third more on every trade, which is large enough to feel at level 60
@@ -247,5 +247,5 @@ export function barterQuote(giveAmount: number, rate: number = BARTER_RATE): num
 /** The smallest trade the Broker will look at. Below this the rate rounds to nothing anyway. */
 export const BARTER_MINIMUM = 10;
 
-/** The resources the Broker deals in — all of them, in stockpile order. */
+/** The resources the Broker deals in: all of them, in stockpile order. */
 export const BARTER_RESOURCES: readonly ResourceKey[] = RESOURCE_KEYS;

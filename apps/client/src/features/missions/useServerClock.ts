@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
  *
  * Every countdown on the missions page reads from this rather than from `Date.now()`. The server
  * decides when a mission lands (see `apps/server/src/missions/resolve.ts`), so a machine whose
- * clock is skewed — or nudged forward by a player hoping to land a mission early — must still be
+ * clock is skewed, or nudged forward by a player hoping to land a mission early, must still be
  * shown the real remaining time. `serverNow` and the moment the response arrived give the offset.
  *
  * Pass `serverNow`/`receivedAt` as undefined before the first response and the clock is simply

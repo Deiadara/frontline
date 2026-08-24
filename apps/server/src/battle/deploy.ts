@@ -4,7 +4,7 @@ import {
   mulberry32,
   perimeterToll,
   seedFrom,
-  unitsBeyondInfamy,
+  unitsBeyondNotoriety,
   type Army,
   type BattleDeployment,
   type BattleSide,
@@ -81,7 +81,7 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     return { kind: 'refused', reason: 'not_a_participant' };
   }
 
-  // §D7 — the heaviest things on the roster will not take a contract from a nobody. Checked across
+  // §D7: the heaviest things on the roster will not take a contract from a nobody. Checked across
   // both forces at once so a crew cannot slip a legend onto the ring instead of into the line.
   const sending = [input.changes, input.perimeterChanges].reduce<Army>(
     (total, changes) => ({
@@ -94,7 +94,7 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     }),
     {},
   );
-  if (unitsBeyondInfamy(sending, base.economy.infamy).length > 0) {
+  if (unitsBeyondNotoriety(sending, base.economy.notoriety).length > 0) {
     return { kind: 'refused', reason: 'needs_infamy' };
   }
 

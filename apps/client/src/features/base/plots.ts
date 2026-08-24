@@ -6,25 +6,25 @@ import {
 } from '@frontline/shared';
 
 /**
- * Where each structure stands in the district (GDD §A1 — a place laid out like Grepolis' town
+ * Where each structure stands in the district (GDD §A1: a place laid out like Grepolis' town
  * view, not a list).
  *
  * ## The plate paints the buildings, so a site is a silhouette
  *
  * `plate-district` used to be *ground*: an empty terrace with lots on it, and each structure was a
  * cutout master pasted onto its lot. The delivered plate is a finished painting of a district with
- * the buildings already in it, which turns the layout inside out. There is nothing left to paste —
- * the Quarters are already drawn, at an angle nothing but that painting knows — so what the layout
+ * the buildings already in it, which turns the layout inside out. There is nothing left to paste:
+ * the Quarters are already drawn, at an angle nothing but that painting knows, so what the layout
  * has to carry is no longer *where to put a box* but **which pixels are which building**.
  *
  * A site is therefore a polygon traced around the building on the plate, and the whole interaction
- * layer is those polygons: hover lights one, click opens its dialog. The old model — centre, ground
- * line, box sized to the master's aspect — has no job left, and keeping it would have meant hit
+ * layer is those polygons: hover lights one, click opens its dialog. The old model: centre, ground
+ * line, box sized to the master's aspect: has no job left, and keeping it would have meant hit
  * areas that are rectangles over a painting where nothing is a rectangle: the Scrapyard's box would
  * have swallowed the Cistern beside it, and the Gate's would have covered the road it stands over.
  *
  * The masters in `art-src/building-*.png` are not wasted. They are what the structure's dialog shows
- * as its portrait — see `StructureDialog` — which is where an icon of a building is actually useful.
+ * as its portrait, see `StructureDialog`, which is where an icon of a building is actually useful.
  *
  * ## Coordinates
  *
@@ -32,7 +32,7 @@ import {
  * positioned off the edge by a viewport it was not measured at. Vertices run clockwise.
  *
  * Every polygon was traced against the plate itself under a printed grid, then rendered back over
- * the painting and checked by eye — which is why they are irregular. `plots.test.ts` pins the
+ * the painting and checked by eye, which is why they are irregular. `plots.test.ts` pins the
  * properties that survive that process being redone: inside the frame, convex, non-overlapping, and
  * a shape rather than a box.
  */
@@ -53,7 +53,7 @@ export interface DistrictSite {
  * the day they disagreed every one of the twelve outlines would slide off its building at once.
  *
  * The pixel size is the SVG overlay's `viewBox`, which is what keeps a stroke the same weight in
- * both axes — a `viewBox` of `0 0 100 100` stretched onto a 16:9 box draws a horizontal outline
+ * both axes: a `viewBox` of `0 0 100 100` stretched onto a 16:9 box draws a horizontal outline
  * thinner than a vertical one.
  */
 const PLATE = findAssetSpec('plate-district') ?? ASSET_CLASS_SPECS.plate;
@@ -65,8 +65,8 @@ export const DISTRICT_ASPECT = PLATE.width / PLATE.height;
 /**
  * The compound's back boundary, percent of scene height. Used by the stand-in ground only.
  *
- * There is no horizon and no sky. The camera looks *down* at the district — the whole frame is
- * ground — so the top of the plate is the far side of the neighbourhood, not the place the land
+ * There is no horizon and no sky. The camera looks *down* at the district: the whole frame is
+ * ground, so the top of the plate is the far side of the neighbourhood, not the place the land
  * meets the air.
  */
 export const DISTRICT_BACK_EDGE = 5;
@@ -94,7 +94,7 @@ export function siteArea(site: DistrictSite): number {
 }
 
 /**
- * The outline's area centroid — where the name plate hangs.
+ * The outline's area centroid: where the name plate hangs.
  *
  * The mean of the vertices is not this, and the difference is visible: a building traced with six
  * points along its lit roof and two at its base would pull a vertex mean up onto the roof. The area
@@ -115,7 +115,7 @@ export function siteCentroid(site: DistrictSite): { x: number; y: number } {
   return { x: cx / (6 * area), y: cy / (6 * area) };
 }
 
-/** The outline's bounding box, in percent of the scene — what a badge hung on it is sized from. */
+/** The outline's bounding box, in percent of the scene: what a badge hung on it is sized from. */
 export function siteBounds(site: DistrictSite): {
   x: number;
   y: number;
@@ -132,7 +132,7 @@ export function siteBounds(site: DistrictSite): {
 /**
  * How near the front of the district a structure stands: the lowest point of its outline.
  *
- * The ground line, in other words — the same thing the old model stored as a `baseline`, except read
+ * The ground line, in other words: the same thing the old model stored as a `baseline`, except read
  * off the tracing instead of typed beside it, so it cannot disagree with the shape it describes.
  */
 export function siteDepth(site: DistrictSite): number {
@@ -151,7 +151,7 @@ const site = (kind: BuildingKind, shape: readonly ScenePoint[]): DistrictSite =>
  */
 export const DISTRICT_SITES: readonly DistrictSite[] = [
   // The tenement stack: three storeys of shanty around a gabled core, and the biggest silhouette
-  // in the district. Traced down to the lower storey rather than stopping at the middle floor —
+  // in the district. Traced down to the lower storey rather than stopping at the middle floor:
   // the first tracing cut it off at y=27 and left the ground floor outside its own building.
   site('quarters', [
     [22, 0.8],
@@ -227,7 +227,7 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
     [71, 67],
     [65, 64],
   ]),
-  // A drum with a domed cap — nine points because a cylinder traced with four is a crate.
+  // A drum with a domed cap: nine points because a cylinder traced with four is a crate.
   site('cistern', [
     [12, 59.6],
     [14, 61],
@@ -274,15 +274,37 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
  *
  * Read off the tracings rather than typed, because it is a *consequence* of them: re-trace the
  * Quarters' roofline and this moves with it. What it is for is the one measurement the scene cannot
- * make from the picture alone — the plate's top and bottom edges are empty ground, so a viewport
+ * make from the picture alone: the plate's top and bottom edges are empty ground, so a viewport
  * that cannot show the whole painting between the floating HUD and the scenery switcher can still
  * show every building between them, by letting the *margins* pass under the chrome instead of the
  * structures. Without it the district either shrinks into the middle of the screen or puts the
  * Quarters behind the stockpile.
  */
+/**
+ * Room under the lowest building for the name plate that hangs there.
+ *
+ * Percent of the plate's height, and it is a *layout* allowance rather than a fact about the
+ * painting: every structure's control is a plate anchored at its ground line and hanging below it
+ * (`DistrictScene`), so a band that stopped at the last traced vertex would let the Scrapyard's and
+ * the Infirmary's plates hang into the scenery switcher: visible, and unclickable.
+ *
+ * Five percent, and sized against the **smallest** plate the game draws rather than the typical
+ * one, which is the whole trap here. The allowance is a share of the picture and the plate is a
+ * fixed twenty-two pixels of type, so an allowance tuned at 1440×900 is too small at 1024×768,
+ * where the picture is little more than half the height. Three percent measured fine on a desk and
+ * put the Scrapyard's and the Infirmary's plates under the in-flight rail on a laptop.
+ *
+ * Paired with the plate hanging three quarters below its anchor rather than fully below it
+ * (`DistrictScene`), which is the other half of the same sum.
+ */
+export const LABEL_ALLOWANCE = 5;
+
 export const DISTRICT_BAND = {
   top: Math.min(...DISTRICT_SITES.flatMap((s) => s.shape.map(([, y]) => y))),
-  bottom: Math.max(...DISTRICT_SITES.flatMap((s) => s.shape.map(([, y]) => y))),
+  bottom: Math.min(
+    100,
+    Math.max(...DISTRICT_SITES.flatMap((s) => s.shape.map(([, y]) => y))) + LABEL_ALLOWANCE,
+  ),
 } as const;
 
 /**
@@ -297,11 +319,11 @@ export const DISTRICT_SITES_BY_DEPTH: readonly DistrictSite[] = [...DISTRICT_SIT
 );
 
 /**
- * Guards at module load that the layout covers the catalogue exactly — no structure without a
+ * Guards at module load that the layout covers the catalogue exactly: no structure without a
  * building on the plate, and no outline for a structure that no longer exists.
  */
 if (DISTRICT_SITES.length !== BUILDING_KINDS.length) {
   throw new Error(
-    `${DISTRICT_SITES.length} outlines for ${BUILDING_KINDS.length} structures — the district layout is out of step with the catalogue`,
+    `${DISTRICT_SITES.length} outlines for ${BUILDING_KINDS.length} structures: the district layout is out of step with the catalogue`,
   );
 }

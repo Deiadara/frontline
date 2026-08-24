@@ -58,7 +58,7 @@ const ALWAYS_SUCCEEDS = seedWhere((roll) => roll < 0.5);
 const ALWAYS_FAILS = seedWhere((roll) => roll > 0.995);
 
 /**
- * A whole stack — app, database, a registered player and their base. The base is read back out
+ * A whole stack: app, database, a registered player and their base. The base is read back out
  * of the repository rather than hand-built, so these tests never spell out a `Base` literal and
  * stay independent of fields other workstreams are adding to it.
  */
@@ -103,8 +103,8 @@ const scrapRun = findMissionTemplate('scrap-run') as MissionTemplate;
 /**
  * Puts an officer on the books and returns their id (§G6).
  *
- * The stack's base starts with nobody hired, which after §G6 means it can only run *easy* missions
- * — so any test about something other than the officer gate has to hire one first. No assignees are
+ * The stack's base starts with nobody hired, which after §G6 means it can only run *easy* missions,
+ * so any test about something other than the officer gate has to hire one first. No assignees are
  * placed under them, so the §G5/§G7 multipliers are both 1 and the run keeps the template's
  * authored clock and odds.
  */
@@ -186,7 +186,7 @@ describe('mission timers are authoritative server-side (§E2, §E8)', () => {
    *
    * The fleet is deliberately weighted to battles, and deliberately large. A single 97%-success
    * scrap run proves almost nothing here: a resolver that re-rolled against the wall clock would
-   * still answer "success" both times and the test would pass while the property was broken —
+   * still answer "success" both times and the test would pass while the property was broken:
    * verified by mutation, which is why this is 40 missions and not one. At battle odds a re-roll
    * agrees only ~62% of the time, so a time-dependent roll diverges here with probability
    * 1 - 0.62^n, i.e. beyond any plausible flake.
@@ -208,7 +208,7 @@ describe('mission timers are authoritative server-side (§E2, §E8)', () => {
     const longest = Math.max(...battles.map((t) => templateTimings(t).totalMinutes));
 
     // The watcher keeps the tab open and polls every minute until the last crew is home. Each
-    // poll re-reads the base, because each poll is a separate request — see `freshBase`.
+    // poll re-reads the base, because each poll is a separate request: see `freshBase`.
     for (let minute = 0; minute <= longest; minute += 1) {
       resolveDueMissions(watched.repos, freshBase(watched), after(minute));
     }
@@ -225,7 +225,7 @@ describe('mission timers are authoritative server-side (§E2, §E8)', () => {
         .map(({ mission }) => `${mission.id}:${mission.outcome}:${JSON.stringify(mission.rewards)}`)
         .sort();
 
-    // The fleet actually contains both outcomes — otherwise this proves nothing.
+    // The fleet actually contains both outcomes: otherwise this proves nothing.
     const watchedOutcomes = outcomesOf(watched);
     expect(watchedOutcomes.filter((o) => o.includes(':success:')).length).toBeGreaterThan(0);
     expect(watchedOutcomes.filter((o) => o.includes(':failure:')).length).toBeGreaterThan(0);
@@ -302,7 +302,7 @@ describe('mission payout (§E1, §E5)', () => {
   });
 
   /**
-   * §D7/§A3 — a blow that lands on the state is heard. Asserted on the meter rather than the
+   * §D7/§A3: a blow that lands on the state is heard. Asserted on the meter rather than the
    * stance tally, which `recordMissionOutcome` already covers: the two are written side by side
    * in the same settle and one can be added without the other.
    */
@@ -324,12 +324,12 @@ describe('mission payout (§E1, §E5)', () => {
   });
 
   /**
-   * §D7 — and it keeps paying past a hundred, because infamy has no ceiling any more.
+   * §D7, and it keeps paying past a hundred, because infamy has no ceiling any more.
    *
    * This is the regression, and it was invisible: the settle folded the delta through
    * `adjustMeter`, left over from when infamy was a 0..100 meter, so a crew that had already made
    * a name banked **nothing** from a mission and was told nothing about it. The test above cannot
-   * see it — a starting crew is nowhere near a hundred — which is exactly why this one starts
+   * see it, a starting crew is nowhere near a hundred, which is exactly why this one starts
    * somewhere a real crew gets to in a week.
    */
   it('keeps paying a crew that already has a name, because infamy has no ceiling', async () => {
@@ -391,7 +391,7 @@ describe('mission payout (§E1, §E5)', () => {
 
     planted(stack, expedition, ALWAYS_SUCCEEDS);
 
-    // The crew is out on a 26-hour run. Ship a retune that cuts the mission to an hour — the shape
+    // The crew is out on a 26-hour run. Ship a retune that cuts the mission to an hour: the shape
     // of a deploy landing mid-expedition, which is routine while the board is still being tuned.
     const shipped = expedition.durationMinutes;
     try {
@@ -502,7 +502,7 @@ describe('the mission routes', () => {
      * Ten days from **now**, not from `T0`. The four launches above went through the route, which
      * stamps them with the real clock; resolving at a moment ten days after a fixed constant only
      * works while that constant is in the recent past, and it silently stopped working the day the
-     * calendar walked past it — the missions were simply not due yet and nothing was released.
+     * calendar walked past it: the missions were simply not due yet and nothing was released.
      */
     resolveDueMissions(stack.repos, stack.base, after(10 * 24 * 60, new Date()));
     const afterReturn = await app.inject({
@@ -570,9 +570,9 @@ describe('the mission routes', () => {
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
     expect(board.body).not.toMatch(/seed/i);
     // Both lines are load-bearing now. The seed always was: it is the only value here a client
-    // cannot derive at all. The chance line used to be a formality — `MISSION_TEMPLATES` ships
+    // cannot derive at all. The chance line used to be a formality: `MISSION_TEMPLATES` ships
     // `successChance` to the client and `MissionCard` renders it, and launch once copied it
-    // verbatim — but W7's §F5 Overseer modifier and W4's §G7 crew bonus both land in `launch.ts`,
+    // verbatim, but W7's §F5 Overseer modifier and W4's §G7 crew bonus both land in `launch.ts`,
     // so the stored chance genuinely diverges from the template's and is no longer something the
     // player can work out from the board. Do not relax this to "the row's copy stays server-side".
     expect(board.body).not.toMatch(/successChance/i);
@@ -629,7 +629,7 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
     expect(freshBase(stack).progression.xpIntoLevel).toBe(expected.xpIntoLevel);
   });
 
-  it('pays a crew that came home empty too — §I1 prices the run, not the win', async () => {
+  it('pays a crew that came home empty too: §I1 prices the run, not the win', async () => {
     const stack = await makeStack();
     const before = freshBase(stack);
     const raid = findMissionTemplate('foundry-raid') as MissionTemplate;
@@ -665,7 +665,7 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
 });
 
 /**
- * MOU-227 — the settle happens on *this* request, so the response that caused it is the only place
+ * MOU-227: the settle happens on *this* request, so the response that caused it is the only place
  * it can be announced. `GET` is merely early (a base refetch would catch up); `POST` is the one
  * that loses the moment outright, because the next `GET /missions` re-resolves nothing.
  *
@@ -700,13 +700,13 @@ describe('a settlement announces its level-up on the response that caused it (§
     expect(levelUp).toBeDefined();
     expect(levelUp?.level).toBe(freshBase(stack).level);
     expect(levelUp?.levelsGained).toBe(1);
-    // The grants are what the level is actually worth — the whole reason to announce it.
+    // The grants are what the level is actually worth: the whole reason to announce it.
     expect(levelUp?.grants).toEqual(playerLevelGrants(freshBase(stack).level));
   });
 
   /**
    * The aggregation, on a fixture built to need it: parked at 99/100, three awards of 120 cross the
-   * level-1 threshold, then miss level 2's (300), then clear it. So the run is 1, 0, 1 — a total of
+   * level-1 threshold, then miss level 2's (300), then clear it. So the run is 1, 0, 1: a total of
    * 2 that neither the first nor the last award reports on its own.
    */
   it('adds the levels up across crews, so two thresholds are one announcement', async () => {
@@ -805,7 +805,7 @@ describe('a settlement announces its level-up on the response that caused it (§
   });
 
   /**
-   * MOU-280 — a *refused* launch settled the board on its way to the refusal, so it owes the
+   * MOU-280: a *refused* launch settled the board on its way to the refusal, so it owes the
    * announcement exactly as much as a successful one does. There is no second chance: the next
    * `GET /missions` re-resolves nothing.
    *
@@ -843,7 +843,7 @@ describe('a settlement announces its level-up on the response that caused it (§
     planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
     const before = freshBase(stack).level;
 
-    // §G6 — a hard run with nobody on the books is refused, and `resolveCrew` reads `base.level`
+    // §G6: a hard run with nobody on the books is refused, and `resolveCrew` reads `base.level`
     // to size the delegation. This very settle moves that level, so the check cannot be hoisted
     // above the settle the way the officer lookup can: it would refuse a crew the level-up allows.
     const refused = await stack.app.inject({
@@ -856,7 +856,7 @@ describe('a settlement announces its level-up on the response that caused it (§
     expect(refused.statusCode).toBe(409);
     const body = refused.json<LevelUpBody & { error: { code: string } }>();
     expect(body.error.code).toBe('MISSION_NEEDS_OFFICER');
-    // The settle genuinely happened and is not rolled back — the level really moved…
+    // The settle genuinely happened and is not rolled back: the level really moved…
     expect(freshBase(stack).level).toBe(before + 1);
     // …so this refusal is the only response that can ever report it.
     expect(body.levelUp?.levelsGained).toBe(1);
@@ -921,7 +921,7 @@ describe('what a mission says about the Combine (§A3, §D8)', () => {
 
     expect(tally.governmentSitesTaken).toBe(before.governmentSitesTaken + 1);
     expect(tally.governmentContracts).toBe(before.governmentContracts);
-    // Only a raid can take a seat of power — a mission never does (§A3).
+    // Only a raid can take a seat of power: a mission never does (§A3).
     expect(tally.governmentSeatsTaken).toBe(before.governmentSeatsTaken);
   });
 
@@ -946,7 +946,7 @@ describe('what a mission says about the Combine (§A3, §D8)', () => {
 
   it('turns the run that crosses the threshold into the Anti-systemic word the HUD reads', async () => {
     // The whole §D8 path end to end: the counters exist to produce a *word*, so this asserts on
-    // `reputationOf` — the one function the HUD and the Bar both call — over the base as the
+    // `reputationOf`, the one function the HUD and the Bar both call, over the base as the
     // repository hands it back, and it does so on the exact run that tips the threshold.
     const template = templateWith('against_government');
     const stack = await makeStack();
@@ -955,7 +955,7 @@ describe('what a mission says about the Combine (§A3, §D8)', () => {
     const settledAt = after(templateTimings(template).totalMinutes);
     // Stamped at the settlement instant, not at T0: the §D8 drift is continuous, so a tally aged
     // even half an hour leaves an integer threshold a fraction out of reach. The drift itself is
-    // covered by the shared unit tests — what this one is about is the write path.
+    // covered by the shared unit tests: what this one is about is the write path.
     const oneShort = {
       ...stack.base.economy,
       reputationTally: {
@@ -979,7 +979,7 @@ describe('what a mission says about the Combine (§A3, §D8)', () => {
 });
 
 /**
- * INTERFACES §2 R2 / GDD §H6 — the officer who led a run is paid for the time it kept them engaged.
+ * INTERFACES §2 R2 / GDD §H6: the officer who led a run is paid for the time it kept them engaged.
  *
  * Every assertion reads the officer back out of the *repository* rather than off the returned base:
  * the sheet is persisted inside `bases.commanders_json`, and an award applied to the in-memory copy
@@ -1041,7 +1041,7 @@ describe('character XP for a run (§H6, INTERFACES R2)', () => {
     );
   });
 
-  it('pays a losing crew too — the time was spent either way', async () => {
+  it('pays a losing crew too: the time was spent either way', async () => {
     const stack = await makeStack();
     const { officer, base } = stackWithOfficer(stack);
     const raid = findMissionTemplate('foundry-raid') as MissionTemplate;
@@ -1092,7 +1092,7 @@ describe('character XP for a run (§H6, INTERFACES R2)', () => {
    * The reason `awardCharacterXp` folds per officer before it writes anything.
    *
    * Two 600-XP runs are worth three levels together but only two apiece, so an implementation that
-   * applied each award to the sheet as it was read — rather than to the running total — would land
+   * applied each award to the sheet as it was read, rather than to the running total, would land
    * on level 3 and lose one. Verified by mutation: this pair of numbers is chosen because folded
    * (level 4) and per-award-on-a-stale-sheet (level 3) actually disagree here.
    */

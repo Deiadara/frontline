@@ -2,8 +2,8 @@
  * The encode stage (ADR 0001 §4.1): master → ART-BIBLE §6 delivery file.
  *
  * A **master** per asset lands in `art-src/` as `<key>.png` or `<key>.webp`. For 14 of the assets
- * that master is deliberately not the delivery image — no backend renders 512×512 with alpha and
- * none renders 16:9 with alpha at all — so the manifest declares `spec.postProcess`, the steps that
+ * that master is deliberately not the delivery image: no backend renders 512×512 with alpha and
+ * none renders 16:9 with alpha at all, so the manifest declares `spec.postProcess`, the steps that
  * close the gap. This runner normalizes the master to `spec.source`, applies those steps, then
  * encodes the result as `spec.file` (WebP at `ASSET_CLASS_SPECS[class].quality`, or lossless PNG)
  * into the `assets/` drop directory.
@@ -47,7 +47,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 
 /** Where `gen-art.ts` leaves its masters (ADR 0001 §5.1). Never shipped. */
 export const DEFAULT_MASTER_DIR = path.join(REPO_ROOT, 'art-src');
-/** The drop directory the client globs — see `assets/README.md`. */
+/** The drop directory the client globs: see `assets/README.md`. */
 export const DEFAULT_ASSET_DIR = path.join(REPO_ROOT, 'assets');
 /** Holds the §9 licensing register, the provenance record `assets/` is audited against. */
 export const DEFAULT_ART_BIBLE_PATH = path.join(REPO_ROOT, 'docs', 'ART-BIBLE.md');
@@ -56,7 +56,7 @@ export const DEFAULT_ART_BIBLE_PATH = path.join(REPO_ROOT, 'docs', 'ART-BIBLE.md
 /* Raster primitives                                                           */
 /* -------------------------------------------------------------------------- */
 
-/** Straight (non-premultiplied) 8-bit RGBA — the working form every step operates on. */
+/** Straight (non-premultiplied) 8-bit RGBA: the working form every step operates on. */
 export interface RgbaImage {
   data: Buffer;
   width: number;
@@ -81,7 +81,7 @@ export function decodeMaster(bytes: Uint8Array): Promise<RgbaImage> {
 }
 
 /**
- * The fraction of the image that is transparent, weighted by coverage — a half-opaque pixel counts
+ * The fraction of the image that is transparent, weighted by coverage: a half-opaque pixel counts
  * as half. Weighted rather than counted so a feathered human matte and a hard automatic one are
  * measured on the same scale by the ART-BIBLE §6 gate.
  */
@@ -96,7 +96,7 @@ export function transparencyOf(image: RgbaImage): number {
  *
  * The companion to {@link transparencyOf}, and it exists because the weighted number alone cannot
  * describe an opaque key's failure. Weighting conflates two unlike things: a uniform `alpha: 254`
- * veil — invisible, no pixel remotely see-through — measures 0.4%, while a one-pixel crack down the
+ * veil, invisible, no pixel remotely see-through, measures 0.4%, while a one-pixel crack down the
  * full height of a 2048×1152 frame, which really does put the page on screen, measures 0.05%. The
  * harmless case scores eight times the harmful one, and both round to `0.0%` in a report. The count
  * separates them, so {@link auditDeliveries} can say *how much* of the frame is not opaque instead
@@ -110,7 +110,7 @@ export function nonOpaquePixels(image: RgbaImage): number {
 }
 
 /**
- * How many pixels break a key's opaque contract, or `null` if it keeps one — the single gate behind
+ * How many pixels break a key's opaque contract, or `null` if it keeps one: the single gate behind
  * both routes that enforce it, {@link deliveryProblems} and {@link auditDeliveries}.
  *
  * They differ in consequence, not in threshold: the encode route throws and the audit reports. That
@@ -118,7 +118,7 @@ export function nonOpaquePixels(image: RgbaImage): number {
  * path, and it was held by prose alone until this call sat under both (MOU-402).
  *
  * The count is the predicate rather than {@link transparencyOf}`> 0` because it is what the messages
- * lead with, and the two are equivalent here — not approximately: `1 - opacity/(255*w*h)` can only
+ * lead with, and the two are equivalent here, not approximately: `1 - opacity/(255*w*h)` can only
  * round a single non-opaque pixel away to zero above ~7e13 pixels.
  */
 export function opaqueContractBreach(image: RgbaImage, spec: AssetSpec): number | null {
@@ -153,12 +153,12 @@ export type PostProcessor = (
   options: EncodeOptions,
 ) => Promise<RgbaImage>;
 
-/** Channel bits kept when histogramming for the background colour — 16 levels per channel. */
+/** Channel bits kept when histogramming for the background colour: 16 levels per channel. */
 const HISTOGRAM_BITS = 4;
 
 /**
  * The share of the canvas a matching region must cover before it is taken to be background. Small
- * patches that merely happen to match — a sky-coloured window light, a rim highlight — survive.
+ * patches that merely happen to match, a sky-coloured window light, a rim highlight, survive.
  */
 export const MIN_KEYED_REGION = 0.005;
 
@@ -172,9 +172,9 @@ export const MIN_KEYED_REGION = 0.005;
  *
  * It does delete a *structure* thinner than the window. A 1-px line is 3 of the 9 samples in every
  * window it touches, so the median returns the field, the line joins the background region and its
- * alpha is cleared — the master's own RGB survives, which is not the same as surviving. Measured on
+ * alpha is cleared: the master's own RGB survives, which is not the same as surviving. Measured on
  * a 2048×1152 fore plane the threshold is sharp: **≤1 px is destroyed, ≥2 px is intact**, with or
- * without grain and with or without antialiasing. Nothing about that is recoverable here — a 1-px
+ * without grain and with or without antialiasing. Nothing about that is recoverable here: a 1-px
  * antialiased line lands the same distance off the field colour as the antialiased edge of a solid
  * mass, so no per-pixel test can tell them apart. {@link MAX_ERASED_ARTWORK} makes it loud instead,
  * and ART-BIBLE §6.2 puts a 3px minimum stroke weight on every keyed asset, so that a funded master
@@ -184,11 +184,11 @@ const DENOISE_WINDOW = 3;
 
 /**
  * The dual of {@link MIN_KEYED_REGION}: an opaque island smaller than this is cleared along with the
- * background. Absolute rather than a share of the canvas — `MIN_KEYED_REGION` of a 2048×1152 frame is
+ * background. Absolute rather than a share of the canvas: `MIN_KEYED_REGION` of a 2048×1152 frame is
  * ≈108×108, which would erase a genuine distant spire or drone, while 64 px (8×8 of a full-screen
  * parallax layer) can only be grain the denoise did not reach.
  *
- * This sweep bounds how *small* a surviving piece can be, not how *many* there are — past a noise
+ * This sweep bounds how *small* a surviving piece can be, not how *many* there are: past a noise
  * floor the misses clump into islands bigger than this and it stops helping. {@link MAX_KEYED_ISLANDS}
  * is what covers that end.
  *
@@ -207,8 +207,8 @@ export const MIN_OPAQUE_ISLAND = 64;
  * and clump into islands the sweep is right to keep. Fragmentation is what separates the two cases,
  * and it separates them by orders of magnitude. Measured on 2048×1152 synthetic planes at
  * {@link DEFAULT_MATTE_TOLERANCE}: a legitimate `plane-city-fore` layout (edge occluders, a drone,
- * detached spires) keys to **2** pieces and stays there through ±30 grain; ±35 — the last level
- * that still ships — reads **42**, ±36 reads **114**, and ±40 reads **1396**. 64 sits in the empty
+ * detached spires) keys to **2** pieces and stays there through ±30 grain; ±35: the last level
+ * that still ships: reads **42**, ±36 reads **114**, and ±40 reads **1396**. 64 sits in the empty
  * gap between 42 and 114. (The ±18/±20 boundary quoted before MOU-152 was the test suite's skewed
  * grain generator, not this gate moving.)
  */
@@ -220,12 +220,12 @@ export const MAX_KEYED_ISLANDS = 64;
  *
  * Two things live inside one multiple of the tolerance and must not be counted: the grain the key
  * exists to absorb, and the antialiased ribbon along every silhouette, whose colour interpolates
- * between the artwork and the field. Doubling clears the ribbon outright — it sits at roughly the
+ * between the artwork and the field. Doubling clears the ribbon outright. It sits at roughly the
  * midpoint of a separation the operator is required to keep above the tolerance in the first place.
  *
  * It does **not** clear grain, and no fixed multiple can: this is a constant cut through a noise
- * distribution the master never declares. A bounded one stays under it — uniform ±25 against
- * tolerance 18 never reaches 36 — but any distribution with tails puts field pixels past it at
+ * distribution the master never declares. A bounded one stays under it: uniform ±25 against
+ * tolerance 18 never reaches 36, but any distribution with tails puts field pixels past it at
  * whatever rate the tail carries, and a flat sky is 1.4M chances. {@link MIN_ERASED_RUN} is what
  * separates those from an erasure; this multiple only has to keep the ribbon out.
  */
@@ -236,11 +236,11 @@ const ARTWORK_MARGIN = 2;
  *
  * {@link ARTWORK_MARGIN} cannot tell one tail pixel of grain from one pixel of a cable, and per
  * pixel nothing can. Shape can: an erased structure is a **line**, so its pixels flag as one long
- * 8-connected run, while grain flags as dust — isolated pixels and pairs, scattered across the whole
+ * 8-connected run, while grain flags as dust: isolated pixels and pairs, scattered across the whole
  * field. Grouping the flagged set and keeping only runs of at least 16 is what makes the count
  * measure erasure rather than the noise floor.
  *
- * Measured on the suite's `gaussianSkyline(2048, 1152, 0.3, σ)` at {@link DEFAULT_MATTE_TOLERANCE} —
+ * Measured on the suite's `gaussianSkyline(2048, 1152, 0.3, σ)` at {@link DEFAULT_MATTE_TOLERANCE}:
  * **Gaussian** grain, unbounded, so it exercises the tail the uniform generator has none of. Every
  * one of these keys to 70.0% transparency and **1 island**, i.e. flawlessly:
  *
@@ -257,7 +257,7 @@ const ARTWORK_MARGIN = 2;
  * See {@link MAX_ERASED_ARTWORK} for the band this leaves and what happens past it.
  *
  * **The cost is a blind spot, and it is unbounded.** An erasure whose flagged run is shorter than
- * this is invisible, and no number of them ever adds up — the total is over runs that clear the
+ * this is invisible, and no number of them ever adds up: the total is over runs that clear the
  * floor, so a master carrying only short ones reads exactly 0 however much it has lost. A 1-px
  * antenna drawn `n` px tall leaves an `n - 2` px run (the pixel touching the roofline survives the
  * median, and the one above it is excluded as adjacent to a survivor), so on a 2048×1152 roofline:
@@ -267,12 +267,12 @@ const ARTWORK_MARGIN = 2;
  *
  * Lowering it does not fix that, it just moves the wall, and the grain distribution says where the
  * wall is. Measured on the same flat `gaussianSkyline`, the longest 8-connected run grain produces
- * is **10 px at σ 16 and 14 px at σ 18** — a 14-px antenna and a grain clump are the same object to
+ * is **10 px at σ 16 and 14 px at σ 18**: a 14-px antenna and a grain clump are the same object to
  * a run-length statistic. What a lower floor would read on a *flawless* σ 18 key, against the 256
  * budget: 16 → 0, 14 → 28, 12 → 88, 10 → 243, **9 → 387, refused**. So nothing under 10 is
  * available at all (the 3×3 island needs 9), and the range that is available buys a shorter
  * structure by spending the headroom that keeps a grainy master from being refused for artwork it
- * does not have — which is the failure this floor was added to fix. 16 keeps that headroom whole.
+ * does not have, which is the failure this floor was added to fix. 16 keeps that headroom whole.
  * ART-BIBLE §6.2's minimum stroke weight is the only cover for what is left, as it is for the
  * rim-on-a-mass case in {@link MAX_ERASED_ARTWORK}.
  */
@@ -283,7 +283,7 @@ const MIN_ERASED_RUN = 16;
  *
  * {@link DENOISE_WINDOW} deletes any structure thinner than itself, and the two gates above both
  * move the *wrong* way when it does: deleting artwork raises transparency past the §6 floor and
- * lowers the island count. This is what sees it — alpha cleared from a pixel the master puts beyond
+ * lowers the island count. This is what sees it: alpha cleared from a pixel the master puts beyond
  * {@link ARTWORK_MARGIN}× the tolerance from the field, with no surviving pixel 4-adjacent to it,
  * and joined to at least {@link MIN_ERASED_RUN} others like it. The adjacency clause is what
  * excludes the antialiased ribbon, which always has kept artwork against it; the run floor is what
@@ -293,7 +293,7 @@ const MIN_ERASED_RUN = 16;
  * covers both.
  *
  * Measured on 2048×1152 fore-plane layouts, hard-edged, silhouettes plain and busy, artwork 45
- * levels off the field, under both generators the suite carries — clean, uniform ±12 and ±25,
+ * levels off the field, under both generators the suite carries: clean, uniform ±12 and ±25,
  * Gaussian σ 8, 12 and 16: a plane whose thinnest element is ≥2 px reads **0** at every level, and
  * one carrying a 1-px cable reads **1730 to 2156**. The median returns the field for a line that is
  * only 3 of its 9 samples, so the erasure is there whether the master is clean or grainy. 256 sits
@@ -303,7 +303,7 @@ const MIN_ERASED_RUN = 16;
  *
  * That separation is a precondition, not a detail. {@link ARTWORK_MARGIN} is what decides whether
  * the master is *stating* a pixel is artwork, so artwork drawn too close to the field stops this
- * discriminating in **both** directions — a thin element reads 0 and a legal one reads an erasure.
+ * discriminating in **both** directions: a thin element reads 0 and a legal one reads an erasure.
  * ART-BIBLE §6.3's minimum artwork-to-field separation is what keeps that out of the funded masters,
  * and carries the measurements. It is stated as 4× the tolerance rather than as a fixed number of
  * levels, so it moves with this run: widening `--matte-tolerance` to 30 to key a grainier field asks
@@ -325,7 +325,7 @@ export const MAX_ERASED_ARTWORK = 256;
  * Mean-shift passes that recentre the histogram peak on the field's real colour before keying.
  *
  * The peak bucket is 16 levels wide, so its centroid can sit several levels off a noisy field's true
- * colour — the noise spills across a bucket boundary and the peak keeps only the slice on one side.
+ * colour: the noise spills across a bucket boundary and the peak keeps only the slice on one side.
  * That offset comes straight out of the tolerance budget, and the pixels it pushes out of range are
  * spatially correlated, so they clump into islands too big for {@link MIN_OPAQUE_ISLAND} to sweep.
  * Recentring on the mean of what currently matches converges on the field itself.
@@ -336,7 +336,7 @@ const SEED_REFINEMENT_PASSES = 3;
  * The master's dominant colour: the mean of the fullest bucket of a quantised RGB histogram.
  *
  * The backends cannot render alpha, so asked for a "transparent background" they paint a large flat
- * field instead. That field is by far the most common colour in the frame, wherever it sits — which
+ * field instead. That field is by far the most common colour in the frame, wherever it sits, which
  * is the point: `plane-city-far` is transparent along the **top**, `plane-city-fore` through its
  * **centre**, so nothing may assume the background touches any particular edge.
  */
@@ -373,7 +373,7 @@ function backgroundColour(image: RgbaImage, tolerance: number): [number, number,
   return seed;
 }
 
-/** The mean of every pixel within `tolerance` of `seed` — one mean-shift pass. */
+/** The mean of every pixel within `tolerance` of `seed`: one mean-shift pass. */
 function recentre(
   image: RgbaImage,
   seed: [number, number, number],
@@ -401,7 +401,7 @@ function recentre(
 export interface KeyedImage extends RgbaImage {
   /** Opaque pieces the key left standing, counted after the {@link MIN_OPAQUE_ISLAND} sweep. */
   islands: number;
-  /** Pixels of unambiguous artwork the key cleared — see {@link MAX_ERASED_ARTWORK}. */
+  /** Pixels of unambiguous artwork the key cleared: see {@link MAX_ERASED_ARTWORK}. */
   erased: number;
 }
 
@@ -473,7 +473,7 @@ type IsArtwork = (pixel: number) => boolean;
 
 /**
  * Pixels of artwork the key cleared and left with nothing standing beside them, counted only where
- * {@link MIN_ERASED_RUN} of them join up — the signature of a structure the {@link DENOISE_WINDOW}
+ * {@link MIN_ERASED_RUN} of them join up: the signature of a structure the {@link DENOISE_WINDOW}
  * median erased. See {@link MAX_ERASED_ARTWORK} for why it is measured this way and for the one case
  * it cannot see.
  */
@@ -510,14 +510,14 @@ function erasedArtwork(master: RgbaImage, keyed: Buffer, isArtwork: IsArtwork): 
  *
  * Grain is what makes that hard. A backend hands back a "flat" field with per-pixel noise in it, and
  * a seed-relative match reads every noisy pixel as its own 1-px region that {@link MIN_KEYED_REGION}
- * then keeps **opaque** — a sky full of dots, which the coverage-weighted §6 gate cannot see because
+ * then keeps **opaque**: a sky full of dots, which the coverage-weighted §6 gate cannot see because
  * it measures how much transparency there is and not whether it is connected. Three things answer it:
  * the key is decided on a {@link DENOISE_WINDOW} median and applied to the master's own pixels, so
  * the kept edge stays at full resolution; the seed is recentred off the quantised histogram peak
  * ({@link SEED_REFINEMENT_PASSES}); and the leftovers are swept by {@link MIN_OPAQUE_ISLAND}.
  *
- * None of that is a guarantee — past a noise floor the sweep's leftovers stop being specks and clump
- * into islands worth keeping — so {@link islands} reports the fragmentation and `matte` refuses
+ * None of that is a guarantee: past a noise floor the sweep's leftovers stop being specks and clump
+ * into islands worth keeping, so {@link islands} reports the fragmentation and `matte` refuses
  * anything past {@link MAX_KEYED_ISLANDS} rather than shipping it.
  *
  * The denoise has a cost of its own, at the other end of the scale: it deletes any structure thinner
@@ -525,7 +525,7 @@ function erasedArtwork(master: RgbaImage, keyed: Buffer, isArtwork: IsArtwork): 
  * asks for. That is not repairable here (see {@link DENOISE_WINDOW}), so {@link erased} measures it
  * and `matte` refuses past {@link MAX_ERASED_ARTWORK} instead of shipping a dashed cable.
  *
- * Matching is against the seed colour, never a pixel's neighbour — chained tolerance walks a
+ * Matching is against the seed colour, never a pixel's neighbour: chained tolerance walks a
  * gradient and would quietly eat the artwork. A master whose background is not flat therefore keys
  * badly on purpose and fails the ART-BIBLE §6 gate rather than shipping a hole in the city.
  *
@@ -596,7 +596,7 @@ export interface CropRect {
  * it. The manifest already declares each asset's framing, and a board that wants a different one
  * crops the file before dropping it in.
  *
- * Compared by cross-multiplication rather than by a float ratio — an off-by-one in the ratio is a
+ * Compared by cross-multiplication rather than by a float ratio: an off-by-one in the ratio is a
  * one-pixel shear at 4K, and the integer comparison is exact.
  */
 export function centredCrop(
@@ -619,7 +619,7 @@ export function centredCrop(
  *
  * A generator renders to order, so this used to be a size *assertion*. A CC0 master is whatever
  * size its uploader saved, in whatever aspect they framed, and refusing those left `assets/` empty
- * however much art the board found — so the shape is brought to the manifest instead of the other
+ * however much art the board found, so the shape is brought to the manifest instead of the other
  * way round, with **zero TypeScript per asset**.
  *
  * It normalizes to `spec.source`, not to the delivery size, so the ordering the manifest declares
@@ -630,10 +630,10 @@ export function centredCrop(
  * disagree on aspect, and `validateRun` runs it before any of this.
  *
  * **It will not upscale.** A master that centre-crops to less than the delivery in either axis is
- * refused, naming the size it would need — inventing detail to fill a delivery is the one failure
+ * refused, naming the size it would need: inventing detail to fill a delivery is the one failure
  * that looks fine on disk and mushy in the browser.
  *
- * Between the two sits the human-delivered case. `spec.source` is a statement about a *backend* —
+ * Between the two sits the human-delivered case. `spec.source` is a statement about a *backend*:
  * icons are declared at 1024² because nothing renders 512² with alpha, not because 512² is too
  * little art. A hand-drawn 512² icon master is exactly the delivery and refusing it would be the
  * pipeline enforcing a generator's limitation on a human, so a master that clears the delivery but
@@ -688,7 +688,7 @@ export async function normalizeMaster(image: RgbaImage, spec: AssetSpec): Promis
       throw new Error(
         `${spec.key}: master is ${image.width}×${image.height}, which scales up to ` +
           `${target.width}×${target.height} inside the manifest's ${spec.width}×${spec.height} ` +
-          `bound — upscaling invents detail. Re-export it with its longest side at least ` +
+          `bound: upscaling invents detail. Re-export it with its longest side at least ` +
           `${Math.max(spec.width, spec.height)}px.`,
       );
     }
@@ -705,7 +705,7 @@ export async function normalizeMaster(image: RgbaImage, spec: AssetSpec): Promis
     throw new Error(
       `${spec.key}: master is ${image.width}×${image.height}, which centre-crops to ` +
         `${crop.width}×${crop.height} at the manifest's ${target.width}×${target.height} ` +
-        `aspect — short of it, and upscaling invents detail. At this master's aspect ratio the ` +
+        `aspect: short of it, and upscaling invents detail. At this master's aspect ratio the ` +
         `smallest one that works is ${Math.ceil(image.width * scale)}×${Math.ceil(image.height * scale)}.`,
     );
   }
@@ -718,7 +718,7 @@ export async function normalizeMaster(image: RgbaImage, spec: AssetSpec): Promis
 }
 
 const downscale: PostProcessor = async (image, spec) =>
-  // A master that already arrived at delivery size skips the resample entirely — see
+  // A master that already arrived at delivery size skips the resample entirely: see
   // `normalizeTarget`. Resampling to the size it already is only softens it.
   image.width === spec.width && image.height === spec.height
     ? image
@@ -730,7 +730,7 @@ const matte: PostProcessor = async (image, spec, options) => {
   const keyed = await keyBackground(image, options.matteTolerance);
   if (keyed.islands > MAX_KEYED_ISLANDS) {
     throw new Error(
-      `${spec.key}: the matte left the plane in ${keyed.islands} disconnected pieces — the master's ` +
+      `${spec.key}: the matte left the plane in ${keyed.islands} disconnected pieces: the master's ` +
         `background is grainier than --matte-tolerance ${options.matteTolerance} allows for, so the key ` +
         `is shot through with speckle. Re-key with a wider --matte-tolerance, or hand-matte the ` +
         `master (ADR 0001 §6.4).`,
@@ -740,7 +740,7 @@ const matte: PostProcessor = async (image, spec, options) => {
     throw new Error(
       `${spec.key}: the matte cleared ${keyed.erased}px the master states are artwork, in runs too ` +
         `long to be grain. Either the master's background is noisier than --matte-tolerance ` +
-        `${options.matteTolerance} allows for — try a wider one — or it carries structure thinner ` +
+        `${options.matteTolerance} allows for, try a wider one, or it carries structure thinner ` +
         `than the ${DENOISE_WINDOW}px key window (a 1px cable, antenna or rim), which the key ` +
         `cannot represent and would ship as a dashed line; regenerate that master with the ` +
         `ART-BIBLE §6.2 minimum stroke weight. Failing both, hand-matte it (ADR 0001 §6.4).`,
@@ -786,7 +786,7 @@ export function alphaBox(
 const trim: PostProcessor = async (image, spec) => {
   const box = alphaBox(image);
   if (box === null) {
-    throw new Error(`${spec.key}: nothing survived the matte — the delivery would be empty.`);
+    throw new Error(`${spec.key}: nothing survived the matte: the delivery would be empty.`);
   }
   if (box.width === image.width && box.height === image.height) return image;
   return toRgba(sharpFrom(image).extract(box));
@@ -806,7 +806,7 @@ const POST_PROCESSORS: Readonly<Record<PostProcessStep, PostProcessor>> = {
 export function postProcessorFor(step: PostProcessStep): PostProcessor {
   const processor = POST_PROCESSORS[step];
   if (processor === undefined) {
-    throw new Error(`no implementation for post-process step "${step}" — refusing to pass through`);
+    throw new Error(`no implementation for post-process step "${step}": refusing to pass through`);
   }
   return processor;
 }
@@ -831,7 +831,7 @@ export interface EncodeResult {
  * Exported for the test that pins `removeAlpha()`. That assertion cannot be written against
  * {@link encodeAsset}: `deliveryProblems` now rejects any transparency under an `alpha: false` spec
  * (MOU-374), so nothing carrying alpha reaches here through the public entry point, and libwebp
- * drops an all-opaque band by itself — which leaves `hasAlpha` reading the same with or without the
+ * drops an all-opaque band by itself, which leaves `hasAlpha` reading the same with or without the
  * call. Reaching the unit directly is what keeps both checks live at once (MOU-377).
  */
 export function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffer> {
@@ -846,25 +846,25 @@ export function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffe
 
 /**
  * Everything that must hold after the declared steps have run. A master that skipped its downscale,
- * or a matte that cut nothing, is an asset that looks fine on disk and wrong in the browser — so it
+ * or a matte that cut nothing, is an asset that looks fine on disk and wrong in the browser, so it
  * fails here rather than shipping.
  *
  * `spec.minTransparency` carries whatever floor ART-BIBLE §6 (`docs/ART-BIBLE.md`) declares and no
- * number invented here — ≥55% for `plane-city-fore`, ≥30% for `plane-city-far`. The floor is what
+ * number invented here: ≥55% for `plane-city-fore`, ≥30% for `plane-city-far`. The floor is what
  * catches a key that *succeeded over too small a band*: the cut-nothing check below and
  * `MAX_KEYED_ISLANDS` only catch one that failed outright, and a far plane matted over a sliver
  * would otherwise pass both and hide the sky plane behind it.
  *
  * The last check is the mirror image of the matte pair, for the keys that declare no alpha at all:
  * `encodeDelivery` strips their band with `removeAlpha()`, which *discards* it rather than
- * compositing, so a master that is transparent anywhere ships whatever RGB was hiding under it —
+ * compositing, so a master that is transparent anywhere ships whatever RGB was hiding under it:
  * black patches, for a master with nothing painted there. No other gate sees it: `minTransparency`
  * is attached only to the two planes, and `matte` is never declared for an opaque delivery
  * (`postProcessFor`), so both checks above are inert on exactly the keys the board's masters land
  * on (MOU-374).
  */
 /**
- * The delivery is the size ART-BIBLE §6 declares — exactly, or within the bound for a `contain`
+ * The delivery is the size ART-BIBLE §6 declares: exactly, or within the bound for a `contain`
  * class. `contain` still requires the longest side to *meet* the bound: a master half the size
  * would otherwise satisfy "fits inside it" and ship at half resolution.
  */
@@ -879,7 +879,7 @@ function sizeProblems(image: RgbaImage, spec: AssetSpec): string[] {
     // the master until it met the bound, and `trim` then removed the empty canvas around the
     // artwork. Demanding it still touch the bound would mean upscaling the drawing to refill the
     // margin that was just cropped off. The undersized-master case this check exists for is caught
-    // earlier and harder — `normalizeMaster` refuses to scale a `contain` master *up* at all.
+    // earlier and harder: `normalizeMaster` refuses to scale a `contain` master *up* at all.
     if (
       !spec.postProcess.includes('trim') &&
       image.width !== spec.width &&
@@ -887,7 +887,7 @@ function sizeProblems(image: RgbaImage, spec: AssetSpec): string[] {
     ) {
       return [
         `post-process left it ${actual}, inside the ART-BIBLE §6 ${declared} bound but touching ` +
-          `neither side of it — the master was never scaled up to the bound`,
+          `neither side of it: the master was never scaled up to the bound`,
       ];
     }
     return [];
@@ -905,12 +905,12 @@ function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: numbe
     // artwork, so it either kept everything or erased the city. That needs a human, not a retry.
     const outcome = transparency === 0 ? 'cut nothing' : 'cut the entire frame';
     problems.push(
-      `the matte ${outcome} — the master has no flat keyable background, so it needs a human pass (ADR 0001 §6.4)`,
+      `the matte ${outcome}: the master has no flat keyable background, so it needs a human pass (ADR 0001 §6.4)`,
     );
   }
   if (spec.minTransparency !== undefined && transparency < spec.minTransparency) {
     problems.push(
-      `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ${percent(spec.minTransparency)} — re-key with a wider --matte-tolerance or hand-matte the master`,
+      `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ${percent(spec.minTransparency)}: re-key with a wider --matte-tolerance or hand-matte the master`,
     );
   }
   const bare = opaqueContractBreach(image, spec);
@@ -918,7 +918,7 @@ function deliveryProblems(image: RgbaImage, spec: AssetSpec, transparency: numbe
     problems.push(
       `the master carries alpha on ${bare} px ` +
         `(${percent(bare / (image.width * image.height))} of the frame) but this key delivers ` +
-        `none — removeAlpha() drops the band without compositing, so whatever RGB sits under it ` +
+        `none: removeAlpha() drops the band without compositing, so whatever RGB sits under it ` +
         `ships as artwork. Flatten the master onto its intended background first ` +
         `(assets/README.md)`,
     );
@@ -951,7 +951,7 @@ export async function encodeAsset(
 /* -------------------------------------------------------------------------- */
 
 export interface DeliveryProblem {
-  /** Path relative to the drop directory — a batch subfolder and `@2x` included. */
+  /** Path relative to the drop directory: a batch subfolder and `@2x` included. */
   file: string;
   key: AssetKey;
   problem: string;
@@ -977,10 +977,10 @@ async function droppedFiles(dir: string): Promise<readonly string[]> {
  * Re-checks the ART-BIBLE §6 transparency floor against files that are **already** in `assets/`.
  *
  * {@link encodeAsset} applies the same floor, but only to masters it encodes itself. A delivery can
- * also arrive by hand — a CC0 file saved straight into the drop directory, which the client globs
- * by name (`apps/client/src/assets/source.ts`) — and that route never opens the pixels. That gap is
+ * also arrive by hand: a CC0 file saved straight into the drop directory, which the client globs
+ * by name (`apps/client/src/assets/source.ts`), and that route never opens the pixels. That gap is
  * not theoretical: `plane-city-fore` draws *in front of* the district nodes, so an opaque foreground
- * delivered this way blankets the map — every node, base marker, label and the YOU indicator — and
+ * delivered this way blankets the map, every node, base marker, label and the YOU indicator, and
  * nothing else in the build looks at it (MOU-289).
  *
  * Both densities are audited: the client takes `@2x` on retina and 1× elsewhere, so an opaque master
@@ -988,19 +988,19 @@ async function droppedFiles(dir: string): Promise<readonly string[]> {
  *
  * The floor has a ceiling beside it, for the keys that declare no alpha at all. It is MOU-289 with
  * the sign flipped: there the fore plane arrived opaque and blanketed the map, here a key contracted
- * to be opaque arrives transparent and shows through. `assets/README.md` states the case —
- * `plane-city-sky` is the backdrop, so whatever it does not cover is the bare page, not art — and
+ * to be opaque arrives transparent and shows through. `assets/README.md` states the case:
+ * `plane-city-sky` is the backdrop, so whatever it does not cover is the bare page, not art, and
  * `plate-city`, `district-*` and `portrait-*` are the same exposure with a smaller blast radius.
  * {@link encodeAsset} refuses this already (MOU-374), but only for masters it encodes itself; the
  * hand-drop route reaches the browser without ever passing through it (MOU-388).
  *
  * The ceiling is `> 0`, the same one the encode route throws on, because the alternative is worse
- * than arbitrary. Encoding does not manufacture alpha — a fully opaque master round-trips at exactly
- * zero through lossy WebP, lossless WebP and PNG alike — so there is no encoder noise for a
+ * than arbitrary. Encoding does not manufacture alpha: a fully opaque master round-trips at exactly
+ * zero through lossy WebP, lossless WebP and PNG alike, so there is no encoder noise for a
  * tolerance to absorb, and any tolerance loose enough to forgive a harmless near-opaque veil is far
  * too loose to catch a hairline of bare page (see {@link nonOpaquePixels}). What differs from the
  * encode route is the consequence, not the threshold: this audit reports and the contact sheet
- * prints a warning, where `encodeAsset` throws — so the reporting route can afford the strict gate.
+ * prints a warning, where `encodeAsset` throws, so the reporting route can afford the strict gate.
  */
 export async function auditDeliveries(
   dir: string = DEFAULT_ASSET_DIR,
@@ -1022,12 +1022,12 @@ export async function auditDeliveries(
       image = await decodeMaster(await readFile(path.join(dir, file)));
     } catch (error) {
       // sharp names neither the file nor the key when it rejects one, and a hand-pasted batch is
-      // exactly where a truncated download turns up. A delivery that fails has to name itself —
+      // exactly where a truncated download turns up. A delivery that fails has to name itself:
       // the contact sheet reports this audit too, and a bare throw there kills the whole run.
       problems.push({
         file,
         key: spec.key,
-        problem: `could not be read as an image — ${errorMessage(error)}`,
+        problem: `could not be read as an image: ${errorMessage(error)}`,
       });
       continue;
     }
@@ -1040,7 +1040,7 @@ export async function auditDeliveries(
         key: spec.key,
         problem:
           `${percent(transparency)} transparent, ART-BIBLE §6 requires at least ` +
-          `${percent(spec.minTransparency)} — an opaque delivery hides everything behind this plane`,
+          `${percent(spec.minTransparency)}: an opaque delivery hides everything behind this plane`,
       });
     }
 
@@ -1053,7 +1053,7 @@ export async function auditDeliveries(
         problem:
           `${bare} of ${image.width * image.height} pixels are not opaque ` +
           `(${percent(bare / (image.width * image.height))} of the frame) but "${spec.key}" ` +
-          `delivers no alpha — this file ships as it is, so ` +
+          `delivers no alpha: this file ships as it is, so ` +
           `whatever it does not cover is the page showing through. Flatten it onto its intended ` +
           `background (assets/README.md)`,
       });
@@ -1067,7 +1067,7 @@ export async function auditDeliveries(
 /* -------------------------------------------------------------------------- */
 
 export interface ProvenanceProblem {
-  /** Path relative to the drop directory — a batch subfolder and `@2x` included. */
+  /** Path relative to the drop directory: a batch subfolder and `@2x` included. */
   file: string;
   problem: string;
 }
@@ -1082,7 +1082,7 @@ export interface LicensingRow {
 
 /**
  * §9 columns a row has to fill in. A row naming a file and saying nothing else records no
- * provenance — it only makes the register look populated, which is worse than an empty table.
+ * provenance: it only makes the register look populated, which is worse than an empty table.
  */
 const REQUIRED_LICENSING_COLUMNS = ['Source', 'Author', 'Licence'] as const;
 
@@ -1093,7 +1093,7 @@ const DELIVERY_EXTENSIONS = new Set(['.webp', '.png']);
  * Reads the ART-BIBLE §9 licensing table out of the bible's markdown.
  *
  * The hand-maintained table is parsed rather than some machine-readable sidecar because §9 declares
- * *it* authoritative — "the one a lawyer would be shown". A second copy could pass the gate while
+ * *it* authoritative: "the one a lawyer would be shown". A second copy could pass the gate while
  * the document a human reads stayed empty.
  *
  * Columns are located by header name, so reordering the table does not silently re-point the
@@ -1127,7 +1127,7 @@ export function parseLicensingRegister(markdown: string): readonly LicensingRow[
 /**
  * Requires every image in the drop directory to have an ART-BIBLE §9 licensing row.
  *
- * The board rule is absolute — *an asset with no recorded provenance does not ship* — and until now
+ * The board rule is absolute, *an asset with no recorded provenance does not ship*, and until now
  * it was the one art rule enforced by prose alone. `gen-art.ts` writes a `*.provenance.json`, but
  * only beside the **master** in `art-src/`, and only on the generate path, which is dormant and
  * key-gated. The route art actually arrives by is a file saved straight into `assets/`, which the
@@ -1135,7 +1135,7 @@ export function parseLicensingRegister(markdown: string): readonly LicensingRow[
  *
  * Every `.webp`/`.png` is audited, not only the ones matching a manifest delivery name: a misnamed
  * drop is inert in the browser but is still a third-party file sitting in the repo, and §9 covers
- * it. `@2x` resolves to the 1× row — two densities of one artwork are one licence, not two.
+ * it. `@2x` resolves to the 1× row: two densities of one artwork are one licence, not two.
  *
  * A sibling `*.provenance.json` is deliberately *not* accepted in place of a row. §9 requires a row
  * for generated art too, so the JSON records the seed, never the permission.
@@ -1157,13 +1157,13 @@ export async function auditProvenance(
       problems.push({
         file,
         problem:
-          'no ART-BIBLE §9 licensing row — record the source, author and licence in ' +
+          'no ART-BIBLE §9 licensing row: record the source, author and licence in ' +
           'docs/ART-BIBLE.md §9 before this file ships',
       });
     } else if (row.blank.length > 0) {
       problems.push({
         file,
-        problem: `ART-BIBLE §9 row leaves ${row.blank.join(', ')} blank — a row that names a file and nothing else records no provenance`,
+        problem: `ART-BIBLE §9 row leaves ${row.blank.join(', ')} blank: a row that names a file and nothing else records no provenance`,
       });
     }
   }
@@ -1190,7 +1190,7 @@ export interface CliOptions extends EncodeOptions {
   /**
    * Report which manifest keys the game now renders from `assets/` and which still fall back to
    * procedural art, and encode nothing. Under CC0 sourcing the board finds files one at a time and
-   * needs the painted fraction without listing a directory — see {@link paintedSplit} for why
+   * needs the painted fraction without listing a directory: see {@link paintedSplit} for why
    * `--landed` does not answer this.
    */
   painted: boolean;
@@ -1242,14 +1242,14 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 function parseTolerance(value: string): number {
   const tolerance = Number(value);
   if (!Number.isInteger(tolerance) || tolerance < 0 || tolerance > 255) {
-    throw new Error(`--matte-tolerance must be an integer 0–255, got "${value}"`);
+    throw new Error(`--matte-tolerance must be an integer 0-255, got "${value}"`);
   }
   return tolerance;
 }
 
 /**
  * An empty list means "every manifest entry" only when `--only` is absent. `--only "$KEY"` with an
- * unset shell variable must fail rather than silently widen to the whole manifest — the same trap
+ * unset shell variable must fail rather than silently widen to the whole manifest: the same trap
  * that turns a one-asset `gen-art` run into a funded 44-asset one.
  */
 function parseOnlyKeys(value: string): string[] {
@@ -1270,7 +1270,7 @@ export function selectSpecs(only: readonly string[]): readonly AssetSpec[] {
 /**
  * What a master may arrive as. A generator wrote lossless PNG because we asked it to; a CC0 file is
  * whatever its uploader saved, and WebP is most of the archives. Both decode losslessly enough for
- * the matte — the key is decided on a {@link DENOISE_WINDOW} median, which absorbs more than WebP's
+ * the matte: the key is decided on a {@link DENOISE_WINDOW} median, which absorbs more than WebP's
  * chroma handling costs.
  */
 export const MASTER_EXTENSIONS = ['png', 'webp'] as const;
@@ -1278,7 +1278,7 @@ export const MASTER_EXTENSIONS = ['png', 'webp'] as const;
 /** A master that has arrived, paired with the spec it satisfies. */
 export interface Master {
   spec: AssetSpec;
-  /** Bare file name inside the master directory — `<key>.png` or `<key>.webp`. */
+  /** Bare file name inside the master directory: `<key>.png` or `<key>.webp`. */
   file: string;
 }
 
@@ -1294,7 +1294,7 @@ export function masterFileFor(spec: AssetSpec, files: ReadonlySet<string>): stri
   );
   if (names.length > 1) {
     throw new Error(
-      `${spec.key}: masters at ${names.join(' and ')} — they are different art, so delete the one ` +
+      `${spec.key}: masters at ${names.join(' and ')}. They are different art, so delete the one ` +
         `that is not the master rather than leaving the encode to pick.`,
     );
   }
@@ -1322,7 +1322,7 @@ export interface PaintedClass {
  * Which manifest keys the game actually renders from `assets/` and which still fall back to
  * procedural art, grouped by class.
  *
- * A key is painted when its exact `spec.file` is on disk — the same test
+ * A key is painted when its exact `spec.file` is on disk: the same test
  * `apps/client/src/assets/source.ts` applies, and the reason `@2x` alone does not count: the client
  * falls back from retina to 1×, never the other way.
  *
@@ -1343,7 +1343,7 @@ export function paintedSplit(
   }).filter((row) => row.painted.length + row.procedural.length > 0);
 }
 
-/** {@link paintedSplit} as the CLI report — counts first, because that is what the board tracks. */
+/** {@link paintedSplit} as the CLI report: counts first, because that is what the board tracks. */
 export function paintedReport(split: readonly PaintedClass[]): string {
   const total = split.reduce((n, row) => n + row.painted.length + row.procedural.length, 0);
   const painted = split.reduce((n, row) => n + row.painted.length, 0);
@@ -1401,7 +1401,7 @@ export async function encodeAll(masters: readonly Master[], options: CliOptions)
     // "which master" is the first thing a failure has to answer.
     const { bytes, transparency } = await encodeAsset(await readFile(master), spec, options).catch(
       (error: unknown) => {
-        throw new Error(`${master} — ${errorMessage(error)}`);
+        throw new Error(`${master}: ${errorMessage(error)}`);
       },
     );
     await writeFile(deliveryOutputPath(options.outDir, spec), bytes);
@@ -1460,7 +1460,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
     if (missing.length > 0) {
       process.stdout.write(
-        `${missing.length} master(s) not generated yet — run gen-art first: ${missing.map((s) => s.key).join(', ')}\n`,
+        `${missing.length} master(s) not generated yet: run gen-art first: ${missing.map((s) => s.key).join(', ')}\n`,
       );
     }
     return 0;

@@ -16,7 +16,7 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * The board-game half of the city: a location is captured at 1, and what it is worth is whatever
  * the holder has since poured into it. Three upgrades, each dearer than the last, each an authored
- * sentence about what actually changed on the ground — and all of it lost the moment somebody
+ * sentence about what actually changed on the ground, and all of it lost the moment somebody
  * takes the location off you, which is `resetOnCapture` in `battle/resolve.ts` rather than here.
  *
  * Deliberately shaped exactly like fortifying (`actions.ts`): a clock on the control row, charged

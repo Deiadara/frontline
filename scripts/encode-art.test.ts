@@ -45,7 +45,7 @@ const spec = (key: string): AssetSpec => {
   return found;
 };
 
-/** The two shapes no backend renders directly — the whole reason `postProcess` exists. */
+/** The two shapes no backend renders directly: the whole reason `postProcess` exists. */
 const ICON = spec('icon-scrap');
 
 /** Decoded dimensions of an encoded delivery. */
@@ -57,13 +57,13 @@ const FORE_PLANE = spec('plane-city-fore');
 const FAR_PLANE = spec('plane-city-far');
 /** A master that already is its delivery image. */
 const DISTRICT = spec('district-chrome-row');
-/** The manifest's one key-level `alpha` override — its class delivers alpha, this key does not. */
+/** The manifest's one key-level `alpha` override: its class delivers alpha, this key does not. */
 const SKY_PLANE = spec('plane-city-sky');
 
 /**
  * Both audits list the drop directory through a `readdir(...).catch(() => [])`, which cannot tell
  * "nothing is wrong" from "there is no such directory". `assets/` holds only `README.md` today, so
- * the two gates below would go on passing against a directory that had been renamed away — and
+ * the two gates below would go on passing against a directory that had been renamed away, and
  * they are the only cases that will ever see the board's real art. Anchor them to a file that is
  * really there, so the gate fails loudly instead of silently auditing nothing.
  */
@@ -98,7 +98,7 @@ async function master(
 }
 
 /**
- * The rejection a call produced, for the assertions `rejects.toThrow` cannot make — a bare `.catch`
+ * The rejection a call produced, for the assertions `rejects.toThrow` cannot make: a bare `.catch`
  * widens to include the resolved value, and resolving at all is itself the failure here.
  */
 async function rejection(call: Promise<unknown>): Promise<Error> {
@@ -130,7 +130,7 @@ function grain(index: number, amplitude: number): number {
  * uniform pair, so it has the tail {@link grain} has none of.
  *
  * Every threshold in the matte is a fixed cut through a noise distribution the master never
- * declares, so one bounded generator cannot calibrate any of them — under `grain` alone a cut at
+ * declares, so one bounded generator cannot calibrate any of them: under `grain` alone a cut at
  * 2× the tolerance is never reached and reads as free of false positives, which is exactly how
  * `MAX_ERASED_ARTWORK` came to refuse a flawless key (MOU-125 round 3).
  */
@@ -158,7 +158,7 @@ function noisy(base: Rgba, pixel: number, noise: Noise): Rgba {
 }
 
 /**
- * {@link skyline} with per-pixel grain in the flat field — what a diffusion backend actually returns
+ * {@link skyline} with per-pixel grain in the flat field: what a diffusion backend actually returns
  * when a prompt asks for a flat sky. Every `keyBackground` input used to be painted from two exact
  * constants, which is why a key that speckles on a grainy field passed every test.
  */
@@ -181,7 +181,7 @@ const grainySkyline = (
 ): Promise<Buffer> =>
   noisySkyline(width, height, subjectFraction, (index) => grain(index, amplitude));
 
-/** {@link noisySkyline} under the unbounded one — see {@link gaussianGrain}. */
+/** {@link noisySkyline} under the unbounded one: see {@link gaussianGrain}. */
 const gaussianSkyline = (
   width: number,
   height: number,
@@ -194,7 +194,7 @@ const gaussianSkyline = (
 const CABLE_TOP = 40;
 
 /**
- * {@link grainySkyline} with a horizontal cable `stroke` px thick laid across the field — the
+ * {@link grainySkyline} with a horizontal cable `stroke` px thick laid across the field: the
  * `plane-city-fore` prompt asks for "a bundle of sagging cable across the top", and how thin that
  * comes back is what decides whether the key can represent it at all.
  */
@@ -222,13 +222,13 @@ function cableSurvival(image: { data: Buffer; width: number }, stroke: number): 
   return opaque / (cable * stroke);
 }
 
-/** The roofline {@link antennaPlane} stands its antennae on — the top row of a 0.7 subject block. */
+/** The roofline {@link antennaPlane} stands its antennae on: the top row of a 0.7 subject block. */
 const ROOFLINE = Math.ceil(1152 * 0.7);
 const ANTENNA_LEFT = 16;
 const ANTENNA_SPACING = 13;
 
 /**
- * A 2048×1152 plane with `count` 1-px antennae `tall` px high along its roofline — the floating
+ * A 2048×1152 plane with `count` 1-px antennae `tall` px high along its roofline: the floating
  * antenna ART-BIBLE §6.2 names, at whatever height the caller wants to put against
  * {@link MAX_ERASED_ARTWORK}'s run floor.
  */
@@ -270,7 +270,7 @@ const NOISES: readonly (readonly [string, Noise])[] = [
 /** Rows of a 2048×1152 `grainySkyline(…, 0.3, …)` that are flat field rather than subject. */
 const SKY_ROWS = Math.round(1152 * 0.7);
 
-/** The share of the flat field left opaque — speckle the coverage-weighted §6 gate cannot see. */
+/** The share of the flat field left opaque: speckle the coverage-weighted §6 gate cannot see. */
 function skySpeckle(image: { data: Buffer; width: number }, skyRows: number): number {
   let opaque = 0;
   for (let pixel = 0; pixel < image.width * skyRows; pixel += 1) {
@@ -333,12 +333,12 @@ describe('keyBackground', () => {
 
     expect(alphaAt(0, 0)).toBe(0);
     expect(alphaAt(32, 32)).toBe(255);
-    // 64² canvas, 32² subject — three quarters keyed, plus the subject's four corner pixels: the
+    // 64² canvas, 32² subject: three quarters keyed, plus the subject's four corner pixels: the
     // median the mask is decided on rounds a 90° corner by one pixel. Invisible on a 2048px plane.
     expect(transparencyOf(keyed)).toBeCloseTo((64 * 64 - (32 * 32 - 4)) / (64 * 64), 5);
   });
 
-  it('keeps a sky-coloured window inside the subject — it is its own tiny region', async () => {
+  it('keeps a sky-coloured window inside the subject. It is its own tiny region', async () => {
     const inSubject = (x: number, y: number): boolean => x >= 16 && x < 48 && y >= 16 && y < 48;
     // 4×4 of 64² is 0.4% of the canvas, under MIN_KEYED_REGION.
     const inWindow = (x: number, y: number): boolean => x >= 30 && x < 34 && y >= 30 && y < 34;
@@ -381,13 +381,13 @@ describe('keyBackground', () => {
 
   /**
    * The MOU-125 round-3 finding, and the reason {@link gaussianGrain} exists. There is no thin
-   * structure anywhere in this master — a flat field over a solid block — and the key is flawless,
+   * structure anywhere in this master, a flat field over a solid block, and the key is flawless,
    * so nothing here may be reported as erased artwork. Under an unbounded distribution it was:
    * `isArtwork` is a fixed cut, every tail pixel of the field lands past it, and at σ 12 that made
    * a perfect key read 7,579 px erased and refused, telling the operator to fix a 1-px cable the
    * master does not have. `MIN_ERASED_RUN` is what separates dust from a structure.
    */
-  it.each([8, 12, 16])('does not read grain as erased artwork — σ%i Gaussian', async (sigma) => {
+  it.each([8, 12, 16])('does not read grain as erased artwork: σ%i Gaussian', async (sigma) => {
     const keyed = await keyBackground(
       await decodeMaster(await gaussianSkyline(2048, 1152, 0.3, sigma)),
       DEFAULT_MATTE_TOLERANCE,
@@ -402,15 +402,15 @@ describe('keyBackground', () => {
   /**
    * The invariant across the band from workable grain to hopeless: a speckled field is never
    * something the encoder hands back. Past the point where the noise floor beats `tolerance` the
-   * misses stop being isolated pixels and clump into islands too big to sweep — which is the case
+   * misses stop being isolated pixels and clump into islands too big to sweep, which is the case
    * `MAX_KEYED_ISLANDS` refuses. At `DEFAULT_MATTE_TOLERANCE` the boundary measures between ±35
    * (47 islands, 0.29% speckle, ships) and ±36 (126 islands, 0.71% speckle, refused).
    *
-   * Well past ±45 the master stops having a keyable field at all and the key cuts *nothing* — one
+   * Well past ±45 the master stops having a keyable field at all and the key cuts *nothing*: one
    * fully opaque island, which passes the island count. That case is `encodeAsset`'s to refuse
    * (it has a separate no-cut gate), so the levels here stay inside the band this gate governs.
    */
-  it('keys clean or refuses at every grain level — it never ships speckle', async () => {
+  it('keys clean or refuses at every grain level: it never ships speckle', async () => {
     const shipped: boolean[] = [];
     for (const amplitude of [35, 36, 40]) {
       const keyed = await keyBackground(
@@ -445,10 +445,10 @@ describe('keyBackground', () => {
    * The round-2 review's finding. The median the mask is decided on cannot represent a structure
    * thinner than its window: a 1-px line is 3 of the 9 samples in every window it touches, so the
    * median returns the field and the line is keyed away. `plane-city-fore` asks for exactly that
-   * shape by name, and both other gates move the *wrong* way when it happens — deleting artwork
+   * shape by name, and both other gates move the *wrong* way when it happens: deleting artwork
    * raises transparency past the §6 floor and lowers the island count.
    */
-  it.each(NOISES)('keeps a cable as thick as the key window — %s', async (_label, noise) => {
+  it.each(NOISES)('keeps a cable as thick as the key window: %s', async (_label, noise) => {
     const image = await decodeMaster(await cabledPlane(2048, 1152, 2, noise));
 
     const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
@@ -457,15 +457,15 @@ describe('keyBackground', () => {
     expect(keyed.erased).toBeLessThanOrEqual(MAX_ERASED_ARTWORK);
   });
 
-  it.each(NOISES)('refuses a cable thinner than it — %s', async (_label, noise) => {
+  it.each(NOISES)('refuses a cable thinner than it: %s', async (_label, noise) => {
     // The plane canvas both matte assets are declared at, which is what MAX_ERASED_ARTWORK counts.
     const image = await decodeMaster(await cabledPlane(2048, 1152, 1, noise));
 
     const keyed = await keyBackground(image, DEFAULT_MATTE_TOLERANCE);
 
     // The cable goes wholesale, grain or none: it is only 3 of the 9 samples in every window it
-    // touches, so the median returns the field at every level alike — 0% left, ~2030 px erased.
-    // (The dashed line this used to record at ±16 was the skewed generator, not grain — MOU-152.)
+    // touches, so the median returns the field at every level alike: 0% left, ~2030 px erased.
+    // (The dashed line this used to record at ±16 was the skewed generator, not grain: MOU-152.)
     expect(cableSurvival(keyed, 1)).toBeLessThan(0.9);
     expect(keyed.erased).toBeGreaterThan(MAX_ERASED_ARTWORK);
     // Neither older gate sees it, which is why this one has to exist.
@@ -476,7 +476,7 @@ describe('keyBackground', () => {
   /**
    * The fourth blind spot, pinned as a known property so nobody re-derives it as coverage.
    * `MIN_ERASED_RUN` is what stops grain reading as erasure, and it buys that by counting only runs
-   * of 16 or more — so an erasure in shorter runs is invisible, and *no number of them adds up*.
+   * of 16 or more, so an erasure in shorter runs is invisible, and *no number of them adds up*.
    * A 1-px antenna 14 px tall leaves a 12-px run, so this master loses 2,100 px of the structure
    * ART-BIBLE §6.2 exists to protect and every gate still reads clean. §6.2's minimum stroke weight
    * is the only cover; see `MIN_ERASED_RUN` for why no lower floor is available.
@@ -487,15 +487,15 @@ describe('keyBackground', () => {
       DEFAULT_MATTE_TOLERANCE,
     );
 
-    // The antennae really are erased — the assertion below is a hole, not a key that kept them.
+    // The antennae really are erased: the assertion below is a hole, not a key that kept them.
     expect(antennaSurvival(keyed, 150, 14)).toBeLessThan(0.1);
     expect(keyed.erased).toBe(0);
     // And nothing else catches it, so the master ships.
     expect(keyed.islands).toBeLessThanOrEqual(MAX_KEYED_ISLANDS);
     await expect(encodeAsset(await antennaPlane(150, 14), FORE_PLANE)).resolves.toBeDefined();
 
-    // The cliff is the run floor and not the count: 18 px drawn leaves a 16-px run, and 40 of those
-    // — a quarter of the structure this master loses — are refused.
+    // The cliff is the run floor and not the count: 18 px drawn leaves a 16-px run, and 40 of those,
+    // a quarter of the structure this master loses, are refused.
     const taller = await keyBackground(
       await decodeMaster(await antennaPlane(40, 18)),
       DEFAULT_MATTE_TOLERANCE,
@@ -549,7 +549,7 @@ describe('encodeAsset', () => {
 
   it('refuses a grainier master than the tolerance covers, and takes a wider one', async () => {
     // ±40 grain against tolerance 18: the key misses in clumps rather than isolated pixels, and it
-    // used to ship — 62% transparent clears the §6 floor while a tenth of the sky stays opaque.
+    // used to ship: 62% transparent clears the §6 floor while a tenth of the sky stays opaque.
     const bytes = await grainySkyline(2048, 1152, 0.3, 40);
 
     await expect(encodeAsset(bytes, FORE_PLANE)).rejects.toThrow(/disconnected pieces/);
@@ -569,7 +569,7 @@ describe('encodeAsset', () => {
     expect(transparency).toBeCloseTo(0.7, 2);
   });
 
-  it('fails when the matte cuts nothing — an opaque "transparent" plane is a browser bug', async () => {
+  it('fails when the matte cuts nothing: an opaque "transparent" plane is a browser bug', async () => {
     // Pure noise: no flat field, so every matching region falls under MIN_KEYED_REGION.
     const bytes = await master(2048, 1152, (x, y) => [
       (x * 13 + y * 7) % 256,
@@ -587,7 +587,7 @@ describe('encodeAsset', () => {
   });
 
   it('keeps a hand-matted master instead of keying over it (ADR 0001 §6.4)', async () => {
-    // No flat keyable border here — a flood key would cut nothing and fail. The human's alpha wins.
+    // No flat keyable border here: a flood key would cut nothing and fail. The human's alpha wins.
     const bytes = await master(2048, 1152, (x, y) => [90, (x * y) % 256, 20, y < 461 ? 255 : 0]);
     const { transparency } = await encodeAsset(bytes, FORE_PLANE);
     expect(transparency).toBeCloseTo(0.6, 2);
@@ -610,7 +610,7 @@ describe('encodeAsset', () => {
   it('refuses a transparent master on a key that delivers no alpha (MOU-374)', async () => {
     // What MOU-317 established about `removeAlpha()` is what makes this a rejection rather than a
     // flatten: it *discards* the band instead of compositing, so the RGB under `alpha = 0` ships
-    // untouched — `[240,200,120]` here, and black for a real master that painted nothing there.
+    // untouched: `[240,200,120]` here, and black for a real master that painted nothing there.
     // Nothing downstream sees it either: `minTransparency` is attached to the two planes only, and
     // `postProcessFor` never declares `matte` for an opaque delivery, so both of the gates above
     // are structurally inert on exactly the keys the board's masters land on. `district` is one.
@@ -642,7 +642,7 @@ describe('encodeAsset', () => {
 
   it('counts the pixels when a stray transparent one rounds to 0.0% (MOU-387)', async () => {
     // A master exported with a single anti-aliased canvas-edge pixel is the case the board hits far
-    // more often than a half-transparent master, and `percent` fixes to one decimal — so the frame
+    // more often than a half-transparent master, and `percent` fixes to one decimal, so the frame
     // fraction alone printed "carries alpha over 0.0% of the frame", which contradicts itself and
     // gives no way to find the pixel. The count is also what tells this apart from a master that
     // was never flattened at all.
@@ -672,7 +672,7 @@ describe('encodeAsset', () => {
     // Sits on `encodeDelivery` rather than `encodeAsset` because the gate above now rejects every
     // transparent master before it gets here, and an opaque one cannot tell the two apart: libwebp
     // drops an all-opaque band by itself, so `hasAlpha` reads false either way. Feeding the unit
-    // directly is the only place left where deleting `removeAlpha()` can still turn a test red —
+    // directly is the only place left where deleting `removeAlpha()` can still turn a test red,
     // which is the coverage MOU-317 landed and the MOU-308 §4 review asked for (MOU-377).
     const image = await decodeMaster(
       await master(64, 64, (x, y) => [240, 200, 120, y < 32 ? 255 : 0]),
@@ -690,7 +690,7 @@ describe('encodeAsset', () => {
   });
 
   /**
-   * An icon's 1024² source is a statement about a *backend* — nothing renders 512² with alpha — so
+   * An icon's 1024² source is a statement about a *backend*, nothing renders 512² with alpha, so
    * refusing a hand-drawn master that already is the 512² delivery would be the pipeline enforcing
    * a generator's limitation on a human. The declared `downscale` no-ops rather than resampling an
    * image to the size it already is.
@@ -702,7 +702,7 @@ describe('encodeAsset', () => {
 });
 
 /**
- * A CC0 master is whatever size its uploader saved, in whatever aspect they framed it — so the
+ * A CC0 master is whatever size its uploader saved, in whatever aspect they framed it, so the
  * encode brings the shape to the manifest rather than refusing everything that is not already
  * exact (MOU-229 D1).
  */
@@ -733,7 +733,7 @@ describe('normalizeMaster', () => {
 
   it('crops and downscales an oversized master in the wrong aspect to the delivery size', async () => {
     // 3000×2000 for a 512² icon delivered off a 1024² source: 3:2, so 500px goes off each side.
-    // Painting exactly that centred square opaque makes a miss loud rather than plausible — an
+    // Painting exactly that centred square opaque makes a miss loud rather than plausible: an
     // edge-aligned crop of the same size reads 25% transparent, an uncropped squash 33%.
     const bytes = await master(3000, 2000, (x) => (x >= 500 && x < 2500 ? SUBJECT : [0, 0, 0, 0]));
 
@@ -756,9 +756,9 @@ describe('normalizeMaster', () => {
   });
 
   it('refuses to upscale, naming the file, its size and the size it needs', async () => {
-    // 1600×900 crops to 1600×900 (already 16:9) — short of the 2048×1152 source in both axes.
+    // 1600×900 crops to 1600×900 (already 16:9): short of the 2048×1152 source in both axes.
     await expect(encodeAsset(await skyline(1600, 900, 0.3), FORE_PLANE)).rejects.toThrow(
-      /plane-city-fore: master is 1600×900, which centre-crops to 1600×900 at the manifest's 2048×1152 aspect .* smallest one that works is 2048×1152\./s,
+      /plane-city-fore: master is 1600×900, which centre-crops to 1600×900 at the manifest's 2048×1152 aspect.* smallest one that works is 2048×1152\./s,
     );
   });
 
@@ -792,7 +792,7 @@ describe('parseArgs', () => {
   it('rejects a missing value, an unknown flag and an out-of-range tolerance', () => {
     expect(() => parseArgs(['--only'])).toThrow(/needs a value/);
     expect(() => parseArgs(['--sharpen', '3'])).toThrow(/Unknown argument/);
-    expect(() => parseArgs(['--matte-tolerance', '900'])).toThrow(/integer 0–255/);
+    expect(() => parseArgs(['--matte-tolerance', '900'])).toThrow(/integer 0-255/);
   });
 
   // `--only "$KEY"` with an unset variable used to select nothing, which selected everything.
@@ -818,7 +818,7 @@ async function withTempDir(body: (dir: string) => Promise<void>): Promise<void> 
 
 /**
  * Separate master and delivery directories. A WebP master is `<key>.webp`, which for most classes
- * is byte-for-byte the delivery's own file name — sharing one directory would have the encode
+ * is byte-for-byte the delivery's own file name: sharing one directory would have the encode
  * overwrite its own input.
  */
 async function withSplitDirs(body: (masters: string, out: string) => Promise<void>): Promise<void> {
@@ -919,7 +919,7 @@ describe('main', () => {
   });
 
   // The hero set is hand-pasted in batches, so most of the manifest is legitimately absent between
-  // them — `--landed` is what lets an import run at all before the last file arrives.
+  // them: `--landed` is what lets an import run at all before the last file arrives.
   it('encodes the batch that has landed and names what it is still waiting on', async () => {
     await withTempDir(async (dir) => {
       const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -955,7 +955,7 @@ describe('painted vs procedural', () => {
     expect(counted.sort()).toEqual(ART_MANIFEST.map((s) => s.key).sort());
   });
 
-  it('does not count a @2x delivery as painted — the client falls back to 1×, not up to it', () => {
+  it('does not count a @2x delivery as painted: the client falls back to 1×, not up to it', () => {
     const retina = DISTRICT.file.replace(/\.(\w+)$/, '@2x.$1');
     expect(keys(paintedSplit(new Set([retina])), 'district')?.painted).toEqual([]);
   });
@@ -994,7 +994,7 @@ describe('painted vs procedural', () => {
 describe('delivery audit', () => {
   const CLEAR: Rgba = [0, 0, 0, 0];
 
-  /** A plane delivery whose top `clearRows` of 40 are transparent — each row is 2.5% of the frame. */
+  /** A plane delivery whose top `clearRows` of 40 are transparent: each row is 2.5% of the frame. */
   const planeDelivery = async (clearRows: number): Promise<Buffer> =>
     sharp(await master(40, 40, (_x, y) => (y < clearRows ? CLEAR : SUBJECT)))
       .webp({ lossless: true, alphaQuality: 100 })
@@ -1012,7 +1012,7 @@ describe('delivery audit', () => {
     return problems;
   };
 
-  it('rejects an opaque fore delivery — the failure that blanks the whole map', async () => {
+  it('rejects an opaque fore delivery: the failure that blanks the whole map', async () => {
     const problems = await auditWith({ [FORE_PLANE.file]: await planeDelivery(0) });
 
     expect(problems).toHaveLength(1);
@@ -1030,7 +1030,7 @@ describe('delivery audit', () => {
     expect(await auditWith({ [FORE_PLANE.file]: await planeDelivery(22) })).toEqual([]);
   });
 
-  it('audits the @2x delivery too — retina resolves to it instead of the 1×', async () => {
+  it('audits the @2x delivery too: retina resolves to it instead of the 1×', async () => {
     const retina = FORE_PLANE.file.replace(/\.(\w+)$/, '@2x.$1');
     const problems = await auditWith({ [retina]: await planeDelivery(0) });
 
@@ -1038,7 +1038,7 @@ describe('delivery audit', () => {
     expect(problems[0]?.key).toBe(FORE_PLANE.key);
   });
 
-  it('holds a plane the bible declares opaque to no floor — a fully opaque sky is correct art', async () => {
+  it('holds a plane the bible declares opaque to no floor: a fully opaque sky is correct art', async () => {
     // The negative control for the ceiling below: `plane-city-sky` carries no `minTransparency`,
     // and applying one would reject exactly the delivery the bible asks for.
     const sky = spec('plane-city-sky');
@@ -1051,7 +1051,7 @@ describe('delivery audit', () => {
     expect(await auditWith({ 'README.md': Buffer.from('# not art\n') })).toEqual([]);
   });
 
-  it('reaches a delivery dropped in a subdirectory — the client glob does', async () => {
+  it('reaches a delivery dropped in a subdirectory: the client glob does', async () => {
     // `source.ts` globs `assets/**` and keys on the base name, so a batch folder still ships.
     const nested = `batch-3/${FORE_PLANE.file}`;
     const problems = await auditWith({ [nested]: await planeDelivery(0) });
@@ -1060,7 +1060,7 @@ describe('delivery audit', () => {
 
   it('names a governed delivery it cannot decode instead of throwing bare from sharp', async () => {
     // A truncated download under a correct name. sharp's own error carries neither, and the
-    // contact sheet runs this audit — one unreadable file must not take the whole report down.
+    // contact sheet runs this audit: one unreadable file must not take the whole report down.
     const problems = await auditWith({ [FORE_PLANE.file]: Buffer.from('not an image at all') });
 
     expect(problems.map((p) => p.file)).toEqual([FORE_PLANE.file]);
@@ -1077,7 +1077,7 @@ describe('delivery audit', () => {
   /**
    * MOU-289 with the sign flipped. The floor above catches a plane that arrives opaque and blankets
    * what is behind it; these catch a key contracted to be opaque that arrives transparent and shows
-   * through. `encodeAsset` refuses that already (MOU-374) but only for masters it encodes — a file
+   * through. `encodeAsset` refuses that already (MOU-374) but only for masters it encodes: a file
    * hand-dropped into `assets/` reaches the browser without passing through it (MOU-388).
    */
   describe('opaque contract', () => {
@@ -1089,7 +1089,7 @@ describe('delivery audit', () => {
         .webp({ lossless: true, alphaQuality: 100 })
         .toBuffer();
 
-    it('names an alpha-carrying sky — whatever it does not cover is the bare page', async () => {
+    it('names an alpha-carrying sky: whatever it does not cover is the bare page', async () => {
       const problems = await auditWith({ [SKY.file]: await planeDelivery(1) });
 
       expect(problems).toHaveLength(1);
@@ -1102,7 +1102,7 @@ describe('delivery audit', () => {
       expect(await auditWith({ [SKY.file]: await planeDelivery(0) })).toEqual([]);
     });
 
-    it('catches a hole too small to show up as a percentage — the pixel count carries it', async () => {
+    it('catches a hole too small to show up as a percentage: the pixel count carries it', async () => {
       // One pixel in 10 000 is 0.01%, which `percent()` prints as `0.0%`. A ceiling read off the
       // weighted percentage would have nothing to fire on; the count is the whole signal.
       const problems = await auditWith({ [SKY.file]: await withClearPixels(1) });
@@ -1114,7 +1114,7 @@ describe('delivery audit', () => {
 
     it('reports the alpha-carrying area, not the coverage-weighted mean (MOU-401)', async () => {
       // The audit route's half of MOU-401. A uniform `alpha: 254` veil is invisible but leaves no
-      // pixel opaque, so the percentage has to agree with the count printed beside it — and here
+      // pixel opaque, so the percentage has to agree with the count printed beside it, and here
       // the denominator is in the very same clause, which is what made the old `0.4%` self-refuting.
       const veil = await sharp(await master(40, 40, () => [240, 200, 120, 254]))
         .webp({ lossless: true, alphaQuality: 100 })
@@ -1136,7 +1136,7 @@ describe('delivery audit', () => {
     });
 
     it('governs the opaque keys outside the plane stack too', async () => {
-      // Same exposure, smaller blast radius — `assets/README.md` calls the plate the ground, and
+      // Same exposure, smaller blast radius: `assets/README.md` calls the plate the ground, and
       // the district tiles sit under the nodes.
       const plate = spec('plate-city');
       const district = spec('district-chrome-row');
@@ -1157,7 +1157,7 @@ describe('delivery audit', () => {
 
     /**
      * Both routes enforce this ceiling, and until `opaqueContractBreach` sat under both, one doc
-     * comment was the only thing holding them to a single value — the encode route could have
+     * comment was the only thing holding them to a single value: the encode route could have
      * drifted off the audit route with every test still green (MOU-402).
      */
     describe('the gate both routes share', () => {
@@ -1180,7 +1180,7 @@ describe('delivery audit', () => {
       });
 
       it('sends the board to the opacity contract, not the copyright section', async () => {
-        // `ADR 0001 §6.4` is "Ownership of the output" — an AI-copyright note that says nothing
+        // `ADR 0001 §6.4` is "Ownership of the output": an AI-copyright note that says nothing
         // about flattening. This message is the one the board actually reads: it reaches stderr
         // through `contact-sheet`, which `assets/README.md` names as the step to run after a drop,
         // and lines 38-50 of that file state the very contract this delivery broke.
@@ -1206,7 +1206,7 @@ describe('delivery audit', () => {
 /**
  * The §6 floor above is audited against the drop directory; the §9 licence rule next to it was
  * enforced by prose alone. A correctly-named `.webp` saved straight into `assets/` renders with no
- * recorded provenance and every gate green — the board rule says it must not ship (MOU-296).
+ * recorded provenance and every gate green: the board rule says it must not ship (MOU-296).
  */
 describe('provenance audit', () => {
   const HEADER =
@@ -1228,7 +1228,7 @@ describe('provenance audit', () => {
   ): Promise<readonly ProvenanceProblem[]> => {
     let problems: readonly ProvenanceProblem[] = [];
     await withTempDir(async (dir) => {
-      // The bytes are never decoded — this gate reads the register, not the pixels.
+      // The bytes are never decoded: this gate reads the register, not the pixels.
       for (const name of files) {
         await mkdir(path.dirname(path.join(dir, name)), { recursive: true });
         await writeFile(path.join(dir, name), 'not really an image');
@@ -1240,7 +1240,7 @@ describe('provenance audit', () => {
     return problems;
   };
 
-  it('rejects a delivery with no §9 row — the hand-drop route nothing else looks at', async () => {
+  it('rejects a delivery with no §9 row: the hand-drop route nothing else looks at', async () => {
     const problems = await auditWith(
       ['plate-city.webp'],
       [LICENSED.replace('plate-city', 'other')],
@@ -1269,11 +1269,11 @@ describe('provenance audit', () => {
     expect(problems[0]?.problem).toContain('Author blank');
   });
 
-  it('covers the @2x density off the 1× row — one artwork is one licence', async () => {
+  it('covers the @2x density off the 1× row: one artwork is one licence', async () => {
     expect(await auditWith(['plate-city.webp', 'plate-city@2x.webp'], [LICENSED])).toEqual([]);
   });
 
-  it('rejects a misnamed drop too — inert in the browser, still a file in the repo', async () => {
+  it('rejects a misnamed drop too: inert in the browser, still a file in the repo', async () => {
     // Matches no manifest delivery, so the client never renders it and the §6 audit skips it.
     const problems = await auditWith(['some-photo.png'], [LICENSED]);
     expect(problems.map((p) => p.file)).toEqual(['some-photo.png']);
@@ -1319,7 +1319,7 @@ describe('provenance audit', () => {
       expect(parseLicensingRegister(bible).map((r) => r.file)).toEqual(['plate-city.webp']);
     });
 
-    // Against the real document, prettier-padded cells and all — a parser that silently found
+    // Against the real document, prettier-padded cells and all: a parser that silently found
     // nothing there would pass every gate above while enforcing nothing.
     it('finds rows in the committed ART-BIBLE §9 table', async () => {
       const rows = parseLicensingRegister(await readFile(DEFAULT_ART_BIBLE_PATH, 'utf8'));

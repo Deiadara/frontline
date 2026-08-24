@@ -31,7 +31,7 @@ import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
  *
  * The roster is never read from the database: §H2a makes it a pure function of the UTC date, so
  * every request recomputes it and two accounts asking on the same day are served the same eight
- * people. What *is* stored is only what a player changed — who they hired, how those officers feel
+ * people. What *is* stored is only what a player changed, who they hired, how those officers feel
  * (§H5), what level they are (§H6) and what they agreed to pay (§H7, in W2's payroll book).
  */
 
@@ -84,9 +84,9 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const now = new Date();
     const base = settledBase(app, request.currentUser.id, now);
     const day = barDay(now);
-    // §H2 — the room as it stands for everyone, including whoever has walked in to replace the
+    // §H2: the room as it stands for everyone, including whoever has walked in to replace the
     // people already hired out of it today.
-    // §F2 — Charisma and Diplomacy widen the room. Word gets around about who is hiring.
+    // §F2: Charisma and Diplomacy widen the room. Word gets around about who is hiring.
     const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
     const generations = app.repos.bar.generations(day, seats);
 
@@ -107,21 +107,21 @@ export function registerBarRoutes(app: FastifyInstance): void {
         0,
         barHiresPerDay(base.level) - app.repos.bar.hiresBy(request.currentUser.id, day),
       ),
-      // §H7 — conversations already under way. Sent whole rather than as a count, because the
+      // §H7: conversations already under way. Sent whole rather than as a count, because the
       // window has to be able to re-open on the exact exchange the player left it on.
       negotiations: app.repos.bar.negotiations(request.currentUser.id, day),
     };
   });
 
   /**
-   * §H7 — one exchange of a wage negotiation.
+   * §H7: one exchange of a wage negotiation.
    *
    * Server-owned on purpose. Patience, a walk-away and a demand that only moves when the player
    * moves are all rules a client could simply decline to enforce, and the whole point of the
    * conversation is that a bad offer costs something you cannot reload away.
    *
    * Agreeing a number does **not** hire anybody. The player still sends it to `/bar/hire`, which is
-   * where §H8 housing, the §H2b daily limit and the first payment are checked — a negotiation is a
+   * where §H8 housing, the §H2b daily limit and the first payment are checked: a negotiation is a
    * handshake, not a contract.
    */
   app.post('/bar/negotiate', { preHandler: app.authenticate }, (request): NegotiateResponse => {
@@ -215,7 +215,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
         resources: null,
       };
     }
-    // §I1 — signing somebody is one of the two or three things a player does in a session that
+    // §I1: signing somebody is one of the two or three things a player does in a session that
     // takes a real decision, so it pays. Outside the hire transaction deliberately: the XP ledger
     // is W6's and a level-up must not be able to roll a signed contract back.
     const { award } = awardPlayerXp(app.repos, result.base, 'officerHired');
@@ -229,7 +229,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     };
   });
 
-  /** §H6/§H6a — the 2 points per level the player assigns by hand. */
+  /** §H6/§H6a: the 2 points per level the player assigns by hand. */
   app.post(
     '/bar/assign-point',
     { preHandler: app.authenticate },

@@ -20,21 +20,21 @@ export const CommanderSchema = z.object({
   role: OfficerRoleSchema,
   attributes: AttributesSchema,
   traits: TraitsSchema,
-  /** §H4 — what they want and how far they will go for it. Every character carries both. */
+  /** §H4: what they want and how far they will go for it. Every character carries both. */
   ambition: AmbitionSchema,
   moralCompass: MoralCompassSchema,
-  /** §H5 — how much they agree with what this crew does, 0..100. */
+  /** §H5: how much they agree with what this crew does, 0..100. */
   alignment: AlignmentSchema,
-  /** When `alignment` was last settled — the anchor for the §H5 drift. */
+  /** When `alignment` was last settled: the anchor for the §H5 drift. */
   alignmentUpdatedAt: IsoDateTimeSchema,
   /**
-   * §H6 — this character's own level (INTERFACES R1). Not player progression: `Base.level` is
+   * §H6: this character's own level (INTERFACES R1). Not player progression: `Base.level` is
    * that, it is owned by W6, and nothing here mirrors it.
    */
   level: z.number().int().min(CHARACTER_LEVEL_MIN),
   /** XP banked towards this character's next level. */
   xpIntoLevel: z.number().int().nonnegative(),
-  /** §H6a — level-up points still waiting for the player to assign. */
+  /** §H6a: level-up points still waiting for the player to assign. */
   unspentPoints: z.number().int().nonnegative(),
 });
 export type Commander = z.infer<typeof CommanderSchema>;
@@ -48,7 +48,7 @@ export interface CommanderOptions {
 
 /**
  * Example factory: unlisted attributes default to the recruitment mean, and an officer built this
- * way starts fresh — neutral alignment, level 1, nothing banked. Recruits hired at the Bar are
+ * way starts fresh: neutral alignment, level 1, nothing banked. Recruits hired at the Bar are
  * built by the server from a rolled sheet instead (§H2).
  */
 export function createCommander(

@@ -11,14 +11,14 @@ import type { Repositories } from '../db/repos/index.js';
 export interface CharacterActivity {
   /** The officer who led it, or `null` for a §G6 delegation with nobody to pay. */
   officerId: string | null;
-  /** Minutes the run kept them engaged — travel out, the job, and travel back (§E2). */
+  /** Minutes the run kept them engaged: travel out, the job, and travel back (§E2). */
   minutesEngaged: number;
 }
 
 /**
  * Pays every officer for the runs they led, and applies any level-up it bought (GDD §H6).
  *
- * **This is the only function in the server that writes character XP** — the mirror of
+ * **This is the only function in the server that writes character XP**: the mirror of
  * `awardPlayerXp` for INTERFACES §2 R2. A system that keeps a character busy calls this and names
  * the activity; how much a minute is worth lives in `characterXpForActivity`, so a board correction
  * to the CTO's reading stays the one-line change that module promises.
@@ -27,8 +27,8 @@ export interface CharacterActivity {
  * awards are folded per officer before anything is written: paying them separately would bank the
  * second award against a pre-level-up sheet and lose a level the first one had already paid for.
  *
- * An `officerId` that no longer resolves — dismissed mid-flight, or a row written before the
- * officer was recorded — is skipped rather than failing the settle. The crew still came home and
+ * An `officerId` that no longer resolves: dismissed mid-flight, or a row written before the
+ * officer was recorded: is skipped rather than failing the settle. The crew still came home and
  * the player still gets paid; there is simply nobody left to credit.
  */
 export function awardCharacterXp(
@@ -36,7 +36,7 @@ export function awardCharacterXp(
   base: Base,
   activities: readonly CharacterActivity[],
 ): Base {
-  // What the crew built raises what its officers learn — the Gauntlet's training bonus and any
+  // What the crew built raises what its officers learn: the Gauntlet's training bonus and any
   // modification on it. `characterXpBonus` was computed and read by nothing until now.
   const bonus = 1 + characterXpBonus(base.buildings) / 100;
   const earned = new Map<string, number>();

@@ -10,6 +10,10 @@ export default tseslint.config(
       '**/coverage/**',
       '**/playwright-report/**',
       '**/test-results/**',
+      // Scratch space. `apps/client/.tmp` is where a throwaway Playwright config or a one-off probe
+      // spec lands during a debugging run: gitignored, outside every tsconfig, and therefore a
+      // parse error the moment lint walks it. Nothing in here is shipped code.
+      '**/.tmp/**',
       '**/*.js',
       '**/*.cjs',
       '**/*.mjs',
@@ -31,7 +35,7 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
-      // ADR 0001 §5.4 — the barrel drags all 40+ shaders into the bundle. Import the subpath.
+      // ADR 0001 §5.4: the barrel drags all 40+ shaders into the bundle. Import the subpath.
       '@typescript-eslint/no-restricted-imports': [
         'error',
         {

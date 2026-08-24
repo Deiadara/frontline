@@ -9,7 +9,7 @@ import { ItemIdSchema, type ItemId } from './catalog.js';
  * appear twice with different counts and make every consumer merge them.
  *
  * Zero is not stored. An item at zero and an item never held are the same fact, and keeping the
- * key around means every "do I have any?" check has to test the value as well as the key — which
+ * key around means every "do I have any?" check has to test the value as well as the key, which
  * is the check somebody eventually forgets.
  */
 
@@ -17,7 +17,7 @@ import { ItemIdSchema, type ItemId } from './catalog.js';
  * `partialRecord`, not `record`.
  *
  * Zod 4 made `z.record(someEnum, …)` *exhaustive*: it demands a key for every member of the enum,
- * which for a satchel would mean storing a zero for all eighteen items and would reject `{}` — the
+ * which for a satchel would mean storing a zero for all eighteen items and would reject `{}`: the
  * state every crew starts in. `partialRecord` is the sparse one, and sparse is the whole model
  * here: an item at zero and an item never held are the same fact.
  */
@@ -45,7 +45,7 @@ export function hasItems(inventory: Inventory, cost: ItemCost): boolean {
   );
 }
 
-/** Adds items. Never mutates — the caller decides what to do with the result. */
+/** Adds items. Never mutates: the caller decides what to do with the result. */
 export function addItems(inventory: Inventory, gained: ItemCost): Inventory {
   const next: Inventory = { ...inventory };
   for (const [id, count] of Object.entries(gained)) {
@@ -79,7 +79,7 @@ export function emptyInventory(): Inventory {
   return {};
 }
 
-/** How many distinct kinds of thing are being held — the number the Inventory tab shows. */
+/** How many distinct kinds of thing are being held: the number the Inventory tab shows. */
 export function inventorySize(inventory: Inventory): number {
   return heldItems(inventory).length;
 }

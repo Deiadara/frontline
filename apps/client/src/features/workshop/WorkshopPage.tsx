@@ -24,7 +24,7 @@ import { ItemWindow } from '../market/MarketPage';
  *
  * Two things a player buys once and keeps: refits that improve every unit of a type forever, and
  * machines that shorten the road. Both are laid out as *ladders* rather than as a shopping list,
- * because the shape of the decision is which line to climb, not which item to buy — and a ladder
+ * because the shape of the decision is which line to climb, not which item to buy, and a ladder
  * with its second rung greyed out and labelled "needs the Composite Armour blueprint" is the
  * clearest possible statement of what the market is for.
  */
@@ -51,7 +51,7 @@ export function WorkshopPage() {
       lede="Everything here is bought once and kept. A refit reaches the people you trained last week as well as the ones you train tomorrow."
       wide
     >
-      <InfoNote>
+      <InfoNote label="How a line opens">
         Every line's first rung is open to anybody. Past that you need the line's blueprint, and the
         Runner is the only one who sells them. Parts come out of your satchel.
       </InfoNote>

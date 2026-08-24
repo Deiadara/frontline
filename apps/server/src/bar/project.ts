@@ -21,7 +21,7 @@ import type { BarCharacter } from './roster.js';
  * output of these two functions, which is only possible if they are importable.
  */
 
-/** One roster entry as this crew sees it — the §H3/§H4 gates already judged against them. */
+/** One roster entry as this crew sees it: the §H3/§H4 gates already judged against them. */
 export function projectRecruit(base: Base, recruit: BarCharacter, now: Date): BarRecruit {
   const assessment = assessAgainst(base, recruit, now);
   return {
@@ -33,7 +33,7 @@ export function projectRecruit(base: Base, recruit: BarCharacter, now: Date): Ba
     moralCompass: recruit.moralCompass,
     requirement: recruit.requirement,
     assessment,
-    // §H7 prices a salary only "if the character is interested" — there is no number to show
+    // §H7 prices a salary only "if the character is interested". There is no number to show
     // someone who will not sit down, and inventing one would advertise a hire that cannot happen.
     askingWage: assessment.interested ? wageAskedOf(recruit, assessment.stance) : null,
     hired: base.commanders.some((officer) => officer.id === recruit.id),

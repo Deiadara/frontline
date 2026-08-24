@@ -21,7 +21,7 @@ interface MissionRow {
 
 /**
  * A mission as persisted: the public record plus the two fields that decide its outcome and must
- * never reach a client. `seed` in particular is the whole reason the timer cannot be gamed — a
+ * never reach a client. `seed` in particular is the whole reason the timer cannot be gamed: a
  * player who could read it would know how their mission ends before it does.
  */
 export interface StoredMission {
@@ -44,7 +44,7 @@ export interface MissionsRepo {
   listActiveByBaseId(baseId: string): StoredMission[];
   countActiveByBaseId(baseId: string): number;
   markResolved(missionId: string, resolution: MissionResolution): void;
-  /** §E — turn a crew around. The return leg is derived from this instant, not stored. */
+  /** §E: turn a crew around. The return leg is derived from this instant, not stored. */
   markRecalled(missionId: string, recalledAt: string): void;
   findById(missionId: string): StoredMission | undefined;
 }

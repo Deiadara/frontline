@@ -46,7 +46,7 @@ import { standingEffectsFor } from '../crew/standing.js';
  * another; a settlement moves two bundles between two crews. Every one of them writes both sides
  * with `updateHoldings`, which is a single statement, inside a transaction opened by the route.
  *
- * The Runner's hours and stock are *derived*, never stored — `vendorSessionsFor` and
+ * The Runner's hours and stock are *derived*, never stored: `vendorSessionsFor` and
  * `vendorStockFor` are pure functions of the UTC date, so the server does not have to schedule
  * anything and cannot disagree with the client about what is on the barrow. What *is* stored is
  * what the city has already bought: a shared counter per line, so a sold-out blueprint is sold out
@@ -94,11 +94,22 @@ function releaseEscrow(repos: Repositories, offer: MarketOffer): void {
 
 export function projectMarket(repos: Repositories, base: Base, now: Date): MarketResponse {
   const day = marketDay(now);
+  /*
+   * §A4: the Downtown Market's discount, on the **quoted** price as well as the charged one.
+   *
+   * The two came apart: `buyFromVendor` charged the discounted figure and this quoted the
+   * catalogue one. A player holding that floor saw the full price on every card and was charged
+   * less at the till, and, worse, `affordable` was judged against the price they were *not* going
+   * to pay, so a purchase they could comfortably make showed a dead button. The black market's own
+   * code carries a comment about exactly this failure; the vendor had it.
+   */
+  const discount = standingEffectsFor(repos, base).marketDiscountPercent;
   const stock = vendorStockFor(day).map((line) => {
     const left = Math.max(0, line.stock - vendorSoldCount(day, line.id));
+    const price = discountedCaps(line.price, discount);
     return {
-      line: { ...line, stock: left },
-      affordable: left > 0 && base.resources.caps >= line.price,
+      line: { ...line, stock: left, price },
+      affordable: left > 0 && base.resources.caps >= price,
     };
   });
 
@@ -115,7 +126,7 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
       opensAt: nextVendorOpening(now).toISOString(),
       stock,
     },
-    // Somebody else's public listings, plus counters aimed at this crew. Never its own — those are
+    // Somebody else's public listings, plus counters aimed at this crew. Never its own. Those are
     // `mine`, and a board that showed a crew its own listing twice would read as two offers.
     offers: open.filter((offer) => offer.sellerBaseId !== base.id && visibleTo(offer, base.id)),
     mine: open.filter((offer) => offer.sellerBaseId === base.id),
@@ -218,12 +229,12 @@ export function buyFromVendor(
   const left = line.stock - vendorSoldCount(day, lineId);
   if (left < count) return { kind: 'refused', reason: 'sold_out' };
 
-  // §A4 — the Downtown Market. Every price in this city is quoted to whoever holds that floor at
+  // §A4: the Downtown Market. Every price in this city is quoted to whoever holds that floor at
   // a better number than to anybody else, and the Spire's unified bonus is more of the same.
-  const price = discountedCaps(
-    line.price * count,
-    standingEffectsFor(repos, base, now).marketDiscountPercent,
-  );
+  // Per unit, then multiplied: the same arithmetic in the same order the card quoted, so buying
+  // three never costs a cap more or less than three times what the shelf said one costs.
+  const unit = discountedCaps(line.price, standingEffectsFor(repos, base).marketDiscountPercent);
+  const price = unit * count;
   if (base.resources.caps < price) return { kind: 'refused', reason: 'cannot_afford' };
 
   const resources = spendResources(base.resources, { caps: price });
@@ -254,7 +265,7 @@ export function barter(
     return { kind: 'refused', reason: 'cannot_afford' };
   }
 
-  // §I3 — the Broker stops taking half at level 60. Read off the level here rather than passed in
+  // §I3: the Broker stops taking half at level 60. Read off the level here rather than passed in
   // so the quote the screen drew and the trade the server settles cannot come from two rates.
   const gained = barterQuote(amount, barterRateFor(base.level));
   const resources = creditResources(spendResources(base.resources, { [give]: amount }), {
@@ -268,7 +279,7 @@ export function barter(
  * Post a listing, escrowing what it gives.
  *
  * The goods leave the stockpile now. A board of listings that cannot be honoured is worse than no
- * board — the first thing a player learns from one is not to trust it.
+ * board: the first thing a player learns from one is not to trust it.
  */
 export function postOffer(
   repos: Repositories,
@@ -326,7 +337,7 @@ export function withdrawOffer(repos: Repositories, base: Base, offerId: string):
  * Take a listing.
  *
  * The buyer pays what it wants and receives what it gives; the seller receives what it wants. The
- * seller's side of *give* was escrowed at posting, so only the buyer's payment moves here — which
+ * seller's side of *give* was escrowed at posting, so only the buyer's payment moves here, which
  * is what makes this settle in two writes and not four.
  *
  * Any counters standing against the same listing are released, because the thing they were
@@ -373,7 +384,7 @@ export function acceptOffer(repos: Repositories, base: Base, offerId: string): M
 /** A player-facing sentence for every refusal, so the client never invents one. */
 export const MARKET_REFUSAL_TEXT: Record<MarketRefusal, string> = {
   // The supply run's own refusals, spelled by the module that owns the rules rather than restated.
-  // First, so the one word the two sets share — `cannot_afford` — keeps the market's more general
+  // First, so the one word the two sets share, `cannot_afford`, keeps the market's more general
   // wording: the Broker and the barrow raise it too, and neither of them is about caps.
   ...SUPPLY_REFUSAL_TEXT,
   vendor_closed: 'The Runner is not in the district right now',

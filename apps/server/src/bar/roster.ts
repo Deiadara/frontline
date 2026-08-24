@@ -2,7 +2,8 @@ import {
   AMBITIONS,
   MORAL_COMPASSES,
   BAR_HIRES_PER_DAY,
-  RECRUIT_MAX_MIN_INFAMY,
+  RECRUIT_MAX_MIN_NOTORIETY,
+  RECRUIT_MIN_NOTORIETY_GATE,
   hearsAnyCrewOut,
   type Ambition,
   type Attributes,
@@ -20,7 +21,7 @@ export { BAR_HIRES_PER_DAY };
  * The Bar's shared roster (GDD §H1, §H2, §H2a, §H2b).
  *
  * §H2 makes this "the same for every player": one room, not a private roll per account. It is still
- * a pure function with no roster table and no scheduled job — what it is a function *of* is now the
+ * a pure function with no roster table and no scheduled job: what it is a function *of* is now the
  * UTC date **and** the per-seat turnover counts, because the room is no longer read-only.
  *
  * Hiring somebody takes them out of the room for everybody, and the seat immediately produces
@@ -30,7 +31,7 @@ export { BAR_HIRES_PER_DAY };
  *
  * Note what is *not* generated here: a role. A character at the Bar has not been hired into
  * anything yet (§C2), and the affinity that shaped their sheet is dropped by `generateCharacter`
- * on the way out (§B8a, INTERFACES R4) — which is why this module calls that and never
+ * on the way out (§B8a, INTERFACES R4), which is why this module calls that and never
  * `rollRecruit`.
  */
 
@@ -39,8 +40,7 @@ export const BAR_ROSTER_SIZE = 8;
 
 /** Recruits whose §H3 gate is simply "anyone may approach me". */
 const OPEN_DOOR_CHANCE = 0.6;
-/** The lowest non-zero infamy gate worth rolling — below this it is not a gate at all. */
-const MIN_INFAMY_GATE = 10;
+/** The lowest non-zero infamy gate worth rolling: below this it is not a gate at all. */
 
 /**
  * How many of the day's recruits any crew can always approach: no §H3 gate, and a disposition
@@ -48,19 +48,19 @@ const MIN_INFAMY_GATE = 10;
  *
  * Both gates need the guarantee, and measuring is what showed it. Rolling §H3 independently
  * bottoms out at a single open door over 800 days (2026-08-13 is one of those days), and a *plain*
- * floor — one that forces §H3 but leaves the compass rolled — still left 1 day in 1200 where §H4
+ * floor, one that forces §H3 but leaves the compass rolled, still left 1 day in 1200 where §H4
  * refused every survivor and a brand-new crew had nobody willing. Forcing the compass too (see
  * `recruitAt`) is what closed that: an open-door seat clears both gates by construction, so a Bar
  * that is empty on the day a player first opens it is unreachable for any floor >= 1.
  *
- * Which makes 3 a UX margin rather than the correctness floor — 1 would be safe. On the worst day
+ * Which makes 3 a UX margin rather than the correctness floor: 1 would be safe. On the worst day
  * a brand-new crew sees exactly this many willing recruits (measured over 1200 days x every
  * reputation word), so what this constant sets is how much *choice* that day offers. Weigh it as
  * that.
  */
 export const BAR_OPEN_DOOR_FLOOR = 3;
 
-/** §H2a — the UTC date a roster is generated from, `YYYY-MM-DD`. */
+/** §H2a: the UTC date a roster is generated from, `YYYY-MM-DD`. */
 export function barDay(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
@@ -85,12 +85,14 @@ function pick<T>(rng: Rng, items: readonly T[]): T {
 }
 
 /**
- * §H3 — what this character asks of a crew. Most people at the Bar will talk to anyone; the rest
+ * §H3: what this character asks of a crew. Most people at the Bar will talk to anyone; the rest
  * want a name that has already been heard.
  */
 function rollRequirement(rng: Rng): JoinRequirement {
-  if (rng() < OPEN_DOOR_CHANCE) return { minInfamy: 0 };
-  return { minInfamy: randomInt(rng, MIN_INFAMY_GATE, RECRUIT_MAX_MIN_INFAMY) };
+  if (rng() < OPEN_DOOR_CHANCE) return { minNotoriety: 0 };
+  return {
+    minNotoriety: randomInt(rng, RECRUIT_MIN_NOTORIETY_GATE, RECRUIT_MAX_MIN_NOTORIETY),
+  };
 }
 
 /** A character on the roster, before any particular crew is judged against them. */
@@ -116,7 +118,7 @@ export interface BarCharacter {
 function recruitAt(day: string, index: number, generation: number): BarCharacter {
   const { attributes, traits } = generateCharacter(seedFrom(`${day}:${index}:${generation}:sheet`));
   const rng = createRng(seedFrom(`${day}:${index}:${generation}:disposition`));
-  // The floor is a property of the *seat*, not of the person in it — otherwise the first three
+  // The floor is a property of the *seat*, not of the person in it: otherwise the first three
   // hires of the day would close the only doors a new crew can walk through.
   const openDoor = index < BAR_OPEN_DOOR_FLOOR;
 
@@ -131,13 +133,13 @@ function recruitAt(day: string, index: number, generation: number): BarCharacter
     traits,
     ambition,
     // An open-door seat keeps its rolled compass when that already clears §H4, and otherwise
-    // takes the first one that does. Every ambition has at least one — asserted in the tests, so
+    // takes the first one that does. Every ambition has at least one: asserted in the tests, so
     // a retune of either table that broke it could not land quietly.
     moralCompass:
       openDoor && !hearsAnyCrewOut({ ambition, moralCompass: drawn })
         ? compassThatHearsAnyoneOut(ambition)
         : drawn,
-    requirement: openDoor ? { minInfamy: 0 } : rollRequirement(rng),
+    requirement: openDoor ? { minNotoriety: 0 } : rollRequirement(rng),
   };
 }
 
@@ -160,7 +162,7 @@ export function recruitId(day: string, index: number, generation: number): strin
 }
 
 /**
- * §H2 — the whole room for a UTC day, given how far each seat has turned over.
+ * §H2: the whole room for a UTC day, given how far each seat has turned over.
  *
  * `generations` is indexed by seat; a short or missing entry reads as an untouched seat, so a
  * caller that has not written a single row yet gets exactly the roster §H2a always produced.
@@ -176,7 +178,7 @@ export function barRoster(
 }
 
 /**
- * §F2 — how many extra seats a well-known crew fills.
+ * §F2: how many extra seats a well-known crew fills.
  *
  * Extra seats are *added* to the eight, never substituted for them: the room a crew with no
  * reputation walks into is the same room it always was, so a Charisma bonus cannot quietly change
@@ -194,7 +196,7 @@ export function barSeatsFor(recruitPoolPercent: number): number {
  * Which seat this recruit id names, or `null` when it names none of `day`'s.
  *
  * Parsed rather than searched, because the caller needs the seat number in order to turn that seat
- * over — and it needs it for an id it has already matched against the live roster, so there is
+ * over, and it needs it for an id it has already matched against the live roster, so there is
  * nothing left to validate here beyond the grammar itself.
  */
 export function seatOf(day: string, id: string): number | null {

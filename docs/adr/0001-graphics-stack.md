@@ -1,10 +1,10 @@
-# ADR 0001 — Graphics stack for the Frontline city map and base view
+# ADR 0001: Graphics stack for the Frontline city map and base view
 
 - **Status:** Accepted
 - **Date:** 2026-08-12
 - **Deciders:** CTO (author), CEO (backend-cost decision is a board gate)
 - **Supersedes:** nothing
-- **Amended:** 2026-08-13 — §8.1 raises the zoom floor from 0.6 to 1.0
+- **Amended:** 2026-08-13: §8.1 raises the zoom floor from 0.6 to 1.0
 - **Related:** [`docs/ART-BIBLE.md`](../ART-BIBLE.md), [`docs/ART-PROMPTS.md`](../ART-PROMPTS.md), MOU-114
 
 ---
@@ -15,10 +15,10 @@ Frontline is a browser strategy game. The board's directive (MOU-112 → MOU-114
 must look **comparable to top games of the genre**, in an **Arcane-esque** register: hand-painted,
 between cartoony and photoreal, cyberpunk-dystopian. The two hero surfaces are:
 
-- **City map** — a Grepolis/Ikariam-style clickable strategic map, but rendered as a dense city
+- **City map**: a Grepolis/Ikariam-style clickable strategic map, but rendered as a dense city
   _interior_ seen at an oblique angle: layered depth, parallax, atmospheric haze, 11 clickable
   district nodes over a painted base plate.
-- **Base view** — a smaller, denser scene of the player's own compound.
+- **Base view**: a smaller, denser scene of the player's own compound.
 
 Today (commit `5b29fa8`) the client renders the map with **PixiJS v8.14** driving flat `Graphics`
 circles on a 48px grid ([`apps/client/src/features/game/CityMap.tsx`](../../apps/client/src/features/game/CityMap.tsx)).
@@ -47,13 +47,13 @@ Concretely, the stack is:
 | Camera / pan / zoom / clamp   | `pixi-viewport`                      | `^6` (targets Pixi v8+)     | MIT     |
 | Post-processing               | `pixi-filters`                       | `^6` (the v8-aligned line)  | MIT     |
 | Build-time atlases + manifest | `@assetpack/core` (PixiJS AssetPack) | latest                      | MIT     |
-| Asset manifest types          | `@frontline/shared` (ours, Zod)      | —                           | —       |
+| Asset manifest types          | `@frontline/shared` (ours, Zod)      | ,                           | ,       |
 
 **Rejected:** Phaser 3, Three.js, Excalibur. Reasoning in §4.
 
 **Image backend recommendation (for the board):** **fal.ai FLUX.2 [pro]**, with **OpenAI
 gpt-image-1 (high)** as the fallback for the four overseer portraits if faces need more direction.
-Full costing in §6 — **the entire MVP asset set costs under $25 on the most expensive option
+Full costing in §6: **the entire MVP asset set costs under $25 on the most expensive option
 considered**, so this should be decided on quality, not price.
 
 ---
@@ -66,49 +66,49 @@ control, silhouette) and 10% _compositing_ (grain, bloom on emissives, colour gr
 depth haze, parallax). Every candidate library can composite. So the library choice should be
 made on:
 
-1. **Compositing control** — can I stack arbitrary shaders on arbitrary sub-trees, cheaply?
-2. **Asset pipeline** — atlas + manifest + lazy loading, so final art drops in with no code change.
+1. **Compositing control**: can I stack arbitrary shaders on arbitrary sub-trees, cheaply?
+2. **Asset pipeline**: atlas + manifest + lazy loading, so final art drops in with no code change.
 3. **Migration cost from what we already have.**
 4. **Not paying for a 3D engine we do not need.**
 
-PixiJS wins on all four. The map is a 2.5D _painted-layer_ scene — parallax planes, not geometry.
+PixiJS wins on all four. The map is a 2.5D _painted-layer_ scene: parallax planes, not geometry.
 We do not need a scene graph with cameras, lights, materials, or a physics engine.
 
 ---
 
 ## 4. Options considered
 
-### 4.1 PixiJS v8 + pixi-viewport + pixi-filters + AssetPack — **CHOSEN**
+### 4.1 PixiJS v8 + pixi-viewport + pixi-filters + AssetPack: **CHOSEN**
 
 **Evidence.** `pixi-filters` ships **40+ filters** and versions in lockstep with the renderer
 (PixiJS v8.x → pixi-filters v6.x). The ones that literally are our painterly chain:
 
-| Effect we need                 | Filter                                               | Notes                                                                |
-| ------------------------------ | ---------------------------------------------------- | -------------------------------------------------------------------- |
-| Bloom on neon/emissive         | `AdvancedBloomFilter`                                | threshold-gated, so only sign/window pixels bloom                    |
-| Colour grade (the Arcane LUT)  | `ColorMapFilter`                                     | takes a LUT PNG — the grade becomes an _asset_, tunable without code |
-| Secondary grade / channel push | `ColorMatrixFilter`, `AdjustmentFilter`              | built-in; contrast/saturation/gamma                                  |
-| Film grain                     | `NoiseFilter` (+ `OldFilmFilter` for heavier passes) | animated per-frame seed                                              |
-| Volumetric shafts through smog | `GodrayFilter`                                       | for the map's upper haze plane                                       |
-| Depth-of-field on far plane    | `KawaseBlurFilter` / `TiltShiftFilter`               | cheap multi-pass blur                                                |
-| Painted edge separation        | `OutlineFilter`, `GlowFilter`                        | rim-light on hover/selection                                         |
-| Damage / glitch states         | `GlitchFilter`, `RGBSplitFilter`, `CRTFilter`        | HUD and battle feedback                                              |
+| Effect we need                 | Filter                                               | Notes                                                               |
+| ------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------- |
+| Bloom on neon/emissive         | `AdvancedBloomFilter`                                | threshold-gated, so only sign/window pixels bloom                   |
+| Colour grade (the Arcane LUT)  | `ColorMapFilter`                                     | takes a LUT PNG: the grade becomes an _asset_, tunable without code |
+| Secondary grade / channel push | `ColorMatrixFilter`, `AdjustmentFilter`              | built-in; contrast/saturation/gamma                                 |
+| Film grain                     | `NoiseFilter` (+ `OldFilmFilter` for heavier passes) | animated per-frame seed                                             |
+| Volumetric shafts through smog | `GodrayFilter`                                       | for the map's upper haze plane                                      |
+| Depth-of-field on far plane    | `KawaseBlurFilter` / `TiltShiftFilter`               | cheap multi-pass blur                                               |
+| Painted edge separation        | `OutlineFilter`, `GlowFilter`                        | rim-light on hover/selection                                        |
+| Damage / glitch states         | `GlitchFilter`, `RGBSplitFilter`, `CRTFilter`        | HUD and battle feedback                                             |
 
-Vignette is a single `Graphics` radial-gradient plane in multiply blend — no filter needed.
+Vignette is a single `Graphics` radial-gradient plane in multiply blend: no filter needed.
 
 `pixi-viewport` is **MIT**, `v6.0.0` targets **pixi.js v8+**, and ships exactly the interactions a
 Grepolis-style map needs out of the box: _dragging, pinch-to-zoom, mouse-wheel zoom, decelerated
 dragging, follow target, animate, snap-to-point, snap-to-zoom, clamping, bounce-on-edges,
-move-on-mouse-edges_ — all individually configurable and removable.
+move-on-mouse-edges_: all individually configurable and removable.
 
 **AssetPack** ("a configurable asset pipeline for the web", from the PixiJS org) is the build-time
 half: it packs loose PNGs into atlases, emits mipmap/compressed variants, and generates the
 manifest that `Assets.init({ manifest })` consumes. That is precisely the "final art drops in with
-zero code changes" mechanism — artists add files to `assets/`, the pipeline re-packs, the typed
+zero code changes" mechanism: artists add files to `assets/`, the pipeline re-packs, the typed
 manifest in `@frontline/shared` names the same keys.
 
 **Open-source reference projects.** The PixiJS org maintains
-[`pixijs/open-games`](https://github.com/pixijs/open-games) — a collection of complete
+[`pixijs/open-games`](https://github.com/pixijs/open-games): a collection of complete
 open-source games (_Bubbo Bubbo_, _Puzzling Potions_) explicitly published "to learn how to make
 professional games, built using PixiJS and its ecosystem of plugins and tools." These are the
 structural reference for our scene/asset/screen wiring.
@@ -117,12 +117,12 @@ structural reference for our scene/asset/screen wiring.
 > per-game licence and plugin detail, which I did **not** individually fetch. Treat "which exact
 > plugins each game uses" as unverified. The collection's existence, purpose and membership are
 > verified. We are using it as an architecture reference, not vendoring its code, so its per-game
-> licence is not a blocker — but if we ever copy code from it, check that repo's licence first.
+> licence is not a blocker, but if we ever copy code from it, check that repo's licence first.
 
-**Migration cost from today's setup: LOW — roughly a day of work, additive not destructive.**
+**Migration cost from today's setup: LOW: roughly a day of work, additive not destructive.**
 
 - `pixi.js@8` is already a dependency; no renderer swap.
-- `CityMap.tsx`'s mount/ResizeObserver/destroy lifecycle (lines 175–232) is sound and is kept
+- `CityMap.tsx`'s mount/ResizeObserver/destroy lifecycle (lines 175-232) is sound and is kept
   verbatim. What changes is the _content_ of `redraw()`: `app.stage` gains a `Viewport` root, and
   the flat `drawBackground` grid is replaced by N parallax `Container`s.
 - `drawDistrictNode` / `drawBaseMarker` keep their signature and hit-testing; only their visual
@@ -131,26 +131,26 @@ structural reference for our scene/asset/screen wiring.
   source of colour. The art bible extends it with ramps; it does not replace it.
 - **No server, shared-schema, or routing change is required.**
 
-**Costs.** ~+180 KB gzipped for `pixi-viewport` + `pixi-filters` (tree-shakeable — we import named
+**Costs.** ~+180 KB gzipped for `pixi-viewport` + `pixi-filters` (tree-shakeable: we import named
 filters, not the barrel). Filters cost render-target ping-pongs; the mitigation is in §5.
 
-### 4.2 Phaser 3 — rejected
+### 4.2 Phaser 3: rejected
 
 A complete game framework: scenes, input, audio, tweens, Arcade/Matter physics, tilemaps. That is
 the problem. We would be adopting ~1.2 MB and a whole lifecycle model to get a _renderer_ we
-already have, and we would still hand-roll the painterly compositing. Its tilemap system — the one
-genuine advantage for strategy maps — is the wrong primitive for us: our map is a **painted
+already have, and we would still hand-roll the painterly compositing. Its tilemap system: the one
+genuine advantage for strategy maps: is the wrong primitive for us: our map is a **painted
 illustration with hotspots**, not a tile grid. Migration cost: HIGH (full rewrite of the client's
 game layer, plus reconciling Phaser's scene loop with React Router). Rejected on cost/benefit.
 
-### 4.3 Three.js (+ `postprocessing`) — rejected
+### 4.3 Three.js (+ `postprocessing`): rejected
 
 Three.js with the `postprocessing` library (`EffectComposer`, and effects like bloom/DoF/SMAA) is
 the strongest _compositing_ option on this list, and if we wanted true 3D parallax with real depth,
 lights and normal maps, this would win. But:
 
 - Our brief is a **painted 2.5D** map. Faking that in Three means orthographic camera + textured
-  quads — i.e. reimplementing Pixi's sprite batcher with more ceremony.
+  quads: i.e. reimplementing Pixi's sprite batcher with more ceremony.
 - Text/HUD/hit-testing ergonomics are markedly worse than Pixi's for a UI-dense strategy screen.
 - Migration cost: HIGH, and it drags in a mental model (materials, lights, render passes) that
   every future contributor must learn to change a button.
@@ -159,14 +159,14 @@ Reconsider **only** if we later want true per-pixel relighting of the city (norm
 moving light sources). That is a post-MVP call, and Pixi's `SimpleLightmapFilter` covers the cheap
 version of it in the meantime.
 
-### 4.4 Excalibur — rejected
+### 4.4 Excalibur: rejected
 
 TypeScript-first and pleasant, with a good ECS. But its filter/post-processing ecosystem is far
 thinner than `pixi-filters`' 40+ maintained shaders, and its community/plugin surface is
 substantially smaller. For a project whose entire differentiator is _post-processing quality_, the
 shader library is the deciding factor. Rejected.
 
-### 4.5 Do nothing (flat `Graphics`) — rejected
+### 4.5 Do nothing (flat `Graphics`): rejected
 
 Explicitly ruled out by the board: "Placeholder-looking flat rectangles are not acceptable."
 
@@ -178,13 +178,13 @@ Explicitly ruled out by the board: "Placeholder-looking flat rectangles are not 
 
 ```
 packages/shared/src/art/
-  manifest.ts     ArtManifest + AssetKey Zod schemas — single source of asset-key truth
+  manifest.ts     ArtManifest + AssetKey Zod schemas: single source of asset-key truth
   atlas.ts        bundle definitions (splash / overseer / city / base / units / ui) for lazy loading
 apps/client/src/render/
-  viewport.ts     pixi-viewport factory: clamp to map bounds, zoom 1.0–2.4 (§8.1), decelerate
+  viewport.ts     pixi-viewport factory: clamp to map bounds, zoom 1.0-2.4 (§8.1), decelerate
   grade.ts        the post FX chain, built once, applied to the scene root
   layers.ts       parallax plane registry (§5.2)
-  paint/          procedural painterly generators — the interim look (§5.3)
+  paint/          procedural painterly generators: the interim look (§5.3)
 apps/client/src/assets/
   useAssetBundle.ts  React hook: lazy `Assets.loadBundle` + progress state
 scripts/gen-art.ts   pluggable ImageBackend + manifest-driven runner + --dry-run
@@ -207,8 +207,8 @@ Back → front, each on its own `Container` with an independent viewport scroll 
 | 2   | Mid city (the base plate)                     | 1.00          | sharp; this is where districts live                     |
 | 3   | District nodes + base markers                 | 1.00          | interactive layer; `GlowFilter` on hover/select         |
 | 4   | Foreground occluders (cables, pipes, signage) | 1.35          | sharp, high-contrast silhouettes                        |
-| 5   | Atmosphere                                    | —             | `GodrayFilter` + drifting smog sprites, additive        |
-| 6   | Grade                                         | —             | `ColorMap` → `AdvancedBloom` → `Noise` → vignette plane |
+| 5   | Atmosphere                                    | :             | `GodrayFilter` + drifting smog sprites, additive        |
+| 6   | Grade                                         | :             | `ColorMap` → `AdvancedBloom` → `Noise` → vignette plane |
 
 Only plane 6 filters the **whole** scene. Planes 0/1 filter once at build of the layer (cached via
 `cacheAsTexture`), not per frame.
@@ -223,18 +223,18 @@ boxes. Every procedural generator is keyed to the same `AssetKey` it will one da
 
 Third-party CC0 assets (OpenGameArt / Kenney / ambientCG) may be used **only** where they genuinely
 help (grain plates, LUT textures, cable/pipe silhouettes). Every such file gets an entry in the
-licensing register in `docs/ART-BIBLE.md` §9 — no exceptions, no un-registered files in `assets/`.
+licensing register in `docs/ART-BIBLE.md` §9: no exceptions, no un-registered files in `assets/`.
 
 ### 5.4 Performance guardrails
 
 - Filters allocate render targets. Cap the whole-scene chain at **4 passes**; measure with
   `renderer.renderGroup` stats before adding a 5th.
 - Static planes use `cacheAsTexture` and are invalidated only on resize.
-- `AdvancedBloom` runs at half resolution (`quality: 4`, `pixelSize: 2`) — visually identical at
+- `AdvancedBloom` runs at half resolution (`quality: 4`, `pixelSize: 2`): visually identical at
   our scale, ~4× cheaper.
 - Budget: **60 fps at 1920×1080 on integrated graphics.** If a filter breaks it, it is cut, not
   optimised.
-- `NoiseFilter` seed animates at 12 Hz, not per-frame — matches hand-drawn "boil" and costs less.
+- `NoiseFilter` seed animates at 12 Hz, not per-frame: matches hand-drawn "boil" and costs less.
 
 ### 5.5 Risks
 
@@ -247,14 +247,14 @@ licensing register in `docs/ART-BIBLE.md` §9 — no exceptions, no un-registere
 
 ---
 
-## 6. Image-generation backends — the board decision
+## 6. Image-generation backends: the board decision
 
 **None of these are activated. No account created, no key requested, nothing spent.**
 `scripts/gen-art.ts` selects a backend from `FRONTLINE_ART_BACKEND` and reads its key from env; with
 neither set it runs `--dry-run` only, which is what CI exercises. A funded run must also name what it
 is buying: with no `--only` and no `--all` it exits 1 before any network call, so the full-manifest
 wildcard cannot be reached by a stray Enter or an arg-dropping wrapper. `--dry-run` and
-`--emit-prompts` keep the wildcard — neither spends, and the dry run is how you price `--all` first.
+`--emit-prompts` keep the wildcard: neither spends, and the dry run is how you price `--all` first.
 
 ### 6.1 Keyed routes (recommended class)
 
@@ -262,40 +262,40 @@ wildcard cannot be reached by a stray Enter or an arg-dropping wrapper. `--dry-r
 | ------------------------ | -------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | **fal.ai FLUX.2 [pro]**  | **$0.03** for the first megapixel of output, **+$0.015** per extra MP      | ✅ primary source | ✅ page states "Commercial use"                          | Best-in-class prompt adherence and painterly texture; strongest for environments/illustration. Per-request billing (no per-second surprises). |
 | **OpenAI gpt-image-1**   | **$0.011** (low) / **$0.042** (medium) / **$0.167** (high)                 | ✅ primary source | ⚠️ see §6.4                                              | Best instruction-following and text-in-image; strongest for _faces with specific direction_ and for UI elements containing legible type.      |
-| Google Imagen            | not verified                                                               | ❌                | ❌ not verified                                          | Excluded from the recommendation on evidence grounds — see §6.3.                                                                              |
+| Google Imagen            | not verified                                                               | ❌                | ❌ not verified                                          | Excluded from the recommendation on evidence grounds: see §6.3.                                                                               |
 | Stability (Ultra / Core) | not verified from primary source                                           | ❌                | Community License reported free under $1M annual revenue | Solid, generally a step behind FLUX.2 on painterly detail.                                                                                    |
-| Replicate                | per-second GPU billing; effective per-image varies with model and hardware | ❌                | model-dependent (each model carries its own licence)     | Widest model catalogue; worst cost predictability. Reported to be 1.4–2.9× more expensive than fal for equivalent image work.                 |
+| Replicate                | per-second GPU billing; effective per-image varies with model and hardware | ❌                | model-dependent (each model carries its own licence)     | Widest model catalogue; worst cost predictability. Reported to be 1.4-2.9× more expensive than fal for equivalent image work.                 |
 
 #### 6.1.1 Request shapes, checked against the published schemas (MOU-132)
 
 Checked against each vendor's **generated** schema, not their prose docs:
 `https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/flux-2-pro` and
-`openai/openai-openapi@master:openapi.yaml`. This is a schema check, **not** a live call — no key was
+`openai/openai-openapi@master:openapi.yaml`. This is a schema check, **not** a live call: no key was
 held and nothing was spent, so "the server accepts this body" remains unproven. What a schema cannot
 tell us is listed at the end.
 
-**fal — `fal-ai/flux-2-pro`** (the endpoint id is hyphenated; `fal-ai/flux-2/pro` is not a published
-id — both its model page and its schema URL 404). `Flux2ProTextToImageInput` accepts exactly
+**fal: `fal-ai/flux-2-pro`** (the endpoint id is hyphenated; `fal-ai/flux-2/pro` is not a published
+id: both its model page and its schema URL 404). `Flux2ProTextToImageInput` accepts exactly
 `prompt`, `image_size`, `seed`, `safety_tolerance`, `enable_safety_checker`, `output_format`,
 `sync_mode`.
 
-- **`image_size` takes the `{width, height}` object** — `anyOf: [ImageSize, enum]`, so MOU-122's open
+- **`image_size` takes the `{width, height}` object**: `anyOf: [ImageSize, enum]`, so MOU-122's open
   question resolves in favour of the object form. It is **bounded**, though: `x-fal` declares
   `min_width`/`min_height` 256, `max_width`/`max_height` 2560, `multiple_of` 16, `max_area` 4194304.
   `BACKEND_CAPABILITIES.fal.sizes = null` therefore overstates the backend. Every source size in the
   manifest today (1024×1024, 1024×1536, 2048×1152) satisfies all four constraints, so the routing
-  tally does not move — but the capability record must state the bounds, not "anything".
+  tally does not move, but the capability record must state the bounds, not "anything".
 - **No transparency parameter of any kind.** `BACKEND_CAPABILITIES.fal.alpha = false` is correct, and
   the 28 alpha assets stay on gpt-image-1.
 - **`negative_prompt`, `num_images`, `num_inference_steps`, `guidance_scale` do not exist.** Negatives
   must be folded into the prompt, as the OpenAI adapter already does. `num_images` is absent because
-  the endpoint returns exactly one image — which is the budget assumption, now sourced.
+  the endpoint returns exactly one image, which is the budget assumption, now sourced.
 - **`image_urls` exists only on `fal-ai/flux-2-pro/edit`.** Style references cannot ride the
   text-to-image endpoint; carrying them means routing to `/edit`.
-- `output_format` is `jpeg | png`, defaulting to **`jpeg`** — sending `png` explicitly is required,
+- `output_format` is `jpeg | png`, defaulting to **`jpeg`**: sending `png` explicitly is required,
   not decorative. Output is `{images: [ImageFile], seed}`.
 
-**OpenAI — `gpt-image-1`.** Confirmed unchanged: `size` ∈ `1024x1024 | 1536x1024 | 1024x1536` for the
+**OpenAI: `gpt-image-1`.** Confirmed unchanged: `size` ∈ `1024x1024 | 1536x1024 | 1024x1536` for the
 GPT image models, `background` ∈ `transparent | opaque | auto`, and `transparent` requires
 `output_format` `png` or `webp` (we send `png`). GPT image models always return base64, so there is no
 `response_format` to set. `BACKEND_CAPABILITIES.openai` matches.
@@ -306,14 +306,14 @@ Two things the schema left open, both needing one live call:
   pixels can answer that.
 - The spec's `size` description says `gpt-image-2` accepts arbitrary `WIDTHxHEIGHT` (÷16, aspect
   between 1:3 and 3:1, up to 3840×2160), but `gpt-image-2` is **absent from the same file's model
-  enum** — so the spec contradicts itself and we are not treating it as real. If it is, a 2048×1152
+  enum**, so the spec contradicts itself and we are not treating it as real. If it is, a 2048×1152
   transparent master becomes directly producible and the `matte` step for the two planes disappears.
 
-### 6.2 No-key routes — **not recommended**
+### 6.2 No-key routes, **not recommended**
 
 Public "free Flux" proxies exist. Do not use them:
 
-- **Reliability:** unversioned, rate-limited, and they disappear without notice — an art pipeline
+- **Reliability:** unversioned, rate-limited, and they disappear without notice: an art pipeline
   that cannot be re-run is not a pipeline.
 - **Licensing:** the proxy's terms, not Black Forest Labs', govern the output, and they are
   routinely silent or non-commercial. We would be shipping assets of unknown provenance in a
@@ -323,7 +323,7 @@ Public "free Flux" proxies exist. Do not use them:
 
 `gen-art.ts` deliberately ships **no** no-key backend. Adding one must be a conscious, reviewed PR.
 
-### 6.3 What I could not verify — stated plainly
+### 6.3 What I could not verify: stated plainly
 
 Per company rule 8, these are **not** presented as fact:
 
@@ -338,10 +338,10 @@ Per company rule 8, these are **not** presented as fact:
 - Per-game licences inside `pixijs/open-games` (see §4.1 honesty note).
 
 If the board wants Stability or Imagen seriously considered, that is a 20-minute follow-up to read
-their primary pricing and terms pages — worth doing **before** signing anything, not before
+their primary pricing and terms pages: worth doing **before** signing anything, not before
 deciding, given §6.5.
 
-### 6.4 Ownership of the output — flag for the board
+### 6.4 Ownership of the output: flag for the board
 
 Multiple sources report that under current US law, **purely AI-generated images are not
 copyrightable** because they lack human authorship; copyright may attach only to substantial human
@@ -349,7 +349,7 @@ creative contribution (detailed direction, img2img, inpainting, compositing). Th
 advice and I have not verified it against a primary legal source.**
 
 Practical consequence for us: hero brand assets (logo, the four overseer portraits) should get a
-human pass — overpaint, composite, colour-correct — both because it improves them and because it
+human pass, overpaint, composite, colour-correct, both because it improves them and because it
 strengthens any rights claim. `gen-art.ts` records `provenance.humanEdited` per file for exactly
 this reason. **Recommend the CEO route this to the board before any public launch.**
 
@@ -372,13 +372,13 @@ this reason. **Recommend the CEO route this to the board before any public launc
 Same list on **gpt-image-1 (high)**: 44 × $0.167 = **$7.35** single pass, **$22.04** at three
 candidates.
 
-> Sizes below 1 MP still bill the 1 MP minimum on fal — hence icons at $0.030.
+> Sizes below 1 MP still bill the 1 MP minimum on fal: hence icons at $0.030.
 > All figures are list price, exclusive of tax, and assume no free tier.
 
 ### 6.6 Recommendation
 
 **The total cost of the entire MVP art set is under $25 on the most expensive option considered.
-Cost must not drive this decision — quality must.**
+Cost must not drive this decision: quality must.**
 
 Recommended: **fal.ai FLUX.2 [pro]** as the default backend (`FRONTLINE_ART_BACKEND=fal`), because
 it is the only option where I verified _both_ the price and an explicit commercial-use statement
@@ -386,7 +386,7 @@ from a primary source, it has the strongest painterly-environment output, and pe
 makes the run cost knowable in advance.
 
 Recommended addition: budget **~$25** rather than ~$5, and use **gpt-image-1 (high)** for the four
-overseer portraits and any UI element containing legible text — those are the two jobs where
+overseer portraits and any UI element containing legible text. Those are the two jobs where
 instruction-following beats texture quality. Dual-backend is already supported; `gen-art.ts` takes
 a per-asset `backend` override in the manifest.
 
@@ -399,14 +399,14 @@ drops into the same asset tree with zero code change.
 
 ## 7. Sources
 
-- [pixijs/filters — filter catalogue and PixiJS version alignment](https://github.com/pixijs/filters)
-- [davidfig/pixi-viewport — MIT, v6 targets PixiJS v8+, feature list](https://github.com/davidfig/pixi-viewport)
-- [pixijs/open-games — open-source reference games](https://github.com/pixijs/open-games)
-- [PixiJS AssetPack — configurable asset pipeline for the web](https://pixijs.io/assetpack/)
+- [pixijs/filters: filter catalogue and PixiJS version alignment](https://github.com/pixijs/filters)
+- [davidfig/pixi-viewport: MIT, v6 targets PixiJS v8+, feature list](https://github.com/davidfig/pixi-viewport)
+- [pixijs/open-games: open-source reference games](https://github.com/pixijs/open-games)
+- [PixiJS AssetPack: configurable asset pipeline for the web](https://pixijs.io/assetpack/)
 - [PixiJS filters & blend modes guide](https://pixijs.com/8.x/guides/components/filters)
-- [OpenAI — gpt-image-1 model page (per-image pricing)](https://developers.openai.com/api/docs/models/gpt-image-1)
-- [fal.ai — FLUX.2 [pro] text-to-image (pricing, commercial use)](https://fal.ai/models/fal-ai/flux-2-pro)
-- [Stability AI — Community License](https://stability.ai/news-updates/license-update) _(secondary reading only; primary pricing page not retrievable)_
+- [OpenAI: gpt-image-1 model page (per-image pricing)](https://developers.openai.com/api/docs/models/gpt-image-1)
+- [fal.ai: FLUX.2 [pro] text-to-image (pricing, commercial use)](https://fal.ai/models/fal-ai/flux-2-pro)
+- [Stability AI: Community License](https://stability.ai/news-updates/license-update) _(secondary reading only; primary pricing page not retrievable)_
 
 ---
 
@@ -414,12 +414,12 @@ drops into the same asset tree with zero code change.
 
 ### 8.1 Zoom floor raised from 0.6 to 1.0 (2026-08-13, MOU-319)
 
-**§5.1's `zoom 0.6–2.4` is amended to `zoom 1.0–2.4`.** `ZOOM_MIN` in
+**§5.1's `zoom 0.6-2.4` is amended to `zoom 1.0-2.4`.** `ZOOM_MIN` in
 `apps/client/src/render/viewport.ts` is now `1.0`.
 
 The original 0.6 assumed a world larger than the frame, which is not what was built. `CityMap.tsx`
 creates the viewport with `worldWidth: width, worldHeight: height`, and `resizeViewport` keeps world
-and screen equal on every resize — so the world **is** the frame, and every district is already
+and screen equal on every resize, so the world **is** the frame, and every district is already
 visible at 1.0. Scale below 1.0 shrinks that same view without revealing anything, and because
 `clamp({ direction: 'all' })` centres a world that no longer covers the screen, the shortfall is
 painted as bare page ground around the map.
@@ -427,7 +427,7 @@ painted as bare page ground around the map.
 Measured at the old floor (MOU-310, 1280×720, map frame 783×621):
 
 - Scale bottomed out at **0.601**; the world sat at x[156.6..626.4] y[124.2..496.8], leaving
-  **64% of the frame area outside the world rect** — a 156.6px band left and right, 124.2px top and
+  **64% of the frame area outside the world rect**: a 156.6px band left and right, 124.2px top and
   bottom.
 - Reached in **three wheel notches** from the default, so it was not a corner case.
 - **Panning was dead** at the floor: a 400×300px drag left the scene byte-identical.
@@ -440,23 +440,23 @@ grounds that anything it does not cover is page, not art.
 
 **Rejected alternatives.** Growing the world past the frame (e.g. `worldWidth: width / ZOOM_MIN`)
 would make 0.6 mean something, but districts are placed as a fraction of the frame and the parallax
-scroll factors in §5.2 are tuned against it — that is a gameplay/level-design change, not a camera
+scroll factors in §5.2 are tuned against it. That is a gameplay/level-design change, not a camera
 fix, and it moves every district. `underflow: 'none'` and friends only relocate the dead band.
 
 **Consequence.** Panning is live only above 1.0, which is correct for a fit-to-frame map: 1.0 is the
 overview, and drag exists to explore a magnified view. If the world is ever grown past the frame,
-lower this floor in the same change — the invariant is `ZOOM_MIN * world >= screen`.
+lower this floor in the same change: the invariant is `ZOOM_MIN * world >= screen`.
 
 **Coverage gap this exposed.** `expectCanvasFillsFrame` in `apps/client/e2e/visual.spec.ts` measures
 the DOM canvas against its parent, not what the canvas paints, and no city-map test ever touches the
-wheel — so the suite could not see this. Closed by `apps/client/e2e/zoom.spec.ts`, which wheels to
+wheel, so the suite could not see this. Closed by `apps/client/e2e/zoom.spec.ts`, which wheels to
 each stop and counts painted pixels rather than reading the constant, so it fails for any reason the
-world stops covering its frame — not only for an edit to `ZOOM_MIN`. Confirmed to fail on the defect
+world stops covering its frame, not only for an edit to `ZOOM_MIN`. Confirmed to fail on the defect
 rather than merely to pass on the fix: with the floor put back to 0.6 it reports 49.8% of the frame
 uncovered, and it is green at 1.0.
 
 One measurement is worth keeping here, because it defeats the obvious version of that test. The
 vignette is a screen-space `multiply` laid over the uncovered ground too, so a probe colour painted
-behind the canvas arrives crushed to ~15% — `#ff00ff` reads back as `(39, 0, 39)`. A brightness
+behind the canvas arrives crushed to ~15%: `#ff00ff` reads back as `(39, 0, 39)`. A brightness
 test ("is this pixel bright magenta?") counts zero pixels and passes straight over the defect. The
 gate matches on hue ratio instead, which survives an arbitrary darkening.

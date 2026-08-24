@@ -14,7 +14,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBattles } from './resolve.js';
 
 /**
- * §A4 — "have the units stay after a successful capture".
+ * §A4: "have the units stay after a successful capture".
  *
  * Two fights that used to be spelled the same way. A **raid** takes the ground and marches home: the
  * map changes colour and the crew is back on the roster tonight. An **occupation** takes the ground
@@ -22,7 +22,7 @@ import { settleBattles } from './resolve.js';
  * it back, and they are gone from the roster until somebody pulls them out.
  *
  * What has to hold is a conservation law, and it is why every assertion here counts *both* ends. A
- * body is on the roster or it is on the ground, never both and never neither — the failure this
+ * body is on the roster or it is on the ground, never both and never neither: the failure this
  * guards against is not "the flag did nothing", it is "the flag worked and the survivors were also
  * still at home", which doubles a crew's army every time it takes a location and which no assertion
  * about the garrison alone can see.
@@ -198,7 +198,7 @@ describe('what happens to the crew that took the location', () => {
     // than passing because the roster was already whole.
     expect(garrisonOf(stack), 'nobody was left to pull out').toEqual({ razors: 4 });
 
-    // The withdraw the board asked for is the garrison call with a negative delta — there is no
+    // The withdraw the board asked for is the garrison call with a negative delta. There is no
     // second endpoint, and this is the half of "unless they are pulled out" that makes the other
     // half safe to offer.
     const pulled = await stack.app.inject({
@@ -219,7 +219,7 @@ describe('what happens to the crew that took the location', () => {
     await fight(stack, { hold: true, sent: { razors: 4 } });
 
     // Losing means the ground never changed hands, so there is nothing of the attacker's to leave
-    // on it, and whoever ran comes home — which is what losing has always done. The garrison is not
+    // on it, and whoever ran comes home, which is what losing has always done. The garrison is not
     // asserted to be empty, and deliberately: on a successful defence it holds the *defender's*
     // survivors, which is the existing rule and not this flag's business.
     expect(stack.app.repos.city.control('rustyard-press')?.holder).not.toEqual({

@@ -122,7 +122,7 @@ describe('GET /api/black-market', () => {
     const refresh = new Date(board.refreshesAt);
     expect(refresh.getTime()).toBeGreaterThan(Date.parse(board.serverNow));
     // The instant the shelf turns over is the first moment of the next day, by the same derivation
-    // the shelf itself uses — so a client counting to it lands exactly on the new stock.
+    // the shelf itself uses, so a client counting to it lands exactly on the new stock.
     expect(blackMarketDay(refresh)).not.toBe(board.day);
     expect(blackMarketDay(new Date(refresh.getTime() - 60_000))).toBe(board.day);
   });
@@ -150,7 +150,7 @@ describe('POST /api/black-market/take', () => {
 
     // Read back through a *fresh* request, not out of the write's own answer. The response is
     // projected from the in-memory base the handler just built, so it reports the charge whether or
-    // not the charge was ever written — dropping the `updateEconomy` call left this test green.
+    // not the charge was ever written: dropping the `updateEconomy` call left this test green.
     const after = await shelf(app, token);
     expect(after.infamy).toBe(before.infamy - spec.infamy);
     expect(after.takenToday).toBe(1);
@@ -183,7 +183,7 @@ describe('POST /api/black-market/take', () => {
     });
 
     const after = await shelf(app, bystander.token);
-    // Still five deep — the slot refilled rather than emptying.
+    // Still five deep: the slot refilled rather than emptying.
     expect(after.offers).toHaveLength(BLACK_MARKET_SLOTS);
     expect(after.offers[0]!.slot.goodId).not.toBe(taken);
     expect(after.offers[0]!.slot.generation).toBe(1);

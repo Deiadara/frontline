@@ -26,7 +26,7 @@ function cardBottoms(grid: HTMLElement): number[] {
  *
  * A viewport that ends part-way down a row slices its cards through the middle of the attribute
  * digits, which reads as a rendering fault however little scrolling would recover it. Ending on a
- * row boundary instead means an overflowing roster simply shows fewer cards — a state the scroll
+ * row boundary instead means an overflowing roster simply shows fewer cards: a state the scroll
  * hint below explains, and which `snap-y snap-mandatory` keeps true once the player scrolls.
  */
 function measureRows(frame: HTMLElement, grid: HTMLElement, hint: HTMLElement | null): RowLayout {

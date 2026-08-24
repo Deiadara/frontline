@@ -1,11 +1,11 @@
-# Frontline — Prompt Pack
+# Frontline: Prompt Pack
 
 Ready-to-run generation prompts, one per required asset. Paste these into any image tool, or let
 `scripts/gen-art.ts` run them against a configured backend.
 
 **How to use.** Every prompt is `STYLE ANCHOR` + `SUBJECT` + `FRAMING`, sharing one `NEGATIVE`
 prompt and a **fixed seed**. The anchor is what keeps 44 separately-generated assets looking like
-one game — do not paraphrase it, do not drop hex codes, do not reorder it. Change only the subject
+one game: do not paraphrase it, do not drop hex codes, do not reorder it. Change only the subject
 block.
 
 **Style contract:** [`ART-BIBLE.md`](ART-BIBLE.md). Any prompt output that trips the §10 rejection
@@ -15,13 +15,13 @@ checklist is rejected regardless of how good it looks.
 
 ## 0. The shared blocks
 
-### 0.1 STYLE ANCHOR — prepend verbatim to every prompt
+### 0.1 STYLE ANCHOR: prepend verbatim to every prompt
 
 ```
-Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache
+Hand-painted digital illustration in the style of Arcane (Fortiche): painterly oil-and-gouache
 brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never
 vector-flat. A Zaun-like undercity: cyberpunk machinery bolted onto a broken-down post-war
-society, never a clean future. Scrap and salvage are the building material — corrugated iron,
+society, never a clean future. Scrap and salvage are the building material: corrugated iron,
 patched brick, mismatched timber, cannibalised plating, jury-rigged pipework and cabling slung
 between structures nobody planned. Old, wrecked and newly-bolted-on machines stand side by side;
 nothing matches, nothing is finished, much of it is still broken. Split lighting: cold cyan key
@@ -30,15 +30,15 @@ at 40 percent intensity; shadows tinted, never neutral grey. Desaturated structu
 slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and
 drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along
 40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found
-edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush
+edges: crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush
 economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere.
 Every surface shows wear, repair or decay; rust, soot, water-staining and improvised patching are
 the default finish and polished chrome is not. Emissives painted at their own hue rather than
-white-hot — sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections
+white-hot: sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections
 gone dark. Cinematic, moody, beautiful and quietly haunting.
 ```
 
-### 0.2 NEGATIVE — apply to every prompt
+### 0.2 NEGATIVE: apply to every prompt
 
 ```
 watermark, signature, ui overlay, hud, frame, border, caption,
@@ -68,11 +68,11 @@ extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of f
 
 Seeds are deliberately fixed and boring (`<class-base> + index`) so a human can regenerate any
 single asset without consulting a log. If an asset needs a different roll, record the _new_ seed in
-the manifest — never leave it unrecorded.
+the manifest: never leave it unrecorded.
 
 ---
 
-## 1. Overseer portraits — 4 assets
+## 1. Overseer portraits: 4 assets
 
 **Class framing** (append to each, after the subject):
 
@@ -90,7 +90,7 @@ the central seventy percent; nothing essential in the bottom eighteen percent.
 | `portrait-overseer-3` | `portrait-overseer-3.webp` | `110003` |
 | `portrait-overseer-4` | `portrait-overseer-4.webp` | `110004` |
 
-### 1.1 `portrait-overseer-1` — Marcus "Bulwark" Kane (enforcer)
+### 1.1 `portrait-overseer-1`: Marcus "Bulwark" Kane (enforcer)
 
 ```
 SUBJECT: A broad-shouldered man in his early fifties, ex-corporate security chief turned warlord.
@@ -98,12 +98,12 @@ Shaved head, heavy jaw, a healed burn scar climbing the left side of his neck in
 stubble beard. Skin in warm ochre midtones (#8f5744, #5a352c) against the cold key. Scuffed matte
 riot armour over a high collar, chest plate cracked and field-welded, unit insignia sanded off.
 One dead eye replaced by a scratched steel ocular that catches the cyan key as a hard specular
-point. Expression: flat, patient, unimpressed — a man who has already decided. Amber #f59e0b
+point. Expression: flat, patient, unimpressed: a man who has already decided. Amber #f59e0b
 bounce from below rakes the underside of his jaw and armour ridges. Behind him, a barricade line
 dissolving into smog.
 ```
 
-### 1.2 `portrait-overseer-2` — Yumi "Ghostwire" Tanaka (netrunner)
+### 1.2 `portrait-overseer-2`: Yumi "Ghostwire" Tanaka (netrunner)
 
 ```
 SUBJECT: A wiry woman in her late twenties, legendary intrusion specialist. Undercut black hair
@@ -116,23 +116,23 @@ brightest cool value in frame; the background is near-black with two dim #12a2bd
 glows far behind.
 ```
 
-### 1.3 `portrait-overseer-3` — Silas Vex (fixer)
+### 1.3 `portrait-overseer-3`: Silas Vex (fixer)
 
 ```
 SUBJECT: A lean man of indeterminate age, forties, a broker of favours and contraband. Slicked
 dark hair going silver at the temples, sharp cheekbones, a fine old blade scar through one eyebrow.
-Deep olive skin, warmly lit — he is the one portrait where the amber #f59e0b bounce leads and the
+Deep olive skin, warmly lit. He is the one portrait where the amber #f59e0b bounce leads and the
 cyan key is the rim. Immaculate but decades-out-of-date tailoring: a long charcoal coat over a
 mandarin collar, one gold-toned ring, everything else deliberately unremarkable. Expression: a
 courteous half-smile that does not reach the eyes. Behind him, a market arcade at night reduced to
 warm hanging-lamp smears and one cold sign.
 ```
 
-### 1.4 `portrait-overseer-4` — Dr. Adaeze Okafor (technocrat)
+### 1.4 `portrait-overseer-4`: Dr. Adaeze Okafor (technocrat)
 
 ```
 SUBJECT: A composed Black woman in her forties, former arcology infrastructure director.
-Close-cropped natural hair, strong brow, deep rich skin holding both lights cleanly — cyan along the
+Close-cropped natural hair, strong brow, deep rich skin holding both lights cleanly: cyan along the
 cheekbone and brow, amber under the jaw. Practical engineer's coat over a utility harness, sleeves
 rolled, a smear of conduit grease on one forearm she has not noticed. A slim monocular data lens
 folded up against her temple, its edge catching a thin #7ff0ff line. Expression: tired, certain,
@@ -142,14 +142,14 @@ into #1b2233 haze with one warm #8a5209 inspection lamp.
 
 ---
 
-## 2. District illustrations — 10 assets
+## 2. District illustrations: 10 assets
 
 **Class framing** (append to each):
 
 ```
 Oblique three-quarter aerial view looking down at roughly 40 degrees, horizon at forty percent
 height. Square 1:1 composition, focal subject within the central eighty percent. One dominant
-mass, two or three secondary forms, a scatter of small interrupts — antennae, cables, signage,
+mass, two or three secondary forms, a scatter of small interrupts: antennae, cables, signage,
 laundry lines. Something breaks the frame edge. Human-scale markers visible: doorways, walkways, a
 figure, a parked vehicle. Atmospheric perspective: every quarter of the depth shifts twenty
 percent toward #3d4761 and loses fifteen percent contrast.
@@ -170,7 +170,7 @@ Ids match `District.id` in `@frontline/shared`.
 | `district-blacksite-7`       | Blacksite 7          | contested   | `120009` |
 | `district-combine-spire`     | Spire of the Combine | contested   | `120010` |
 
-### 2.1 `district-neon-docks` — residential, difficulty 1
+### 2.1 `district-neon-docks`: residential, difficulty 1
 
 ```
 SUBJECT: A working freight dock built into a flooded canal trench under a raised motorway. Stacked
@@ -181,28 +181,28 @@ with life at the small scale even as the structure fails. One tug boat moored, o
 quay.
 ```
 
-### 2.2 `district-ashen-terraces` — residential, difficulty 4
+### 2.2 `district-ashen-terraces`: residential, difficulty 4
 
 ```
 SUBJECT: A hillside of stepped concrete tenements under a permanent fall of pale ash, terraces
 planted with dead and dying greenery. Amber #f59e0b sodium lamps burning through the ashfall in
 soft haloes; laundry grey with fallout. Retaining walls buttressed with scavenged steel. A
-funicular track climbs the slope. Quiet, elegiac, almost beautiful — a place that used to be
+funicular track climbs the slope. Quiet, elegiac, almost beautiful: a place that used to be
 desirable. Two figures on separate terraces, not looking at each other.
 ```
 
-### 2.3 `district-kettle-row` — residential, difficulty 2
+### 2.3 `district-kettle-row`: residential, difficulty 2
 
 ```
 SUBJECT: A long residential terrace along a southern cut, boiler houses venting between every
 third building so the whole street sits under drifting warm-lit steam. Washing strung across the
-gap at three storeys. Front steps in constant use — this is the one district rendered as
+gap at three storeys. Front steps in constant use. This is the one district rendered as
 *inhabited* rather than as infrastructure: figures on the steps, a game in the road, a repaired
 door standing open. Warm #f59e0b sodium led, the cyan key arriving only down the length of the
 cut.
 ```
 
-### 2.4 `district-rustyard` — contested, difficulty 2
+### 2.4 `district-rustyard`: contested, difficulty 2
 
 ```
 SUBJECT: A ship-breaking yard of beached hulls half-dismantled in orange mud, ribs of vessels
@@ -212,7 +212,7 @@ Rust in every value from #4a2a05 to #c47c0d. Scale enforced by tiny figures walk
 spine.
 ```
 
-### 2.5 `district-chrome-row` — contested, difficulty 4
+### 2.5 `district-chrome-row`: contested, difficulty 4
 
 ```
 SUBJECT: A narrow canyon street of clinic frontages and body-modification parlours, every window a
@@ -222,17 +222,17 @@ and they are all scratched, taped and patched. Vertical smeared reflections down
 Predatory, clinical, expensive.
 ```
 
-### 2.6 `district-undergrid` — contested, difficulty 5
+### 2.6 `district-undergrid`: contested, difficulty 5
 
 ```
-SUBJECT: A vast subterranean utility cavern below the city — the old power grid, still live.
+SUBJECT: A vast subterranean utility cavern below the city: the old power grid, still live.
 Bundled conduit running the walls like roots, transformer housings the size of buildings, standing
 water skinned with iridescent chemical film. The only light is toxic green #43b56e leaking from
 coolant seams and inspection ports, with the cyan key entering as a single distant shaft from a
 grate far above. Catwalks at three levels. Oppressive, immense, wet, humming.
 ```
 
-### 2.7 `district-datavault-sigma` — contested, difficulty 6
+### 2.7 `district-datavault-sigma`: contested, difficulty 6
 
 ```
 SUBJECT: A windowless black monolith of a data fortress, its face broken only by cooling louvres
@@ -242,7 +242,7 @@ roots enters the ground at its base. Absolutely no human warmth: the one human-s
 lone sentry booth dwarfed at the ramp foot.
 ```
 
-### 2.8 `district-glasshouse-fields` — contested, difficulty 3
+### 2.8 `district-glasshouse-fields`: contested, difficulty 3
 
 ```
 SUBJECT: Kilometres of cracked hydroponic glasshouses on a rooftop plateau, half their panes gone,
@@ -252,20 +252,20 @@ leaking into rust runs. A collapsed section reveals the city drop below. Overgro
 strangely serene.
 ```
 
-### 2.9 `district-blacksite-7` — contested, difficulty 8
+### 2.9 `district-blacksite-7`: contested, difficulty 8
 
 ```
-SUBJECT: A hardened military compound sunk into a bomb crater — sloped ferrocrete revetments,
+SUBJECT: A hardened military compound sunk into a bomb crater: sloped ferrocrete revetments,
 staggered blast walls, a squat command bunker with slit apertures leaking hostile magenta #e11d8f
 light. Automated turret masts on the perimeter. Vehicle ramps descending out of sight. No signage,
 no windows, no invitation. Searchlight beams sweeping the crater walls. The magenta is the only
 saturated colour in frame and it reads as a warning.
 ```
 
-### 2.10 `district-combine-spire` — contested, difficulty 10
+### 2.10 `district-combine-spire`: contested, difficulty 10
 
 ```
-SUBJECT: The single tallest structure in the city — a corporate megaspire punching through the
+SUBJECT: The single tallest structure in the city: a corporate megaspire punching through the
 smog ceiling into clear air, its lower two thirds lost in haze so only the crowning arcology is
 legible. Buttressed, ribbed, cathedral-like, deliberately intimidating. Magenta #e11d8f beacon
 light bleeding down the ribs; the summit catches an ambient dawn that never reaches the streets.
@@ -275,13 +275,13 @@ and the most hostile image in the set.
 
 ---
 
-## 3. Map plates and parallax planes — 6 assets
+## 3. Map plates and parallax planes: 6 assets
 
 **Class framing:**
 
 ```
 Wide 16:9 cinematic composition, high oblique view at roughly 35 degrees. Rendered as
-a single continuous painted illustration, not a tiled texture. No focal subject — this is a stage,
+a single continuous painted illustration, not a tiled texture. No focal subject. This is a stage,
 and the readable action sits on top of it.
 ```
 
@@ -293,10 +293,10 @@ and the readable action sits on top of it.
 | `plane-city-fore` | `130004` | alpha, ≥55% transparent |
 | `splash-auth`     | `130005` | opaque                  |
 
-### 3.1 `plate-city` — the map base plate (plane 2)
+### 3.1 `plate-city`: the map base plate (plane 2)
 
 ```
-SUBJECT: The mid-ground of a dense cyberpunk city interior seen from above and at an angle — a
+SUBJECT: The mid-ground of a dense cyberpunk city interior seen from above and at an angle: a
 continuous carpet of stacked roofs, canal trenches, elevated roadways, courtyards and light wells,
 with clear negative-space clearings distributed across the frame for interactive markers to sit in.
 Value kept deliberately in the middle range (#1e293b to #55617e) so bright interactive nodes will
@@ -305,7 +305,7 @@ distinguishable neighbourhood characters across the frame, separated by canals, 
 Keep the outer eight percent of the frame quiet.
 ```
 
-### 3.2 `plane-city-sky` — far background (plane 0)
+### 3.2 `plane-city-sky`: far background (plane 0)
 
 ```
 SUBJECT: Sky and distant arcology silhouettes only. Heavy smog ceiling in #1b2233 to #3d4761
@@ -314,57 +314,57 @@ enormous far towers reduced almost entirely to value with no detail. Nearly abst
 no foreground, no legible structure.
 ```
 
-### 3.3 `plane-city-far` — far city mass (plane 1)
+### 3.3 `plane-city-far`: far city mass (plane 1)
 
 ```
 SUBJECT: A band of mid-distance city blocks and towers standing against a flat unshaded magenta
-#ff00ff background — everything above the skyline, the top forty percent of the canvas, is that
+#ff00ff background: everything above the skyline, the top forty percent of the canvas, is that
 magenta and nothing else, with no gradient, glow, haze or shading in it. Silhouettes are simplified,
 values compressed toward #2a3348 to #55617e, with sparse tiny window lights. No magenta, pink or
 violet appears anywhere in the towers themselves. Nothing that breaks the skyline may be thinner than
-three pixels at 2048 wide — antenna masts and spire tips stay blunt and stubby, never hairlines, and
+three pixels at 2048 wide: antenna masts and spire tips stay blunt and stubby, never hairlines, and
 there are no wires or cables, and the towers are separated by open magenta at least three pixels
 wide, never a hairline slot. Detail suppressed: this sits behind everything and must never compete.
 ```
 
-### 3.4 `plane-city-fore` — foreground occluders (plane 4)
+### 3.4 `plane-city-fore`: foreground occluders (plane 4)
 
 ```
 SUBJECT: Foreground occluding elements only, on a flat unshaded magenta #ff00ff background, arranged
-around the frame edges and corners — a cantilevered pipe run entering from the upper left, a heavy
+around the frame edges and corners: a cantilevered pipe run entering from the upper left, a heavy
 sagging cable trunk across the top, a signage gantry in the lower right, a crane arm cutting the
 upper right corner. Near-silhouette, values #05070d to #1e293b, with a cold rim on the key side, and
 no magenta, pink or violet anywhere in the elements themselves. Nothing may be thinner than three
-pixels at 2048 wide — the cable trunk is one heavy sagging mass, the rim a broad band, and the gantry
+pixels at 2048 wide: the cable trunk is one heavy sagging mass, the rim a broad band, and the gantry
 and crane arm are built from chunky box members rather than open lattice or truss work, with no
 hairline wires and no single-pixel rims or edges, and every gap of open magenta these elements leave
 against the frame is at least three pixels wide, never a hairline slot. The central sixty percent of
 the canvas must be flat magenta and nothing else.
 ```
 
-### 3.5 `splash-auth` — login backdrop
+### 3.5 `splash-auth`: login backdrop
 
 ```
 SUBJECT: A lone figure seen from behind, small in frame, standing at a railing overlooking the
 whole city at night in rain. The city fills the lower two thirds as a field of tiny warm and cold
 lights under smog; the Combine Spire is a dark presence far right. Keep the central forty percent
-by fifty percent of the canvas low-contrast, quiet and free of detail — a login form sits there.
+by fifty percent of the canvas low-contrast, quiet and free of detail: a login form sits there.
 The most romantic and most haunting image in the game.
 ```
 
-### 3.6 `plate-district` — the district ground (§A1)
+### 3.6 `plate-district`: the district ground (§A1)
 
 ```
 SUBJECT: A crew's own walled compound seen from directly above and slightly forward, a town-view
-camera with **no sky and no horizon** — the whole frame is ground. Drawn as the ground *only*:
+camera with **no sky and no horizon**: the whole frame is ground. Drawn as the ground *only*:
 the structures are painted separately and dropped on top, so every place one would stand is an
 empty, flat, quiet pad. Thirteen such pads in three staggered rows of four, five and four,
 spread wide apart, with broad dirt roads and duckboard walkways running between them in both
-directions and off all four edges — the lanes between the pads are the whole composition, and
+directions and off all four edges: the lanes between the pads are the whole composition, and
 they must read as somewhere people walk. Ground is packed dirt, cracked slab, gravel and puddled
 standing water, patched with steel plate and old rail. The top edge of the frame is the
 compound's back wall: gabion baskets, sheet pile, stacked containers and a lit guard post, not
-open country. Scatter lives beside the roads and never on a pad — spoil heaps, oil drums, pallet
+open country. Scatter lives beside the roads and never on a pad: spoil heaps, oil drums, pallet
 stacks, a burnt-out chassis, cable runs pinned along the wall, drying laundry strung between
 poles. Value kept in the middle range (#1e293b to #55617e), the ground reading a step warmer and
 darker as it comes toward the viewer. Cold #22d3ee key from upper left, weak sodium #f59e0b
@@ -375,7 +375,7 @@ street and welcome; nothing that reads as a label for a game object.
 
 ---
 
-## 4. District building sprites — 12 assets
+## 4. District building sprites: 12 assets
 
 **Class framing:**
 
@@ -383,7 +383,7 @@ street and welcome; nothing that reads as a label for a game object.
 Single isolated structure on a fully transparent background, three-quarter oblique view from
 slightly above, consistent 35-degree camera across all thirteen so they sit together on one ground
 plane. Ground contact in the bottom-centre twenty percent. No cast shadow, no ground, no base
-plate — the renderer adds those. Square 1:1. Silhouette must be distinguishable from the other
+plate: the renderer adds those. Square 1:1. Silhouette must be distinguishable from the other
 twelve at twenty-five percent scale filled solid black.
 ```
 
@@ -407,7 +407,7 @@ Ids match `BuildingKind` in `@frontline/shared`.
 ### 4.1 `building-nexus`
 
 ```
-SUBJECT: A commandeered transit hub turned command post — a low armoured drum with a canted upper
+SUBJECT: A commandeered transit hub turned command post: a low armoured drum with a canted upper
 observation ring of slit windows glowing cold #22d3ee, a cluster of antenna masts and a dish
 offset to one side, an external stair spiralling to a roof hatch, and a faded transit chevron
 still legible on the drum. Sandbagged at the base, cabling bundled down one flank. Authoritative,
@@ -417,7 +417,7 @@ squat, the tallest silhouette by a small margin.
 ### 4.2 `building-quarters`
 
 ```
-SUBJECT: Stacked living containers — three tiers of shipping cans welded into a block, external
+SUBJECT: Stacked living containers: three tiers of shipping cans welded into a block, external
 stairs zigzagging the face, a drying line strung between two tiers, window cutouts glowing warm
 #f59e0b in an irregular scatter. A stove flue trails thin smoke from the top tier. The most
 obviously inhabited silhouette: personal clutter, a chair, boots.
@@ -426,7 +426,7 @@ obviously inhabited silhouette: personal clutter, a chair, boots.
 ### 4.3 `building-greenhouse`
 
 ```
-SUBJECT: A grow-house — a long low barrel-vault of mismatched salvaged glazing on a steel rib
+SUBJECT: A grow-house: a long low barrel-vault of mismatched salvaged glazing on a steel rib
 frame, condensation fogging the panels, dense green foliage pressed against them from inside. Grow
 lamps burn a flat magenta-white #f0abfc through the fog in even bands. A rainwater tank strapped
 to one gable. Horizontal, softly glowing, the only green in the district.
@@ -435,7 +435,7 @@ to one gable. Horizontal, softly glowing, the only green in the district.
 ### 4.4 `building-generator`
 
 ```
-SUBJECT: A turbine block — a fat containment drum in a scaffold cradle, ribbed cooling fins, three
+SUBJECT: A turbine block: a fat containment drum in a scaffold cradle, ribbed cooling fins, three
 exhaust stacks venting white vapour, and a bunded fuel tank fused to one flank with a hose run to
 the drum. Seams and inspection ports leak hot #f59e0b light; one warning-striped panel is missing
 and field-patched. Heavy, industrial, faintly menacing.
@@ -444,7 +444,7 @@ and field-patched. Heavy, industrial, faintly menacing.
 ### 4.5 `building-scrapyard`
 
 ```
-SUBJECT: A salvage works — an angled press house with a torch bay open to the air, a raised
+SUBJECT: A salvage works: an angled press house with a torch bay open to the air, a raised
 sorting deck, a crooked flue stack trailing dark smoke, a gantry crane over a scrap heap fused
 into its flank. Cutting sparks throw #ffd166 light up under the deck. Widest and lowest of the
 industrial group, and the most cluttered silhouette in the district.
@@ -453,7 +453,7 @@ industrial group, and the most cluttered silhouette in the district.
 ### 4.6 `building-cistern`
 
 ```
-SUBJECT: A water treatment stack — two riveted settling tanks of differing heights joined by an
+SUBJECT: A water treatment stack: two riveted settling tanks of differing heights joined by an
 external pipe bridge, a sand-filter housing at the base, and a UV stage bolted on last in
 obviously newer metal. A cold #22d3ee inspection lamp over the outflow. Wet staining down the tank
 flanks. Cylindrical, paired, immediately unlike anything else on the ground.
@@ -462,16 +462,16 @@ flanks. Cylindrical, paired, immediately unlike anything else on the ground.
 ### 4.7 `building-apothecary`
 
 ```
-SUBJECT: A dispensary-warehouse — a windowless block with one heavy roller shutter half raised,
+SUBJECT: A dispensary-warehouse: a windowless block with one heavy roller shutter half raised,
 deep racking visible in the gap, a small barred serving hatch beside it lit warm #f59e0b, and
 hand-painted apothecary symbols weathering off the render. Crates stacked under an awning. Closed,
-orderly, guarded — the only building that looks locked.
+orderly, guarded: the only building that looks locked.
 ```
 
 ### 4.8 `building-gate`
 
 ```
-SUBJECT: A perimeter gate — a ferrocrete slab wall with a razorwire crown, one buttressed pier, a
+SUBJECT: A perimeter gate: a ferrocrete slab wall with a razorwire crown, one buttressed pier, a
 firing step behind, and a single armoured gate leaf hung slightly out of true. Impact scarring and
 hasty patch-plates across the face. Lowest and widest silhouette; must read as horizontal against
 everything else.
@@ -480,7 +480,7 @@ everything else.
 ### 4.9 `building-lab`
 
 ```
-SUBJECT: A research stack — a vertical black slab of racked datacores behind a louvred skin, cold
+SUBJECT: A research stack: a vertical black slab of racked datacores behind a louvred skin, cold
 #12a2bd status light bleeding through the louvres in horizontal bands, a whiteboard wall visible
 through one lit ground-floor window. A dense fan of fibre trunking sweeps out of its base. Thermal
 shimmer above. The tallest and thinnest silhouette.
@@ -489,7 +489,7 @@ shimmer above. The tallest and thinnest silhouette.
 ### 4.10 `building-gauntlet`
 
 ```
-SUBJECT: A training ground — an open run of welded obstacles, a climbing frame of scaffold pipe, a
+SUBJECT: A training ground: an open run of welded obstacles, a climbing frame of scaffold pipe, a
 rope wall and a low crawl tunnel, with a single-storey equipment shed at one end and a flood lamp
 on a pole throwing hard white light across the course. Mostly open ground: the one plot that reads
 as an *area* rather than a structure.
@@ -498,7 +498,7 @@ as an *area* rather than a structure.
 ### 4.11 `building-infirmary`
 
 ```
-SUBJECT: A clinic — a small clean-walled prefab with a red-cross panel repainted over something
+SUBJECT: A clinic: a small clean-walled prefab with a red-cross panel repainted over something
 else, a wide entry ramp, a sealed vestibule with an interior lamp burning steady cold white, and a
 stack of gas cylinders chained beside the door. An air handler grumbling on the roof. The tidiest
 building on the ground, deliberately at odds with everything around it.
@@ -507,7 +507,7 @@ building on the ground, deliberately at odds with everything around it.
 ### 4.12 `building-garage`
 
 ```
-SUBJECT: A motor pool — a deep-mouthed open bay tall enough for a mast, a gantry crane on rails
+SUBJECT: A motor pool: a deep-mouthed open bay tall enough for a mast, a gantry crane on rails
 across the opening, an inspection pit with a stripped chassis over it, and a half-built rotor
 assembly on trestles to one side under a tarpaulin. Work lamps on stands throw long shadows out of
 the bay. The deepest silhouette: the only one that reads as an interior.
@@ -515,12 +515,12 @@ the bay. The deepest silhouette: the only one that reads as an interior.
 
 ---
 
-## 5. UI frames and HUD elements — 6 assets
+## 5. UI frames and HUD elements: 6 assets
 
 **Class framing:**
 
 ```
-Game UI element on transparent background, painted rather than vector — hammered and etched metal
+Game UI element on transparent background, painted rather than vector: hammered and etched metal
 plate with wear at the corners and edges, subtly asymmetric so it does not read as a template.
 Square 1:1, 1024px. The outer 96 pixels are the 9-slice corner and edge region; the inner region
 must be a flat, quiet, tileable field with no detail. Absolutely no text, no glyphs, no numerals.
@@ -547,7 +547,7 @@ inner channel as though lit from behind. One corner shows a chipped edge and a p
 ### 5.2 `ui-frame-modal`
 
 ```
-SUBJECT: A heavier armoured hatch frame — thicker bezel than the panel, chamfered outer edge,
+SUBJECT: A heavier armoured hatch frame: thicker bezel than the panel, chamfered outer edge,
 two recessed handle lugs top and bottom, faint radial scoring across the plate, and a
 warning-stripe remnant worn nearly away along the lower edge. Cyan channel light, slightly brighter
 than the panel frame.
@@ -558,13 +558,13 @@ than the panel frame.
 ```
 SUBJECT: A wide horizontal instrument plate spanning the full width, with a raised rail along the
 bottom edge, six evenly spaced blank recessed instrument bays across the middle band, and mounting
-brackets at both ends. The bays are empty sockets — no dials, no readouts, no text.
+brackets at both ends. The bays are empty sockets: no dials, no readouts, no text.
 ```
 
 ### 5.4 `ui-plate-button`
 
 ```
-SUBJECT: A single rectangular pressable key plate — slightly domed face, chamfered edge, worn
+SUBJECT: A single rectangular pressable key plate: slightly domed face, chamfered edge, worn
 brighter in the centre where a thumb has rubbed it for years, a thin cyan #22d3ee underglow escaping
 from the seam beneath. Quiet and dark; this must not compete with the label the app renders on top.
 ```
@@ -574,41 +574,41 @@ from the seam beneath. Quiet and dark; this must not compete with the label the 
 ```
 SUBJECT: A tall narrow vertical rail plate with a repeating ladder of blank recessed mounting slots
 down its length, a cable channel along one side, and a cyan #22d3ee light strip running the full
-height in a recessed groove. The slots are empty — no icons.
+height in a recessed groove. The slots are empty: no icons.
 ```
 
 ### 5.6 `ui-divider`
 
 ```
-SUBJECT: A thin horizontal trim strip — a machined groove with a single cyan #22d3ee filament in
+SUBJECT: A thin horizontal trim strip: a machined groove with a single cyan #22d3ee filament in
 it, terminating at both ends in a small bolted end-cap. Extreme aspect: the element occupies only
 the central horizontal eighth of the canvas; the rest is fully transparent.
 ```
 
 ---
 
-## 6. Icons — 53 assets
+## 6. Icons: 54 assets
 
 **Class framing:**
 
 ```
 Single centred icon on a fully transparent background, painted with visible brushwork but
-radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent hue.
+radically simplified. It must read cleanly at 24 pixels. Maximum two values plus one accent hue.
 No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject filling the
 central seventy percent. Consistent implied light from upper-left across the whole set.
 ```
 
-### 6.1 Resource icons — ids are the kebab-cased `Resources` keys
+### 6.1 Resource icons: ids are the kebab-cased `Resources` keys
 
-| Key                       | Seed     | Subject                                                                                                                                                                                                                        |
-| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `icon-caps`               | `160001` | `SUBJECT: A loose handful of crimped bottle caps, painted faces scratched back to bare steel, one standing on edge against the pile, warm amber #f59e0b catching the ridged rims.`                                             |
-| `icon-food`               | `160002` | `SUBJECT: A dented ration tin with its lid peeled half back on a torn hinge of metal, a scorched crust of pressed protein inside, the paper label stripped to a pale ghost, warm amber #ffd166 glancing off the peeled edge.`  |
-| `icon-oil`                | `160003` | `SUBJECT: A squat riveted fuel drum with a hand-cranked spigot, a black bead swelling at the nozzle and a thin slick pooling beneath it, seams weeping rust, cyan #22d3ee iridescence riding the surface of the slick.`        |
-| `icon-scrap`              | `160004` | `SUBJECT: A bundle of salvaged offcuts wired together at the middle — bent rebar, a torn hull plate, a coiled length of stripped cable — cold #94a3b8 light along the freshly broken edges, dull and powdery everywhere else.` |
-| `icon-high-quality-metal` | `160005` | `SUBJECT: Three stacked machined ingots with clean milled faces and a cast foundry stamp still legible on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to show bright grain.`         |
+| Key                       | Seed     | Subject                                                                                                                                                                                                                       |
+| ------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon-caps`               | `160001` | `SUBJECT: A loose handful of crimped bottle caps, painted faces scratched back to bare steel, one standing on edge against the pile, warm amber #f59e0b catching the ridged rims.`                                            |
+| `icon-food`               | `160002` | `SUBJECT: A dented ration tin with its lid peeled half back on a torn hinge of metal, a scorched crust of pressed protein inside, the paper label stripped to a pale ghost, warm amber #ffd166 glancing off the peeled edge.` |
+| `icon-oil`                | `160003` | `SUBJECT: A squat riveted fuel drum with a hand-cranked spigot, a black bead swelling at the nozzle and a thin slick pooling beneath it, seams weeping rust, cyan #22d3ee iridescence riding the surface of the slick.`       |
+| `icon-scrap`              | `160004` | `SUBJECT: A bundle of salvaged offcuts wired together at the middle, bent rebar, a torn hull plate, a coiled length of stripped cable, cold #94a3b8 light along the freshly broken edges, dull and powdery everywhere else.`  |
+| `icon-high-quality-metal` | `160005` | `SUBJECT: Three stacked machined ingots with clean milled faces and a cast foundry stamp still legible on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to show bright grain.`        |
 
-### 6.2 Archetype icons — ids match `OverseerArchetype`
+### 6.2 Archetype icons: ids match `OverseerArchetype`
 
 | Key                         | Seed     | Subject                                                                                                                                               |
 | --------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -617,65 +617,66 @@ central seventy percent. Consistent implied light from upper-left across the who
 | `icon-archetype-fixer`      | `160013` | `SUBJECT: An old brass-bodied key card held between the implied thumb and finger of no visible hand, worn to a shine, warm amber #f59e0b edge light.` |
 | `icon-archetype-technocrat` | `160014` | `SUBJECT: A machined gear-and-caliper pairing, teeth worn unevenly, a green #43b56e calibration filament between the caliper jaws.`                   |
 
-### 6.3 District-kind map icons — ids match `DistrictKind`
+### 6.3 District-kind map icons: ids match `DistrictKind`
 
 | Key                     | Seed     | Subject                                                                                                                                                  |
 | ----------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `icon-kind-residential` | `160021` | `SUBJECT: A small fortified compound seen from above — a walled square with a central drum and a gate notch, cyan #22d3ee light in the courtyard.`       |
+| `icon-kind-residential` | `160021` | `SUBJECT: A small fortified compound seen from above: a walled square with a central drum and a gate notch, cyan #22d3ee light in the courtyard.`        |
 | `icon-kind-contested`   | `160022` | `SUBJECT: Four small blocks around a crossroads seen from above, one of them breached and spilling rubble, a single magenta #e11d8f ember at the break.` |
 
-### 6.4 Place map icons — ids match `PlaceKind`
+### 6.4 Place map icons: ids match `PlaceKind`
 
 One marker per _kind_ of place, not per place: thirty-one places share twenty kinds, and a player reads the kind off the map.
 
-| Key                                   | Seed     | Subject                                                                                                                                             |
-| ------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `icon-location-scrap-press`           | `160031` | `SUBJECT: A baling press seen from above with a squared bale on the outfeed and a scatter of loose swarf, warm #f59e0b rust tones.`                 |
-| `icon-location-chemical-plant`        | `160032` | `SUBJECT: Three cracking towers of descending height joined by a pipe run, one venting a pale #86e6a8 plume.`                                       |
-| `icon-location-power-station`         | `160033` | `SUBJECT: A transformer bank of four ribbed cylinders behind a mesh fence, cold #22d3ee arc light between two of them.`                             |
-| `icon-location-water-works`           | `160034` | `SUBJECT: Two circular settling beds seen from above with a radial sweep arm on each, water reading as flat #12a2bd.`                               |
-| `icon-location-foundry`               | `160035` | `SUBJECT: A cupola furnace with a tapping spout, the pour glowing #ffd166 across the floor plate beneath it.`                                       |
-| `icon-location-gas-station`           | `160036` | `SUBJECT: A forecourt canopy seen from above on four thin posts, two pump islands beneath it, a warm #f59e0b spill reading as fuel on the apron.`   |
-| `icon-location-nuclear-plant`         | `160037` | `SUBJECT: Two hyperboloid cooling towers with a low turbine hall between them, a cold #86e6a8 glow in the reactor block.`                           |
-| `icon-location-soup-kitchen`          | `160038` | `SUBJECT: A long trestle table seen from above with two steaming vats at one end and a queue of small marks along it, warm #f59e0b light.`          |
-| `icon-location-market`                | `160039` | `SUBJECT: A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp point between them.`                            |
-| `icon-location-downtown-market`       | `160040` | `SUBJECT: An exchange floor seen from above, a ring of desks around an open pit with a price board on the far wall in #22d3ee.`                     |
-| `icon-location-pawn-shop`             | `160041` | `SUBJECT: A barred serving hatch in a blank wall with three hanging balls above it, one warm #f59e0b lamp inside the bars.`                         |
-| `icon-location-bone-market`           | `160042` | `SUBJECT: A row of low stalls under a bare frame, pale #cbd5e1 sorted remains laid out on the boards.`                                              |
-| `icon-location-revolutionist-statue`  | `160043` | `SUBJECT: A bronze figure on a tall plinth with one arm raised, seen three-quarter from above, warm #f59e0b rim light down one side.`               |
-| `icon-location-high-ground`           | `160044` | `SUBJECT: A water tower on lattice legs above a rooftop parapet, seen at a low angle, cold rim light along the tank.`                               |
-| `icon-location-barricade`             | `160045` | `SUBJECT: A staggered line of sea containers and rubble with rebar teeth, seen from above, one narrow gap left through it.`                         |
-| `icon-location-watchtower`            | `160046` | `SUBJECT: A lattice mast with a small glazed cabin at the top, a cold #22d3ee lamp in the cabin.`                                                   |
-| `icon-location-sewer-junction`        | `160047` | `SUBJECT: A brick chamber where six storm drains meet, seen from above, standing water reading as dark #12a2bd with one shaft of light.`            |
-| `icon-location-smugglers-tunnel`      | `160048` | `SUBJECT: A timbered tunnel mouth cut into a retaining wall, rails running out of it, unlit interior in deep #0b1020.`                              |
-| `icon-location-armory`                | `160049` | `SUBJECT: A heavy vault door standing ajar in a blank concrete face, weapon racks visible as silhouettes in the #f59e0b light beyond.`              |
-| `icon-location-war-machine-graveyard` | `160050` | `SUBJECT: Three dead armoured hulls half sunk in mud, tracks shed, one turret canted skyward, cold smog between them.`                              |
-| `icon-location-construction-site`     | `160051` | `SUBJECT: A tower crane over a poured concrete raft with rebar stubs, seen from above, warm #f59e0b hazard marks on the base.`                      |
-| `icon-location-fight-pit`             | `160052` | `SUBJECT: A sunken circular ring seen from above with a standing crowd ringing it, warm #f59e0b lamps on poles around the rim.`                     |
-| `icon-location-gym`                   | `160053` | `SUBJECT: A barbell on a rack with two stacked plate trees beside it, seen three-quarter, worn #cbd5e1 iron.`                                       |
-| `icon-location-doghouse`              | `160054` | `SUBJECT: A row of three kennels under a low roof with a wire run in front, a single #22d3ee augment light at one door.`                            |
-| `icon-location-rail-yard`             | `160055` | `SUBJECT: Converging sidings around a turntable seen from above, two flatbeds parked off-centre, cold light along the rail heads.`                  |
-| `icon-location-tram-depot`            | `160056` | `SUBJECT: A depot shed with three parallel roads running into it, one tram nose showing, overhead line in cold #22d3ee.`                            |
-| `icon-location-university`            | `160057` | `SUBJECT: A colonnaded facade with a broken pediment, one lit window in an upper storey, cyan #22d3ee light behind the glass.`                      |
-| `icon-location-planetarium`           | `160058` | `SUBJECT: A ribbed dome with a slit at the apex, a projector silhouette inside it, cold #22d3ee light escaping.`                                    |
-| `icon-location-satellite-uplink`      | `160059` | `SUBJECT: A parabolic dish on a guyed mast, hand-aligned and slightly off true, cold #7ff0ff light at the feed horn.`                               |
-| `icon-location-broadcast-tower`       | `160060` | `SUBJECT: A lattice transmitter mast with three stacked dipole arrays, a single #e11d8f obstruction light at the top.`                              |
-| `icon-location-broadcast-station`     | `160061` | `SUBJECT: A studio console seen from above with two microphone booms and a lit ON AIR panel in #e11d8f.`                                            |
-| `icon-location-pirate-radio`          | `160062` | `SUBJECT: A wire aerial strung between two rooftop poles with a small transmitter case beneath it, a single #e11d8f indicator.`                     |
-| `icon-location-gene-clinic`           | `160063` | `SUBJECT: A sealed theatre door with a porthole and a cold-storage cabinet beside it, sterile white light through the port.`                        |
-| `icon-location-hospital`              | `160064` | `SUBJECT: A four-bay ambulance canopy with a repainted cross panel above it, warm light spilling from the entrance.`                                |
-| `icon-location-black-clinic`          | `160065` | `SUBJECT: A steel trolley with a locked cabinet above it and three syringes laid in a row, cold #22d3ee lamp overhead.`                             |
-| `icon-location-mad-scientist-lair`    | `160066` | `SUBJECT: A cylindrical specimen tank with cabling running to an operating table beside it, sick #86e6a8 light inside the tank.`                    |
-| `icon-location-tavern`                | `160067` | `SUBJECT: A long bar seen three-quarter from above with four stools and hanging glasses, warm #f59e0b light pooling on it.`                         |
-| `icon-location-cinema`                | `160068` | `SUBJECT: A projector on a stand throwing a cone of pale #cbd5e1 light towards a small bright screen.`                                              |
-| `icon-location-arcade`                | `160069` | `SUBJECT: Three upright cabinets side by side seen three-quarter, screens reading as #e11d8f and #22d3ee glow.`                                     |
-| `icon-location-skate-ground`          | `160070` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.` |
-| `icon-location-chapel`                | `160071` | `SUBJECT: A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one narrow window.`                                |
-| `icon-location-graveyard`             | `160072` | `SUBJECT: Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8 stone, one lamp at the gate in #f59e0b.`           |
+| Key                                   | Seed     | Subject                                                                                                                                                 |
+| ------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon-location-scrap-press`           | `160031` | `SUBJECT: A baling press seen from above with a squared bale on the outfeed and a scatter of loose swarf, warm #f59e0b rust tones.`                     |
+| `icon-location-chemical-plant`        | `160032` | `SUBJECT: Three cracking towers of descending height joined by a pipe run, one venting a pale #86e6a8 plume.`                                           |
+| `icon-location-power-station`         | `160033` | `SUBJECT: A transformer bank of four ribbed cylinders behind a mesh fence, cold #22d3ee arc light between two of them.`                                 |
+| `icon-location-water-works`           | `160034` | `SUBJECT: Two circular settling beds seen from above with a radial sweep arm on each, water reading as flat #12a2bd.`                                   |
+| `icon-location-foundry`               | `160035` | `SUBJECT: A cupola furnace with a tapping spout, the pour glowing #ffd166 across the floor plate beneath it.`                                           |
+| `icon-location-gas-station`           | `160036` | `SUBJECT: A forecourt canopy seen from above on four thin posts, two pump islands beneath it, a warm #f59e0b spill reading as fuel on the apron.`       |
+| `icon-location-nuclear-plant`         | `160037` | `SUBJECT: Two hyperboloid cooling towers with a low turbine hall between them, a cold #86e6a8 glow in the reactor block.`                               |
+| `icon-location-soup-kitchen`          | `160038` | `SUBJECT: A long trestle table seen from above with two steaming vats at one end and a queue of small marks along it, warm #f59e0b light.`              |
+| `icon-location-refugee-camp`          | `160039` | `SUBJECT: A cluster of lean-to shelters against a chain-link fence seen from above, tarpaulins in muted #94a3b8, two small cook fires in warm #f59e0b.` |
+| `icon-location-market`                | `160040` | `SUBJECT: A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp point between them.`                                |
+| `icon-location-downtown-market`       | `160041` | `SUBJECT: An exchange floor seen from above, a ring of desks around an open pit with a price board on the far wall in #22d3ee.`                         |
+| `icon-location-pawn-shop`             | `160042` | `SUBJECT: A barred serving hatch in a blank wall with three hanging balls above it, one warm #f59e0b lamp inside the bars.`                             |
+| `icon-location-bone-market`           | `160043` | `SUBJECT: A row of low stalls under a bare frame, pale #cbd5e1 sorted remains laid out on the boards.`                                                  |
+| `icon-location-revolutionist-statue`  | `160044` | `SUBJECT: A bronze figure on a tall plinth with one arm raised, seen three-quarter from above, warm #f59e0b rim light down one side.`                   |
+| `icon-location-high-ground`           | `160045` | `SUBJECT: A water tower on lattice legs above a rooftop parapet, seen at a low angle, cold rim light along the tank.`                                   |
+| `icon-location-barricade`             | `160046` | `SUBJECT: A staggered line of sea containers and rubble with rebar teeth, seen from above, one narrow gap left through it.`                             |
+| `icon-location-watchtower`            | `160047` | `SUBJECT: A lattice mast with a small glazed cabin at the top, a cold #22d3ee lamp in the cabin.`                                                       |
+| `icon-location-sewer-junction`        | `160048` | `SUBJECT: A brick chamber where six storm drains meet, seen from above, standing water reading as dark #12a2bd with one shaft of light.`                |
+| `icon-location-smugglers-tunnel`      | `160049` | `SUBJECT: A timbered tunnel mouth cut into a retaining wall, rails running out of it, unlit interior in deep #0b1020.`                                  |
+| `icon-location-armory`                | `160050` | `SUBJECT: A heavy vault door standing ajar in a blank concrete face, weapon racks visible as silhouettes in the #f59e0b light beyond.`                  |
+| `icon-location-war-machine-graveyard` | `160051` | `SUBJECT: Three dead armoured hulls half sunk in mud, tracks shed, one turret canted skyward, cold smog between them.`                                  |
+| `icon-location-construction-site`     | `160052` | `SUBJECT: A tower crane over a poured concrete raft with rebar stubs, seen from above, warm #f59e0b hazard marks on the base.`                          |
+| `icon-location-fight-pit`             | `160053` | `SUBJECT: A sunken circular ring seen from above with a standing crowd ringing it, warm #f59e0b lamps on poles around the rim.`                         |
+| `icon-location-gym`                   | `160054` | `SUBJECT: A barbell on a rack with two stacked plate trees beside it, seen three-quarter, worn #cbd5e1 iron.`                                           |
+| `icon-location-doghouse`              | `160055` | `SUBJECT: A row of three kennels under a low roof with a wire run in front, a single #22d3ee augment light at one door.`                                |
+| `icon-location-rail-yard`             | `160056` | `SUBJECT: Converging sidings around a turntable seen from above, two flatbeds parked off-centre, cold light along the rail heads.`                      |
+| `icon-location-tram-depot`            | `160057` | `SUBJECT: A depot shed with three parallel roads running into it, one tram nose showing, overhead line in cold #22d3ee.`                                |
+| `icon-location-university`            | `160058` | `SUBJECT: A colonnaded facade with a broken pediment, one lit window in an upper storey, cyan #22d3ee light behind the glass.`                          |
+| `icon-location-planetarium`           | `160059` | `SUBJECT: A ribbed dome with a slit at the apex, a projector silhouette inside it, cold #22d3ee light escaping.`                                        |
+| `icon-location-satellite-uplink`      | `160060` | `SUBJECT: A parabolic dish on a guyed mast, hand-aligned and slightly off true, cold #7ff0ff light at the feed horn.`                                   |
+| `icon-location-broadcast-tower`       | `160061` | `SUBJECT: A lattice transmitter mast with three stacked dipole arrays, a single #e11d8f obstruction light at the top.`                                  |
+| `icon-location-broadcast-station`     | `160062` | `SUBJECT: A studio console seen from above with two microphone booms and a lit ON AIR panel in #e11d8f.`                                                |
+| `icon-location-pirate-radio`          | `160063` | `SUBJECT: A wire aerial strung between two rooftop poles with a small transmitter case beneath it, a single #e11d8f indicator.`                         |
+| `icon-location-gene-clinic`           | `160064` | `SUBJECT: A sealed theatre door with a porthole and a cold-storage cabinet beside it, sterile white light through the port.`                            |
+| `icon-location-hospital`              | `160065` | `SUBJECT: A four-bay ambulance canopy with a repainted cross panel above it, warm light spilling from the entrance.`                                    |
+| `icon-location-black-clinic`          | `160066` | `SUBJECT: A steel trolley with a locked cabinet above it and three syringes laid in a row, cold #22d3ee lamp overhead.`                                 |
+| `icon-location-mad-scientist-lair`    | `160067` | `SUBJECT: A cylindrical specimen tank with cabling running to an operating table beside it, sick #86e6a8 light inside the tank.`                        |
+| `icon-location-tavern`                | `160068` | `SUBJECT: A long bar seen three-quarter from above with four stools and hanging glasses, warm #f59e0b light pooling on it.`                             |
+| `icon-location-cinema`                | `160069` | `SUBJECT: A projector on a stand throwing a cone of pale #cbd5e1 light towards a small bright screen.`                                                  |
+| `icon-location-arcade`                | `160070` | `SUBJECT: Three upright cabinets side by side seen three-quarter, screens reading as #e11d8f and #22d3ee glow.`                                         |
+| `icon-location-skate-ground`          | `160071` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.`     |
+| `icon-location-chapel`                | `160072` | `SUBJECT: A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one narrow window.`                                    |
+| `icon-location-graveyard`             | `160073` | `SUBJECT: Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8 stone, one lamp at the gate in #f59e0b.`               |
 
 ---
 
-## 7. Unit roster portraits — 29 assets
+## 7. Unit roster portraits: 29 assets
 
 **Class framing:**
 
@@ -683,7 +684,7 @@ One marker per _kind_ of place, not per place: thirty-one places share twenty ki
 Half-length figure study of one representative fighter, three-quarter view, weight on the back
 foot, weapon or tool held rather than posed with. Vertical 3:4 composition, head in the upper
 quarter, cropped mid-thigh. Painted on an abstracted plaster-and-soot ground with no readable
-architecture — the card behind it carries the information, so the frame must stay quiet.
+architecture: the card behind it carries the information, so the frame must stay quiet.
 Unhelmeted or visor-up wherever the unit's own description allows it, so the roster reads as
 people. No group shots, no insignia the player has not earned, no text.
 ```
@@ -730,13 +731,13 @@ SUBJECT: A lean street fighter in a cut-down jacket over bare arms, holding a gr
 ### 7.2 `unit-anodics`
 
 ```
-SUBJECT: A short, densely built figure in a stretched cardigan over a stained shirt, sleeves shoved to the elbow, forearms thick. A narrow strip of hair, no more than two fingers wide, stiff and short — the rest of the scalp shaved down. One hand around the neck of a small brown bottle with a hand-lettered label, held like a tool rather than a drink; the other loose and open at the hip. Reading glasses pushed up into the mohawk. Pupils blown wide, jaw set, entirely calm in a way that is not restful. Warm #f59e0b key from below as if from a floor lamp, cold #22d3ee rim along the shoulders.
+SUBJECT: A short, densely built figure in a stretched cardigan over a stained shirt, sleeves shoved to the elbow, forearms thick. A narrow strip of hair, no more than two fingers wide, stiff and short: the rest of the scalp shaved down. One hand around the neck of a small brown bottle with a hand-lettered label, held like a tool rather than a drink; the other loose and open at the hip. Reading glasses pushed up into the mohawk. Pupils blown wide, jaw set, entirely calm in a way that is not restful. Warm #f59e0b key from below as if from a floor lamp, cold #22d3ee rim along the shoulders.
 ```
 
 ### 7.3 `unit-sparks`
 
 ```
-SUBJECT: A teenager holding a home-made electrical lance — a scaffold pole with a capacitor bank taped along it and two bare contacts at the tip. Welding goggles pushed up on the forehead, hands gloved in mismatched rubber. A single #7ff0ff arc crawling between the contacts is the brightest thing in frame, and it lights the face from below.
+SUBJECT: A teenager holding a home-made electrical lance: a scaffold pole with a capacitor bank taped along it and two bare contacts at the tip. Welding goggles pushed up on the forehead, hands gloved in mismatched rubber. A single #7ff0ff arc crawling between the contacts is the brightest thing in frame, and it lights the face from below.
 ```
 
 ### 7.4 `unit-scrapers`
@@ -766,7 +767,7 @@ SUBJECT: A defender behind a tall salvaged shield planted on the ground, one han
 ### 7.8 `unit-ghosts`
 
 ```
-SUBJECT: A slight figure in a matte grey wrap suit with a soft hood and a scarf over the mouth, holding a suppressed carbine down along the leg. No hard edges and no shine anywhere on the fabric — the only speculars are the eyes and a thin #22d3ee line along the optic.
+SUBJECT: A slight figure in a matte grey wrap suit with a soft hood and a scarf over the mouth, holding a suppressed carbine down along the leg. No hard edges and no shine anywhere on the fabric: the only speculars are the eyes and a thin #22d3ee line along the optic.
 ```
 
 ### 7.9 `unit-road-reavers`
@@ -778,7 +779,7 @@ SUBJECT: A rider in a studded leather cut over a fuel-stained undersuit, one arm
 ### 7.10 `unit-ironsides`
 
 ```
-SUBJECT: A soldier encased front-on in overlapping salvaged plate — road sign, hull steel, a car door panel — strapped over a padded frame, with a slit visor and a short blade held close. Wide, immovable stance. Cold light rakes across the mismatched plates and finds a different colour in each.
+SUBJECT: A soldier encased front-on in overlapping salvaged plate, road sign, hull steel, a car door panel, strapped over a padded frame, with a slit visor and a short blade held close. Wide, immovable stance. Cold light rakes across the mismatched plates and finds a different colour in each.
 ```
 
 ### 7.11 `unit-ash-walkers`
@@ -796,7 +797,7 @@ SUBJECT: A marksman kneeling with a long bolt-action rifle across the raised kne
 ### 7.13 `unit-stitchers`
 
 ```
-SUBJECT: A field medic in a rolled-sleeve coat with a heavy satchel across the body and a strip of surgical tape on the forearm holding a spare line in place. Both hands busy — one clamping a dressing, one reaching. Warm #ffd166 light from a headband lamp turned down onto the work.
+SUBJECT: A field medic in a rolled-sleeve coat with a heavy satchel across the body and a strip of surgical tape on the forearm holding a spare line in place. Both hands busy: one clamping a dressing, one reaching. Warm #ffd166 light from a headband lamp turned down onto the work.
 ```
 
 ### 7.14 `unit-demolishers`
@@ -826,7 +827,7 @@ SUBJECT: A combat hacker with a deck strapped along the forearm and three fibre 
 ### 7.18 `unit-sleepers`
 
 ```
-SUBJECT: An unremarkable person in ordinary work clothes — coveralls, a laminated pass on a lanyard, a canvas bag — standing squarely and looking directly at the viewer. No visible weapon. The only thing wrong is the stillness, and one hand already inside the bag.
+SUBJECT: An unremarkable person in ordinary work clothes, coveralls, a laminated pass on a lanyard, a canvas bag, standing squarely and looking directly at the viewer. No visible weapon. The only thing wrong is the stillness, and one hand already inside the bag.
 ```
 
 ### 7.19 `unit-cyber-dogs`
@@ -850,13 +851,13 @@ SUBJECT: A siege worker in a heavy harness with a wrecking chain over the should
 ### 7.22 `unit-juggernauts`
 
 ```
-SUBJECT: A fully augmented heavy assault trooper — a human silhouette only at the head, with the arms and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts. A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm #8a5209 leaks from the joint seams.
+SUBJECT: A fully augmented heavy assault trooper: a human silhouette only at the head, with the arms and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts. A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm #8a5209 leaks from the joint seams.
 ```
 
 ### 7.23 `unit-hollow-men`
 
 ```
-SUBJECT: A shock trooper standing too straight in matte assault plate, faceplate open on an expression of complete calm, pupils blown wide. Surgical scarring in a neat arc above one temple. Blood on the gauntlets, none anywhere else. Even flat light, almost no shadow — nothing to read.
+SUBJECT: A shock trooper standing too straight in matte assault plate, faceplate open on an expression of complete calm, pupils blown wide. Surgical scarring in a neat arc above one temple. Blood on the gauntlets, none anywhere else. Even flat light, almost no shadow: nothing to read.
 ```
 
 ### 7.24 `unit-the-condemned`
@@ -868,7 +869,7 @@ SUBJECT: A convict fighter in a stripped prison coverall with the sleeves torn a
 ### 7.25 `unit-the-specter`
 
 ```
-SUBJECT: A figure caught mid-decloak — the outline is complete but the body is only present in patches, the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is solid is a matte infiltration suit and one long knife. No face resolves.
+SUBJECT: A figure caught mid-decloak: the outline is complete but the body is only present in patches, the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is solid is a matte infiltration suit and one long knife. No face resolves.
 ```
 
 ### 7.26 `unit-the-abomination`
@@ -886,7 +887,7 @@ SUBJECT: A walking fortress seen from the ground looking up, so only its lower h
 ### 7.28 `unit-the-saint`
 
 ```
-SUBJECT: An older fighter in a long weathered coat over plain plate, unarmed hands open at the sides, a sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely calm. The one portrait lit warmly from the front — amber #ffd166 across the face, cold #22d3ee only as a thin rim.
+SUBJECT: An older fighter in a long weathered coat over plain plate, unarmed hands open at the sides, a sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely calm. The one portrait lit warmly from the front: amber #ffd166 across the face, cold #22d3ee only as a thin rim.
 ```
 
 ### 7.29 `unit-the-cartographer`
@@ -909,7 +910,7 @@ Generating 96 assets independently will drift. Counter it in this order:
    input). `scripts/gen-art.ts` carries `styleRefs` per manifest entry for exactly this.
 4. **Review in sets, not singly.** Lay all 11 districts side by side before approving any. Drift is
    invisible one-at-a-time and obvious in a grid.
-5. **Never re-roll a seed to fix a style problem** — fix the prompt. A style problem that a re-roll
+5. **Never re-roll a seed to fix a style problem**: fix the prompt. A style problem that a re-roll
    cures will recur on the next asset.
 6. **Final grade happens in the renderer, not in the files.** Assets are delivered ungraded; the
    `lut-frontline-grade.png` LUT unifies the last few percent across the whole set at runtime, and

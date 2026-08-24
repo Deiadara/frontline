@@ -5,7 +5,7 @@ import type { Building } from './state.js';
 /**
  * What a broken gate lets somebody do to your district (GDD §A4, battle rework).
  *
- * A home district still cannot be taken — that rule has not moved and it is not going to. What a
+ * A home district still cannot be taken: that rule has not moved and it is not going to. What a
  * breach buys instead is a window in which the structures themselves can be hit: things get carried
  * out and what is left runs badly for a while. That is the whole design. A player who loses a siege
  * loses *tempo and stock*, not the thing they have spent three weeks building, so a bad night is
@@ -51,7 +51,7 @@ export function buildingEffectiveness(building: Building | undefined): number {
  * A structure's damage, 0..100, and never `NaN`.
  *
  * `damage` is a *defaulted* field on `BuildingSchema`, which means every row that goes through the
- * parser has one — and every row that does not, does not. That gap cost a save: a `Building` that
+ * parser has one, and every row that does not, does not. That gap cost a save: a `Building` that
  * had skipped the parser reached `Math.max(0, undefined)`, which is `NaN`, and NaN spreads. It went
  * effectiveness → storage ceiling → the sandbox's stockpile → `JSON.stringify`, which writes NaN as
  * `null` without complaint, and the next boot could not parse its own resources column. One missing
@@ -65,7 +65,7 @@ function damageOf(building: Building): number {
   return Number.isFinite(damage) ? Math.min(100, Math.max(0, damage)) : 0;
 }
 
-/** The district's average effectiveness, weighted by level — what its clocks run at. */
+/** The district's average effectiveness, weighted by level: what its clocks run at. */
 export function districtEffectiveness(buildings: readonly Building[]): number {
   let levels = 0;
   let weighted = 0;
@@ -101,7 +101,7 @@ export function strikeDamage(defenderLossShare: number): number {
 }
 
 /**
- * One structure, damaged. Clamped at 100 — there is no such thing as more than wrecked.
+ * One structure, damaged. Clamped at 100. There is no such thing as more than wrecked.
  *
  * `at` restarts the repair clock, and it restarts it *whole* rather than crediting the hours
  * already served. Two strikes a day apart are two nights of a district running badly; letting the
@@ -118,8 +118,8 @@ export function damageBuilding(building: Building, amount: number, at: string): 
  *
  * The board's number, and the reason a bad night is a bad night rather than a permanent tax. The
  * crew patch the place up: nobody buys the repair, nobody queues it, and a player who logs in the
- * next evening finds their district working again. What the raid actually cost them is the day —
- * the production, the storage and the defence they did not have while it was being put right — plus
+ * next evening finds their district working again. What the raid actually cost them is the day:
+ * the production, the storage and the defence they did not have while it was being put right: plus
  * whatever was carried out of the door.
  */
 export const REPAIR_HOURS = 24;
@@ -143,7 +143,7 @@ export const REPAIR_PER_HOUR = 100 / REPAIR_HOURS;
  * it is next read, and there is no background job to keep alive.
  *
  * The clock is moved up to `now` on every settle, which is what makes it safe to run any number of
- * times. Decaying from the *original* strike instead — the obvious spelling — compounds: a
+ * times. Decaying from the *original* strike instead, the obvious spelling, compounds: a
  * structure settled at twelve hours and again at eighteen would apply the eighteen-hour fraction to
  * a figure the twelve-hour settle had already reduced, and the same damage would clear faster the
  * more often somebody looked at it.
@@ -165,8 +165,8 @@ export function repairedByTime(building: Building, now: Date): Building {
   if (cleared <= 0) return building;
 
   // The clock moves up by exactly the hours that were *paid for*, not to `now`, and that is what
-  // keeps the remainder. Snapping it to `now` would throw the leftover minutes away on every read
-  // — and a client polling the district once a second would round a fraction of a point up to a
+  // keeps the remainder. Snapping it to `now` would throw the leftover minutes away on every read,
+  // and a client polling the district once a second would round a fraction of a point up to a
   // whole one thousands of times an hour and repair the place in under a minute.
   const consumedMs = (cleared / REPAIR_PER_HOUR) * 3_600_000;
   const damage = Math.max(0, building.damage - cleared);
@@ -188,7 +188,7 @@ export function repairedDistrict(buildings: readonly Building[], now: Date): Bui
  * Raising a structure a level puts right whatever was done to it, on top of the clock.
  *
  * The impatient path. {@link repairedByTime} gets a district back on its feet in a day for nothing;
- * this is what a player does when they do not have the day — the level they were going to buy
+ * this is what a player does when they do not have the day: the level they were going to buy
  * anyway clears `RECOVERY_PER_LEVEL` of the damage the moment it lands. There is still no repair
  * button and no second economy to balance.
  */
@@ -202,8 +202,8 @@ export function repairedByBuilding(building: Building): Building {
 /**
  * What a breach carries out, on top of the wrecking.
  *
- * Heavier than a street raid — this is somebody standing inside your warehouse rather than jumping
- * a truck — and still bounded by what the force could physically carry, which `raid.ts` decides.
+ * Heavier than a street raid. This is somebody standing inside your warehouse rather than jumping
+ * a truck, and still bounded by what the force could physically carry, which `raid.ts` decides.
  * The share here is the ceiling before that bound applies.
  */
 export const BREACH_LOOT_SHARE = 0.35;

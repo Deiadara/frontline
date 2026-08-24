@@ -10,7 +10,7 @@ import { findUnit, type Army } from './units/index.js';
 /**
  * Raiding a home district (GDD §A4).
  *
- * A crew's own district is the thirteen structures of §A1, and it **cannot be taken** — losing
+ * A crew's own district is the thirteen structures of §A1, and it **cannot be taken**: losing
  * everything you have built because you were asleep is not a strategy game. What it can be is
  * *robbed*, and left limping afterwards.
  *
@@ -27,7 +27,7 @@ import { findUnit, type Army } from './units/index.js';
 /**
  * Kilograms per unit of each resource.
  *
- * Caps are coins and paper — a thousand of them is a satchel. Scrap and metal are what they sound
+ * Caps are coins and paper: a thousand of them is a satchel. Scrap and metal are what they sound
  * like. This is the whole reason loot capacity is measured in kg rather than in "resources": it
  * makes the choice of *what* to carry out interesting, and it makes a light fast raid a real
  * strategy rather than a worse version of a heavy one.
@@ -41,7 +41,7 @@ export const RESOURCE_KG: Record<ResourceKey, number> = {
 };
 
 /**
- * The order raiders empty a stockpile in — most value per kilogram first.
+ * The order raiders empty a stockpile in: most value per kilogram first.
  *
  * Fixed rather than computed from a price table, because there is no market yet and a hard order
  * is honest about that. When §D5 lands this should read off it instead.
@@ -99,7 +99,7 @@ export function plunder(stock: Resources, capacityKg: number): PartialResources 
   return taken;
 }
 
-/** The weight of a bundle — what a defender's readout means by "they could carry it all". */
+/** The weight of a bundle: what a defender's readout means by "they could carry it all". */
 export function weightOf(bundle: PartialResources): number {
   return RESOURCE_KEYS.reduce((total, key) => total + (bundle[key] ?? 0) * RESOURCE_KG[key], 0);
 }
@@ -136,7 +136,7 @@ export function disruptionFrom(now: Date): Disruption {
  * How disrupted a district is *right now*, as a percentage.
  *
  * Derived from the stored expiry rather than stored as a live number, so it expires without
- * anything having to run — the same reason nothing else in this game has a scheduler.
+ * anything having to run: the same reason nothing else in this game has a scheduler.
  */
 export function disruptionPercentAt(disruption: Disruption, now: Date): number {
   if (disruption.until === null) return 0;
@@ -144,7 +144,7 @@ export function disruptionPercentAt(disruption: Disruption, now: Date): number {
 }
 
 /**
- * A second raid does not stack — it **refreshes**.
+ * A second raid does not stack: it **refreshes**.
  *
  * Stacking would let a coordinated pair of crews hold a district at zero output indefinitely,
  * which is a grief tactic rather than a strategy. Taking the later expiry keeps repeat raids

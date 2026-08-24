@@ -7,7 +7,7 @@
 -- is: they are read whole, written whole, and validated by a Zod schema on the way out, so a
 -- normalised table would buy nothing and cost a join on every read.
 --
--- `market_offers` is a table rather than a column because a listing is *shared* — it belongs to the
+-- `market_offers` is a table rather than a column because a listing is *shared*: it belongs to the
 -- board, not to either crew, and it has to be findable by everybody without loading every base.
 
 ALTER TABLE bases ADD COLUMN inventory_json TEXT;

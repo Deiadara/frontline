@@ -23,8 +23,8 @@ import {
  * two upgrades is asking the second question, and until this existed the only way to answer it was
  * to buy the level and go and look at the readouts underneath the district.
  *
- * Every figure comes from the same shared function the server settles with — `storageCapacity`,
- * `districtDefense`, `powerGrid` and the rest — evaluated against a district with this structure at
+ * Every figure comes from the same shared function the server settles with: `storageCapacity`,
+ * `districtDefense`, `powerGrid` and the rest: evaluated against a district with this structure at
  * the level in question. Nothing here has its own formula, and nothing here knows a constant the
  * game does not: a rebalance in `@frontline/shared` moves this line without anybody remembering to.
  */
@@ -75,7 +75,7 @@ function perHour(rates: PartialResources): string {
  *
  * A structure whose whole job is a district-wide percentage quotes the percentage; one that makes
  * something quotes the rate; the Nexus quotes the ceiling it holds everything else at, because that
- * *is* what a Nexus level buys. There is an entry for every kind — a missing one would leave the
+ * *is* what a Nexus level buys. There is an entry for every kind: a missing one would leave the
  * dialog for that structure quietly saying less than the others, which is the failure mode a
  * `Record` keyed on the union makes impossible.
  */
@@ -85,7 +85,7 @@ const LINES: Record<BuildingKind, (buildings: readonly Building[]) => StructureB
     value: `level ${buildings.find((b) => b.kind === 'nexus')?.level ?? 0}`,
   }),
   quarters: (buildings) => ({
-    label: 'Beds, and where morale settles',
+    label: 'Beds for everybody, and where morale settles',
     value: `${round(populationCapacity(buildings))} · morale ${round(moraleTarget(buildings))}`,
   }),
   greenhouse: (buildings) => ({

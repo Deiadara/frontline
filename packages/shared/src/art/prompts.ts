@@ -2,7 +2,7 @@
  * The prose half of the art pipeline: the shared style anchor, the shared negative prompt, the
  * per-class framing blocks and the per-asset subject blocks.
  *
- * Every string here is transcribed from `docs/ART-PROMPTS.md` and is the **only** copy — neither
+ * Every string here is transcribed from `docs/ART-PROMPTS.md` and is the **only** copy: neither
  * the manifest nor `scripts/gen-art.ts` may restate or paraphrase one. Whitespace is collapsed so
  * the hard wrapping in the doc (and in this file) never reaches a backend.
  */
@@ -14,12 +14,12 @@ import type { ResourceKey } from '../resources.js';
 /** Collapses authoring whitespace into a single-line prose block. */
 const block = (text: string): string => text.trim().replace(/\s+/g, ' ');
 
-/** ART-PROMPTS §0.1 — prepended verbatim to every prompt. */
+/** ART-PROMPTS §0.1: prepended verbatim to every prompt. */
 export const STYLE_ANCHOR = block(`
-  Hand-painted digital illustration in the style of Arcane (Fortiche) — painterly oil-and-gouache
+  Hand-painted digital illustration in the style of Arcane (Fortiche): painterly oil-and-gouache
   brushwork over solid draughtsmanship, between stylised and photoreal, never cel-shaded, never
   vector-flat. A Zaun-like undercity: cyberpunk machinery bolted onto a broken-down post-war
-  society, never a clean future. Scrap and salvage are the building material — corrugated iron,
+  society, never a clean future. Scrap and salvage are the building material: corrugated iron,
   patched brick, mismatched timber, cannibalised plating, jury-rigged pipework and cabling slung
   between structures nobody planned. Old, wrecked and newly-bolted-on machines stand side by side;
   nothing matches, nothing is finished, much of it is still broken. Split lighting: cold cyan key
@@ -28,15 +28,15 @@ export const STYLE_ANCHOR = block(`
   slate and ferrite (#1e293b, #475569, #94a3b8) against deep blue-black (#0a0e17, #05070d) and
   drifting smog (#3d4761, #55617e); saturation reserved for emissives only. Broken rim light along
   40-60 percent of the contour, two ramp stops brighter than the edge it runs along. Lost-and-found
-  edges — crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush
+  edges: crisp at the focal point, dissolving into atmospheric haze at depth. Visible brush
   economy: detail concentrated in the focal twenty percent, broad confident strokes elsewhere.
   Every surface shows wear, repair or decay; rust, soot, water-staining and improvised patching are
   the default finish and polished chrome is not. Emissives painted at their own hue rather than
-  white-hot — sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections
+  white-hot: sodium bulbs, cracked signage, exposed filament, lit unevenly with whole sections
   gone dark. Cinematic, moody, beautiful and quietly haunting.
 `);
 
-/** ART-PROMPTS §0.2 — applied to every prompt. */
+/** ART-PROMPTS §0.2: applied to every prompt. */
 export const NEGATIVE = block(`
   watermark, signature, ui overlay, hud, frame, border, caption,
   flat vector art, cel shading, hard black outlines, comic book inking, anime linework, clip art,
@@ -53,14 +53,14 @@ export const NEGATIVE = block(`
   extra limbs, deformed hands, mangled anatomy, duplicated faces, blurry, out of focus, lowres
 `);
 
-/** ART-PROMPTS §0.3 — the settings a backend adapter applies to every request. */
+/** ART-PROMPTS §0.3: the settings a backend adapter applies to every request. */
 export const GENERATION_SETTINGS = {
   /** FLUX guidance. gpt-image-1 has no CFG knob and uses `quality: 'high'` instead. */
   guidanceScale: 4.5,
   steps: 40,
 } as const;
 
-/** Per-class framing, appended after the subject. ART-PROMPTS §1–§6. */
+/** Per-class framing, appended after the subject. ART-PROMPTS §1-§6. */
 export const FRAMING = {
   portrait: block(`
     Head-and-shoulders portrait, three-quarter view, eyes on the upper-third line, subject facing
@@ -71,25 +71,25 @@ export const FRAMING = {
   district: block(`
     Oblique three-quarter aerial view looking down at roughly 40 degrees, horizon at forty percent
     height. Square 1:1 composition, focal subject within the central eighty percent. One dominant
-    mass, two or three secondary forms, a scatter of small interrupts — antennae, cables, signage,
+    mass, two or three secondary forms, a scatter of small interrupts: antennae, cables, signage,
     laundry lines. Something breaks the frame edge. Human-scale markers visible: doorways, walkways,
     a figure, a parked vehicle. Atmospheric perspective: every quarter of the depth shifts twenty
     percent toward #3d4761 and loses fifteen percent contrast.
   `),
   plate: block(`
     Wide 16:9 cinematic composition, high oblique view at roughly 35 degrees. Rendered
-    as a single continuous painted illustration, not a tiled texture. No focal subject — this is a
+    as a single continuous painted illustration, not a tiled texture. No focal subject. This is a
     stage, and the readable action sits on top of it.
   `),
   building: block(`
     Single isolated structure on a fully transparent background, three-quarter oblique view from
     slightly above, consistent 35-degree camera across all thirteen so they sit together on one
     ground plane. Ground contact in the bottom-centre twenty percent. No cast shadow, no ground, no
-    base plate — the renderer adds those. Square 1:1. Silhouette must be distinguishable from the
+    base plate: the renderer adds those. Square 1:1. Silhouette must be distinguishable from the
     other twelve at twenty-five percent scale filled solid black.
   `),
   ui: block(`
-    Game UI element on transparent background, painted rather than vector — hammered and etched
+    Game UI element on transparent background, painted rather than vector: hammered and etched
     metal plate with wear at the corners and edges, subtly asymmetric so it does not read as a
     template. Square 1:1, 1024px. The outer 96 pixels are the 9-slice corner and edge region; the
     inner region must be a flat, quiet, tileable field with no detail. Absolutely no text, no
@@ -98,7 +98,7 @@ export const FRAMING = {
   `),
   icon: block(`
     Single centred icon on a fully transparent background, painted with visible brushwork but
-    radically simplified — it must read cleanly at 24 pixels. Maximum two values plus one accent
+    radically simplified. It must read cleanly at 24 pixels. Maximum two values plus one accent
     hue. No text, no outline stroke, no drop shadow, no background plate. Square 1:1, subject
     filling the central seventy percent. Consistent implied light from upper-left across the whole
     set.
@@ -107,13 +107,13 @@ export const FRAMING = {
     Half-length figure study of one representative fighter, three-quarter view, weight on the back
     foot, weapon or tool held rather than posed with. Vertical 3:4 composition, head in the upper
     quarter, cropped mid-thigh. Painted on an abstracted plaster-and-soot ground with no readable
-    architecture — the card behind it carries the information, so the frame must stay quiet.
+    architecture: the card behind it carries the information, so the frame must stay quiet.
     Unhelmeted or visor-up wherever the unit's own description allows it, so the roster reads as
     people. No group shots, no insignia the player has not earned, no text.
   `),
 } as const;
 
-/** ART-PROMPTS §1 — keyed by `OverseerPreset.portraitId`. */
+/** ART-PROMPTS §1: keyed by `OverseerPreset.portraitId`. */
 export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
   'overseer-1': block(`
     A broad-shouldered man in his early fifties, ex-corporate security chief turned warlord.
@@ -121,7 +121,7 @@ export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
     stubble beard. Skin in warm ochre midtones (#8f5744, #5a352c) against the cold key. Scuffed matte
     riot armour over a high collar, chest plate cracked and field-welded, unit insignia sanded off.
     One dead eye replaced by a scratched steel ocular that catches the cyan key as a hard specular
-    point. Expression: flat, patient, unimpressed — a man who has already decided. Amber #f59e0b
+    point. Expression: flat, patient, unimpressed: a man who has already decided. Amber #f59e0b
     bounce from below rakes the underside of his jaw and armour ridges. Behind him, a barricade line
     dissolving into smog.
   `),
@@ -138,7 +138,7 @@ export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
   'overseer-3': block(`
     A lean man of indeterminate age, forties, a broker of favours and contraband. Slicked
     dark hair going silver at the temples, sharp cheekbones, a fine old blade scar through one eyebrow.
-    Deep olive skin, warmly lit — he is the one portrait where the amber #f59e0b bounce leads and the
+    Deep olive skin, warmly lit. He is the one portrait where the amber #f59e0b bounce leads and the
     cyan key is the rim. Immaculate but decades-out-of-date tailoring: a long charcoal coat over a
     mandarin collar, one gold-toned ring, everything else deliberately unremarkable. Expression: a
     courteous half-smile that does not reach the eyes. Behind him, a market arcade at night reduced to
@@ -146,7 +146,7 @@ export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
   `),
   'overseer-4': block(`
     A composed Black woman in her forties, former arcology infrastructure director. Close-cropped
-    natural hair, strong brow, deep rich skin holding both lights cleanly — cyan along the
+    natural hair, strong brow, deep rich skin holding both lights cleanly: cyan along the
     cheekbone and brow, amber under the jaw. Practical engineer's coat over a utility harness, sleeves
     rolled, a smear of conduit grease on one forearm she has not noticed. A slim monocular data lens
     folded up against her temple, its edge catching a thin #7ff0ff line. Expression: tired, certain,
@@ -155,7 +155,7 @@ export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
   `),
 };
 
-/** ART-PROMPTS §2 — keyed by `District.id`. */
+/** ART-PROMPTS §2: keyed by `District.id`. */
 export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
   'neon-docks': block(`
     A working freight dock built into a flooded canal trench under a raised motorway. Stacked
@@ -169,7 +169,7 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
     A hillside of stepped concrete tenements under a permanent fall of pale ash, terraces
     planted with dead and dying greenery. Amber #f59e0b sodium lamps burning through the ashfall in
     soft haloes; laundry grey with fallout. Retaining walls buttressed with scavenged steel. A
-    funicular track climbs the slope. Quiet, elegiac, almost beautiful — a place that used to be
+    funicular track climbs the slope. Quiet, elegiac, almost beautiful: a place that used to be
     desirable. Two figures on separate terraces, not looking at each other.
   `),
   rustyard: block(`
@@ -186,7 +186,7 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
     Predatory, clinical, expensive.
   `),
   undergrid: block(`
-    A vast subterranean utility cavern below the city — the old power grid, still live.
+    A vast subterranean utility cavern below the city: the old power grid, still live.
     Bundled conduit running the walls like roots, transformer housings the size of buildings, standing
     water skinned with iridescent chemical film. The only light is toxic green #43b56e leaking from
     coolant seams and inspection ports, with the cyan key entering as a single distant shaft from a
@@ -209,19 +209,19 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
   'kettle-row': block(`
     A long residential terrace along a southern cut, boiler houses venting between every third
     building so the whole street sits under drifting warm-lit steam. Washing strung across the gap at
-    three storeys. Front steps in constant use — this is the one district rendered as *inhabited*
+    three storeys. Front steps in constant use. This is the one district rendered as *inhabited*
     rather than as infrastructure: figures on the steps, a game in the road, a repaired door standing
     open. Warm #f59e0b sodium led, the cyan key arriving only down the length of the cut.
   `),
   'blacksite-7': block(`
-    A hardened military compound sunk into a bomb crater — sloped ferrocrete revetments,
+    A hardened military compound sunk into a bomb crater: sloped ferrocrete revetments,
     staggered blast walls, a squat command bunker with slit apertures leaking hostile magenta #e11d8f
     light. Automated turret masts on the perimeter. Vehicle ramps descending out of sight. No signage,
     no windows, no invitation. Searchlight beams sweeping the crater walls. The magenta is the only
     saturated colour in frame and it reads as a warning.
   `),
   'combine-spire': block(`
-    The single tallest structure in the city — a corporate megaspire punching through the smog
+    The single tallest structure in the city: a corporate megaspire punching through the smog
     ceiling into clear air, its lower two thirds lost in haze so only the crowning arcology is legible.
     Buttressed, ribbed, cathedral-like, deliberately intimidating. Magenta #e11d8f beacon light bleeding
     down the ribs; the summit catches an ambient dawn that never reaches the streets. Skybridges
@@ -230,10 +230,10 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
   `),
 };
 
-/** ART-PROMPTS §3 — map plates, parallax planes and the auth splash, keyed by asset key. */
+/** ART-PROMPTS §3: map plates, parallax planes and the auth splash, keyed by asset key. */
 export const PLATE_SUBJECTS = {
   'plate-city': block(`
-    The mid-ground of a dense cyberpunk city interior seen from above and at an angle — a
+    The mid-ground of a dense cyberpunk city interior seen from above and at an angle: a
     continuous carpet of stacked roofs, canal trenches, elevated roadways, courtyards and light wells,
     with clear negative-space clearings distributed across the frame for interactive markers to sit in.
     Value kept deliberately in the middle range (#1e293b to #55617e) so bright interactive nodes will
@@ -243,15 +243,15 @@ export const PLATE_SUBJECTS = {
   `),
   'plate-district': block(`
     A crew's own walled compound seen from directly above and slightly forward, a town-view camera
-    with **no sky and no horizon** — the whole frame is ground. Drawn as the ground *only*: the
+    with **no sky and no horizon**: the whole frame is ground. Drawn as the ground *only*: the
     structures are painted separately and dropped on top, so every place one would stand is an
     empty, flat, quiet pad. Thirteen such pads in three staggered rows of four, five and four,
     spread wide apart, with broad dirt roads and duckboard walkways running between them in both
-    directions and off all four edges — the lanes between the pads are the whole composition, and
+    directions and off all four edges: the lanes between the pads are the whole composition, and
     they must read as somewhere people walk. Ground is packed dirt, cracked slab, gravel and
     puddled standing water, patched with steel plate and old rail. The top edge of the frame is the
     compound's back wall: gabion baskets, sheet pile, stacked containers and a lit guard post, not
-    open country. Scatter lives beside the roads and never on a pad — spoil heaps, oil drums,
+    open country. Scatter lives beside the roads and never on a pad: spoil heaps, oil drums,
     pallet stacks, a burnt-out chassis, cable runs pinned along the wall, drying laundry strung
     between poles. Value kept in the middle range (#1e293b to #55617e), the ground reading a step
     warmer and darker as it comes toward the viewer. Cold #22d3ee key from upper left, weak sodium
@@ -267,22 +267,22 @@ export const PLATE_SUBJECTS = {
   `),
   'plane-city-far': block(`
     A band of mid-distance city blocks and towers standing against a flat unshaded magenta
-    #ff00ff background — everything above the skyline, the top forty percent of the canvas, is that
+    #ff00ff background: everything above the skyline, the top forty percent of the canvas, is that
     magenta and nothing else, with no gradient, glow, haze or shading in it. Silhouettes are
     simplified, values compressed toward #2a3348 to #55617e, with sparse tiny window lights. No
     magenta, pink or violet appears anywhere in the towers themselves. Nothing that breaks the
-    skyline may be thinner than three pixels at 2048 wide — antenna masts and spire tips stay blunt
+    skyline may be thinner than three pixels at 2048 wide: antenna masts and spire tips stay blunt
     and stubby, never hairlines, and there are no wires or cables, and the towers are separated by
     open magenta at least three pixels wide, never a hairline slot. Detail suppressed: this sits
     behind everything and must never compete.
   `),
   'plane-city-fore': block(`
     Foreground occluding elements only, on a flat unshaded magenta #ff00ff background, arranged
-    around the frame edges and corners — a cantilevered pipe run entering from the upper left, a heavy
+    around the frame edges and corners: a cantilevered pipe run entering from the upper left, a heavy
     sagging cable trunk across the top, a signage gantry in the lower right, a crane arm cutting the
     upper right corner. Near-silhouette, values #05070d to #1e293b, with a cold rim on the key side,
     and no magenta, pink or violet anywhere in the elements themselves. Nothing may
-    be thinner than three pixels at 2048 wide — the cable trunk is one heavy sagging mass, the rim a
+    be thinner than three pixels at 2048 wide: the cable trunk is one heavy sagging mass, the rim a
     broad band, and the gantry and crane arm are built from chunky box members rather than open
     lattice or truss work, with no hairline wires and no single-pixel rims or edges, and every gap of
     open magenta these elements leave against the frame is at least three pixels wide, never a
@@ -292,13 +292,13 @@ export const PLATE_SUBJECTS = {
     A lone figure seen from behind, small in frame, standing at a railing overlooking the
     whole city at night in rain. The city fills the lower two thirds as a field of tiny warm and cold
     lights under smog; the Combine Spire is a dark presence far right. Keep the central forty percent
-    by fifty percent of the canvas low-contrast, quiet and free of detail — a login form sits there.
+    by fifty percent of the canvas low-contrast, quiet and free of detail: a login form sits there.
     The most romantic and most haunting image in the game.
   `),
 } as const;
 
 /**
- * ART-PROMPTS §4 — keyed by `BuildingKind`, one per plot in the district view.
+ * ART-PROMPTS §4: keyed by `BuildingKind`, one per plot in the district view.
  *
  * Thirteen silhouettes that have to be told apart at roughly 90px wide, side by side, in one
  * palette. Each entry therefore names the *shape* it must read as before it names any detail: the
@@ -307,81 +307,81 @@ export const PLATE_SUBJECTS = {
  */
 export const BUILDING_SUBJECTS: Readonly<Record<BuildingKind, string>> = {
   nexus: block(`
-    A commandeered transit hub turned command post — a low armoured drum with a canted upper
+    A commandeered transit hub turned command post: a low armoured drum with a canted upper
     observation ring of slit windows glowing cold #22d3ee, a cluster of antenna masts and a dish
     offset to one side, an external stair spiralling to a roof hatch, and a faded transit chevron
     still legible on the drum. Sandbagged at the base, cabling bundled down one flank. Authoritative,
     squat, the tallest silhouette by a small margin.
   `),
   quarters: block(`
-    Stacked living containers — three tiers of shipping cans welded into a block, external
+    Stacked living containers: three tiers of shipping cans welded into a block, external
     stairs zigzagging the face, a drying line strung between two tiers, window cutouts glowing warm
     #f59e0b in an irregular scatter. A stove flue trails thin smoke from the top tier. The most
     obviously inhabited silhouette: personal clutter, a chair, boots.
   `),
   greenhouse: block(`
-    A grow-house — a long low barrel-vault of mismatched salvaged glazing on a steel rib
+    A grow-house: a long low barrel-vault of mismatched salvaged glazing on a steel rib
     frame, condensation fogging the panels, dense green foliage pressed against them from inside.
     Grow lamps burn a flat magenta-white #f0abfc through the fog in even bands. A rainwater tank
     strapped to one gable. Horizontal, softly glowing, the only green in the district.
   `),
   generator: block(`
-    A turbine block — a fat containment drum in a scaffold cradle, ribbed cooling fins, three
+    A turbine block: a fat containment drum in a scaffold cradle, ribbed cooling fins, three
     exhaust stacks venting white vapour, and a bunded fuel tank fused to one flank with a hose run
     to the drum. Seams and inspection ports leak hot #f59e0b light; one warning-striped panel is
     missing and field-patched. Heavy, industrial, faintly menacing.
   `),
   scrapyard: block(`
-    A salvage works — an angled press house with a torch bay open to the air, a raised sorting
+    A salvage works: an angled press house with a torch bay open to the air, a raised sorting
     deck, a crooked flue stack trailing dark smoke, a gantry crane over a scrap heap fused into its
     flank. Cutting sparks throw #ffd166 light up under the deck. Widest and lowest of the industrial
     group, and the most cluttered silhouette in the district.
   `),
   cistern: block(`
-    A water treatment stack — two riveted settling tanks of differing heights joined by an
+    A water treatment stack: two riveted settling tanks of differing heights joined by an
     external pipe bridge, a sand-filter housing at the base, and a UV stage bolted on last in
     obviously newer metal. A cold #22d3ee inspection lamp over the outflow. Wet staining down the
     tank flanks. Cylindrical, paired, immediately unlike anything else on the ground.
   `),
   apothecary: block(`
-    A dispensary-warehouse — a windowless block with one heavy roller shutter half raised,
+    A dispensary-warehouse: a windowless block with one heavy roller shutter half raised,
     deep racking visible in the gap, a small barred serving hatch beside it lit warm #f59e0b, and
     hand-painted apothecary symbols weathering off the render. Crates stacked under an awning.
-    Closed, orderly, guarded — the only building that looks locked.
+    Closed, orderly, guarded: the only building that looks locked.
   `),
   gate: block(`
-    A perimeter gate — a ferrocrete slab wall with a razorwire crown, one buttressed pier, a
+    A perimeter gate: a ferrocrete slab wall with a razorwire crown, one buttressed pier, a
     firing step behind, and a single armoured gate leaf hung slightly out of true. Impact scarring
     and hasty patch-plates across the face. Lowest and widest silhouette; must read as horizontal
     against everything else.
   `),
   lab: block(`
-    A research stack — a vertical black slab of racked datacores behind a louvred skin, cold
+    A research stack: a vertical black slab of racked datacores behind a louvred skin, cold
     #12a2bd status light bleeding through the louvres in horizontal bands, a whiteboard wall visible
     through one lit ground-floor window. A dense fan of fibre trunking sweeps out of its base.
     Thermal shimmer above. The tallest and thinnest silhouette.
   `),
   gauntlet: block(`
-    A training ground — an open run of welded obstacles, a climbing frame of scaffold pipe, a
+    A training ground: an open run of welded obstacles, a climbing frame of scaffold pipe, a
     rope wall and a low crawl tunnel, with a single-storey equipment shed at one end and a flood
     lamp on a pole throwing hard white light across the course. Mostly open ground: the one plot
     that reads as an *area* rather than a structure.
   `),
   infirmary: block(`
-    A clinic — a small clean-walled prefab with a red-cross panel repainted over something
+    A clinic: a small clean-walled prefab with a red-cross panel repainted over something
     else, a wide entry ramp, a sealed vestibule with an interior lamp burning steady cold white, and
     a stack of gas cylinders chained beside the door. An air handler grumbling on the roof. The
     tidiest building on the ground, deliberately at odds with everything around it.
   `),
   garage: block(`
-    A motor pool — a deep-mouthed open bay tall enough for a mast, a gantry crane on rails
+    A motor pool: a deep-mouthed open bay tall enough for a mast, a gantry crane on rails
     across the opening, an inspection pit with a stripped chassis over it, and a half-built rotor
     assembly on trestles to one side under a tarpaulin. Work lamps on stands throw long shadows out
     of the bay. The deepest silhouette: the only one that reads as an interior.
   `),
 };
 
-/** ART-PROMPTS §5 — UI frames and HUD plates, keyed by asset key. */
+/** ART-PROMPTS §5: UI frames and HUD plates, keyed by asset key. */
 export const UI_SUBJECTS = {
   'ui-frame-panel': block(`
     A rectangular equipment-panel frame of dark #1e293b brushed steel with a thin inset
@@ -389,7 +389,7 @@ export const UI_SUBJECTS = {
     inner channel as though lit from behind. One corner shows a chipped edge and a paint scuff.
   `),
   'ui-frame-modal': block(`
-    A heavier armoured hatch frame — thicker bezel than the panel, chamfered outer edge,
+    A heavier armoured hatch frame: thicker bezel than the panel, chamfered outer edge,
     two recessed handle lugs top and bottom, faint radial scoring across the plate, and a warning-stripe
     remnant worn nearly away along the lower edge. Cyan channel light, slightly brighter than
     the panel frame.
@@ -397,27 +397,27 @@ export const UI_SUBJECTS = {
   'ui-frame-hud': block(`
     A wide horizontal instrument plate spanning the full width, with a raised rail along the
     bottom edge, six evenly spaced blank recessed instrument bays across the middle band, and mounting
-    brackets at both ends. The bays are empty sockets — no dials, no readouts, no text.
+    brackets at both ends. The bays are empty sockets: no dials, no readouts, no text.
   `),
   'ui-plate-button': block(`
-    A single rectangular pressable key plate — slightly domed face, chamfered edge, worn
+    A single rectangular pressable key plate: slightly domed face, chamfered edge, worn
     brighter in the centre where a thumb has rubbed it for years, a thin cyan #22d3ee underglow escaping
     from the seam beneath. Quiet and dark; this must not compete with the label the app renders on top.
   `),
   'ui-plate-nav': block(`
     A tall narrow vertical rail plate with a repeating ladder of blank recessed mounting slots
     down its length, a cable channel along one side, and a cyan #22d3ee light strip running the full
-    height in a recessed groove. The slots are empty — no icons.
+    height in a recessed groove. The slots are empty: no icons.
   `),
   'ui-divider': block(`
-    A thin horizontal trim strip — a machined groove with a single cyan #22d3ee filament in
+    A thin horizontal trim strip: a machined groove with a single cyan #22d3ee filament in
     it, terminating at both ends in a small bolted end-cap. Extreme aspect: the element occupies only
     the central horizontal eighth of the canvas; the rest is fully transparent.
   `),
 } as const;
 
 /**
- * ART-PROMPTS §6.1 — keyed by `ResourceKey`, so a resource added to `ResourcesSchema` cannot ship
+ * ART-PROMPTS §6.1: keyed by `ResourceKey`, so a resource added to `ResourcesSchema` cannot ship
  * without an icon prompt. The asset id is the kebab-cased key (`highQualityMetal` →
  * `icon-high-quality-metal`), which `art/manifest.ts` derives; never hand-write one.
  */
@@ -437,8 +437,8 @@ export const RESOURCE_ICON_SUBJECTS: Readonly<Record<ResourceKey, string>> = {
     surface of the slick.
   `),
   scrap: block(`
-    A bundle of salvaged offcuts wired together at the middle — bent rebar, a torn hull plate, a
-    coiled length of stripped cable — cold #94a3b8 light along the freshly broken edges, dull and
+    A bundle of salvaged offcuts wired together at the middle, bent rebar, a torn hull plate, a
+    coiled length of stripped cable, cold #94a3b8 light along the freshly broken edges, dull and
     powdery everywhere else.
   `),
   highQualityMetal: block(`
@@ -448,7 +448,7 @@ export const RESOURCE_ICON_SUBJECTS: Readonly<Record<ResourceKey, string>> = {
   `),
 };
 
-/** ART-PROMPTS §6.2 — keyed by `OverseerArchetype`. */
+/** ART-PROMPTS §6.2: keyed by `OverseerArchetype`. */
 export const ARCHETYPE_ICON_SUBJECTS: Readonly<Record<OverseerArchetype, string>> = {
   enforcer: block(`
     A battered riot shield seen at a slight angle, one corner deformed by impact, a single
@@ -468,10 +468,10 @@ export const ARCHETYPE_ICON_SUBJECTS: Readonly<Record<OverseerArchetype, string>
   `),
 };
 
-/** ART-PROMPTS §6.3 — keyed by `DistrictKind`. */
+/** ART-PROMPTS §6.3: keyed by `DistrictKind`. */
 export const DISTRICT_KIND_ICON_SUBJECTS: Readonly<Record<DistrictKind, string>> = {
   residential: block(`
-    A small fortified compound seen from above — a walled square with a central drum and a gate
+    A small fortified compound seen from above: a walled square with a central drum and a gate
     notch, cyan #22d3ee light in the courtyard.
   `),
   contested: block(`
@@ -480,7 +480,7 @@ export const DISTRICT_KIND_ICON_SUBJECTS: Readonly<Record<DistrictKind, string>>
   `),
 };
 
-/** ART-PROMPTS §6.4 — keyed by `LocationKind`. The map markers inside a contested district. */
+/** ART-PROMPTS §6.4: keyed by `LocationKind`. The map markers inside a contested district. */
 export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
   scrap_press: block(`
     A baling press seen from above with a squared bale on the outfeed and a scatter of loose
@@ -575,6 +575,10 @@ export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
     A long trestle table seen from above with two steaming vats at one end and a queue of small
     marks along it, warm #f59e0b light.
   `),
+  refugee_camp: block(`
+    A cluster of lean-to shelters against a chain-link fence seen from above, tarpaulins in muted
+    #94a3b8, two small cook fires in warm #f59e0b.
+  `),
   downtown_market: block(`
     An exchange floor seen from above, a ring of desks around an open pit with a price board on
     the far wall in #22d3ee.
@@ -651,7 +655,7 @@ export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
 };
 
 /**
- * ART-PROMPTS §7 — keyed by `UnitSpec.id`, so a unit added to `UNIT_CATALOG` cannot ship without a
+ * ART-PROMPTS §7: keyed by `UnitSpec.id`, so a unit added to `UNIT_CATALOG` cannot ship without a
  * portrait prompt. The asset id is the kebab-cased unit id (`road_reavers` → `unit-road-reavers`),
  * which `art/manifest.ts` derives; never hand-write one.
  *
@@ -670,14 +674,14 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
   anodics: block(`
     A short, densely built figure in a stretched cardigan over a stained shirt, sleeves shoved to
     the elbow, forearms thick. A narrow strip of hair, no more than two fingers wide, stiff and
-    short — the rest of the scalp shaved down. One hand around the neck of a small brown bottle
+    short: the rest of the scalp shaved down. One hand around the neck of a small brown bottle
     with a hand-lettered label, held like a tool rather than a drink; the other loose and open at
     the hip. Reading glasses pushed up into the mohawk. Pupils blown wide, jaw set, entirely calm
     in a way that is not restful. Warm #f59e0b key from below as if from a floor lamp, cold
     #22d3ee rim along the shoulders.
   `),
   sparks: block(`
-    A teenager holding a home-made electrical lance — a scaffold pole with a capacitor bank taped
+    A teenager holding a home-made electrical lance: a scaffold pole with a capacitor bank taped
     along it and two bare contacts at the tip. Welding goggles pushed up on the forehead, hands
     gloved in mismatched rubber. A single #7ff0ff arc crawling between the contacts is the
     brightest thing in frame, and it lights the face from below.
@@ -704,7 +708,7 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
   `),
   ghosts: block(`
     A slight figure in a matte grey wrap suit with a soft hood and a scarf over the mouth, holding
-    a suppressed carbine down along the leg. No hard edges and no shine anywhere on the fabric —
+    a suppressed carbine down along the leg. No hard edges and no shine anywhere on the fabric:
     the only speculars are the eyes and a thin #22d3ee line along the optic.
   `),
   road_reavers: block(`
@@ -713,8 +717,8 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     scarf still moving. Warm #f59e0b headlamp glare from below and behind the shoulder.
   `),
   ironsides: block(`
-    A soldier encased front-on in overlapping salvaged plate — road sign, hull steel, a car door
-    panel — strapped over a padded frame, with a slit visor and a short blade held close. Wide,
+    A soldier encased front-on in overlapping salvaged plate, road sign, hull steel, a car door
+    panel, strapped over a padded frame, with a slit visor and a short blade held close. Wide,
     immovable stance. Cold light rakes across the mismatched plates and finds a different colour
     in each.
   `),
@@ -730,7 +734,7 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
   `),
   stitchers: block(`
     A field medic in a rolled-sleeve coat with a heavy satchel across the body and a strip of
-    surgical tape on the forearm holding a spare line in place. Both hands busy — one clamping a
+    surgical tape on the forearm holding a spare line in place. Both hands busy: one clamping a
     dressing, one reaching. Warm #ffd166 light from a headband lamp turned down onto the work.
   `),
   demolishers: block(`
@@ -754,8 +758,8 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     mid-gesture. Cyan #7ff0ff runs along the leads and reflects in a wet-looking eye.
   `),
   sleepers: block(`
-    An unremarkable person in ordinary work clothes — coveralls, a laminated pass on a lanyard, a
-    canvas bag — standing squarely and looking directly at the viewer. No visible weapon. The only
+    An unremarkable person in ordinary work clothes, coveralls, a laminated pass on a lanyard, a
+    canvas bag, standing squarely and looking directly at the viewer. No visible weapon. The only
     thing wrong is the stillness, and one hand already inside the bag.
   `),
   cyber_dogs: block(`
@@ -775,7 +779,7 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     frame. Broad, planted, patient; warm bounce from a work lamp out of frame.
   `),
   juggernauts: block(`
-    A fully augmented heavy assault trooper — a human silhouette only at the head, with the arms
+    A fully augmented heavy assault trooper: a human silhouette only at the head, with the arms
     and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts.
     A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm
     #8a5209 leaks from the joint seams.
@@ -783,7 +787,7 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
   hollow_men: block(`
     A shock trooper standing too straight in matte assault plate, faceplate open on an expression
     of complete calm, pupils blown wide. Surgical scarring in a neat arc above one temple. Blood on
-    the gauntlets, none anywhere else. Even flat light, almost no shadow — nothing to read.
+    the gauntlets, none anywhere else. Even flat light, almost no shadow: nothing to read.
   `),
   the_condemned: block(`
     A convict fighter in a stripped prison coverall with the sleeves torn away, a welded collar at
@@ -791,7 +795,7 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     older scars beneath it. Head lifted, grinning; harsh cold key from directly above.
   `),
   the_specter: block(`
-    A figure caught mid-decloak — the outline is complete but the body is only present in patches,
+    A figure caught mid-decloak: the outline is complete but the body is only present in patches,
     the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is solid
     is a matte infiltration suit and one long knife. No face resolves.
   `),
@@ -810,7 +814,7 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
   the_saint: block(`
     An older fighter in a long weathered coat over plain plate, unarmed hands open at the sides, a
     sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely calm. The
-    one portrait lit warmly from the front — amber #ffd166 across the face, cold #22d3ee only as a
+    one portrait lit warmly from the front: amber #ffd166 across the face, cold #22d3ee only as a
     thin rim.
   `),
   the_cartographer: block(`

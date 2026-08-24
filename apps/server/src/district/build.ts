@@ -1,6 +1,5 @@
 import { adminWaives } from '../admin/mode.js';
 import {
-  BUILDING_CATALOG,
   BUILDING_MAX_LEVEL,
   CENTRAL_BUILDING,
   MAX_BUILD_QUEUE,
@@ -22,16 +21,18 @@ import {
   buildingParts,
   hasItems,
   removeItems,
+  unmetForQueue,
+  type BuildingRequirement,
 } from '@frontline/shared';
 import { adminCost, adminSeconds } from '../admin/mode.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
- * Placing one build order (GDD §A1, §D3 — oil is what building consumes).
+ * Placing one build order (GDD §A1, §D3: oil is what building consumes).
  *
- * Construction and upgrading are the same move — a plot with nothing on it is ordered to level 1, a
- * plot with something on it goes up one — so there is one gate list and one spend, not two of each.
+ * Construction and upgrading are the same move: a plot with nothing on it is ordered to level 1, a
+ * plot with something on it goes up one, so there is one gate list and one spend, not two of each.
  * What this does *not* do is raise anything: the order goes into the queue and `settleDistrict`
  * stands it up when its clock runs out.
  */
@@ -62,7 +63,7 @@ export interface BuildInput {
    * Carried on the input rather than read off a module-level flag so the override is visible in
    * every call and a test can have both modes in the same file.
    *
-   * It waives the price, the clock, and every gate in {@link adminWaives} — which now includes the
+   * It waives the price, the clock, and every gate in {@link adminWaives}, which now includes the
    * Nexus's authorisation and its level cap, because a reviewer who wants to look at the Garage
    * should not have to spend the afternoon buying twelve Nexus levels first. What it cannot waive
    * is {@link BUILDING_MAX_LEVEL}: there is no twenty-first level to queue.
@@ -74,7 +75,7 @@ export interface BuildInput {
  * The first reason this order cannot be placed, or `null` if it can.
  *
  * The ceilings are told apart on purpose. Hitting {@link BUILDING_MAX_LEVEL} is the end of the
- * content; hitting the Nexus's level is an instruction — raise the Nexus first — and being locked
+ * content; hitting the Nexus's level is an instruction, raise the Nexus first, and being locked
  * is a third thing again, a structure the Nexus is not yet senior enough to authorise at all. A
  * player who cannot tell the three apart cannot act on any of them.
  */
@@ -85,7 +86,7 @@ function refusalFor({
 }: Omit<BuildInput, 'id' | 'now'>): BuildRefusal | null {
   const { buildings, buildQueue } = base;
 
-  if (!isUnlockedForQueue(structure, buildings, buildQueue)) return 'locked';
+  if (!isUnlockedForQueue(structure, buildings, buildQueue, base.level)) return 'locked';
 
   const level = nextQueuedLevel(structure, buildings, buildQueue);
   if (level === null) {
@@ -112,7 +113,7 @@ function refusalFor({
  * discount a build gets is the Nexus the crew actually has while they do the work. Only the
  * *level* comes from the projection, because that is a question about what has already been paid
  * for rather than about how fast anyone is working. Both are frozen onto the entry, so raising the
- * Nexus never retimes or re-prices work already under way — the same rule a mission's clock follows.
+ * Nexus never retimes or re-prices work already under way: the same rule a mission's clock follows.
  */
 export function queueBuild(repos: Repositories, input: BuildInput): BuildResult {
   const { base, structure, id, now, admin = false } = input;
@@ -121,7 +122,7 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
 
   // The level the order is for.
   //
-  // Normally `nextQueuedLevel`, which is null exactly when the Nexus caps it — and admin mode has
+  // Normally `nextQueuedLevel`, which is null exactly when the Nexus caps it, and admin mode has
   // just waived that cap, so the level has to be worked out without it. Falling back to `1` here
   // (which is what the null case used to do) would queue a *first* level for a structure that
   // already has six, and the district would come back wrong on the next read.
@@ -129,13 +130,13 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
   const level =
     nextQueuedLevel(structure, base.buildings, base.buildQueue) ??
     buildingLevel(projected, structure) + 1;
-  // §F2 — the crew is half of how fast and how cheaply a thing goes up. Organization keeps a long
+  // §F2: the crew is half of how fast and how cheaply a thing goes up. Organization keeps a long
   // job moving and Dexterity finishes the fiddly end of it; Fabrication makes the part rather than
   // buying it. Frozen onto the entry with the rest, so hiring an engineer mid-build does not
   // retime work already under way.
   const effects = standingEffectsFor(repos, base);
   const cost = discounted(buildingCost(structure, level, base.buildings), effects.buildCostPercent);
-  // §A1 — the handful of levels that ask for a part as well as a price. Taken at the moment the
+  // §A1: the handful of levels that ask for a part as well as a price. Taken at the moment the
   // order is placed, like the materials: a queued build has already been paid for.
   const parts = buildingParts(structure, level);
 
@@ -169,12 +170,19 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
 }
 
 /**
- * The two numbers a `locked` or `nexus_cap` refusal needs to say something useful: what the Nexus
- * is at, and what it would have to reach.
+ * What a `locked` or `nexus_cap` refusal needs to say something useful.
+ *
+ * `at` is where the Nexus stands, for the cap message. `unmet` is every clause the district and
+ * the crew still fail: the whole list rather than the first one, because "you need the Nexus at 8"
+ * followed by "you need Quarters at 4" is two round trips for one answer, and the district screen
+ * shows the same list in its hover note.
  */
-export function nexusGate(structure: BuildingKind, base: Base): { at: number; needs: number } {
+export function nexusGate(
+  structure: BuildingKind,
+  base: Base,
+): { at: number; unmet: BuildingRequirement[] } {
   return {
     at: buildingLevel(base.buildings, CENTRAL_BUILDING),
-    needs: BUILDING_CATALOG[structure].requiresNexusLevel,
+    unmet: unmetForQueue(structure, base.buildings, base.buildQueue, base.level),
   };
 }

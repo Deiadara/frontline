@@ -20,7 +20,7 @@ import { useNegotiate } from '../../lib/queries';
 /**
  * Sitting down with somebody about money (§H7).
  *
- * The Bar had a number field and an Offer button, which is a form for submitting a bid — the
+ * The Bar had a number field and an Offer button, which is a form for submitting a bid: the
  * negotiation happened entirely inside one server call and the player never saw it. This is the
  * same rules with the conversation put back on top: they open, you say a number, they answer in
  * their own voice, their demand moves or it does not, and you can feel their patience going.
@@ -36,7 +36,7 @@ import { useNegotiate } from '../../lib/queries';
  *   that makes its negotiations feel like negotiations: it is the cost of the next lowball, made
  *   visible before you pay it.
  *
- * The floor is never labelled, because working out where it is *is* the game — and the card behind
+ * The floor is never labelled, because working out where it is *is* the game, and the card behind
  * this window already tells an attentive player exactly enough to derive it.
  */
 
@@ -64,14 +64,14 @@ export interface NegotiationDialogProps {
   recruit: BarRecruit;
   /** Where the conversation stands, or `null` if it has not started. */
   standing: Negotiation | null;
-  /** Caps in hand — an offer that cannot be paid for is not an offer. */
+  /** Caps in hand: an offer that cannot be paid for is not an offer. */
   caps: number;
   onClose: () => void;
   /**
    * Every turn, as it lands.
    *
    * The card behind this window shows the standing demand and whether the character has walked,
-   * and the negotiate call deliberately does not refetch the Bar — a whole-roster reload
+   * and the negotiate call deliberately does not refetch the Bar: a whole-roster reload
    * mid-sentence would swap this window's state out from under the player. So the state comes back
    * up this way instead.
    */
@@ -83,7 +83,7 @@ export interface NegotiationDialogProps {
    *
    * The role picker lives in here rather than only on the card because **the handshake and the
    * signature are one moment**. Agreeing a wage and then closing the window to go and find a
-   * separate Offer button is how somebody says yes and never joins the crew — which is exactly
+   * separate Offer button is how somebody says yes and never joins the crew, which is exactly
    * what happened: the agreement wrote a number into the card's counter-offer slot, the card said
    * "Turned it down", and nobody was hired.
    */
@@ -91,7 +91,7 @@ export interface NegotiationDialogProps {
   /** Signs them at the agreed wage. The Bar owns the mutation; this window owns the moment. */
   onSign: (role: OfficerRole, wage: number) => void;
   signing: boolean;
-  /** Why the signature is refused right now — a full roster, the day's one signing already spent. */
+  /** Why the signature is refused right now: a full roster, the day's one signing already spent. */
   signBlocked: string | null;
   signError: string | null;
 }
@@ -114,7 +114,7 @@ export function NegotiationDialog({
   // A conversation that has not started yet is opened *here* rather than defaulted to zeroes: the
   // opening position is a pure function of the asking price and §H4, so the client can draw it
   // exactly as the server would create it. A hand-rolled placeholder got this wrong in the obvious
-  // way — patience of zero, which drew an empty meter next to somebody who had not said a word.
+  // way: patience of zero, which drew an empty meter next to somebody who had not said a word.
   const opening = standing ?? openNegotiation(asking, recruit.ambition, recruit.moralCompass);
 
   const [state, setState] = useState<Negotiation>(opening);
@@ -122,7 +122,7 @@ export function NegotiationDialog({
   // reservation value would hand the player the one number the whole negotiation is about finding.
   const [offer, setOffer] = useState<string>(String(opening.standing));
   // Seeded with the character's opening line so the window is never a blank room. It is not part
-  // of the server's state — an opening line is a pure function of who they are.
+  // of the server's state: an opening line is a pure function of who they are.
   const [said, setSaid] = useState<Exchange[]>(() => [
     { offer: null, said: negotiationLine(recruit.moralCompass, 'opening', 0), mood: 'opening' },
   ]);
@@ -169,7 +169,7 @@ export function NegotiationDialog({
           </p>
           <h2
             id="negotiation-title"
-            className="mt-1 font-hand text-[28px] leading-tight text-ink-100"
+            className="mt-1 font-stamp text-[21px] leading-tight text-ink-100"
           >
             {recruit.name}
           </h2>
@@ -179,7 +179,7 @@ export function NegotiationDialog({
             Asking now
           </span>
           <span
-            className="block font-hand text-[30px] leading-none text-brass-100"
+            className="block font-stamp text-[22px] leading-none text-brass-100"
             data-testid="negotiation-standing"
           >
             {state.standing.toLocaleString()}
@@ -198,7 +198,7 @@ export function NegotiationDialog({
           <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
             Wants
           </dt>
-          <dd className="font-hand text-[19px] leading-none text-ink-100">
+          <dd className="font-stamp text-[14px] leading-none text-ink-100">
             {AMBITION_SPECS[recruit.ambition].label}
           </dd>
         </div>
@@ -206,7 +206,7 @@ export function NegotiationDialog({
           <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
             How far they go
           </dt>
-          <dd className="font-hand text-[19px] leading-none text-ink-100">
+          <dd className="font-stamp text-[14px] leading-none text-ink-100">
             {MORAL_COMPASS_SPECS[recruit.moralCompass].label}
           </dd>
         </div>
@@ -214,7 +214,7 @@ export function NegotiationDialog({
           <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
             Opened at
           </dt>
-          <dd className="font-hand text-[19px] leading-none tabular-nums text-ink-100">
+          <dd className="font-stamp text-[14px] leading-none tabular-nums text-ink-100">
             {asking.toLocaleString()}
           </dd>
         </div>
@@ -227,16 +227,16 @@ export function NegotiationDialog({
       >
         {said.map((exchange, index) => (
           <div key={index} className="flex flex-col gap-2">
-            {/* What the player said, ranged right — the two sides of a table. */}
+            {/* What the player said, ranged right: the two sides of a table. */}
             {exchange.offer !== null && (
-              <p className="self-end rounded-sm border border-brass-500/40 bg-brass-500/10 px-3 py-1.5 font-hand text-[20px] leading-tight text-brass-100">
+              <p className="self-end rounded-sm border border-brass-500/40 bg-brass-500/10 px-3 py-1.5 font-stamp text-[15px] leading-tight text-brass-100">
                 {exchange.offer.toLocaleString()} a week.
               </p>
             )}
             <p
               className={cn(
                 'max-w-[36rem] self-start rounded-sm border border-surface-600 bg-surface-800/70 px-3.5 py-2.5',
-                'font-hand text-[21px] leading-[1.35]',
+                'font-stamp text-[16px] leading-[1.35]',
                 MOOD_TONE[exchange.mood].text,
               )}
             >
@@ -265,7 +265,7 @@ export function NegotiationDialog({
             </Button>
           </div>
         ) : state.closed ? (
-          /* The handshake, and the signature, in one place — see `openRoles` on the props. */
+          /* The handshake, and the signature, in one place: see `openRoles` on the props. */
           <div className="flex flex-col gap-3" data-testid="negotiation-sign">
             <p className={cn('font-body text-[13px] leading-relaxed', tone.text)}>
               Agreed at{' '}
@@ -330,7 +330,7 @@ export function NegotiationDialog({
                   value={offer}
                   onChange={(event) => setOffer(event.target.value)}
                   onKeyDown={(event) => event.key === 'Enter' && send()}
-                  className="w-full min-w-0 rounded-sm border border-surface-600 bg-surface-950 px-3 py-2 font-hand text-[22px] tabular-nums text-ink-100"
+                  className="w-full min-w-0 rounded-sm border border-surface-600 bg-surface-950 px-3 py-2 font-stamp text-[16px] tabular-nums text-ink-100"
                 />
               </label>
               <Button

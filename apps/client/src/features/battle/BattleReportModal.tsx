@@ -4,8 +4,11 @@ import {
   type BattleSide,
   type SideAnalysis,
   type UnitPerformance,
+  WEATHER_CATALOG,
+  isPlainDay,
 } from '@frontline/shared';
 import { Button } from '../../components/ui/Button';
+import { LabelRow } from '../../components/ui/LabelChip';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 
@@ -14,7 +17,7 @@ import { cn } from '../../lib/cn';
  *
  * Two documents in one window, and they are not the same document. The **log** is what happened,
  * in sentences: it is what makes a defeat readable and it is the half a player will read first. The
- * **ledger** is what it cost, per unit, ranked by what each of them actually put out — which is the
+ * **ledger** is what it cost, per unit, ranked by what each of them actually put out, which is the
  * half a player reads when they are deciding what to build next.
  *
  * Nothing here is optional decoration. Every column answers a question the board asked for by name:
@@ -79,12 +82,28 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
         >
           {analysis.headline}
         </h2>
+        {/* §A4: the ground the fight was actually on, and the sky it was under.
+            
+            The labels decide a real share of every outcome, and for a while the report said nothing
+            about any of them: a player read a loss with no way to learn they had sent riflemen into
+            a corridor on a foggy night. Stamped onto the analysis at resolution rather than read
+            live, because by the time anybody opens this the weather has moved on. */}
+        {(analysis.ground.length > 0 || !isPlainDay(analysis.weather)) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            {!isPlainDay(analysis.weather) && (
+              <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
+                {WEATHER_CATALOG[analysis.weather].name}
+              </span>
+            )}
+            <LabelRow labels={analysis.ground} size="sm" />
+          </div>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-col gap-5 overflow-y-auto p-5">
         <section className="flex flex-col gap-1.5">
           {analysis.trap && (
-            <p className="font-body text-xs leading-relaxed text-sear-300">
+            <p className="font-body text-xs leading-relaxed text-oxblood-300">
               {analysis.trap.name} went off on the approach. It took {analysis.trap.killed}.
             </p>
           )}

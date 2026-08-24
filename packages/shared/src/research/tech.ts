@@ -7,7 +7,7 @@ import type { PartialResources } from '../resources.js';
 /**
  * The Lab's standing programmes (§B9, lab extension).
  *
- * Research already had *investigations* — one-off projects that turn up a fact about a role and
+ * Research already had *investigations*: one-off projects that turn up a fact about a role and
  * then end. This is the other half of a laboratory: work whose result is a permanent change to how
  * the district runs. An investigation tells you something; a technology *does* something, forever,
  * to every clock and every fight afterwards.
@@ -28,7 +28,7 @@ import type { PartialResources } from '../resources.js';
  *
  * ## The effect
  *
- * Each technology writes into a {@link EffectChannel} — the same struct territory, crew attributes
+ * Each technology writes into a {@link EffectChannel}: the same struct territory, crew attributes
  * and the Garage's fleet all write into. So a finished programme is wired into every consumer that
  * already reads those effects, with no new parameter threaded anywhere, and a player can see what
  * it bought them on the same profile page that explains everything else.
@@ -79,7 +79,7 @@ export interface TechSpec {
 }
 
 const SPECS: readonly TechSpec[] = [
-  // Industry — the district's own tempo.
+  // Industry: the district's own tempo.
   {
     id: 'tech_shift_rotation',
     track: 'industry',
@@ -117,7 +117,7 @@ const SPECS: readonly TechSpec[] = [
     magnitude: 18,
   },
 
-  // Signals — the quiet war.
+  // Signals: the quiet war.
   {
     id: 'tech_traffic_analysis',
     track: 'signals',
@@ -155,7 +155,7 @@ const SPECS: readonly TechSpec[] = [
     magnitude: 26,
   },
 
-  // Medicine — how many come back.
+  // Medicine: how many come back.
   {
     id: 'tech_field_triage',
     track: 'medicine',
@@ -193,7 +193,7 @@ const SPECS: readonly TechSpec[] = [
     magnitude: 12,
   },
 
-  // Materials — what things cost, and what you can keep.
+  // Materials: what things cost, and what you can keep.
   {
     id: 'tech_sorted_salvage',
     track: 'materials',
@@ -231,7 +231,7 @@ const SPECS: readonly TechSpec[] = [
     magnitude: 15,
   },
 
-  // Ordnance — the ground itself, made hostile. Each rung both hardens the district and unlocks a
+  // Ordnance: the ground itself, made hostile. Each rung both hardens the district and unlocks a
   // trap (`battle/traps.ts`); the channel is what it is worth passively, the trap is what it is
   // worth to somebody who walks into it.
   {

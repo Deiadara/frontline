@@ -47,8 +47,8 @@ export function DeclareDialog({
   onConfirm,
 }: DeclareDialogProps) {
   const [chosen, setChosen] = useState<string | null>(slots[0] ?? null);
-  // Off by default. Holding is the bigger commitment of the two — it takes the survivors off the
-  // roster until somebody goes and gets them — so it is the one a player has to reach for.
+  // Off by default. Holding is the bigger commitment of the two. It takes the survivors off the
+  // roster until somebody goes and gets them, so it is the one a player has to reach for.
   const [hold, setHold] = useState(false);
   // Only a location can be occupied. A gate is a hole in a wall for a few hours, not a position, so
   // offering the choice there would be offering something that cannot happen.
@@ -76,7 +76,7 @@ export function DeclareDialog({
         </h2>
         <p className="font-body text-xs leading-relaxed text-ink-300">
           Everybody sees it coming. The soonest you may call it is {MIN_DECLARE_LEAD_HOURS} hours
-          out, the latest {MAX_DECLARE_LEAD_HOURS}. Nobody is sent yet — you move people up between
+          out, the latest {MAX_DECLARE_LEAD_HOURS}. Nobody is sent yet: you move people up between
           now and the mark.
         </p>
       </div>
@@ -108,7 +108,7 @@ export function DeclareDialog({
           </section>
         ))}
 
-        {/* §A4 — what the fight is *for*, asked before anybody is committed. Two different fights
+        {/* §A4: what the fight is *for*, asked before anybody is committed. Two different fights
             are being spelled the same way otherwise: take it and come home, or take it and stay. */}
         {holdable && (
           <label

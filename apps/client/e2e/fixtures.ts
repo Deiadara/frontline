@@ -5,7 +5,10 @@ import {
   supplyAllowance,
   supplyBoard,
   BUILDING_CATALOG,
-  INFAMY_SACRIFICES,
+  BATTLE_BOOSTS,
+  boostCoverage,
+  describeBoostEffect,
+  describeBoostUnlock,
   TRAP_CATALOG,
   declarableSlots,
   type BattleAnalysis,
@@ -28,6 +31,7 @@ import {
   type TrainingResponse,
   COMBAT_CONTEXT_LABELS,
   ENV_LABEL_CATALOG,
+  envLabel,
   ENV_LABEL_IDS,
   LOCATION_CATALOG,
   bonusesAt,
@@ -39,7 +43,9 @@ import {
   weatherLabels,
   UNIT_CATALOG,
   UNIT_MODIFIERS,
-  armyCapacity,
+  districtPopulationCapacity,
+  noTerritoryEffects,
+  populationDraw,
   supplyUsed,
   describeHoldBonus,
   describeRequirement,
@@ -48,7 +54,6 @@ import {
   type DistrictDetailResponse,
   type UnitsResponse,
   MODIFICATIONS,
-  populationCapacity,
   addResources,
   alignedAttributes,
   MAX_PAIRINGS,
@@ -186,7 +191,7 @@ export const meNoOverseer: MeResponse = {
 
 /**
  * A save that has actually been played: six-figure stockpiles and both meters pegged. HUD chips
- * are sized by the digits in them, so this — not `base` — is the widest the economy row ever
+ * are sized by the digits in them, so this, not `base`, is the widest the economy row ever
  * gets, and it is what the layout has to survive at the narrowest supported viewport.
  */
 export const lateGameBase: Base = {
@@ -194,11 +199,11 @@ export const lateGameBase: Base = {
   level: 12,
   resources: { caps: 125000, food: 48000, oil: 32000, scrap: 96000, highQualityMetal: 12000 },
   economy: { ...base.economy, morale: 100, infamy: 100 },
-  // One XP short of level 13 (§I). Widest the progression readout ever gets — four digits either
-  // side of the slash and a bar at ~100% — where the starting base shows `0 / 100`.
+  // One XP short of level 13 (§I). Widest the progression readout ever gets: four digits either
+  // side of the slash and a bar at ~100%: where the starting base shows `0 / 100`.
   progression: { xpIntoLevel: 7799 },
   // Something on both clocks, because the in-flight rail is drawn on *every* screen from this
-  // payload — a fixture with empty queues screenshots the whole shell without the one piece of
+  // payload: a fixture with empty queues screenshots the whole shell without the one piece of
   // chrome that is meant to be always there.
   buildQueue: [
     {
@@ -228,6 +233,20 @@ export const lateGame: MeResponse = {
 };
 
 /**
+ * §D7: a crew with a name and the points to buy the next one.
+ *
+ * `lateGame` deliberately has 100 infamy against a 300 first rung, which is the "short of it"
+ * state. This is the other one, and both are worth a screenshot: the ladder's card reads completely
+ * differently depending on whether the button is live.
+ */
+export const notoriousBase: Base = {
+  ...lateGameBase,
+  economy: { ...lateGameBase.economy, infamy: 40_000, notoriety: 4 },
+};
+
+export const notorious: MeResponse = { ...lateGame, base: notoriousBase };
+
+/**
  * The same save on a build that *has* a bench.
  *
  * Separate from `lateGame` rather than a flag on it, because whether the bench exists is now a
@@ -238,7 +257,7 @@ export const lateGame: MeResponse = {
 export const adminGame: MeResponse = { ...lateGame, admin: true };
 
 /**
- * §A4 — the map as one crew sees it.
+ * §A4: the map as one crew sees it.
  *
  * Two districts are deliberately left **unscouted**, because the fog is the thing most worth
  * having a fixture for: a screen that renders `held: null` as "0 / 0" is a screen that tells a
@@ -292,7 +311,7 @@ export const baseDetail: BaseDetailResponse = { base };
 const rewards = { scrap: 120, caps: 60 };
 
 /**
- * §A4 — one contested district, scouted, with one location already taken.
+ * §A4: one contested district, scouted, with one location already taken.
  *
  * The Rustyard because it is where a new crew actually goes: easy ground, looters holding it, and
  * a war machine graveyard at the back worth a campaign.
@@ -314,7 +333,7 @@ export const districtDetail: DistrictDetailResponse = {
   locations: rustyard.locations.map((location, index) => {
     const spec = LOCATION_CATALOG[location.kind];
     const mine = index === 0;
-    // §A4 — the one location this crew holds is part-worked, so the screen has a level to draw,
+    // §A4: the one location this crew holds is part-worked, so the screen has a level to draw,
     // an upgrade to offer, and pips that are not all the same. The rest sit at 1 like any capture.
     const level = mine ? 2 : 1;
     const cost = upgradeCost(location.kind, level);
@@ -344,18 +363,20 @@ export const districtDetail: DistrictDetailResponse = {
   }),
 };
 
-/** §A5 — the roster as a crew four levels in sees it: some fielded, most still locked. */
+/** §A5: the roster as a crew four levels in sees it: some fielded, most still locked. */
 export const unitsResponse: UnitsResponse = {
   serverNow: NOW,
   army: base.army,
   garrisoned: { razors: 2 },
   // Derived rather than typed, so the fixture cannot quietly become a crew that is over its own
-  // cap — which is a real state, but a misleading one to make the default screenshot of.
+  // cap, which is a real state, but a misleading one to make the default screenshot of.
   supplyUsed: supplyUsed(base.army) + supplyUsed({ razors: 2 }),
-  supplyCap: armyCapacity(base.buildings),
+  supplyCap:
+    districtPopulationCapacity(base.buildings, noTerritoryEffects()) -
+    populationDraw({ ...base, army: {}, trainingQueue: [] }).total,
   // Two orders on the bench, one part-way through and one behind it. An empty queue screenshots
   // the empty state and nothing else, and the live bench is the half of this screen with a clock
-  // on it — the half most likely to lay out badly once a countdown reaches its widest.
+  // on it: the half most likely to lay out badly once a countdown reaches its widest.
   queue: [
     {
       id: 'order-1',
@@ -390,7 +411,7 @@ export const unitsResponse: UnitsResponse = {
         description: UNIT_MODIFIERS[id].description,
         when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
       })),
-      // §A4 — the same fold the server does: only the labels the sheet does not already say.
+      // §A4: the same fold the server does: only the labels the sheet does not already say.
       affinities: ENV_LABEL_IDS.flatMap((id) => {
         const immune = unit.immuneTo?.includes(id) ?? false;
         const per = unit.affinities?.[id] ?? 0;
@@ -420,7 +441,7 @@ export const battle: BattleResponse = {
     log: [
       'Strike team slips the cordon under a dead satellite window.',
       'Netrunners spoof the sentry grid; drones circle blind for 41 seconds.',
-      'Breach charges crack the ferrocrete line — defenders scatter into the undergrid.',
+      'Breach charges crack the ferrocrete line: defenders scatter into the undergrid.',
       'Salvage crews strip the site before corporate response arrives. Victory.',
     ],
     rewards,
@@ -435,8 +456,8 @@ export const authResponse: AuthResponse = { token: TOKEN, user };
  * The Bar at its widest (GDD §H).
  *
  * Deliberately the fat case, per MOU-207: the starting state of this screen is an empty crew and
- * eight identical-looking cards, and that has never caught a layout bug. This is a late-game crew
- * — the longest officer names the generator can produce, a four-digit wage, every §H5 band
+ * eight identical-looking cards, and that has never caught a layout bug. This is a late-game crew:
+ * the longest officer names the generator can produce, a four-digit wage, every §H5 band
  * including the walkout warning and the skill-bonus line, and recruits covering all three card
  * states (interested, gated, already hired).
  */
@@ -448,7 +469,7 @@ function barRecruit(id: string, name: string, overrides: Partial<BarRecruit> = {
     traits: ['gutter_born'],
     ambition: 'notoriety',
     moralCompass: 'ruthless',
-    requirement: { minInfamy: 0 },
+    requirement: { minNotoriety: 0 },
     assessment: { meetsRequirement: true, stance: 2, interested: true, blockers: [] },
     askingWage: 48,
     hired: false,
@@ -492,8 +513,13 @@ export const bar: BarResponse = {
     barRecruit('bar-1', 'Dorotea "The Undergrid Ghost"'),
     barRecruit('bar-2', 'Emeric Voskuijlen', { askingWage: 1240, traits: [] }),
     barRecruit('bar-3', 'Kestrel Salvatierra', {
-      requirement: { minInfamy: 60 },
-      assessment: { meetsRequirement: false, stance: 1, interested: false, blockers: ['infamy'] },
+      requirement: { minNotoriety: 3 },
+      assessment: {
+        meetsRequirement: false,
+        stance: 1,
+        interested: false,
+        blockers: ['notoriety'],
+      },
       askingWage: null,
     }),
     barRecruit('bar-4', 'Rashid Okonkwo', {
@@ -503,14 +529,14 @@ export const bar: BarResponse = {
         meetsRequirement: false,
         stance: -2,
         interested: false,
-        blockers: ['infamy', 'reputation'],
+        blockers: ['notoriety', 'reputation'],
       },
       askingWage: null,
-      requirement: { minInfamy: 45 },
+      requirement: { minNotoriety: 5 },
     }),
     barRecruit('bar-5', 'Ilse Abara', { hired: true, askingWage: 96 }),
     barRecruit('bar-6', 'Juno Petrosyan', { askingWage: 61, traits: ['silver_tongue'] }),
-    // §B7 — a flaw on the card, so the layout guards cover the state a player must be able to read.
+    // §B7: a flaw on the card, so the layout guards cover the state a player must be able to read.
     barRecruit('bar-7', 'Casimir Adeyemi-Lindqvist', { askingWage: 74, traits: ['marked_face'] }),
   ],
   officers: [
@@ -527,10 +553,10 @@ export const bar: BarResponse = {
   reputation: 'Feared',
   caps: 125000,
   filledRoles: ['head_spy', 'finance_officer', 'raid_boss'],
-  /** §H2b — this crew has not signed anybody today, so the offer buttons are live. */
+  /** §H2b: this crew has not signed anybody today, so the offer buttons are live. */
   hiresLeftToday: BAR_HIRES_PER_DAY,
   /**
-   * §H7 — one conversation already under way, so the screenshot carries both states: a card that
+   * §H7: one conversation already under way, so the screenshot carries both states: a card that
    * has been talked to and cards that have not. Mid-negotiation rather than closed, because the
    * open state is the one with the window, the standing demand and the reply on it.
    */
@@ -562,7 +588,7 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     travelMinutes,
     durationMinutes,
     status: 'active',
-    // §G6 — these fixtures send delegations, not officer-led runs.
+    // §G6: these fixtures send delegations, not officer-led runs.
     officerId: null,
     outcome: null,
     rewards: {},
@@ -585,8 +611,8 @@ function resolvedMission(
  * The missions page at its widest (GDD §E3).
  *
  * Deliberately the fat case, not the starting one: every crew slot filled, the longest mission on
- * the board only just launched — so its countdown reads `25:5x:xx`, the widest string the timer
- * column can ever hold — and a returned mission paying all five resources at once, which is the
+ * the board only just launched, so its countdown reads `25:5x:xx`, the widest string the timer
+ * column can ever hold, and a returned mission paying all five resources at once, which is the
  * longest reward line that can render. The starting state of this page is an empty list, and an
  * empty list has never caught a layout bug.
  *
@@ -630,7 +656,7 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
 }
 
 /**
- * What `POST /missions` answers with — a different shape from the board (§G6 launch path).
+ * What `POST /missions` answers with: a different shape from the board (§G6 launch path).
  *
  * `LaunchMissionResponseSchema` is `{ mission, serverNow }`, not a board, so this cannot be served
  * by the `GET` fixture: the client validates every 2xx body and would reject it. A launch of the
@@ -646,7 +672,7 @@ export function launchResponse(now: Date = new Date()): LaunchMissionResponse {
 /** What the crew that lands mid-session brings home (§E5). Distinct digits, so the HUD is unambiguous. */
 export const SETTLED_REWARD: PartialResources = { caps: 268, scrap: 335 };
 
-/** The base after that payout is banked — `caps 768`, `scrap 535`. */
+/** The base after that payout is banked: `caps 768`, `scrap 535`. */
 export const paidBase: Base = {
   ...base,
   resources: addResources(STARTING_RESOURCES, SETTLED_REWARD),
@@ -663,8 +689,8 @@ export const paidMe: MeResponse = {
  * The state change `missionsResponse` cannot express: one crew still out on the first read, home
  * and paid on the next.
  *
- * Every mission in that fixture is *born* either active or already resolved, so the settle path —
- * the one moment the whole feature turns on — was never exercised in a browser, and a payout that
+ * Every mission in that fixture is *born* either active or already resolved, so the settle path:
+ * the one moment the whole feature turns on: was never exercised in a browser, and a payout that
  * never reached the HUD passed every gate. The day-long expedition here launched a day before the
  * short run that is already home, so its return also has to survive a list ordered by launch.
  */
@@ -706,7 +732,7 @@ export function settlingMissions(now: Date = new Date()): {
  * list wraps as far as it ever will, and a six-figure cap balance in the header.
  *
  * The facts below are chosen for *string width*, not for accuracy against the server's hidden
- * requirement table — a fixture has no business encoding that, and this file is inside the W1 leak
+ * requirement table: a fixture has no business encoding that, and this file is inside the W1 leak
  * guard's scan (§B8a).
  */
 const WIDE_ATTRIBUTES = [
@@ -775,10 +801,10 @@ const researchBase = {
   overseerAttributes: overseer.attributes,
   caps: 125000,
   costs: RESEARCH_COST_CAPS,
-  // §A1 — a crew with no Lead Engineer, so every modification reports the same blocker. The
+  // §A1: a crew with no Lead Engineer, so every modification reports the same blocker. The
   // structures themselves are unbuilt in this fixture, which is the blocker the player sees first.
   canModify: false,
-  // The Lab's tree: one rung finished per track, one reachable, one locked — so a screenshot shows
+  // The Lab's tree: one rung finished per track, one reachable, one locked, so a screenshot shows
   // all three states rather than a grid of identical cards.
   technologies: TECHNOLOGIES.map((spec) => ({
     id: spec.id,
@@ -832,8 +858,8 @@ export function activeResearch(now: Date = new Date()): ResearchResponse {
  * The state change neither fixture above can express: a project still running on the first read,
  * landed and reporting its facts on the next.
  *
- * Every other research fixture is *born* either active or already idle, so the settle path — the
- * one moment the whole feature turns on — would never be exercised in a browser, and facts that
+ * Every other research fixture is *born* either active or already idle, so the settle path: the
+ * one moment the whole feature turns on: would never be exercised in a browser, and facts that
  * never reached the page would pass every assertion in the suite. This is the §E-settlement lesson
  * applied to §B9.
  */
@@ -864,7 +890,7 @@ export function settlingResearch(now: Date = new Date()): {
  * The §G screen (GDD §G).
  *
  * The per-officer numbers are *derived* with the shared §G7/§G3 helpers rather than hand-typed.
- * That is right for a layout fixture — what these specs assert is geometry, and the arithmetic
+ * That is right for a layout fixture: what these specs assert is geometry, and the arithmetic
  * itself is pinned by hard-coded percentages in `packages/shared/src/assignees/assignees.test.ts`.
  * Typing them again here would only risk a fixture that disagrees with the server and a screenshot
  * of a screen nobody is served.
@@ -908,7 +934,10 @@ function assigneesAt(
     placed: total,
     unplaced: assigneePool(level) - total,
     capPerOfficer: assigneeCapPerOfficer(level),
-    housing: { used: officers.length + total, capacity: populationCapacity(base.buildings) },
+    housing: {
+      used: officers.length + total,
+      capacity: districtPopulationCapacity(base.buildings, noTerritoryEffects()),
+    },
     maxBonusPercent: assigneeBonusPercent(assigneeCapPerOfficer(level)),
     canReskill: officers.some((officer) => officer.role === 'professor'),
     officers,
@@ -922,7 +951,7 @@ export const assigneesStart: AssigneesResponse = assigneesAt(1, []);
  * The widest this screen ever gets, and the state every layout guard has to survive.
  *
  * Level 48 is where §G3a's `floor(level / 2)` finally reaches the end of the extended §G7 table, so
- * the cap is 24 — the most pips a row can ever draw — and one officer sits at it, showing the 75%
+ * the cap is 24, the most pips a row can ever draw, and one officer sits at it, showing the 75%
  * ceiling and the `at cap` label. The others cover a decimal bonus (14.5%) and the longest officer
  * name and role label on the board, which is what actually threatens the column.
  *
@@ -937,7 +966,7 @@ export const assigneesFat: AssigneesResponse = assigneesAt(2 * MAX_ASSIGNEES_PER
 ]);
 
 /**
- * §F2 — the Training tab with one hour already running and one officer idle.
+ * §F2: the Training tab with one hour already running and one officer idle.
  *
  * Both states on one screen on purpose: the in-flight panel and the "free this hour" panel are
  * different shapes, and a fixture showing only one of them screenshots half the page.
@@ -982,7 +1011,7 @@ export const trainingResponse: TrainingResponse = {
 };
 
 /**
- * Best-of across the Overseer and the one officer above — the sheet the effects come from.
+ * Best-of across the Overseer and the one officer above: the sheet the effects come from.
  *
  * The Professor's duties are spelled out here rather than looked up: which attributes a seat puts
  * to work is a server-side table (§B8a) and deliberately unreachable from the client, so a fixture
@@ -1071,14 +1100,14 @@ export const market: MarketResponse = {
   ],
   /**
    * The supply run, part-spent. A ration with nothing taken out of it draws the same bar as a
-   * ration that does not exist, so the fixture spends some of it — that is the state where the
+   * ration that does not exist, so the fixture spends some of it. That is the state where the
    * remaining-allowance figure and the per-line ceilings are actually doing something.
    */
   supply: (() => {
     const capacity = storageCapacity(lateGameBase.buildings);
     // A third of the day's ration already spent. Derived rather than a literal: a hard-coded
     // figure larger than the allowance draws a full bar reading "0 left", which is a screenshot of
-    // an exhausted ration rather than of a working one — and it moves every time the curve does.
+    // an exhausted ration rather than of a working one, and it moves every time the curve does.
     const allowance = supplyAllowance(lateGameBase.level, capacity);
     return supplyBoard(
       lateGameBase.level,
@@ -1128,7 +1157,7 @@ export const workshop: WorkshopResponse = {
  * The back room, mid-day, with a shelf a crew can only half afford.
  *
  * Derived from the real board function rather than hand-written, so the fixture cannot drift into
- * showing five things the catalogue does not stock — the shape of defect the mocked-e2e trap is
+ * showing five things the catalogue does not stock: the shape of defect the mocked-e2e trap is
  * made of. One slot has already turned over today, because a shelf where nothing has moved is a
  * screenshot of the uninteresting half of the feature.
  */
@@ -1230,6 +1259,10 @@ const boardSlots = declarableSlots(new Date(BOARD_NOW)).map((slot) => slot.toISO
 const boardAnalysis: BattleAnalysis = {
   battleId: 'fight-3',
   locationName: 'Ninth Street Pawn',
+  // §A4: the sky it was fought under and what the ground was like, stamped at resolution. A
+  // storm, so the card has something to draw and the chips are worth looking at.
+  weather: 'stormy',
+  ground: [envLabel('crammed', 3), envLabel('dark', 2), envLabel('wet', 3), envLabel('noisy', 2)],
   winner: 'attacker',
   rounds: 5,
   decidedOnPower: false,
@@ -1317,6 +1350,9 @@ const boardAnalysis: BattleAnalysis = {
     'The Ninth Street Reclamation Company holds Ninth Street Pawn. It cost 6, and Looters lost 19.',
 };
 
+/** What the board fixture's crew has to spend. Quoted once: the shelf is priced against it. */
+const BOARD_INFAMY = 1460;
+
 const comingBattle = (
   id: string,
   targetName: string,
@@ -1353,6 +1389,22 @@ const comingBattle = (
       ? 'Nothing. They are running dark.'
       : 'A rough count. Nobody would swear to it.',
   opponentName: role === 'attacker' ? 'Looters' : 'The Vex Combine',
+  // §D7: priced against what this fixture actually has on the ground, exactly as the server does
+  // it, so the fattest screenshot of the drop-down is the real arithmetic rather than round numbers
+  // somebody typed. The Lab has finished nothing and the crew is one officer, so the gated half of
+  // the shelf is drawn locked, which is the state worth screenshotting.
+  boosts: BATTLE_BOOSTS.map((spec) => ({
+    id: spec.id,
+    name: spec.name,
+    description: spec.description,
+    cost: spec.cost,
+    effect: describeBoostEffect(spec.effect),
+    source: describeBoostUnlock(spec.unlock, (techId) => techId),
+    reach: Math.round(boostCoverage(spec.effect, muster.army) * 100),
+    affordable: BOARD_INFAMY >= spec.cost,
+    available: spec.unlock.kind === 'open',
+  })),
+  boostId: null,
 });
 
 export const battles: BattlesResponse = {
@@ -1395,17 +1447,7 @@ export const battles: BattlesResponse = {
     },
   ],
   slots: boardSlots,
-  infamy: 1460,
-  sacrifices: INFAMY_SACRIFICES.map((spec) => ({
-    id: spec.id,
-    name: spec.name,
-    description: spec.description,
-    cost: spec.cost,
-    hours: spec.hours,
-    effect: `+${spec.magnitude} on ${spec.channel.replace(/Percent|Flat/, '')} for ${spec.hours}h`,
-    affordable: 1460 >= spec.cost,
-  })),
-  sacrificeRunning: null,
+  infamy: BOARD_INFAMY,
   gates: [
     { districtId: 'rustyard', name: 'The Rustyard', shut: false, brokenUntil: null },
     {

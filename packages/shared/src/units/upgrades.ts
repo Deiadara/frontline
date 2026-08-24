@@ -14,8 +14,8 @@ import { UNIT_STAT_KEYS, type UnitStats } from './stats.js';
  *
  * ## Three lines, each behind a blueprint
  *
- * **Armour** is plate and padding — vitality and armour, at the cost of a little speed. **Weapons**
- * are what they carry — lethality, offense, range. **Cybernetics** are what goes *in* them —
+ * **Armour** is plate and padding: vitality and armour, at the cost of a little speed. **Weapons**
+ * are what they carry: lethality, offense, range. **Cybernetics** are what goes *in* them:
  * reflex and speed and stealth, and the only line whose top tier asks for a Neural Shunt per
  * upgrade rather than per unit.
  *
@@ -25,7 +25,7 @@ import { UNIT_STAT_KEYS, type UnitStats } from './stats.js';
  *
  * ## Everything costs scrap
  *
- * That is the board's rule and it is a good one — scrap is the material the city is made of, so
+ * That is the board's rule and it is a good one: scrap is the material the city is made of, so
  * every physical improvement comes out of the same pile that the buildings do. High-quality metal
  * appears at tier two and above, components at tier two and three. Nothing costs food, because
  * nothing here is a person.
@@ -64,7 +64,7 @@ export interface UpgradeSpec {
   description: string;
   /** Flat changes to every unit of the tiers this applies to. */
   effect: Partial<UnitStats>;
-  /** Caps, scrap and — past tier one — high-quality metal. */
+  /** Caps, scrap and, past tier one, high-quality metal. */
   cost: PartialResources;
   /** Parts. Consumed on purchase, like everything else. */
   parts: ItemCost;
@@ -73,7 +73,7 @@ export interface UpgradeSpec {
 }
 
 const SPECS: readonly UpgradeSpec[] = [
-  // Armour — survivability, paid for in speed.
+  // Armour: survivability, paid for in speed.
   {
     id: 'armour_1',
     line: 'armour',
@@ -108,7 +108,7 @@ const SPECS: readonly UpgradeSpec[] = [
     requiresGauntletLevel: 12,
   },
 
-  // Weapons — reach and damage.
+  // Weapons: reach and damage.
   {
     id: 'weapons_1',
     line: 'weapons',
@@ -143,7 +143,7 @@ const SPECS: readonly UpgradeSpec[] = [
     requiresGauntletLevel: 14,
   },
 
-  // Cybernetics — speed, reflex, and the quiet approach.
+  // Cybernetics: speed, reflex, and the quiet approach.
   {
     id: 'cybernetics_1',
     line: 'cybernetics',
@@ -238,7 +238,7 @@ export function upgradeRefusal(
  * Every fitted upgrade, folded onto a unit's sheet.
  *
  * Applied at read time rather than written into the roster, so an upgrade bought today improves
- * the units trained last week — which is what "the workshop refits everyone" means, and the only
+ * the units trained last week, which is what "the workshop refits everyone" means, and the only
  * version a player will not find infuriating. Clamped to each stat's own range on the way out.
  */
 export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStats {

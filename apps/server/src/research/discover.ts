@@ -29,7 +29,7 @@ import { attributeWeightsOf } from '../roles/requirements.js';
  *
  *  - **The reveal order is weight-blind.** Everything sorts by `ATTRIBUTE_NAMES` position, never
  *    by weight. If facts came out heaviest-first, the *sequence* would spell out the ordering the
- *    fact bodies are careful not to carry — a leak with no leaked value anywhere in it.
+ *    fact bodies are careful not to carry: a leak with no leaked value anywhere in it.
  *  - **Cross-referencing does not extend the role you asked about.** Pairings are drawn from one
  *    global enumeration that does not depend on the investigated role, so §F4's bonus cannot be
  *    used to walk a single role's profile past `MAX_ROLE_FACTS`.
@@ -40,11 +40,11 @@ import { attributeWeightsOf } from '../roles/requirements.js';
 /**
  * Which attributes of `role` research can ever name, in reveal order.
  *
- * `attributeWeightsOf` hands back the template in *declaration* order — which happens to be
+ * `attributeWeightsOf` hands back the template in *declaration* order, which happens to be
  * descending weight order, because every literal in `ROLE_REQUIREMENTS` is authored heaviest-first
  * (pinned by `../roles/requirements.test.ts`). Passing it through untouched would therefore leak
  * the primary as fact #1, so this immediately re-sorts into canonical order and then truncates:
- * which attributes are revealed — and in which sequence — is decided by `ATTRIBUTE_NAMES`, not by
+ * which attributes are revealed, and in which sequence, is decided by `ATTRIBUTE_NAMES`, not by
  * how much the role cares. Templates hold five and `MAX_ROLE_FACTS` is three, so two are withheld
  * from every role, permanently.
  */
@@ -67,7 +67,7 @@ export function nextRoleFact(
  * Every pairing that exists in the game, de-duplicated and in canonical order.
  *
  * Built from all 19 templates at once and sorted by attribute position, so the order a crew meets
- * them in says nothing about which role any of them came from — which is what keeps §F4's reward
+ * them in says nothing about which role any of them came from, which is what keeps §F4's reward
  * role-free. Computed once: the table is a module constant and never changes at runtime.
  */
 const ALL_PAIRINGS: readonly PairingFact[] = (() => {
@@ -86,7 +86,7 @@ const ALL_PAIRINGS: readonly PairingFact[] = (() => {
   return pairingsIn([...byKey.values()]);
 })();
 
-/** How many distinct pairings exist at all — the number `MAX_PAIRINGS` is a small fraction of. */
+/** How many distinct pairings exist at all: the number `MAX_PAIRINGS` is a small fraction of. */
 export const TOTAL_PAIRINGS = ALL_PAIRINGS.length;
 
 /** True once the crew has collected every pairing it is ever allowed to hold. */
@@ -95,7 +95,7 @@ export function pairingsExhausted(facts: readonly DiscoveredFact[]): boolean {
 }
 
 /**
- * §F4 — the cross-reference result: the next pairing the crew has not seen.
+ * §F4: the cross-reference result: the next pairing the crew has not seen.
  *
  * Deliberately independent of whatever role prompted it. Returns nothing once `MAX_PAIRINGS` is
  * reached, so the collection never grows into a co-occurrence graph of the whole table.

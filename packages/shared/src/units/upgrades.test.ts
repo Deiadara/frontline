@@ -95,7 +95,7 @@ describe('fitting an upgrade', () => {
   /**
    * The blueprint gate is checked before the money.
    *
-   * Both can be true at once, and "you need the blueprint" is the one a player can act on today —
+   * Both can be true at once, and "you need the blueprint" is the one a player can act on today:
    * the caps will fix themselves.
    */
   it('names the blueprint before it names the price', () => {

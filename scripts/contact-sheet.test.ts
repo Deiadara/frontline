@@ -70,7 +70,7 @@ describe('sheetSpecs', () => {
 
     const withIcon = sheetSpecs(delivered(ICON.file)).map((entry) => entry.key);
     expect(withIcon).toContain(ICON.key);
-    // Manifest order, not arrival order — icons sit after the hero portraits and districts.
+    // Manifest order, not arrival order: icons sit after the hero portraits and districts.
     expect(withIcon.indexOf(ICON.key)).toBeGreaterThan(withIcon.indexOf(PORTRAIT.key));
   });
 });
@@ -143,7 +143,7 @@ describe('renderSheet', () => {
     for (let i = 0; i < data.length; i += info.channels) {
       if (data[i]! > 200 && data[i + 1]! < 60 && data[i + 2]! > 200) magentaPixels += 1;
     }
-    // The 3:4 portrait is letterboxed into the square slot, so it covers three quarters of it — the
+    // The 3:4 portrait is letterboxed into the square slot, so it covers three quarters of it: the
     // point being that it is neither cropped nor stretched to fill.
     expect(magentaPixels).toBeGreaterThan(0);
     expect(magentaPixels).toBeLessThan(320 * 320);
@@ -169,7 +169,7 @@ describe('renderSheet', () => {
   it('keeps the header inside the page at the narrowest sheet', async () => {
     // One cell is the narrowest layout there is, and the header does not narrow with the grid: this
     // is where a title that overruns the canvas gets cut mid-glyph. Pins `MIN_WIDTH` against a
-    // header that grows — a third digit in the counts, or a longer title.
+    // header that grows: a third digit in the counts, or a longer title.
     //
     // Rendered at the widest counts actually reachable, which is a *half-landed* manifest, not a
     // finished one: `painted` and `procedural` sum to `ART_MANIFEST.length`, so driving `painted`
@@ -242,7 +242,7 @@ describe('deliveredFiles', () => {
     // Both maps key on the bare name and both are built last-write-wins, so the entry that survives
     // is whichever the source enumerated last. The client's source is `import.meta.glob`, whose keys
     // Vite sorts by path; ours is `readdir`. Sorted, the root copy wins on both sides. Unsorted this
-    // is the filesystem's call, and the sheet can draw `cc0/` while the game paints the root file —
+    // is the filesystem's call, and the sheet can draw `cc0/` while the game paints the root file,
     // with `painted 1/1` either way, so no count reveals the disagreement.
     await withAssetDir({}, async (dir) => {
       await mkdir(path.join(dir, 'cc0'));

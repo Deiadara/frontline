@@ -51,7 +51,7 @@ beforeEach(() => {
  *
  * Naming a key is not the same as re-reading it. An invalidation that marks the cache stale without
  * refetching it (`refetchType: 'none'`) satisfies every one of those tests and still leaves the HUD
- * and §G exactly as stale as before the fix — nothing here re-reads on its own, which is the whole
+ * and §G exactly as stale as before the fix: nothing here re-reads on its own, which is the whole
  * premise: no poll on `me`, no refetch on focus, and `GameScreen` never unmounts inside `/game`.
  */
 describe('a refused launch that had already settled the board', () => {

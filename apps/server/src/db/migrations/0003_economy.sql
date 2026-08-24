@@ -13,7 +13,7 @@
 -- move on.
 --
 -- INTERFACES.md R6: this file shares the `0003` prefix with `0003_attribute_model.sql`, which
--- sorts first and DELETEs every `bases` row — so the backfill below is a no-op in a combined
+-- sorts first and DELETEs every `bases` row, so the backfill below is a no-op in a combined
 -- run and only matters to a database that ran the old schema alone. The column DEFAULT is not a
 -- valid `EconomyState`, so the *fresh-insert* path is what has to produce one; `bases.ts` always
 -- writes `economy_json` explicitly, and `settle.test.ts` pins the round trip. Do not renumber:

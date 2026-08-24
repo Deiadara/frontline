@@ -8,7 +8,6 @@ import {
   type Base,
   type CrewEffects,
   fleetTravelSpeedPercent,
-  sacrificeEffect,
   techEffects,
   ATTRIBUTES_BY_GROUP,
   clampAttribute,
@@ -23,7 +22,7 @@ import { overseerMember, seatedMember } from '../roles/duties.js';
  * Everything a crew currently has going for it: the ground it holds plus the people it has.
  *
  * One function, called everywhere `territoryEffectsFor` used to be called directly. That is the
- * point — territory effects were already threaded into the battle engine, the roster, the travel
+ * point: territory effects were already threaded into the battle engine, the roster, the travel
  * clock and the city view, and routing the crew's attributes through the same struct wires them
  * into all four without a new parameter anywhere. A separate "attribute bonus" argument would have
  * had to be added to each of those call chains by hand, and the one somebody forgot is the one
@@ -32,15 +31,11 @@ import { overseerMember, seatedMember } from '../roles/duties.js';
  * Bot bases have no Overseer and usually no officers; they get their territory and nothing else,
  * which is correct rather than a gap. An AI rival is the ground it stands on.
  */
-export function standingEffectsFor(
-  repos: Repositories,
-  base: Base,
-  now: Date = new Date(),
-): CrewEffects {
+export function standingEffectsFor(repos: Repositories, base: Base): CrewEffects {
   const territory = territoryEffectsFor(base.id, CITY_LOCATIONS, repos.city.controls());
   const total = combineEffects(territory, crewEffects(crewSheetsFor(repos, base)));
   // The Garage. Motorcycles and rotorcraft take time off the road, and the road is the one cost
-  // nothing else in the game touches — so the yard lands on the same lever the map already reads
+  // nothing else in the game touches, so the yard lands on the same lever the map already reads
   // rather than on a parallel one nobody would remember to thread through.
   total.travelSpeedPercent += fleetTravelSpeedPercent(base.fleet);
   // The Lab's finished programmes. Sparse, and folded rather than assigned, so a technology adds
@@ -49,14 +44,10 @@ export function standingEffectsFor(
     total[channel as keyof typeof total] =
       (total[channel as keyof typeof total] as number) + (amount ?? 0);
   }
-  // §D7 — a name burned for an advantage. Lands on the same channels as everything else, so a
-  // sacrifice needs no wiring of its own and expires simply by stopping being counted.
-  const burning = sacrificeEffect(base.economy.sacrifice, now);
-  if (burning) total[burning.channel] += burning.magnitude;
   return total;
 }
 
-/** Just the people — the same fold without the ground, for anything that is not about territory. */
+/** Just the people: the same fold without the ground, for anything that is not about territory. */
 export function crewEffectsFor(repos: Repositories, base: Base): CrewEffects {
   const sheets = crewSheetsFor(repos, base);
   const people = sheets.length === 0 ? noCrewEffects() : crewEffects(sheets);
@@ -73,11 +64,11 @@ export function crewEffectsFor(repos: Repositories, base: Base): CrewEffects {
  * Every sheet in the room: the Overseer's, then each officer's.
  *
  * The Overseer is looked up through the owning user rather than stored on the base, because that
- * is where the link lives. A base whose owner has not chosen one yet — which is a real state
- * between registration and character select — contributes officers only.
+ * is where the link lives. A base whose owner has not chosen one yet, which is a real state
+ * between registration and character select: contributes officers only.
  */
 /**
- * §A4 — flat points the ground adds to every officer, by attribute group.
+ * §A4: flat points the ground adds to every officer, by attribute group.
  *
  * The Chapel (mental fortitude) and the Broadcast Station (talking to people). Applied to the
  * *officers' sheets* before best-of rather than to the crew's channels afterwards, and the
@@ -109,7 +100,7 @@ export function crewSheetsFor(repos: Repositories, base: Base): CrewMember[] {
   // The role travels with the sheet now (§C2). `crewSheet` pays a person their full rating only in
   // the attributes their seat actually uses, so dropping the role here would silently discount
   // every officer in the game to the off-duty share.
-  // The ground only, deliberately — a crew's sheet is what we are *building*, so reading the
+  // The ground only, deliberately: a crew's sheet is what we are *building*, so reading the
   // combined fold here would be circular.
   const byGroup = territoryEffectsFor(
     base.id,

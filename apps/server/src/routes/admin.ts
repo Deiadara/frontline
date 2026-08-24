@@ -23,7 +23,7 @@ import { AppError, parseBody } from '../errors.js';
  * one of the three. This answers all of them: set the structures to a level, set the player level,
  * set the stockpile, set the infamy, clear the queues, look.
  *
- * **Every route here is refused outright when admin mode is off.** Not hidden, not unauthorised —
+ * **Every route here is refused outright when admin mode is off.** Not hidden, not unauthorised,
  * `NOT_FOUND`, so a production build behaves as though the bench does not exist rather than
  * advertising a door somebody could try to open. The client asks `GET /admin` first and simply does
  * not draw the screen when the answer is a 404.
@@ -68,7 +68,7 @@ function snapshot(app: FastifyInstance, base: Base): AdminSnapshot {
 /**
  * The structures a knob leaves standing.
  *
- * A level of zero is "not built", which is how the bench walks a district *backwards* — the state
+ * A level of zero is "not built", which is how the bench walks a district *backwards*: the state
  * before a structure exists is one of the stages a reviewer needs to see, and it is the one an
  * unlock-everything switch can never show. Existing ids are kept where the structure survives, so
  * modifications fitted to it are not orphaned by a level change.

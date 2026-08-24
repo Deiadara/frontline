@@ -4,13 +4,13 @@ import { z } from 'zod';
  * Whether a stack is still fighting (GDD §A5).
  *
  * Modelled on Total War's ladder rather than on a hit-point bar, because the interesting thing
- * about morale is not that it runs out — it is that it runs out *faster the lower it already is*.
+ * about morale is not that it runs out. It is that it runs out *faster the lower it already is*.
  * A steady unit absorbs a bad round. A shaken one compounds it. That single non-linearity is what
  * makes intimidation a strategy instead of a stat, and it is the mechanism behind the brief:
  * intimidation works on low morale.
  *
  * Rout is a one-way door within a fight. A stack that breaks stops contributing offense, takes
- * pursuit damage while it disengages, and drags its neighbours down with it — the cascade that
+ * pursuit damage while it disengages, and drags its neighbours down with it: the cascade that
  * turns a bad round into a collapse.
  */
 
@@ -45,7 +45,7 @@ export const CASUALTY_SHOCK = 14;
 /**
  * How much of the enemy's casualties count *against* your own when a stack judges how it is doing.
  *
- * Losing a tenth of your strength while the other side loses a fifth is not a shock — it is a
+ * Losing a tenth of your strength while the other side loses a fifth is not a shock. It is a
  * victory, and a model where it costs morale anyway makes every even fight end in mutual collapse.
  * That is not a hypothetical: without this term a 20-v-20 mirror broke *both* sides in round three
  * and handed the ground to whoever crossed the threshold second.
@@ -64,7 +64,7 @@ export const INTIMIDATION_PRESSURE = 14;
 /** Morale points lost per round for being outnumbered, at the worst. */
 export const OUTNUMBERED_SHOCK = 5;
 
-/** Morale points a stack loses when a neighbour breaks — the cascade. */
+/** Morale points a stack loses when a neighbour breaks: the cascade. */
 export const ROUT_CASCADE = 10;
 
 /** Morale points a stack recovers per round when nothing bad happened to it. */
@@ -91,7 +91,7 @@ export interface MoraleShock {
   outnumberedRatio: number;
   /** How many friendly stacks broke this round. */
   alliesBroken: number;
-  /** Holding fortified ground steadies a unit — percentage points of resistance to all of it. */
+  /** Holding fortified ground steadies a unit: percentage points of resistance to all of it. */
   resolvePercent: number;
 }
 
@@ -99,7 +99,7 @@ export interface MoraleShock {
  * One round's worth of morale change, before it is applied.
  *
  * Every term is scaled by {@link fragility}, which is what makes the same shock worse on a unit
- * that is already coming apart. Recovery is *not* scaled — a stack that had a quiet round steadies
+ * that is already coming apart. Recovery is *not* scaled: a stack that had a quiet round steadies
  * at the same rate whatever state it is in, so a fight can swing back and a player who breaks off
  * an assault has something to bring home.
  */
@@ -121,7 +121,7 @@ export function moraleDelta(shock: MoraleShock, morale: number): number {
 /**
  * How much of a routed stack the enemy runs down before it gets clear.
  *
- * A rout is not a free withdrawal — Bannerlord deletes the stack outright, which is too blunt for
+ * A rout is not a free withdrawal: Bannerlord deletes the stack outright, which is too blunt for
  * a game where the survivors matter, so this takes a share instead and leaves the rest to the
  * flee-or-die roll at the end of the fight.
  */

@@ -1,5 +1,5 @@
 /**
- * Cyberpunk design tokens — the single source for tailwind.config.ts and any
+ * Cyberpunk design tokens: the single source for tailwind.config.ts and any
  * JS-side rendering (e.g. Pixi map colors). Keep tailwind.config.ts free of
  * literal colors; add tokens here instead.
  */
@@ -33,7 +33,7 @@ export const palette = {
 };
 
 /**
- * ART-BIBLE §2.1 — the eight five-stop ramps, `950` deepest shadow → `100` highlight.
+ * ART-BIBLE §2.1: the eight five-stop ramps, `950` deepest shadow → `100` highlight.
  * Paint **within** a ramp; never invent an intermediate hue. The legacy tokens above are
  * aliases into these stops (`night → abyss`, `steel → ferrite`, `neon.cyan → hextech.300`,
  * `neon.magenta → sear.300`, `warning → ember.300`) and `tokens.test.ts` pins that.
@@ -53,12 +53,12 @@ export const ramps = {
   ember: { 950: '#2a1703', 700: '#4a2a05', 500: '#8a5209', 300: '#f59e0b', 100: '#ffd166' },
   /** Undercity toxicity, pollution, mutated growth. */
   bile: { 950: '#0a1c12', 700: '#12301f', 500: '#2f8551', 300: '#43b56e', 100: '#86e6a8' },
-  /** Skin midtones — the warm anchor in portraits. */
+  /** Skin midtones: the warm anchor in portraits. */
   flesh: { 950: '#1a0f0d', 700: '#2b1a17', 500: '#5a352c', 300: '#8f5744', 100: '#e8b494' },
 } as const;
 
 /**
- * The **chrome** palette — everything the app draws that is not artwork.
+ * The **chrome** palette: everything the app draws that is not artwork.
  *
  * Separate from `ramps` on purpose. The ramps are the ART-BIBLE's description of the *paintings*,
  * and the board's masters are made against them; retuning those to change the interface would be
@@ -67,7 +67,7 @@ export const ramps = {
  *
  * The direction is the district's own: warm near-black rather than blue-black, bone rather than
  * cool grey, and sodium brass as the interactive colour instead of a cyan hairline. The plate
- * measures a warm neutral (rgb 65,57,56) lit by sodium lamps with teal signage — so brass leads,
+ * measures a warm neutral (rgb 65,57,56) lit by sodium lamps with teal signage, so brass leads,
  * verdigris answers it, and oxblood is the only loud colour left, which is what makes danger read.
  */
 export const chrome = {
@@ -116,7 +116,7 @@ export const chrome = {
    * The back room used to be the front of the market wearing a red badge, which is exactly wrong:
    * it is not a shop, nothing in it is priced in caps, and walking through the door is supposed to
    * feel like walking somewhere you should not be. Black and orange is the board's own call and it
-   * is a good one — it is the colour language of a hazard placard, and it is the one combination
+   * is a good one. It is the colour language of a hazard placard, and it is the one combination
    * nothing else in the interface uses.
    *
    * `soot` goes *under* `surface-950`, which is the darkest the rest of the game gets. That is what
@@ -133,63 +133,41 @@ export const chrome = {
 export type RampName = keyof typeof ramps;
 export type RampStop = keyof (typeof ramps)['abyss'];
 
-/** `'#22d3ee'` → `0x22d3ee` — the form PixiJS wants colours in. */
+/** `'#22d3ee'` → `0x22d3ee`: the form PixiJS wants colours in. */
 export const hex = (value: string): number => Number.parseInt(value.replace('#', ''), 16);
 
 /**
- * Rajdhani leads the display stack, not Orbitron.
+ * Two families set this whole interface: `Roboto Condensed` and `Special Elite`.
  *
- * Orbitron is a geometric sci-fi face — wide, circular, and the single strongest reason the old
- * interface read as a spaceship console rather than as a place in this city. Rajdhani is a squarish
- * industrial condensed: it still reads as signage stencilled on metal, which is what the district
- * is covered in, without the chrome-and-lasers connotation. Both are already vendored, so the swap
- * costs no new font file and no new provenance row.
+ * Roboto Condensed is a genuine condensed grotesque, and condensed is the point. This game's
+ * screens are dense tables of labels, tags, counters and tracking-heavy eyebrows, and a condensed
+ * face buys back the horizontal room those need without dropping the type size to get it. Four
+ * weights, even strokes, open counters at 10px.
  *
- * Orbitron stays in the stack behind it for the one canvas that measures against it — `CityMap`
- * draws labels at an explicit weight and family — and can be retired when that does.
- */
-/**
- * ## The hand-drawn pass
+ * It replaced a three-family arrangement (Rajdhani for labels, Inter for prose, Orbitron behind
+ * both) that had no reason to be three. The useful thing about Roboto Condensed is how close it
+ * lands to Rajdhani, which is what the 429 `font-display` call sites were sized against: measured
+ * at the same nominal size it sets uppercase at 1.05x Rajdhani's width and 0.99x on a mixed-case
+ * name, on an x-height 1.04x its own. Nothing needed resizing to take it.
  *
- * Rajdhani and Inter are competent and anonymous, which is exactly the complaint: the panels are
- * painted, the rules are drawn with a wobble, the corners are torn — and then every word on top of
- * them was set in the same two faces as every dashboard on the internet. Type was the last thing in
- * the interface still saying "form".
+ * `stamp` (Special Elite) is the exception, and it is deliberately a small one. It is a struck
+ * typewriter, for the lettering a player reads one line at a time rather than scans: a note, a
+ * quotation, a line of dialogue, the name of a person, the label on a dropdown. It is a
+ * *distressed* face, drawn with the ink-spread and misalignment of a real ribbon, with no weight
+ * axis and no italic. That is texture on a name and a legibility tax across a table, so it stays
+ * off the dense work: an earlier pass put it there and the board's note was blunt and correct, the
+ * game was harder to read than it needed to be.
  *
- * Two faces do the fixing, and the split between them is the whole design:
+ * ### Sizing the stamp
  *
- * - **`hand` (Caveat)** is a pen. It carries every piece of lettering a player is meant to *feel* —
- *   the name of a screen, the title of a window, a quotation, a line of dialogue. Large, sparse,
- *   and always at a size where the stroke reads as a stroke.
- * - **`stamp` (Special Elite)** is a stamped machine, for lettering that wants to look struck onto
- *   the surface: a plaque, a stencilled heading, a rubber stamp across a card.
- * - **`display` (Rajdhani)** does the dense uppercase work — labels, tags, counters, the
- *   tracking-heavy eyebrows this interface is built out of.
- *
- * ### Why the typewriter does not do the dense work any more
- *
- * It did, briefly, and it was a mistake worth writing down. Special Elite is a *distressed* face:
- * every glyph is drawn with the ink-spread and the misalignment of a struck ribbon, its strokes are
- * uneven by design, and it has no weight axis at all. That is charming on a two-word plaque and it
- * is a legibility tax on 387 of them — which is how many places in this client set type in
- * `font-display`, most of them 10–12px uppercase under 0.12em or more of tracking, which is the
- * exact size at which "the letters are a bit rough" turns into "I have to look twice at a number".
- * The board's note was blunt about it and correct: the game was harder to read than it needed to be.
- *
- * Rajdhani takes it back. It is a squarish industrial condensed — signage stencilled on metal,
- * which is what this district is covered in — with four real weights, even strokes, and open
- * counters at small sizes. The genre reads the same; the numbers stop needing a second look.
- *
- * Special Elite is not retired, just demoted to the job it is good at: {@link fontStacks.stamp},
- * used deliberately where lettering should look struck rather than set.
- *
- * Orbitron stays in the display stack behind Rajdhani, because `CityMap` draws canvas labels at an
- * explicit `600 11px Orbitron` and the family has to stay resolvable. `body` keeps Inter — running
- * prose is the one place where getting out of the way *is* the job.
+ * Special Elite runs 1.34x the x-height of the pen face it took these sites from, and 1.43x the
+ * width on a name. Call sites that moved from `hand` to `stamp` had their px sizes scaled by ~0.75
+ * to hold the optical size the layout was designed around. A new `font-stamp` site wants roughly
+ * three quarters of the number a sans would take: against Roboto Condensed specifically, Special
+ * Elite is 0.91x the x-height but 1.23x the width on a name, so it buys height and spends width.
  */
 export const fontStacks = {
-  hand: ['Caveat', 'Rajdhani', 'ui-sans-serif', 'cursive'],
-  stamp: ['Special Elite', 'Rajdhani', 'ui-sans-serif', 'sans-serif'],
-  display: ['Rajdhani', 'Orbitron', 'ui-sans-serif', 'sans-serif'],
-  body: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+  stamp: ['Special Elite', 'Roboto Condensed', 'ui-sans-serif', 'sans-serif'],
+  display: ['Roboto Condensed', 'ui-sans-serif', 'sans-serif'],
+  body: ['Roboto Condensed', 'ui-sans-serif', 'system-ui', 'sans-serif'],
 };

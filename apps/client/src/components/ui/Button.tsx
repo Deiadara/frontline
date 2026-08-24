@@ -12,7 +12,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 /**
  * Buttons have weight.
  *
- * The old ones were outlines that lit up — legible on a flat dark page, invisible over a painting
+ * The old ones were outlines that lit up: legible on a flat dark page, invisible over a painting
  * with lamps in it. These are pressed metal: a filled face, a dark bottom edge that reads as
  * thickness, and the press taking the edge away so the button physically goes down. That borrows
  * from Hero Zero, where a primary action is unmistakably the thing to hit, and it survives being
@@ -49,7 +49,7 @@ export function Button({
         // `shrink-0 whitespace-nowrap`. A button label is two or three words with wide tracking on
         // it, and every one of these sits in a flex row beside prose that is allowed to be long.
         // Without both, the row's free space is taken from the *button*, and "Burn it" breaks
-        // across two lines on the cards where the description happens to be a sentence longer —
+        // across two lines on the cards where the description happens to be a sentence longer,
         // which is why the infamy sacrifices had three buttons on one line and one on two. Letting
         // the text push the row wider instead is the correct trade: labels here are fixed copy, and
         // the horizontal-overflow gate is what would catch it if one ever were not.

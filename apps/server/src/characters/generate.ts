@@ -16,17 +16,17 @@ import { createRng, gaussian, randomInt, sample, weightedSample, type Rng } from
  * Recruitment rolls (GDD §B2, §B2a).
  *
  * The board's three numbers: a character averages 15-20, a good attribute sits around 30, a bad
- * one around 10. Nothing reaches 40 — the 40..100 band is what progression is for.
+ * one around 10. Nothing reaches 40: the 40..100 band is what progression is for.
  *
  * Shape of a roll: every attribute is drawn around the mean, then one role's affinity template
  * lifts 3-5 of them toward 30 and 1-3 unrelated ones are pushed down toward 10. The template is
  * read from the hidden requirement table, which is exactly why generation is server-side.
- * `generateCharacter` deliberately does not report which role shaped the roll — that would be a
+ * `generateCharacter` deliberately does not report which role shaped the roll. That would be a
  * fit hint, and B8 forbids those.
  *
  * Not reporting the role is not enough on its own, though: if the lifted attributes were simply
  * the role's heaviest ones, the sheet would *be* the table, one row at a time (B8 void by
- * construction). So a strength is not a lookup — one of them comes from outside the template
+ * construction). So a strength is not a lookup: one of them comes from outside the template
  * entirely, and the rest are *drawn* over the weights rather than taken in order. What survives
  * is a tendency: the affinity is still genuinely the recruit's best role, but the player cannot
  * prove which role that is, and cannot recompute the fit that would tell them. Selling that
@@ -40,8 +40,8 @@ import { createRng, gaussian, randomInt, sample, weightedSample, type Rng } from
  * can observe. Measured over 20k rolls, reading the 4th-lowest of 34 as the natural tail (above
  * the 1-3 pushed ones):
  *
- *   N(15, 3.5) -> tail 10.27, sheet mean 16.47, lowest 7.65 — tail sits *at* the ~10 push
- *   N(18, 2.5) -> tail 13.94, sheet mean 18.94, lowest 9.25 — tail sits ~4 clear of it
+ *   N(15, 3.5) -> tail 10.27, sheet mean 16.47, lowest 7.65: tail sits *at* the ~10 push
+ *   N(18, 2.5) -> tail 13.94, sheet mean 18.94, lowest 9.25: tail sits ~4 clear of it
  *
  * Both means are inside B2's 15-20 band; only the second lets B2's "a bad one ~10" read as ~10
  * off the sheet.
@@ -66,7 +66,7 @@ const MAX_STRENGTHS = 5;
  *   2 off-template -> 0.01 rows/roster, best fit 0.44   (the roll stops meaning anything)
  *
  * A second one buys almost no further secrecy and costs most of the signal the roll exists to
- * carry, so one is not a compromise between the two bars — it is the only setting that clears
+ * carry, so one is not a compromise between the two bars. It is the only setting that clears
  * both. `generate.test.ts` asserts each bound; the full analysis is in the MOU-186 thread.
  */
 const OFF_TEMPLATE_STRENGTHS = 1;
@@ -92,7 +92,7 @@ const WEAKNESS_FLOOR = 4;
 const MIN_WEAKNESSES = 1;
 const MAX_WEAKNESSES = 3;
 
-/** Chance a generated character carries a trait (B7 — *some* characters have one). */
+/** Chance a generated character carries a trait (B7: *some* characters have one). */
 const TRAIT_CHANCE = 0.35;
 
 export interface GeneratedCharacter {
@@ -101,7 +101,7 @@ export interface GeneratedCharacter {
 }
 
 /**
- * A roll together with the role that shaped it — server-internal, and deliberately *not* what
+ * A roll together with the role that shaped it: server-internal, and deliberately *not* what
  * `generateCharacter` hands back, because the affinity is precisely the fit hint B8 forbids. It
  * exists so tests can measure how much of the affinity survives into a sheet a player can see.
  */
@@ -115,8 +115,8 @@ function atRecruitment(value: number, floor: number): number {
 }
 
 /**
- * Which attributes a roll lifts. Most are drawn over the affinity's template — heavier weights
- * come up more often — but one comes from outside it, so the lifted set is never the template's
+ * Which attributes a roll lifts. Most are drawn over the affinity's template: heavier weights
+ * come up more often, but one comes from outside it, so the lifted set is never the template's
  * own membership and cannot be read back as one.
  */
 function pickStrengths(rng: Rng, affinity: OfficerRole): AttributeName[] {

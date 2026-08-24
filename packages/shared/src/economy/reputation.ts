@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import type { Faction, MissionStance } from '../factions.js';
 import { IsoDateTimeSchema } from '../primitives.js';
+import { meetsNotoriety } from './notoriety.js';
 
 /**
  * Reputation is a *word*, not a number (GDD §D8): a label the street applies to your group
  * based on what it has actually done. Every label named by the board exists here from day one
- * (§D8a) — the ones no mechanic can reach yet carry a `TODO-LATER` naming what will drive them.
+ * (§D8a): the ones no mechanic can reach yet carry a `TODO-LATER` naming what will drive them.
  */
 export const REPUTATION_LABELS = [
   'Revolutionary',
@@ -44,7 +45,7 @@ export const REPUTATION_LABEL_SPECS: Readonly<Record<ReputationLabel, Reputation
   },
   Hostile: {
     description: 'You hit other crews often enough that they expect it.',
-    todo: 'TODO-LATER: player-vs-player attack tally — PvP sieges are not open in any milestone yet; needs a board-filed PvP issue',
+    todo: 'TODO-LATER: player-vs-player attack tally: PvP sieges are not open in any milestone yet; needs a board-filed PvP issue',
   },
   Cautious: {
     description: 'Nothing on the street says otherwise yet. You pick your moments.',
@@ -82,7 +83,7 @@ export const REPUTATION_LABEL_SPECS: Readonly<Record<ReputationLabel, Reputation
 
 /**
  * The tallied actions reputation is derived from (§D8). Only actions that exist in the game
- * today have a counter — a counter no code can increment would make the `TODO-LATER` markers
+ * today have a counter: a counter no code can increment would make the `TODO-LATER` markers
  * above dishonest. New counters land with the mechanics named in `REPUTATION_LABEL_SPECS`.
  */
 export const ReputationTallySchema = z.object({
@@ -91,7 +92,7 @@ export const ReputationTallySchema = z.object({
   raidsWon: z.number().nonnegative(),
   raidsLost: z.number().nonnegative(),
   /**
-   * §A3/§D8 — blows against the Combine that actually landed: raids won on ground it holds, plus
+   * §A3/§D8: blows against the Combine that actually landed: raids won on ground it holds, plus
    * anti-government missions that came home a success. Only *successful* action counts, because
    * throwing crews at the state and losing already has a word for it (`Reckless`) and counting a
    * loss on both ledgers would let one raid record produce two contradictory labels.
@@ -102,19 +103,19 @@ export const ReputationTallySchema = z.object({
    */
   governmentSitesTaken: z.number().nonnegative().default(0),
   /**
-   * The subset of the above taken off a *seat* of Combine power (`isSeatOfGovernmentPower`) —
+   * The subset of the above taken off a *seat* of Combine power (`isSeatOfGovernmentPower`):
    * what separates replacing the state from robbing it.
    */
   governmentSeatsTaken: z.number().nonnegative().default(0),
-  /** §D8 — jobs completed *for* the Combine. Co-operation, and the street counts it. */
+  /** §D8: jobs completed *for* the Combine. Co-operation, and the street counts it. */
   governmentContracts: z.number().nonnegative().default(0),
   /**
-   * §D8a — pay-weeks the wage book was settled in full, and pay-weeks it was not.
+   * §D8a: pay-weeks the wage book was settled in full, and pay-weeks it was not.
    *
    * The wage book *is* a contract (see `PayrollStateSchema`): the base agrees a weekly number with
    * a named officer and either meets it or does not. That is the only promise the game currently
    * lets a player make and break, so it is what `Honorable` and `Treacherous` read. A week with no
-   * officers on the books moves neither counter — there was no promise to keep.
+   * officers on the books moves neither counter. There was no promise to keep.
    *
    * Both default to `0` so a tally written before this landed still parses, exactly as the W10
    * counters above do: a crew with no payroll history has honoured and broken nothing.
@@ -143,18 +144,19 @@ export const TALLY_COUNTERS: readonly ReputationTallyCounter[] = ReputationTally
 /**
  * Infamy at or above which the street simply calls you `Feared`.
  *
- * Re-quoted when infamy stopped being a 0..100 meter: 60 used to be most of a full meter and is now
- * one dead Colossus. 500 is roughly two won assaults on a garrisoned place — a crew that has done
- * real damage twice rather than one that has been lucky once.
+ * A **rank** since the infamy rework, not a point total. `Bad Omen` is the rung at which the street
+ * has stopped arguing about whether you are dangerous, which is what the word is for. Reading the
+ * wallet made the label flicker: a crew that spent on contraband stopped being feared until it had
+ * killed enough people to buy the crate back.
  */
-export const FEARED_INFAMY = 500;
+export const FEARED_NOTORIETY = 7;
 /** Losses that mark a crew `Reckless`, provided it is losing more than it wins. */
 export const RECKLESS_LOSSES = 5;
 /** Wins that earn `Respected`. */
 export const RESPECTED_WINS = 5;
 /**
  * Blows landed on the Combine before the street calls it sustained (§D8, "lots of anti-government
- * action"). Deliberately above `RESPECTED_WINS` is *not* the aim — four is reachable in an evening
+ * action"). Deliberately above `RESPECTED_WINS` is *not* the aim: four is reachable in an evening
  * of raiding, because a crew that spends its evenings raiding the state is what the word describes.
  */
 export const ANTI_SYSTEMIC_ACTIONS = 4;
@@ -168,7 +170,7 @@ export const COLLABORATOR_CONTRACTS = 4;
 /**
  * Jobs taken *each way* before working both sides is read as a business model rather than as a
  * crew that has not picked one yet (§D8a). Two, because one job in each direction is a fortnight
- * of ordinary play and says nothing — doing it twice each way is a pattern.
+ * of ordinary play and says nothing: doing it twice each way is a pattern.
  */
 export const OPPORTUNIST_JOBS_EACH_WAY = 2;
 /**
@@ -177,7 +179,7 @@ export const OPPORTUNIST_JOBS_EACH_WAY = 2;
  * slowly and a reputation for stiffing people is not.
  *
  * **Why these are small.** Unlike raids, which a player can run back-to-back, paydays arrive on a
- * fixed weekly clock — and the §D8 half-life is 14 days, so a counter fed once a week decays
+ * fixed weekly clock, and the §D8 half-life is 14 days, so a counter fed once a week decays
  * faster than it fills. Its ceiling is `1 / (1 - 0.5^(7/14))` ≈ **3.41**, whatever the player does.
  * A threshold of 5 would be a label no crew could ever earn, and 4 would take seven weeks while
  * claiming to take four. At these values the constants mean what they say at the only cadence the
@@ -191,7 +193,7 @@ export const TREACHEROUS_MISSED_PAYDAYS = 2;
  * Whether a decayed counter still carries `actions` worth of the thing it counts.
  *
  * The drift is applied *before* every increment, so the Nth action leaves its counter somewhere in
- * `(N - 1, N]` — never exactly `N` unless two actions land in the same millisecond. A `>= N` test
+ * `(N - 1, N]`: never exactly `N` unless two actions land in the same millisecond. A `>= N` test
  * therefore silently asks for `N + 1` actions, which is why the threshold is `> N - 1`: true the
  * moment the Nth action lands at any spacing, false after `N - 1`, and still false again once the
  * counter has drifted back down (§D8). Every threshold below reads through this, so a constant
@@ -227,7 +229,7 @@ export function decayTally(tally: ReputationTally, now: Date): ReputationTally {
 export interface RaidTarget {
   /** Whose ground it was. Only the Combine moves a stance counter. */
   faction: Faction;
-  /** A seat of Combine power rather than one of its outposts — see `isSeatOfGovernmentPower`. */
+  /** A seat of Combine power rather than one of its outposts: see `isSeatOfGovernmentPower`. */
   isSeatOfPower: boolean;
 }
 
@@ -242,7 +244,7 @@ export interface RaidRecord {
  *
  * A won raid on Combine ground is the same event on two ledgers: it is a win the street counts
  * (`raidsWon`) *and* a blow against the government (§A3). Nothing here tallies a second time
- * anywhere else — `EconomyState.reputationTally` is the one copy.
+ * anywhere else: `EconomyState.reputationTally` is the one copy.
  */
 export function recordRaidOutcome(
   tally: ReputationTally,
@@ -282,7 +284,7 @@ export function recordMissionOutcome(
     : { ...decayed, governmentContracts: decayed.governmentContracts + 1 };
 }
 
-/** A settled payroll, as the tally reads it (§D8a). Weeks, never caps — see `paydaysHonoured`. */
+/** A settled payroll, as the tally reads it (§D8a). Weeks, never caps: see `paydaysHonoured`. */
 export interface PayrollRecord {
   /** Pay weeks the wage book was met in full. */
   honoured: number;
@@ -311,8 +313,8 @@ export function recordPayrollOutcome(
 }
 
 export interface ReputationInputs {
-  /** §D7 points, uncapped — see `economy/infamy.ts`. */
-  infamy: number;
+  /** §D7 rank, an index into `NOTORIETY_TIERS`. See `economy/notoriety.ts`. */
+  notoriety: number;
   tally: ReputationTally;
 }
 
@@ -324,17 +326,20 @@ export interface ReputationInputs {
  * **Why the three government words outrank infamy and the raid record.** Where a crew stands on
  * the Combine (§A3) is a claim about *what it is for*; `Feared`, `Reckless` and `Respected` only
  * say how loud and how successful it has been. Once the street can answer "whose side are they
- * on?", that is the answer it gives — a crew four raids into a campaign against the state is read
+ * on?", that is the answer it gives: a crew four raids into a campaign against the state is read
  * as `Anti-systemic` even at maximum infamy, because the politics is the more specific fact.
  *
  * Within the bloc: `Revolutionary` outranks `Anti-systemic` because its signal is a strict subset
  * (a seat taken is also a site taken), so the narrower claim must be tested first or it could never
- * be returned. A crew that plays both sides needs a *dominant* side to earn one of those words —
+ * be returned. A crew that plays both sides needs a *dominant* side to earn one of those words,
  * and once neither ledger leads, working both of them **is** the answer to "whose side are they
  * on?", so `Opportunist` closes the bloc rather than letting a crew that sells to everyone fall
  * through to `Cautious` ("nothing on the street says otherwise yet"), which would be a lie.
  */
-export function deriveReputation({ infamy, tally }: ReputationInputs, now: Date): ReputationLabel {
+export function deriveReputation(
+  { notoriety, tally }: ReputationInputs,
+  now: Date,
+): ReputationLabel {
   const {
     raidsWon,
     raidsLost,
@@ -369,9 +374,9 @@ export function deriveReputation({ infamy, tally }: ReputationInputs, now: Date)
   // Whether your word holds is a more specific claim than how loud or how successful you are, so
   // the payroll pair outranks the volume labels for the same reason the government bloc outranks
   // both. A mixed record needs a dominant side to earn a word at all, exactly as the stance
-  // counters do — a crew that pays half the time is neither, and falls through.
+  // counters do: a crew that pays half the time is neither, and falls through.
   // Both sides test strictly, so a crew with a level record falls through to the volume labels
-  // rather than being called treacherous for a tie — the same shape as `Anti-systemic` and
+  // rather than being called treacherous for a tie: the same shape as `Anti-systemic` and
   // `Collaborator`, which both require their counter to lead the other.
   if (paydaysMissed > paydaysHonoured && tallyReaches(paydaysMissed, TREACHEROUS_MISSED_PAYDAYS)) {
     return 'Treacherous';
@@ -381,13 +386,13 @@ export function deriveReputation({ infamy, tally }: ReputationInputs, now: Date)
   }
 
   // Infamy is a running total, not a decayed tally counter, so it is read directly.
-  if (infamy >= FEARED_INFAMY) return 'Feared';
+  if (meetsNotoriety(notoriety, FEARED_NOTORIETY)) return 'Feared';
   if (tallyReaches(raidsLost, RECKLESS_LOSSES) && raidsLost > raidsWon) return 'Reckless';
   if (tallyReaches(raidsWon, RESPECTED_WINS)) return 'Respected';
   return 'Cautious';
 }
 
-/** Labels a live mechanic can currently produce — the complement of the `TODO-LATER` set. */
+/** Labels a live mechanic can currently produce: the complement of the `TODO-LATER` set. */
 export const LIVE_REPUTATION_LABELS: readonly ReputationLabel[] = REPUTATION_LABELS.filter(
   (label) => REPUTATION_LABEL_SPECS[label].todo === null,
 );

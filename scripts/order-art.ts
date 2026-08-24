@@ -1,12 +1,12 @@
 /**
- * `docs/ART-ORDER.md` — the order sheet a human works from when the art is hand-generated in a chat
+ * `docs/ART-ORDER.md`: the order sheet a human works from when the art is hand-generated in a chat
  * UI rather than bought from an image API (MOU-134).
  *
  * Every word of prompt in the sheet is **assembled** from `ART_MANIFEST` and
  * `packages/shared/src/art/prompts.ts`, never restated: `prompts.ts` stays the single copy of the
  * style anchor, the negative list, the framing blocks and the subjects. Every filename and every
  * pixel size is read off the manifest, so a sheet that disagrees with what `encode-art` will accept
- * cannot be written by hand — it can only be regenerated.
+ * cannot be written by hand. It can only be regenerated.
  *
  *   pnpm art:order            # regenerate docs/ART-ORDER.md
  *   pnpm art:order --check    # non-zero exit if the committed sheet has drifted
@@ -44,49 +44,49 @@ const MASTER_EXTENSIONS = ['png', 'webp'] as const;
 
 export interface Section {
   title: string;
-  /** The paragraph under the heading — what the board should actually do with this group. */
+  /** The paragraph under the heading: what the board should actually do with this group. */
   guidance: string;
   includes: (spec: AssetSpec) => boolean;
 }
 
 /**
- * The four groups, in the order the board should act on them. They **partition** the manifest —
+ * The four groups, in the order the board should act on them. They **partition** the manifest:
  * pinned by a test, so a new asset class cannot quietly fall off the sheet.
  *
  * The split is by what a chat UI can be trusted to hand back, not by what the game wants first:
  * a plain opaque download at a baseline size is verified-by-construction, a 16:9 download is an
  * open question the board answers by measuring one, and transparency is unverified against real
- * ChatGPT output by anyone here. The fourth group is the exception to that framing — those assets
+ * ChatGPT output by anyone here. The fourth group is the exception to that framing: those assets
  * are perfectly producible, they just could not be seen afterwards, so the two ordered sections
  * exclude them rather than invite a master nothing will ever show.
  */
 export const SECTIONS: readonly Section[] = [
   {
-    title: 'Hero set — do these',
+    title: 'Hero set: do these',
     guidance: [
       'These are the assets a plain ChatGPT download satisfies exactly: no transparency, no crop, no',
       'downscale, and a size ChatGPT already returns. **Match the size exactly.** `encode-art` accepts',
       'a larger download by centre-cropping to the listed aspect and resampling down, but it will never',
-      'upscale — a download smaller than the minimum below is rejected by name.',
+      'upscale: a download smaller than the minimum below is rejected by name.',
     ].join('\n'),
     includes: isHeroAsset,
   },
   {
-    title: '16:9 set — only if your download measures at least 2048×1152',
+    title: '16:9 set: only if your download measures at least 2048×1152',
     guidance: [
       '**Check the pixel dimensions of the downloaded file before you spend any time on these.** OpenAI',
       'documents 2048×1152 as a `gpt-image-2` size, but what the consumer ChatGPT UI hands a human on',
       'download is not something anyone here has verified. If what lands on your disk is 1536×1024,',
-      'cropping it to 16:9 gives 1536×864 — under the 2048×1152 minimum, and `encode-art` will reject it,',
+      'cropping it to 16:9 gives 1536×864: under the 2048×1152 minimum, and `encode-art` will reject it,',
       'correctly. Upscaling invents detail, so the answer is a bigger render, not a bigger resample.',
     ].join('\n'),
     includes: (spec) =>
       spec.aspect === '16:9' && !spec.alpha && !isHeroAsset(spec) && !isOccludedBackdropAsset(spec),
   },
   {
-    title: 'Roster set — any download at or above the listed minimum works',
+    title: 'Roster set: any download at or above the listed minimum works',
     guidance: [
-      'Opaque, like the hero set, but at a size and aspect ChatGPT does not return directly — so the',
+      'Opaque, like the hero set, but at a size and aspect ChatGPT does not return directly, so the',
       'download needs a crop. `encode-art` does that crop for you, centred, as long as the file clears',
       'the **Minimum size** listed under each entry; anything larger is centre-cropped to the aspect and',
       'resampled down. A 1024×1536 portrait download crops to 768×1152 at 3:4 and is comfortably over.',
@@ -96,10 +96,10 @@ export const SECTIONS: readonly Section[] = [
       spec.aspect !== '16:9' && !spec.alpha && !isHeroAsset(spec) && !isOccludedBackdropAsset(spec),
   },
   {
-    title: 'Alpha set — not requested yet',
+    title: 'Alpha set, not requested yet',
     guidance: [
       'Do **not** start these. Every asset here ships with a real alpha channel, and ChatGPT does not',
-      'reliably return transparency — `gpt-image-2` explicitly does not support a transparent background',
+      'reliably return transparency: `gpt-image-2` explicitly does not support a transparent background',
       'at all. The fallback is the `matte` step keying a flat background out of an opaque master, and',
       '**that path has never been run against real ChatGPT output.** Until someone verifies it on a',
       'single file, ordering the set is a batch of downloads that may every one of them be unusable.',
@@ -108,15 +108,15 @@ export const SECTIONS: readonly Section[] = [
     includes: (spec) => spec.alpha && !isOccludedBackdropAsset(spec),
   },
   {
-    title: 'Occluded backdrop — nothing to draw',
+    title: 'Occluded backdrop: nothing to draw',
     guidance: [
       'Do **not** draw these, now or later. They sit behind `plate-city` in the map backdrop, and the',
-      'plate is opaque by specification (ART-BIBLE §6 — it is the base image and carries no alpha). So',
+      'plate is opaque by specification (ART-BIBLE §6. It is the base image and carries no alpha). So',
       'the day the plate is delivered as a real file it covers them completely, at every zoom and every',
       'scroll position, and a master ordered for one of these would never put a pixel on screen.',
       '',
       'They are not dead code: `plate-city` is still **procedural**, and until it is delivered these two',
-      'planes are what give the map its depth. Delivering the plate is what retires them — so if the',
+      'planes are what give the map its depth. Delivering the plate is what retires them, so if the',
       'plate ever goes back to being transparent, they come back and this section shrinks on its own.',
       'Listed for completeness only.',
     ].join('\n'),
@@ -141,7 +141,7 @@ export function groupIntoSections(
 
 /**
  * The exact prose to paste. `assemblePrompt` is the same function the paid backends call, and the
- * negative list is folded in the same way `gen-art`'s gpt-image-1 adapter folds it — a chat UI has
+ * negative list is folded in the same way `gen-art`'s gpt-image-1 adapter folds it: a chat UI has
  * no negative-prompt field either, so the two routes must not drift into two different prompts.
  */
 export function orderPrompt(spec: AssetSpec): string {
@@ -175,7 +175,7 @@ function assetBlock(spec: AssetSpec): string {
 }
 
 const PREAMBLE = [
-  '<!-- Generated by `pnpm art:order`. Do not edit by hand — edit `packages/shared/src/art/prompts.ts`',
+  '<!-- Generated by `pnpm art:order`. Do not edit by hand: edit `packages/shared/src/art/prompts.ts`',
   '     or the manifest and regenerate. `pnpm art:order --check` fails when this file has drifted. -->',
   '',
   '# Art order sheet',
@@ -187,13 +187,13 @@ const PREAMBLE = [
   'pnpm --filter @frontline/scripts encode-art   # turns every master in art-src/ into a delivery file',
   '```',
   '',
-  'No TypeScript changes are needed for any asset on this sheet — the game picks up a delivery file the',
+  'No TypeScript changes are needed for any asset on this sheet: the game picks up a delivery file the',
   'moment it exists (restart `pnpm dev`, see `assets/README.md`).',
   '',
   '## How the size rule works',
   '',
   '`encode-art` normalises whatever you saved to the size the manifest asks for: it centre-crops to the',
-  'listed aspect, then resamples down. It **refuses to upscale** — if your download is smaller than the',
+  'listed aspect, then resamples down. It **refuses to upscale**, if your download is smaller than the',
   'minimum in either axis after that crop, it fails and names the file, the size it measured and the size',
   'it needs. So a bigger download is always safe and a smaller one is never accepted. Check the pixel',
   'dimensions of the file on disk, not the size you asked the UI for.',
@@ -253,8 +253,8 @@ export async function main(argv: readonly string[]): Promise<number> {
     if (committed === sheet) return 0;
     process.stderr.write(
       committed === null
-        ? `${relative} does not exist — run \`pnpm art:order\`.\n`
-        : `${relative} is out of date with the manifest — run \`pnpm art:order\` and commit it.\n`,
+        ? `${relative} does not exist: run \`pnpm art:order\`.\n`
+        : `${relative} is out of date with the manifest: run \`pnpm art:order\` and commit it.\n`,
     );
     return 1;
   }

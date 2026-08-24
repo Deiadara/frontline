@@ -1,7 +1,7 @@
-# SPEC — Server (`apps/server`)
+# SPEC: Server (`apps/server`)
 
 The REST contract the server dev implements. The scaffold already boots (`/health`, CORS, JWT
-plugin, sqlite + migrations). Implement everything below in `apps/server/src` — register routes
+plugin, sqlite + migrations). Implement everything below in `apps/server/src`: register routes
 from `buildApp()` in `app.ts`. Do not redefine domain types: import every schema/type/constant
 from `@frontline/shared`.
 
@@ -23,20 +23,20 @@ from `@frontline/shared`.
   `PasswordSchema`: min 8 / max 128 chars. Never return or log password material; convert rows to
   the shared `User` shape before responding (see `UserRecord` in `src/types.ts`).
   Note for the product owner's "single shared password" idea: we satisfy it with normal
-  per-user passwords — every account registers with its own password; nothing else is needed.
+  per-user passwords: every account registers with its own password; nothing else is needed.
 - **Ids**: `crypto.randomUUID()`. **Timestamps**: ISO-8601 UTC strings (`new Date().toISOString()`).
-- **Persistence**: better-sqlite3 (synchronous — no `await` on db calls). Tables exist from
+- **Persistence**: better-sqlite3 (synchronous: no `await` on db calls). Tables exist from
   `0001_init.sql`: `users`, `overseers`, `bases`, `battles` (+ `schema_migrations`). JSON payload
   columns (`attributes_json`, `traits_json`, `resources_json`, `buildings_json`, `log_json`,
   `rewards_json`) are
   serialized with `JSON.stringify` and parsed through the shared Zod schemas when read.
   (Fallback note: if better-sqlite3's native build ever fails on a machine, swap
-  `src/db/index.ts` to Node 24's built-in `node:sqlite` `DatabaseSync` — same synchronous shape.
+  `src/db/index.ts` to Node 24's built-in `node:sqlite` `DatabaseSync`: same synchronous shape.
   Not needed on the current machine; the prebuilt binary installs fine.)
 
 ## Endpoints
 
-### `GET /health` (public) — implemented
+### `GET /health` (public): implemented
 
 `200 {"status":"ok"}`.
 
@@ -44,7 +44,7 @@ from `@frontline/shared`.
 
 Body: `RegisterRequestSchema` `{username, password}`.
 
-- Username unique (case-insensitive — the column is `COLLATE NOCASE`); conflict → `409 USERNAME_TAKEN`.
+- Username unique (case-insensitive: the column is `COLLATE NOCASE`); conflict → `409 USERNAME_TAKEN`.
 - Create user: `overseer_id = NULL`, bcrypt-hash the password.
 - `201` → `AuthResponseSchema` `{token, user}`.
 
@@ -57,7 +57,7 @@ Body: `LoginRequestSchema` `{username, password}`.
 
 ### `GET /api/me` (auth)
 
-`200` → `MeResponseSchema` `{user, overseer, base}` — `overseer`/`base` are `null` until the
+`200` → `MeResponseSchema` `{user, overseer, base}`: `overseer`/`base` are `null` until the
 player has run `POST /api/overseer`. (One base per user in this milestone; pick the user's base
 by `owner_id`.)
 
@@ -77,18 +77,18 @@ Body: `CreateOverseerRequestSchema` `{presetId}`.
 ### `GET /api/city` (auth)
 
 `200` → `CityResponseSchema` `{districts: CITY_DISTRICTS, bases}` where `bases` is ALL bases
-projected through `BaseSummarySchema` (id/ownerId/name/districtId/level only — never resources
+projected through `BaseSummarySchema` (id/ownerId/name/districtId/level only: never resources
 or buildings of other players).
 
 ### `POST /api/city/upgrade` (auth)
 
 Body: `UpgradeLocationRequestSchema` `{locationId}`. Works a location you hold up one level
 (GDD §A4). Charged up front, a clock on the control row, banked by `settleFortifications` on the
-next read of the city — the same lazy contract fortifying uses, and the same settler.
+next read of the city: the same lazy contract fortifying uses, and the same settler.
 
 A location is captured at level 1 and can be worked to `MAX_LOCATION_LEVEL` (4). Each level pays
 more (`LEVEL_SCALE`) and each upgrade costs more than the last (`UPGRADE_COST_SCALE`). **A capture
-resets it to 1** and cancels any work in progress — `battle/resolve.ts`, not this route.
+resets it to 1** and cancels any work in progress: `battle/resolve.ts`, not this route.
 
 Refusals, all `409`:
 
@@ -110,28 +110,35 @@ Refusals, all `409`:
 ### `POST /api/base/build` (auth)
 
 Body: `BuildStructureRequestSchema` `{kind}`. Puts one structure's **next level** into the build
-queue (GDD §A1) — it does not raise anything. `settleBase` runs first, so an order that finished
+queue (GDD §A1). It does not raise anything. `settleBase` runs first, so an order that finished
 while the tab was open lands before the queue is measured against its limit.
 
 Refusals, all `409`, in the order they are checked:
 
-| Reason                                          | Code                     |
-| ----------------------------------------------- | ------------------------ |
-| Nexus too low to authorise the structure at all | `STRUCTURE_LOCKED`       |
-| Already at `BUILDING_MAX_LEVEL`                 | `STRUCTURE_AT_MAX_LEVEL` |
-| Held down by the Nexus's own level              | `NEXUS_CAP`              |
-| All `MAX_BUILD_QUEUE` slots working             | `BUILD_QUEUE_FULL`       |
-| Materials short                                 | `INSUFFICIENT_RESOURCES` |
+| Reason                                                             | Code                     |
+| ------------------------------------------------------------------ | ------------------------ |
+| An unlock clause is unmet: Nexus, another structure, or crew level | `STRUCTURE_LOCKED`       |
+| Already at `BUILDING_MAX_LEVEL`                                    | `STRUCTURE_AT_MAX_LEVEL` |
+| Held down by the Nexus's own level                                 | `NEXUS_CAP`              |
+| All `MAX_BUILD_QUEUE` slots working                                | `BUILD_QUEUE_FULL`       |
+| Materials short                                                    | `INSUFFICIENT_RESOURCES` |
 
 Materials are taken at order time. Price and duration are read off the district **as it stands**
 and frozen onto the entry; only the _level_ comes from the queue's projection, so a player may
 queue the Nexus and the structure it unlocks together.
 
+Unlocking is a **clause list** per structure (§A1, §I3), and all of them must hold: `building`
+clauses name another structure at a level (the Nexus rung is the most important instance, not a
+separate rule) and `player_level` clauses name the crew's own level. Several structures carry one
+clause, several carry two and the heavy ones carry three: a `STRUCTURE_LOCKED` refusal names every
+unmet clause at once rather than the first, so a player is not sent off to do a thing that will not
+unlock it.
+
 `200` → `BuildStructureResponseSchema` `{base, levelUp?}`.
 
 ### `POST /api/base/faction` (auth)
 
-Body: `RenameFactionRequestSchema` `{name}` — trimmed and bounded by `FactionNameSchema`.
+Body: `RenameFactionRequestSchema` `{name}`: trimmed and bounded by `FactionNameSchema`.
 `200` → `RenameFactionResponseSchema` `{base}`.
 
 ### Lazy settlement
@@ -141,7 +148,7 @@ payroll second**. The order is load-bearing in both directions: a Greenhouse has
 this week's rations before the upkeep is taken, and the Infirmary that softens a missed payday has
 to be standing before the payday is missed.
 
-The district settle walks the window rather than multiplying it — it is cut at each completed
+The district settle walks the window rather than multiplying it. It is cut at each completed
 build so a structure that finished an hour ago is not paid for the three days the district went
 unread. It skips windows shorter than `PRODUCTION_MIN_STEP_MS` **without advancing the clock**, so
 nothing is lost to a fast-polling client.
@@ -152,7 +159,7 @@ Body: `BattleRequestSchema` `{targetDistrictId}`.
 
 - Caller has no base yet → `409 NO_BASE`.
 - District unknown, or `kind` not in `('raid', 'npc_stronghold')` → `400 INVALID_TARGET`.
-- Run the engine: `defaultBattleEngine.simulate({attackerBaseId, targetDistrictId})` — depend on
+- Run the engine: `defaultBattleEngine.simulate({attackerBaseId, targetDistrictId})`: depend on
   the `BattleEngine` interface, not the concrete class (it will be swapped, see
   docs/ARCHITECTURE.md).
 - Persist a `battles` row (fresh id, winner, log, rewards, created_at).
@@ -168,24 +175,24 @@ to reconstruct it. Schemas are in `packages/shared/src/api.battle.ts`.
 
 Every handler settles in the same order the city routes use, with one more step on the end: the
 crew's district and payroll, then any fortification whose clock ran out, then **any fight whose mark
-has passed**. There is no scheduler — `settleBattles` runs on the read, and a fight nobody has looked
+has passed**. There is no scheduler: `settleBattles` runs on the read, and a fight nobody has looked
 at for three days resolves to the same result whenever it is next opened.
 
 - `GET /api/battles` → `BattlesResponseSchema`. Coming fights the caller is in or can see, finished
   ones they are allowed to read, the half-hour marks open right now, their infamy and what it buys,
   their own structures, and the gate state of every district they can see into.
-- `POST /api/battles/declare` — `{target, scheduledFor}`. Refused (`409 BATTLE_REFUSED`) for a mark
+- `POST /api/battles/declare`: `{target, scheduledFor}`. Refused (`409 BATTLE_REFUSED`) for a mark
   off the half hour, inside eight hours or past twenty-four; for a location in a district one party
   holds outright (attack the gate); for a gate where no one party holds all of it; for a structure
   behind a gate that is still standing; for unscouted ground, ground already called, a fourth
   simultaneous call, or your own.
-- `POST /api/battles/deploy` — `{battleId, changes, perimeterChanges}`, both **deltas**. Positive
+- `POST /api/battles/deploy`: `{battleId, changes, perimeterChanges}`, both **deltas**. Positive
   sends, negative withdraws. Units leave the roster when sent and return when pulled, less whatever
   the enemy's ring takes on the way out. Refused past the cutoff, for units the crew does not have,
   and for units whose tier demands more infamy than the crew has earned.
-- `POST /api/battles/trap` — `{locationId, trapId}`. One armed trap per location, gated on the Lab.
-- `POST /api/battles/garrison` — `{buildingId, delta}`. Up to three watches per structure.
-- `POST /api/battles/sacrifice` — `{sacrificeId}`. Spends infamy outright; `409 NOT_ENOUGH_INFAMY`
+- `POST /api/battles/trap`: `{locationId, trapId}`. One armed trap per location, gated on the Lab.
+- `POST /api/battles/garrison`: `{buildingId, delta}`. Up to three watches per structure.
+- `POST /api/battles/sacrifice`: `{sacrificeId}`. Spends infamy outright; `409 NOT_ENOUGH_INFAMY`
   when the name is not worth it. One at a time.
 
 The **report** is withheld rather than redacted: the winner always gets one, the loser only if at

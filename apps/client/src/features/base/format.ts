@@ -1,8 +1,8 @@
 /**
  * Durations as the district page says them (GDD §A1).
  *
- * Build times span four orders of magnitude — twenty seconds at the bottom of the tree, most of a
- * working day at the top — so a single unit is wrong at one end whichever one is picked. Two
+ * Build times span four orders of magnitude: twenty seconds at the bottom of the tree, most of a
+ * working day at the top, so a single unit is wrong at one end whichever one is picked. Two
  * significant units is the readable compromise: `45s`, `7m 12s`, `5h 48m`.
  */
 export function formatDuration(totalSeconds: number): string {

@@ -1,5 +1,5 @@
 /**
- * The zoom floor must never uncover the frame — ADR 0001 §5.1, as amended by §8.1.
+ * The zoom floor must never uncover the frame: ADR 0001 §5.1, as amended by §8.1.
  *
  * `CityMap` builds the world at frame size (`worldWidth: width, worldHeight: height`), so the
  * invariant that keeps the map full-bleed is `ZOOM_MIN * world >= screen`. Below it the world no
@@ -8,7 +8,7 @@
  *
  * Nothing in the suite could see that bug class. `expectCanvasFillsFrame` (`visual.spec.ts`)
  * compares the *DOM* canvas element to its parent, which stays exact whatever the camera is doing,
- * and no other spec touches the wheel — so lowering the floor back to 0.6 left every gate green.
+ * and no other spec touches the wheel, so lowering the floor back to 0.6 left every gate green.
  *
  * This measures the painted pixels instead of the constant, deliberately: it fails for any reason
  * the world stops covering the frame (a lowered floor, a world built smaller than the frame, a
@@ -22,14 +22,14 @@
  *
  * The probe is matched by **hue, not brightness**, and that is the whole difficulty. The vignette
  * is a screen-space `multiply` that covers the frame including the uncovered ground, so at the
- * corners — exactly where the gap opens first — it crushes the probe to about 15% of its value
+ * corners, exactly where the gap opens first, it crushes the probe to about 15% of its value
  * (measured: `#ff00ff` reads back as `37,0,37`). A plain "is it bright magenta" test therefore
  * counts zero pixels and passes over the very defect it was written for. Multiply scales all three
  * channels by the same factor, so the *ratio* survives what the brightness does not: the probe
  * stays `(k, 0, k)` at any darkness, while the city's own paint is blue-neutral and the one magenta
  * in the palette (`sear.300 #e11d8f`, the bot-threat code) has `r - b` of 82 and never matches.
  *
- * The PNG is decoded by the browser rather than by a Node image library — `sharp` belongs to
+ * The PNG is decoded by the browser rather than by a Node image library: `sharp` belongs to
  * `@frontline/scripts`, and a native 30MB dependency is a steep price for one pixel count when the
  * page already has a decoder and a 2D context.
  */
@@ -54,7 +54,7 @@ const WHEEL_DELTA = 400;
 interface Coverage {
   uncovered: number;
   total: number;
-  /** Where the probe colour showed, in canvas pixels — the shape of the gap, for the failure text. */
+  /** Where the probe colour showed, in canvas pixels: the shape of the gap, for the failure text. */
   bounds: { left: number; top: number; right: number; bottom: number } | null;
 }
 
@@ -63,7 +63,7 @@ interface Coverage {
  *
  * `wheel({ smooth: 5 })` spreads every notch over five ticks and `decelerate` keeps the camera
  * moving after the drag, so a measurement taken on the last wheel event reads a camera still in
- * flight — which is a false *pass* as often as a false failure.
+ * flight, which is a false *pass* as often as a false failure.
  */
 async function wheelToStop(page: Page, deltaY: number): Promise<void> {
   const box = await page.locator('canvas').boundingBox();
@@ -95,9 +95,9 @@ async function measureCoverage(page: Page): Promise<Coverage> {
      * Probe hue, at any brightness the vignette leaves it: red and blue equal and non-trivial,
      * green an order of magnitude below them.
      *
-     * The floor is 24 rather than 8. At 8 this matched `rgb(10,2,12)` — the outermost pixel of a
+     * The floor is 24 rather than 8. At 8 this matched `rgb(10,2,12)`: the outermost pixel of a
      * district marker's magenta glow, faded by the vignette to something a player cannot tell from
-     * black — and reported it as bare ground. Uncovered `#ff00ff` never arrives that dark: even
+     * black, and reported it as bare ground. Uncovered `#ff00ff` never arrives that dark: even
      * under the darkest corner of the vignette it lands well above 24, which the control below
      * measures rather than assumes.
      */
@@ -133,7 +133,7 @@ async function expectWorldCoversFrame(page: Page, atStop: string): Promise<void>
   const { uncovered, total, bounds } = await measureCoverage(page);
   const fraction = uncovered / total;
   const where = bounds
-    ? ` — bare ground spans x ${bounds.left}–${bounds.right}, y ${bounds.top}–${bounds.bottom}`
+    ? `: bare ground spans x ${bounds.left}-${bounds.right}, y ${bounds.top}-${bounds.bottom}`
     : '';
   expect(
     fraction,
@@ -162,7 +162,7 @@ test.describe('city map zoom', () => {
 
   /**
    * The other stop, and the panned corners with it. Zooming in cannot shrink the world, so this
-   * fails only if a *pan* can walk past the painted edge — the same bare-ground defect reached the
+   * fails only if a *pan* can walk past the painted edge: the same bare-ground defect reached the
    * other way, which `clamp({ direction: 'all' })` is what prevents.
    */
   /**
@@ -170,7 +170,7 @@ test.describe('city map zoom', () => {
    *
    * `measureCoverage` looks for one hue at one brightness range, and it was loosened once already
    * after a marker's faded glow tripped it. A threshold nobody re-measures is a gate that has
-   * quietly stopped working — so paint the canvas' own backdrop the probe colour and check the
+   * quietly stopped working, so paint the canvas' own backdrop the probe colour and check the
    * measurement goes red.
    */
   test('the coverage gate goes red when the world really does not cover the frame', async ({

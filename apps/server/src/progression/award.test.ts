@@ -65,7 +65,7 @@ function seedBase(db: AppDatabase, repos: Repositories, level: number): Base {
   return base;
 }
 
-describe('awardPlayerXp — the single XP write path (INTERFACES R7)', () => {
+describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
   it('banks XP without levelling when the award falls short', () => {
     const { db, repos } = makeRepos();
     const base = seedBase(db, repos, 1);
@@ -109,7 +109,7 @@ describe('awardPlayerXp — the single XP write path (INTERFACES R7)', () => {
     expect(award.level).toBe(4);
     // Level 4 is where §G3's per-officer cap turns over from 1 to 2.
     expect(award.grants).toEqual({ assigneePool: 5, assigneeCapPerOfficer: 2, recruitSlots: 5 });
-    // Level 4 opens nothing — the catalogue's doors are at 3, 5, 7 and 10. Pinned as empty rather
+    // Level 4 opens nothing: the catalogue's doors are at 3, 5, 7 and 10. Pinned as empty rather
     // than left unasserted: an award that announced a door it had not opened is the bug this field
     // makes possible, and it would look exactly like a passing test.
     expect(award.unlocks).toEqual([]);
@@ -135,7 +135,7 @@ describe('awardPlayerXp — the single XP write path (INTERFACES R7)', () => {
   it('reports every door a single oversized award crossed, not just the last', () => {
     const { db, repos } = makeRepos();
     // Level 1 with 980 banked. One quest (200) clears level 1 (100), level 2 (300) and level 3
-    // (600) in one go, landing on 4 — past both the Archive at 3 and nothing else.
+    // (600) in one go, landing on 4: past both the Archive at 3 and nothing else.
     const base = seedBase(db, repos, 1);
     repos.bases.updateProgression(base.id, 1, { xpIntoLevel: 980 });
     const at1 = repos.bases.findById('base-1') as Base;
@@ -167,7 +167,7 @@ describe('awardPlayerXp — the single XP write path (INTERFACES R7)', () => {
  * suites that used to cover it went with the battle rework, and an aggregation nobody exercises is
  * an aggregation that quietly starts returning nothing.
  */
-describe('levelUpFrom — one announcement for a whole settlement', () => {
+describe('levelUpFrom: one announcement for a whole settlement', () => {
   const award = (level: number, levelsGained: number, unlocks: PlayerLevelUnlock[]) => ({
     source: 'missionCompleted' as const,
     xpGained: 120,
@@ -190,7 +190,7 @@ describe('levelUpFrom — one announcement for a whole settlement', () => {
   });
 
   it('carries every door the *run* opened, not only the last award’s', () => {
-    // Two settlements landing on one read — a mission home and a build finished — each crossing a
+    // Two settlements landing on one read, a mission home and a build finished, each crossing a
     // level with a door on it. Announcing only the last one loses the first for good: no later
     // read re-resolves a settle, so this response is the only place it can ever be said.
     const first = findPlayerUnlock('research');
@@ -206,7 +206,7 @@ describe('levelUpFrom — one announcement for a whole settlement', () => {
 describe('migration 0005_progression', () => {
   /**
    * The R6 trap, guarded: `0003_economy.sql` defaulted `economy_json` to `'{}'`, which its own
-   * schema rejects — so only the fresh-insert path produced anything valid. Reading a row that
+   * schema rejects, so only the fresh-insert path produced anything valid. Reading a row that
    * never wrote `progression_json` proves this column's DEFAULT does not repeat it.
    */
   it('defaults a row that predates the column to a valid, readable progression', () => {
@@ -214,7 +214,7 @@ describe('migration 0005_progression', () => {
     db.prepare(
       'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
     ).run('user-1', 'operator', 'hash', NOW);
-    // Every column except progression_json — the shape an older row has after ADD COLUMN.
+    // Every column except progression_json: the shape an older row has after ADD COLUMN.
     db.prepare(
       `INSERT INTO bases
          (id, owner_id, name, district_id, level, is_bot,
@@ -254,5 +254,5 @@ describe('XP source pricing (§I1)', () => {
  *
  * §I1 still pays for fighting and it now pays **both** crews, because a declared fight is one the
  * defender turns out for. That wiring lives in the settler, and it is measured against the real
- * routes in `battle/fight-xp.test.ts` — the same shape these were, one layer along.
+ * routes in `battle/fight-xp.test.ts`: the same shape these were, one layer along.
  */

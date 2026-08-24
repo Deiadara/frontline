@@ -18,7 +18,7 @@ import { awardPlayerXp } from '../progression/award.js';
 import { nextPairing, nextRoleFact } from './discover.js';
 
 /**
- * Banking a research project whose clock has run out (GDD §B9, §F2–§F4).
+ * Banking a research project whose clock has run out (GDD §B9, §F2-§F4).
  *
  * Settles lazily on the read path, exactly like payroll (`economy/settle.ts`), the §H5 alignment
  * drift and mission resolution: there is no scheduler, and a crew nobody looks at has learnt
@@ -27,11 +27,11 @@ import { nextPairing, nextRoleFact } from './discover.js';
 
 export interface ResearchSettlement {
   base: Base;
-  /** The Overseer as they ended up — §F2 training moves their sheet. */
+  /** The Overseer as they ended up: §F2 training moves their sheet. */
   overseer: Overseer;
   /** Facts banked by this call, in discovery order. Empty when nothing was due. */
   discovered: DiscoveredFact[];
-  /** §I1 — the player XP the finished project paid. At most one; empty when nothing was due. */
+  /** §I1: the player XP the finished project paid. At most one; empty when nothing was due. */
   awards: PlayerXpAward[];
 }
 
@@ -47,8 +47,8 @@ function investigationYield(base: Base, active: ActiveResearch): DiscoveredFact[
   if (active.project.kind !== 'investigation') return [];
   const { role, leadOfficerId, crossReference } = active.project;
 
-  // The lead may have been fired, or died, between launch and landing. The project still lands —
-  // the work was done — but nothing their sheet was buying applies.
+  // The lead may have been fired, or died, between launch and landing. The project still lands:
+  // the work was done, but nothing their sheet was buying applies.
   const lead = base.commanders.find((officer) => officer.id === leadOfficerId);
   const wanted = 1 + (lead ? extraFactsFrom(lead.attributes) : 0);
 
@@ -69,7 +69,7 @@ function investigationYield(base: Base, active: ActiveResearch): DiscoveredFact[
 /**
  * The officer this project kept busy, or `null` when it kept nobody busy.
  *
- * An investigation names its lead on the row. Modification work does not — §C4 makes it the Lead
+ * An investigation names its lead on the row. Modification work does not: §C4 makes it the Lead
  * Engineer's job and the server reads whoever holds the post *now*, which is also the honest
  * answer: if the engineer who started it left, the one who finished it is the one who earned it.
  * A training project develops the Overseer, who carries no character level, so it pays nobody.
@@ -103,11 +103,11 @@ export function settleResearch(
       ? { ...overseer, attributes: developAttribute(overseer.attributes, active.project.attribute) }
       : overseer;
 
-  // §F3 — Charisma is "leading people, raising morale", and landing a result in front of the crew
+  // §F3: Charisma is "leading people, raising morale", and landing a result in front of the crew
   // is where that cashes out. Feeds W2's meter (INTERFACES R5); it does not open a second one.
   const morale = adjustMeter(base.economy.morale, moraleFromLeadership(overseer.attributes));
 
-  // §A1 — modification work ends with the thing bolted on. `fitModification` is a no-op when the
+  // §A1: modification work ends with the thing bolted on. `fitModification` is a no-op when the
   // structure or its slot went away while the work was under way, which is why this is a plain
   // assignment rather than a branch: the project lands either way and never runs twice.
   const buildings =
@@ -129,7 +129,7 @@ export function settleResearch(
   }
   if (trained !== overseer) repos.overseers.updateAttributes(trained.id, trained.attributes);
 
-  // §G6/§H6 — an investigation is the "internal process" half of INTERFACES R2: a named officer is
+  // §G6/§H6: an investigation is the "internal process" half of INTERFACES R2: a named officer is
   // assigned to it and it runs on a clock, which is everything the reading needs. The lead is paid
   // for the time it kept them on it, exactly as a mission officer is.
   //
@@ -140,7 +140,7 @@ export function settleResearch(
     { officerId: leadOf(settled, active), minutesEngaged: active.durationMinutes },
   ]);
 
-  // §I1 — and the player. A project is the longest single commitment in the game, so it is the one
+  // §I1, and the player. A project is the longest single commitment in the game, so it is the one
   // clock that has to be worth waiting out on its own. Last, after the officer's own XP, for the
   // same reason: the two ledgers are separate and this one must not change what that one paid.
   const progressed = awardPlayerXp(repos, paid, 'researchCompleted');

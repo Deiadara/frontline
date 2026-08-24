@@ -17,10 +17,10 @@ import {
  * rest (GDD §A1, §C4).
  *
  * One function, read by both the research screen and the start route, so the reason a button is
- * dead is by construction the reason the server would give — the client never re-derives a gate.
+ * dead is by construction the reason the server would give: the client never re-derives a gate.
  */
 
-/** §C4 — modification work is the Lead Engineer's. Named once rather than spelled at each check. */
+/** §C4: modification work is the Lead Engineer's. Named once rather than spelled at each check. */
 export const MODIFICATION_ROLE = 'lead_engineer' as const;
 
 export function hasLeadEngineer(base: Base): boolean {
@@ -70,7 +70,7 @@ export function modificationOptions(base: Base): ModificationOption[] {
 /**
  * `buildings` with `id` fitted to the structure it belongs to.
  *
- * Returns the list unchanged when there is nowhere to put it — the structure was demolished, or
+ * Returns the list unchanged when there is nowhere to put it: the structure was demolished, or
  * the slot was filled by something else, between starting the work and finishing it. A project
  * that lands with nowhere to go is a rare edge, not an exception: the crew did the work, and the
  * settle has to complete either way rather than leaving the project running forever.

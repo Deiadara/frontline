@@ -11,7 +11,7 @@ import { envLabel, mergeLabels, type EnvLabel } from './labels.js';
  *
  * ## Seven skies, and most days are none of them
  *
- * Seven in ten days are **Normal** and carry no label at all — not even a chip saying so. A game
+ * Seven in ten days are **Normal** and carry no label at all, not even a chip saying so. A game
  * where every day is Something has no Something in it; the weather has to be *usually nothing* for
  * a foggy morning to be worth re-planning around. The other three in ten split evenly across the
  * six real skies, so any given weather is about one day in twenty.
@@ -20,7 +20,7 @@ import { envLabel, mergeLabels, type EnvLabel } from './labels.js';
  *
  * A pure function of the UTC date, hashed, with no state anywhere. Two players asking on the same
  * day get the same sky; a server restart does not re-roll it; and a test can ask what 2031-04-04
- * looks like without moving a clock. The alternative — rolling and storing — puts the one piece of
+ * looks like without moving a clock. The alternative, rolling and storing, puts the one piece of
  * world state everybody reads behind a write that can fail.
  *
  * ## The clock is half of it
@@ -28,7 +28,7 @@ import { envLabel, mergeLabels, type EnvLabel } from './labels.js';
  * A sky is not a set of labels on its own: a sunny day is **Hot** at noon and **Cold** at four in
  * the morning, because the heat goes out of a city like this one the moment the sun does. So the
  * labels come from the sky *and the hour*, and the same location fights differently either side of
- * dusk — which is what makes "declare it for tonight" a decision.
+ * dusk, which is what makes "declare it for tonight" a decision.
  */
 
 export const WEATHER_KINDS = [
@@ -45,7 +45,7 @@ export type WeatherKind = z.infer<typeof WeatherKindSchema>;
 
 export interface WeatherSpec {
   kind: WeatherKind;
-  /** What the day is called. `Normal` is deliberately never shown — see {@link isPlainDay}. */
+  /** What the day is called. `Normal` is deliberately never shown: see {@link isPlainDay}. */
   name: string;
   /** One line, in the player's words. Shown under the day's name on the city screen. */
   blurb: string;
@@ -107,7 +107,7 @@ export function isPlainDay(kind: WeatherKind): boolean {
   return kind === 'normal';
 }
 
-/** `2026-08-17` — the day a moment belongs to, UTC, the same key the Bar's roster turns on. */
+/** `2026-08-17`: the day a moment belongs to, UTC, the same key the Bar's roster turns on. */
 export function weatherDay(at: Date): string {
   return at.toISOString().slice(0, 10);
 }
@@ -126,8 +126,8 @@ function hashDay(day: string): number {
     hash ^= day.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
-  // Salted so the weather and anything else keyed on the same date string — the Bar's roster, for
-  // one — cannot move together and quietly correlate a foggy day with a particular set of faces.
+  // Salted so the weather and anything else keyed on the same date string: the Bar's roster, for
+  // one: cannot move together and quietly correlate a foggy day with a particular set of faces.
   return (hash ^ WEATHER_SALT) >>> 0;
 }
 

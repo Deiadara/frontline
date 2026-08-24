@@ -3,12 +3,12 @@ import { BUILDING_CATALOG, type BuildingKind } from './kinds.js';
 import { buildingLevel, type Building } from './state.js';
 
 /**
- * The district's power grid (§A1 — the Generator's whole job).
+ * The district's power grid (§A1: the Generator's whole job).
  *
  * Power is deliberately **not** a resource. Nothing banks it, nothing spends it, and it never
  * appears in the stockpile: the Generator burns oil to hold the grid up, and the only question the
  * grid ever answers is whether supply covers what the district is drawing *right now*. That keeps
- * oil as the one thing being counted — the board's reading, and the reason there is no sixth
+ * oil as the one thing being counted: the board's reading, and the reason there is no sixth
  * resource key.
  *
  * A district that outgrows its Generator does not stop. It **browns out**: everything keeps
@@ -52,7 +52,7 @@ export interface PowerGrid {
 
 /**
  * The grid as it stands. A district with no Generator has no supply and therefore runs at
- * {@link MIN_BROWNOUT_RATIO} rather than at zero — hand-cranked, candle-lit and slow, but alive.
+ * {@link MIN_BROWNOUT_RATIO} rather than at zero: hand-cranked, candle-lit and slow, but alive.
  */
 export const MIN_BROWNOUT_RATIO = 0.1;
 
@@ -74,7 +74,7 @@ export function powerGrid(buildings: readonly Building[]): PowerGrid {
   // Fuel is burnt for the load actually being carried, not for the Generator's nameplate.
   //
   // Burning the full rate regardless would punish exactly the thing the design wants players to
-  // do — build the Generator ahead of the district — and it would starve a brand-new crew, whose
+  // do, build the Generator ahead of the district, and it would starve a brand-new crew, whose
   // one structure draws a fraction of what their first Generator can supply. A fully loaded
   // Generator still burns its full rate, which is where the cost is supposed to bite.
   const load = supply <= 0 ? 0 : Math.min(1, draw / supply);
@@ -104,7 +104,7 @@ export function wouldBrownOut(
   buildings: readonly Building[],
 ): boolean {
   // Measured from what is *standing*, not from `level - 1`. The two are the same for the only
-  // caller that exists today — the dialog, asking about the next level — and they are not the same
+  // caller that exists today, the dialog, asking about the next level, and they are not the same
   // for anything asking further ahead. Reading the district is the answer that stays right.
   const added =
     buildingPowerDraw(kind, level) - buildingPowerDraw(kind, buildingLevel(buildings, kind));

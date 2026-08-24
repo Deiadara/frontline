@@ -2,16 +2,16 @@
 
 Cyberpunk/dystopian multiplayer base-building strategy game. pnpm TypeScript monorepo.
 
-- `packages/shared` — domain model: types, Zod schemas, constants, battle engine interface.
-- `apps/server` — Fastify + better-sqlite3 REST API.
-- `apps/client` — React + Vite + Pixi client.
+- `packages/shared`: domain model: types, Zod schemas, constants, battle engine interface.
+- `apps/server`: Fastify + better-sqlite3 REST API.
+- `apps/client`: React + Vite + Pixi client.
 
 Design docs: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 [`docs/SPEC-server.md`](docs/SPEC-server.md), [`docs/SPEC-client.md`](docs/SPEC-client.md).
 
 ## Prerequisites
 
-- **Node 24+** (`.nvmrc` pins 24 — run `nvm use` if you use nvm).
+- **Node 24+** (`.nvmrc` pins 24: run `nvm use` if you use nvm).
 - **pnpm 11.21.0** (`packageManager` in `package.json`; `corepack enable` will pick it up).
 
 ## Run it
@@ -36,12 +36,12 @@ Open **http://localhost:5173** and log in with the MVP account:
 
 The login form arrives prefilled with these, so you can just press **Jack In**.
 
-> These credentials are seeded on every server boot and are MVP-only — see
+> These credentials are seeded on every server boot and are MVP-only: see
 > `apps/server/src/seed/`. They must be removed before any public deployment.
 
 First run walks you through: **login → choose an overseer → city map**. Choosing an
 overseer settles your base in **Neon Docks**. The magenta node in the north-east,
-**Ashen Terraces**, is the AI rival **Vex Holdings** — select it and hit **Launch Attack**
+**Ashen Terraces**, is the AI rival **Vex Holdings**: select it and hit **Launch Attack**
 to raid it. Winning pays its salvage straight into your stockpile.
 
 The database is a file (`apps/server/frontline.sqlite` by default, see

@@ -38,7 +38,7 @@ import { ForcePicker } from './ForcePicker';
 import { DeclareDialog } from '../battle/DeclareDialog';
 import { BattleResultModal } from '../game/BattleResultModal';
 
-/** What one fight left behind — the only thing that knows it happened is its own response. */
+/** What one fight left behind: the only thing that knows it happened is its own response. */
 interface BattleReport {
   result: BattleResult;
   resources: Resources;
@@ -47,7 +47,7 @@ interface BattleReport {
 }
 
 /**
- * Inside one district (GDD §A4) — the locations, who is holding them, and what it would take.
+ * Inside one district (GDD §A4): the locations, who is holding them, and what it would take.
  *
  * Everything a player does to the city is on this page: taking a location, leaving people on one,
  * digging it in, or robbing a crew's home. The map is where you choose *where*; this is where you
@@ -148,8 +148,8 @@ export function DistrictView() {
                 
                 Another crew's ground used to be a paragraph of text saying somebody lived there,
                 which is a strange thing for a game whose whole district screen is a location you look
-                at. A structure is a building on a street — anyone walking past can see how far it
-                has been built up — so it is drawn. What stays behind the fog is everything a crew
+                at. A structure is a building on a street: anyone walking past can see how far it
+                has been built up, so it is drawn. What stays behind the fog is everything a crew
                 *knows*: their roles, their discovered facts, their stockpile. None of that is here.
                 
                 Read-only: the plots do not open a dialog, because there is nothing on somebody
@@ -167,6 +167,9 @@ export function DistrictView() {
                   <DistrictScene
                     buildings={data.residentBuildings}
                     queue={[]}
+                    // Their ground, read-only: nothing here is gated on *your* level, but the
+                    // prop is required and the honest answer is the level you actually are.
+                    playerLevel={me.data?.base?.level ?? 1}
                     selected={null}
                     onSelect={() => undefined}
                     readOnly
@@ -344,7 +347,7 @@ function LocationCard({
         <div className="flex shrink-0 items-center gap-1.5">
           {/* The level, as pips rather than a number: a player scanning a district is asking
               "which of these has somebody poured work into", and four filled squares answer that
-              without being read. It is also what they are taking if they win — a capture puts it
+              without being read. It is also what they are taking if they win: a capture puts it
               back to one. */}
           <span
             className="flex items-center gap-0.5"
@@ -380,7 +383,7 @@ function LocationCard({
       <p className="font-body text-xs leading-relaxed text-ink-300">{spec.blurb}</p>
       <p className="font-body text-xs leading-relaxed text-brass-300/80">{view.reward}</p>
 
-      {/* What the ground is like — the location's own character folded with today's sky (§A4).
+      {/* What the ground is like: the location's own character folded with today's sky (§A4).
           Above the numbers on purpose: this is what decides *what to bring*, and a player who
           reads nothing else on the card should still see that a tunnel is Crammed IV and Dark. */}
       <LabelRow labels={view.labels} size="sm" />
@@ -404,7 +407,7 @@ function LocationCard({
       {mine ? (
         <div className="flex flex-col gap-2">
           {/*
-           * Working it up (§A4) — the board-game half of holding ground, and the first thing
+           * Working it up (§A4): the board-game half of holding ground, and the first thing
            * offered because it is the decision the screen exists for. Fortifying makes a location
            * *harder to take*; a level makes it *worth more*. Both are lost on capture, which is
            * what makes pouring into a location you cannot hold a real mistake.

@@ -1,11 +1,11 @@
 -- Haggling that survives a refresh (GDD §H7).
 --
--- Number allocated under INTERFACES.md R6/R9 — do not renumber, the runner keys
+-- Number allocated under INTERFACES.md R6/R9: do not renumber, the runner keys
 -- `schema_migrations` on the file name and a rename re-applies the migration.
 --
 -- §H7 had a price check where it wanted a conversation: one endpoint that answered "yes" or "no,
 -- but", statelessly, for ever. The negotiation model in `bar/negotiation.ts` gives a character a
--- reservation value, a temper and a stock of patience that an insulting offer burns through — and
+-- reservation value, a temper and a stock of patience that an insulting offer burns through, and
 -- every one of those is meaningless if the player can reload the page and start again.
 --
 -- So the conversation is stored, and it is stored per **player, per character, per day**, because

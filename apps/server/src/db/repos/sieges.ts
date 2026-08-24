@@ -23,7 +23,7 @@ import type { AppDatabase } from '../index.js';
  * gate it may break and the trap that may go off under it.
  *
  * Everything here is read on the settle path, so every query is either keyed or bounded. The one
- * unkeyed read — {@link SiegeRepo.due} — is the settler's, and it is indexed on exactly the two
+ * unkeyed read, {@link SiegeRepo.due}, is the settler's, and it is indexed on exactly the two
  * columns it filters.
  */
 
@@ -49,6 +49,7 @@ interface DeploymentRow {
   side: BattleSide;
   army_json: string;
   perimeter_json: string;
+  boost_id: string | null;
   updated_at: string;
 }
 
@@ -86,6 +87,7 @@ function rowToDeployment(row: DeploymentRow): BattleDeployment {
     side: row.side,
     army: readJson(row.army_json),
     perimeter: readJson(row.perimeter_json),
+    boostId: row.boost_id,
     updatedAt: row.updated_at,
   });
 }
@@ -102,7 +104,7 @@ export interface SiegeRepo {
   due(now: string): ScheduledBattle[];
   /** Every fight still coming, soonest first. */
   pending(): ScheduledBattle[];
-  /** How many unresolved calls this crew already has out — the cap on declaring. */
+  /** How many unresolved calls this crew already has out: the cap on declaring. */
   pendingCountFor(baseId: string): number;
   /** Finished fights this crew was in, most recent first. */
   resolvedFor(baseId: string, limit: number): ResolvedBattle[];
@@ -140,7 +142,7 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   const pendingCountStmt = db.prepare(
     'SELECT COUNT(*) AS n FROM scheduled_battles WHERE resolved_at IS NULL AND attacker_base_id = ?',
   );
-  // A crew's history is every fight it declared plus every fight it was deployed into — the
+  // A crew's history is every fight it declared plus every fight it was deployed into: the
   // deployment table is the only record that a defender was ever involved.
   const resolvedStmt = db.prepare(
     `SELECT DISTINCT b.* FROM scheduled_battles b
@@ -159,12 +161,14 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   );
   const deploymentsForStmt = db.prepare('SELECT * FROM battle_deployments WHERE base_id = ?');
   const putDeploymentStmt = db.prepare(
-    `INSERT INTO battle_deployments (battle_id, base_id, side, army_json, perimeter_json, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO battle_deployments
+       (battle_id, base_id, side, army_json, perimeter_json, boost_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (battle_id, side) DO UPDATE SET
        base_id = excluded.base_id,
        army_json = excluded.army_json,
        perimeter_json = excluded.perimeter_json,
+       boost_id = excluded.boost_id,
        updated_at = excluded.updated_at`,
   );
 
@@ -239,6 +243,7 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
         deployment.side,
         JSON.stringify(deployment.army),
         JSON.stringify(deployment.perimeter),
+        deployment.boostId,
         deployment.updatedAt,
       );
     },

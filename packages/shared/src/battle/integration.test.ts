@@ -15,7 +15,7 @@ import { TacticalSkirmishEngine, type SkirmishOutcome } from './skirmish.js';
  * Whole fights, end to end, checked at every step.
  *
  * The other suites each pin one rule. This one runs the real engine over a spread of real rosters
- * and asserts the things that have to be true of *any* fight however the rules change — that every
+ * and asserts the things that have to be true of *any* fight however the rules change: that every
  * body is accounted for, that nothing gains health or bodies, that a broken stack stops fighting,
  * that the report describes the simulation that actually happened.
  *
@@ -313,7 +313,7 @@ describe('across every scenario at once', () => {
    *
    * Measured as the drop in the *enemy's* losses across the round a stack breaks. An earlier
    * version of this asserted that broken stacks had lost bodies, which is true of pursuit and says
-   * nothing about firing — it passed with the exclusion deleted outright.
+   * nothing about firing: it passed with the exclusion deleted outright.
    *
    * Sparks break early (morale 30) and Wardens hold (70), so the defence loses most of its output
    * mid-fight while still having bodies on the field. Measured: the attacker's losses fall from

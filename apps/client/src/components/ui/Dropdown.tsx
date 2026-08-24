@@ -8,7 +8,7 @@ import { Icon } from './Icon';
  *
  * A native `<select>` is the one control no amount of CSS reaches: the closed box can be styled and
  * the *list* cannot. So on every screen in this game the moment a player opened a role picker or a
- * resource picker, a plain white operating-system menu appeared over the artwork — thirteen of
+ * resource picker, a plain white operating-system menu appeared over the artwork: thirteen of
  * them, and the single most jarring thing in the interface.
  *
  * This draws the list itself: the trigger is the same torn, riveted metal as everything else, and
@@ -41,7 +41,7 @@ export interface DropdownOption<T extends string> {
    * The heading this option sits under, for a list long enough to need sections.
    *
    * The native equivalent is `<optgroup>`, and the research page's thirty-four-attribute picker is
-   * unusable without it. Options are expected to arrive already sorted into their groups — a
+   * unusable without it. Options are expected to arrive already sorted into their groups: a
    * heading is drawn wherever the group *changes*, exactly as an `<optgroup>` is authored, rather
    * than by this component re-sorting a list somebody else put in a deliberate order.
    */
@@ -53,7 +53,7 @@ export interface DropdownProps<T extends string> {
   value: T;
   options: readonly DropdownOption<T>[];
   onChange: (value: T) => void;
-  /** What is being chosen. Required — an unlabelled picker is unusable without sight of it. */
+  /** What is being chosen. Required: an unlabelled picker is unusable without sight of it. */
   label: string;
   /** Shown when `value` matches no option. */
   placeholder?: string;
@@ -103,8 +103,8 @@ export function Dropdown<T extends string>({
   /**
    * Placement, and *only* placement.
    *
-   * `options` is a fresh array on every render at every call site — nobody memoises a `.map()` into
-   * a picker — so listing it as a dependency ran this effect on every render, and `setPlacement`
+   * `options` is a fresh array on every render at every call site: nobody memoises a `.map()` into
+   * a picker, so listing it as a dependency ran this effect on every render, and `setPlacement`
    * writes a new object each time, which renders again. The list never settled and never painted.
    * `place` is a `useCallback` over nothing, so `[open, place]` is the honest dependency set: the
    * position depends on where the trigger is, not on what is in the menu.
@@ -232,7 +232,7 @@ export function Dropdown<T extends string>({
         data-testid={testId}
         onKeyDown={onKeyDown}
         // `pointerdown` closes any open menu at the window level, so the trigger's own toggle has
-        // to stop the event reaching it — otherwise a click on an open trigger closes and reopens.
+        // to stop the event reaching it: otherwise a click on an open trigger closes and reopens.
         onPointerDown={(event) => event.stopPropagation()}
         onClick={() => {
           if (disabled) return;
@@ -252,7 +252,7 @@ export function Dropdown<T extends string>({
       >
         <span
           className={cn(
-            'min-w-0 truncate font-hand text-[19px] leading-tight',
+            'min-w-0 truncate font-stamp text-[14px] leading-tight',
             selected ? 'text-ink-100' : 'text-ink-300',
           )}
         >
@@ -283,7 +283,7 @@ export function Dropdown<T extends string>({
              * `position` is set inline, not by the `fixed` class.
              *
              * `.glass-strong` declares `position: relative`, and it is authored inside
-             * `@layer utilities` in `index.css` — which Tailwind appends *after* its generated
+             * `@layer utilities` in `index.css`, which Tailwind appends *after* its generated
              * utilities. Equal specificity, later source, so it wins, and the menu was laid out in
              * the document flow with `top`/`left` measured against the viewport: on a short page it
              * looked right and on the market it landed 1100px below the fold. An inline style beats
@@ -328,7 +328,7 @@ export function Dropdown<T extends string>({
                 >
                   <span
                     className={cn(
-                      'font-hand text-[19px] leading-tight',
+                      'font-stamp text-[14px] leading-tight',
                       option.value === value ? 'text-brass-100' : 'text-ink-100',
                     )}
                   >

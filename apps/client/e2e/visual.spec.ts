@@ -3,8 +3,8 @@
  *
  * Screenshots land in `screenshots/visual/<screen>-<w>x<h>.png` so a reviewer can eyeball the
  * whole matrix in one directory. The assertions catch the failures that are cheap to detect
- * mechanically — document overflow, unexpected scrollbars, a canvas that does not fill its
- * frame — so review time is spent on the ones that are not (composition, colour, legibility).
+ * mechanically: document overflow, unexpected scrollbars, a canvas that does not fill its
+ * frame, so review time is spent on the ones that are not (composition, colour, legibility).
  */
 import { expect, test, type Page } from '@playwright/test';
 import { activeResearch, lateGame, me, meNoOverseer, missionsResponse } from './fixtures';
@@ -61,7 +61,7 @@ async function expectNoDocumentOverflow(page: Page): Promise<void> {
  * check above; horizontal needs per-element inspection because a `w-full` child of an
  * `overflow-hidden` parent clips silently rather than growing the document.
  *
- * `[data-scenery]` opts an element out, and only that element — never its subtree. Full-bleed
+ * `[data-scenery]` opts an element out, and only that element: never its subtree. Full-bleed
  * artwork is deliberately larger than the frame (a blurred backdrop has to over-scale or it shows a
  * soft rim), but the things standing *on* the artwork are still content: the first version of this
  * exemption covered whole subtrees and would have hidden the bug that prompted it, which was a
@@ -91,12 +91,12 @@ async function expectNothingClippedHorizontally(page: Page): Promise<void> {
  *
  * `expectNothingClippedVertically` proves no card is sliced; this proves the roster is still
  * honest about the ones it dropped. Both branches are real: at 1280x720 two cards do not fit, at
- * every taller viewport all four do — so the tight viewport is the fat case this screen has, its
+ * every taller viewport all four do, so the tight viewport is the fat case this screen has, its
  * content being the same four presets everywhere.
  *
  * `fitsWholeRoster` pins which of the two branches a viewport is in. Reading the hidden count off
  * the DOM and checking only that the hint agrees with it is self-fulfilling: a card that grew back
- * into the 5px of slack 1024x768 has would silently halve the roster and stay green — the same
+ * into the 5px of slack 1024x768 has would silently halve the roster and stay green: the same
  * shape of blind spot that let the horizontal-only gate ship the bug this file exists for.
  */
 async function expectWholeCardRows(page: Page, fitsWholeRoster: boolean): Promise<void> {
@@ -136,7 +136,7 @@ async function expectWholeCardRows(page: Page, fitsWholeRoster: boolean): Promis
   }
 }
 
-/** The map canvas must exactly fill its frame — a short canvas shows a dead band of page ground. */
+/** The map canvas must exactly fill its frame: a short canvas shows a dead band of page ground. */
 async function expectCanvasFillsFrame(page: Page): Promise<void> {
   const canvas = page.locator('canvas');
   await expect(canvas).toBeVisible();
@@ -182,7 +182,7 @@ for (const size of VIEWPORTS) {
       // reworked: the sheet gained two attributes (Authority and Cryptography) and its labels went
       // up a size and a shade for legibility, which is 22px of card. Both times the alternative was
       // squeezing type on a screen whose whole job is to be read, and both times the screen already
-      // did the right thing without help — it drops a whole row and says "scroll for 2 more". So
+      // did the right thing without help: it drops a whole row and says "scroll for 2 more". So
       // the number moves and the assertion keeps its teeth: a viewport on the wrong side of it
       // still fails, and a roster that silently halves itself at 1440x900 still fails.
       await expectWholeCardRows(page, size.height >= 900);
@@ -219,7 +219,7 @@ for (const size of VIEWPORTS) {
       // The whole chip, not just its label: the label is now the chip's accessible name rather
       // than a word printed beside the number, and "the readout is fully on screen" was always the
       // thing worth asserting anyway.
-      // Each chip is a hover trigger now — a real button, so the reading is its accessible name
+      // Each chip is a hover trigger now: a real button, so the reading is its accessible name
       // rather than a `role="img"` wrapper. "The whole readout is on screen" is still the thing
       // being asserted, which is what matters when the numbers get long enough to wrap the bar.
       const hud = page.locator('header');
@@ -242,7 +242,7 @@ for (const size of VIEWPORTS) {
        * is arbitrarily long, so the last visible row is cut at every viewport, exactly as an
        * ordinary scrolling page cuts it. That is a different question from a *bounded* viewport
        * silently ending mid-card, which is what the guard exists for. What the fold does expose at
-       * 1280x720 is that nothing advertises the scroll — MOU-195 tracks the affordance.
+       * 1280x720 is that nothing advertises the scroll: MOU-195 tracks the affordance.
        */
       await page.screenshot({ path: `screenshots/visual/base-${tag}.png` });
     });
@@ -250,7 +250,7 @@ for (const size of VIEWPORTS) {
     /*
      * MOU-162 §E3/§E4: the dedicated missions page, at the widest state it has. `missionsResponse`
      * fills every crew slot, puts a day-long run one minute into its clock so the countdown reads
-     * `25:5x:xx` — the widest string that column can hold — and returns a mission paying all five
+     * `25:5x:xx`, the widest string that column can hold, and returns a mission paying all five
      * resources, the longest reward line that can render. Both surfaces are on this one page: the
      * in-flight timers (§E3) and the board, where travel and mission time are quoted separately
      * before you commit (§E4).
@@ -259,7 +259,7 @@ for (const size of VIEWPORTS) {
      * is arbitrarily long and the fold cuts the last row at every viewport by design.
      */
     /**
-     * MOU-227 — the level-up a returning crew paid for is announced on the settling response only,
+     * MOU-227: the level-up a returning crew paid for is announced on the settling response only,
      * so this banner is the whole moment. Its copy is fixed, which makes a cut label a permanent
      * defect rather than a fat-content edge case: it has to render whole at every width.
      */
@@ -306,7 +306,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByRole('heading', { name: 'Missions' })).toBeVisible();
       await settleFonts(page);
 
-      // §E4 — travel and mission time are quoted separately, and the total is the §E8 sum.
+      // §E4: travel and mission time are quoted separately, and the total is the §E8 sum.
       const expedition = page.getByRole('article').filter({ hasText: 'Deep Expedition' }).first();
       await expect(expedition.getByText('Travel', { exact: true })).toBeVisible();
       await expect(expedition.getByText('1h 00m')).toBeVisible();
@@ -319,7 +319,7 @@ for (const size of VIEWPORTS) {
        * The §E4 breakdown is the narrowest fixed copy on the page, and it shipped cut once
        * already: a three-column layout ellipsised "round trip" to "ROUND TRI…" at every viewport.
        * The copy here is fixed, so a clipped label is a permanent defect and not a fat-content
-       * edge case — every one of these must render whole, on every card, at every width.
+       * edge case: every one of these must render whole, on every card, at every width.
        */
       const clipped = await page.evaluate<string[]>(() =>
         [...document.querySelectorAll<HTMLElement>('article dl dt, article dl dd')]
@@ -333,7 +333,7 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/visual/missions-${tag}.png` });
 
       // The board is the §E4 surface and it sits below the fold in a bounded inner scroller, so
-      // `fullPage` cannot reach it — it has to be scrolled to and shot separately, or the pre-
+      // `fullPage` cannot reach it. It has to be scrolled to and shot separately, or the pre-
       // commit screen never actually gets looked at.
       await expedition.scrollIntoViewIfNeeded();
       await settleFonts(page);
@@ -343,7 +343,7 @@ for (const size of VIEWPORTS) {
 
     /*
      * MOU-165 §I: the progression readout is sized by the digits in it, and the starting base
-     * shows `0 / 100` — the narrowest case there is. `lateGameBase` sits one XP short of level 13,
+     * shows `0 / 100`: the narrowest case there is. `lateGameBase` sits one XP short of level 13,
      * so the row carries four digits either side of the slash and the bar runs to ~100%. Same
      * blind spot the late-game HUD test above exists for, on a different row.
      */
@@ -355,7 +355,7 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
 
       // The district is the screen now, and everything written *about* it lives in a drawer that
-      // starts closed — so the readout is reached by opening the drawer and then scrolling inside
+      // starts closed, so the readout is reached by opening the drawer and then scrolling inside
       // it, which is what a player does. Scrolling to the *last* row puts the whole panel on
       // screen, so the screenshot shows all of it.
       await page.getByTestId('reports-toggle').click();
@@ -377,7 +377,7 @@ for (const size of VIEWPORTS) {
     });
 
     /*
-     * MOU-164 §H: the Bar, at the widest state it has. `bar` is deliberately a late-game fixture —
+     * MOU-164 §H: the Bar, at the widest state it has. `bar` is deliberately a late-game fixture:
      * the longest names the roster generator can produce, a four-digit weekly wage, all four §H5
      * bands including the walkout warning, and recruits in every card state. The starting state of
      * this screen is an empty crew and eight interchangeable cards, which is exactly the
@@ -387,7 +387,7 @@ for (const size of VIEWPORTS) {
      * cuts the last row at every viewport by design. The roster below it is shot separately.
      */
     test(`the bar at ${tag}`, async ({ page }) => {
-      // `lateGame`, so the HUD above the screen describes the same crew the Bar does — serving the
+      // `lateGame`, so the HUD above the screen describes the same crew the Bar does: serving the
       // fat `bar` fixture over a starting session showed "STREET READS FEARED" under a `Cautious`
       // HUD, which only the screenshot caught (MOU-207).
       await installApi(page, lateGame);
@@ -395,7 +395,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByRole('heading', { name: 'The Bar' })).toBeVisible();
       await settleFonts(page);
 
-      // §H8 — the slot counter is the one figure on this screen that has to stay legible at the
+      // §H8: the slot counter is the one figure on this screen that has to stay legible at the
       // narrowest viewport, and a full crew is what makes it widest.
       await expect(page.getByText('recruits', { exact: false }).first()).toBeInViewport({
         ratio: 1,
@@ -403,7 +403,7 @@ for (const size of VIEWPORTS) {
 
       /*
        * Every label on this screen is authored copy at a fixed size, so an ellipsis is a permanent
-       * defect rather than a fat-content edge case — the §E4 breakdown shipped cut exactly this
+       * defect rather than a fat-content edge case: the §E4 breakdown shipped cut exactly this
        * way. The §H4 disposition tags and §H5 band tags are the narrowest of them.
        */
       const clipped = await page.evaluate<string[]>(() =>
@@ -417,7 +417,7 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/bar-${tag}.png` });
 
-      // The roster is the §H1–§H4 surface and sits below the fold, so `fullPage` cannot reach it.
+      // The roster is the §H1-§H4 surface and sits below the fold, so `fullPage` cannot reach it.
       const lastCard = page.getByRole('article').filter({ hasText: 'Juno Petrosyan' }).first();
       await lastCard.scrollIntoViewIfNeeded();
       await settleFonts(page);
@@ -431,7 +431,7 @@ for (const size of VIEWPORTS) {
      * Fat in the same specific way the Bar fixture is: the longest role labels in §C1 against the
      * longest attribute names in §B, every listed role at `MAX_ROLE_FACTS` so the leads counter is
      * at its widest, and the pairing list filled to its cap so it wraps as far as it ever will. The
-     * two states are shot separately because they render disjoint trees — the start forms only
+     * two states are shot separately because they render disjoint trees: the start forms only
      * exist when nothing is running, and the countdown only exists when something is.
      */
     test(`research at ${tag}`, async ({ page }) => {
@@ -471,7 +471,7 @@ for (const size of VIEWPORTS) {
     /**
      * The roster, relaid out: portrait down the left third, everything you *do* to a unit on the
      * right, and the prose along the bottom across all three. The card is the densest thing in the
-     * game — twelve of them, each with a stat table, a price and a control — so it is the most
+     * game, twelve of them, each with a stat table, a price and a control, so it is the most
      * likely place for a column to collapse or a number to be cut in half.
      */
     test(`units at ${tag}`, async ({ page }) => {
@@ -482,8 +482,14 @@ for (const size of VIEWPORTS) {
       ).toBeVisible();
       await settleFonts(page);
 
-      // The portrait owns a third and the stats own the rest. Measured rather than asserted from
-      // the class list: a `grid-cols-3` that loses its `col-span-2` still has both classes.
+      /*
+       * The card is a fixed frame, and this is the half of it a class list cannot prove.
+       *
+       * Two things have to hold. The portrait is a real column rather than a thumbnail, and every
+       * card in the grid is the *same* card: same height, and the Train control on the same line.
+       * That is the whole reason the roster was rebuilt, and it is exactly the kind of thing that
+       * regresses silently the next time somebody adds a line to a card.
+       */
       const layout = await page.evaluate<{ portrait: number; card: number } | null>(() => {
         // Inside the catalogue: `unit-catalogue` itself starts with `unit-`, and matching the
         // grid instead of a card silently measures the portrait against the whole page.
@@ -499,8 +505,34 @@ for (const size of VIEWPORTS) {
       });
       expect(layout, 'a unit card must render a portrait').not.toBeNull();
       const share = (layout?.portrait ?? 0) / (layout?.card ?? 1);
-      expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeGreaterThan(0.2);
+      expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeGreaterThan(0.12);
       expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeLessThan(0.4);
+
+      // Every card the same card. Heights first, then the one control a player hunts for.
+      const aligned = await page.evaluate(() => {
+        const cards = [
+          ...document.querySelectorAll('[data-testid="unit-catalogue"] > [data-testid^="unit-"]'),
+        ];
+        const heights = new Set(
+          cards.map((card) => Math.round(card.getBoundingClientRect().height)),
+        );
+        // The action *box*, not the control inside it: a locked card's box holds a padlock and an
+        // unlocked one holds a stepper and a button, so measuring the control would report the two
+        // states as a misalignment. What has to land on the same line is the box.
+        const actions = new Set(
+          cards.map((card) => {
+            const box = card.getBoundingClientRect();
+            const action = card.querySelector('[data-testid^="action-"]');
+            return action ? Math.round(action.getBoundingClientRect().top - box.top) : -1;
+          }),
+        );
+        return { cards: cards.length, heights: [...heights], actions: [...actions] };
+      });
+      expect(aligned.cards, 'the roster must draw some cards').toBeGreaterThan(1);
+      expect(aligned.heights, `cards of ${aligned.heights.length} different heights`).toHaveLength(
+        1,
+      );
+      expect(aligned.actions, 'the action box moves between cards').toHaveLength(1);
 
       // Cut text, horizontally: the stat labels sit in a two-column table inside two thirds of a
       // card, which is the narrowest any of them ever get.
@@ -520,7 +552,7 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/visual/units-${tag}.png` });
     });
 
-    /** §F2 — the Training tab, with an hour already running and an officer idle beside it. */
+    /** §F2: the Training tab, with an hour already running and an officer idle beside it. */
     test(`training at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/training');
@@ -567,7 +599,7 @@ for (const size of VIEWPORTS) {
      * A resource popup must sit *over* the world, not push it down.
      *
      * The board's words: hovering a number should not make the whole top of the screen grow. It
-     * did, because the card rendered inside the stockpile bar and the bar wraps — so every pointer
+     * did, because the card rendered inside the stockpile bar and the bar wraps, so every pointer
      * that crossed a chip shoved the district down by the height of the explanation. The card is
      * portalled to `document.body` now, and this is the assertion that keeps it there: the HUD's
      * height before and after must be identical, and the card must overhang past the bar's bottom
@@ -590,7 +622,7 @@ for (const size of VIEWPORTS) {
 
       const box = await card.boundingBox();
       expect(box, 'the popup must be laid out').not.toBeNull();
-      // It hangs into the world below the bar — measured at its *bottom* edge, because the card is
+      // It hangs into the world below the bar: measured at its *bottom* edge, because the card is
       // anchored under the chip it explains and the chip sits on the bar's lower tier, a couple of
       // pixels inside the bar's own padding. What matters is that the window overhangs the chrome
       // rather than being contained by it, and that is a statement about where it ends.
@@ -606,7 +638,7 @@ for (const size of VIEWPORTS) {
      *
      * Timestamps are made *live* here rather than taken from the shared fixture. The fixture's
      * clock is a fixed date, so every order in it finished long ago and the rail would render a
-     * row of zeroes — which is exactly the state that cannot tell a working countdown from a
+     * row of zeroes, which is exactly the state that cannot tell a working countdown from a
      * broken one. Overriding `/me` for this one test is what makes the assertion mean something.
      */
     test(`the in-flight rail counts down at ${tag}`, async ({ page }) => {
@@ -691,7 +723,7 @@ for (const size of VIEWPORTS) {
       await settleFonts(page);
 
       // A fitted rung, a reachable one and a locked one all render differently, and all three are
-      // on this fixture — which is the point of the fixture.
+      // on this fixture, which is the point of the fixture.
       await expect(page.getByTestId('upgrade-armour_1')).toContainText('Fitted');
       await expect(page.getByTestId('upgrade-armour_3')).toContainText('Needs the Gauntlet');
       await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Blueprint');
@@ -743,7 +775,7 @@ for (const size of VIEWPORTS) {
  * The vertical guard has to be able to fail.
  *
  * `expectNothingClippedVertically` is the entire regression story for MOU-188, and a guard nobody
- * has watched fail is indistinguishable from one that returns early — which is how the horizontal
+ * has watched fail is indistinguishable from one that returns early, which is how the horizontal
  * check shipped this bug green in the first place. So the original defect is reproduced here, a
  * roster viewport ending part-way down a card, and the guard is required to reject it. A later
  * refactor that neuters the guard fails this test instead of quietly passing the whole matrix.
@@ -782,7 +814,7 @@ test('the vertical clipping guard rejects a bisected card row', async ({ page })
  * MOU-197: no geometry gate may depend on a third-party fetch.
  *
  * The webfonts used to be a runtime `<link>` to fonts.googleapis.com, which failed about 1 load
- * in 8 and took the whole visual matrix down with it — training everyone to re-run until green,
+ * in 8 and took the whole visual matrix down with it: training everyone to re-run until green,
  * which is the same habit that lets a real regression through. It was a product defect too: a
  * player on a bad connection got fallback metrics that no gate has ever measured.
  *

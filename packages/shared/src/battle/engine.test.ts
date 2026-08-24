@@ -10,7 +10,7 @@ import { pursue, simulate, sidePower, type Simulation } from './engine.js';
  * The engine's behaviour, measured rather than asserted about.
  *
  * The anchor test is the first one: with counters, terrain and morale neutral, a simulated fight
- * has to land on the reference curve from `attrition.ts` — the formula Tribal Wars and Travian
+ * has to land on the reference curve from `attrition.ts`: the formula Tribal Wars and Travian
  * have run on for twenty years. That is what keeps a round loop with six tunable constants in it
  * from drifting somewhere unbalanced one pass at a time, and it is the only test here that would
  * fail if the *balance* moved rather than the code.
@@ -74,9 +74,9 @@ describe('calibration against the reference curve', () => {
    *
    * Tribal Wars and Travian assume a fight to the last body: the loser is annihilated, so it keeps
    * inflicting damage right to the end and the winner pays for every round of it. This game routs
-   * instead — a broken stack stops fighting, and its survivors go home to their owner. A fight that
+   * instead: a broken stack stops fighting, and its survivors go home to their owner. A fight that
    * ends when somebody runs is always cheaper for the winner than one that ends when somebody dies,
-   * so the level *has* to sit under the curve. Measured, it sits at 0.2–0.5× of it.
+   * so the level *has* to sit under the curve. Measured, it sits at 0.2-0.5× of it.
    *
    * What must still hold is the **shape**, because the shape is what stops a numerically superior
    * player from attacking for free: the cost of winning has to climb steeply as the fight gets
@@ -156,7 +156,7 @@ describe('the loop itself', () => {
     }
   });
 
-  it('is deterministic — the same seed replays exactly', () => {
+  it('is deterministic: the same seed replays exactly', () => {
     const first = fight(army({ razors: 20, snipers: 5 }), army({ wardens: 12 }), 'replay');
     const second = fight(army({ razors: 20, snipers: 5 }), army({ wardens: 12 }), 'replay');
     expect(second.winner).toBe(first.winner);
@@ -174,7 +174,7 @@ describe('the loop itself', () => {
 
   /**
    * Both sides fire from one snapshot, so nothing wins by being first in an array. Swapping the
-   * roles of two identical forces must not move the result — if it does, the loop has a bias that
+   * roles of two identical forces must not move the result, if it does, the loop has a bias that
    * would quietly favour whoever the caller happened to put first.
    */
   it('has no first-mover bias', () => {
@@ -229,7 +229,7 @@ describe('regressions', () => {
    * A stack that breaks must not be healed by breaking.
    *
    * `pursue` rebuilt the pool as `survivors × full vitality`, so a stack at 40% health that routed
-   * came out of the pursuit at *full* health of a smaller number — losing your nerve was the most
+   * came out of the pursuit at *full* health of a smaller number: losing your nerve was the most
    * reliable way to survive a fight. Found by inspection.
    *
    * Tested on `pursue` directly, because the first version of this test asserted

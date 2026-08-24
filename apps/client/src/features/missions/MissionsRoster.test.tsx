@@ -23,11 +23,11 @@ import { queryKeys, useHireRecruit } from '../../lib/queries';
 import { useSession } from '../../store/session';
 
 /**
- * Where the mission board gets its officers from — the two ways that read goes wrong.
+ * Where the mission board gets its officers from: the two ways that read goes wrong.
  *
  * §G6 makes `GET /assignees` a *gate* on this page and not a decoration: with no officer on the
  * card, every hard template is refused. So the board has to be right about the roster even when
- * the roster is not there — a read that failed, and a read that is simply out of date — because
+ * the roster is not there, a read that failed, and a read that is simply out of date, because
  * both of those states have already been rendered to the player as "you have nobody" once.
  */
 
@@ -123,7 +123,7 @@ describe('the board cannot read the roster', () => {
 
   /**
    * `retry: false` and no poll on this query, so a refused read is refused for the life of the
-   * page. "Reading the roster…" then describes something that stopped happening — and the other
+   * page. "Reading the roster…" then describes something that stopped happening, and the other
    * branch is worse: reading a failure as an empty roster is the §G6 lie MOU-248 already found,
    * telling a fully staffed player to go and hire the officers they have.
    */
@@ -131,8 +131,8 @@ describe('the board cannot read the roster', () => {
     refuseTheRoster();
     renderBoard(appClient());
 
-    // The sentence names no remedy, matching the §G screen. The one it used to name — "Reload to
-    // try again" — was wrong: re-entering the page refetches, so a reload was never the only way.
+    // The sentence names no remedy, matching the §G screen. The one it used to name: "Reload to
+    // try again": was wrong: re-entering the page refetches, so a reload was never the only way.
     await within(card('Convoy Ambush')).findByText('Could not read your officers.');
     expect(screen.queryByText(/Hire one at the Bar/)).toBeNull();
     expect(screen.queryByText('Reading the roster…')).toBeNull();
@@ -140,16 +140,16 @@ describe('the board cannot read the roster', () => {
     // The gate still holds: nothing may be sent out under a leader the page could not name.
     expect(deploy('Convoy Ambush')).toBeDisabled();
     // A message *or* the select, never both. The card used to make that impossible by construction;
-    // it is now three separate guards agreeing with `canPick`, so the agreement has to be watched —
+    // it is now three separate guards agreeing with `canPick`, so the agreement has to be watched:
     // a hard card that renders a zero-option dropdown under its own error line is a visual defect.
     expect(within(card('Convoy Ambush')).queryByRole('combobox')).toBeNull();
-    // Easy work is unaffected — §G6 lets it go out on a delegation, roster or no roster.
+    // Easy work is unaffected: §G6 lets it go out on a delegation, roster or no roster.
     expect(deploy('Scrap Run')).toBeEnabled();
   });
 
   /**
    * The quiet half of the same lie. An easy card keeps its picker on a failed read, so it renders
-   * "Nobody — assignees alone, slower" and nothing else: a stocked player reads that as an empty
+   * "Nobody: assignees alone, slower" and nothing else: a stocked player reads that as an empty
    * roster and is silently denied the §G6 choice to put an officer on easy work for the §G5/§G7
    * bonus. The card has to say the roster is missing, not merely behave as though it were empty.
    */
@@ -159,7 +159,7 @@ describe('the board cannot read the roster', () => {
 
     const easy = within(card('Scrap Run'));
     await easy.findByText('Could not read your officers.');
-    // The choice itself survives — the card still offers the delegation, it just cannot offer
+    // The choice itself survives: the card still offers the delegation, it just cannot offer
     // officers, and the line above now says so. Assert on what the picker *holds*: a surviving
     // combobox that had lost its one option would be a dead control, and the §G6 entitlement this
     // whole case exists to protect would be gone with the error line still sitting above it.

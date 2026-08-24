@@ -1,10 +1,12 @@
 import {
   addResources,
+  mergeResources,
   battlefieldFor,
   breachExpiry,
   damageBuilding,
   districtDefense,
   findDistrict,
+  LOCATION_CATALOG,
   findLocation,
   findTrap,
   gainInfamy,
@@ -36,6 +38,9 @@ import {
   NO_BOOST,
   averageCityLevel,
   hasBoost,
+  boostBundle,
+  findBattleBoost,
+  type BattleDeployment,
   spentStash,
   stashBoost,
   type BattleBoost,
@@ -53,19 +58,19 @@ import { awardPlayerXp } from '../progression/award.js';
  * Running the fights whose mark has passed (GDD §A4, battle rework).
  *
  * **There is no scheduler.** A declared battle is a row with a timestamp, and it resolves the first
- * time anybody reads a page that cares — exactly the contract payroll, missions, research and the
+ * time anybody reads a page that cares: exactly the contract payroll, missions, research and the
  * build queue already run on. A fight nobody has looked at for three days resolves to the same
  * result whenever it is next opened, because everything it depends on was fixed before the mark:
  * the seed at declaration, the forces at the cutoff.
  *
  * The order inside one resolution is load-bearing and it is the order the fiction has:
  *
- * 1. **The trap goes off**, before anybody is in contact. It never turns an attack back — it takes a
+ * 1. **The trap goes off**, before anybody is in contact. It never turns an attack back. It takes a
  *    bite, and the fight happens anyway unless there is nothing left to fight with.
  * 2. **The fight runs**, through the same engine every other fight in the game goes through.
  * 3. **The ring takes its cut** of the losers' runners. That happens inside the engine's rout step,
  *    because who got away is the rout's business.
- * 4. **The ground changes hands** — or, on a lived-in district, is looted and wrecked instead.
+ * 4. **The ground changes hands**, or, on a lived-in district, is looted and wrecked instead.
  * 5. **The ledger is written**: infamy for what died, the §D8 tally, and the report.
  */
 
@@ -128,13 +133,24 @@ function assemble(
   };
 }
 
-/** The ground itself. A location fights like its kind; a district gate fights like a street. */
+/**
+ * The ground itself. A location fights like its kind; a district gate fights like a street.
+ *
+ * Read at the moment the fight was **called for**, not at the moment the settler happened to run.
+ *
+ * That distinction did not exist before the sky did, and it matters now that it does. Battles
+ * settle lazily: `repos.sieges.due()` returns everything past its mark that nobody has read yet,
+ * so a fight declared for 23:00 can be resolved at nine the next morning by whoever opens the page
+ * first. Passing the settle clock meant that fight was decided in tomorrow's weather and in
+ * daylight: a player who picked a foggy night for their Ghosts got a clear morning, and *which*
+ * morning depended on when somebody else loaded a screen.
+ */
 function battlefieldOf(
   battle: ScheduledBattle,
   district: District,
   fortification: number,
-  now: Date,
 ): Battlefield {
+  const at = new Date(battle.scheduledFor);
   if (battle.target.kind === 'location') {
     const location = findLocation(battle.target.locationId);
     if (location) {
@@ -143,11 +159,11 @@ function battlefieldOf(
         kind: location.kind,
         fortifyDifficulty: location.fortifyDifficulty,
         fortifyLevel: fortification,
-        at: now,
+        at,
       });
     }
   }
-  return homeBattlefield(district.name, now);
+  return homeBattlefield(district.name, at);
 }
 
 interface TrapResult {
@@ -200,7 +216,7 @@ function bankOutcome(
   won: boolean,
   killedInfamy: number,
   now: Date,
-  /** §A4 — what the ground adds to a name (the Graveyard, the Spire). Percent, never negative. */
+  /** §A4: what the ground adds to a name (the Graveyard, the Spire). Percent, never negative. */
   infamyGainPercent = 0,
 ): EconomyState {
   const target = raidTargetOf(district);
@@ -267,10 +283,27 @@ function cityLevelOf(repos: Repositories): number {
   );
 }
 
-/** Takes one of each boost out of a crew's bag — exactly what the fight was allowed to use. */
+/** Takes one of each boost out of a crew's bag: exactly what the fight was allowed to use. */
 function spendBoosts(repos: Repositories, baseId: string): void {
   const stash = repos.blackMarket.stashFor(baseId);
   if (hasBoost(stash)) repos.blackMarket.writeStash(baseId, spentStash(stash));
+}
+
+/** §D7: the boost this side bought for this fight, as a whole-force bundle. */
+function nameBoost(deployment: BattleDeployment | undefined, force: Army): BattleBoost {
+  const spec = deployment?.boostId ? findBattleBoost(deployment.boostId) : undefined;
+  if (!spec) return NO_BOOST;
+  return boostBundle(spec.effect, force);
+}
+
+/** Two bundles on the same three channels. Additive, like everything else in this file. */
+function addBoosts(a: BattleBoost, b: BattleBoost): BattleBoost {
+  if (b === NO_BOOST) return a;
+  return {
+    offensePercent: a.offensePercent + b.offensePercent,
+    defensePercent: a.defensePercent + b.defensePercent,
+    moralePercent: a.moralePercent + b.moralePercent,
+  };
 }
 
 /**
@@ -280,7 +313,7 @@ function spendBoosts(repos: Repositories, baseId: string): void {
  * added, because multiplicative stacking is where a strategy game's numbers stop being explainable.
  */
 function boosted(effects: CrewEffects, boost: BattleBoost): CrewEffects {
-  // §A4 — the Black Clinic. Syringes handed out before the fight, one unit brought back to
+  // §A4: the Black Clinic. Syringes handed out before the fight, one unit brought back to
   // strength each. It lands on the same three channels a bought boost does rather than on a
   // parallel one, so the engine reads one number per channel and the report explains itself.
   const stims = Math.max(0, effects.battleStims);
@@ -298,7 +331,7 @@ function boosted(effects: CrewEffects, boost: BattleBoost): CrewEffects {
  * What one syringe is worth, in percentage points of offense.
  *
  * Small on purpose. A Black Clinic at level 4 hands out five of them, which is a real edge and not
- * a fight decided before it starts — the location is a thumb on the scale, not a second army.
+ * a fight decided before it starts: the location is a thumb on the scale, not a second army.
  */
 export const STIM_PERCENT_EACH = 3;
 
@@ -337,17 +370,29 @@ function resolveOne(
   // priced and stocked for a veteran street hands out veteran contraband, and this is where that
   // lands. Read once for the fight, so both sides' bags are weighted by the same number.
   const cityLevel = cityLevelOf(repos);
-  const attackerBoost = stashBoost(repos.blackMarket.stashFor(attacker.id), cityLevel);
+  const attackerBoost = addBoosts(
+    stashBoost(repos.blackMarket.stashFor(attacker.id), cityLevel),
+    // §D7: what a name bought for *this* fight, folded down against the force it actually
+    // reaches. See `battle/boosts.ts`: a boost on one weight class is worth its own percentage
+    // times that class's share of the supply standing on the ground.
+    nameBoost(repos.sieges.deployment(battle.id, 'attacker'), assembled.attacking),
+  );
   const defenderBoost = defenderBase
-    ? stashBoost(repos.blackMarket.stashFor(defenderBase.id), cityLevel)
+    ? addBoosts(
+        stashBoost(repos.blackMarket.stashFor(defenderBase.id), cityLevel),
+        nameBoost(repos.sieges.deployment(battle.id, 'defender'), assembled.defending),
+      )
     : NO_BOOST;
 
-  const attackerEffects = boosted(standingEffectsFor(repos, attacker, now), attackerBoost);
+  const attackerEffects = boosted(standingEffectsFor(repos, attacker), attackerBoost);
   const defenderEffects = defenderBase
-    ? boosted(standingEffectsFor(repos, defenderBase, now), defenderBoost)
+    ? boosted(standingEffectsFor(repos, defenderBase), defenderBoost)
     : undefined;
 
   const name = targetName(battle.target, resident);
+  // Read once and shared: the engine fights on it and the report is stamped with it, so a card can
+  // never describe ground the fight did not happen on.
+  const ground = battlefieldOf(battle, district, fortification);
   const outcome: SkirmishOutcome = engine.resolve({
     seed: battle.seed,
     battleId: battle.id,
@@ -356,7 +401,7 @@ function resolveOne(
     locationName: name,
     attacking: trap.attacking,
     defending: assembled.defending,
-    battlefield: battlefieldOf(battle, district, fortification, now),
+    battlefield: ground,
     attackerTerritory: attackerEffects,
     attackerUpgrades: attacker.fittedUpgrades,
     attackerCohesionPercent: attackerEffects.cohesionPercent,
@@ -375,7 +420,7 @@ function resolveOne(
   // Spent, whatever happened. A boost is bought for *a* battle, not for a won one, and leaving it
   // in the stash on a loss would make contraband a free retry.
   //
-  // One of each, matching what the fight was allowed to use (board — "the same boost only once").
+  // One of each, matching what the fight was allowed to use (board: "the same boost only once").
   // Clearing the whole bag instead would bill a crew for a second syringe they never got to open.
   spendBoosts(repos, attacker.id);
   if (defenderBase) spendBoosts(repos, defenderBase.id);
@@ -397,7 +442,7 @@ function resolveOne(
     now,
   });
 
-  const base = outcome.analysis ?? fallbackAnalysis(battle, name, outcome, attacker.name);
+  const base = outcome.analysis ?? fallbackAnalysis(battle, name, outcome, attacker.name, ground);
   const analysis: BattleAnalysis = {
     ...base,
     winner: attackerWon ? 'attacker' : 'defender',
@@ -420,7 +465,7 @@ function resolveOne(
   });
 
   /*
-   * §I1 — fighting pays, win or lose, and it pays **both** crews.
+   * §I1: fighting pays, win or lose, and it pays **both** crews.
    *
    * Last, after every other write, because `awardPlayerXp` is the single writer of `Base.level`
    * (INTERFACES R7) and the level a fight buys should be the one the crew ends the night on.
@@ -430,7 +475,7 @@ function resolveOne(
    * be two queries to get the same two numbers back.
    *
    * Both sides, which is new. The routes this replaced paid the attacker only, because under an
-   * instant fight the defender did not *do* anything — they were a number the attacker rolled
+   * instant fight the defender did not *do* anything. They were a number the attacker rolled
    * against. A declared fight is the opposite: the defender reads the call, moves people up, arms
    * the gate and turns out. §I1 pays for fighting, not for starting it.
    */
@@ -464,7 +509,7 @@ interface Settlement {
  * Everything the fight changed: rosters, ground, gates, structures, stock and the two ledgers.
  *
  * One function rather than five, because every one of these writes has to see the same pair of
- * casualty lists — and a second reading of the outcome downstream is how a unit ends up dead on the
+ * casualty lists, and a second reading of the outcome downstream is how a unit ends up dead on the
  * roster and alive in the garrison.
  */
 function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
@@ -472,10 +517,10 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
 
   // Everything either side's ground is worth, read once. Four separate reads of the same fold were
   // already happening in this function; the two below are the same numbers with a name on them.
-  const attackerGround = standingEffectsFor(repos, attacker, now);
-  const defenderGround = defenderBase ? standingEffectsFor(repos, defenderBase, now) : null;
+  const attackerGround = standingEffectsFor(repos, attacker);
+  const defenderGround = defenderBase ? standingEffectsFor(repos, defenderBase) : null;
 
-  // §F2 — the medics take some of the *winner's* dead off the list before it is applied. Only ever
+  // §F2: the medics take some of the *winner's* dead off the list before it is applied. Only ever
   // the winner's: a routed force leaves its wounded on the field, which is what routing means.
   const winnerRecovery = attackerWon
     ? attackerGround.casualtyRecoveryPercent
@@ -487,7 +532,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   const attackerSurvivors = attackerWon ? removeForce(input.committed, attackerDead) : outcome.fled;
 
   /**
-   * §A4 — the survivors stay on the ground they took, because the attacker said so before the
+   * §A4: the survivors stay on the ground they took, because the attacker said so before the
    * fight.
    *
    * Only on a **won location**, and the two qualifications are both load-bearing. A lost fight has
@@ -498,7 +543,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   const holds = attackerWon && battle.target.kind === 'location' && battle.holdAfterCapture;
   const holding = holds ? attackerSurvivors : {};
 
-  // The rings never fought and always come home, whichever way it went — and whichever way the
+  // The rings never fought and always come home, whichever way it went, and whichever way the
   // attacker answered the question, because the ring stood outside the fight and never took the
   // ground it is being asked to hold.
   const attackerHome = mergeArmies(holds ? {} : attackerSurvivors, assembled.attackerRing);
@@ -506,15 +551,42 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     ? outcome.fled
     : removeForce(assembled.defending, defenderDead);
 
-  const attackerInfamy = infamyForKills(defenderDead);
+  /*
+   * §D8: the one-off infamy some ground pays the moment it changes hands.
+   *
+   * The Statue of the Revolutionist, and so far only it: taking nine metres of bronze off the
+   * Combine is a statement the whole city hears, and it is an *event* rather than a rate. It was
+   * authored on the location and read by nothing at all, which made it exactly what the catalogue
+   * forbids: a number on a card that never moves.
+   *
+   * Added to the fight's own infamy rather than banked separately, so a crew's Graveyard
+   * multiplies it like everything else that earns them a name (`bankOutcome`).
+   */
+  const taken =
+    attackerWon && battle.target.kind === 'location'
+      ? findLocation(battle.target.locationId)
+      : undefined;
+  const captureInfamy = taken ? (LOCATION_CATALOG[taken.kind].captureInfamy ?? 0) : 0;
+
+  const attackerInfamy = infamyForKills(defenderDead) + captureInfamy;
   const defenderInfamy = infamyForKills(attackerDead);
 
   /**
-   * §A4 — the Bone Market. A share of what you lost comes back as caps rather than as nothing.
+   * §A4: the Bone Market. A share of what you lost comes back as caps rather than as nothing.
    *
    * Both sides, and on a loss as well as a win: the whole point of the location is that a bad
    * afternoon is not a total write-off, and paying out only on a victory would make it a bonus for
    * winning, which the game already has several of.
+   */
+  /*
+   * The Bone Market's refund (§A4), and it is *added to* whatever else the fight paid rather than
+   * being one of the things that might have paid.
+   *
+   * Written as an accumulator for a reason. The first version seeded `haul` with the refund and
+   * then let the break-in path assign over it, so a won raid, the one fight that pays anything,
+   * was the one fight that threw the refund away. And the credit itself only ran inside that same
+   * branch, so on every other path the refund was computed, reported on the battle card, and never
+   * banked. A mechanic that is visible and inert is worse than one that is absent.
    */
   let haul: PartialResources = refundFor(attackerDead, attackerGround.salvageRefundPercent);
   let attackerNext: Base = {
@@ -538,7 +610,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       repos.city.put({
         locationId: battle.target.locationId,
         holder: { kind: 'faction', baseId: attacker.id },
-        // §A4 — **a capture resets the location to level 1.** Nobody inherits the previous
+        // §A4: **a capture resets the location to level 1.** Nobody inherits the previous
         // holder's investment: three upgrades of work on a Gas Station are gone the moment
         // somebody else walks onto the forecourt. That is the whole tension of the level system,
         // and it is enforced here rather than trusted to the caller.
@@ -549,18 +621,22 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
         garrison: holding,
       });
     } else {
-      // Whoever held it holds it, and whoever is left standing is its garrison now — including
+      // Whoever held it holds it, and whoever is left standing is its garrison now: including
       // anybody who was sent up for the fight. They are already there.
       repos.city.setGarrison(battle.target.locationId, defenderSurvivors);
     }
   } else if (attackerWon) {
-    haul = breakIn(repos, input);
+    haul = mergeResources(haul, breakIn(repos, input));
+  }
+
+  // Banked once, on every path. Nothing above this line touches the stockpile.
+  if (Object.keys(haul).length > 0) {
     attackerNext = { ...attackerNext, resources: addResources(attackerNext.resources, haul) };
   }
 
   // --- the defender's own books ---
   if (defenderBase) {
-    // A home defence's survivors *are* the roster — they were taken out of it to fight. A location
+    // A home defence's survivors *are* the roster. They were taken out of it to fight. A location
     // defence's stay on the location, so only whoever ran (and the ring) comes home.
     const roster = assembled.fromHomeRoster
       ? mergeArmies(defenderSurvivors, assembled.defenderRing)
@@ -569,6 +645,15 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
           mergeArmies(attackerWon ? defenderSurvivors : {}, assembled.defenderRing),
         );
     repos.bases.updateArmy(defenderBase.id, roster, defenderBase.trainingQueue);
+    // Their Bone Market too. Holding one is worth the same whichever end of the fight you are on,
+    // which is the whole reason it pays on a loss as well as a win.
+    const theirRefund = refundFor(defenderDead, defenderGround?.salvageRefundPercent ?? 0);
+    if (Object.keys(theirRefund).length > 0) {
+      repos.bases.updateResources(
+        defenderBase.id,
+        addResources(defenderBase.resources, theirRefund),
+      );
+    }
     repos.bases.updateEconomy(
       defenderBase.id,
       bankOutcome(
@@ -594,7 +679,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
  * What a won siege takes out of a lived-in district (§A4).
  *
  * A gate goes down for a day and everything behind it becomes reachable; a structure that was hit
- * is carried out of and left running badly. What never happens is the district changing hands —
+ * is carried out of and left running badly. What never happens is the district changing hands:
  * losing three weeks of building because you were asleep is not a strategy game.
  */
 function breakIn(repos: Repositories, input: SettleInput): PartialResources {
@@ -623,7 +708,7 @@ function breakIn(repos: Repositories, input: SettleInput): PartialResources {
   // What left with them, bounded by what the force could physically carry.
   const capacity = lootCapacityOf(
     input.committed,
-    standingEffectsFor(repos, input.attacker, now).lootCapacityPercent,
+    standingEffectsFor(repos, input.attacker).lootCapacityPercent,
   );
   const haul = plunder(resident.resources, capacity);
   repos.bases.updateResources(resident.id, spendResources(resident.resources, haul));
@@ -668,6 +753,7 @@ function fallbackAnalysis(
   locationName: string,
   outcome: SkirmishOutcome,
   attackerName: string,
+  battlefield: Battlefield,
 ): BattleAnalysis {
   const attacker = emptySide(attackerName);
   const defender = emptySide('the holder');
@@ -689,5 +775,9 @@ function fallbackAnalysis(
     trap: null,
     legends: [],
     headline: outcome.log[0] ?? 'It happened.',
+    // The ground is a fact about where the fight was, not about how it was resolved, so a stub
+    // engine knows it just as well as the real one does.
+    weather: battlefield.weather as BattleAnalysis['weather'],
+    ground: battlefield.labels,
   };
 }

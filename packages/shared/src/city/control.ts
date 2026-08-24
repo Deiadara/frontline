@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import { POPULATION_PER_LOCATION } from '../building/population.js';
 import { fortifyBonusPercent } from './fortification.js';
 import { findDistrict, unifiedBonusFor, type District } from './districts.js';
 import {
@@ -16,7 +17,7 @@ import {
  * Who holds what, and what that is worth (GDD §A4).
  *
  * Control is **world state, not player state**: a location is held by exactly one party and every
- * player sees the same answer. That is why it lives in its own table rather than inside a base —
+ * player sees the same answer. That is why it lives in its own table rather than inside a base:
  * two crews reading their own copy of who holds the Bonefield is how a shared map stops being
  * shared.
  */
@@ -36,7 +37,7 @@ export const LocationHolderSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('unoccupied') }),
   z.object({ kind: z.literal('government') }),
   z.object({ kind: z.literal('looters') }),
-  /** A crew — the base that holds it, which is also who its garrison answers to. */
+  /** A crew: the base that holds it, which is also who its garrison answers to. */
   z.object({ kind: z.literal('faction'), baseId: IdSchema }),
 ]);
 export type LocationHolder = z.infer<typeof LocationHolderSchema>;
@@ -53,7 +54,7 @@ export const LocationControlSchema = z.object({
   locationId: z.string().min(1),
   holder: LocationHolderSchema,
   /**
-   * 1..`MAX_LOCATION_LEVEL` — how far this location has been worked up (§A4).
+   * 1..`MAX_LOCATION_LEVEL`: how far this location has been worked up (§A4).
    *
    * **Reset to 1 the moment it changes hands, for everybody.** That is the whole tension of the
    * system and it is deliberately not softened: nobody inherits the previous holder's investment,
@@ -76,7 +77,7 @@ export function isHeldBy(control: LocationControl, baseId: string): boolean {
   return control.holder.kind === 'faction' && control.holder.baseId === baseId;
 }
 
-/** Two holders being the same party — the question "did this actually change hands?" asks. */
+/** Two holders being the same party: the question "did this actually change hands?" asks. */
 export function sameHolder(a: LocationHolder, b: LocationHolder): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === 'faction' && b.kind === 'faction') return a.baseId === b.baseId;
@@ -93,7 +94,7 @@ export function garrisonSize(control: LocationControl): number {
  *
  * Three terms, and each is something somebody chose: the ground itself (the catalogue's
  * `baseDefense`), how deeply the holder has dug in (fortification), and how many of them are
- * standing on it. Held by nobody, it is the ground alone — which is why an unoccupied location is
+ * standing on it. Held by nobody, it is the ground alone, which is why an unoccupied location is
  * worth walking into early.
  */
 export const DEFENSE_PER_GARRISON_UNIT = 0.4;
@@ -143,7 +144,7 @@ export function districtsHeldBy(
  * Everything this crew's territory is currently worth, in one pass.
  *
  * Each location it holds contributes its own hold bonus, and each district it holds *outright*
- * contributes the unified bonus on top. Nothing here is stored — territory value is derived from
+ * contributes the unified bonus on top. Nothing here is stored: territory value is derived from
  * the control table every time it is asked, so a location changing hands takes effect immediately and
  * there is no second copy to keep in step.
  */
@@ -159,7 +160,10 @@ export function territoryEffectsFor(
     const control = controls.get(location.id);
     if (!control || !isHeldBy(control, baseId)) continue;
     held.add(location.districtId);
-    // At the level it has been worked up to (§A4) — the whole reason to pour resources into
+    // §A1: ground you hold is ground people live on. Flat per location and deliberately not
+    // scaled by its level: what houses people is the block, not how well the press in it runs.
+    effects.populationBonus += POPULATION_PER_LOCATION;
+    // At the level it has been worked up to (§A4): the whole reason to pour resources into
     // ground you might lose. `bonusesAt` is the only reader of `LEVEL_SCALE`, so a location's
     // worth and the number on its card cannot disagree.
     for (const bonus of bonusesAt(location.kind, control.level)) applyHoldBonus(effects, bonus);
@@ -180,7 +184,7 @@ export function territoryEffectsFor(
 /**
  * Who is actually standing on an NPC location, and how many.
  *
- * Every location used to start with `garrison: {}` — held on paper by the Combine or the looters, and
+ * Every location used to start with `garrison: {}`: held on paper by the Combine or the looters, and
  * defended by nobody at all. So every location on the map could be taken by one Razor, for free, and
  * the entire city layer was a formality. The fiction had said so all along: "the Rustyard being
  * full of looters is what gives a new crew something to fight that will lose."
@@ -245,8 +249,8 @@ export function startingControl(location: Location, district: District): Locatio
  * How many locations the squatters hold in a district nobody has locked down.
  *
  * Two, and it is the number that decides what the opening hour of the game is like. Every location in
- * the city used to start held, which meant every district in it was **shut** — one party holding
- * all of it is exactly what arms a gate — so a new crew's only legal move anywhere was to break
+ * the city used to start held, which meant every district in it was **shut**: one party holding
+ * all of it is exactly what arms a gate, so a new crew's only legal move anywhere was to break
  * down a door. That is the endgame move, offered on the first screen.
  *
  * Two squatted locations leaves open ground to walk onto, keeps a fight worth having in every
@@ -260,14 +264,14 @@ export const SQUATTED_PLACES_PER_OPEN_DISTRICT = 2;
  * Two kinds of district, and the difference is the shape of the early game:
  *
  *   * **Combine ground is shut.** Every location in it is garrisoned, which arms its gate, and the
- *     only way in is through the front — which is what the Combine being the Combine should feel
+ *     only way in is through the front, which is what the Combine being the Combine should feel
  *     like, and what makes taking one of its districts an event.
  *   * **Independent ground is open, and squatted.** Looters hold the
  *     {@link SQUATTED_PLACES_PER_OPEN_DISTRICT} most defensible spots and the rest is standing
  *     empty. A crew can walk onto the open ground and then has a real fight for the good ones.
  *
- * Which spots the squatters take is *derived* — the highest `baseDefense` in the district, ties
- * broken by id — rather than authored, so a location added to the catalogue tomorrow sorts itself into
+ * Which spots the squatters take is *derived*: the highest `baseDefense` in the district, ties
+ * broken by id: rather than authored, so a location added to the catalogue tomorrow sorts itself into
  * the right half without anybody remembering to. Deterministic for the same reason
  * `startingGarrison` is: every player gets the same city, and a test can state what is on a location
  * rather than sample it.

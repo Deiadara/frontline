@@ -44,7 +44,7 @@ describe('the ADR 0001 §5.2 plane stack', () => {
 
   it('looks planes up by id and rejects unknown ones', () => {
     expect(plane('nodes').index).toBe(3);
-    // @ts-expect-error — the id union is the guard; this pins the runtime behaviour too.
+    // @ts-expect-error: the id union is the guard; this pins the runtime behaviour too.
     expect(() => plane('basement')).toThrow(/Unknown parallax plane/);
   });
 });

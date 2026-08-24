@@ -29,7 +29,7 @@ async function openBar(page: Page): Promise<void> {
 }
 
 test.describe('haggling (§H7)', () => {
-  test('opens on what they are asking — never on what they would settle for', async ({ page }) => {
+  test('opens on what they are asking: never on what they would settle for', async ({ page }) => {
     await openBar(page);
     await page.getByTestId(`negotiate-${RECRUIT}`).click();
 
@@ -55,7 +55,7 @@ test.describe('haggling (§H7)', () => {
     await page.getByLabel(/^Offer to /).fill(String(reservationWage(asking) - 1));
     await page.getByTestId('negotiation-say').click();
 
-    // They said something new — the transcript grew — and the demand came down off the opening.
+    // They said something new, the transcript grew, and the demand came down off the opening.
     await expect(page.getByTestId('negotiation-transcript')).not.toHaveText(opening);
     await expect
       .poll(async () =>
@@ -81,8 +81,8 @@ test.describe('haggling (§H7)', () => {
   /**
    * The bug this whole path exists to prevent: **they say yes and never join the crew.**
    *
-   * Agreeing a wage used to write the number into the card's *counter-offer* slot — the channel for
-   * a refusal — so the card announced "Turned it down" the instant somebody accepted, the window
+   * Agreeing a wage used to write the number into the card's *counter-offer* slot: the channel for
+   * a refusal, so the card announced "Turned it down" the instant somebody accepted, the window
    * offered a Done button that did nothing but close, and the hire was never sent. Every gate in
    * the suite was green, because `/api/bar/hire` had no fixture handler at all: nothing in the
    * tests could tell a signature from silence.
@@ -133,7 +133,7 @@ test.describe('haggling (§H7)', () => {
     await page.getByTestId('negotiation-say').click();
     await expect(page.getByTestId('negotiation-sign')).toBeVisible();
 
-    // Close without signing — the card is now the only thing telling the player where they stand.
+    // Close without signing: the card is now the only thing telling the player where they stand.
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
 
@@ -145,7 +145,7 @@ test.describe('haggling (§H7)', () => {
   /**
    * Two conversations, one offer each, and the *difference* between them.
    *
-   * The first version of this only checked that patience went down after an insult — which it does
+   * The first version of this only checked that patience went down after an insult, which it does
    * after any exchange at all, because every exchange costs one. It passed with
    * `INSULT_PATIENCE_COST` set to zero, which is the whole mechanic switched off. A meter that
    * moves is not the claim; a meter that moves *further* is.
@@ -222,7 +222,7 @@ test.describe('the painted picker', () => {
     const trigger = page.getByTestId('supply-resource');
     await trigger.click();
 
-    // A real listbox, drawn by us — not the operating system's menu, which no test can see at all.
+    // A real listbox, drawn by us, not the operating system's menu, which no test can see at all.
     const list = page.getByRole('listbox', { name: 'What to buy with caps' });
     await expect(list).toBeVisible();
 

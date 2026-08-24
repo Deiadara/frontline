@@ -64,7 +64,8 @@ import {
   deployToBattle,
   layTrap,
   garrisonStructure,
-  sacrificeInfamy,
+  buyBattleBoost,
+  upgradeNotoriety,
 } from './api';
 import { useSession } from '../store/session';
 
@@ -93,14 +94,14 @@ export const queryKeys = {
  * Refresh everything a level-up moved: the HUD, and the §G layer derived from the same level.
  *
  * `projectAssignees` (`apps/server/src/assignees/roster.ts`) computes the whole assignee payload
- * from nothing but `base.level` — the pool (§G8), the per-officer cap (§G3) and the bonus curve
- * (§G7) — so every level-up invalidates it server-side. Said in one place because the four sites
+ * from nothing but `base.level`: the pool (§G8), the per-officer cap (§G3) and the bonus curve
+ * (§G7), so every level-up invalidates it server-side. Said in one place because the four sites
  * that can cross a threshold (§I1: a mission settling, a launch that settled one, a build, a raid)
  * would otherwise each carry a copy of the reason.
  *
  * Without it the cached roster stays authoritative for its whole `staleTime`: the board announces
  * "Assignee pool 8", the player walks to §G inside the window and reads Unplaced 0 with every Place
- * button dead — handed people, then refused permission to place them (MOU-381).
+ * button dead: handed people, then refused permission to place them (MOU-381).
  */
 function invalidateLevelSensitive(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.me });
@@ -108,27 +109,27 @@ function invalidateLevelSensitive(queryClient: QueryClient): void {
 }
 
 /**
- * ## Why a refused write still has to invalidate — `onSettled`, not `onSuccess`
+ * ## Why a refused write still has to invalidate: `onSettled`, not `onSuccess`
  *
  * The game has no schedulers. Every clock in it settles on a *read*, and a write route reads
  * before it writes: `POST /base/build` runs `settleBase` on its first line and only then asks
  * whether the player can afford the order. So a refusal is not a no-op. By the time the 409 comes
  * back the server has already banked an hour of production, paid a wage week, possibly finished a
- * research project and possibly crossed a player level — `routes/base.ts` says so out loud by
+ * research project and possibly crossed a player level: `routes/base.ts` says so out loud by
  * putting a `levelUp` on the *error* payload.
  *
  * A mutation that only invalidates `onSuccess` therefore leaves the screen lying in exactly the
  * moment the player is most likely to look at it: they were told "you cannot afford that", the
  * stockpile on the HUD is the one from before the settle, and the caps they actually have may well
- * cover it. The fix is uniform — invalidate on `onSettled` (or `onError`), which fires down both
- * paths — and it is why the city, mission and battle writes were already written that way.
+ * cover it. The fix is uniform: invalidate on `onSettled` (or `onError`), which fires down both
+ * paths, and it is why the city, mission and battle writes were already written that way.
  *
  * The hooks below cite this note as "settle first, refuse second".
  */
 
 /**
  * How often the missions page re-asks the server. Missions settle lazily on this read, so the
- * poll is what turns a finished countdown into a banked payout while the page is open — and the
+ * poll is what turns a finished countdown into a banked payout while the page is open, and the
  * countdown itself ticks locally in between, so this does not need to be a fast poll.
  */
 const MISSION_POLL_MS = 15_000;
@@ -140,7 +141,7 @@ const RESEARCH_POLL_MS = 15_000;
  * And for the district (§A1). The build queue settles on this read, so the poll is what turns a
  * finished countdown into a standing structure while the page is open.
  *
- * Faster than the other two because the bottom of the build tree is measured in *seconds* — a
+ * Faster than the other two because the bottom of the build tree is measured in *seconds*: a
  * fifteen-second poll would leave a twenty-second build looking stuck for most of its life, which
  * is the first thing a new player builds.
  */
@@ -158,7 +159,7 @@ export function useCity() {
   return useQuery({ queryKey: queryKeys.city, queryFn: getCity, enabled: token !== null });
 }
 
-/** Detail for a single owned base — the district, its queue and its stockpile (§A1). */
+/** Detail for a single owned base: the district, its queue and its stockpile (§A1). */
 export function useBase(id: string | undefined) {
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -185,7 +186,7 @@ export function useBase(id: string | undefined) {
 }
 
 /**
- * §A1 — name the faction.
+ * §A1: name the faction.
  *
  * Writes the response into both caches rather than invalidating: the name is on the HUD, on the
  * district page and on the city map, and a player who has just typed it should not watch it flicker
@@ -218,7 +219,7 @@ export function useMissions() {
 
   /*
    * A crew is paid by the *poll*, not by anything the player did, so nothing else on the client
-   * knows the stockpile and the meters just moved — `me` is what the HUD reads, and a player
+   * knows the stockpile and the meters just moved: `me` is what the HUD reads, and a player
    * watching their own countdown land is exactly the case that never leaves this page.
    *
    * Keyed on the fetch rather than the payload: the server reports `justResolved` per request, so
@@ -245,7 +246,7 @@ export function useLaunchMission() {
     /*
      * `onSettled`, not `onSuccess`: the launch settles the board before it validates, and that
      * settle is not rolled back when it then refuses. A refusal downstream of it has already moved
-     * the stockpile, morale and the §D8 tally — and nothing else will re-observe them. `me` is
+     * the stockpile, morale and the §D8 tally, and nothing else will re-observe them. `me` is
      * `staleTime: 30_000` with no poll and no refetch on focus, `GameScreen` never unmounts inside
      * `/game`, and the board's own `justResolved` rescue cannot fire because this very request
      * consumed the settlement. Refreshing only on success leaves the HUD contradicting the banner
@@ -268,14 +269,14 @@ export function useBar() {
 }
 
 /**
- * Make an offer (§H7). The Bar is refetched either way — a counter-offer leaves the roster alone
+ * Make an offer (§H7). The Bar is refetched either way: a counter-offer leaves the roster alone
  * but a signing moves caps, slots and the officer list all at once.
  */
 export function useHireRecruit() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: hireRecruit,
-    // The Bar either way, and on a refusal as well as on a signing — see
+    // The Bar either way, and on a refusal as well as on a signing: see
     // "settle first, refuse second": `/bar` settles the crew’s pay and alignment before it
     // decides whether the hire can happen at all.
     onSettled: () => void queryClient.invalidateQueries({ queryKey: queryKeys.bar }),
@@ -332,7 +333,7 @@ export function useResearch() {
   });
 
   // A landed project can move the Overseer's sheet (§F2) and morale (§F3), and neither of those is
-  // read from here — `me` is what the HUD renders. Keyed on the fetch, not the payload: the server
+  // read from here: `me` is what the HUD renders. Keyed on the fetch, not the payload: the server
   // reports `justDiscovered` per request, so the settling poll reports it and the next reports none.
   const settledAt = (query.data?.justDiscovered.length ?? 0) > 0 ? query.dataUpdatedAt : 0;
   useEffect(() => {
@@ -348,7 +349,7 @@ export function useStartResearch() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: startResearch,
-    // `onSettled` — "settle first, refuse second", at the top of this file.
+    // `onSettled`: "settle first, refuse second", at the top of this file.
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.research });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
@@ -414,7 +415,7 @@ export function useCreateOverseer() {
  * Raise one structure in the hideout (GDD §A1, §D3).
  *
  * The response already carries the whole settled base, so it is written straight into the base
- * cache rather than waiting for a refetch — the village, the stockpile and the level all moved on
+ * cache rather than waiting for a refetch: the village, the stockpile and the level all moved on
  * this one call. `me` is invalidated because the HUD reads its resources from there.
  */
 export function useBuildStructure(baseId: string | undefined) {
@@ -426,7 +427,7 @@ export function useBuildStructure(baseId: string | undefined) {
         queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), { base: data.base });
       }
     },
-    // `onSettled`, not `onSuccess` — "settle first, refuse second", at the top of this file. A build
+    // `onSettled`, not `onSuccess`: "settle first, refuse second", at the top of this file. A build
     // refuses has still banked an hour of production and can have crossed a level on the way to
     // the refusal, which the route says out loud by putting a `levelUp` on the *error*.
     onSettled: () => invalidateLevelSensitive(queryClient),
@@ -443,7 +444,7 @@ export function useBuildStructure(baseId: string | undefined) {
  *
  * All five refresh the same three things, because all five can move them: the map (ownership and
  * fog), the district that was touched, and the crew itself (its army, its stockpile, its level).
- * Said once rather than five times — the reason is identical every time.
+ * Said once rather than five times: the reason is identical every time.
  */
 function useCityWrite<Body, Result>(
   mutationFn: (body: Body) => Promise<Result>,
@@ -486,7 +487,7 @@ export const useSetGarrison = (baseId: string | undefined, districtId: string | 
 export const useFortify = (baseId: string | undefined, districtId: string | undefined) =>
   useCityWrite(fortifyLocation, baseId, () => districtId ?? null);
 
-/** §A4 — work a location up a level. Same write path as fortifying; same invalidations. */
+/** §A4: work a location up a level. Same write path as fortifying; same invalidations. */
 export const useUpgradeLocation = (baseId: string | undefined, districtId: string | undefined) =>
   useCityWrite(upgradeLocation, baseId, () => districtId ?? null);
 
@@ -509,7 +510,7 @@ export function useTrainUnits(baseId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: trainUnits,
-    // `onSettled` — "settle first, refuse second". "You cannot afford that" is the most
+    // `onSettled`: "settle first, refuse second". "You cannot afford that" is the most
     // common answer this route gives, and it is exactly the answer after which the stockpile on
     // screen is wrong.
     onSettled: () => {
@@ -524,7 +525,7 @@ export function useTrainUnits(baseId: string | undefined) {
 
 /**
  * The Training tab (§F2). Polled, because a session finishes on the server's clock and the point
- * of the screen is watching an hour run down — the same reason the roster and the district poll.
+ * of the screen is watching an hour run down: the same reason the roster and the district poll.
  */
 export function useTraining() {
   const token = useSession((s) => s.token);
@@ -539,7 +540,7 @@ export function useTraining() {
 /**
  * Put somebody through an hour.
  *
- * The response *is* the refreshed board, so the tab does not re-derive anything — but the sheet it
+ * The response *is* the refreshed board, so the tab does not re-derive anything, but the sheet it
  * just moved is also what the Overseer's profile is drawn from, and what every effect in the game
  * is computed from, so both of those are dropped too.
  */
@@ -582,7 +583,7 @@ export function useMarket() {
 /**
  * Every market write in one hook factory.
  *
- * All five answer with the whole refreshed board, so the cache is *set* rather than invalidated —
+ * All five answer with the whole refreshed board, so the cache is *set* rather than invalidated:
  * a refetch would show the pre-trade board for a moment, which on a screen where two players are
  * both acting is the one thing that makes a market feel broken. The stockpile moved too, so the
  * HUD and anything priced in resources are dropped.
@@ -604,7 +605,7 @@ function marketMutation<TArgs>(mutationFn: (args: TArgs) => Promise<MarketMutati
 
 export const useBuyFromVendor = marketMutation(buyFromVendor);
 export const useBarter = marketMutation(barterResources);
-/** The supply run — caps into materials, inside the day's ration. */
+/** The supply run: caps into materials, inside the day's ration. */
 export const useBuySupply = marketMutation(buySupply);
 export const usePostOffer = marketMutation(postOffer);
 export const useWithdrawOffer = marketMutation(withdrawOffer);
@@ -630,7 +631,7 @@ export function useBlackMarket() {
 /**
  * Taking something off the shelf.
  *
- * The response is the whole refreshed shelf, so it is set rather than invalidated — a refetch would
+ * The response is the whole refreshed shelf, so it is set rather than invalidated: a refetch would
  * flash the pre-purchase board. The satchel and the HUD both moved (a blueprint landed, infamy was
  * spent), so `me` and the workshop are dropped.
  */
@@ -660,7 +661,7 @@ export function useSettings() {
 /**
  * The two Settings writes.
  *
- * Both answer with the whole record, so both set the cache — and both drop `me`, because the
+ * Both answer with the whole record, so both set the cache, and both drop `me`, because the
  * username on the HUD and the clock every countdown is drawn in come from it.
  */
 function settingsMutation<TArgs>(mutationFn: (args: TArgs) => Promise<SettingsResponse>) {
@@ -698,7 +699,7 @@ export function useBattles() {
  * Every write on the battle board answers with the whole board plus the caller's crew.
  *
  * Both go into the cache rather than being invalidated, because both were computed by the server
- * from the same post-write state — and a refetch would put a second round trip between pressing
+ * from the same post-write state, and a refetch would put a second round trip between pressing
  * the button and seeing the units leave the roster. The city goes stale too: a resolution can
  * change who holds half the map.
  */
@@ -709,6 +710,15 @@ function battleMutation<TArgs>(mutationFn: (args: TArgs) => Promise<BattleMutati
       mutationFn,
       onSuccess: (result) => {
         queryClient.setQueryData(queryKeys.battles, result.battles);
+        /*
+         * The crew, too. §D7 writes spend infamy and buy ranks, and the wallet is on the HUD: a
+         * response that carried the post-write crew and was thrown away left the standing bar
+         * quoting the old number until the `me` refetch landed a round trip later. The invalidation
+         * below still runs and still wins; this is what the player sees in the meantime.
+         */
+        queryClient.setQueryData<MeResponse>(queryKeys.me, (previous) =>
+          previous ? { ...previous, base: result.base } : previous,
+        );
       },
       // Settled rather than success: these routes settle before they validate, so a refusal can
       // still have banked a resolved fight, a levelled crew and a district that changed hands.
@@ -725,7 +735,8 @@ export const useDeclareBattle = battleMutation(declareBattle);
 export const useDeployToBattle = battleMutation(deployToBattle);
 export const useLayTrap = battleMutation(layTrap);
 export const useGarrisonStructure = battleMutation(garrisonStructure);
-export const useSacrificeInfamy = battleMutation(sacrificeInfamy);
+export const useBuyBattleBoost = battleMutation(buyBattleBoost);
+export const useUpgradeNotoriety = battleMutation(upgradeNotoriety);
 
 export const useUpdateProfile = settingsMutation(updateProfile);
 export const useChangePassword = settingsMutation(changePassword);
@@ -735,7 +746,7 @@ export const useChangePassword = settingsMutation(changePassword);
  *
  * A 404 is the *answer*, not a failure: `routes/admin.ts` refuses to admit the bench exists when
  * admin mode is off. Swallowing exactly that one status keeps the screen and the nav entry off
- * without every caller having to know the convention — and every other status still throws, so a
+ * without every caller having to know the convention, and every other status still throws, so a
  * broken bench in a build that should have one is still visibly broken.
  */
 export function useAdmin() {
@@ -797,7 +808,7 @@ function workshopMutation<TArgs>(mutationFn: (args: TArgs) => Promise<WorkshopMu
 export const useFitUpgrade = workshopMutation(fitUpgrade);
 export const useBuildVehicle = workshopMutation(buildVehicle);
 
-/** §E — turn a crew around. The board answers with the whole refreshed set of runs. */
+/** §E: turn a crew around. The board answers with the whole refreshed set of runs. */
 export function useRecallMission() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -809,7 +820,7 @@ export function useRecallMission() {
   });
 }
 
-/** §C2 — move an officer into a different position. */
+/** §C2: move an officer into a different position. */
 export function useReassignOfficer() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -825,7 +836,7 @@ export function useReassignOfficer() {
 /**
  * Start a standing programme at the Lab.
  *
- * The response is the whole refreshed Archive, so it is set rather than invalidated — and the
+ * The response is the whole refreshed Archive, so it is set rather than invalidated, and the
  * stockpile, the satchel and every screen that reads a crew effect moved with it.
  */
 export function useStartTech() {

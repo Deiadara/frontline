@@ -4,18 +4,18 @@ import { z } from 'zod';
  * Things that are not resources (GDD §D, extended).
  *
  * The stockpile is five fungible numbers, and everything in the game was priced in them. That
- * works until the game wants a *specific* thing to be the reason you cannot do something yet — a
+ * works until the game wants a *specific* thing to be the reason you cannot do something yet: a
  * blueprint you have not found, a servo you have to buy from a trader who is only in town twice a
  * day. A number cannot be that. An item can: it has a name, it either sits in your inventory or it
  * does not, and the sentence "you need one Gyro Assembly" is a sentence a player can act on.
  *
  * Three kinds, and the kind is what a player needs to know about it:
  *
- * - **Blueprint** — permanent knowledge. Consumed when it is read, and what it teaches is yours
+ * - **Blueprint**: permanent knowledge. Consumed when it is read, and what it teaches is yours
  *   forever. These are the gates on the deep end of the Lab and on the better unit upgrades.
- * - **Component** — a physical part. Consumed by the thing it goes into. This is what makes a
+ * - **Component**: a physical part. Consumed by the thing it goes into. This is what makes a
  *   late-game structure or an implant cost something you cannot simply grind.
- * - **Relic** — worth caps and nothing else. Loot with no sink, so there is always something in
+ * - **Relic**: worth caps and nothing else. Loot with no sink, so there is always something in
  *   the market worth haggling over that costs nobody a build.
  *
  * Everything here is tradeable between players unless it says otherwise, because an item economy
@@ -31,7 +31,7 @@ export const ItemRaritySchema = z.enum(ITEM_RARITIES);
 export type ItemRarity = z.infer<typeof ItemRaritySchema>;
 
 export const ITEM_IDS = [
-  // Components — the physical half of everything built above the basics.
+  // Components: the physical half of everything built above the basics.
   'scrap_servo',
   'gyro_assembly',
   'ceramic_plate',
@@ -40,14 +40,14 @@ export const ITEM_IDS = [
   'coolant_cell',
   'rotor_hub',
   'targeting_core',
-  // Blueprints — read once, known forever.
+  // Blueprints: read once, known forever.
   'blueprint_cybernetics',
   'blueprint_composite_armour',
   'blueprint_rotorcraft',
   'blueprint_signal_theory',
   'blueprint_field_medicine',
   'blueprint_munitions',
-  // Relics — worth caps, nothing else.
+  // Relics: worth caps, nothing else.
   'combine_seal',
   'pre_collapse_ledger',
   'ivory_dice',

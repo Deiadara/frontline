@@ -36,7 +36,7 @@ describe('the hero set', () => {
         postProcess: [],
       });
       expect(isChatGptBaselineSize(spec.source), spec.key).toBe(true);
-      // The master is the delivery image — nothing stands between the download and the game.
+      // The master is the delivery image: nothing stands between the download and the game.
       expect([spec.source.width, spec.source.height]).toEqual([spec.width, spec.height]);
     }
   });
@@ -68,7 +68,7 @@ describe('CHATGPT_BASELINE_SIZES', () => {
     ]);
   });
 
-  it('rejects a 16:9 canvas — no ChatGPT baseline size is 16:9', () => {
+  it('rejects a 16:9 canvas: no ChatGPT baseline size is 16:9', () => {
     expect(isChatGptBaselineSize({ width: 2048, height: 1152, alpha: false })).toBe(false);
   });
 });

@@ -13,16 +13,16 @@ import {
 import { describe, expect, it } from 'vitest';
 
 /**
- * §A4 — every location pays into a channel something actually reads.
+ * §A4: every location pays into a channel something actually reads.
  *
  * The rule the location catalogue lives by, stated as a test: *a number on a screen that never
- * moves is worse than no number*. Twelve new channels arrived with the location rework — infamy
+ * moves is worse than no number*. Twelve new channels arrived with the location rework: infamy
  * gain, mission speed, market and black-market discounts, refit and vehicle discounts, extra
- * training sessions, battle stims, salvage refunds, resource yield, officer boosts, intel — and
+ * training sessions, battle stims, salvage refunds, resource yield, officer boosts, intel, and
  * every one of them is a promise made on a card that a player pays resources to keep.
  *
  * What is measured is that a crew holding the entire city has a **non-zero figure in every single
- * channel** — which is a stronger statement than it looks, because it fails on two separate
+ * channel**, which is a stronger statement than it looks, because it fails on two separate
  * mistakes that are otherwise invisible:
  *
  *   1. a bonus kind authored into the union and then never given to any location, and
@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest';
  *
  * The second is exactly what it caught on the day it was written: the Bone Market and the Arcade
  * existed, were priced, had upgrade notes and labels, and were in no district in the city. Nothing
- * else in the suite could see that — every unit test about them passed, because they were correct.
+ * else in the suite could see that: every unit test about them passed, because they were correct.
  */
 
 /** Every channel of `TerritoryEffects`, from the zero value rather than from a second list. */

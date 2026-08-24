@@ -4,11 +4,15 @@ import {
   GarrisonStructureRequestSchema,
   LayTrapRequestSchema,
   MAX_BUILDING_GARRISONS,
-  SacrificeInfamyRequestSchema,
+  BuyBattleBoostRequestSchema,
   canAfford,
-  findSacrifice,
+  boostAvailable,
+  findBattleBoost,
   findTrap,
+  deploymentIsOpen,
+  emptyDeployment,
   isHeldBy,
+  notorietyUpgradeCost,
   spendInfamy,
   spendResources,
   type BattleMutationResponse,
@@ -79,7 +83,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     return projectBattles(app.repos, settled(request.currentUser.id, now), now);
   });
 
-  /** §A4 — call a fight, for a mark between eight and twenty-four hours out. */
+  /** §A4: call a fight, for a mark between eight and twenty-four hours out. */
   app.post(
     '/battles/declare',
     { preHandler: app.authenticate },
@@ -102,7 +106,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     },
   );
 
-  /** §A4 — send people to a coming fight, or pull them back out of one. */
+  /** §A4: send people to a coming fight, or pull them back out of one. */
   app.post(
     '/battles/deploy',
     { preHandler: app.authenticate },
@@ -131,7 +135,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     },
   );
 
-  /** §A4 — bury something under the approach to a location you hold. */
+  /** §A4: bury something under the approach to a location you hold. */
   app.post('/battles/trap', { preHandler: app.authenticate }, (request): BattleMutationResponse => {
     const body = parseBody(LayTrapRequestSchema, request.body);
     const now = new Date();
@@ -165,7 +169,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * §A4 — station a watch inside one of your own structures, or stand one down.
+   * §A4: station a watch inside one of your own structures, or stand one down.
    *
    * Costs nothing but the people, and the people are the cost: three watches on the Nexus is three
    * watches that are not on the Greenhouse and not in anybody's field army.
@@ -197,32 +201,81 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     },
   );
 
-  /** §D7 — burn a name for an advantage. The only thing in the game that lowers infamy. */
+  /**
+   * §D7: buy the one boost a declared fight is allowed.
+   *
+   * Paid at the moment it is chosen and never refunded, so changing your mind costs the name twice.
+   * One per battle by construction: the id lives on the deployment row, so a second purchase
+   * replaces the first rather than stacking with it, and the player is told what that costs before
+   * they press it.
+   */
   app.post(
-    '/battles/sacrifice',
+    '/battles/boost',
     { preHandler: app.authenticate },
     (request): BattleMutationResponse => {
-      const { sacrificeId } = parseBody(SacrificeInfamyRequestSchema, request.body);
+      const { battleId, boostId } = parseBody(BuyBattleBoostRequestSchema, request.body);
       const now = new Date();
       const base = settled(request.currentUser.id, now);
 
-      const spec = findSacrifice(sacrificeId);
-      if (!spec) throw new AppError('NOT_FOUND', 'Nothing on offer by that name');
-      if (base.economy.sacrifice && Date.parse(base.economy.sacrifice.until) > now.getTime()) {
-        throw new AppError('PLACE_UNAVAILABLE', 'You are already spending one');
+      const battle = app.repos.sieges.find(battleId);
+      if (!battle || battle.resolvedAt !== null) {
+        throw new AppError('NOT_FOUND', 'No fight by that name is still coming');
       }
+      const side = sideOf(app.repos, battle, base.id);
+      if (side === null) throw new AppError('FORBIDDEN', 'You are not in this one');
+      if (!deploymentIsOpen(new Date(battle.scheduledFor), now)) {
+        throw new AppError('PLACE_UNAVAILABLE', 'They are already on the ground');
+      }
+
+      const spec = findBattleBoost(boostId);
+      if (!spec) throw new AppError('NOT_FOUND', 'Nothing on offer by that name');
+      const allowed = boostAvailable(spec.unlock, {
+        technologies: base.research.technologies,
+        roles: base.commanders.map((officer) => officer.role),
+      });
+      if (!allowed) throw new AppError('FORBIDDEN', 'Nobody has put that on the table for you');
 
       const left = spendInfamy(base.economy.infamy, spec.cost);
       if (left === null) throw new AppError('NOT_ENOUGH_INFAMY', 'Your name is not worth that yet');
 
-      const economy = {
-        ...base.economy,
-        infamy: left,
-        sacrifice: {
-          id: spec.id,
-          until: new Date(now.getTime() + spec.hours * 3_600_000).toISOString(),
-        },
-      };
+      const deployment =
+        app.repos.sieges.deployment(battleId, side) ??
+        emptyDeployment(battleId, base.id, side, now.toISOString());
+      app.repos.sieges.putDeployment({
+        ...deployment,
+        baseId: base.id,
+        boostId: spec.id,
+        updatedAt: now.toISOString(),
+      });
+
+      const economy = { ...base.economy, infamy: left };
+      app.repos.bases.updateEconomy(base.id, economy);
+      return respond({ ...base, economy }, now);
+    },
+  );
+
+  /**
+   * §D7: buy the next rung of the ladder.
+   *
+   * The rank is permanent and the points are gone: that asymmetry is the whole mechanic. A crew that
+   * spends its wallet down to nothing on a boost tonight is still Feared tomorrow, and everything
+   * gated on the rank stays open.
+   */
+  app.post(
+    '/battles/notoriety',
+    { preHandler: app.authenticate },
+    (request): BattleMutationResponse => {
+      const now = new Date();
+      const base = settled(request.currentUser.id, now);
+
+      const cost = notorietyUpgradeCost(base.economy.notoriety);
+      if (cost === null) {
+        throw new AppError('PLACE_UNAVAILABLE', 'There is no name above the one you have');
+      }
+      const left = spendInfamy(base.economy.infamy, cost);
+      if (left === null) throw new AppError('NOT_ENOUGH_INFAMY', 'Your name is not worth that yet');
+
+      const economy = { ...base.economy, infamy: left, notoriety: base.economy.notoriety + 1 };
       app.repos.bases.updateEconomy(base.id, economy);
       return respond({ ...base, economy }, now);
     },

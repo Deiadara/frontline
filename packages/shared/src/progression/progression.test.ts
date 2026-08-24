@@ -59,7 +59,7 @@ describe('the level curve (§I2)', () => {
     });
   });
 
-  it('is path independent — one big award equals the same total drip-fed', () => {
+  it('is path independent: one big award equals the same total drip-fed', () => {
     const oneShot = applyPlayerXp({ level: 1, xpIntoLevel: 0 }, 2000);
     let stepwise = { level: 1, xpIntoLevel: 0 };
     for (let i = 0; i < 40; i += 1) {
@@ -94,12 +94,12 @@ describe('level-up grants (§I2 → §G8, §G3, §H8)', () => {
     ]);
   });
 
-  it('caps assignees per officer at §G3a — 1 at the start, 2 from level 4', () => {
+  it('caps assignees per officer at §G3a: 1 at the start, 2 from level 4', () => {
     const caps = [1, 2, 3, 4, 5, 6].map((l) => playerLevelGrants(l).assigneeCapPerOfficer);
     expect(caps).toEqual([1, 1, 1, 2, 2, 3]);
   });
 
-  it('grants recruit slots per §H8 — 2 at the start, +1 per level', () => {
+  it('grants recruit slots per §H8: 2 at the start, +1 per level', () => {
     expect([1, 2, 5, 10].map((l) => playerLevelGrants(l).recruitSlots)).toEqual([2, 3, 6, 11]);
   });
 
@@ -113,7 +113,7 @@ describe('level-up grants (§I2 → §G8, §G3, §H8)', () => {
     }
   });
 
-  it('clamps a malformed level instead of throwing — grants sit on a read path', () => {
+  it('clamps a malformed level instead of throwing: grants sit on a read path', () => {
     expect(playerLevelGrants(0)).toEqual(playerLevelGrants(1));
     expect(playerLevelGrants(2.9)).toEqual(playerLevelGrants(2));
   });

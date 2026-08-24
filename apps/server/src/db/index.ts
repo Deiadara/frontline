@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 
 export type AppDatabase = Database.Database;
 
-/** Resolved relative to this module — works from src/ (tsx) and dist/ (build copies the .sql files). */
+/** Resolved relative to this module: works from src/ (tsx) and dist/ (build copies the .sql files). */
 const DEFAULT_MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
 
 /** Open (creating if missing) the sqlite database. Pass ':memory:' in tests. */

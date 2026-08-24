@@ -56,7 +56,7 @@ import { ItemGlyph } from '../inventory/ItemGlyph';
  * - **The Broker** is a *rate*. Always open, always half. It is the floor under a shortage, and the
  *   quote is shown before the button so nobody finds out afterwards.
  * - **The supply run** is a *ration*. Caps into ordinary materials, always, at a price that is
- *   mildly bad — and bounded by the day, so it tops a crew up and can never feed one.
+ *   mildly bad, and bounded by the day, so it tops a crew up and can never feed one.
  * - **The board** is *people*. Somebody's listing, what it is worth against the vendor's own
  *   prices, and three things you can do about it: take it, counter it, or leave it.
  */
@@ -79,7 +79,7 @@ export function MarketPage() {
     <PageShell title="The Market" icon="market" wide>
       <MarketTabs active="market" />
 
-      <InfoNote>
+      <InfoNote label="The Runner's hours">
         The Runner is in for two short spells a day and the hours move. What he has is the same for
         everybody in the city, so a blueprint somebody else takes is gone. The Broker never leaves
         and never gives you more than half.
@@ -179,7 +179,7 @@ function VendorPanel({ market, now }: { market: MarketResponse; now: Date }) {
           data-testid="vendor-state"
         >
           {vendor.open
-            ? `In — ${formatRemaining(closes ?? 0)} left`
+            ? `In: ${formatRemaining(closes ?? 0)} left`
             : `Back in ${formatRemaining(opens)}`}
         </span>
       }
@@ -218,7 +218,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
   const [amount, setAmount] = useState(100);
 
   const held = market.resources[give];
-  // §I3 — the rate is quoted by the server so the screen and the settlement cannot disagree about
+  // §I3: the rate is quoted by the server so the screen and the settlement cannot disagree about
   // which one applied. A client that recomputed the milestone would be a second opinion about it.
   const quote = barterQuote(amount, market.barterRate);
   const blocked =
@@ -325,7 +325,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
  * opening today. The prices are fixed and mildly bad; the budget is what moves.
  *
  * One picker and one quantity, rather than five rows with five buttons. The allowance is pooled
- * across every material, so a five-row form would suggest five separate budgets — which is exactly
+ * across every material, so a five-row form would suggest five separate budgets, which is exactly
  * the wrong model of the thing.
  */
 function SupplyPanel({ market }: { market: MarketResponse }) {
@@ -393,7 +393,7 @@ function SupplyPanel({ market }: { market: MarketResponse }) {
               min={1}
               value={units}
               onChange={(event) => setUnits(Math.max(0, Math.trunc(Number(event.target.value))))}
-              className="w-28 rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 font-hand text-[20px] tabular-nums text-ink-100"
+              className="w-28 rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 font-stamp text-[15px] tabular-nums text-ink-100"
             />
           </label>
           {/* Only when there is something to take. "All 0" on a full warehouse is a control that
@@ -407,7 +407,7 @@ function SupplyPanel({ market }: { market: MarketResponse }) {
 
         {/* The price before the button, exactly as the Broker quotes his rate. */}
         <p
-          className="flex flex-wrap items-center gap-2 rounded-sm border border-brass-500/40 bg-surface-900/60 px-3 py-2.5 font-hand text-[21px] text-ink-100"
+          className="flex flex-wrap items-center gap-2 rounded-sm border border-brass-500/40 bg-surface-900/60 px-3 py-2.5 font-stamp text-[16px] text-ink-100"
           data-testid="supply-quote"
         >
           <ResourceIcon kind="caps" className="h-6 w-6" />
@@ -575,7 +575,7 @@ function BoardPanel({ market, now }: { market: MarketResponse; now: Date }) {
 /**
  * Posting a listing, and countering one.
  *
- * The same form both ways, because a counter *is* a listing — it just knows who it is aimed at.
+ * The same form both ways, because a counter *is* a listing: it just knows who it is aimed at.
  * Resources on one axis, items on the other, and the running valuation under both so a player can
  * see what they are proposing before anybody else does.
  */

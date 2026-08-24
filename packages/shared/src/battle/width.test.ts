@@ -24,7 +24,7 @@ import {
 
 const DAY = new Date('2026-08-14T13:00:00Z');
 
-/** The same side with one stat overridden — the only way to move a single term at a time. */
+/** The same side with one stat overridden: the only way to move a single term at a time. */
 const seeing = (side: Simulation['defender'], stealth: number): Simulation['defender'] => ({
   ...side,
   stacks: side.stacks.map((stack) => ({ ...stack, effective: { ...stack.effective, stealth } })),
@@ -65,7 +65,7 @@ describe('combat width', () => {
    * The ordering, not the three numbers.
    *
    * Frontage is the context's width narrowed (or widened) by how Crammed or Open the ground is
-   * labelled — a sewer junction is `Crammed IV` and gets *narrower* than bare `underground`, which
+   * labelled: a sewer junction is `Crammed IV` and gets *narrower* than bare `underground`, which
    * is the point of reading the label into the width at all. Pinning the raw constants made this
    * a restatement of `FRONTAGE_BY_CONTEXT` that could not see the label doing anything; what has
    * to hold is that a tunnel takes fewer bodies than a room and a room fewer than a yard.
@@ -111,7 +111,7 @@ describe('combat width', () => {
    */
   it('makes numbers worth far less on narrow ground', () => {
     // Isolated to the width and nothing else. Comparing a sewer with a rail yard does *not* isolate
-    // it — those grounds also switch different unit modifiers on, and a first version of this test
+    // it: those grounds also switch different unit modifiers on, and a first version of this test
     // comparing them passed with the frontage cap deleted outright. These two differ in one field.
     const ground = (frontage: number) => ({ ...bareBattlefield(), frontage });
     const wide = run({ razors: 44 }, { wardens: 10 }, ground(48)).attackerWins;
@@ -122,7 +122,7 @@ describe('combat width', () => {
   /**
    * The claim the cap makes, isolated: past the frontage, extra bodies add almost no *output*.
    *
-   * Doubling an army that already cannot deploy has to be close to worthless offensively — it still
+   * Doubling an army that already cannot deploy has to be close to worthless offensively: it still
    * buys durability, which is why the two are measured on what the *defender* has left rather than
    * on who won. Without the cap on fire, twice the razors is twice the damage and this collapses.
    */
@@ -172,7 +172,7 @@ describe('the opening strike', () => {
 
   /**
    * Stealth is the whole of what separates an ambush from a free hit, so it is moved on its own
-   * rather than by swapping the enemy — a version of this test that put a Specter on the other side
+   * rather than by swapping the enemy: a version of this test that put a Specter on the other side
    * passed with the stealth term replaced by 1, because the enemy's *whole sheet* had changed.
    */
   it('is worth nothing to an ambusher the enemy can already see', () => {
@@ -241,7 +241,7 @@ describe('regressions in the opening strike', () => {
    *
    * Asserted on the reason the modifier *records*, not on who won. Two earlier versions of this
    * test measured win rates and both passed with the fix reverted, because a 25% Last Stand bonus
-   * does not flip a matchup that was not close — the flag was set wrongly and nothing downstream
+   * does not flip a matchup that was not close: the flag was set wrongly and nothing downstream
    * moved far enough to see it.
    */
   it('counts only units that exist when deciding who is outnumbered', () => {

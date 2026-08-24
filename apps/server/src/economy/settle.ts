@@ -24,13 +24,13 @@ export function settleBaseEconomy(repos: Repositories, base: Base, now: Date): B
     resources: base.resources,
     payroll: base.economy.payroll,
     officerCount: base.commanders.length,
-    // §F2 — what Authority and Negotiation take off the book before it is paid.
+    // §F2: what Authority and Negotiation take off the book before it is paid.
     wageDiscountPercent: crewEffectsFor(repos, base).wageDiscountPercent,
     now,
   });
   if (cycle.weeksSettled === 0) return base;
 
-  // §D4 — a week the crew went unpaid or unfed costs morale, and §D8a — the street keeps its own
+  // §D4, a week the crew went unpaid or unfed costs morale, and §D8a, the street keeps its own
   // record of whether the wage book was met. Both are applied here rather than inside
   // `runEconomyCycle` so the cycle stays a pure statement about the stockpile.
   const settled: Base = {
@@ -39,7 +39,7 @@ export function settleBaseEconomy(repos: Repositories, base: Base, now: Date): B
     economy: {
       ...base.economy,
       payroll: cycle.payroll,
-      // §A1 — the Infirmary takes the edge off. Read off the structures standing at the moment the
+      // §A1: the Infirmary takes the edge off. Read off the structures standing at the moment the
       // week turned over, which is what `settleDistrict` has just brought up to date.
       morale: adjustMeter(
         base.economy.morale,

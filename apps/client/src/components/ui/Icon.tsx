@@ -4,7 +4,7 @@ import { cn } from '../../lib/cn';
 /**
  * One icon set, one stroke language.
  *
- * Before this the interface drew glyphs wherever it needed one — a path inline in the nav, a
+ * Before this the interface drew glyphs wherever it needed one: a path inline in the nav, a
  * different path inline in a resource chip, an emoji-ish character in a name plate. They were drawn
  * at different weights on different grids, which is why nothing looked like it came from the same
  * hand. Everything here is on a 24-unit grid at a single stroke weight, with round joins and caps,
@@ -14,7 +14,7 @@ import { cn } from '../../lib/cn';
  * top of it reads as a sticker. An outline reads as something etched into the panel it sits on.
  *
  * Adding one: draw it on the 24 grid, keep it to the shared `S` stroke, and prefer two or three
- * confident shapes over literal detail — at 20px nothing smaller than about 2 units survives.
+ * confident shapes over literal detail: at 20px nothing smaller than about 2 units survives.
  */
 
 export const ICON_NAMES = [
@@ -48,6 +48,7 @@ export const ICON_NAMES = [
   'gear',
   'shield',
   'sword',
+  'battles',
   'eye',
   'spark',
 ] as const;
@@ -164,7 +165,7 @@ const PATHS: Record<IconName, ReactNode> = {
   /**
    * Morale is a face, not a heart.
    *
-   * A heart is health in every other game a player has touched, and morale is not health — it is
+   * A heart is health in every other game a player has touched, and morale is not health. It is
    * how the crew feels about working for you. This is one of them: X for eyes, a mohawk, and a
    * grin, which reads at 20px and says "the people" rather than "hit points".
    */
@@ -181,19 +182,47 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   /**
-   * Infamy is the ace of spades — the card you get dealt once and never live down.
+   * Infamy is the ace of spades: the card you get dealt once and never live down.
    *
    * A star said "rating out of five", which is the opposite of what this meter is: nobody is
    * pleased about your infamy. The spade carries the right connotation without a word on it.
    */
+  /**
+   * §D7, the ace of spades, and it is a *card* rather than a cartoon.
+   *
+   * The old mark was a stroked playing-card rectangle with an outlined pip and a stem drawn inside
+   * it, at 1.6px on a 24px box: three concentric outlines fighting for the same eleven pixels, so
+   * at HUD size it read as a smudge with a bump on it. This is one solid spade, filled, with the
+   * card behind it reduced to a thin frame and the two corner pips a real card has. Filled shapes
+   * survive being drawn small; outlines do not.
+   */
   infamy: (
     <>
-      <rect x="4.5" y="2.8" width="15" height="18.4" rx="2" {...S} />
-      <path
-        d="M12 6.4c-1.8 2.3-4 3.7-4 5.9a2.5 2.5 0 0 0 4 1.9 2.5 2.5 0 0 0 4-1.9c0-2.2-2.2-3.6-4-5.9z"
-        {...S}
+      <rect
+        x="4"
+        y="2.4"
+        width="16"
+        height="19.2"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity="0.75"
       />
-      <path d="M12 14.2v3.4M10.4 17.6h3.2" {...S} />
+      {/* The pip: a heart rotated onto its point with a stem under it, which is what a spade is. */}
+      <path
+        d="M12 6.2c-1.1 1.5-2.1 2.4-2.9 3.2-.9.9-1.4 1.7-1.4 2.6a2.35 2.35 0 0 0 3.5 2.05c-.15 1-.6 1.85-1.35 2.55h4.3c-.75-.7-1.2-1.55-1.35-2.55a2.35 2.35 0 0 0 3.5-2.05c0-.9-.5-1.7-1.4-2.6-.8-.8-1.8-1.7-2.9-3.2z"
+        fill="currentColor"
+      />
+      {/* The corner marks. Two tiny solid spades are what makes a rectangle read as a card. */}
+      <path
+        d="M6.6 4.3c-.5.65-1 .95-1 1.5a.72.72 0 0 0 1 .65.72.72 0 0 0 1-.65c0-.55-.5-.85-1-1.5z"
+        fill="currentColor"
+      />
+      <path
+        d="M17.4 19.7c.5-.65 1-.95 1-1.5a.72.72 0 0 0-1-.65.72.72 0 0 0-1 .65c0 .55.5.85 1 1.5z"
+        fill="currentColor"
+      />
     </>
   ),
   population: (
@@ -263,6 +292,15 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M6.5 15.5L4 18l2 2 2.5-2.5" {...S} />
     </>
   ),
+  // Crossed blades over a shield: the one glyph in the set that has to read as "a fight is
+  // happening" at 22px in a standing bar, so it is the arrangement every strategy game uses for it
+  // rather than a cleverer one nobody would recognise.
+  battles: (
+    <>
+      <path d="M12 3.2l6.4 2.5v4.8c0 3.6-2.6 6.8-6.4 8-3.8-1.2-6.4-4.4-6.4-8V5.7z" {...S} />
+      <path d="M8.4 8.2l7.2 7.2M15.6 8.2l-7.2 7.2" {...S} />
+    </>
+  ),
   eye: (
     <>
       <path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z" {...S} />
@@ -283,7 +321,7 @@ export interface IconProps {
   /**
    * A label makes the icon meaningful on its own; without one it is decoration and is hidden.
    *
-   * Most icons in this app sit next to their own words, and announcing both is noise — so the
+   * Most icons in this app sit next to their own words, and announcing both is noise, so the
    * default is `aria-hidden`, and a caller that uses an icon *instead* of a word has to say what it
    * means. That is the way round that fails safely.
    */

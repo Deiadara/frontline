@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * The attribute model (GDD §B).
  *
- * Every human in the game — recruits, officers and the Overseer alike — carries *every*
+ * Every human in the game, recruits, officers and the Overseer alike, carries *every*
  * attribute, rated 0..100, regardless of the role they are hired into (B1, B6). Attributes are
  * grouped Football-Manager style (B4a); Traits are a separate, discrete kind and live in
  * `traits.ts` (B7).
@@ -187,7 +187,7 @@ export type AttributeTier = (typeof ATTRIBUTE_TIERS)[number];
  * attribute ~30, average 15-20, a bad one ~10). `elite` only becomes reachable through
  * progression, since nothing starts above 40.
  *
- * This is a reading of a number the player can already see — not a fit indicator. B8 bans
+ * This is a reading of a number the player can already see, not a fit indicator. B8 bans
  * telling the player how well an attribute suits a *role*, which needs the hidden table.
  */
 export function attributeTier(value: number): AttributeTier {

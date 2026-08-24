@@ -13,7 +13,7 @@ import { cn } from '../../lib/cn';
  * lines on the board's order sheet for a feature whose art has not been designed, and the order
  * sheet is a list the board works through. When those masters are wanted, the keys go in the
  * manifest as `item-<id>` and this component grows the same `deliveredUrl` lookup every other
- * asset-backed component already has — one function call, no other change.
+ * asset-backed component already has: one function call, no other change.
  *
  * The three kinds are drawn to be distinguishable in silhouette, not in colour, so they still read
  * at 24px and for a player who cannot separate the palette's greens from its purples.

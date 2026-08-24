@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { STARTING_INFAMY } from './infamy.js';
+import { STARTING_NOTORIETY } from './notoriety.js';
 import { PAY_WEEK_MS } from './payroll.js';
 import {
   ANTI_SYSTEMIC_ACTIONS,
   COLLABORATOR_CONTRACTS,
-  FEARED_INFAMY,
+  FEARED_NOTORIETY,
   HONORABLE_PAYDAYS,
   LIVE_REPUTATION_LABELS,
   OPPORTUNIST_JOBS_EACH_WAY,
@@ -29,7 +29,7 @@ import {
 
 const NOW = new Date('2026-08-13T09:30:00.000Z');
 
-/** A tally with only the raid record on it — the pre-W10 shape, spelled out. */
+/** A tally with only the raid record on it: the pre-W10 shape, spelled out. */
 const tallyOf = (raidsWon: number, raidsLost: number): ReputationTally => ({
   ...startingTally(NOW.toISOString()),
   raidsWon,
@@ -67,13 +67,13 @@ describe('the label set (§D8, §D8a)', () => {
     for (const label of REPUTATION_LABELS) {
       const { todo } = REPUTATION_LABEL_SPECS[label];
       if (todo === null) continue;
-      expect(todo, label).toMatch(/^TODO-LATER: .+ — .+/);
+      expect(todo, label).toMatch(/^TODO-LATER: .+: .+/);
     }
   });
 
   /*
    * The honesty check on §D8a: a `todo: null` claims a live mechanic can produce that label, so
-   * the derivation must actually be able to return it — and a label still carrying a TODO-LATER
+   * the derivation must actually be able to return it, and a label still carrying a TODO-LATER
    * must not be reachable, or the marker is stale.
    */
   it('reaches exactly the labels it claims are live', () => {
@@ -91,13 +91,13 @@ describe('the label set (§D8, §D8a)', () => {
     ]);
 
     const reachable = new Set([
-      deriveReputation({ infamy: STARTING_INFAMY, tally: tallyOf(0, 0) }, NOW),
-      deriveReputation({ infamy: FEARED_INFAMY, tally: tallyOf(0, 0) }, NOW),
-      deriveReputation({ infamy: 0, tally: tallyOf(0, RECKLESS_LOSSES) }, NOW),
-      deriveReputation({ infamy: 0, tally: tallyOf(RESPECTED_WINS, 0) }, NOW),
+      deriveReputation({ notoriety: STARTING_NOTORIETY, tally: tallyOf(0, 0) }, NOW),
+      deriveReputation({ notoriety: FEARED_NOTORIETY, tally: tallyOf(0, 0) }, NOW),
+      deriveReputation({ notoriety: 0, tally: tallyOf(0, RECKLESS_LOSSES) }, NOW),
+      deriveReputation({ notoriety: 0, tally: tallyOf(RESPECTED_WINS, 0) }, NOW),
       deriveReputation(
         {
-          infamy: 0,
+          notoriety: 0,
           tally: stanceOf({
             governmentSitesTaken: REVOLUTIONARY_SEATS,
             governmentSeatsTaken: REVOLUTIONARY_SEATS,
@@ -106,16 +106,16 @@ describe('the label set (§D8, §D8a)', () => {
         NOW,
       ),
       deriveReputation(
-        { infamy: 0, tally: stanceOf({ governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS }) },
+        { notoriety: 0, tally: stanceOf({ governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS }) },
         NOW,
       ),
       deriveReputation(
-        { infamy: 0, tally: stanceOf({ governmentContracts: COLLABORATOR_CONTRACTS }) },
+        { notoriety: 0, tally: stanceOf({ governmentContracts: COLLABORATOR_CONTRACTS }) },
         NOW,
       ),
       deriveReputation(
         {
-          infamy: 0,
+          notoriety: 0,
           tally: stanceOf({
             governmentSitesTaken: OPPORTUNIST_JOBS_EACH_WAY,
             governmentContracts: OPPORTUNIST_JOBS_EACH_WAY,
@@ -123,9 +123,12 @@ describe('the label set (§D8, §D8a)', () => {
         },
         NOW,
       ),
-      deriveReputation({ infamy: 0, tally: stanceOf({ paydaysHonoured: HONORABLE_PAYDAYS }) }, NOW),
       deriveReputation(
-        { infamy: 0, tally: stanceOf({ paydaysMissed: TREACHEROUS_MISSED_PAYDAYS }) },
+        { notoriety: 0, tally: stanceOf({ paydaysHonoured: HONORABLE_PAYDAYS }) },
+        NOW,
+      ),
+      deriveReputation(
+        { notoriety: 0, tally: stanceOf({ paydaysMissed: TREACHEROUS_MISSED_PAYDAYS }) },
         NOW,
       ),
     ]);
@@ -161,12 +164,15 @@ describe('the label set (§D8, §D8a)', () => {
 describe('deriveReputation', () => {
   it('calls an untested crew Cautious', () => {
     expect(
-      deriveReputation({ infamy: STARTING_INFAMY, tally: startingTally(NOW.toISOString()) }, NOW),
+      deriveReputation(
+        { notoriety: STARTING_NOTORIETY, tally: startingTally(NOW.toISOString()) },
+        NOW,
+      ),
     ).toBe('Cautious');
   });
 
   it('calls a winning crew Respected', () => {
-    expect(deriveReputation({ infamy: 0, tally: tallyOf(RESPECTED_WINS, 0) }, NOW)).toBe(
+    expect(deriveReputation({ notoriety: 0, tally: tallyOf(RESPECTED_WINS, 0) }, NOW)).toBe(
       'Respected',
     );
   });
@@ -180,30 +186,31 @@ describe('deriveReputation', () => {
       tally = recordRaidOutcome(tally, { winner: 'attacker', target: STREET_TARGET }, at);
     }
 
-    expect(deriveReputation({ infamy: 0, tally }, at)).toBe('Respected');
+    expect(deriveReputation({ notoriety: 0, tally }, at)).toBe('Respected');
   });
 
   it('calls a crew that loses more than it wins Reckless', () => {
-    expect(deriveReputation({ infamy: 0, tally: tallyOf(1, RECKLESS_LOSSES) }, NOW)).toBe(
+    expect(deriveReputation({ notoriety: 0, tally: tallyOf(1, RECKLESS_LOSSES) }, NOW)).toBe(
       'Reckless',
     );
   });
 
   it('does not call a crew Reckless while it is still winning more than it loses', () => {
-    expect(deriveReputation({ infamy: 0, tally: tallyOf(20, RECKLESS_LOSSES) }, NOW)).toBe(
+    expect(deriveReputation({ notoriety: 0, tally: tallyOf(20, RECKLESS_LOSSES) }, NOW)).toBe(
       'Respected',
     );
   });
 
   it('lets infamy outrank the raid record', () => {
     expect(
-      deriveReputation({ infamy: FEARED_INFAMY, tally: tallyOf(RESPECTED_WINS, 0) }, NOW),
+      deriveReputation({ notoriety: FEARED_NOTORIETY, tally: tallyOf(RESPECTED_WINS, 0) }, NOW),
     ).toBe('Feared');
   });
 });
 
 describe('where the crew stands on the Combine (§A3, §D8)', () => {
-  const derive = (tally: ReputationTally, infamy = 0) => deriveReputation({ infamy, tally }, NOW);
+  const derive = (tally: ReputationTally, notoriety = 0) =>
+    deriveReputation({ notoriety, tally }, NOW);
 
   it('calls sustained anti-government action Anti-systemic', () => {
     expect(derive(stanceOf({ governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS }))).toBe('Anti-systemic');
@@ -227,7 +234,7 @@ describe('where the crew stands on the Combine (§A3, §D8)', () => {
   /*
    * Every tally above is hand-built at `updatedAt = NOW`, which is the one instant the counters
    * hold whole numbers. Real play arrives through `recordRaidOutcome`, which decays *before* it
-   * increments, so a raid taken later is worth slightly under 1 — and a `>= N` threshold quietly
+   * increments, so a raid taken later is worth slightly under 1, and a `>= N` threshold quietly
    * costs N+1 raids. Driving the label through the writer with time between the raids is what
    * catches that; taking both seats on the map has to be enough, at any spacing.
    */
@@ -245,12 +252,12 @@ describe('where the crew stands on the Combine (§A3, §D8)', () => {
     'calls a crew Revolutionary on the last seat raid, %i ms apart',
     (gapMs) => {
       const oneShort = driveSeatRaids(REVOLUTIONARY_SEATS - 1, gapMs);
-      expect(deriveReputation({ infamy: 0, tally: oneShort.tally }, oneShort.at)).not.toBe(
+      expect(deriveReputation({ notoriety: 0, tally: oneShort.tally }, oneShort.at)).not.toBe(
         'Revolutionary',
       );
 
       const bothSeats = driveSeatRaids(REVOLUTIONARY_SEATS, gapMs);
-      expect(deriveReputation({ infamy: 0, tally: bothSeats.tally }, bothSeats.at)).toBe(
+      expect(deriveReputation({ notoriety: 0, tally: bothSeats.tally }, bothSeats.at)).toBe(
         'Revolutionary',
       );
     },
@@ -269,7 +276,7 @@ describe('where the crew stands on the Combine (§A3, §D8)', () => {
   });
 
   it('calls a crew playing both sides evenly an Opportunist, over its raid record', () => {
-    // Neither ledger dominates, so no side can be named — but working both of them is itself the
+    // Neither ledger dominates, so no side can be named, but working both of them is itself the
     // answer to "whose side are they on?", and it outranks how loud the crew has been.
     const bothSides = stanceOf({
       governmentSitesTaken: COLLABORATOR_CONTRACTS,
@@ -347,10 +354,10 @@ describe('where the crew stands on the Combine (§A3, §D8)', () => {
       governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS,
       governmentSeatsTaken: REVOLUTIONARY_SEATS,
     });
-    expect(deriveReputation({ infamy: 0, tally }, NOW)).toBe('Revolutionary');
+    expect(deriveReputation({ notoriety: 0, tally }, NOW)).toBe('Revolutionary');
 
     const muchLater = new Date(NOW.getTime() + 4 * TALLY_HALF_LIFE_MS);
-    expect(deriveReputation({ infamy: 0, tally }, muchLater)).toBe('Cautious');
+    expect(deriveReputation({ notoriety: 0, tally }, muchLater)).toBe('Cautious');
   });
 });
 
@@ -371,7 +378,7 @@ describe('the tally a pre-W10 base is holding', () => {
     for (const counter of TALLY_COUNTERS.filter((c) => !(c in legacyRow))) {
       expect(parsed[counter], counter).toBe(0);
     }
-    expect(deriveReputation({ infamy: 0, tally: parsed }, NOW)).toBe('Cautious');
+    expect(deriveReputation({ notoriety: 0, tally: parsed }, NOW)).toBe('Cautious');
   });
 
   it('still rejects a counter that is present but nonsense', () => {
@@ -409,10 +416,10 @@ describe('the §D8 drift', () => {
 
   it('drops a Respected crew back to Cautious once it stops acting', () => {
     const tally = tallyOf(RESPECTED_WINS, 0);
-    expect(deriveReputation({ infamy: 0, tally }, NOW)).toBe('Respected');
+    expect(deriveReputation({ notoriety: 0, tally }, NOW)).toBe('Respected');
 
     const muchLater = new Date(NOW.getTime() + 4 * TALLY_HALF_LIFE_MS);
-    expect(deriveReputation({ infamy: 0, tally }, muchLater)).toBe('Cautious');
+    expect(deriveReputation({ notoriety: 0, tally }, muchLater)).toBe('Cautious');
   });
 
   it('never inflates the tally when the clock jumps backwards', () => {
@@ -496,7 +503,7 @@ describe('recordMissionOutcome (§A3, §D8)', () => {
     });
   });
 
-  it('never lets a mission take a seat of power — only a raid can (§A3)', () => {
+  it('never lets a mission take a seat of power: only a raid can (§A3)', () => {
     for (const stance of ['against_government', 'for_government', 'unaligned'] as const) {
       expect(recordMissionOutcome(start, stance, 'success', NOW).governmentSeatsTaken).toBe(0);
     }
@@ -526,7 +533,8 @@ describe('recordMissionOutcome (§A3, §D8)', () => {
 });
 
 describe('whether the crew’s word holds (§D8a)', () => {
-  const derive = (tally: ReputationTally, infamy = 0) => deriveReputation({ infamy, tally }, NOW);
+  const derive = (tally: ReputationTally, notoriety = 0) =>
+    deriveReputation({ notoriety, tally }, NOW);
 
   it('calls a crew that keeps meeting payroll Honorable', () => {
     expect(derive(stanceOf({ paydaysHonoured: HONORABLE_PAYDAYS }))).toBe('Honorable');
@@ -540,7 +548,7 @@ describe('whether the crew’s word holds (§D8a)', () => {
     expect(derive(stanceOf({ paydaysMissed: TREACHEROUS_MISSED_PAYDAYS }))).toBe('Treacherous');
   });
 
-  it('needs a dominant side — a crew that pays half the time is neither', () => {
+  it('needs a dominant side: a crew that pays half the time is neither', () => {
     const evens = stanceOf({
       paydaysHonoured: HONORABLE_PAYDAYS,
       paydaysMissed: HONORABLE_PAYDAYS,
@@ -558,7 +566,7 @@ describe('whether the crew’s word holds (§D8a)', () => {
   });
 
   it('needs the leading counter to reach its own threshold, not merely to lead', () => {
-    // Honoured leads, and nothing was missed often enough to be treacherous — but the crew has
+    // Honoured leads, and nothing was missed often enough to be treacherous, but the crew has
     // not met enough paydays yet to have earned a word either.
     expect(
       derive(
@@ -571,7 +579,7 @@ describe('whether the crew’s word holds (§D8a)', () => {
     const honorable = { paydaysHonoured: HONORABLE_PAYDAYS };
 
     // A loud, winning crew that also pays on time is read by its word first.
-    expect(derive(stanceOf({ ...honorable, raidsWon: RESPECTED_WINS }), FEARED_INFAMY)).toBe(
+    expect(derive(stanceOf({ ...honorable, raidsWon: RESPECTED_WINS }), FEARED_NOTORIETY)).toBe(
       'Honorable',
     );
     // But the politics is still the more specific fact.
@@ -581,7 +589,7 @@ describe('whether the crew’s word holds (§D8a)', () => {
   });
 
   /**
-   * The constants claim to mean weeks, so this drives the real writer on the real weekly clock —
+   * The constants claim to mean weeks, so this drives the real writer on the real weekly clock:
    * the only cadence the game can produce paydays at. Both thresholds are pinned from *below* as
    * well, because the §D8 drift runs before every write: a counter fed once per week decays faster
    * than it fills, and a threshold set one too high would be a word no crew could ever earn.
@@ -597,7 +605,7 @@ describe('whether the crew’s word holds (§D8a)', () => {
         at,
       );
     }
-    return deriveReputation({ infamy: 0, tally }, at);
+    return deriveReputation({ notoriety: 0, tally }, at);
   };
 
   it('earns Honorable on the HONORABLE_PAYDAYS-th weekly payday, and not before', () => {
@@ -611,7 +619,7 @@ describe('whether the crew’s word holds (§D8a)', () => {
   });
 
   it('keeps both thresholds under the ceiling a weekly counter can actually reach', () => {
-    // 1 / (1 - 0.5^(7/14)) ≈ 3.41 — the most a once-a-week counter can ever hold. `tallyReaches`
+    // 1 / (1 - 0.5^(7/14)) ≈ 3.41: the most a once-a-week counter can ever hold. `tallyReaches`
     // asks for `> N - 1`, so any constant above this + 1 names a label that can never be returned.
     const ceiling = 1 / (1 - Math.pow(0.5, PAY_WEEK_MS / TALLY_HALF_LIFE_MS));
 
@@ -627,8 +635,8 @@ describe('whether the crew’s word holds (§D8a)', () => {
     );
     const muchLater = new Date(NOW.getTime() + 8 * TALLY_HALF_LIFE_MS);
 
-    expect(deriveReputation({ infamy: 0, tally }, NOW)).toBe('Honorable');
-    expect(deriveReputation({ infamy: 0, tally }, muchLater)).toBe('Cautious');
+    expect(deriveReputation({ notoriety: 0, tally }, NOW)).toBe('Honorable');
+    expect(deriveReputation({ notoriety: 0, tally }, muchLater)).toBe('Cautious');
   });
 
   it('books both sides of a mixed settle in one write', () => {

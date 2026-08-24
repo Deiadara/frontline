@@ -54,7 +54,7 @@ describe('the draw', () => {
     const next = mulberry32(99);
     for (let i = 0; i < 2000; i += 1) {
       const luck = drawLuck(next);
-      // ×10 must be a whole number — the whole reason the draw rounds through integers.
+      // ×10 must be a whole number: the whole reason the draw rounds through integers.
       expect(Math.abs(luck * 10 - Math.round(luck * 10))).toBeLessThan(1e-9);
     }
   });
@@ -80,7 +80,7 @@ describe('the draw', () => {
 
   it('survives a generator pinned at either extreme', () => {
     expect(drawLuck(() => 0)).toBe(-LUCK_LIMIT);
-    // `Math.random` never returns 1, but a stub can — and it must not fall off the end.
+    // `Math.random` never returns 1, but a stub can, and it must not fall off the end.
     expect(drawLuck(() => 1)).toBe(LUCK_LIMIT);
     expect(drawLuck(() => 0.999999999)).toBe(LUCK_LIMIT);
   });

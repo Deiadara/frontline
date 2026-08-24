@@ -10,8 +10,8 @@ import { PLAYER_ICONS, PlayerIconSchema, UserSchema } from './user.js';
  * The account half of the REST contract: who you are, what you have set, what the back room is
  * selling, and the knobs the testing build exposes.
  *
- * A second DTO module rather than more of `api.ts`. That file is the game's contract — districts,
- * battles, missions — and these are the screens *around* the game: settings, the admin bench and
+ * A second DTO module rather than more of `api.ts`. That file is the game's contract: districts,
+ * battles, missions, and these are the screens *around* the game: settings, the admin bench and
  * the black market's shelf. Keeping them apart means a change to how a password is set cannot
  * touch the file every gameplay route parses its body with.
  */
@@ -22,7 +22,7 @@ import { PLAYER_ICONS, PlayerIconSchema, UserSchema } from './user.js';
  * What a player may change about themselves.
  *
  * Every field is optional and the request is refused if all of them are absent, so a form that
- * only changes the icon does not have to resend the username — and a client that sends an empty
+ * only changes the icon does not have to resend the username, and a client that sends an empty
  * body gets told it did nothing rather than silently succeeding.
  */
 export const UpdateProfileRequestSchema = z
@@ -68,7 +68,7 @@ export const BlackMarketOfferSchema = z.object({
   /** Whether this crew could take it right now, price and daily limit both considered. */
   affordable: z.boolean(),
   /**
-   * What it costs *here*, in infamy — the catalogue price weighted by the city's average level.
+   * What it costs *here*, in infamy: the catalogue price weighted by the city's average level.
    *
    * On the response rather than derived on the screen, because the same weighting decides what the
    * server charges. A client that multiplied the catalogue figure itself would be a second copy of
@@ -164,7 +164,7 @@ export const AdminSnapshotSchema = z.object({
   infamy: z.number().int().nonnegative(),
   /** Every structure and the level it currently stands at, so the bench can show what it is moving. */
   buildings: z.array(z.object({ kind: BuildingKindSchema, level: z.number().int().min(0) })),
-  /** The last backups on disk, newest first — the recovery path, visible rather than documented. */
+  /** The last backups on disk, newest first: the recovery path, visible rather than documented. */
   backups: z.array(
     z.object({ file: z.string().min(1), takenAt: IsoDateTimeSchema, bytes: z.number().int() }),
   ),

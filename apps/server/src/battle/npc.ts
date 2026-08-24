@@ -9,7 +9,7 @@ import {
 /**
  * What the Combine and the looters move up when somebody calls them out (GDD §A3, §A4).
  *
- * The board's rule is that **every participant** — player or NPC — sends units towards a declared
+ * The board's rule is that **every participant**, player or NPC, sends units towards a declared
  * fight, and a defender who does nothing about a day's notice is not a defender, they are a static
  * difficulty number. So an NPC musters too.
  *
@@ -19,12 +19,12 @@ import {
  *   fight is declared and cannot be re-rolled by anybody reading the board twice. It is also the
  *   same for every observer, which is what lets a scout's count mean something.
  * - **Decided at declaration, not at resolution.** It exists from the moment the call is made, so it
- *   is a thing an attacker can scout and plan against over the sixteen hours they have — rather than
+ *   is a thing an attacker can scout and plan against over the sixteen hours they have: rather than
  *   an ambush that materialises on the mark, which would make scouting pointless.
  *
  * The composition is the same split `startingGarrison` uses: the Combine fields a line, the looters
  * field numbers. Written once here rather than derived from that function because the two answer
- * different questions — that one is "who lives here", this one is "who came running".
+ * different questions: that one is "who lives here", this one is "who came running".
  */
 
 /** Bodies per point of district difficulty. Tuned against what a first real assault brings. */

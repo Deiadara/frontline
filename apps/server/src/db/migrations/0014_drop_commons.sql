@@ -3,7 +3,7 @@
 -- Buildings are stored as JSON, so nothing rejected the row on the way in and nothing will reject it
 -- on the way out: it comes back as a `Building` whose `kind` is not in `BUILDING_KINDS`, and the
 -- first `BUILDING_CATALOG[kind]` lookup downstream reads `undefined` off it. That is a crash in the
--- district view and a silently wrong number in production and morale — for a structure the player
+-- district view and a silently wrong number in production and morale, for a structure the player
 -- can no longer see, build or remove. Deleting the row is the only state the rest of the code can
 -- represent.
 --
@@ -34,7 +34,7 @@ WHERE EXISTS (
   );
 
 -- The Cistern's fifth modification was renamed when the morale it fed moved to the Quarters. Its id
--- is derived from its name, so an installed copy is now an id `findModification` does not know —
+-- is derived from its name, so an installed copy is now an id `findModification` does not know:
 -- which reads as "not installed" and quietly hands the player back a slot they already spent.
 UPDATE bases
 SET buildings_json = replace(

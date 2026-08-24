@@ -1,7 +1,6 @@
 import {
   PlaceAssigneesRequestSchema,
   ReassignOfficerRequestSchema,
-  populationCapacity,
   ReskillRequestSchema,
   placeAssignees,
   reskillAssignees,
@@ -13,7 +12,7 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { projectAssignees, settleAssignees } from '../assignees/roster.js';
-import { housingSpare } from '../district/population.js';
+import { districtPopulation } from '../district/population.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 
 /**
@@ -21,7 +20,7 @@ import { AppError, parseBody, type ErrorCode } from '../errors.js';
  *
  * Two writes, and they are deliberately asymmetric. §G2 placement adds people to an officer and
  * can never take them back; §G4 reskilling rewrites the whole map at once but needs a Professor
- * (§C4). That asymmetry is the feature — it is what a Professor is *for* — so it lives in two
+ * (§C4). That asymmetry is the feature, it is what a Professor is *for*, so it lives in two
  * routes rather than one endpoint with a flag.
  */
 
@@ -53,10 +52,10 @@ const RESKILL_ERRORS: Record<ReskillRefusal, { code: ErrorCode; message: string 
 
 export function registerAssigneeRoutes(app: FastifyInstance): void {
   app.get('/assignees', { preHandler: app.authenticate }, (request): AssigneesResponse => {
-    return projectAssignees(ownBase(app, request.currentUser.id));
+    return projectAssignees(app.repos, ownBase(app, request.currentUser.id));
   });
 
-  /** §G2 — place the assignees a level-up handed over. */
+  /** §G2: place the assignees a level-up handed over. */
   app.post(
     '/assignees/place',
     { preHandler: app.authenticate },
@@ -75,24 +74,25 @@ export function registerAssigneeRoutes(app: FastifyInstance): void {
         throw new AppError(code, message);
       }
 
-      // §A1 — the Quarters put a ceiling on the whole district, officers and assignees alike.
+      // §A1: the Quarters put a ceiling on the whole district, officers and assignees alike.
       // Checked *after* the §G rules on purpose: the pool and the per-officer cap are what the
       // player is entitled to, and housing is the district's own limit on top of that. Told the
       // other way round, a player short of beds would be told to build even when the placement
       // was never legal in the first place.
-      if (count > housingSpare(base)) {
+      const population = districtPopulation(app.repos, base);
+      if (count > population.spare) {
         throw new AppError(
           'NO_HOUSING',
-          `Your district houses ${populationCapacity(base.buildings)}. Raise the Quarters`,
+          `Your district houses ${population.capacity}. Raise the Quarters or take more ground`,
         );
       }
 
       app.repos.bases.updateAssignees(base.id, result.state);
-      return { assignees: projectAssignees({ ...base, assignees: result.state }) };
+      return { assignees: projectAssignees(app.repos, { ...base, assignees: result.state }) };
     },
   );
 
-  /** §G4/§C4 — the Professor's process: reassign everyone at once. */
+  /** §G4/§C4: the Professor's process: reassign everyone at once. */
   app.post(
     '/assignees/reskill',
     { preHandler: app.authenticate },
@@ -111,19 +111,19 @@ export function registerAssigneeRoutes(app: FastifyInstance): void {
       }
 
       app.repos.bases.updateAssignees(base.id, result.state);
-      return { assignees: projectAssignees({ ...base, assignees: result.state }) };
+      return { assignees: projectAssignees(app.repos, { ...base, assignees: result.state }) };
     },
   );
 
   /**
-   * §C2 — move an officer into a different position.
+   * §C2: move an officer into a different position.
    *
    * A hire is a person, not a job title: the sheet a player weighed at the Bar does not change
    * when the crew's needs do, and being stuck with the role you picked in the first thirty seconds
    * of meeting somebody is the kind of decision a game should let you take back.
    *
    * The position has to be *open*. Two people cannot hold one job, and a swap is two reassignments
-   * with an empty seat in between — which is a decision the player should have to make on purpose
+   * with an empty seat in between, which is a decision the player should have to make on purpose
    * rather than something a route quietly does for them.
    *
    * Their assignees stay with them. The pool is placed under a *person*, not under a title.
@@ -138,7 +138,7 @@ export function registerAssigneeRoutes(app: FastifyInstance): void {
         const officer = base.commanders.find((candidate) => candidate.id === officerId);
         if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
         if (officer.role === role) {
-          return { assignees: projectAssignees(base) };
+          return { assignees: projectAssignees(app.repos, base) };
         }
         const taken = base.commanders.some(
           (candidate) => candidate.role === role && candidate.id !== officerId,
@@ -149,7 +149,7 @@ export function registerAssigneeRoutes(app: FastifyInstance): void {
           candidate.id === officerId ? { ...candidate, role } : candidate,
         );
         app.repos.bases.updateCommanders(base.id, commanders);
-        return { assignees: projectAssignees({ ...base, commanders }) };
+        return { assignees: projectAssignees(app.repos, { ...base, commanders }) };
       })();
     },
   );

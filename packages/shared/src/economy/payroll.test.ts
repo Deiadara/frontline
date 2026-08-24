@@ -36,7 +36,7 @@ describe('startOfPayWeek', () => {
   });
 });
 
-describe('proratedFirstWage (§H7 — first payment covers what is left of the week)', () => {
+describe('proratedFirstWage (§H7: first payment covers what is left of the week)', () => {
   it('charges a full week when recruitment lands exactly on the boundary', () => {
     expect(proratedFirstWage(700, new Date(MONDAY))).toBe(700);
   });
@@ -53,7 +53,7 @@ describe('proratedFirstWage (§H7 — first payment covers what is left of the w
   });
 });
 
-describe('foodUpkeepFor (§D1 — more officers require more food)', () => {
+describe('foodUpkeepFor (§D1: more officers require more food)', () => {
   it('costs nothing with no officers', () => {
     expect(foodUpkeepFor(0)).toBe(0);
   });
@@ -189,7 +189,7 @@ describe('runEconomyCycle', () => {
   });
 });
 
-describe('moralePenaltyFor (§D4 — an unpaid crew notices)', () => {
+describe('moralePenaltyFor (§D4: an unpaid crew notices)', () => {
   const wages = { 'officer-a': 120, 'officer-b': 80 };
   const cycleFrom = (resources: Partial<Resources>, weeks: number) =>
     runEconomyCycle({
