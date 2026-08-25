@@ -173,8 +173,19 @@ function fakeRepos(hiresToday = 0): {
   const city = { controls: () => new Map(), control: () => undefined, scouted: () => new Set() };
   const users = { findById: () => undefined };
   const overseers = { findById: () => undefined };
+  /*
+   * And a crew with nobody away.
+   *
+   * Same argument as the city repo above: §A1 counts the units this crew has at a fight against
+   * the same beds as the officer being hired here, so `districtPopulation` reads both of these.
+   * Empty lists are what "nothing deployed, nothing walking" looks like.
+   */
+  const sieges = { deploymentsFor: () => [] };
+  const movements = { forBase: () => [] };
   return {
-    repos: { bases, bar, city, users, overseers } as unknown as Parameters<typeof hireRecruit>[0],
+    repos: { bases, bar, city, users, overseers, sieges, movements } as unknown as Parameters<
+      typeof hireRecruit
+    >[0],
     written,
   };
 }

@@ -5,6 +5,7 @@ import {
   LayTrapRequestSchema,
   MAX_BUILDING_GARRISONS,
   BuyBattleBoostRequestSchema,
+  RecallColumnRequestSchema,
   canAfford,
   boostAvailable,
   findBattleBoost,
@@ -16,17 +17,19 @@ import {
   spendInfamy,
   spendResources,
   type BattleMutationResponse,
+  type ActionsResponse,
   type BattlesResponse,
   type Base,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { settleFortifications } from '../city/actions.js';
 import { settleBase } from '../district/settle.js';
-import { AppError, parseBody } from '../errors.js';
+import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { declareBattle, type DeclareRefusal } from './declare.js';
 import { adjustDeployment, sideOf, type DeployRefusal } from './deploy.js';
+import { recallColumn, settleMovements, type RecallRefusal } from './movement.js';
 import { settleBattles } from './resolve.js';
-import { projectBattles } from './view.js';
+import { projectActions, projectBattles } from './view.js';
 
 /**
  * The battle board (GDD §A4, battle rework): what is coming, what you have moved up for it, what
@@ -38,6 +41,12 @@ import { projectBattles } from './view.js';
  * off before anybody declares the next one, or a crew could call a fight on ground the world has not
  * noticed changing hands yet.
  */
+
+const RECALL_ERRORS: Record<RecallRefusal, { code: ErrorCode; message: string }> = {
+  unknown_movement: { code: 'NOT_FOUND', message: 'Nothing on the road by that name' },
+  not_yours: { code: 'FORBIDDEN', message: 'That is not your column' },
+  window_closed: { code: 'PLACE_UNAVAILABLE', message: 'They are too far out to turn around' },
+};
 
 const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = {
   off_slot: 'Fights are called on the half hour, and only on the half hour',
@@ -67,6 +76,9 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     const owned = app.repos.bases.findByOwnerId(ownerId);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
     settleFortifications(app.repos, now);
+    // Columns that landed while nobody was looking, *before* the fights: a force that arrived at
+    // 14:59 for a 15:00 battle has to be on the ground when that battle is resolved.
+    settleMovements(app.repos, now);
     settleBattles(app.repos, app.skirmishEngine, now);
     // Read *after* the fights, because a resolution writes to this crew's roster and stockpile.
     const fresh = app.repos.bases.findByOwnerId(ownerId) ?? owned;
@@ -235,12 +247,21 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       });
       if (!allowed) throw new AppError('FORBIDDEN', 'Nobody has put that on the table for you');
 
-      const left = spendInfamy(base.economy.infamy, spec.cost);
-      if (left === null) throw new AppError('NOT_ENOUGH_INFAMY', 'Your name is not worth that yet');
-
       const deployment =
         app.repos.sieges.deployment(battleId, side) ??
         emptyDeployment(battleId, base.id, side, now.toISOString());
+
+      /*
+       * Buying the boost you already hold is not a change of mind, so it does not cost the name
+       * twice: it costs nothing and changes nothing. Charging for it made a double click, a
+       * retried request, and re-picking the current boost out of the dropdown (which lists it,
+       * undimmed) all bill full price for a row that does not move. Swapping to a *different*
+       * boost still pays again, which is the §D7 rule and is pinned by its own test.
+       */
+      if (deployment.boostId === spec.id) return respond(base, now);
+
+      const left = spendInfamy(base.economy.infamy, spec.cost);
+      if (left === null) throw new AppError('NOT_ENOUGH_INFAMY', 'Your name is not worth that yet');
       app.repos.sieges.putDeployment({
         ...deployment,
         baseId: base.id,
@@ -261,6 +282,32 @@ export function registerBattleRoutes(app: FastifyInstance): void {
    * spends its wallet down to nothing on a boost tonight is still Feared tomorrow, and everything
    * gated on the rank stays open.
    */
+  /** §A4: everything this crew has on the road. */
+  app.get('/actions', { preHandler: app.authenticate }, (request): ActionsResponse => {
+    const now = new Date();
+    return projectActions(app.repos, settled(request.currentUser.id, now), now);
+  });
+
+  /**
+   * §A4: turn a column around, inside the first tenth of its walk.
+   *
+   * The units go straight back onto the roster: they have not reached anybody's ring, so unlike a
+   * withdrawal from ground already held, nothing is owed for leaving.
+   */
+  app.post('/actions/recall', { preHandler: app.authenticate }, (request): ActionsResponse => {
+    const { movementId } = parseBody(RecallColumnRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(request.currentUser.id, now);
+
+    const result = app.db.transaction(() => recallColumn(app.repos, base, movementId, now))();
+    if (result.kind === 'refused') {
+      const { code, message } = RECALL_ERRORS[result.reason];
+      throw new AppError(code, message);
+    }
+    const fresh = app.repos.bases.findById(base.id) ?? base;
+    return projectActions(app.repos, fresh, now);
+  });
+
   app.post(
     '/battles/notoriety',
     { preHandler: app.authenticate },

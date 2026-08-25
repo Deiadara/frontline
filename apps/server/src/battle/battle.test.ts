@@ -21,6 +21,7 @@ import {
   infamyForRaidWon,
   type ScheduledBattle,
   type SkirmishEngine,
+  type UnitsResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -29,6 +30,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import type { Repositories } from '../db/repos/index.js';
 import { MAX_PENDING_DECLARATIONS } from './declare.js';
+import { settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
 
 /**
@@ -165,6 +167,16 @@ async function board(stack: Stack): Promise<BattlesResponse> {
   return res.json<BattlesResponse>();
 }
 
+async function units(stack: Stack): Promise<UnitsResponse> {
+  const res = await stack.app.inject({
+    method: 'GET',
+    url: '/api/units',
+    headers: auth(stack.token),
+  });
+  expect(res.statusCode).toBe(200);
+  return res.json<UnitsResponse>();
+}
+
 async function deploy(
   stack: Stack,
   battleId: string,
@@ -184,6 +196,22 @@ function bringForward(stack: Stack, battle: ScheduledBattle, at: Date): void {
   stack.db
     .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
     .run(at.toISOString(), battle.id);
+  land(stack, battle.id, at);
+}
+
+/**
+ * §A4: put whatever is walking to this fight on the ground.
+ *
+ * Sending units starts a column rather than filling a deployment (`battle/movement.ts`), so a
+ * fixture that only winds the *mark* back resolves a fight nobody arrived at. That is correct
+ * behaviour and a useless fixture, so both clocks move together, exactly as they would have if the
+ * crew had sent in time.
+ */
+function land(stack: Stack, battleId: string, at: Date): void {
+  stack.db
+    .prepare('UPDATE troop_movements SET departed_at = ?, arrives_at = ? WHERE battle_id = ?')
+    .run(new Date(at.getTime() - 60_000).toISOString(), at.toISOString(), battleId);
+  settleMovements(stack.app.repos, new Date());
 }
 
 /** An engine that always hands the fight to one side, for the settlement rules around it. */
@@ -308,8 +336,14 @@ describe('moving people up to it (§A4)', () => {
     const sent = await deploy(stack, battleId, { razors: 2 });
     expect(sent.statusCode).toBe(200);
     const afterSending = sent.json<BattleMutationResponse>();
+    // Off the roster the moment they set out, which is what stops the same two being promised to
+    // three fights. Not on the ground yet: they are walking. See `battle/movement.ts`.
     expect(afterSending.base.army.razors ?? 0).toBe(before - 2);
-    expect(afterSending.battles.coming[0]!.muster?.army.razors).toBe(2);
+    expect(afterSending.battles.coming[0]!.muster?.army.razors ?? 0).toBe(0);
+
+    land(stack, battleId, new Date());
+    const arrived = await board(stack);
+    expect(arrived.coming[0]!.muster?.army.razors).toBe(2);
 
     const pulled = await deploy(stack, battleId, { razors: -2 });
     expect(pulled.statusCode).toBe(200);
@@ -331,8 +365,10 @@ describe('moving people up to it (§A4)', () => {
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
 
-    const res = await deploy(stack, battleId, { razors: 1 }, { razors: 1 });
-    const view = res.json<BattleMutationResponse>().battles.coming[0]!;
+    await deploy(stack, battleId, { razors: 1 }, { razors: 1 });
+    // One column carries both, and the two halves stay apart when it lands.
+    land(stack, battleId, new Date());
+    const view = (await board(stack)).coming[0]!;
     expect(view.muster?.army.razors).toBe(1);
     expect(view.muster?.perimeter.razors).toBe(1);
     expect(view.muster?.size).toBe(2);
@@ -589,11 +625,38 @@ describe('what a name buys (§D7)', () => {
     expect(after.base.economy.infamy).toBe(5);
   });
 
+  /**
+   * §D7: pressing "Burn the name" twice on the same boost is not a change of mind.
+   *
+   * The route charged `spec.cost` on every call and wrote the same `boostId` back, so a double
+   * click, a retried request, or a player re-picking the boost they already hold (the dropdown
+   * lists it and does not disable it) paid full price for a deployment row that did not move. The
+   * test above pins that *changing* boost costs twice, which is the rule; this pins that not
+   * changing it costs once.
+   */
+  it('charges nothing to buy the boost it already has', async () => {
+    const stack = await makeStack();
+    const spec = open();
+    const declared = await declare(stack);
+    const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: spec.cost * 3 });
+
+    expect((await buy(stack, battleId, spec.id)).statusCode).toBe(200);
+    const once = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
+
+    const again = await buy(stack, battleId, spec.id);
+    expect(again.statusCode).toBe(200);
+    expect(again.json<BattleMutationResponse>().battles.coming[0]!.boostId).toBe(spec.id);
+    expect(stack.repos.bases.findById(stack.baseId)!.economy.infamy).toBe(once);
+  });
+
   it('prices a boost against the force actually standing on the ground', async () => {
     const stack = await makeStack();
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
     await deploy(stack, battleId, { razors: 4 });
+    land(stack, battleId, new Date());
 
     const view = (await board(stack)).coming[0]!;
     const wholeForce = view.boosts.find(
@@ -659,5 +722,66 @@ describe('holding a district (§A4)', () => {
     const held = stack.repos.bases.findById(stack.baseId)!;
     expect(held.buildings.find((b) => b.id === nexus.id)!.garrisons).toBe(MAX_BUILDING_GARRISONS);
     expect(districtDefense(held.buildings)).toBeGreaterThan(bare);
+  });
+});
+
+/**
+ * §A1 against §A4: an army abroad is an army this crew still feeds.
+ *
+ * `districtPopulation` counts the roster, the bench and the garrisons on held ground, and the
+ * reason it counts garrisons is written on it: leaving them out "would make emptying the district
+ * into the city a way to house an army for free". A column on the road and a muster standing on a
+ * battlefield are the same argument and were not in the same sum, so sending units out freed their
+ * beds, the freed beds took a training order, and the fight handed the units back into a district
+ * that no longer had room for them.
+ */
+describe('the beds an army abroad still occupies (§A1, §A4)', () => {
+  it('frees no housing by sending units to a fight, walking or landed', async () => {
+    const stack = await makeStack();
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
+
+    const home = await units(stack);
+    expect(home.supplyUsed).toBeGreaterThan(0);
+
+    const declared = await declare(stack);
+    const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
+    expect((await deploy(stack, battleId, { razors: 4 })).statusCode).toBe(200);
+
+    // On the road: off the roster, but still eating.
+    expect((await units(stack)).supplyUsed).toBe(home.supplyUsed);
+
+    // Standing on the ground: same argument, same answer.
+    land(stack, battleId, new Date());
+    expect((await units(stack)).supplyUsed).toBe(home.supplyUsed);
+  });
+
+  it('refuses a training order that only fits while the army is away', async () => {
+    const stack = await makeStack();
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
+    stack.repos.bases.updateResources(base.id, {
+      caps: 900_000,
+      food: 900_000,
+      oil: 900_000,
+      scrap: 900_000,
+      highQualityMetal: 0,
+    });
+
+    const before = await units(stack);
+    const room = before.supplyCap - before.supplyUsed;
+
+    const declared = await declare(stack);
+    const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
+    await deploy(stack, battleId, { razors: 4 });
+
+    // The four are away, so a naive count says there are four more beds than there are.
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/api/units/train',
+      headers: auth(stack.token),
+      payload: { unitId: 'razors', count: room + 4 },
+    });
+    expect(res.statusCode).toBe(409);
   });
 });

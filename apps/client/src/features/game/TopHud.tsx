@@ -45,7 +45,7 @@ function HudDoor({
       {({ isActive }) => (
         <span
           className={cn(
-            'edge-lit flex h-11 w-11 items-center justify-center rounded-sm border transition-all duration-150 ease-out',
+            'edge-lit flex h-10 w-10 items-center justify-center rounded-sm border transition-all duration-150 ease-out',
             isActive
               ? 'border-brass-300/80 bg-gradient-to-b from-brass-300/30 to-brass-500/15 text-brass-100 shadow-brass'
               : 'border-surface-600 bg-gradient-to-b from-surface-700 to-surface-800 text-ink-200 ' +
@@ -53,7 +53,7 @@ function HudDoor({
                   'group-hover:shadow-lifted group-active:translate-y-0',
           )}
         >
-          <Icon name={icon} className="h-6 w-6" />
+          <Icon name={icon} className="h-5 w-5" />
         </span>
       )}
     </NavLink>
@@ -123,7 +123,12 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
           navigation step. */}
       <div className="order-1 flex min-w-0 items-center gap-2">
         <FactionPlaque base={base} />
-        <ReputationChip label={reputation} />
+        {/* The word the street uses, and the first thing to go when the row is tight. It is on the
+            infamy chip's own card at every width, and on the district's Standing panel, so below
+            1400 the bar keeps the plaque and the numbers instead. */}
+        <span className="hidden [@media(min-width:1400px)]:block">
+          <ReputationChip label={reputation} />
+        </span>
       </div>
 
       {/* The identity is a door, not a caption. It names the one person in the game the player
@@ -144,7 +149,7 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
         {/* The name and title are the first thing to go when the row is tight: the face is what
             makes this read as a door, and the sheet behind it opens with the name at the top of it.
             Hidden rather than truncated: a nameplate cut to "Var…" is worse than no nameplate. */}
-        <span className="hidden text-right [@media(min-width:1700px)]:block">
+        <span className="hidden text-right [@media(min-width:1800px)]:block">
           <span className="block font-display text-sm font-semibold leading-tight tracking-[0.04em] text-ink-100">
             {overseer.name}
           </span>
@@ -189,12 +194,18 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
           scrap counter made them read as a sixth and seventh material. Grepolis puts the same
           two in the same place, and for the same reason: a player looking for the fight they
           called or for the knobs looks at the top bar, not at the row of places. */}
-      <div className="order-4 mx-auto flex shrink-0 items-center gap-1.5">
+      <div className="order-4 mx-auto flex shrink-0 items-center gap-1">
         <HudDoor
           to="/game/battles"
           icon="battles"
           label="Battles"
           title="Declared fights, and what came back"
+        />
+        <HudDoor
+          to="/game/actions"
+          icon="actions"
+          label="Actions"
+          title="Who is on the road, and how long they have left"
         />
         <HudDoor
           to="/game/settings"

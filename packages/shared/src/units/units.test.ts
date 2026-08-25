@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { PartialResources } from '../resources.js';
 import { BUILDING_CATALOG, type Building } from '../building/index.js';
 import { CITY_LOCATIONS, LOCATION_KINDS } from '../city/index.js';
 import { RESOURCE_KEYS } from '../resources.js';
@@ -23,19 +24,29 @@ import {
 import {
   BATCH_TIME_FACTOR,
   MAX_TRAINING_QUEUE,
+  TRAINING_CANCEL_WINDOW,
+  TRAINING_MAX_BATCH,
+  TrainingQueueSchema,
   addToArmy,
   alreadyHolds,
   armySize,
+  maxTrainable,
   splitDueTraining,
   supplyQueued,
   supplyUsed,
   takeFromArmy,
+  trainingArrivedBy,
+  trainingBatchProgress,
+  trainingCancelWindowMs,
+  trainingCancellable,
   trainingCost,
+  trainingRefund,
   trainingSeconds,
   trainingStartsAt,
   trainingCompletesAt,
   type Army,
 } from './training.js';
+import { BuildQueueSchema } from '../building/queue.js';
 import { POPULATION_PER_LOCATION, districtPopulationCapacity } from '../building/population.js';
 import { noTerritoryEffects } from '../city/locations.js';
 
@@ -223,6 +234,24 @@ describe('unlocking them (§A5)', () => {
   });
 });
 
+/** One order on the bench, with the price it was charged recorded on it. */
+const order = (
+  id: string,
+  unitId: string,
+  count: number,
+  startedAt: Date,
+  durationSeconds: number,
+  paid: PartialResources = { caps: 100 },
+) => ({
+  id,
+  unitId,
+  count,
+  delivered: 0,
+  startedAt: startedAt.toISOString(),
+  durationSeconds,
+  paid,
+});
+
 describe('making them (§A5)', () => {
   /**
    * §A1: the army comes out of the district's population, which the Quarters raise.
@@ -289,43 +318,88 @@ describe('making them (§A5)', () => {
   it('holds five orders, worked one after another', () => {
     expect(MAX_TRAINING_QUEUE).toBe(5);
     const now = new Date('2026-08-14T12:00:00.000Z');
-    const first = {
-      id: 'a',
-      unitId: 'razors',
-      count: 2,
-      startedAt: now.toISOString(),
-      durationSeconds: 60,
-    };
+    const first = order('a', 'razors', 2, now, 60);
     expect(trainingStartsAt([], now)).toEqual(now);
     expect(trainingStartsAt([first], now)).toEqual(trainingCompletesAt(first));
   });
 
+  /**
+   * A batch arrives **one at a time**, at its own pace.
+   *
+   * Ten Razors on a 450-second order is one every 45 seconds, not ten at 450. The lump was what
+   * made the batch button feel like a punishment: nothing at all happened for seven minutes and
+   * then the whole thing landed at once.
+   */
+  it('hands a batch over in pieces rather than in a lump', () => {
+    const now = new Date('2026-08-14T12:00:00.000Z');
+    const batch = order('a', 'razors', 10, now, 450);
+    const at = (seconds: number) => new Date(now.getTime() + seconds * 1000);
+
+    expect(trainingArrivedBy(batch, now)).toBe(0);
+    expect(trainingArrivedBy(batch, at(44))).toBe(0);
+    expect(trainingArrivedBy(batch, at(45))).toBe(1);
+    expect(trainingArrivedBy(batch, at(225))).toBe(5);
+    expect(trainingArrivedBy(batch, at(450))).toBe(10);
+    // Never more than were ordered, however long the page was left open.
+    expect(trainingArrivedBy(batch, at(99_999))).toBe(10);
+  });
+
+  /** The settle is a read, so it has to be idempotent: no body is ever handed over twice. */
+  it('hands each body over exactly once across repeated settles', () => {
+    const now = new Date('2026-08-14T12:00:00.000Z');
+    const at = (seconds: number) => new Date(now.getTime() + seconds * 1000);
+    let queue = [order('a', 'razors', 10, now, 450)];
+
+    const first = splitDueTraining(queue, at(135));
+    expect(first.delivered).toEqual([{ unitId: 'razors', count: 3 }]);
+    queue = first.pending;
+
+    // Read again with no time passed: nothing new has arrived.
+    const again = splitDueTraining(queue, at(135));
+    expect(again.delivered).toEqual([]);
+    queue = again.pending;
+
+    const later = splitDueTraining(queue, at(450));
+    expect(later.delivered).toEqual([{ unitId: 'razors', count: 7 }]);
+    expect(later.pending).toHaveLength(0);
+  });
+
+  it('never hands over from a batch that has not started', () => {
+    const now = new Date('2026-08-14T12:00:00.000Z');
+    const queued = [
+      order('a', 'razors', 1, now, 600),
+      // Behind it, so its own clock has not started: `startedAt` is in the future.
+      order('b', 'razors', 1, new Date(now.getTime() + 600_000), 60),
+    ];
+    expect(splitDueTraining(queued, now).delivered).toEqual([]);
+  });
+
   it('lands a finished batch and leaves the rest of the queue alone', () => {
     const now = new Date('2026-08-14T12:00:00.000Z');
-    const past = new Date(now.getTime() - 3_600_000).toISOString();
-    const queue = [
-      { id: 'a', unitId: 'razors', count: 2, startedAt: past, durationSeconds: 60 },
-      { id: 'b', unitId: 'ghosts', count: 1, startedAt: now.toISOString(), durationSeconds: 600 },
-    ];
-    const { due, pending } = splitDueTraining(queue, now);
-    expect(due.map((order) => order.id)).toEqual(['a']);
-    expect(pending.map((order) => order.id)).toEqual(['b']);
+    const past = new Date(now.getTime() - 3_600_000);
+    const queue = [order('a', 'razors', 2, past, 60), order('b', 'ghosts', 1, now, 600)];
+    const { delivered, pending } = splitDueTraining(queue, now);
+    expect(delivered).toEqual([{ unitId: 'razors', count: 2 }]);
+    expect(pending.map((entry) => entry.id)).toEqual(['b']);
     expect(supplyQueued(queue)).toBeGreaterThan(0);
   });
 
-  it('never treats a later batch as done while an earlier one is still on the bench', () => {
+  /**
+   * The bug that bricked a save, as a test.
+   *
+   * `MAX_TRAINING_QUEUE` gates the *order*. It used to be on the stored schema as well, and testing
+   * mode waives `queue_full`, so a sixth order went in and every read of that crew after it threw
+   * `too_big` out of `rowToBase`: `GET /me` 500ed, the client showed `UPLINK FAILED`, and the queue
+   * could not even be drained because the crew could not be loaded. A cap on a read path can only
+   * ever do this.
+   */
+  it('reads a bench longer than the cap rather than refusing to load the crew', () => {
     const now = new Date('2026-08-14T12:00:00.000Z');
-    const queue = [
-      { id: 'a', unitId: 'razors', count: 1, startedAt: now.toISOString(), durationSeconds: 600 },
-      {
-        id: 'b',
-        unitId: 'razors',
-        count: 1,
-        startedAt: new Date(now.getTime() - 3_600_000).toISOString(),
-        durationSeconds: 60,
-      },
-    ];
-    expect(splitDueTraining(queue, now).due).toHaveLength(0);
+    const long = Array.from({ length: MAX_TRAINING_QUEUE + 3 }, (_, index) =>
+      order(`q-${index}`, 'razors', 1, now, 60),
+    );
+    expect(TrainingQueueSchema.parse(long)).toHaveLength(MAX_TRAINING_QUEUE + 3);
+    expect(BuildQueueSchema.parse([])).toEqual([]);
   });
 
   it('adds and removes from an army without leaving zeroes behind', () => {
@@ -345,14 +419,118 @@ describe('making them (§A5)', () => {
     expect(alreadyHolds(specter, { the_specter: 1 }, [])).toBe(1);
     expect(
       alreadyHolds(specter, {}, [
-        {
-          id: 'q',
-          unitId: 'the_specter',
-          count: 1,
-          startedAt: '2026-08-14T12:00:00.000Z',
-          durationSeconds: 60,
-        },
+        order('q', 'the_specter', 1, new Date('2026-08-14T12:00:00.000Z'), 60),
       ]),
     ).toBe(1);
+  });
+});
+
+/**
+ * Calling a batch off (§A5).
+ *
+ * Two numbers do the whole job: a window short enough that the queue is still a commitment, and a
+ * refund short enough that parking resources on the bench is not free storage.
+ */
+describe('changing your mind (§A5)', () => {
+  const now = new Date('2026-08-14T12:00:00.000Z');
+  const at = (progress: number, seconds = 600) =>
+    new Date(now.getTime() + progress * seconds * 1000);
+
+  it('shuts the moment the first body walks out, whatever the clock says', () => {
+    // A ten-strong batch hands one over at a tenth of its clock, which is the same instant the
+    // window would otherwise still be open on. Refunding then would pay for a unit being kept.
+    const batch = order('a', 'razors', 10, now, 600, { caps: 400 });
+    expect(trainingCancellable(batch, now)).toBe(true);
+    expect(trainingCancellable(batch, at(0.06, 600))).toBe(true);
+    expect(trainingCancellable(batch, at(0.1, 600))).toBe(false);
+    expect(trainingCancellable({ ...batch, delivered: 1 }, now)).toBe(false);
+  });
+
+  it('opens for the first tenth of the batch and shuts after it', () => {
+    const batch = order('a', 'razors', 4, now, 600, { caps: 160, food: 40 });
+    expect(trainingCancellable(batch, now)).toBe(true);
+    expect(trainingCancellable(batch, at(0.09))).toBe(true);
+    expect(trainingCancellable(batch, at(TRAINING_CANCEL_WINDOW))).toBe(false);
+    expect(trainingCancellable(batch, at(0.5))).toBe(false);
+  });
+
+  /** The window is a share of the batch's own clock, so a long build gives longer to notice. */
+  it('gives a long batch a longer window than a short one', () => {
+    const quick = order('a', 'razors', 1, now, 60);
+    const slow = order('b', 'the_colossus', 1, now, 5400);
+    expect(trainingCancelWindowMs(slow, now)).toBeGreaterThan(trainingCancelWindowMs(quick, now));
+    expect(trainingCancelWindowMs(quick, at(1, 60))).toBe(0);
+  });
+
+  it('reports how far along a batch is, and how close the next one is', () => {
+    const batch = order('a', 'razors', 10, now, 450);
+    const at45 = new Date(now.getTime() + 45_000);
+    expect(trainingBatchProgress(batch, now)).toMatchObject({ done: 0, total: 10 });
+    expect(trainingBatchProgress(batch, at45)).toMatchObject({ done: 1, total: 10 });
+    // Halfway to the second one.
+    const half = new Date(now.getTime() + 67_500);
+    expect(trainingBatchProgress(batch, half).nextProgress).toBeCloseTo(0.5, 2);
+    const done = new Date(now.getTime() + 450_000);
+    expect(trainingBatchProgress(batch, done)).toMatchObject({ done: 10, nextMs: 0 });
+  });
+
+  it('hands back ninety-five percent of what was actually charged, and never more', () => {
+    const batch = order('a', 'razors', 4, now, 600, { caps: 160, food: 40 });
+    expect(trainingRefund(batch)).toEqual({ caps: 152, food: 38 });
+    for (const [key, amount] of Object.entries(trainingRefund(batch))) {
+      expect(amount, key).toBeLessThan(batch.paid[key as keyof typeof batch.paid] ?? 0);
+    }
+  });
+
+  /**
+   * The exploit this is written against: order at full price, finish a Lab project that discounts
+   * training, cancel, and be handed back more than you spent. The refund reads the recorded price,
+   * so the discount cannot reach it.
+   */
+  it('refunds against the price paid rather than the price today', () => {
+    const razors = findUnit('razors')!;
+    const paidFull = trainingCost(razors, 4);
+    const cheaperNow = trainingCost(razors, 4, 40);
+    expect(cheaperNow.caps ?? 0).toBeLessThan(paidFull.caps ?? 0);
+    const batch = order('a', 'razors', 4, now, 600, paidFull);
+    expect(trainingRefund(batch).caps).toBe(Math.floor((paidFull.caps ?? 0) * 0.95));
+  });
+
+  /** A row written before the price was recorded: nothing to refund against, so nothing doing. */
+  it('refuses to call off an order whose price was never recorded', () => {
+    const legacy = order('a', 'razors', 1, now, 600, {});
+    expect(trainingCancellable(legacy, now)).toBe(false);
+    expect(trainingRefund(legacy)).toEqual({});
+  });
+});
+
+describe('how many a crew could order (§A5)', () => {
+  const razors = findUnit('razors')!;
+  const rich = { caps: 100_000, food: 100_000, oil: 100_000, scrap: 100_000 };
+
+  it('is bounded by the beds when the stockpile is deep', () => {
+    expect(maxTrainable(razors, rich, 12)).toBe(12);
+    expect(maxTrainable(razors, rich, 0)).toBe(0);
+  });
+
+  it('is bounded by the stockpile when the district has room to spare', () => {
+    const cost = razors.cost.caps ?? 1;
+    expect(maxTrainable(razors, { caps: cost * 3, food: 100_000 }, 50)).toBe(3);
+  });
+
+  it('takes the discount into account, so Max is what the route will actually accept', () => {
+    const cost = razors.cost.caps ?? 1;
+    const purse = { caps: cost * 4, food: 100_000 };
+    expect(maxTrainable(razors, purse, 50, 50)).toBeGreaterThan(maxTrainable(razors, purse, 50));
+  });
+
+  it('never offers a second copy of a one-of-a-kind', () => {
+    const colossus = findUnit('the_colossus')!;
+    expect(maxTrainable(colossus, rich, 50)).toBe(1);
+    expect(maxTrainable(colossus, rich, 1)).toBe(0);
+  });
+
+  it('stops at the batch the stepper stops at', () => {
+    expect(maxTrainable(razors, rich, 10_000)).toBe(TRAINING_MAX_BATCH);
   });
 });

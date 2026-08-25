@@ -18,12 +18,15 @@ import {
   findTech,
   hasInfamy,
   intelQualityLine,
+  movementCancellable,
+  movementSize,
   observedForceSize,
   reportReaches,
   type Army,
   type BattleReportView,
   type BattleSide,
   type BattleView,
+  type ActionsResponse,
   type BattlesResponse,
   type Base,
   type DistrictGateView,
@@ -50,8 +53,19 @@ import { residentOf, targetName } from './ground.js';
  * this crew's intelligence is good enough to have one.
  */
 
-/** How many finished fights a crew is handed. Enough to learn from, short of an archive. */
-export const REPORT_HISTORY = 20;
+/**
+ * How many finished fights a crew is handed: **all of them**.
+ *
+ * It was twenty, which is an archive that quietly throws away the fight you are trying to look up.
+ * A report is the only record of what a force did against a particular kind of ground, and the one
+ * a player wants is usually not among the last twenty: it is the disaster from a fortnight ago they
+ * are trying not to repeat.
+ *
+ * A cap rather than no argument at all, because the query is `SELECT ... LIMIT ?` and an unbounded
+ * one is a payload that grows without end. This is high enough to be an archive in practice and low
+ * enough that the response cannot become a megabyte on a crew that has been at war for a year.
+ */
+export const REPORT_HISTORY = 2000;
 
 function musterOf(repos: Repositories, battle: ScheduledBattle, side: BattleSide) {
   const deployment = repos.sieges.deployment(battle.id, side);
@@ -240,6 +254,38 @@ function gatesFor(
 /** A breach that has run out is a gate standing again: read once, here. */
 function gateIsBrokenAt(brokenUntil: string | null, now: Date): boolean {
   return brokenUntil !== null && Date.parse(brokenUntil) > now.getTime();
+}
+
+/**
+ * §A4: what this crew has on the road.
+ *
+ * A screen of its own rather than a section of the board, because it answers a different question:
+ * the board is "what is coming and what came back", and this is "where is everybody right now".
+ */
+export function projectActions(repos: Repositories, base: Base, now: Date): ActionsResponse {
+  const named = (districtId: string): string => findDistrict(districtId)?.name ?? districtId;
+
+  return {
+    movements: repos.movements.forBase(base.id).map((movement) => {
+      const battle = repos.sieges.find(movement.battleId);
+      const resident = battle ? residentOf(repos, battle.target.districtId) : undefined;
+      return {
+        id: movement.id,
+        battleId: movement.battleId,
+        targetName: battle ? targetName(battle.target, resident) : 'somewhere',
+        fromName: named(movement.fromDistrictId),
+        toName: named(movement.toDistrictId),
+        side: movement.side,
+        army: movement.army,
+        perimeter: movement.perimeter,
+        size: movementSize(movement),
+        departedAt: movement.departedAt,
+        arrivesAt: movement.arrivesAt,
+        recallable: movementCancellable(movement, now),
+      };
+    }),
+    serverNow: now.toISOString(),
+  };
 }
 
 export function projectBattles(repos: Repositories, base: Base, now: Date): BattlesResponse {

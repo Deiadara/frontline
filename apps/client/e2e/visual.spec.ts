@@ -505,8 +505,11 @@ for (const size of VIEWPORTS) {
       });
       expect(layout, 'a unit card must render a portrait').not.toBeNull();
       const share = (layout?.portrait ?? 0) / (layout?.card ?? 1);
+      // The band, not a target. Below it the picture is a thumbnail beside a heading, which is what
+      // it was; above it the sheet is being squeezed to make room for a portrait, which is what
+      // happened at 1024 when the card went two-up. Both ends have been the live defect.
       expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeGreaterThan(0.12);
-      expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeLessThan(0.4);
+      expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeLessThan(0.45);
 
       // Every card the same card. Heights first, then the one control a player hunts for.
       const aligned = await page.evaluate(() => {

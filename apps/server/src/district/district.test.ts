@@ -9,6 +9,8 @@ import {
   nexusLevelFor,
   createCommander,
   findUnit,
+  MAX_TRAINING_QUEUE,
+  trainingCost,
   districtProduction,
   findModification,
   moraleTarget,
@@ -32,7 +34,7 @@ import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { queueBuild } from './build.js';
 import { fitModification, modificationBlocker, modificationOptions } from './modifications.js';
 import { districtPopulation } from './population.js';
-import { queueTraining } from '../units/training.js';
+import { cancelTraining, queueTraining } from '../units/training.js';
 import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
 
 /**
@@ -567,5 +569,118 @@ describe('the build clock a player is quoted is the one they get', () => {
     };
     expect(raised.buildQueue[0]?.durationSeconds).toBe(quoted);
     expect(buildingBuildSeconds('quarters', 1, raised.buildings)).toBeLessThan(quoted);
+  });
+});
+
+/**
+ * §A5: calling a batch off, and the crash that made the whole game unloadable.
+ *
+ * Run against a real sqlite stack because half of what is asserted is that the row survives a
+ * write and a read: the bug this pins was a *read* refusing a row the write had allowed.
+ */
+describe('the bench (§A5)', () => {
+  const rich: Resources = {
+    caps: 900_000,
+    food: 900_000,
+    oil: 900_000,
+    scrap: 900_000,
+    highQualityMetal: 900_000,
+  };
+
+  const stack = () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: [build('nexus', 1), build('generator', 1), build('gauntlet', 6)],
+      resources: rich,
+    });
+    return { repos, base };
+  };
+
+  it('records what a batch was charged, so a refund is against the price paid', () => {
+    const { repos, base } = stack();
+    const razors = findUnit('razors')!;
+    const result = queueTraining(repos, { base, unit: razors, count: 4, now: NOW });
+    expect(result.kind).toBe('queued');
+    if (result.kind !== 'queued') return;
+
+    expect(result.order.paid).toEqual(trainingCost(razors, 4));
+    // And it is on the row after a round trip, which is the half a unit test cannot see.
+    expect(repos.bases.findById(base.id)!.trainingQueue[0]!.paid).toEqual(trainingCost(razors, 4));
+  });
+
+  it('hands 95% back inside the window and refuses once the work has started', () => {
+    const { repos, base } = stack();
+    const razors = findUnit('razors')!;
+    const queued = queueTraining(repos, { base, unit: razors, count: 4, now: NOW });
+    if (queued.kind !== 'queued') throw new Error('expected the batch to be queued');
+
+    const order = queued.order;
+    const late = new Date(NOW.getTime() + order.durationSeconds * 1000 * 0.5);
+    expect(cancelTraining(repos, queued.base, order.id, late)).toEqual({
+      kind: 'refused',
+      reason: 'window_closed',
+    });
+
+    const cancelled = cancelTraining(repos, queued.base, order.id, NOW);
+    expect(cancelled.kind).toBe('cancelled');
+    if (cancelled.kind !== 'cancelled') return;
+
+    expect(cancelled.base.trainingQueue).toHaveLength(0);
+    // Back on the row, not only in the answer.
+    const stored = repos.bases.findById(base.id)!;
+    expect(stored.trainingQueue).toHaveLength(0);
+    expect(stored.resources.caps).toBe(queued.base.resources.caps + (cancelled.refund.caps ?? 0));
+    // Ninety-five percent, so the crew is out of pocket either way.
+    expect(stored.resources.caps).toBeLessThan(base.resources.caps);
+  });
+
+  it('says so rather than throwing when the order is not there', () => {
+    const { repos, base } = stack();
+    expect(cancelTraining(repos, base, 'no-such-order', NOW)).toEqual({
+      kind: 'refused',
+      reason: 'unknown_order',
+    });
+  });
+
+  /**
+   * The crash. Testing mode waives `queue_full`, so a sixth order went onto the bench, and the
+   * stored schema then capped the array at five: every later read of that crew threw out of
+   * `rowToBase`, `GET /me` 500ed, and the client showed `UPLINK FAILED` with no way back, because
+   * the crew could not be loaded to drain the queue either.
+   */
+  it('loads a crew whose bench is longer than the cap', () => {
+    const { repos, base } = stack();
+    const razors = findUnit('razors')!;
+    let current = base;
+    for (let i = 0; i < MAX_TRAINING_QUEUE + 2; i += 1) {
+      const result = queueTraining(repos, {
+        base: current,
+        unit: razors,
+        count: 1,
+        now: NOW,
+        admin: true,
+      });
+      if (result.kind !== 'queued') throw new Error(`refused at ${i}: ${result.reason}`);
+      current = result.base;
+    }
+
+    const reloaded = repos.bases.findById(base.id);
+    expect(reloaded?.trainingQueue).toHaveLength(MAX_TRAINING_QUEUE + 2);
+  });
+
+  /** ...and the gate itself still holds for anybody not in testing mode. */
+  it('still refuses a sixth order in an ordinary build', () => {
+    const { repos, base } = stack();
+    const razors = findUnit('razors')!;
+    let current = base;
+    for (let i = 0; i < MAX_TRAINING_QUEUE; i += 1) {
+      const result = queueTraining(repos, { base: current, unit: razors, count: 1, now: NOW });
+      if (result.kind !== 'queued') throw new Error(`refused at ${i}: ${result.reason}`);
+      current = result.base;
+    }
+    expect(queueTraining(repos, { base: current, unit: razors, count: 1, now: NOW })).toEqual({
+      kind: 'refused',
+      reason: 'queue_full',
+    });
   });
 });

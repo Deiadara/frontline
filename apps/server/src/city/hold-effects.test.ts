@@ -21,16 +21,16 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBattles } from '../battle/resolve.js';
 
 /**
- * §A4 — what holding a location is worth, measured where it is meant to arrive.
+ * §A4: what holding a location is worth, measured where it is meant to arrive.
  *
  * `channels.test.ts` proves every channel is *non-zero* for a crew holding the city. That is a
  * check on the catalogue and it passes happily while the thing that reads the channel is looking
- * at the wrong fold, assigning over the result, or not looking at all — which is what four of them
+ * at the wrong fold, assigning over the result, or not looking at all, which is what four of them
  * were doing. So this file measures the other end: the screen, the till and the stockpile.
  *
  * Every case here is a bug that shipped:
  *
- *   * the Bone Market's refund was computed, reported on the battle card, and never banked — and
+ *   * the Bone Market's refund was computed, reported on the battle card, and never banked, and
  *     on the one fight that pays anything, overwritten by the plunder;
  *   * the Watchtower's intel bonus reached neither reader, because both asked the crew-only fold
  *     and the channel lives on territory;
@@ -158,7 +158,7 @@ async function fight(stack: Stack, target: BattleTarget, sent: Record<string, nu
 
 describe('the Bone Market pays for what a fight cost', () => {
   /**
-   * The refund is banked, and it is banked on a *location* fight — the path where nothing else
+   * The refund is banked, and it is banked on a *location* fight: the path where nothing else
    * touches the stockpile, and therefore the path where the credit was silently skipped.
    */
   it('turns the attacker’s dead into caps', async () => {
@@ -196,7 +196,7 @@ describe('the Statue of the Revolutionist', () => {
     expect(statue, 'the Statue is not on the map').toBeDefined();
     expect(LOCATION_CATALOG[statue!.kind].captureInfamy ?? 0).toBeGreaterThan(0);
 
-    // Nobody dies, so the only infamy either fight pays is what the *ground* is worth — which is
+    // Nobody dies, so the only infamy either fight pays is what the *ground* is worth, which is
     // the whole claim, and is otherwise buried under a kill count that varies by garrison size.
     const stack = await makeStack(bloodless);
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
@@ -231,7 +231,7 @@ describe('the Statue of the Revolutionist', () => {
 
     /*
      * Both captures pay §D8's flat "took ground off the Combine at a seat of its power" infamy, and
-     * with nobody killed that is *all* an ordinary one pays — so the whole difference between the
+     * with nobody killed that is *all* an ordinary one pays, so the whole difference between the
      * two is the Statue's own clause, and it is asserted to the number rather than to a direction.
      */
     expect(plain.infamy).toBeGreaterThan(0);
@@ -245,7 +245,7 @@ describe('the Downtown Market', () => {
   /**
    * The shelf and the till, from one read.
    *
-   * The failure was not that the discount did nothing — the till applied it. It was that the card
+   * The failure was not that the discount did nothing: the till applied it. It was that the card
    * quoted the catalogue price and judged `affordable` against it, so a crew holding the floor was
    * shown a price they would not pay and, at the margin, a dead button over a purchase that would
    * have gone through.
@@ -286,7 +286,7 @@ describe('the Watchtower', () => {
    * Intel is people *and* ground.
    *
    * `intelYieldPercent` moved onto `TerritoryEffects` precisely so a Watchtower and a Head Spy
-   * would push one lever, and both readers kept asking the crew-only fold — so the location's
+   * would push one lever, and both readers kept asking the crew-only fold, so the location's
    * whole advertised reward moved nothing. Measured through the district view's blurred garrison
    * count, which is the number the channel exists to sharpen.
    */
@@ -313,7 +313,7 @@ describe('the Watchtower', () => {
      * And a liar on their books, or there is nothing for intel to cut through.
      *
      * `blurAgainst` is `max(0, theirResistance - myYield)`, so against a crew with no Deception the
-     * count is already exact and no amount of Watchtower can sharpen it further — the test would
+     * count is already exact and no amount of Watchtower can sharpen it further: the test would
      * pass for the wrong reason, or fail for one. Seated as Head Spy deliberately: that seat's
      * duties include Deception, so the rating counts in full (§C2).
      */
@@ -354,7 +354,7 @@ describe('the Watchtower', () => {
     const sharp = await count();
 
     // The rival's deception blurs the count; the Watchtower is what cuts through it. Whichever way
-    // this fixture's numbers land, holding it must *change* the reading — nothing is the bug.
+    // this fixture's numbers land, holding it must *change* the reading: nothing is the bug.
     expect(sharp, 'the Watchtower changed nothing about what a scout sees').not.toBe(blurred);
     expect(Math.abs(sharp - 40)).toBeLessThanOrEqual(Math.abs(blurred - 40));
   });
@@ -365,7 +365,7 @@ describe('the sky a fight happens under', () => {
    * A battle is fought in the weather it was **called for**, not the weather it was settled in.
    *
    * Battles settle lazily, so the gap between the two is however long it takes somebody to open a
-   * page — hours, overnight, longer. Reading the settle clock meant a fight declared for a foggy
+   * page: hours, overnight, longer. Reading the settle clock meant a fight declared for a foggy
    * night could be decided in the next morning's sunshine, and *which* morning depended on when a
    * stranger loaded a screen.
    */

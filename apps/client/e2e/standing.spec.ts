@@ -6,7 +6,7 @@ import { expectNothingClippedVertically, installApi, settleFonts } from './harne
 test.use({ viewport: { width: 1600, height: 900 } });
 
 /**
- * §D7 — the wallet, the rank, and the ladder between them.
+ * §D7: the wallet, the rank, and the ladder between them.
  *
  * The unit suite pins the arithmetic. What only a browser answers is whether a player can *find*
  * the ladder: it lives behind a hover on a chip in the standing bar, the card carries the only copy

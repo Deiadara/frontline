@@ -48,6 +48,7 @@ import {
   findUnit,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
+import { recallOvertaken } from './movement.js';
 import type { Repositories } from '../db/repos/index.js';
 import { defendingBaseOf } from './declare.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
@@ -424,6 +425,11 @@ function resolveOne(
   // Clearing the whole bag instead would bill a crew for a second syringe they never got to open.
   spendBoosts(repos, attacker.id);
   if (defenderBase) spendBoosts(repos, defenderBase.id);
+
+  // §A4: anybody still on the road to this fight turns around. A column arriving at a battle that
+  // has already been decided is not a state the game should be able to reach, and the units are
+  // more use at home than deleted.
+  recallOvertaken(repos, battle.id);
 
   // A trap that left nothing standing is the one case an attack does not happen at all. The engine
   // has still been run: it costs one seeded stream and it produces the report that says so.

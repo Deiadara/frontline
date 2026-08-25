@@ -25,6 +25,7 @@ import {
   spendResources,
   takeFromArmy,
   weightOf,
+  unitsBeyondNotoriety,
   type Army,
   type Base,
   type BattleResult,
@@ -85,6 +86,7 @@ function recordTaking(
 export const CITY_REFUSALS = [
   'unscouted',
   'no_force',
+  'needs_infamy',
   'not_enough_units',
   'already_held',
   'not_held',
@@ -389,6 +391,23 @@ export function setGarrison(
   const control = repos.city.control(location.id);
   if (!control) return { kind: 'refused', reason: 'not_contested' };
   if (!isHeldBy(control, base.id)) return { kind: 'refused', reason: 'not_held' };
+
+  /*
+   * §D7: the rank a unit will not take the field without, asked for here as well as at a battle.
+   *
+   * `assemble` merges a location's garrison into the defending force, so standing a unit on held
+   * ground is putting it where it fights. `battle/deploy.ts` was the only caller of
+   * `unitsBeyondNotoriety`, which left this as the door with no lock on it: a crew nobody had
+   * heard of could park a Specter on a rooftop and have it fight for them, which is the exact
+   * thing the rule exists to refuse. Only what is being *sent out* is checked, so bringing a unit
+   * home is never blocked by a rank the crew has since lost.
+   */
+  const sending: Army = Object.fromEntries(
+    Object.entries(changes).filter(([, delta]) => delta > 0),
+  );
+  if (unitsBeyondNotoriety(sending, base.economy.notoriety).length > 0) {
+    return { kind: 'refused', reason: 'needs_infamy' };
+  }
 
   let army = base.army;
   let garrison = { ...control.garrison };

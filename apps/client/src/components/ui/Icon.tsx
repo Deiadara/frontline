@@ -49,6 +49,7 @@ export const ICON_NAMES = [
   'shield',
   'sword',
   'battles',
+  'actions',
   'eye',
   'spark',
 ] as const;
@@ -299,6 +300,16 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M12 3.2l6.4 2.5v4.8c0 3.6-2.6 6.8-6.4 8-3.8-1.2-6.4-4.4-6.4-8V5.7z" {...S} />
       <path d="M8.4 8.2l7.2 7.2M15.6 8.2l-7.2 7.2" {...S} />
+    </>
+  ),
+  // A boot on a road: what "somebody is walking somewhere" looks like at 22px without becoming a
+  // map pin, which is the other obvious reading and the one that means a *place* rather than a
+  // journey.
+  actions: (
+    <>
+      <path d="M3 19.5h18" {...S} />
+      <path d="M7.5 16.5l2-9 4.5 1.5-1 4 4 1.5-1.5 2z" {...S} />
+      <path d="M9.5 7.5l1.6-2.6 2.4 1.1" {...S} />
     </>
   ),
   eye: (

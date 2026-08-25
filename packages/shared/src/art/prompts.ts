@@ -823,4 +823,10 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     different hands. Eyes on the viewer rather than the map. Warm lamp light on the paper, cold
     light on everything else.
   `),
+  the_twins: block(`
+    A riveted automaton standing square in a workshop, one torso carrying two bald heads set back
+    to back, so one face is toward the viewer and the other is turned away. Plate over a leather
+    harness, long jointed hands hanging open, no weapon anywhere on it. Warm bulb light from two
+    hanging lamps, drawings pinned on the wall behind.
+  `),
 };

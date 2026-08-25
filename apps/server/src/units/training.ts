@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   CITY_LOCATIONS,
   MAX_TRAINING_QUEUE,
+  addResources,
   addToArmy,
   alreadyHolds,
   canAfford,
@@ -10,11 +11,14 @@ import {
   isUnitUnlocked,
   spendResources,
   splitDueTraining,
+  trainingCancellable,
   trainingCost,
+  trainingRefund,
   trainingSeconds,
   trainingStartsAt,
   type Army,
   type Base,
+  type PartialResources,
   type PlayerXpAward,
   type TrainingOrder,
   type UnitSpec,
@@ -73,22 +77,31 @@ export interface TrainingSettlement {
  * the headcount, which is the thing the player actually spent.
  */
 export function settleTraining(repos: Repositories, base: Base, now: Date): TrainingSettlement {
-  const { due, pending } = splitDueTraining(base.trainingQueue, now);
-  if (due.length === 0) return { base, awards: [] };
+  const { delivered, pending } = splitDueTraining(base.trainingQueue, now);
+  if (delivered.length === 0) return { base, awards: [] };
 
-  const army: Army = due.reduce(
-    (into, order) => addToArmy(into, order.unitId, order.count),
+  const army: Army = delivered.reduce(
+    (into, batch) => addToArmy(into, batch.unitId, batch.count),
     base.army,
   );
   const settled: Base = { ...base, army, trainingQueue: pending };
   repos.bases.updateArmy(settled.id, settled.army, settled.trainingQueue);
 
+  /*
+   * §I1 pays per *body*, not per order.
+   *
+   * A batch hands its units over one at a time now, so paying an order's worth of XP on whichever
+   * read happened to catch the last one would make the reward depend on how often the page was
+   * open. One award per unit delivered is the same total whatever the polling does.
+   */
   let carried = settled;
   const awards: PlayerXpAward[] = [];
-  for (const _order of due) {
-    const { base: progressed, award } = awardPlayerXp(repos, carried, 'unitTrained');
-    carried = progressed;
-    awards.push(award);
+  for (const batch of delivered) {
+    for (let i = 0; i < batch.count; i += 1) {
+      const { base: progressed, award } = awardPlayerXp(repos, carried, 'unitTrained');
+      carried = progressed;
+      awards.push(award);
+    }
   }
   return { base: carried, awards };
 }
@@ -114,6 +127,41 @@ export interface TrainInput {
  * Supply is claimed at **order** time, counting the queue as well as the standing army: a crew
  * cannot queue five Colossi against a cap that holds one and discover the problem an hour later.
  */
+/**
+ * Calling a batch off (§A5), inside its window.
+ *
+ * The refund is read off the order rather than recomputed, and the order is removed rather than
+ * marked: a bench with a hole in it would break `trainingStartsAt`, which reads the tail of the
+ * queue to decide when the next order begins.
+ */
+export type CancelRefusal = 'unknown_order' | 'window_closed';
+
+export type CancelResult =
+  | { kind: 'refused'; reason: CancelRefusal }
+  | { kind: 'cancelled'; base: Base; refund: PartialResources };
+
+export function cancelTraining(
+  repos: Repositories,
+  base: Base,
+  orderId: string,
+  now: Date,
+): CancelResult {
+  const order = base.trainingQueue.find((entry) => entry.id === orderId);
+  if (!order) return { kind: 'refused', reason: 'unknown_order' };
+  if (!trainingCancellable(order, now)) return { kind: 'refused', reason: 'window_closed' };
+
+  const refund = trainingRefund(order);
+  const left = base.trainingQueue.filter((entry) => entry.id !== orderId);
+  const cancelled: Base = {
+    ...base,
+    resources: addResources(base.resources, refund),
+    trainingQueue: left,
+  };
+  repos.bases.updateResources(cancelled.id, cancelled.resources);
+  repos.bases.updateArmy(cancelled.id, cancelled.army, cancelled.trainingQueue);
+  return { kind: 'cancelled', base: cancelled, refund };
+}
+
 export function queueTraining(repos: Repositories, input: TrainInput): TrainingResult {
   const { base, unit, count, now, admin = false } = input;
 
@@ -152,20 +200,25 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
     if (refused) return refused;
   }
 
+  const charged = adminCost(cost, admin);
   const order: TrainingOrder = {
     id: randomUUID(),
     unitId: unit.id,
     count,
+    delivered: 0,
     startedAt: trainingStartsAt(base.trainingQueue, now).toISOString(),
     durationSeconds: adminSeconds(
       trainingSeconds(unit, count, effects.trainingSpeedPercent),
       admin,
     ),
+    // What was actually taken, so a refund is against the price paid rather than the price today.
+    // A discount finished after the order was placed must not turn cancelling into a profit.
+    paid: charged,
   };
 
   const queued: Base = {
     ...base,
-    resources: spendResources(base.resources, adminCost(cost, admin)),
+    resources: spendResources(base.resources, charged),
     trainingQueue: [...base.trainingQueue, order],
   };
   repos.bases.updateResources(queued.id, queued.resources);

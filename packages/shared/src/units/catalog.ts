@@ -999,6 +999,48 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     }),
     modifiers: ['urban_bonus', 'night_operations'],
   },
+  {
+    id: 'the_twins',
+    name: 'The Twins',
+    tier: 'legendary',
+    blurb: 'One body, two minds, and neither of them sleeps. Nothing has ever got behind it.',
+    trainedAt: 'lab',
+    unique: true,
+    /**
+     * Built rather than hired, and built by somebody who should not have been allowed to.
+     *
+     * The Lab high enough to attempt it, and the two places in the city where that kind of work is
+     * actually done: a Mad Scientist's Lair for the design and a Gene Clinic for the half of it
+     * that is still meat. Two locations rather than one because it is the only legendary in the
+     * game with no weapon on its sheet, and a unit that survives everything has to cost something
+     * on the map rather than only in the stockpile.
+     */
+    requires: [structure('lab', 15), holds('mad_scientist_lair'), holds('gene_clinic')],
+    cost: { caps: 1800, scrap: 700, oil: 300, highQualityMetal: 320 },
+    trainSeconds: 4200,
+    supply: 7,
+    stats: sheet({
+      speed: 30,
+      vitality: 420,
+      morale: 100,
+      armor: 78,
+      damageType: 'blade',
+      resistances: { ballistic: 55, blade: 45, sonic: 60, energy: -25 },
+      lethality: 18,
+      range: 10,
+      offense: 70,
+      evasion: 5,
+      stealth: 0,
+      lootCapacity: 60,
+      intimidation: 88,
+    }),
+    // Two heads facing opposite ways is the whole design: it cannot be flanked and it cannot be
+    // startled, so it is the thing you put at the front of a line that has to hold.
+    modifiers: ['last_stand', 'night_operations'],
+    // A machine with a face on each side. The dark is not a problem it has, and neither is fear.
+    immuneTo: ['eerie', 'dark'],
+    affinities: { crammed: -6, open: 4 },
+  },
 ];
 
 const BY_ID = new Map(UNIT_CATALOG.map((unit) => [unit.id, unit]));

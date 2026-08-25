@@ -358,6 +358,14 @@ export const UnitsResponseSchema = z.object({
   army: ArmySchema,
   /** Units standing on captured places, summed across the city. */
   garrisoned: ArmySchema,
+  /**
+   * Units committed to a fight: a muster on the ground, or a column still walking to one.
+   *
+   * Sent for the same reason `garrisoned` is. Both are away and both are counted in `supplyUsed`
+   * (§A1: they are still people this crew feeds), so a roster that showed neither would report a
+   * population the player could not account for from anything on the screen.
+   */
+  abroad: ArmySchema,
   supplyUsed: z.number().int().nonnegative(),
   supplyCap: z.number().int().nonnegative(),
   queue: TrainingQueueSchema,
@@ -373,6 +381,10 @@ export const TrainUnitsRequestSchema = z.object({
   count: z.number().int().positive().max(50),
 });
 export type TrainUnitsRequest = z.infer<typeof TrainUnitsRequestSchema>;
+
+/** §A5: which batch on the bench to call off. See `trainingCancellable` for when it is allowed. */
+export const CancelTrainingRequestSchema = z.object({ orderId: IdSchema });
+export type CancelTrainingRequest = z.infer<typeof CancelTrainingRequestSchema>;
 
 export const TrainUnitsResponseSchema = z.object({
   base: BaseSchema,

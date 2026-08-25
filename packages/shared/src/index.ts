@@ -55,6 +55,7 @@ export * from './battle/traps.js';
 export * from './battle/intel.js';
 export * from './battle/analysis.js';
 export * from './battle/boosts.js';
+export * from './battle/movement.js';
 export * from './api.js';
 export * from './api.battle.js';
 export * from './api.accounts.js';

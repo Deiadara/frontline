@@ -55,7 +55,7 @@ describe('what a district can house (§A1)', () => {
   });
 
   /**
-   * §B5 — the board's rule, through the real fold: taking a location is worth twenty people, and
+   * §B5: the board's rule, through the real fold: taking a location is worth twenty people, and
    * a few locations are worth a good deal more on top.
    */
   it('pays twenty for any location held, and more for the ones people live on', () => {

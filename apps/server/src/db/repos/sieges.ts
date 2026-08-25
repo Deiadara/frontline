@@ -113,7 +113,7 @@ export interface SiegeRepo {
 
   deployments(battleId: string): BattleDeployment[];
   deployment(battleId: string, side: BattleSide): BattleDeployment | undefined;
-  /** Every deployment this crew currently has standing, across every coming fight. */
+  /** Every deployment this crew has standing, across every fight still to come. */
   deploymentsFor(baseId: string): BattleDeployment[];
   putDeployment(deployment: BattleDeployment): void;
 
@@ -159,7 +159,17 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   const deploymentStmt = db.prepare(
     'SELECT * FROM battle_deployments WHERE battle_id = ? AND side = ?',
   );
-  const deploymentsForStmt = db.prepare('SELECT * FROM battle_deployments WHERE base_id = ?');
+  /*
+   * Joined against the battle rather than read flat, because a deployment row outlives its fight:
+   * nothing deletes one when the battle resolves, so the flat query answers "every muster this crew
+   * has ever sent" while every caller wants the ones still standing. The join is the difference
+   * between counting an army twice and counting it once.
+   */
+  const deploymentsForStmt = db.prepare(
+    `SELECT d.* FROM battle_deployments d
+       JOIN scheduled_battles b ON b.id = d.battle_id
+      WHERE d.base_id = ? AND b.resolved_at IS NULL`,
+  );
   const putDeploymentStmt = db.prepare(
     `INSERT INTO battle_deployments
        (battle_id, base_id, side, army_json, perimeter_json, boost_id, updated_at)

@@ -21,20 +21,34 @@ const EM_DASH = '—';
 const EN_DASH = '–';
 
 /**
- * Files whose text is not ours to edit.
+ * Files whose text is not ours to edit, plus the one file that has to hold the characters.
  *
- * The vendored font licences. Rewriting punctuation inside a licence is the one place where
- * following a house style would be a real mistake.
+ * The vendored font licences: rewriting punctuation inside a licence is the one place where
+ * following a house style would be a real mistake. And this file, which declares the dashes it is
+ * looking for and asserts on them in its own positive control.
  */
-const NOT_OURS = /^apps\/client\/public\/fonts\/(OFL|LICENSE)/;
+const NOT_OURS = /^(apps\/client\/public\/fonts\/(OFL|LICENSE)|scripts\/writing-style\.test\.ts)/;
 
 /** Binary and image files, which `readFileSync` would hand back as mojibake. */
 const BINARY = /\.(png|jpe?g|webp|avif|gif|ico|woff2?|ttf|otf|mp3|ogg|wav|zip|pdf|db)$/i;
 
+/**
+ * Everything in the tree that is ours: tracked, **and** written but not committed yet.
+ *
+ * `git ls-files` alone was the hole this gate shipped with. A file created during a session is
+ * untracked, so the sweep could not see it, so the rule was enforced on everything except the code
+ * being written at the time: four files went in with em dashes in them and the gate stayed green
+ * until somebody else committed them. `--others --exclude-standard` adds the new files without
+ * adding anything `.gitignore` covers.
+ */
 function tracked(): string[] {
-  return execFileSync('git', ['ls-files'], { cwd: REPO, encoding: 'utf8' })
-    .split('\n')
-    .filter((path) => path !== '' && !NOT_OURS.test(path) && !BINARY.test(path));
+  const listed = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
+    cwd: REPO,
+    encoding: 'utf8',
+  });
+  return [...new Set(listed.split('\n'))].filter(
+    (path) => path !== '' && !NOT_OURS.test(path) && !BINARY.test(path),
+  );
 }
 
 /** Every offending line, as `path:line`, so a failure says where to go rather than how many. */

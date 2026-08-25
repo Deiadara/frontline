@@ -1,4 +1,4 @@
--- §D7 — what a name buys, one fight at a time.
+-- §D7: what a name buys, one fight at a time.
 --
 -- The boost a side bought for this battle, or NULL. On the deployment rather than on the battle
 -- because both sides get one, and paid for at the moment it is chosen: see `battle/boosts.ts`.

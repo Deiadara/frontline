@@ -896,6 +896,12 @@ SUBJECT: An older fighter in a long weathered coat over plain plate, unarmed han
 SUBJECT: A traveller in a layered dust coat hung with rolled charts, a brass sighting compass on a thong and a chalk stub behind the ear, one hand flat on a map board marked over many times in different hands. Eyes on the viewer rather than the map. Warm lamp light on the paper, cold light on everything else.
 ```
 
+### 7.30 `unit-the-twins`
+
+```
+SUBJECT: A riveted automaton standing square in a workshop, one torso carrying two bald heads set back to back, so one face is toward the viewer and the other is turned away. Plate over a leather harness, long jointed hands hanging open, no weapon anywhere on it. Warm bulb light from two hanging lamps, drawings pinned on the wall behind.
+```
+
 ## 8. Consistency protocol
 
 Generating 96 assets independently will drift. Counter it in this order:

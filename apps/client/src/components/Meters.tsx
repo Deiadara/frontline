@@ -347,7 +347,7 @@ export function ReputationChip({ label }: { label: ReputationLabel }) {
       <div className="edge-lit flex shrink-0 items-center gap-2 rounded-sm border border-brass-500/40 bg-surface-800/80 px-2.5 py-2">
         {/* The word costs ~80px and says nothing the hover card does not. Below xl the standing
             itself is the label, which is the half a player is actually reading. */}
-        <span className="hidden font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200 [@media(min-width:1700px)]:inline">
+        <span className="hidden font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200 [@media(min-width:1800px)]:inline">
           Reputation
         </span>
         <span className="font-display text-base font-bold tracking-[0.08em] text-brass-300">

@@ -90,6 +90,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['unit-the-colossus', 'unit-the-colossus.webp', 145027],
   ['unit-the-saint', 'unit-the-saint.webp', 145028],
   ['unit-the-cartographer', 'unit-the-cartographer.webp', 145029],
+  ['unit-the-twins', 'unit-the-twins.webp', 145030],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -210,8 +211,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 121 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(121);
+  it('holds the 122 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(122);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(

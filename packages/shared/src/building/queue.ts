@@ -50,7 +50,12 @@ export const BuildQueueEntrySchema = z.object({
 });
 export type BuildQueueEntry = z.infer<typeof BuildQueueEntrySchema>;
 
-export const BuildQueueSchema = z.array(BuildQueueEntrySchema).max(MAX_BUILD_QUEUE).default([]);
+/**
+ * The queue as it is **stored**, with no length cap. See `TrainingQueueSchema` for the whole
+ * argument: {@link MAX_BUILD_QUEUE} gates the order, and a cap on the read path can only turn a row
+ * that was legal when written into a save nobody can load.
+ */
+export const BuildQueueSchema = z.array(BuildQueueEntrySchema).default([]);
 export type BuildQueue = z.infer<typeof BuildQueueSchema>;
 
 const SECOND_MS = 1000;

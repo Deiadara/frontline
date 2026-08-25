@@ -10,6 +10,7 @@ import {
   type DistrictDetailResponse,
   type LocationView,
   type SkirmishEngine,
+  NOTORIETY_TO_FIELD,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -328,5 +329,53 @@ describe('what a capture does to the work', () => {
     const taken = stack.app.repos.city.control('rustyard-press');
     expect(taken?.level).toBe(1);
     expect(taken?.upgradingUntil).toBeNull();
+  });
+});
+
+/**
+ * §D7 across two doors: `POST /battles/deploy` and `POST /city/garrison`.
+ *
+ * "A legend does not work for anybody the Combine has not opened a file on" is enforced by
+ * `unitsBeyondNotoriety`, and `battle/deploy.ts` is the only caller in the codebase. Stationing a
+ * unit on held ground is the other way to put one where it fights: `assemble` merges a location's
+ * garrison into the defending force, so a Specter parked on a rooftop by a crew nobody has heard
+ * of takes the field exactly as if it had been deployed, and the rank it will not work without is
+ * never asked for.
+ */
+describe('who will stand on your ground (§D7)', () => {
+  it('will not garrison a unit the crew is not notorious enough to field', async () => {
+    const stack = await makeStack();
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    // A legend on the roster, and a name nobody has heard of.
+    stack.app.repos.bases.updateArmy(base.id, { the_specter: 1 }, base.trainingQueue);
+    stack.app.repos.bases.updateEconomy(base.id, { ...base.economy, notoriety: 0 });
+    expect(NOTORIETY_TO_FIELD.legendary).toBeGreaterThan(0);
+
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/api/city/garrison',
+      headers: auth(stack.token),
+      payload: { locationId: MINE, changes: { the_specter: 1 } },
+    });
+    expect(res.statusCode).toBe(409);
+    // And they are still on the roster rather than on the roof.
+    expect(stack.app.repos.city.control(MINE)!.garrison.the_specter ?? 0).toBe(0);
+    expect(stack.app.repos.bases.findById(stack.baseId)!.army.the_specter).toBe(1);
+  });
+
+  it('lets the same crew garrison anything its rank does cover', async () => {
+    const stack = await makeStack();
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateArmy(base.id, { razors: 2 }, base.trainingQueue);
+    stack.app.repos.bases.updateEconomy(base.id, { ...base.economy, notoriety: 0 });
+
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/api/city/garrison',
+      headers: auth(stack.token),
+      payload: { locationId: MINE, changes: { razors: 2 } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(stack.app.repos.city.control(MINE)!.garrison.razors).toBe(2);
   });
 });

@@ -288,6 +288,25 @@
       inset 0 0 18px rgb(0 0 0 / 0.55);
   }
 
+  /**
+   * No browser spinners. `NumberField` draws its own.
+   *
+   * `appearance: none` is enough for Firefox and Safari and is ignored by Chromium, which needs the
+   * two pseudo-elements taken out by name. Both are here because the field is used on six screens
+   * and a stray pair of grey chevrons on one of them is exactly the kind of thing that survives a
+   * review.
+   */
+  .no-spinner {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  .no-spinner::-webkit-outer-spin-button,
+  .no-spinner::-webkit-inner-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   .glass {
     position: relative;
     background-color: rgb(47 40 63 / 0.9);

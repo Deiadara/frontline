@@ -11,6 +11,7 @@ import { BasePanel } from './features/base/BasePanel';
 import { DistrictView } from './features/city/DistrictView';
 import { BattlePage } from './features/battle/BattlePage';
 import { UnitsPage } from './features/units/UnitsPage';
+import { ActionsPage } from './features/actions/ActionsPage';
 import { MapView } from './features/game/MapView';
 import { MissionsPage } from './features/missions/MissionsPage';
 import { ResearchPage } from './features/research/ResearchPage';
@@ -92,6 +93,7 @@ export default function App() {
           <Route index element={<MapView />} />
           <Route path="base" element={<BasePanel />} />
           <Route path="city/:districtId" element={<DistrictView />} />
+          <Route path="actions" element={<ActionsPage />} />
           <Route path="battles" element={<BattlePage />} />
           <Route path="units" element={<UnitsPage />} />
           <Route path="missions" element={<MissionsPage />} />

@@ -13,6 +13,7 @@ import { useMemo, useState } from 'react';
 import { ApiRequestError } from '../../lib/api';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
+import { NumberField } from '../../components/ui/NumberField';
 
 /**
  * Choosing who goes (GDD §A5).
@@ -111,15 +112,12 @@ export function ForcePicker({
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                <input
-                  type="number"
+                <NumberField
+                  label={`How many ${unit.name}`}
                   min={0}
                   max={count}
-                  inputMode="numeric"
-                  aria-label={`How many ${unit.name}`}
                   value={force[unit.id] ?? 0}
-                  onChange={(event) => set(unit.id, Number(event.target.value), count)}
-                  className="w-16 border border-surface-600 bg-surface-950 px-2 py-1 font-display text-[12px] tabular-nums text-ink-200"
+                  onChange={(next) => set(unit.id, next, count)}
                 />
                 <span className="font-display text-[11px] tabular-nums text-ink-300">
                   / {count}

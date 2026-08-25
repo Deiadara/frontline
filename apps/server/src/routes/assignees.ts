@@ -3,6 +3,7 @@ import {
   ReassignOfficerRequestSchema,
   ReskillRequestSchema,
   placeAssignees,
+  placedAssignees,
   reskillAssignees,
   type AssigneesMutationResponse,
   type AssigneesResponse,
@@ -108,6 +109,24 @@ export function registerAssigneeRoutes(app: FastifyInstance): void {
       if (result.kind === 'refused') {
         const { code, message } = RESKILL_ERRORS[result.reason];
         throw new AppError(code, message);
+      }
+
+      /*
+       * §A1, the same ceiling `/place` enforces, because this is the same arrangement.
+       *
+       * A plan is not a delta: it replaces every placement at once, so the beds it needs are
+       * measured against a draw with the *old* placements taken out rather than against `spare`.
+       * Without this, the housing rule held only for players who placed one at a time, and posting
+       * the same arrangement as a plan walked straight past it.
+       */
+      const population = districtPopulation(app.repos, base);
+      const beds = population.capacity - (population.total - population.assignees);
+      const wanted = placedAssignees(result.state);
+      if (wanted > beds) {
+        throw new AppError(
+          'NO_HOUSING',
+          `Your district houses ${population.capacity}. Raise the Quarters or take more ground`,
+        );
       }
 
       app.repos.bases.updateAssignees(base.id, result.state);

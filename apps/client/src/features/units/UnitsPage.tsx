@@ -6,9 +6,14 @@ import {
   UNIT_STAT_LABELS,
   UNIT_TIERS,
   UNIT_TIER_LABELS,
+  TRAINING_CANCEL_REFUND,
+  TRAINING_MAX_BATCH,
   findUnit,
-  trainingProgressAt,
-  trainingRemainingMs,
+  maxTrainable,
+  trainingBatchProgress,
+  trainingCancelWindowMs,
+  trainingCancellable,
+  type TrainingOrder,
   type UnitOption,
   type UnitTier,
 } from '@frontline/shared';
@@ -17,10 +22,10 @@ import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
+import { NumberField } from '../../components/ui/NumberField';
 import { InfoWindow, WindowSection } from '../../components/ui/InfoWindow';
-import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
-import { useMe, useTrainUnits, useUnits } from '../../lib/queries';
+import { useCancelTraining, useMe, useTrainUnits, useUnits } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { UnitPortrait } from './UnitPortrait';
@@ -37,6 +42,7 @@ export function UnitsPage() {
   const me = useMe();
   const query = useUnits();
   const train = useTrainUnits(me.data?.base?.id);
+  const cancel = useCancelTraining(me.data?.base?.id);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   const [tier, setTier] = useState<UnitTier>('rabble');
 
@@ -128,20 +134,18 @@ export function UnitsPage() {
           </p>
         ) : (
           <ol
-            className="grid gap-x-5 gap-y-2 sm:grid-cols-2 xl:grid-cols-3"
+            className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3"
             data-testid="training-queue"
           >
             {data.queue.map((order, index) => (
-              <li key={order.id} className="min-w-0">
-                {/* Only the head of the bench is actually running; the rest are queued behind it,
-                    which the tone says without a second label. */}
-                <ProgressBar
-                  progress={trainingProgressAt(order, now)}
-                  label={`${order.count}× ${findUnit(order.unitId)?.name ?? order.unitId}`}
-                  remaining={formatRemaining(trainingRemainingMs(order, now))}
-                  tone={index === 0 ? 'brass' : 'iris'}
-                />
-              </li>
+              <BenchRow
+                key={order.id}
+                order={order}
+                now={now}
+                head={index === 0}
+                pending={cancel.isPending}
+                onCancel={() => cancel.mutate({ orderId: order.id })}
+              />
             ))}
           </ol>
         )}
@@ -170,15 +174,20 @@ export function UnitsPage() {
           ))}
         </div>
 
-        {/* Two cards to a row, across the whole sheet. With the rail gone each one is half the
-            frame, which is what lets the portrait be a picture rather than a stamp. */}
-        <div className="grid gap-4 lg:grid-cols-2" data-testid="unit-catalogue">
+        {/* Two cards to a row from 1280 up, one below it. The card is a fixed height and the
+            portrait is that height at 3:4, so a *narrower* card is one where the picture takes a
+            bigger share of it: at 1024 two-up the portrait was 54% of the card and the sheet beside
+            it was being squeezed for the picture's sake. One card to a row there instead. */}
+        <div className="grid gap-4 xl:grid-cols-2" data-testid="unit-catalogue">
           {shown.map((unit) => (
             <UnitCard
               key={unit.id}
               unit={unit}
               resources={data.resources}
               garrisoned={data.garrisoned[unit.id] ?? 0}
+              abroad={data.abroad[unit.id] ?? 0}
+              spare={Math.max(0, data.supplyCap - data.supplyUsed)}
+              discountPercent={data.trainingCostReduction}
               pending={train.isPending}
               onTrain={(count) => train.mutate({ unitId: unit.id, count })}
             />
@@ -193,8 +202,76 @@ interface UnitCardProps {
   unit: UnitOption;
   resources: Parameters<typeof CostLine>[0]['stock'];
   garrisoned: number;
+  /** §A4: at a fight or walking to one. Away like a garrison, and counted in the same beds. */
+  abroad: number;
+  /** Beds left in the district, so **Max** can only offer a batch that will fit in them. */
+  spare: number;
+  /** §F2, folded in for the same reason: the price Max works against is the price charged. */
+  discountPercent: number;
   pending: boolean;
   onTrain: (count: number) => void;
+}
+
+/**
+ * One batch on the bench.
+ *
+ * Smaller than the bar it replaced, and about a different thing. A bar across the whole order was
+ * right while a batch landed in a lump; they arrive one at a time now, so what a player wants is
+ * how many are already theirs and how long until the next one. The bar tracks the *next body*, not
+ * the order, which is why it fills and resets rather than creeping once across seven minutes.
+ */
+function BenchRow({
+  order,
+  now,
+  head,
+  pending,
+  onCancel,
+}: {
+  order: TrainingOrder;
+  now: Date;
+  /** The only order actually running; the rest are queued behind it. */
+  head: boolean;
+  pending: boolean;
+  onCancel: () => void;
+}) {
+  const unit = findUnit(order.unitId);
+  const { done, total, nextMs, nextProgress } = trainingBatchProgress(order, now);
+  return (
+    <li className="flex min-w-0 items-center gap-2">
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="truncate font-display text-[11px] uppercase tracking-[0.1em] text-ink-200">
+            {unit?.name ?? order.unitId}
+          </span>
+          <span className="shrink-0 font-display text-[11px] tabular-nums text-ink-300">
+            {done} / {total}
+            <span className="ml-1.5 text-brass-300">{formatRemaining(nextMs)}</span>
+          </span>
+        </span>
+        <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-sm bg-surface-800">
+          <span
+            className={cn('block h-full rounded-sm', head ? 'bg-brass-300' : 'bg-iris-300')}
+            style={{ width: `${Math.round(nextProgress * 100)}%` }}
+          />
+        </span>
+      </span>
+      {/* §A5: the window is a tenth of the batch's own clock and shuts the moment the first body
+          walks out, so it is there and gone. Drawn only while it is open rather than disabled: a
+          control that is dead almost all the time is a control a player stops looking at. */}
+      {trainingCancellable(order, now) && (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={pending}
+          onClick={onCancel}
+          data-testid={`cancel-${order.id}`}
+          title={`Call it off: ${Math.round(TRAINING_CANCEL_REFUND * 100)}% back, ${formatRemaining(trainingCancelWindowMs(order, now))} left to decide`}
+        >
+          Cancel
+        </Button>
+      )}
+    </li>
+  );
 }
 
 /**
@@ -218,14 +295,29 @@ interface UnitCardProps {
  * more: they are hover cards on the name and on a single row of marks under the header, which is
  * where a player looks for detail once they have already decided which unit they are reading.
  */
-function UnitCard({ unit, resources, garrisoned, pending, onTrain }: UnitCardProps) {
+function UnitCard({
+  unit,
+  resources,
+  garrisoned,
+  abroad,
+  spare,
+  discountPercent,
+  pending,
+  onTrain,
+}: UnitCardProps) {
   const [count, setCount] = useState(1);
+  const spec = findUnit(unit.id);
+  const most = spec ? maxTrainable(spec, resources, spare, discountPercent) : 0;
 
   return (
     <section
       data-testid={`unit-${unit.id}`}
       className={cn(
-        'card-paper washed rivets edge-lit relative flex h-[23rem] gap-3 rounded-sm border p-3',
+        // The frame, and its height is the whole mechanism: see the portrait below. A step
+        // shorter until 1440, where two cards to a row leaves each one narrow enough that a
+        // 23rem picture would be nearly half of it.
+        'card-paper washed rivets edge-lit relative flex h-[19rem] gap-3 rounded-sm border p-3',
+        '[@media(min-width:1440px)]:h-[23rem]',
         unit.unlocked ? 'border-surface-600/70' : 'border-surface-700 opacity-75',
       )}
     >
@@ -249,10 +341,28 @@ function UnitCard({ unit, resources, garrisoned, pending, onTrain }: UnitCardPro
           fill
           className="h-full w-auto rounded-sm border-2 border-surface-600/80 shadow-lifted"
         />
-        {/* Owned, over the picture's corner, where a strategy game puts a count. */}
+        {/*
+          Owned, over the picture's corner, where a strategy game puts a count.
+
+          Three numbers, not one: at home, on held ground, and at a fight. All three are in the
+          population chip at the top of the page (§A1 feeds them all), so a card that showed only
+          the first would leave a player counting beds they cannot see. Brass is ground, tangerine
+          is a fight, matching the colour each of those screens already uses.
+        */}
         <span className="absolute right-1.5 top-1.5 rounded-sm border border-surface-600 bg-surface-950/85 px-2 py-0.5 font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
           {unit.owned}
-          {garrisoned > 0 && <span className="text-brass-300"> +{garrisoned}</span>}
+          {garrisoned > 0 && (
+            <span className="text-brass-300" title={`${garrisoned} on held ground`}>
+              {' '}
+              +{garrisoned}
+            </span>
+          )}
+          {abroad > 0 && (
+            <span className="text-tangerine-300" title={`${abroad} at a fight`}>
+              {' '}
+              +{abroad}
+            </span>
+          )}
         </span>
       </div>
 
@@ -320,21 +430,29 @@ function UnitCard({ unit, resources, garrisoned, pending, onTrain }: UnitCardPro
             <div className="flex w-full flex-col items-center justify-center gap-2 rounded-sm border border-brass-500/35 bg-surface-950/45 px-3 py-2">
               <CostLine cost={unit.cost} stock={resources} />
               <div className="flex items-center gap-2">
-                <label className="sr-only" htmlFor={`count-${unit.id}`}>
-                  How many {unit.name}
-                </label>
-                <input
-                  id={`count-${unit.id}`}
-                  type="number"
+                <NumberField
+                  label={`How many ${unit.name}`}
                   min={1}
-                  max={unit.unique ? 1 : 50}
-                  inputMode="numeric"
+                  max={unit.unique ? 1 : TRAINING_MAX_BATCH}
                   value={count}
-                  onChange={(event) =>
-                    setCount(Math.max(1, Math.trunc(Number(event.target.value))))
-                  }
-                  className="w-14 rounded-sm border border-surface-600 bg-surface-950 px-2 py-1.5 text-center font-display text-[14px] font-bold tabular-nums text-ink-100"
+                  onChange={setCount}
+                  data-testid={`count-${unit.id}`}
                 />
+                {/* What the crew can actually pay for and house, worked out by the same function
+                    the route's own gates read, so Max can never offer a batch that is then
+                    refused. Off entirely for a one-of-a-kind, where the answer is always one. */}
+                {!unit.unique && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={pending || most < 1}
+                    onClick={() => setCount(most)}
+                    data-testid={`max-${unit.id}`}
+                    title={`As many as you can afford and house: ${most}`}
+                  >
+                    Max
+                  </Button>
+                )}
                 <Button size="sm" disabled={pending} onClick={() => onTrain(count)}>
                   {pending ? 'Working…' : 'Train'}
                 </Button>
@@ -483,13 +601,22 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
 
       {unit.modifiers.length > 0 && (
         <WindowSection label="What they do">
-          <ul className="flex flex-col gap-1.5">
+          {/* Label over sentence, not label *inside* sentence. Run together on one paragraph the
+              tracked uppercase and the body face fight each other and every entry sets to a
+              different number of lines; stacked, each rule is three lines at one leading and the
+              list reads as a list. */}
+          <ul className="flex flex-col gap-2">
             {unit.modifiers.map((modifier) => (
-              <li key={modifier.label} className="font-body text-[13px] leading-snug text-ink-100">
-                <span className="font-display text-[11px] uppercase tracking-[0.14em] text-verdigris-100">
+              <li key={modifier.label}>
+                <span className="block font-display text-[11px] font-bold uppercase leading-snug tracking-[0.14em] text-verdigris-100">
                   {modifier.label}
-                </span>{' '}
-                {modifier.description} <span className="text-ink-300">({modifier.when})</span>
+                </span>
+                <span className="block font-body text-[13px] leading-snug text-ink-100">
+                  {modifier.description}
+                </span>
+                <span className="block font-display text-[11px] uppercase leading-snug tracking-[0.1em] text-ink-300">
+                  {modifier.when}
+                </span>
               </li>
             ))}
           </ul>

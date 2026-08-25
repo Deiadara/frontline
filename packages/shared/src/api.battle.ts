@@ -144,6 +144,42 @@ export const DistrictGateViewSchema = z.object({
 });
 export type DistrictGateView = z.infer<typeof DistrictGateViewSchema>;
 
+/**
+ * One column on the road, as the Actions screen shows it (§A4).
+ *
+ * Named places rather than ids, because the screen is a list a player reads rather than a table it
+ * joins: "The Rustyard to Datavault Sigma" is the sentence, and the client should not have to look
+ * two districts up to write it.
+ */
+export const MovementViewSchema = z.object({
+  id: IdSchema,
+  battleId: IdSchema,
+  /** What the fight is over, in the words the map uses. */
+  targetName: z.string(),
+  fromName: z.string(),
+  toName: z.string(),
+  side: BattleSideSchema,
+  army: ArmySchema,
+  perimeter: ArmySchema,
+  /** Bodies, both halves counted. */
+  size: z.number().int().nonnegative(),
+  departedAt: IsoDateTimeSchema,
+  arrivesAt: IsoDateTimeSchema,
+  /** Whether the column can still be turned around. See `movementCancellable`. */
+  recallable: z.boolean(),
+});
+export type MovementView = z.infer<typeof MovementViewSchema>;
+
+export const ActionsResponseSchema = z.object({
+  /** Everything this crew has walking, soonest to arrive first. */
+  movements: z.array(MovementViewSchema),
+  serverNow: IsoDateTimeSchema,
+});
+export type ActionsResponse = z.infer<typeof ActionsResponseSchema>;
+
+export const RecallColumnRequestSchema = z.object({ movementId: IdSchema });
+export type RecallColumnRequest = z.infer<typeof RecallColumnRequestSchema>;
+
 export const BattlesResponseSchema = z.object({
   /** Fights still coming that the caller is in or can see, soonest first. */
   coming: z.array(BattleViewSchema),

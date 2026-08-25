@@ -7,6 +7,7 @@ import type {
   LaunchMissionRequest,
   LaunchMissionResponse,
   MeResponse,
+  TrainUnitsResponse,
 } from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
@@ -19,6 +20,7 @@ import {
   getUnits,
   scoutDistrict,
   setGarrison,
+  cancelTraining,
   trainUnits,
   buildStructure,
   getAssignees,
@@ -61,6 +63,8 @@ import {
   startTech,
   getBattles,
   declareBattle,
+  getActions,
+  recallColumn,
   deployToBattle,
   layTrap,
   garrisonStructure,
@@ -88,6 +92,7 @@ export const queryKeys = {
   admin: ['admin'] as const,
   workshop: ['workshop'] as const,
   battles: ['battles'] as const,
+  actions: ['actions'] as const,
 };
 
 /**
@@ -507,9 +512,21 @@ export function useUnits() {
 
 /** Put a batch on the bench. Costs resources, so the HUD refreshes with the roster. */
 export function useTrainUnits(baseId: string | undefined) {
+  return useBenchMutation(trainUnits, baseId);
+}
+
+/** §A5: take a batch back off it, inside its window. Pays resources back, so the same refresh. */
+export function useCancelTraining(baseId: string | undefined) {
+  return useBenchMutation(cancelTraining, baseId);
+}
+
+function useBenchMutation<TArgs>(
+  mutationFn: (args: TArgs) => Promise<TrainUnitsResponse>,
+  baseId: string | undefined,
+) {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: trainUnits,
+  return useMutation<TrainUnitsResponse, ApiRequestError, TArgs>({
+    mutationFn,
     // `onSettled`: "settle first, refuse second". "You cannot afford that" is the most
     // common answer this route gives, and it is exactly the answer after which the stockpile on
     // screen is wrong.
@@ -725,10 +742,52 @@ function battleMutation<TArgs>(mutationFn: (args: TArgs) => Promise<BattleMutati
       onSettled: () => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.city });
         void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+        /*
+         * The road, too. Deploying writes a `troop_movements` row, and that row is the whole
+         * content of the Actions screen: leaving the key out meant a player who had opened Actions
+         * once kept a cached list without the column they had just sent. Between `staleTime: 30s`
+         * and nothing refetching on mount, the units were off the roster on one screen and not on
+         * the road on the other until the 5s poll happened to land.
+         */
+        void queryClient.invalidateQueries({ queryKey: queryKeys.actions });
         invalidateLevelSensitive(queryClient);
       },
     });
   };
+}
+
+/**
+ * §A4: what the crew has on the road.
+ *
+ * Polled, and for the same reason the missions rail is: a column lands on the server's clock, and
+ * the whole value of the screen is watching the number come down.
+ */
+export function useActions() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.actions,
+    queryFn: getActions,
+    enabled: token !== null,
+    refetchInterval: 5000,
+  });
+}
+
+/** Turn one around. Units go back onto the roster, so the roster and the HUD go stale with it. */
+export function useRecallColumn() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: recallColumn,
+    onSuccess: (data) => queryClient.setQueryData(queryKeys.actions, data),
+    // The same "settle first, refuse second" contract: a refused recall can still have landed
+    // every other column on the way past, so the road is re-read on both paths rather than only
+    // being overwritten on the happy one.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.battles });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      invalidateLevelSensitive(queryClient);
+    },
+  });
 }
 
 export const useDeclareBattle = battleMutation(declareBattle);

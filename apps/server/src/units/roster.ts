@@ -8,7 +8,6 @@ import {
   isHeldBy,
   isUnitUnlocked,
   missingRequirements,
-  supplyUsed,
   type Army,
   type Base,
   type UnitOption,
@@ -21,7 +20,7 @@ import {
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { unlockContextFor } from './training.js';
-import { districtPopulation } from '../district/population.js';
+import { districtPopulation, unitsAbroad } from '../district/population.js';
 
 /**
  * The unit roster (GDD §A5).
@@ -73,6 +72,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   const context = unlockContextFor(repos, base);
   const effects = standingEffectsFor(repos, base);
   const garrisoned = garrisonedUnits(repos, base);
+  const abroad = unitsAbroad(repos, base);
   const population = districtPopulation(repos, base, garrisoned);
 
   const units: UnitOption[] = UNIT_CATALOG.map((unit) => ({
@@ -107,12 +107,22 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     units,
     army: base.army,
     garrisoned,
-    // Garrisons count against the cap: a unit standing on a rooftop three districts away is still
-    // a unit this crew is feeding.
-    supplyUsed: supplyUsed(base.army) + supplyUsed(garrisoned),
-    // §A1: one pool, so what is left for soldiers is what the officers and assignees have not
-    // taken. Quoting the army's own share against the whole ceiling would promise room the screen
-    // cannot deliver, and the training route would then refuse an order the roster said was fine.
+    abroad,
+    /*
+     * The two figures behind the roster's population chip, and behind **Max**.
+     *
+     * `used` counts the garrisons and the bench as well as the army at home: a unit standing on a
+     * rooftop three districts away is still a unit this crew is feeding, and a batch already
+     * ordered has already claimed its beds. Leaving the bench out was a real defect rather than a
+     * rounding one: `supplyCap - supplyUsed` is exactly what Max offers, the training route
+     * subtracts the bench before it decides, and the difference was Max proposing a batch the route
+     * then refused.
+     *
+     * `cap` is what is left for soldiers once the officers and the placed assignees have taken
+     * theirs, so the two subtract to `districtPopulation`'s own `spare` and nothing has to agree by
+     * coincidence.
+     */
+    supplyUsed: population.army + population.training,
     supplyCap: population.capacity - population.officers - population.assignees,
     queue: base.trainingQueue,
     resources: base.resources,

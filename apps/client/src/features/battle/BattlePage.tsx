@@ -1,6 +1,5 @@
 import {
   MAX_BUILDING_GARRISONS,
-  findUnit,
   type BattleBoostOption,
   type BattleReportView,
   type BattleView,
@@ -24,6 +23,7 @@ import { formatRemaining } from '../base/format';
 import { PageShell } from '../game/PageShell';
 import { BattleReportModal } from './BattleReportModal';
 import { DeployDialog } from './DeployDialog';
+import { UnitChip } from '../units/UnitChip';
 
 /**
  * The Battles page (GDD §A4, battle rework).
@@ -54,7 +54,7 @@ import { DeployDialog } from './DeployDialog';
 type Tab = 'coming' | 'reports' | 'ground';
 
 const TABS: readonly { id: Tab; label: string }[] = [
-  { id: 'coming', label: 'Coming' },
+  { id: 'coming', label: 'Upcoming' },
   { id: 'reports', label: 'Reports' },
   { id: 'ground', label: 'Your ground' },
 ];
@@ -397,9 +397,13 @@ function Forces({ view }: { view: BattleView }) {
           Nobody yet. An empty field is a loss you called yourself.
         </p>
       ) : (
+        // Wraps, and the box grows with it: a force of nine kinds is a real state and it used to
+        // run off the edge of a row that could not get taller.
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {rows.map(([unitId, count]) => (
-            <UnitPill key={unitId} unitId={unitId} count={count} />
+            <li key={unitId}>
+              <UnitChip unitId={unitId} count={count} data-testid={`force-${unitId}`} />
+            </li>
           ))}
         </ul>
       )}
@@ -410,39 +414,14 @@ function Forces({ view }: { view: BattleView }) {
           </p>
           <ul className="mt-2 flex flex-wrap gap-1.5">
             {ring.map(([unitId, count]) => (
-              <UnitPill key={unitId} unitId={unitId} count={count} muted />
+              <li key={unitId}>
+                <UnitChip unitId={unitId} count={count} muted data-testid={`ring-${unitId}`} />
+              </li>
             ))}
           </ul>
         </>
       )}
     </div>
-  );
-}
-
-function UnitPill({
-  unitId,
-  count,
-  muted = false,
-}: {
-  unitId: string;
-  count: number;
-  muted?: boolean;
-}) {
-  const unit = findUnit(unitId);
-  return (
-    <li
-      data-testid={`force-${unitId}`}
-      className={cn(
-        'flex items-center gap-2 rounded-sm border px-2 py-1',
-        muted ? 'border-surface-700 bg-surface-900/60' : 'border-surface-600 bg-surface-800/70',
-      )}
-    >
-      <Icon name="units" className={cn('h-4 w-4', muted ? 'text-ink-300' : 'text-brass-300')} />
-      <span className="font-display text-[11px] uppercase tracking-[0.1em] text-ink-200">
-        {unit?.name ?? unitId}
-      </span>
-      <span className="font-display text-[13px] font-bold tabular-nums text-ink-100">{count}</span>
-    </li>
   );
 }
 

@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
 
 /**
@@ -146,10 +147,23 @@ async function fight(
     payload: { battleId: view.battle.id, changes: options.sent, perimeterChanges: {} },
   });
 
+  /*
+   * §A4: the column has to have *arrived*.
+   *
+   * Sending puts units on the road rather than on the ground (`battle/movement.ts`), so a fight
+   * brought forward without landing the column resolves with an empty field, which is correct
+   * behaviour and useless as a fixture. Both clocks are wound back together, the same way the mark
+   * is, and then the settlers run in the order the routes run them: roads, then fights.
+   */
+  const past = new Date(Date.now() - 60_000).toISOString();
   stack.db
     .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
-    .run(new Date(Date.now() - 60_000).toISOString(), view.battle.id);
+    .run(past, view.battle.id);
+  stack.db
+    .prepare('UPDATE troop_movements SET departed_at = ?, arrives_at = ? WHERE battle_id = ?')
+    .run(new Date(Date.now() - 120_000).toISOString(), past, view.battle.id);
 
+  settleMovements(stack.app.repos, new Date());
   settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 }
 

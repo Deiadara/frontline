@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { ApiRequestError } from '../../lib/api';
+import { NumberField } from '../../components/ui/NumberField';
 import { cn } from '../../lib/cn';
 
 /**
@@ -193,20 +194,14 @@ function Stepper({
   onChange: (value: number) => void;
 }) {
   return (
-    <input
-      type="number"
+    <NumberField
+      label={label}
       min={min}
       max={max}
-      step={1}
-      inputMode="numeric"
-      aria-label={label}
-      data-testid={testId}
-      disabled={disabled}
       value={value}
-      onChange={(event) =>
-        onChange(Math.max(min, Math.min(max, Math.trunc(Number(event.target.value) || 0))))
-      }
-      className="w-16 border border-surface-600 bg-surface-950 px-2 py-1 font-display text-[12px] tabular-nums text-ink-200 disabled:opacity-40"
+      disabled={disabled}
+      onChange={onChange}
+      data-testid={testId}
     />
   );
 }

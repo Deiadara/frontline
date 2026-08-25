@@ -5,6 +5,7 @@ import { createMarketRepo, type MarketRepo } from './market.js';
 import { createBlackMarketRepo, type BlackMarketRepo } from './blackmarket.js';
 import { createHistoryRepo, type HistoryRepo } from './history.js';
 import { createCityRepo, type CityRepo } from './city.js';
+import { createMovementRepo, type MovementRepo } from './movements.js';
 import { createBattlesRepo, type BattlesRepo } from './battles.js';
 import { createSiegeRepo, type SiegeRepo } from './sieges.js';
 import { createMissionsRepo, type MissionsRepo } from './missions.js';
@@ -24,6 +25,7 @@ export interface Repositories {
   bar: BarRepo;
   /** Who holds the city, and who has seen it (GDD §A4). */
   city: CityRepo;
+  movements: MovementRepo;
   /** The trading board: listings between players. */
   market: MarketRepo;
   /** The back room: slot turnover, receipts, and boosts nobody has spent yet. */
@@ -42,6 +44,7 @@ export function createRepositories(db: AppDatabase): Repositories {
     missions: createMissionsRepo(db),
     bar: createBarRepo(db),
     city: createCityRepo(db),
+    movements: createMovementRepo(db),
     market: createMarketRepo(db),
     blackMarket: createBlackMarketRepo(db),
     history: createHistoryRepo(db),

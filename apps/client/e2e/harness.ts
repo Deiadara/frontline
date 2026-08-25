@@ -17,6 +17,7 @@ import {
   assigneesStart,
   authResponse,
   bar,
+  actionsResponse,
   baseDetail,
   battle,
   battles,
@@ -330,7 +331,39 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       return json({ district: districtDetail, base: meResponse.base ?? baseDetail.base });
     }
     if (pathname.includes('/api/city/')) return json(districtDetail);
+    /*
+     * §A4: the road. `recall` answers with the list minus the column it was given, so a run can
+     * assert the row actually left rather than that the button was clickable.
+     */
+    if (pathname.endsWith('/api/actions')) return json(actionsResponse);
+    if (pathname.endsWith('/api/actions/recall')) {
+      const body = route.request().postDataJSON() as { movementId: string };
+      return json({
+        ...actionsResponse,
+        movements: actionsResponse.movements.filter((one) => one.id !== body.movementId),
+      });
+    }
+
     if (pathname.endsWith('/api/units')) return json(unitsResponse);
+    /*
+     * §A5, and method-aware for the same reason `/api/missions` is: the two writes answer with a
+     * `TrainUnitsResponse`, which is a different shape from the roster, and a handler that served
+     * the roster to a POST would let a client that sent the wrong body pass every run.
+     *
+     * `cancel` answers with the bench minus the order it was given, so a run can assert that the
+     * row actually left rather than that the button was clickable.
+     */
+    if (pathname.endsWith('/api/units/train') || pathname.endsWith('/api/units/cancel')) {
+      const own = session.base ?? baseDetail.base;
+      if (!pathname.endsWith('/api/units/cancel')) {
+        return json({ base: own, queue: unitsResponse.queue });
+      }
+      const body = route.request().postDataJSON() as { orderId: string };
+      return json({
+        base: own,
+        queue: unitsResponse.queue.filter((order) => order.id !== body.orderId),
+      });
+    }
     /*
      * Method-aware, deliberately. Fulfilling `/api/missions` for *any* method served the board
      * payload to a launch too, a shape `LaunchMissionResponseSchema` cannot even parse, so no

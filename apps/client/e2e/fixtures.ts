@@ -46,7 +46,9 @@ import {
   districtPopulationCapacity,
   noTerritoryEffects,
   populationDraw,
+  findUnit,
   supplyUsed,
+  trainingCost,
   describeHoldBonus,
   describeRequirement,
   findDistrict,
@@ -88,6 +90,7 @@ import {
   type BarRecruit,
   type AssigneeOfficer,
   type AssigneesResponse,
+  type ActionsResponse,
   type BarResponse,
   type Base,
   type Commander,
@@ -219,6 +222,8 @@ export const lateGameBase: Base = {
       id: 'tq-1',
       unitId: 'razors',
       count: 6,
+      delivered: 0,
+      paid: trainingCost(findUnit('razors')!, 6),
       startedAt: new Date(Date.parse(NOW) - 30 * 1000).toISOString(),
       durationSeconds: 270,
     },
@@ -368,9 +373,13 @@ export const unitsResponse: UnitsResponse = {
   serverNow: NOW,
   army: base.army,
   garrisoned: { razors: 2 },
+  // §A4: away at a fight, and drawing on the same beds as the two on held ground. Non-empty on
+  // purpose: the card prints a third count for these, and a fixture with none of them would
+  // screenshot a card that cannot show the thing it grew a column for.
+  abroad: { razors: 3 },
   // Derived rather than typed, so the fixture cannot quietly become a crew that is over its own
   // cap, which is a real state, but a misleading one to make the default screenshot of.
-  supplyUsed: supplyUsed(base.army) + supplyUsed({ razors: 2 }),
+  supplyUsed: supplyUsed(base.army) + supplyUsed({ razors: 2 }) + supplyUsed({ razors: 3 }),
   supplyCap:
     districtPopulationCapacity(base.buildings, noTerritoryEffects()) -
     populationDraw({ ...base, army: {}, trainingQueue: [] }).total,
@@ -382,6 +391,11 @@ export const unitsResponse: UnitsResponse = {
       id: 'order-1',
       unitId: 'razors',
       count: 6,
+      delivered: 0,
+      // Recorded, because the bench's Cancel is only offered on an order whose price is known.
+      // 30 seconds into a 270-second batch is past the tenth, so this one is *not* cancellable:
+      // the screenshot state worth pinning is the ordinary one.
+      paid: trainingCost(findUnit('razors')!, 6),
       startedAt: new Date(Date.parse(NOW) - 30 * 1000).toISOString(),
       durationSeconds: 270,
     },
@@ -389,6 +403,8 @@ export const unitsResponse: UnitsResponse = {
       id: 'order-2',
       unitId: 'sparks',
       count: 3,
+      delivered: 0,
+      paid: trainingCost(findUnit('sparks')!, 3),
       startedAt: new Date(Date.parse(NOW) + 240 * 1000).toISOString(),
       durationSeconds: 150,
     },
@@ -1474,4 +1490,46 @@ export const battles: BattlesResponse = {
     blocker: index === 0 ? '' : 'The Lab has not worked this one out yet',
   })),
   serverNow: BOARD_NOW,
+};
+
+/**
+ * §A4: two columns on the road, one still inside its window and one well past it.
+ *
+ * Both states in one fixture, because the whole point of the screen is the difference: a column
+ * that can still be turned around draws a control and one that cannot does not.
+ */
+export const actionsResponse: ActionsResponse = {
+  serverNow: BOARD_NOW,
+  movements: [
+    {
+      id: 'col-1',
+      battleId: 'fight-1',
+      targetName: 'Kessler Press',
+      fromName: 'Neon Docks',
+      toName: 'The Rustyard',
+      side: 'attacker',
+      army: { razors: 14, snipers: 4 },
+      perimeter: { road_reavers: 2 },
+      size: 20,
+      // A minute into a twenty-minute walk: still inside the tenth.
+      departedAt: new Date(Date.parse(BOARD_NOW) - 60_000).toISOString(),
+      arrivesAt: new Date(Date.parse(BOARD_NOW) + 19 * 60_000).toISOString(),
+      recallable: true,
+    },
+    {
+      id: 'col-2',
+      battleId: 'fight-2',
+      targetName: 'The Bonefield',
+      fromName: 'Neon Docks',
+      toName: 'The Rustyard',
+      side: 'defender',
+      army: { breakers: 6 },
+      perimeter: {},
+      size: 6,
+      // Half an hour into a forty-minute walk: far too late to turn round.
+      departedAt: new Date(Date.parse(BOARD_NOW) - 30 * 60_000).toISOString(),
+      arrivesAt: new Date(Date.parse(BOARD_NOW) + 10 * 60_000).toISOString(),
+      recallable: false,
+    },
+  ],
 };

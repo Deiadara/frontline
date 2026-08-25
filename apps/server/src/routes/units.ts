@@ -1,4 +1,5 @@
 import {
+  CancelTrainingRequestSchema,
   TrainUnitsRequestSchema,
   findUnit,
   type Base,
@@ -10,7 +11,13 @@ import { settleFortifications } from '../city/actions.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { projectUnits } from '../units/roster.js';
-import { queueTraining, settleTraining, type TrainingRefusal } from '../units/training.js';
+import {
+  cancelTraining,
+  queueTraining,
+  settleTraining,
+  type CancelRefusal,
+  type TrainingRefusal,
+} from '../units/training.js';
 
 /**
  * The unit roster and the bench (GDD §A5).
@@ -26,6 +33,14 @@ const REFUSAL_ERRORS: Record<TrainingRefusal, { code: ErrorCode; message: string
   already_have_one: { code: 'UNIT_LOCKED', message: 'There is only ever one of those' },
   no_supply: { code: 'NO_SUPPLY', message: 'Your district has nowhere to put any more' },
   cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the cost' },
+};
+
+const CANCEL_ERRORS: Record<CancelRefusal, { code: ErrorCode; message: string }> = {
+  unknown_order: { code: 'NOT_FOUND', message: 'Nothing on the bench by that name' },
+  window_closed: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'The work has started. It is theirs now',
+  },
 };
 
 export function registerUnitRoutes(app: FastifyInstance): void {
@@ -54,6 +69,25 @@ export function registerUnitRoutes(app: FastifyInstance): void {
     )();
     if (result.kind === 'refused') {
       const { code, message } = REFUSAL_ERRORS[result.reason];
+      throw new AppError(code, message);
+    }
+    return { base: result.base, queue: result.base.trainingQueue };
+  });
+
+  /**
+   * §A5: call a batch off inside its window.
+   *
+   * A write like any other, so it settles first: an order whose clock ran out while the page was
+   * open lands in the army on this request and is then correctly not there to cancel.
+   */
+  app.post('/units/cancel', { preHandler: app.authenticate }, (request): TrainUnitsResponse => {
+    const { orderId } = parseBody(CancelTrainingRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(request.currentUser.id, now);
+
+    const result = app.db.transaction(() => cancelTraining(app.repos, base, orderId, now))();
+    if (result.kind === 'refused') {
+      const { code, message } = CANCEL_ERRORS[result.reason];
       throw new AppError(code, message);
     }
     return { base: result.base, queue: result.base.trainingQueue };

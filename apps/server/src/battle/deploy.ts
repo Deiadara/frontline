@@ -9,10 +9,12 @@ import {
   type BattleDeployment,
   type BattleSide,
   type Base,
+  type Movement,
   type ScheduledBattle,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
+import { sendColumn } from './movement.js';
 
 /**
  * Moving people to a fight that has not happened yet (GDD §A4, battle rework).
@@ -56,6 +58,8 @@ export interface DeployOutcome {
   deployment: BattleDeployment;
   /** Bodies the enemy's ring took off a withdrawal. Empty in the ordinary case. */
   lostOnTheWayOut: Army;
+  /** The column that just set out, or null when this call only brought people home. */
+  departed: Movement | null;
 }
 
 export type DeployResult =
@@ -102,15 +106,27 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   let onTheGround = { ...existing.army };
   let ring = { ...existing.perimeter };
   const pulled: Army = {};
+  /*
+   * What is *setting out* rather than what is arriving.
+   *
+   * A positive delta takes the units off the roster here and puts them in a column
+   * (`battle/movement.ts`); they join the deployment when they get there. A negative delta is the
+   * old, immediate withdrawal: those units are already standing on the ground.
+   */
+  const departing = { army: {} as Army, perimeter: {} as Army };
 
-  const move = (changes: Record<string, number>, force: Army): Army | DeployRefusal => {
+  const move = (
+    changes: Record<string, number>,
+    force: Army,
+    outbound: 'army' | 'perimeter',
+  ): Army | DeployRefusal => {
     let next = { ...force };
     for (const [unitId, delta] of Object.entries(changes)) {
       if (delta === 0) continue;
       if (delta > 0) {
         if ((army[unitId] ?? 0) < delta) return 'not_enough_units';
         army = removeForce(army, { [unitId]: delta });
-        next = mergeArmies(next, { [unitId]: delta });
+        departing[outbound] = mergeArmies(departing[outbound], { [unitId]: delta });
       } else {
         const back = Math.min(-delta, next[unitId] ?? 0);
         if (back === 0) continue;
@@ -121,11 +137,11 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     return next;
   };
 
-  const movedArmy = move(input.changes, onTheGround);
+  const movedArmy = move(input.changes, onTheGround, 'army');
   if (typeof movedArmy === 'string') return { kind: 'refused', reason: movedArmy };
   onTheGround = movedArmy;
 
-  const movedRing = move(input.perimeterChanges, ring);
+  const movedRing = move(input.perimeterChanges, ring, 'perimeter');
   if (typeof movedRing === 'string') return { kind: 'refused', reason: movedRing };
   ring = movedRing;
 
@@ -139,6 +155,21 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     army = mergeArmies(army, escaped);
   }
 
+  // On the road. Nothing joins the deployment on this request: `settleMovements` does that when
+  // the column lands, which is what makes sending early a commitment and sending late a gamble.
+  const walking =
+    forceSize(departing.army) + forceSize(departing.perimeter) > 0
+      ? sendColumn(repos, {
+          base,
+          battleId: battle.id,
+          side,
+          toDistrictId: battle.target.districtId,
+          army: departing.army,
+          perimeter: departing.perimeter,
+          now,
+        })
+      : null;
+
   const deployment: BattleDeployment = {
     ...existing,
     baseId: base.id,
@@ -150,7 +181,7 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
 
   const next: Base = { ...base, army };
   repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
-  return { kind: 'ok', base: next, deployment, lostOnTheWayOut };
+  return { kind: 'ok', base: next, deployment, lostOnTheWayOut, departed: walking };
 }
 
 /** Which side of a fight this crew is on, or null when they are watching it. */

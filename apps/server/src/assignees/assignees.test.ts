@@ -1,6 +1,8 @@
 import {
   MISSION_TEMPLATES,
   assigneeBonusPercent,
+  assigneeCapPerOfficer,
+  assigneePool,
   createCommander,
   findMissionTemplate,
   type AssigneesResponse,
@@ -242,6 +244,66 @@ describe('POST /api/assignees/reskill (§G4/§C4)', () => {
       [commander!.id]: 1,
       [professor!.id]: 2,
     });
+  });
+
+  /**
+   * §A1 across §G2 and §G4: two doors onto one arrangement, and only one of them was locked.
+   *
+   * `/place` checks the district's housing after the §G rules, because beds are the district's
+   * limit on top of what the pool entitles you to. `/reskill` writes exactly the same
+   * `assignees.placements` and checked only the pool and the per-officer cap, so a plan the
+   * placement route refuses bed by bed went through whole the moment it was posted as a plan.
+   */
+  it('refuses a plan the district has no beds for, the same as placing them one at a time', async () => {
+    const stack = await makeStack('housed');
+    const [commander, professor] = staff(stack, ['field_commander', 'professor'], 10);
+
+    /*
+     * Make beds the scarce thing rather than the pool or the cap.
+     *
+     * A fresh district houses more than one officer's cap, so a plan big enough to break the
+     * ceiling would break the per-officer rule first and prove nothing about housing. Soldiers
+     * draw on the same pool (§A1), so filling the yard with Razors leaves a district whose only
+     * remaining limit is the one under test.
+     */
+    const before = (await getAssignees(stack)).housing;
+    const room = before.capacity - before.used;
+    const plan = 3;
+    expect(room).toBeGreaterThan(plan);
+    const owned = stack.repos.bases.findById(stack.base.id)!;
+    stack.repos.bases.updateArmy(
+      stack.base.id,
+      { ...owned.army, razors: (owned.army.razors ?? 0) + (room - plan + 1) },
+      owned.trainingQueue,
+    );
+
+    const housing = (await getAssignees(stack)).housing;
+    expect(housing.capacity - housing.used).toBe(plan - 1);
+    // The pool and the per-officer cap both have to allow it, or this proves nothing about beds.
+    expect(plan).toBeLessThanOrEqual(assigneeCapPerOfficer(10));
+    expect(plan).toBeLessThanOrEqual(assigneePool(10));
+
+    // One at a time: refused, and told it is the housing.
+    const placed = await stack.app.inject({
+      method: 'POST',
+      url: '/api/assignees/place',
+      headers: auth(stack.token),
+      payload: { officerId: commander!.id, count: plan },
+    });
+    expect(placed.statusCode).toBe(409);
+    expect(placed.json<{ error: { code: string } }>().error.code).toBe('NO_HOUSING');
+
+    // The same arrangement, posted as a plan.
+    const reskilled = await stack.app.inject({
+      method: 'POST',
+      url: '/api/assignees/reskill',
+      headers: auth(stack.token),
+      payload: { placements: { [commander!.id]: plan } },
+    });
+    expect(reskilled.statusCode).toBe(409);
+    expect(reskilled.json<{ error: { code: string } }>().error.code).toBe('NO_HOUSING');
+    expect(stack.repos.bases.findById(stack.base.id)?.assignees.placements ?? {}).toEqual({});
+    void professor;
   });
 
   it('applies none of an over-pool plan', async () => {

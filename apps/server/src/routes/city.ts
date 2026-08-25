@@ -34,6 +34,11 @@ import { AppError, parseBody, type ErrorCode } from '../errors.js';
 const REFUSAL_ERRORS: Record<CityRefusal, { code: ErrorCode; message: string }> = {
   unscouted: { code: 'DISTRICT_UNSCOUTED', message: 'You have not had eyes on that ground' },
   no_force: { code: 'NO_FORCE', message: 'Send somebody, or do not send anybody' },
+  // §D7, the same refusal the battle board gives for the same reason.
+  needs_infamy: {
+    code: 'NOT_ENOUGH_INFAMY',
+    message: 'They will not stand on your ground for a name like yours',
+  },
   not_enough_units: { code: 'NO_FORCE', message: 'You do not have those units to send' },
   already_held: { code: 'PLACE_UNAVAILABLE', message: 'You already hold it' },
   not_held: { code: 'PLACE_UNAVAILABLE', message: 'You do not hold that' },

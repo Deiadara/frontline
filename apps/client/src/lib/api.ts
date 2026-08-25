@@ -1,5 +1,6 @@
 import {
   ApiErrorSchema,
+  ActionsResponseSchema,
   BattlesResponseSchema,
   BattleMutationResponseSchema,
   type DeclareBattleRequest,
@@ -7,6 +8,7 @@ import {
   type GarrisonStructureRequest,
   type LayTrapRequest,
   type BuyBattleBoostRequest,
+  type RecallColumnRequest,
   AssigneesMutationResponseSchema,
   AssigneesResponseSchema,
   AssignPointResponseSchema,
@@ -46,6 +48,7 @@ import {
   type UpgradeLocationRequest,
   type GarrisonRequest,
   type ScoutRequest,
+  type CancelTrainingRequest,
   type TrainUnitsRequest,
   type BuildStructureRequest,
   type RenameFactionRequest,
@@ -190,10 +193,18 @@ export const buyBattleBoost = (body: BuyBattleBoostRequest) =>
 export const upgradeNotoriety = () =>
   apiFetch('/battles/notoriety', BattleMutationResponseSchema, jsonBody({}));
 
+export const getActions = () => apiFetch('/actions', ActionsResponseSchema);
+
+export const recallColumn = (body: RecallColumnRequest) =>
+  apiFetch('/actions/recall', ActionsResponseSchema, jsonBody(body));
+
 export const getUnits = () => apiFetch('/units', UnitsResponseSchema);
 
 export const trainUnits = (body: TrainUnitsRequest) =>
   apiFetch('/units/train', TrainUnitsResponseSchema, jsonBody(body));
+
+export const cancelTraining = (body: CancelTrainingRequest) =>
+  apiFetch('/units/cancel', TrainUnitsResponseSchema, jsonBody(body));
 
 export const getMissions = () => apiFetch('/missions', MissionsResponseSchema);
 
