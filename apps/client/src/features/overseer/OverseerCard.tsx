@@ -46,7 +46,7 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
             {preset.traits.map((traitId) => (
               <span
                 key={traitId}
-                title={TRAIT_CATALOG[traitId].description}
+                data-tip={TRAIT_CATALOG[traitId].description}
                 className="border border-warning/40 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.15em] text-warning"
               >
                 {TRAIT_CATALOG[traitId].name}
@@ -60,7 +60,9 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
       </div>
 
       <div className="border-t border-surface-700 px-2 py-1.5">
-        <AttributeSheet attributes={preset.attributes} />
+        {/* Four groups and no bars: this card is a thumbnail a player compares four of at once, and
+            at 488px a bar costs the width `Communication` needs. See `AttributeSheet`. */}
+        <AttributeSheet attributes={preset.attributes} columns={4} bars={false} />
       </div>
     </button>
   );

@@ -1,22 +1,26 @@
 import {
-  MAX_BUILDING_GARRISONS,
+  canAfford,
   type BattleBoostOption,
   type BattleReportView,
   type BattleView,
   type BattlesResponse,
   type StructureDefence,
+  type Resources,
 } from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
+import { PanelSection } from '../../components/ui/PanelSection';
+import { FortifyMeter } from '../../components/ui/FortifyMeter';
+import { CostLine } from '../../components/Resources';
 import { cn } from '../../lib/cn';
 import {
   useBattles,
   useBuyBattleBoost,
   useDeployToBattle,
-  useGarrisonStructure,
+  useFortifyStructure,
   useMe,
 } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
@@ -59,6 +63,16 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'ground', label: 'Your ground' },
 ];
 
+/** An empty stockpile, for the frame before `me` has landed. Nothing is affordable against it. */
+const NOTHING_IN_STORE: Resources = {
+  caps: 0,
+  food: 0,
+  oil: 0,
+  scrap: 0,
+  highQualityMetal: 0,
+  planks: 0,
+};
+
 export function BattlePage() {
   const battles = useBattles();
   const me = useMe();
@@ -72,6 +86,10 @@ export function BattlePage() {
   const data = battles.data;
   const army = me.data?.base?.army ?? {};
   const notoriety = me.data?.base?.economy.notoriety ?? 0;
+  // The stockpile the Gate's dig is priced against. Read off `me` rather than added to the board's
+  // own payload: every battle write already folds its post-write crew into that cache, so this is
+  // the same number the HUD is showing and it lands without a second round trip.
+  const resources = me.data?.base?.resources ?? NOTHING_IN_STORE;
 
   // The fight the detail is showing. Falls back to the first one so the page never opens on an
   // empty right-hand column with a full list beside it.
@@ -124,7 +142,7 @@ export function BattlePage() {
             ))}
 
           {tab === 'reports' && <Reports reports={data.reports} onRead={setReading} />}
-          {tab === 'ground' && <Defences structures={data.structures} />}
+          {tab === 'ground' && <Defences structures={data.structures} resources={resources} />}
         </div>
       )}
 
@@ -447,80 +465,84 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
 
   return (
     <Panel title="What a name buys">
-      <div className="flex flex-col gap-3 p-4" data-testid="name-buys">
-        {bought ? (
-          <div
-            className="border border-brass-300/60 bg-brass-300/10 p-2.5"
-            data-testid="boost-bought"
-          >
-            <p className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
-              {bought.name}
+      <div className="flex flex-col gap-2.5 p-4" data-testid="name-buys">
+        <PanelSection
+          label="Running"
+          note={bought ? undefined : 'One per fight, paid the moment you take it'}
+          data-testid="boost-bought"
+        >
+          {bought ? (
+            <>
+              <p className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
+                {bought.name}
+              </p>
+              <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
+                {bought.effect} · reaching {bought.reach}% of what you sent
+              </p>
+            </>
+          ) : (
+            <p className="font-body text-[12px] leading-relaxed text-ink-300">
+              Nothing taken. Changing your mind later costs the name twice.
             </p>
-            <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
-              {bought.effect} · reaching {bought.reach}% of what you sent
-            </p>
+          )}
+        </PanelSection>
+
+        <PanelSection
+          label="On the table"
+          note={blocked ?? `You have ${infamy} infamy`}
+          action={
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={choice === null || blocked !== null || buy.isPending}
+              onClick={() =>
+                choice &&
+                buy.mutate(
+                  { battleId: view.battle.id, boostId: choice.id },
+                  { onSuccess: () => setPicked('') },
+                )
+              }
+              data-testid="buy-boost"
+            >
+              Burn the name
+            </Button>
+          }
+        >
+          <div className="flex flex-col gap-2.5">
+            <Dropdown
+              label="Boost"
+              placeholder={bought ? 'Take a different one' : 'Choose a boost'}
+              value={picked}
+              disabled={shut}
+              options={view.boosts.map((option) => ({
+                value: option.id,
+                label: option.name,
+                hint: hintFor(option),
+                disabled: !option.available || !option.affordable,
+              }))}
+              onChange={setPicked}
+              data-testid="boost-picker"
+            />
+            {choice && (
+              <div className="rounded-sm border border-surface-700 bg-surface-950/60 p-2.5">
+                <p className="font-body text-[12px] leading-relaxed text-ink-100">
+                  {choice.description}
+                </p>
+                <p className="mt-1.5 font-display text-[11px] uppercase tracking-[0.14em] text-brass-300">
+                  {choice.effect}
+                </p>
+                <p className="mt-0.5 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
+                  {choice.cost} infamy · reaches {choice.reach}% of your force
+                </p>
+              </div>
+            )}
           </div>
-        ) : (
-          <p className="font-body text-[12px] leading-relaxed text-ink-300">
-            One per fight. It is paid the moment you take it, and changing your mind costs the name
-            twice.
-          </p>
-        )}
-
-        <Dropdown
-          label="Boost"
-          placeholder={bought ? 'Take a different one' : 'Choose a boost'}
-          value={picked}
-          disabled={shut}
-          options={view.boosts.map((option) => ({
-            value: option.id,
-            label: option.name,
-            hint: hintFor(option),
-            disabled: !option.available || !option.affordable,
-          }))}
-          onChange={setPicked}
-          data-testid="boost-picker"
-        />
-
-        {choice && (
-          <div className="border border-surface-700 bg-surface-950/60 p-2.5">
-            <p className="font-body text-[12px] leading-relaxed text-ink-100">
-              {choice.description}
-            </p>
-            <p className="mt-1.5 font-display text-[11px] uppercase tracking-[0.14em] text-brass-300">
-              {choice.effect}
-            </p>
-            <p className="mt-0.5 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-              {choice.cost} infamy · reaches {choice.reach}% of your force
-            </p>
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            variant="danger"
-            disabled={choice === null || blocked !== null || buy.isPending}
-            onClick={() =>
-              choice &&
-              buy.mutate(
-                { battleId: view.battle.id, boostId: choice.id },
-                { onSuccess: () => setPicked('') },
-              )
-            }
-            data-testid="buy-boost"
-          >
-            Burn the name
-          </Button>
-          <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-            {blocked ?? `You have ${infamy}`}
-          </span>
-        </div>
+        </PanelSection>
       </div>
     </Panel>
   );
 }
 
-/** The line under the option: price, reach, and why it is out of reach when it is. */
 function hintFor(option: BattleBoostOption): string {
   if (!option.available) return option.source || 'Nobody has put this on the table';
   const reach = option.reach === 0 ? 'reaches nothing you sent' : `reaches ${option.reach}%`;
@@ -584,51 +606,94 @@ function Reports({
   );
 }
 
-/** Your own ground: what is standing, how badly it has been hit, and who is watching it. */
-function Defences({ structures }: { structures: readonly StructureDefence[] }) {
-  const garrison = useGarrisonStructure();
+/** Your own ground: the way in, and what is standing behind it. */
+function Defences({
+  structures,
+  resources,
+}: {
+  structures: readonly StructureDefence[];
+  resources: Resources;
+}) {
+  const fortify = useFortifyStructure();
+  const gate = structures.find((structure) => structure.kind === 'gate') ?? null;
+  const rest = structures.filter((structure) => structure.kind !== 'gate');
+
   return (
     <Panel title="Your ground">
-      <div className="flex flex-col gap-2 p-4" data-testid="structures">
-        <p className="font-body text-[12px] leading-relaxed text-ink-300">
-          Watchers make a building harder to break into, three sets to a building. What gets in
-          leaves damage, and a damaged building does as little as half its job until it is built up
-          a level.
-        </p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {structures.map((structure) => (
-            <div
-              key={structure.buildingId}
-              data-testid={`structure-${structure.kind}`}
-              className="flex items-center justify-between gap-3 border border-surface-700 bg-surface-950/50 p-2"
-            >
-              <span className="min-w-0">
-                <span className="block truncate font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
-                  {structure.label} {structure.level}
+      <div className="flex flex-col gap-2.5 p-4" data-testid="structures">
+        <PanelSection
+          label="The way in"
+          note="Digging the Gate in is the one defence you buy with materials"
+          data-testid="gate-defence"
+          action={
+            gate?.nextFortify ? (
+              <Button
+                size="sm"
+                disabled={fortify.isPending || !canAfford(resources, gate.nextFortify.cost)}
+                onClick={() => fortify.mutate({ buildingId: gate.buildingId })}
+                data-testid="fortify-gate"
+              >
+                {fortify.isPending ? 'Digging…' : `Dig in to ${gate.nextFortify.level}`}
+              </Button>
+            ) : undefined
+          }
+        >
+          {gate === null ? (
+            <p className="font-body text-[12px] leading-relaxed text-ink-300">
+              You have no Gate. Raise one in the district and it becomes the thing an attacker has
+              to get through.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <FortifyMeter level={gate.fortification} percent={gate.fortifyPercent} />
+                <span className="font-body text-[11px] text-ink-300">
+                  {gate.damage > 0
+                    ? `Wrecked ${Math.round(gate.damage)}% · running at ${Math.round(gate.effectiveness * 100)}%`
+                    : `Gate ${gate.level} · intact`}
                 </span>
-                <span className="block font-body text-[11px] text-ink-300">
-                  {structure.damage > 0
-                    ? `Wrecked ${Math.round(structure.damage)}% · running at ${Math.round(structure.effectiveness * 100)}%`
-                    : 'Intact'}
+              </div>
+              {gate.nextFortify ? (
+                <div className="flex flex-col gap-1.5">
+                  <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+                    Level {gate.nextFortify.level} takes it to +{gate.nextFortify.bonusPercent}%
+                  </span>
+                  <CostLine cost={gate.nextFortify.cost} stock={resources} />
+                </div>
+              ) : (
+                <span className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300">
+                  As dug in as it goes
                 </span>
-              </span>
-              <span className="flex shrink-0 items-center gap-2">
-                <span className="font-display text-[11px] tabular-nums text-brass-300">
-                  {structure.garrisons} / {MAX_BUILDING_GARRISONS}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={garrison.isPending || structure.garrisons >= MAX_BUILDING_GARRISONS}
-                  onClick={() => garrison.mutate({ buildingId: structure.buildingId, delta: 1 })}
-                  data-testid={`watch-${structure.kind}`}
-                >
-                  Watch
-                </Button>
-              </span>
+              )}
             </div>
-          ))}
-        </div>
+          )}
+        </PanelSection>
+
+        <PanelSection
+          label="What is standing"
+          note="A wrecked building does as little as half its job"
+        >
+          <div className="grid gap-2 sm:grid-cols-2">
+            {rest.map((structure) => (
+              <div
+                key={structure.buildingId}
+                data-testid={`structure-${structure.kind}`}
+                className="flex items-center justify-between gap-3 rounded-sm border border-surface-700 bg-surface-950/50 p-2"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
+                    {structure.label} {structure.level}
+                  </span>
+                  <span className="block font-body text-[11px] text-ink-300">
+                    {structure.damage > 0
+                      ? `Wrecked ${Math.round(structure.damage)}% · running at ${Math.round(structure.effectiveness * 100)}%`
+                      : 'Intact'}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </PanelSection>
       </div>
     </Panel>
   );

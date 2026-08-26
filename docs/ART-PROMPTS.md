@@ -607,6 +607,7 @@ central seventy percent. Consistent implied light from upper-left across the who
 | `icon-oil`                | `160003` | `SUBJECT: A squat riveted fuel drum with a hand-cranked spigot, a black bead swelling at the nozzle and a thin slick pooling beneath it, seams weeping rust, cyan #22d3ee iridescence riding the surface of the slick.`       |
 | `icon-scrap`              | `160004` | `SUBJECT: A bundle of salvaged offcuts wired together at the middle, bent rebar, a torn hull plate, a coiled length of stripped cable, cold #94a3b8 light along the freshly broken edges, dull and powdery everywhere else.`  |
 | `icon-high-quality-metal` | `160005` | `SUBJECT: Three stacked machined ingots with clean milled faces and a cast foundry stamp still legible on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to show bright grain.`        |
+| `icon-planks`             | `160006` | `SUBJECT: A short stack of sawn boards bound with wire, ends rough-cut and splintered, one board warped away from the others, weathered grey timber with warm tan #b98a52 showing where the saw went through.`                |
 
 ### 6.2 Archetype icons: ids match `OverseerArchetype`
 
@@ -720,7 +721,10 @@ Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
 | `unit-the-abomination`  | The Abomination  | Legendary   | `145024` |
 | `unit-the-colossus`     | The Colossus     | Legendary   | `145025` |
 | `unit-the-saint`        | The Saint        | Legendary   | `145026` |
-| `unit-the-cartographer` | The Cartographer | Legendary   | `145027` |
+| `unit-the-cartographer` | The Cartographer | Legendary   | `145029` |
+| `unit-the-twins`        | The Twins        | Legendary   | `145030` |
+| `unit-scavengers`       | Scavengers       | Support     | `145031` |
+| `unit-haulers`          | Haulers          | Support     | `145032` |
 
 ### 7.1 `unit-razors`
 
@@ -900,6 +904,18 @@ SUBJECT: A traveller in a layered dust coat hung with rolled charts, a brass sig
 
 ```
 SUBJECT: A riveted automaton standing square in a workshop, one torso carrying two bald heads set back to back, so one face is toward the viewer and the other is turned away. Plate over a leather harness, long jointed hands hanging open, no weapon anywhere on it. Warm bulb light from two hanging lamps, drawings pinned on the wall behind.
+```
+
+### 7.31 `unit-scavengers`
+
+```
+SUBJECT: A wiry salvager in a patched coat with a canvas satchel across the chest and a coil of copper wire over one shoulder. Fingerless gloves black to the second knuckle, a headlamp pushed up onto the forehead, a short pry bar hanging from the belt where a weapon would be on anybody else. Reading a wall rather than watching a door.
+```
+
+### 7.32 `unit-haulers`
+
+```
+SUBJECT: A broad-shouldered porter in a leather harness braced against the weight of a loaded barrow, the strap worn shiny across one shoulder. Boots wrapped against the wet, a folded tarpaulin lashed over the load, both hands on the shafts. Nothing on them that could be called a weapon.
 ```
 
 ## 8. Consistency protocol

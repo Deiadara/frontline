@@ -1,68 +1,43 @@
-import { clampMeter, type Meter } from '../economy/meters.js';
-import { buildingEffectiveness, garrisonDefensePercent } from './damage.js';
+import { buildingEffectiveness, gateFortifyPercent } from './damage.js';
 import { districtEffects, MAX_EFFECT_REDUCTION } from './effects.js';
-import { powerGrid } from './power.js';
 import { buildingLevel, findBuilding, type Building } from './state.js';
 
 /**
  * What the district is worth to the crew standing in it (§A1).
  *
- * Six structures reach the crew through this module: the Quarters and the Generator set what morale
- * settles at, the Gate sets what a raider has to beat, the Lab shortens research, the Gauntlet pays
- * officers more for the same work, and the Infirmary takes the edge off a bad week. Five of them do
- * their *whole* job here: the Quarters is the exception, because it also houses people, and that
- * is `population.ts`. Everything else is one exported function, so "what does the Infirmary actually
- * do" has exactly one answer.
+ * Four structures reach the crew through this module: the Quarters sets how many names the payroll
+ * book can carry, the Gate sets what a raider has to beat, the Lab shortens research, and the
+ * Gauntlet pays officers more for the same work. Three of them do their *whole* job here: the
+ * Quarters is the exception, because it also houses people, and that is `population.ts`. Everything
+ * else is one exported function, so "what does the Gate actually do" has exactly one answer.
  */
 
-// --- morale (§D4): a level the district holds, not an event ---
+// --- the payroll book (§H7): how many names the district can carry ---
 
 /**
- * Morale is modelled as a **target the district drifts towards**, not as a number structures add
- * to.
+ * Percentage points the district adds to the payroll ceiling.
  *
- * This is the difference between a mechanic and a rounding error. A flat bonus applied per
- * settlement would pay a player for refreshing the page, and a per-hour trickle would pay them for
- * staying away; drifting towards a target is frequency-independent: the same elapsed time gives
- * the same answer however many times it was read along the way.
+ * The Quarters is what this hangs off, and the reasoning is the same one that used to hang morale
+ * there: an officer's fee is mostly what it costs them to live where you have put them, so a
+ * district with beds, water and clean air is a district that can carry more names on the same
+ * caps. `payroll_percent` modifications add to it.
  *
- * Events still move morale directly: a mission comes home (`MISSION_MORALE_DELTA`), a payday is
- * missed (`moralePenaltyFor`). The drift is what pulls the meter back towards whatever the district
- * can actually sustain, which is what the Quarters is buying.
+ * A percentage rather than a flat figure, because the base ceiling grows with the Nexus and a flat
+ * bonus would be the whole book early and a rounding error later.
  */
-export const BASE_MORALE_TARGET = 55;
-export const MORALE_PER_QUARTERS_LEVEL = 2;
-/** Lit, warm and with power to spare. */
-export const POWER_SURPLUS_MORALE = 6;
-/** Cold and dark, scaled by how far short the grid is falling. */
-export const BROWNOUT_MORALE = -20;
-/** Half the gap between morale and its target closes every this many hours. */
-export const MORALE_HALF_LIFE_HOURS = 12;
+export const PAYROLL_PERCENT_PER_QUARTERS_LEVEL = 2;
 
-/** Where this district's morale settles if nothing else happens to it. */
-export function moraleTarget(buildings: readonly Building[]): Meter {
+export function payrollBonusPercent(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  const grid = powerGrid(buildings);
-  const power = grid.brownout ? BROWNOUT_MORALE * (1 - grid.ratio) : POWER_SURPLUS_MORALE;
-
-  return clampMeter(
-    BASE_MORALE_TARGET +
-      buildingLevel(buildings, 'quarters') * MORALE_PER_QUARTERS_LEVEL +
-      effects.morale_flat +
-      power,
+  return (
+    buildingLevel(buildings, 'quarters') * PAYROLL_PERCENT_PER_QUARTERS_LEVEL +
+    effects.payroll_percent
   );
 }
 
-/**
- * `current` moved `hours` towards `target` on an exponential approach.
- *
- * Exponential rather than linear so it cannot overshoot: the gap is always multiplied by a positive
- * fraction, so morale approaches the target from whichever side it started on and never crosses it.
- */
-export function driftMorale(current: Meter, target: Meter, hours: number): Meter {
-  if (hours <= 0) return current;
-  const gapKept = 0.5 ** (hours / MORALE_HALF_LIFE_HOURS);
-  return clampMeter(target + (current - target) * gapKept);
+/** Percentage points the district adds to every faction XP award (§I1). */
+export function factionXpBonus(buildings: readonly Building[]): number {
+  return districtEffects(buildings).faction_xp_percent;
 }
 
 // --- the Gate (§A1: protection from raids) ---
@@ -85,9 +60,8 @@ export function districtDefense(buildings: readonly Building[]): number {
     buildingLevel(buildings, 'gate') *
     DEFENSE_PER_GATE_LEVEL *
     buildingEffectiveness(findBuilding(buildings, 'gate'));
-  // §A4: people stationed inside the structures themselves, up to three per structure. The one
-  // defence that costs bodies rather than materials.
-  return Math.round(gate * (1 + effects.defense_percent / 100) + garrisonDefensePercent(buildings));
+  // §A4: and how far the Gate itself has been dug in, which is materials rather than bodies.
+  return Math.round(gate * (1 + effects.defense_percent / 100) + gateFortifyPercent(buildings));
 }
 
 // --- the Lab, the Gauntlet, the Infirmary and the haul ---
@@ -114,16 +88,18 @@ export function characterXpBonus(buildings: readonly Building[]): number {
   );
 }
 
-/** Percentage points the Infirmary takes off a missed payday or a starved week (§D4). */
-export const HARDSHIP_PER_INFIRMARY_LEVEL = 2;
+/**
+ * §A1: the share of a winning force's casualties the Infirmary gets back on their feet.
+ *
+ * The structure's whole job now that morale is gone. It used to soften a missed payday, which was
+ * a meter nobody could see; this is the same idea pointed at the thing a player actually loses
+ * when a fight goes badly. Folded in beside the crew's own medics (`casualtyRecoveryPercent`),
+ * which is why it is a percentage rather than a count.
+ */
+export const CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL = 1.5;
 
-export function hardshipReduction(buildings: readonly Building[]): number {
-  const effects = districtEffects(buildings);
-  return Math.min(
-    MAX_EFFECT_REDUCTION,
-    buildingLevel(buildings, 'infirmary') * HARDSHIP_PER_INFIRMARY_LEVEL +
-      effects.hardship_reduction,
-  );
+export function infirmaryRecoveryPercent(buildings: readonly Building[]): number {
+  return buildingLevel(buildings, 'infirmary') * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
 }
 
 /** Percentage points on what a won raid brings home. Modifications only: no structure grants it. */

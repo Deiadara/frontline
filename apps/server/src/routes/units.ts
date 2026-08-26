@@ -1,7 +1,11 @@
 import {
   CancelTrainingRequestSchema,
+  FitSlotRequestSchema,
   TrainUnitsRequestSchema,
   findUnit,
+  slotRefusal,
+  withSlot,
+  type SlotRefusal,
   type Base,
   type TrainUnitsResponse,
   type UnitsResponse,
@@ -33,6 +37,14 @@ const REFUSAL_ERRORS: Record<TrainingRefusal, { code: ErrorCode; message: string
   already_have_one: { code: 'UNIT_LOCKED', message: 'There is only ever one of those' },
   no_supply: { code: 'NO_SUPPLY', message: 'Your district has nowhere to put any more' },
   cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the cost' },
+};
+
+const SLOT_ERRORS: Record<SlotRefusal, { code: ErrorCode; message: string }> = {
+  bad_slot: { code: 'NOT_FOUND', message: 'There is no bracket there' },
+  unknown_upgrade: { code: 'NOT_FOUND', message: 'No such upgrade' },
+  not_built: { code: 'WORKSHOP_REFUSED', message: 'The workshop has not built that yet' },
+  already_slotted: { code: 'WORKSHOP_REFUSED', message: 'That is already on this unit' },
+  already_empty: { code: 'WORKSHOP_REFUSED', message: 'That bracket is already empty' },
 };
 
 const CANCEL_ERRORS: Record<CancelRefusal, { code: ErrorCode; message: string }> = {
@@ -91,5 +103,36 @@ export function registerUnitRoutes(app: FastifyInstance): void {
       throw new AppError(code, message);
     }
     return { base: result.base, queue: result.base.trainingQueue };
+  });
+
+  /**
+   * §A5: put one of the crew's built upgrades in one of a unit's three brackets, or empty it.
+   *
+   * Free and instant, both on purpose. The workshop already charged for the upgrade; charging
+   * again to move it between units would make the choice something a player avoids making rather
+   * than something they play with, and a refit timer on a decision this small is a wait with
+   * nothing on the other side of it.
+   *
+   * Returns the whole roster because every sheet on the page is folded at read time: change a
+   * bracket and the stats under it change with it.
+   */
+  app.post('/units/loadout', { preHandler: app.authenticate }, (request): UnitsResponse => {
+    const { unitId, slot, upgradeId } = parseBody(FitSlotRequestSchema, request.body);
+    const now = new Date();
+
+    return app.db.transaction(() => {
+      const base = settled(request.currentUser.id, now);
+      if (!findUnit(unitId)) throw new AppError('NOT_FOUND', 'No such unit');
+
+      const refusal = slotRefusal(base.unitLoadouts, unitId, slot, upgradeId, base.fittedUpgrades);
+      if (refusal !== null) {
+        const { code, message } = SLOT_ERRORS[refusal];
+        throw new AppError(code, message);
+      }
+
+      const loadouts = withSlot(base.unitLoadouts, unitId, slot, upgradeId);
+      app.repos.bases.updateUnitLoadouts(base.id, loadouts);
+      return projectUnits(app.repos, { ...base, unitLoadouts: loadouts }, now);
+    })();
   });
 }

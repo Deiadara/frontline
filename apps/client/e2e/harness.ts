@@ -1,7 +1,7 @@
 import {
   createCommander,
   negotiate,
-  negotiateWage,
+  reservationWage,
   negotiationLine,
   notorietyUpgradeCost,
   openNegotiation,
@@ -323,6 +323,7 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     if (
       pathname.endsWith('/api/city/scout') ||
       pathname.endsWith('/api/city/garrison') ||
+      pathname.endsWith('/api/battles/fortify') ||
       pathname.endsWith('/api/city/fortify') ||
       // §A4: working a location up. Without a line here it fell through to the district read
       // below and answered a POST with a district, which is a 200 that changes nothing.
@@ -417,8 +418,8 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
      * and see nothing happen: exactly as a player did. A route the app calls and the fixture does
      * not answer is a hole in the contract, not a missing convenience.
      *
-     * The wage rule is the real one: `negotiateWage` is the same shared function the server hires
-     * through, so an offer this fixture accepts is one the server would accept too.
+     * The fee rule is the real one: `reservationWage` is the same shared function `/bar/hire`
+     * gates on, so an offer this fixture accepts is one the server would accept too.
      */
     if (pathname.endsWith('/api/bar/hire')) {
       const body = route.request().postDataJSON() as {
@@ -430,22 +431,20 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       if (!recruit || recruit.askingWage === null) {
         return json({ error: { code: 'NOT_FOUND', message: 'They have left' } }, 404);
       }
-      const outcome = negotiateWage(body.offerWage, recruit.askingWage);
-      if (!outcome.accepted) {
-        return json({
-          accepted: false,
-          wage: outcome.wage,
-          officer: null,
-          firstPayment: 0,
-          resources: null,
-        });
+      const floor = reservationWage(recruit.askingWage);
+      if (body.offerWage < floor) {
+        return json({ accepted: false, wage: floor, officer: null, payroll: null });
       }
+      const committed = bar.payroll.committed + body.offerWage;
       return json({
         accepted: true,
-        wage: outcome.wage,
+        wage: body.offerWage,
         officer: hiredOfficer(recruit, body.role),
-        firstPayment: Math.round(outcome.wage / 2),
-        resources: meResponse.base?.resources ?? null,
+        payroll: {
+          ...bar.payroll,
+          committed,
+          available: Math.max(0, bar.payroll.capacity - committed),
+        },
       });
     }
     if (pathname.endsWith('/api/bar')) return json(bar);

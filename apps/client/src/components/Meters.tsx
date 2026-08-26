@@ -1,123 +1,85 @@
 import {
-  METER_MAX,
   NOTORIETY_BLURBS,
-  REPUTATION_LABEL_SPECS,
   notorietyTier,
   notorietyUpgradeCost,
   nextNotorietyTier,
   type EconomyState,
-  type ReputationLabel,
 } from '@frontline/shared';
-import { cn } from '../lib/cn';
 import { useUpgradeNotoriety } from '../lib/queries';
 import { HoverCard } from './ui/HoverCard';
 import { InfoWindow, WindowSection } from './ui/InfoWindow';
 import { Icon } from './ui/Icon';
 import { Button } from './ui/Button';
 
-type MeterKind = 'morale' | 'infamy';
+/**
+ * §I: the faction's own level, and how far into the next one the crew is.
+ *
+ * This took district morale's place in the standing bar, and the swap is the point. Morale was a
+ * meter that drifted on its own towards a number the player could not aim at, so a glance at it
+ * told them nothing they could act on. A level is the opposite: it only ever goes up, everything
+ * they do moves it, and what it unlocks is written down. Blue, because it is the one standing in
+ * the bar that is *earned* rather than judged: the brass is what you own and the oxblood is what
+ * the street thinks of you.
+ *
+ * The card is Hero Zero's arrangement and it is the right one: the level as the headline, the bar
+ * under it, and the exact figures, `1,240 / 2,100`, spelled out rather than left as a proportion.
+ */
+export function FactionLevelChip({
+  level,
+  xpIntoLevel,
+  xpToNextLevel,
+}: {
+  level: number;
+  xpIntoLevel: number;
+  xpToNextLevel: number;
+}) {
+  const pct =
+    xpToNextLevel > 0 ? Math.max(0, Math.min(100, (xpIntoLevel / xpToNextLevel) * 100)) : 0;
+  const remaining = Math.max(0, xpToNextLevel - xpIntoLevel);
 
-/** GDD §D4 morale and §D7 infamy. Infamy is notoriety, not virtue, so it reads hostile. */
-const METER_META: Record<MeterKind, { label: string; fill: string; text: string }> = {
-  morale: { label: 'Morale', fill: 'bg-bile-300', text: 'text-bile-300' },
-  infamy: { label: 'Infamy', fill: 'bg-oxblood-300', text: 'text-oxblood-300' },
-};
-
-interface MeterChipProps {
-  kind: MeterKind;
-  /** Morale is 0..100. Infamy is a running point total with no ceiling at all (§D7). */
-  value: number;
-  /**
-   * What the bar fills towards.
-   *
-   * Morale is the only meter with a top of its own. Infamy is a wallet, so the caller supplies the
-   * one figure that makes a bar mean anything for it: the price of the next rung on the ladder.
-   */
-  ceiling?: number;
-  /** What follows the figure. Morale is `/ 100`; infamy is `points`. */
-  denominator?: string;
-}
-
-/** Compact 0..100 meter for the HUD strip. */
-/** What each meter is, in the player's words. Shown on hover: see `ReputationChip`. */
-const METER_EXPLAINER: Record<MeterKind, string> = {
-  morale:
-    'How the crew feels about working for you. It does not jump when you do something. It drifts towards whatever the district can actually sustain: power, beds, and a payday that lands when you said it would.',
-  infamy:
-    'How loudly the city knows your name, as a running total that has no top. Everything you kill adds to it, and taking ground off the Combine adds more. Nothing takes it away except you spending it.',
-};
-
-/** The concrete levers behind each meter, so the window teaches rather than describes. */
-const METER_DRIVERS: Record<MeterKind, readonly string[]> = {
-  morale: [
-    'Beds in the Quarters, and power to run them',
-    'A payday that lands on time, and food in the store',
-    'The Infirmary, which takes the edge off a bad week',
-  ],
-  infamy: [
-    'Every unit you kill, priced by what it was',
-    'Taking ground, and more of it off the Combine',
-    'It gates who signs with you, what the workshop will fit, and what you may field',
-  ],
-};
-
-export function MeterChip({
-  kind,
-  value,
-  ceiling = METER_MAX,
-  denominator = `/ ${METER_MAX}`,
-}: MeterChipProps) {
-  const meta = METER_META[kind];
-  const pct = ceiling > 0 ? Math.max(0, Math.min(100, (value / ceiling) * 100)) : 100;
-  const reading =
-    kind === 'infamy'
-      ? `${meta.label}: ${Math.round(value)} points`
-      : `${meta.label}: ${Math.round(value)} of ${METER_MAX}`;
   return (
     <HoverCard
-      data-testid={`meter-hover-${kind}`}
-      label={reading}
+      data-testid="level-hover"
+      label={`Faction level ${level}`}
       size="window"
       card={
         <InfoWindow
-          eyebrow="Standing"
-          title={meta.label}
-          tone={kind === 'infamy' ? 'oxblood' : 'brass'}
+          eyebrow="Your faction"
+          title={`Level ${level}`}
+          tone="hextech"
           icon={
-            <span className={cn('block h-full w-full [&_svg]:h-full [&_svg]:w-full', meta.text)}>
-              <Icon name={kind === 'morale' ? 'morale' : 'infamy'} />
+            <span className="block h-full w-full text-hextech-100 [&_svg]:h-full [&_svg]:w-full">
+              <Icon name="level" />
             </span>
           }
           figure={
             <span className="flex items-baseline gap-2">
-              <span className={cn('font-display text-2xl font-bold tabular-nums', meta.text)}>
-                {Math.round(value)}
+              <span className="font-display text-2xl font-bold tabular-nums text-hextech-100">
+                {xpIntoLevel.toLocaleString()}
               </span>
               <span className="font-display text-base tabular-nums text-ink-300">
-                {denominator}
+                / {xpToNextLevel.toLocaleString()} XP
               </span>
             </span>
           }
         >
           <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950/80">
-            <span
-              className={cn('block h-full rounded-sm', meta.fill)}
-              style={{ width: `${pct}%` }}
-            />
+            <span className="block h-full rounded-sm bg-hextech-100" style={{ width: `${pct}%` }} />
           </span>
           <p className="font-body text-[14px] leading-relaxed text-ink-100">
-            {METER_EXPLAINER[kind]}
+            {remaining.toLocaleString()} XP to level {level + 1}. Every level widens what the crew
+            may hold: another recruit slot, another structure, another thing the workshop will fit.
           </p>
-          <WindowSection label="What moves it">
+          <WindowSection label="What pays it">
             <ul className="flex flex-col gap-0.5">
-              {METER_DRIVERS[kind].map((driver) => (
+              {LEVEL_DRIVERS.map((driver) => (
                 <li
                   key={driver}
                   className="flex gap-2 font-body text-[13px] leading-snug text-ink-100"
                 >
                   <span
                     aria-hidden
-                    className={cn('mt-[7px] h-1 w-1 shrink-0 rounded-full', meta.fill)}
+                    className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-hextech-100"
                   />
                   {driver}
                 </li>
@@ -128,47 +90,40 @@ export function MeterChip({
       }
     >
       <div
-        className="edge-lit flex shrink-0 items-center gap-1.5 rounded-sm border border-surface-600/80 bg-surface-800/80 px-1.5 py-1"
-        data-testid={`meter-chip-${kind}`}
+        className="resource-chip flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1"
+        data-testid="level-chip"
       >
-        {/* Same tile the stockpile chips use, for the same reason: a glyph on the panel's own
-            colour is the least legible thing in the bar. */}
         <span
           aria-hidden
-          className={cn(
-            'icon-tile flex h-12 w-12 shrink-0 items-center justify-center rounded-sm',
-            '[&_svg]:h-11 [&_svg]:w-11',
-            meta.text,
-          )}
+          className="resource-well flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-hextech-100 [&_svg]:h-10 [&_svg]:w-10"
         >
-          <Icon name={kind === 'morale' ? 'morale' : 'infamy'} />
+          <Icon name="level" />
         </span>
-        {/* The word, and under it a bar only as wide as the word.
-            The bar used to be a fixed 40-56px sitting *beside* the label, which is 50px of a
-            standing bar that already has the same number written next to it in full contrast.
-            Doubling the glyphs had to come out of somewhere, and a duplicated readout is the
-            cheapest thing on the row. */}
         <span className="flex flex-col gap-1.5">
           <span
             aria-hidden
             className="hidden font-display text-[11px] font-bold uppercase leading-none tracking-[0.14em] text-ink-200 [@media(min-width:1700px)]:block"
           >
-            {meta.label}
+            Level
           </span>
           <span className="hidden h-1.5 w-full rounded-sm bg-surface-700 [@media(min-width:1700px)]:block">
-            <span
-              className={cn('block h-full rounded-sm', meta.fill)}
-              style={{ width: `${pct}%` }}
-            />
+            <span className="block h-full rounded-sm bg-hextech-100" style={{ width: `${pct}%` }} />
           </span>
         </span>
-        <span className={cn('font-display text-lg font-bold leading-none tabular-nums', meta.text)}>
-          {Math.round(value)}
+        <span className="font-display text-lg font-bold leading-none tabular-nums text-hextech-100">
+          {level}
         </span>
       </div>
     </HoverCard>
   );
 }
+
+/** The concrete levers behind the level, so the window teaches rather than describes. */
+const LEVEL_DRIVERS: readonly string[] = [
+  'Every mission that comes home, won or lost',
+  'Every structure finished and every project off the Archive board',
+  'Raids, batches off the training bench, and signing somebody at the Bar',
+];
 
 /**
  * §D7: the wallet and the rank, side by side.
@@ -263,12 +218,12 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
       }
     >
       <div
-        className="edge-lit flex shrink-0 items-center gap-1.5 rounded-sm border border-surface-600/80 bg-surface-800/80 px-1.5 py-1"
+        className="resource-chip flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1"
         data-testid="infamy-chip"
       >
         <span
           aria-hidden
-          className="icon-plate flex h-12 w-12 shrink-0 items-center justify-center rounded-sm text-oxblood-300 [&_svg]:h-10 [&_svg]:w-10"
+          className="resource-well flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-oxblood-300 [&_svg]:h-10 [&_svg]:w-10"
         >
           <Icon name="infamy" />
         </span>
@@ -305,83 +260,22 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
   );
 }
 
-/**
- * §D8: reputation is a word, not a number. The label is derived from tallied actions, so it is
- * shown as the street's verdict rather than as a score the player can read off a bar.
- */
-/**
- * What the street calls you, and, on hover, what that actually means.
- *
- * A one-word standing is the most opaque thing in the HUD: "Opportunist" is flavour until somebody
- * tells you it is a *judgement the city has made about your behaviour*, and nothing in the
- * interface ever said so. The sentence already exists: every label carries one in
- * `REPUTATION_LABEL_SPECS`, written by the people who designed the mechanic, and it was being
- * shown nowhere at all. This is the cheapest possible fix: put words that are already written in
- * front of the player at the moment they are looking at the thing they describe.
- */
-export function ReputationChip({ label }: { label: ReputationLabel }) {
-  const spec = REPUTATION_LABEL_SPECS[label];
-  return (
-    <HoverCard
-      data-testid="reputation-chip"
-      label={`Reputation: ${label}`}
-      size="window"
-      card={
-        <InfoWindow eyebrow="The street calls you" title={label}>
-          <p className="font-body text-[14px] leading-relaxed text-ink-100">{spec.description}</p>
-          <WindowSection label="Where it comes from">
-            <p className="font-body text-[13px] leading-snug text-ink-100">
-              Read off what you have actually done: raids, contracts, who you left standing. It
-              fades if you stop.
-            </p>
-          </WindowSection>
-          <WindowSection label="What it changes">
-            <p className="font-body text-[13px] leading-snug text-ink-100">
-              Every character at the Bar judges your crew by this word before they will sign, and
-              half of them will walk over it. It is the one number other players see.
-            </p>
-          </WindowSection>
-        </InfoWindow>
-      }
-    >
-      <div className="edge-lit flex shrink-0 items-center gap-2 rounded-sm border border-brass-500/40 bg-surface-800/80 px-2.5 py-2">
-        {/* The word costs ~80px and says nothing the hover card does not. Below xl the standing
-            itself is the label, which is the half a player is actually reading. */}
-        <span className="hidden font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200 [@media(min-width:1800px)]:inline">
-          Reputation
-        </span>
-        <span className="font-display text-base font-bold tracking-[0.08em] text-brass-300">
-          {label}
-        </span>
-      </div>
-    </HoverCard>
-  );
-}
-
-interface StandingReadoutProps {
+/** The standing block for the base screen: the level you have earned, and the name you have made. */
+export function StandingReadout({
+  economy,
+  level,
+  xpIntoLevel,
+  xpToNextLevel,
+}: {
   economy: EconomyState;
-  reputation: ReputationLabel;
-}
-
-/** The full standing block for the base screen: both meters plus the reputation the street uses. */
-export function StandingReadout({ economy, reputation }: StandingReadoutProps) {
+  level: number;
+  xpIntoLevel: number;
+  xpToNextLevel: number;
+}) {
   return (
-    <div className="flex flex-col gap-3 p-4">
-      <div className="flex flex-wrap gap-2">
-        <MeterChip kind="morale" value={economy.morale} />
-        <InfamyChip infamy={economy.infamy} notoriety={economy.notoriety} />
-      </div>
-      <div className="border border-surface-600/70 bg-surface-950 p-3">
-        <p className="font-display text-[10px] uppercase tracking-[0.25em] text-ink-300">
-          They call you
-        </p>
-        <p className="mt-1 font-display text-lg font-bold tracking-[0.12em] text-brass-300">
-          {reputation}
-        </p>
-        <p className="mt-1 font-body text-[12px] leading-relaxed text-ink-300">
-          {REPUTATION_LABEL_SPECS[reputation].description}
-        </p>
-      </div>
+    <div className="flex flex-wrap gap-2 p-4">
+      <FactionLevelChip level={level} xpIntoLevel={xpIntoLevel} xpToNextLevel={xpToNextLevel} />
+      <InfamyChip infamy={economy.infamy} notoriety={economy.notoriety} />
     </div>
   );
 }

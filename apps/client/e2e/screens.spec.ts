@@ -216,9 +216,13 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   // §H5's two ends both render: a walkout warning and an earned skill bonus.
   await expect(page.getByText('Says they are done unless something changes.')).toBeVisible();
   await expect(page.getByText(/^\+5 to /)).toBeVisible();
-  // §H3/§H4 refusals say which gate is shut rather than just greying the card out.
+  // §H3 refusals say which door is shut rather than just greying the card out. Two doors now:
+  // the rank the city has given the crew, and how long the crew has been at it.
   await expect(page.getByText('Your name is not big enough').first()).toBeVisible();
-  await expect(page.getByText('Wants no part of you')).toBeVisible();
+  await expect(page.getByText('Wants a crew that has been doing this longer')).toBeVisible();
+  // §H7: the payroll book is the constraint every offer on this screen answers to, so it is on it.
+  await expect(page.getByTestId('payroll-book')).toBeVisible();
+  await expect(page.getByTestId('increase-payroll')).toBeVisible();
 
   await settleFonts(page);
 
@@ -459,49 +463,82 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
   await routeBoard(page);
   await page.goto('/game/missions');
 
-  const card = (name: string) =>
-    page.locator('article').filter({ has: page.getByRole('heading', { name }) });
-  const ambush = card('Convoy Ambush');
+  /*
+   * A job §G6 will not let out unled, found by walking the boards.
+   *
+   * `Battle` is the kind, not the difficulty, and the two came apart when the pool grew: a
+   * `debt-collection` is a battle an assignee crew may run alone. What this test is about is the
+   * *officer gate*, so it needs a job that actually has one, and the signal on screen is the
+   * picker defaulting to somebody rather than to "nobody".
+   */
+  const dialog = page.getByRole('dialog');
+  for (let step = 0; step < 12; step += 1) {
+    const jobs = page.locator('[data-testid^="offer-"]');
+    for (let index = 0; index < (await jobs.count()); index += 1) {
+      await jobs
+        .nth(index)
+        .getByRole('button', { name: /Send a crew/ })
+        .click();
+      await expect(dialog).toBeVisible();
+      if (await dialog.getByTestId('send-leader').getByText('The Ghost of Sector Nine').count()) {
+        break;
+      }
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+    }
+    if (await dialog.isVisible()) break;
+    await page.getByTestId('board-right').click();
+  }
+  await expect(dialog).toBeVisible();
 
-  // The §G3 roster is what makes the gate satisfiable: the first officer leads until the player
-  // says otherwise, so a hard card is never offering a button the server is certain to refuse.
-  // Read as a *name* now that the picker is painted: that is what the player actually sees, and a
-  // value attribute is a thing only a native control has.
-  await expect(ambush.getByRole('combobox')).toContainText('The Ghost of Sector Nine');
+  // §G3: the first officer leads until the player says otherwise, so a hard job is never offering
+  // a button the server is certain to refuse. Read as a *name*: that is what the player sees.
+  await expect(dialog.getByTestId('send-leader')).toContainText('The Ghost of Sector Nine');
+
+  // Somebody who can fight, because a battle job will not take porters alone (§A5).
+  await dialog.getByRole('spinbutton', { name: 'How many Razors' }).fill('3');
 
   const launch = page.waitForRequest(
     (request) => request.url().includes('/api/missions') && request.method() === 'POST',
   );
-  await ambush.getByRole('button', { name: 'Deploy' }).click();
-  expect((await launch).postDataJSON()).toEqual({
-    templateId: 'convoy-ambush',
-    officerId: 'off-1',
-  });
+  await dialog.getByTestId('confirm-send').click();
+  const sent = (await launch).postDataJSON() as {
+    templateId: string;
+    areaId: string;
+    force: Record<string, number>;
+    officerId: string;
+  };
+  expect(sent.force).toEqual({ razors: 3 });
+  expect(sent.officerId).toBe('off-1');
+  expect(sent.areaId).toBeTruthy();
+  expect(sent.templateId).toBeTruthy();
 
   // Accepted, so the board says nothing: the alert below is specific to a refusal.
   await expect(page.getByRole('alert')).toHaveCount(0);
 
   await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/missions-officer.png', fullPage: false });
+});
 
-  /*
-   * No vertical-clip guard: the missions board is a scroller, so the fold bisects whatever row it
-   * lands on by design: the same reason the Bar and base screens skip it. What *is* asserted is
-   * the new control, and it needs its own measurement.
-   *
-   * A native `select` clips its own text with no ellipsis and no overflow to measure: `scrollWidth`
-   * matches `clientWidth` whatever the label says, and a closed select's `option` elements have no
-   * box at all. Both existing guards are therefore blind to it, and the first draft of this picker
-   * shipped "Instructor of the Yo" cut mid-word. So the label is measured directly against the
-   * space the control actually gives it.
-   */
-  // Opened, and measured on the real boxes.
-  //
-  // The native version of this had to be measured with a canvas and a guessed arrow width, because
-  // a closed `select`'s `option` elements have no box at all and the control clips its own text
-  // with no overflow to see. The painted list is ordinary DOM: every option is an element with a
-  // width, so the check is the one every other guard in this suite uses: does the text fit in the
-  // box it was given.
-  await ambush.getByRole('combobox').click();
+/**
+ * The painted picker, measured on the real boxes.
+ *
+ * A native `select` clips its own text with no ellipsis and no overflow to measure, and a closed
+ * one's `option` elements have no box at all: both existing guards are blind to it, and the first
+ * draft of this picker shipped "Instructor of the Yo" cut mid-word. The painted list is ordinary
+ * DOM, so the check is the one every other guard in this suite uses: does the text fit the box.
+ */
+test('the officer picker cuts nobody off', async ({ page }) => {
+  await installApi(page, lateGame);
+  await routeBoard(page);
+  await page.goto('/game/missions');
+
+  await page
+    .locator('[data-testid^="offer-"]')
+    .first()
+    .getByRole('button', { name: /Send a crew/ })
+    .click();
+  await page.getByTestId('send-leader').click();
   const cut = await page.evaluate(() =>
     [...document.querySelectorAll<HTMLElement>('[role="option"]')]
       .filter((option) => option.scrollWidth > option.clientWidth + 1)
@@ -509,8 +546,6 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
   );
   expect(cut, 'no officer name may be cut off by the picker').toEqual([]);
   await page.keyboard.press('Escape');
-
-  await page.screenshot({ path: 'screenshots/missions-officer.png', fullPage: false });
 });
 
 test('a refused launch tells the player why', async ({ page }) => {
@@ -532,20 +567,22 @@ test('a refused launch tells the player why', async ({ page }) => {
   });
 
   await page.goto('/game/missions');
-  const scrapRun = page
-    .locator('article')
-    .filter({ has: page.getByRole('heading', { name: 'Scrap Run' }) });
-  await scrapRun.getByRole('button', { name: 'Deploy' }).click();
+  const job = page.locator('[data-testid^="offer-"]').first();
+  await job.getByRole('button', { name: /Send a crew/ }).click();
+
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('spinbutton', { name: 'How many Razors' }).fill('2');
+  await dialog.getByTestId('confirm-send').click();
 
   /*
-   * In the card the player clicked, and *in the viewport*. The first draft put one message at the
-   * foot of the board: `toHaveText` passed on it while it sat below eight cards of scrolling grid,
-   * off-screen: a DOM assertion cannot tell "explained" from "invisible".
+   * In the card the player pressed, and *in the viewport*. The first draft put one message at the
+   * foot of the board: `toHaveText` passed on it while it sat below a grid of cards, off-screen,
+   * and a DOM assertion cannot tell "explained" from "invisible".
    */
-  const refusal = scrapRun.getByRole('alert');
+  const refusal = job.getByRole('alert');
   await expect(refusal).toHaveText('That job is too hard to run without an officer leading it');
   await expect(refusal).toBeInViewport();
-  // ...and only on that card, so the board does not read as eight simultaneous failures.
+  // ...and only on that card, so the board does not read as three simultaneous failures.
   await expect(page.getByRole('alert')).toHaveCount(1);
 
   await settleFonts(page);

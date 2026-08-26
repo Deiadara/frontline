@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { clampMeter } from '../economy/meters.js';
 import { RESOURCE_KEYS, STARTING_RESOURCES, canAfford, type Resources } from '../resources.js';
 import {
   BUILDING_CATALOG,
@@ -57,13 +56,10 @@ import {
   type ProductionCarry,
 } from './production.js';
 import {
-  BASE_MORALE_TARGET,
-  MORALE_HALF_LIFE_HOURS,
   characterXpBonus,
   districtDefense,
-  driftMorale,
-  hardshipReduction,
-  moraleTarget,
+  payrollBonusPercent,
+  factionXpBonus,
   researchTimeReduction,
 } from './standing.js';
 import {
@@ -96,7 +92,7 @@ const build = (kind: (typeof BUILDING_KINDS)[number], level: number): Building =
   level,
   modifications: [],
   damage: 0,
-  garrisons: 0,
+  fortification: 0,
 });
 
 /** A district with everything standing at `level`: the fat case most ceilings are read at. */
@@ -547,37 +543,19 @@ describe('what the district makes (§A1)', () => {
 });
 
 describe('what the district is worth to the crew (§A1)', () => {
-  it('settles morale higher with Quarters and lower in a brownout', () => {
-    const bare = moraleTarget(NEW_DISTRICT);
-    expect(bare).toBeGreaterThan(BASE_MORALE_TARGET);
-
-    const social = moraleTarget([...NEW_DISTRICT, build('quarters', 10)]);
-    expect(social).toBeGreaterThan(bare);
-
-    const dark = moraleTarget([build('nexus', 20), build('lab', 20)]);
-    expect(dark).toBeLessThan(bare);
+  it('carries more of a payroll book with Quarters standing', () => {
+    expect(payrollBonusPercent(NEW_DISTRICT.filter((b) => b.kind !== 'quarters'))).toBe(0);
+    const bare = payrollBonusPercent([build('quarters', 1)]);
+    expect(bare).toBeGreaterThan(0);
+    expect(payrollBonusPercent([build('quarters', 10)])).toBeGreaterThan(bare);
   });
 
-  it('drifts towards the target without ever overshooting it, from either side', () => {
-    for (const [from, to] of [
-      [20, 80],
-      [80, 20],
-      [50, 50],
-    ] as const) {
-      let morale = clampMeter(from);
-      // 400 hours is ~33 half-lives: the gap left is smaller than the meter can express.
-      for (let step = 0; step < 400; step += 1) morale = driftMorale(morale, clampMeter(to), 1);
-      expect(morale).toBeCloseTo(to, 6);
-    }
-    // And the half-life is what it says: half the gap in `MORALE_HALF_LIFE_HOURS`.
-    expect(driftMorale(clampMeter(0), clampMeter(100), MORALE_HALF_LIFE_HOURS)).toBeCloseTo(50, 6);
-  });
-
-  it('is frequency-independent: the same elapsed time gives the same answer', () => {
-    const oneGo = driftMorale(clampMeter(20), clampMeter(80), 6);
-    let stepped = clampMeter(20);
-    for (let i = 0; i < 12; i += 1) stepped = driftMorale(stepped, clampMeter(80), 0.5);
-    expect(stepped).toBeCloseTo(oneGo, 6);
+  it('pays faction XP only for the modifications that grant it', () => {
+    expect(factionXpBonus([build('quarters', 20)])).toBe(0);
+    const kitted: Building[] = [
+      { ...build('quarters', 20), modifications: ['quarters_debriefing_room'] },
+    ];
+    expect(factionXpBonus(kitted)).toBeGreaterThan(0);
   });
 
   it('makes the district harder to take with a Gate', () => {
@@ -589,13 +567,11 @@ describe('what the district is worth to the crew (§A1)', () => {
     expect(districtDefense(fortified)).toBeGreaterThan(districtDefense([build('gate', 5)]));
   });
 
-  it('gives the Lab, the Gauntlet and the Infirmary each their own live effect', () => {
+  it('gives the Lab and the Gauntlet each their own live effect', () => {
     expect(researchTimeReduction([])).toBe(0);
     expect(researchTimeReduction([build('lab', 10)])).toBeGreaterThan(0);
     expect(characterXpBonus([])).toBe(0);
     expect(characterXpBonus([build('gauntlet', 10)])).toBeGreaterThan(0);
-    expect(hardshipReduction([])).toBe(0);
-    expect(hardshipReduction([build('infirmary', 10)])).toBeGreaterThan(0);
   });
 
   it('caps every reduction, however many modifications are stacked on it', () => {
@@ -665,12 +641,12 @@ describe('modifications (§A1)', () => {
 
   it('sums district-wide effects and keeps the local one out of them', () => {
     const district: Building[] = [
-      { ...build('quarters', 20), modifications: ['quarters_sound_baffling'] },
+      { ...build('quarters', 20), modifications: ['quarters_debriefing_room'] },
       { ...build('cistern', 20), modifications: ['cistern_clean_line_to_the_quarters'] },
       { ...build('greenhouse', 20), modifications: ['greenhouse_insect_farm'] },
     ];
     const effects = districtEffects(district);
-    expect(effects.morale_flat).toBeGreaterThan(0);
+    expect(effects.faction_xp_percent).toBeGreaterThan(0);
     // `production_percent` is local, so it must not appear in the district totals.
     expect(effects.production_percent).toBe(0);
   });

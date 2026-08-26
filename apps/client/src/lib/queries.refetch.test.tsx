@@ -73,7 +73,11 @@ describe('a refused launch that had already settled the board', () => {
     await waitFor(() => expect(getMe).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(getAssignees).toHaveBeenCalledTimes(1));
 
-    result.current.launch.mutate({ templateId: 'convoy-ambush' });
+    result.current.launch.mutate({
+      templateId: 'convoy-ambush',
+      areaId: 'misc',
+      force: { razors: 1 },
+    });
     await waitFor(() => expect(result.current.launch.isError).toBe(true));
 
     await waitFor(() => expect(getMe).toHaveBeenCalledTimes(2));

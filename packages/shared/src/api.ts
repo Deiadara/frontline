@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { MAX_ASSIGNEES_PER_OFFICER } from './assignees/index.js';
+import { MAX_ASSIGNEES_PER_OFFICER, MissionDifficultySchema } from './assignees/index.js';
+import { MissionStanceSchema } from './factions.js';
 import { ATTRIBUTE_NAMES, AttributeNameSchema, AttributesSchema } from './attributes.js';
 import {
   ALIGNMENT_BANDS,
@@ -8,12 +9,18 @@ import {
   JoinRequirementSchema,
   MoralCompassSchema,
   NegotiationSchema,
-  STANCE_MAX,
-  STANCE_MIN,
+  StandoffSchema,
 } from './bar/index.js';
 import { BaseSchema, BaseSummarySchema, FactionNameSchema } from './base.js';
+import { PayrollLedgerSchema } from './economy/payroll.js';
 import { BattleResultSchema } from './battle/types.js';
-import { ArmySchema, TrainingQueueSchema, UnitStatsSchema, UnitTierSchema } from './units/index.js';
+import {
+  ArmySchema,
+  TrainingQueueSchema,
+  UnitStatsSchema,
+  UnitTierSchema,
+  UNIT_UPGRADE_SLOTS,
+} from './units/index.js';
 import {
   BuildingKindSchema,
   BuildingSchema,
@@ -28,14 +35,13 @@ import {
   LocationSchema,
 } from './city/index.js';
 import { CommanderSchema } from './commander.js';
-import { ReputationLabelSchema } from './economy/reputation.js';
-import { MissionSchema } from './missions.js';
+import { MissionAreaIdSchema, MissionKindSchema, MissionSchema } from './missions.js';
 import { OverseerSchema } from './overseer.js';
 import { TrainingSessionSchema } from './crew/training.js';
 import { InventorySchema } from './items/inventory.js';
 import { ResourceKeySchema } from './resources.js';
 import { MarketOfferSchema, TradeBundleSchema } from './market/offers.js';
-import { SupplyBoardSchema } from './market/supply.js';
+import { SupplyBoardSchema, SupplyResourceSchema } from './market/supply.js';
 import { VendorLineSchema, VendorSessionSchema } from './market/vendor.js';
 import { UpgradeLineSchema } from './units/upgrades.js';
 import { TechTrackSchema } from './research/tech.js';
@@ -314,6 +320,17 @@ export type CityMutationResponse = z.infer<typeof CityMutationResponseSchema>;
 // --- units (GDD §A5) ---
 
 /** One unit as the roster shows it: the sheet, and whether this crew can field it. */
+/** What is in one bracket: an upgrade the crew has built, or room for one. */
+export const FittedSlotSchema = z.object({
+  upgradeId: z.string().nullable(),
+  name: z.string(),
+  line: UpgradeLineSchema.nullable(),
+  tier: z.number().int().nonnegative(),
+  /** Already folded into `stats`; here so the bracket can say what it is paying for. */
+  effect: z.record(z.string(), z.number()),
+});
+export type FittedSlot = z.infer<typeof FittedSlotSchema>;
+
 export const UnitOptionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -349,8 +366,26 @@ export const UnitOptionSchema = z.object({
   missing: z.array(z.string()),
   /** How many are at home. Garrisoned units are counted separately. */
   owned: z.number().int().nonnegative(),
+  /**
+   * The three brackets on this unit, in slot order (`units/loadout.ts`).
+   *
+   * Always three, empty ones included, because the empty bracket is the thing the screen is for:
+   * a unit with nothing in it should read as "there is room here" rather than as an absence.
+   */
+  slots: z.array(FittedSlotSchema).length(UNIT_UPGRADE_SLOTS),
 });
 export type UnitOption = z.infer<typeof UnitOptionSchema>;
+
+/** One line of the crew's stock, as the bracket picker needs it. */
+export const BuiltUpgradeSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  line: UpgradeLineSchema,
+  tier: z.number().int().positive(),
+  description: z.string().min(1),
+  effect: z.record(z.string(), z.number()),
+});
+export type BuiltUpgrade = z.infer<typeof BuiltUpgradeSchema>;
 
 export const UnitsResponseSchema = z.object({
   serverNow: IsoDateTimeSchema,
@@ -373,8 +408,28 @@ export const UnitsResponseSchema = z.object({
   /** Everything territory is doing to training right now, so the page can explain a price. */
   trainingCostReduction: z.number(),
   trainingSpeedBonus: z.number(),
+  /**
+   * Everything the workshop has built, whether or not it is in a bracket somewhere.
+   *
+   * The stock, in other words. Sent with the roster rather than fetched from `/workshop` when a
+   * bracket is opened, because the one question the picker has to answer is "what can I put in
+   * here", and a screen that has to go and ask cannot answer it while the menu is opening.
+   */
+  built: z.array(BuiltUpgradeSchema),
 });
 export type UnitsResponse = z.infer<typeof UnitsResponseSchema>;
+
+/** Put something in a bracket, or empty it (`upgradeId: null`). */
+export const FitSlotRequestSchema = z.object({
+  unitId: z.string().min(1),
+  slot: z
+    .number()
+    .int()
+    .min(0)
+    .max(UNIT_UPGRADE_SLOTS - 1),
+  upgradeId: z.string().min(1).nullable(),
+});
+export type FitSlotRequest = z.infer<typeof FitSlotRequestSchema>;
 
 export const TrainUnitsRequestSchema = z.object({
   unitId: z.string().min(1),
@@ -466,12 +521,67 @@ export type BattleResponse = z.infer<typeof BattleResponseSchema>;
  * server's clock offset rather than its own, so a machine with a skewed or nudged clock shows
  * the same remaining time as everyone else, and still cannot make a mission land early.
  */
+/**
+ * One job on offer, priced and timed for the area it is offered in (§E4).
+ *
+ * Everything a card needs and nothing a player could not be told: the odds are deliberately
+ * absent, as they always have been, and `missions.test.ts` asserts the board ships no
+ * `successChance` at all.
+ */
+export const MissionOfferSchema = z.object({
+  templateId: IdSchema,
+  name: z.string().min(1),
+  brief: z.string().min(1),
+  kind: MissionKindSchema,
+  difficulty: MissionDifficultySchema,
+  stance: MissionStanceSchema,
+  /** §E6/§E8, broken out the way the card shows it. */
+  travelMinutes: z.number().int().nonnegative(),
+  durationMinutes: z.number().int().positive(),
+  totalMinutes: z.number().int().positive(),
+  /** What it pays on a clean run, with the area's and the crew's own premium already on it. */
+  rewards: PartialResourcesSchema,
+  /** Loot slots that payout takes up, so a player can size the crew before they send it. */
+  payoutSlots: z.number().int().nonnegative(),
+  /** §I1: faction XP a clean run pays. On the card, because it is half of what a job is worth. */
+  xp: z.number().int().positive(),
+  /** And what a run that came home empty still pays: `FAILED_MISSION_XP_SHARE` of it. */
+  failedXp: z.number().int().nonnegative(),
+});
+export type MissionOffer = z.infer<typeof MissionOfferSchema>;
+
+/** One board: a district, or the miscellaneous work that belongs to nobody's ground. */
+export const MissionAreaSchema = z.object({
+  id: MissionAreaIdSchema,
+  name: z.string().min(1),
+  /** One line about the ground, so the board says where the crew is going. */
+  blurb: z.string().min(1),
+  /** 1..10 for a district; the miscellaneous board is always 1. */
+  difficulty: z.number().int().positive(),
+  /** Percentage points the ground adds to every payout here. */
+  payPercent: z.number().nonnegative(),
+  /** The three on offer. Empty while a crew of this crew's is already working the area. */
+  offers: z.array(MissionOfferSchema),
+  /** The one that is running here, if any: the reason `offers` is empty. */
+  activeMissionId: IdSchema.nullable(),
+});
+export type MissionArea = z.infer<typeof MissionAreaSchema>;
+
 export const MissionsResponseSchema = z.object({
   missions: z.array(MissionSchema),
   /** Anything that came home on this read, so the UI can show what was banked. */
   justResolved: z.array(MissionSchema),
   resources: ResourcesSchema,
   activeLimit: z.number().int().positive(),
+  /**
+   * Every board this crew may read, `misc` first and then the districts in map order.
+   *
+   * Only the ones they have scouted and do not already own outright: a district with every
+   * location taken and its gate down has nothing left in it worth being paid for.
+   */
+  areas: z.array(MissionAreaSchema),
+  /** What is at home to send, after everything already out has been taken off it. */
+  army: ArmySchema,
   serverNow: IsoDateTimeSchema,
   /** Set when the crews *this read* banked levelled the player up (§I1). */
   levelUp: LevelUpSchema.optional(),
@@ -480,6 +590,10 @@ export type MissionsResponse = z.infer<typeof MissionsResponseSchema>;
 
 export const LaunchMissionRequestSchema = z.object({
   templateId: IdSchema,
+  /** Which board it was taken off. The area is locked until this crew is home. */
+  areaId: MissionAreaIdSchema,
+  /** §A5: the units going. A battle job needs at least one of them able to fight. */
+  force: ArmySchema,
   /**
    * §G6: the officer leading the run. Optional: an *easy* mission can go out on a delegation of
    * assignees alone, slower and with worse odds. A hard one without an officer is refused.
@@ -519,17 +633,24 @@ export const BarRecruitSchema = z.object({
   moralCompass: MoralCompassSchema,
   /** §H3: what the crew has to be before they will consider signing. */
   requirement: JoinRequirementSchema,
-  /** §H3 + §H4 judged against *this* crew, so the client never re-derives the gate. */
+  /** §H3 judged against *this* crew, so the client never re-derives the gate. */
   assessment: z.object({
-    meetsRequirement: z.boolean(),
-    stance: z.number().int().min(STANCE_MIN).max(STANCE_MAX),
+    meetsNotoriety: z.boolean(),
+    meetsLevel: z.boolean(),
     interested: z.boolean(),
     blockers: z.array(z.enum(JOIN_BLOCKERS)),
   }),
-  /** §H7: the weekly wage in caps they open at. Absent until they are interested. */
+  /** §H7: the weekly fee in caps they open at. Absent until they are interested. */
   askingWage: z.number().int().positive().nullable(),
   /** Already on this crew's books: the roster is global, the hiring is not (§H2). */
   hired: z.boolean(),
+  /**
+   * Set while this crew has walked out on them and they will not sit down again yet.
+   *
+   * On the wire rather than derived, because the screen has to say *when* rather than only that
+   * the chair is cold, and the clock the countdown runs against is the server's.
+   */
+  standoff: StandoffSchema.nullable(),
 });
 export type BarRecruit = z.infer<typeof BarRecruitSchema>;
 
@@ -544,8 +665,10 @@ export const BarOfficerSchema = z.object({
   /** §H5: attribute points the alignment bonus is currently worth, and where they land. */
   skillBonus: z.number().int().nonnegative(),
   bonusAttributes: z.array(z.enum(ATTRIBUTE_NAMES)),
-  /** §H7: the agreed weekly wage, read back out of the payroll book W2 owns. */
+  /** §H7: the agreed weekly fee, read back out of the payroll book. */
   weeklyWage: z.number().nonnegative(),
+  /** What releasing them costs in caps, right now: `DISMISSAL_WEEKS` of the fee above. */
+  dismissalFee: z.number().int().nonnegative(),
 });
 export type BarOfficer = z.infer<typeof BarOfficerSchema>;
 
@@ -564,10 +687,13 @@ export const BarResponseSchema = z.object({
   /** §H8: recruit slots, `2 + level - 1`, read off W6's grant table. */
   slotsUsed: z.number().int().nonnegative(),
   slotsTotal: z.number().int().nonnegative(),
-  /** The two crew facts §H3/§H4 judge against, so the client can explain a refusal. */
+  /** The three crew facts §H3 judges against, so the client can explain a refusal. */
   infamy: z.number(),
-  reputation: ReputationLabelSchema,
+  notoriety: z.number().int().nonnegative(),
+  level: z.number().int().positive(),
   caps: z.number(),
+  /** §H7: the payroll book, so the Bar can refuse a fee that will not fit before it is offered. */
+  payroll: PayrollLedgerSchema,
   /** Roles §C3 says are already filled, so the hire form cannot offer them. */
   filledRoles: z.array(OfficerRoleSchema),
   /** §H2b: how many hires this player has left today, and when the limit resets. */
@@ -627,13 +753,42 @@ export const HireRecruitResponseSchema = z.object({
   wage: z.number().int().nonnegative(),
   /** Present only when the offer was accepted. */
   officer: CommanderSchema.nullable(),
-  /** §H7: the prorated first payment, taken at recruitment for the rest of this pay week. */
-  firstPayment: z.number().nonnegative(),
-  resources: ResourcesSchema.nullable(),
+  /** §H7: the book after the signing. Nothing is charged; a slice of it is spoken for. */
+  payroll: PayrollLedgerSchema.nullable(),
   /** §I1: signing somebody pays, so a hire can be the thing that crosses a level. */
   levelUp: LevelUpSchema.optional(),
 });
 export type HireRecruitResponse = z.infer<typeof HireRecruitResponseSchema>;
+
+/** §H7: let an officer go. Frees their slice of the book and charges five weeks of it in caps. */
+export const ReleaseOfficerRequestSchema = z.object({ officerId: IdSchema });
+export type ReleaseOfficerRequest = z.infer<typeof ReleaseOfficerRequestSchema>;
+
+export const ReleaseOfficerResponseSchema = z.object({
+  officerId: IdSchema,
+  /** Caps taken on the spot: `DISMISSAL_WEEKS` of what they were on. */
+  fee: z.number().int().nonnegative(),
+  resources: ResourcesSchema,
+  payroll: PayrollLedgerSchema,
+});
+export type ReleaseOfficerResponse = z.infer<typeof ReleaseOfficerResponseSchema>;
+
+/**
+ * §H7: buy one more step of standing payroll at the Nexus.
+ *
+ * No amount on the request. A step is a fixed size at a price the server quotes, so a client that
+ * could name its own number would be naming its own price.
+ */
+export const IncreasePayrollRequestSchema = z.object({});
+export type IncreasePayrollRequest = z.infer<typeof IncreasePayrollRequestSchema>;
+
+export const IncreasePayrollResponseSchema = z.object({
+  /** Caps it cost. */
+  spent: z.number().int().positive(),
+  resources: ResourcesSchema,
+  payroll: PayrollLedgerSchema,
+});
+export type IncreasePayrollResponse = z.infer<typeof IncreasePayrollResponseSchema>;
 
 /** §H6: spend one of the level-up points the player was given to assign by hand. */
 export const AssignPointRequestSchema = z.object({
@@ -937,7 +1092,8 @@ export type MarketResponse = z.infer<typeof MarketResponseSchema>;
 
 /** The supply run: caps out, one material in, inside the day's ration. */
 export const BuySupplyRequestSchema = z.object({
-  key: z.enum(['food', 'oil', 'scrap', 'highQualityMetal']),
+  // Same derived enum the board's own lines are parsed with: see `market/supply.ts`.
+  key: SupplyResourceSchema,
   units: z.number().int().positive(),
 });
 export type BuySupplyRequest = z.infer<typeof BuySupplyRequestSchema>;
@@ -971,7 +1127,7 @@ export type OfferActionRequest = z.infer<typeof OfferActionRequestSchema>;
 export const MarketMutationResponseSchema = z.object({ market: MarketResponseSchema });
 export type MarketMutationResponse = z.infer<typeof MarketMutationResponseSchema>;
 
-/** The workshop screen: what is fitted, what could be, and why not. */
+/** The workshop screen: what the crew has built, what it could build, and why not. */
 export const WorkshopUpgradeSchema = z.object({
   id: z.string(),
   line: UpgradeLineSchema,
@@ -981,8 +1137,12 @@ export const WorkshopUpgradeSchema = z.object({
   cost: PartialResourcesSchema,
   parts: InventorySchema,
   effect: z.record(z.string(), z.number()),
-  fitted: z.boolean(),
-  /** Player-facing reason it cannot be fitted, or null. */
+  /**
+   * In the crew's stock. Built once and kept: it improves nobody by itself, and pays wherever
+   * the player then bolts it (`units/loadout.ts`, three brackets per unit).
+   */
+  built: z.boolean(),
+  /** Player-facing reason it cannot be built, or null. */
   blocker: z.string().nullable(),
 });
 export type WorkshopUpgrade = z.infer<typeof WorkshopUpgradeSchema>;

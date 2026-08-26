@@ -91,7 +91,7 @@ function buildingsAt(
         // Carried through rather than reset: a knob that moves a level should not also repair the
         // siege damage or dismiss the garrison a reviewer is standing there to look at.
         damage: standing?.damage ?? 0,
-        garrisons: standing?.garrisons ?? 0,
+        fortification: standing?.fortification ?? 0,
       },
     ];
   });

@@ -8,6 +8,8 @@ import {
   buildingCost,
   buildingLevel,
   buildingPowerDraw,
+  payrollBonusPercent,
+  payrollLedger,
   canAfford,
   findBuilding,
   isUnlockedForQueue,
@@ -31,13 +33,13 @@ import {
 import type { ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
 import { CostLine } from '../../components/Resources';
+import { useIncreasePayroll } from '../../lib/queries';
 import { Button } from '../../components/ui/Button';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
-import { StructureSprite } from './sprites';
 import { structureBonus } from './bonus';
 import { formatDuration } from './format';
 
@@ -102,32 +104,14 @@ export function StructureDialog({
           squeezes is the scrollable body between them. Without it flexbox takes the space out of
           whichever child will give, and a header that gives up four pixels clips its own text
           against the modal's `max-h`, which is a defect no assertion about the *body* can see. */}
-      {/* The plate the town-view dialog is built around: the structure's own portrait, framed and
-          riveted, with the level stamped on the frame. The painting on the district shows the
-          building in its street at the size the street gives it; this is the one place a player
-          sees the thing itself, which is what the delivered masters are for now that the plate
-          paints its own buildings. Shown whether or not it is standing: dimmed when it is not,
-          because "here is what you would be building" is the question a vacant plot is asking. */}
-      <div className="flex shrink-0 items-stretch gap-4 border-b border-surface-600/60 px-5 py-4">
-        {/* The picture, at a size worth opening a window for. It used to be an 80px thumbnail in
-            the corner of a wall of type, which is a favicon rather than a portrait, and the point
-            of this window is to show the player the building they just clicked. */}
-        <span className="rivets relative block h-32 w-32 shrink-0 rounded-sm border border-brass-500/45 bg-surface-900/70 p-1.5">
-          <StructureSprite kind={kind} built lit={standing !== undefined} />
-          {standing === undefined && (
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 rounded-sm bg-surface-950/55"
-            />
-          )}
-          <span
-            className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap border border-brass-500/60 bg-surface-950 px-1.5 py-px font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-brass-300"
-            data-testid="structure-level-stamp"
-          >
-            {standing ? `Lv ${standing.level}` : unlocked ? 'Vacant' : 'Locked'}
-          </span>
-        </span>
-        <div className="flex min-w-0 flex-col gap-1.5 pt-0.5">
+      {/* No portrait.
+       *
+       * The window used to open on a 128px painting of the building, which is the same building
+       * the player had just clicked in the street behind it at four times the size. It cost a
+       * third of the header to say something already on screen and pushed the price, the clock
+       * and the level down under it. What a dialog is for is the numbers. */}
+      <div className="flex shrink-0 items-stretch border-b border-surface-600/60 px-5 py-4">
+        <div className="flex min-w-0 flex-col gap-1.5">
           <p className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300">
             {standing ? `Level ${standing.level}` : unlocked ? 'Vacant plot' : 'Locked'}
           </p>
@@ -223,6 +207,21 @@ export function StructureDialog({
         {/* What the level actually buys and what it costs to run, from the same shared functions
             the server settles with: the two numbers somebody choosing between two upgrades is
             comparing, side by side rather than a column apart. */}
+        {/*
+         * §H7: the payroll book, in the building that keeps it.
+         *
+         * The Nexus is where a crew's standing figures live, so it is where the book is read and
+         * where it is raised. It is the same panel the Bar carries, deliberately: the Bar is
+         * where a player finds out they cannot afford somebody, and this is where they go about
+         * it, and two different-looking readouts of one number is how a player comes to distrust
+         * both.
+         */}
+        {kind === CENTRAL_BUILDING && (
+          <Section title="The payroll book">
+            <PayrollBook base={base} />
+          </Section>
+        )}
+
         <Section title="What it gives">
           <dl className="flex flex-col gap-2.5">
             <Stat label={bonus.label}>
@@ -371,6 +370,69 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </h3>
       <div className="min-w-0 px-3.5 py-3">{children}</div>
     </section>
+  );
+}
+
+/**
+ * What the crew may promise officers, and the one control that raises it (§H7).
+ *
+ * Read straight off the base rather than fetched: the ceiling is `payrollCapacity` of the Nexus
+ * level, what has been bought and the district's own bonus, and every one of those is already on
+ * the base this dialog was handed. A second read would be a second answer.
+ */
+function PayrollBook({ base }: { base: Base }) {
+  const raise = useIncreasePayroll();
+  const ledger = payrollLedger(
+    base.economy.payroll,
+    buildingLevel(base.buildings, CENTRAL_BUILDING),
+    payrollBonusPercent(base.buildings),
+  );
+  const pct = ledger.capacity > 0 ? Math.min(100, (ledger.committed / ledger.capacity) * 100) : 0;
+  const affordable = base.resources.caps >= ledger.nextStepCost;
+
+  return (
+    <div className="flex flex-col gap-2.5" data-testid="nexus-payroll">
+      <dl className="flex flex-col gap-2.5">
+        <Stat label="Committed to officers">
+          <span className="font-display text-sm font-semibold tabular-nums text-ink-100">
+            {ledger.committed.toLocaleString()} / {ledger.capacity.toLocaleString()} caps / wk
+          </span>
+        </Stat>
+        <Stat label="Left to promise">
+          <span className="font-display text-sm font-semibold tabular-nums text-brass-300">
+            {ledger.available.toLocaleString()}
+          </span>
+        </Stat>
+      </dl>
+      <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950">
+        <span
+          className={cn('block h-full rounded-sm', pct >= 100 ? 'bg-oxblood-300' : 'bg-brass-300')}
+          style={{ width: `${pct}%` }}
+        />
+      </span>
+      <div className="flex flex-wrap items-center gap-2.5 border-t border-surface-700 pt-2.5">
+        <Button
+          size="sm"
+          disabled={!affordable || raise.isPending}
+          onClick={() => raise.mutate({})}
+          data-testid="nexus-increase-payroll"
+        >
+          {raise.isPending ? 'Raising…' : `Increase payroll · +${ledger.stepSize}`}
+        </Button>
+        <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+          {ledger.nextStepCost.toLocaleString()} caps, once
+        </span>
+      </div>
+      <p className="font-body text-[12px] leading-snug text-ink-300">
+        A step is permanent and the next one costs more. Nothing is deducted week to week: an
+        officer holds a slice of the book for as long as they are on the books.
+      </p>
+      {raise.error !== null && (
+        <p role="alert" className="font-body text-[12px] text-oxblood-300">
+          {raise.error.message}
+        </p>
+      )}
+    </div>
   );
 }
 

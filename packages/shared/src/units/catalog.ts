@@ -18,11 +18,19 @@ import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js'
  * campaign, not a shopping list.
  */
 
-export const UNIT_TIERS = ['rabble', 'regular', 'specialist', 'heavy', 'legendary'] as const;
+export const UNIT_TIERS = [
+  'support',
+  'rabble',
+  'regular',
+  'specialist',
+  'heavy',
+  'legendary',
+] as const;
 export const UnitTierSchema = z.enum(UNIT_TIERS);
 export type UnitTier = z.infer<typeof UnitTierSchema>;
 
 export const UNIT_TIER_LABELS: Record<UnitTier, string> = {
+  support: 'Support',
   rabble: 'Rabble',
   regular: 'Regulars',
   specialist: 'Specialists',
@@ -52,6 +60,16 @@ export interface UnitSpec {
   trainedAt: BuildingKind;
   /** Legendary units are one of a kind. You hold one or none. */
   unique: boolean;
+  /**
+   * Whether this unit can fight at all (§A5, §E).
+   *
+   * `false` for the scavenger tier, and it is a hard rule rather than a very low offense: a
+   * Scavenger is never put in a battle line, never draws fire, and contributes nothing to either
+   * side of an exchange. What they are for is carrying: they go on a standard mission alone, or
+   * alongside fighters on a battle mission to bring the haul home. Defaulted true, because every
+   * unit written before the tier existed was a fighter.
+   */
+  combat?: boolean;
   requires: readonly UnitRequirement[];
   cost: PartialResources;
   trainSeconds: number;
@@ -89,7 +107,7 @@ const BASE_STATS: UnitStats = {
   armor: 10,
   damageType: 'ballistic',
   resistances: {},
-  lethality: 5,
+  penetration: 5,
   range: 30,
   offense: 35,
   evasion: 10,
@@ -143,7 +161,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 40,
       armor: 5,
       damageType: 'blade',
-      lethality: 8,
+      penetration: 8,
       range: 5,
       offense: 32,
       evasion: 15,
@@ -182,7 +200,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 66,
       armor: 16,
       damageType: 'blade',
-      lethality: 10,
+      penetration: 10,
       range: 12,
       offense: 40,
       evasion: 8,
@@ -221,7 +239,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 30,
       morale: 30,
       armor: 3,
-      lethality: 18,
+      penetration: 18,
       range: 45,
       offense: 48,
       evasion: 8,
@@ -248,7 +266,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 45,
       armor: 6,
       damageType: 'blade',
-      lethality: 10,
+      penetration: 10,
       range: 10,
       offense: 28,
       evasion: 25,
@@ -276,7 +294,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 40,
       armor: 8,
       damageType: 'blade',
-      lethality: 4,
+      penetration: 4,
       range: 5,
       offense: 18,
       evasion: 12,
@@ -307,7 +325,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 60,
       armor: 30,
       damageType: 'explosive',
-      lethality: 12,
+      penetration: 12,
       range: 15,
       offense: 55,
       evasion: 8,
@@ -334,7 +352,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 70,
       armor: 45,
       resistances: { blade: 25, explosive: -20 },
-      lethality: 6,
+      penetration: 6,
       range: 40,
       offense: 38,
       evasion: 5,
@@ -361,7 +379,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 55,
       armor: 10,
       damageType: 'blade',
-      lethality: 25,
+      penetration: 25,
       range: 15,
       offense: 42,
       evasion: 35,
@@ -388,7 +406,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 70,
       morale: 55,
       armor: 18,
-      lethality: 14,
+      penetration: 14,
       range: 35,
       offense: 50,
       evasion: 30,
@@ -418,7 +436,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       armor: 60,
       damageType: 'blade',
       resistances: { ballistic: 30, blade: 30, explosive: -30 },
-      lethality: 5,
+      penetration: 5,
       range: 10,
       offense: 40,
       evasion: 3,
@@ -448,7 +466,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       armor: 35,
       damageType: 'chemical',
       resistances: { chemical: 90, blade: -25 },
-      lethality: 8,
+      penetration: 8,
       range: 25,
       offense: 45,
       evasion: 8,
@@ -480,7 +498,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 45,
       morale: 60,
       armor: 8,
-      lethality: 60,
+      penetration: 60,
       range: 95,
       offense: 70,
       evasion: 12,
@@ -509,7 +527,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 70,
       armor: 12,
       damageType: 'blade',
-      lethality: 2,
+      penetration: 2,
       range: 10,
       offense: 12,
       evasion: 15,
@@ -539,7 +557,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 55,
       armor: 25,
       damageType: 'explosive',
-      lethality: 20,
+      penetration: 20,
       range: 40,
       offense: 65,
       evasion: 6,
@@ -567,7 +585,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 60,
       armor: 15,
       damageType: 'energy',
-      lethality: 5,
+      penetration: 5,
       range: 60,
       offense: 25,
       evasion: 18,
@@ -594,7 +612,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 55,
       armor: 10,
       damageType: 'energy',
-      lethality: 12,
+      penetration: 12,
       range: 75,
       offense: 38,
       evasion: 22,
@@ -623,7 +641,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 65,
       armor: 12,
       damageType: 'energy',
-      lethality: 35,
+      penetration: 35,
       range: 55,
       offense: 55,
       evasion: 20,
@@ -652,7 +670,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 75,
       armor: 10,
       damageType: 'blade',
-      lethality: 45,
+      penetration: 45,
       range: 10,
       offense: 50,
       evasion: 25,
@@ -680,7 +698,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 72,
       armor: 8,
       damageType: 'blade',
-      lethality: 30,
+      penetration: 30,
       range: 4,
       offense: 58,
       evasion: 38,
@@ -713,7 +731,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 70,
       armor: 18,
       damageType: 'sonic',
-      lethality: 8,
+      penetration: 8,
       range: 50,
       offense: 32,
       evasion: 10,
@@ -742,7 +760,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 60,
       armor: 40,
       damageType: 'explosive',
-      lethality: 15,
+      penetration: 15,
       range: 35,
       offense: 75,
       evasion: 4,
@@ -772,7 +790,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 85,
       armor: 78,
       resistances: { ballistic: 40, blade: 50, energy: -35 },
-      lethality: 18,
+      penetration: 18,
       range: 45,
       offense: 85,
       evasion: 2,
@@ -800,7 +818,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       armor: 45,
       damageType: 'blade',
       resistances: { sonic: 80, energy: -45 },
-      lethality: 30,
+      penetration: 30,
       range: 15,
       offense: 78,
       evasion: 12,
@@ -829,7 +847,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 100,
       armor: 15,
       damageType: 'blade',
-      lethality: 35,
+      penetration: 35,
       range: 10,
       offense: 68,
       evasion: 10,
@@ -861,7 +879,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 90,
       armor: 35,
       damageType: 'energy',
-      lethality: 80,
+      penetration: 80,
       range: 40,
       offense: 95,
       evasion: 60,
@@ -892,7 +910,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       armor: 55,
       damageType: 'chemical',
       resistances: { chemical: 100, ballistic: 30, sonic: -30 },
-      lethality: 50,
+      penetration: 50,
       range: 15,
       offense: 100,
       evasion: 5,
@@ -932,7 +950,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       armor: 95,
       damageType: 'explosive',
       resistances: { ballistic: 70, blade: 80, explosive: 40, energy: -30 },
-      lethality: 25,
+      penetration: 25,
       range: 60,
       offense: 98,
       evasion: 0,
@@ -963,7 +981,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 100,
       armor: 30,
       damageType: 'blade',
-      lethality: 20,
+      penetration: 20,
       range: 20,
       offense: 55,
       evasion: 25,
@@ -989,7 +1007,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 120,
       morale: 90,
       armor: 20,
-      lethality: 15,
+      penetration: 15,
       range: 35,
       offense: 45,
       evasion: 40,
@@ -1026,7 +1044,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       armor: 78,
       damageType: 'blade',
       resistances: { ballistic: 55, blade: 45, sonic: 60, energy: -25 },
-      lethality: 18,
+      penetration: 18,
       range: 10,
       offense: 70,
       evasion: 5,
@@ -1041,9 +1059,101 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     immuneTo: ['eerie', 'dark'],
     affinities: { crammed: -6, open: 4 },
   },
+
+  // --------------------------------------------------------------- support
+  //
+  // Last in the file and first in the game, which is a seam rather than an ordering: the art
+  // manifest derives a unit's seed from its **index in this array**, so a unit inserted anywhere
+  // but the end renumbers every asset after it and orphans art that has already been made. New
+  // units go here. Where they appear on screen is `UNIT_TIERS`, which puts support at the top.
+  //
+  // People who carry things. They are not soldiers and the game never pretends otherwise: they
+  // cannot be deployed to a fight, they cannot hold ground, and on a battle mission they walk in
+  // behind the people who can. What they are is the cheapest loot capacity in the game and the
+  // only unit the Nexus itself signs, which makes a standard mission something a crew can run on
+  // day one without spending a single body it might have wanted for a fight.
+  {
+    id: 'scavengers',
+    name: 'Scavengers',
+    tier: 'support',
+    blurb:
+      'They know which floors still hold weight and which pipes still have copper in them. Hand them a bag and point at a building.',
+    trainedAt: 'nexus',
+    unique: false,
+    combat: false,
+    requires: [],
+    cost: { caps: 25, food: 15 },
+    trainSeconds: 30,
+    supply: 1,
+    stats: sheet({
+      // A little under average on the road, which is the trade: the biggest bag in the game on
+      // the slowest legs that still count as quick.
+      speed: 34,
+      vitality: 35,
+      morale: 45,
+      armor: 0,
+      penetration: 0,
+      range: 0,
+      // Not zero, because a zero would divide badly in more than one place downstream, and not
+      // meaningful either: `combat: false` is what actually keeps them out of a fight.
+      offense: 1,
+      evasion: 20,
+      stealth: 45,
+      // Ten slots, which is the board's figure. Twice a Razor's and half again a Scraper's.
+      lootCapacity: 10,
+      intimidation: 0,
+    }),
+    modifiers: [],
+  },
+  {
+    id: 'haulers',
+    name: 'Haulers',
+    tier: 'support',
+    blurb:
+      'Barrow, harness and a back that has done this for twenty years. Slow, patient, and they never come home light.',
+    trainedAt: 'nexus',
+    unique: false,
+    combat: false,
+    requires: [structure('nexus', 4)],
+    cost: { caps: 60, food: 20, planks: 30 },
+    trainSeconds: 90,
+    supply: 2,
+    stats: sheet({
+      speed: 26,
+      vitality: 45,
+      morale: 50,
+      armor: 2,
+      penetration: 0,
+      range: 0,
+      offense: 1,
+      evasion: 8,
+      stealth: 25,
+      lootCapacity: 30,
+      intimidation: 0,
+    }),
+    modifiers: [],
+  },
 ];
 
 const BY_ID = new Map(UNIT_CATALOG.map((unit) => [unit.id, unit]));
+
+/**
+ * Whether this unit can be put in a battle line at all (§A5).
+ *
+ * The one question every force-picker, deploy route and battle setup asks before it accepts a
+ * unit id. Written as a helper rather than read off `spec.combat` at each site so the default for
+ * a unit that predates the field lives in exactly one place.
+ */
+export function isCombatUnit(unit: UnitSpec | string | undefined): boolean {
+  const spec = typeof unit === 'string' ? findUnit(unit) : unit;
+  return spec ? spec.combat !== false : false;
+}
+
+/** The other half: people who carry, and who may only ever go on a mission. */
+export function isSupportUnit(unit: UnitSpec | string | undefined): boolean {
+  const spec = typeof unit === 'string' ? findUnit(unit) : unit;
+  return spec ? spec.combat === false : false;
+}
 
 export function findUnit(unitId: string): UnitSpec | undefined {
   return BY_ID.get(unitId);

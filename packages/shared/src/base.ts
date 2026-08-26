@@ -5,6 +5,7 @@ import { CommanderSchema } from './commander.js';
 import { TrainingStateSchema, startingTraining } from './crew/training.js';
 import { InventorySchema } from './items/inventory.js';
 import { FittedUpgradesSchema } from './units/upgrades.js';
+import { UnitLoadoutsSchema } from './units/loadout.js';
 import { FleetSchema } from './building/vehicles.js';
 import { ArmySchema, TrainingQueueSchema } from './units/index.js';
 import { EconomyStateSchema } from './economy/state.js';
@@ -21,7 +22,18 @@ import { ResourcesSchema } from './resources.js';
  * bar is a layout constraint, so the length that satisfies it belongs in the schema rather than
  * in a CSS truncation nobody can see coming.
  */
-export const FACTION_NAME_MAX = 40;
+/**
+ * 40 once, and it did not fit the game it is drawn in.
+ *
+ * The standing bar carries the plaque alongside six stockpile chips, three doors, two meters and
+ * an avatar. Measured at 1280: the row has about 1160px of budget and a 40-character plaque takes
+ * 302px against the 222px a 21-character one takes, so the bar wrapped to a second line and cost
+ * 64px off the top of every screen under it. Fitting 40 inside that budget needs about 9px type,
+ * which is below the size Special Elite is legible at.
+ *
+ * 28 is what the bar can carry at readable size. See `plaqueType` in `FactionPlaque`.
+ */
+export const FACTION_NAME_MAX = 28;
 export const FactionNameSchema = z.string().trim().min(2).max(FACTION_NAME_MAX);
 
 /** A player's faction and the district it holds (GDD §A1). */
@@ -84,6 +96,11 @@ export const BaseSchema = z.object({
    * see `upgradedStats`, which folds them at read time so a refit reaches units already trained.
    */
   fittedUpgrades: FittedUpgradesSchema.default([]),
+  /**
+   * Which of those built upgrades are bolted to which unit, three slots apiece
+   * (`units/loadout.ts`). Only what is slotted pays: the stock above is what the crew *owns*.
+   */
+  unitLoadouts: UnitLoadoutsSchema.default({}),
   /** What is in the Garage. Counted, not itemised: one motorcycle is like any other. */
   fleet: FleetSchema.default({}),
   createdAt: IsoDateTimeSchema,

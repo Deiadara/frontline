@@ -15,6 +15,7 @@ import { DescribedTag } from '../../components/ui/DescribedTag';
 import { cn } from '../../lib/cn';
 import { useCrewStanding } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
+import { PanelSection } from '../../components/ui/PanelSection';
 import { AttributeRadar } from './AttributeRadar';
 import { AttributeSheet } from './AttributeSheet';
 import { OverseerPortrait } from './OverseerPortrait';
@@ -100,21 +101,18 @@ export function OverseerProfilePage() {
             well somebody suits their job, which is yours to judge.
           </InfoNote>
 
-          <section className="flex flex-col gap-2">
-            <h2 className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300">
-              Your own sheet
-            </h2>
-            <div className="painted washed rounded-sm border border-surface-600/70 bg-surface-800/50 p-3">
-              <AttributeSheet attributes={overseer.attributes} />
-            </div>
-          </section>
+          {/* Framed sections rather than a heading over a gap: the same shape the battle board
+              uses, so a screen made of parts looks like one. See `PanelSection`. */}
+          <PanelSection label="Your own sheet" note="Every attribute you carry, whatever your role">
+            <AttributeSheet attributes={overseer.attributes} columns={4} />
+          </PanelSection>
 
-          <section className="grid items-start gap-4 md:grid-cols-[minmax(0,1fr)_11rem]">
-            <div className="flex min-w-0 flex-col gap-2">
-              <h2 className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300">
-                What the crew is buying
-              </h2>
-              <ul className="flex flex-col gap-1.5" data-testid="crew-effects">
+          <PanelSection
+            label="What the crew is buying"
+            note="The best figure anyone on your books has, and what it pays for"
+          >
+            <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1fr)_11rem]">
+              <ul className="flex min-w-0 flex-col gap-1.5" data-testid="crew-effects">
                 {live.map((channel) => (
                   <ChannelRow
                     key={channel}
@@ -124,17 +122,14 @@ export function OverseerProfilePage() {
                   />
                 ))}
               </ul>
+              <div className="h-44 w-full">
+                <AttributeRadar attributes={crewSheet} />
+              </div>
             </div>
-            <div className="h-44 w-full">
-              <AttributeRadar attributes={crewSheet} />
-            </div>
-          </section>
+          </PanelSection>
 
           {dormant.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
-                Nothing there yet
-              </h2>
+            <PanelSection label="Nothing there yet" note="Channels no one on the books can open">
               <ul className="flex flex-wrap gap-1.5">
                 {dormant.map((channel) => (
                   <li
@@ -145,7 +140,7 @@ export function OverseerProfilePage() {
                   </li>
                 ))}
               </ul>
-            </section>
+            </PanelSection>
           )}
         </div>
       </div>
@@ -190,7 +185,7 @@ function ChannelRow({
         {drivers.map((name: AttributeName) => (
           <span
             key={name}
-            title={ATTRIBUTE_EFFECTS[name].summary}
+            data-tip={ATTRIBUTE_EFFECTS[name].summary}
             className={cn(
               'font-display text-[11px] uppercase tracking-[0.1em] tabular-nums',
               (sheet[name] ?? 0) > 0 ? 'text-ink-300' : 'text-ink-300',

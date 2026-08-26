@@ -35,8 +35,15 @@ if (!botDistrict) throw new Error('fixture error: the bot district is missing fr
  * bottom of the curve is where that wait is measured in seconds rather than hours.
  */
 const STARTING_DISTRICT = [
-  { id: 'b1', kind: 'nexus' as const, level: 1, modifications: [], damage: 0, garrisons: 0 },
-  { id: 'b2', kind: 'generator' as const, level: 1, modifications: [], damage: 0, garrisons: 0 },
+  { id: 'b1', kind: 'nexus' as const, level: 1, modifications: [], damage: 0, fortification: 0 },
+  {
+    id: 'b2',
+    kind: 'generator' as const,
+    level: 1,
+    modifications: [],
+    damage: 0,
+    fortification: 0,
+  },
 ];
 const QUARTERS = buildingCost('quarters', 1, STARTING_DISTRICT);
 

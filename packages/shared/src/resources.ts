@@ -29,6 +29,20 @@ export const ResourcesSchema = z.object({
   oil: AmountSchema,
   scrap: AmountSchema,
   highQualityMetal: AmountSchema,
+  /**
+   * §D5b: sawn timber, and the other half of what everything is built out of.
+   *
+   * Scrap is what a ruined city gives you when you strip the metal; planks are what it gives you
+   * when you strip everything else. Almost every structure wants both, in a ratio that says what
+   * the thing physically *is*: a Gate is a palisade and wants more timber than plate, a Garage is
+   * machinery and wants the reverse.
+   *
+   * **Last in this object on purpose.** `art/manifest.ts` derives every resource icon's seed from
+   * this key order, so a key inserted in the middle renumbers the seeds of the ones after it and
+   * silently re-rolls art that has already been made. Where planks belongs *on screen* is a
+   * separate question, answered by `RESOURCE_ORDER`.
+   */
+  planks: AmountSchema,
 });
 export type Resources = z.infer<typeof ResourcesSchema>;
 export type ResourceKey = keyof Resources;
@@ -39,8 +53,31 @@ export type ResourceKey = keyof Resources;
  */
 export const RESOURCE_KEYS = Object.keys(ResourcesSchema.shape) as readonly ResourceKey[];
 
+/**
+ * The order a player reads them in, which is not the order they are stored in.
+ *
+ * `RESOURCE_KEYS` is storage order and it fixes the art seeds, so a new resource has to be
+ * appended there. Reading order is about what the numbers *mean*: the two bulk building materials
+ * sit together, and the scarce one comes last.
+ */
+export const RESOURCE_ORDER: readonly ResourceKey[] = [
+  'caps',
+  'food',
+  'oil',
+  'scrap',
+  'planks',
+  'highQualityMetal',
+];
+
 /** One resource *name*, for anything a player picks rather than a stockpile the server writes. */
-export const ResourceKeySchema = z.enum(['caps', 'food', 'oil', 'scrap', 'highQualityMetal']);
+export const ResourceKeySchema = z.enum([
+  'caps',
+  'food',
+  'oil',
+  'scrap',
+  'highQualityMetal',
+  'planks',
+]);
 
 /** Partial bundle: used for costs, outputs and battle rewards. Whole units, like the stockpile. */
 export const PartialResourcesSchema = ResourcesSchema.partial();
@@ -58,14 +95,20 @@ export type PartialResources = z.infer<typeof PartialResourcesSchema>;
  * settle path, and a bound the arithmetic already guarantees is a bound that can only ever fire as
  * a crash on a row the code could simply have consumed.
  */
+/*
+ * Derived from `ResourcesSchema`'s own keys rather than listed again.
+ *
+ * It was listed again, and adding `planks` is what found it: the stockpile grew a resource and the
+ * carry did not, so production would have banked whole planks and thrown away every fraction of
+ * one, for ever, with nothing failing. One key list, and a new resource cannot repeat it.
+ */
 export const FractionalResourcesSchema = z
-  .object({
-    caps: z.number(),
-    food: z.number(),
-    oil: z.number(),
-    scrap: z.number(),
-    highQualityMetal: z.number(),
-  })
+  .object(
+    Object.fromEntries(RESOURCE_KEYS.map((key) => [key, z.number()])) as Record<
+      ResourceKey,
+      z.ZodNumber
+    >,
+  )
   .partial();
 export type FractionalResources = z.infer<typeof FractionalResourcesSchema>;
 
@@ -83,6 +126,16 @@ export const STARTING_RESOURCES: Resources = {
   food: 300,
   oil: 120,
   scrap: 500,
+  /*
+   * Sized so timber is never the thing that ends the opening.
+   *
+   * 420 against a 1000-plank bill for one of every level-1 structure, where scrap is 500 against
+   * 1790: planks are proportionally *more* plentiful than scrap on purpose. Only the Quarters and
+   * the Greenhouse cost more timber than metal, and both by a little, so the pinch a new player
+   * hits is the caps-and-scrap one that was already there. Adding a sixth resource should widen
+   * the opening's vocabulary, not add a sixth wall to it.
+   */
+  planks: 420,
   highQualityMetal: 40,
 };
 
@@ -98,6 +151,7 @@ export const RESOURCE_LABELS: Readonly<Record<ResourceKey, string>> = {
   food: 'Food',
   oil: 'Oil',
   scrap: 'Scrap',
+  planks: 'Planks',
   highQualityMetal: 'HQ metal',
 };
 
@@ -121,13 +175,7 @@ export function spendResources(stock: Resources, cost: PartialResources): Resour
 
 /** Immutable add: returns `a` with `b`'s amounts applied on top. */
 export function addResources(a: Resources, b: PartialResources): Resources {
-  return {
-    caps: a.caps + (b.caps ?? 0),
-    food: a.food + (b.food ?? 0),
-    oil: a.oil + (b.oil ?? 0),
-    scrap: a.scrap + (b.scrap ?? 0),
-    highQualityMetal: a.highQualityMetal + (b.highQualityMetal ?? 0),
-  };
+  return Object.fromEntries(RESOURCE_KEYS.map((key) => [key, a[key] + (b[key] ?? 0)])) as Resources;
 }
 
 /**
@@ -211,6 +259,15 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
       'Vehicles, once the Garage is standing',
     ],
     from: 'The Cistern, and holds like the Chemical Plant.',
+  },
+  planks: {
+    what: 'Sawn timber, pulled out of whatever the city was before it was this.',
+    spentOn: [
+      'Every structure you raise, alongside scrap',
+      'Digging a position in',
+      'Working a location up',
+    ],
+    from: 'The Scrapyard, which strips the wood out of a ruin as well as the metal.',
   },
   scrap: {
     what: 'Torn plate, cable, dead machines. The city is made of it and so is everything you build.',

@@ -7,12 +7,20 @@ import {
   UNIT_CATALOG,
   UNIT_TIERS,
   findUnit,
+  isCombatUnit,
+  isSupportUnit,
   unitsInTier,
   unitsUnlockedByLocation,
   type UnitSpec,
   type UnitTier,
 } from './catalog.js';
-import { UNIT_MODIFIERS, UNIT_STAT_KEYS } from './stats.js';
+import {
+  UNIT_FIGURE_KEYS,
+  UNIT_MODIFIERS,
+  UNIT_RATING_KEYS,
+  UNIT_STAT_KEYS,
+  UnitStatsSchema,
+} from './stats.js';
 import {
   describeRequirement,
   heldPlaceKindsOf,
@@ -70,7 +78,7 @@ const building = (
   level,
   modifications,
   damage: 0,
-  garrisons: 0,
+  fortification: 0,
 });
 
 /** A crew at the top of every tree, holding one of every kind of location. */
@@ -120,12 +128,42 @@ describe('the catalogue (§A5)', () => {
       const units = unitsInTier(tier);
       return units.reduce((sum, unit) => sum + pick(unit), 0) / units.length;
     };
-    const offense = UNIT_TIERS.map((tier) => meanOf(tier, (unit) => unit.stats.offense));
-    const time = UNIT_TIERS.map((tier) => meanOf(tier, (unit) => unit.trainSeconds));
-    const supply = UNIT_TIERS.map((tier) => meanOf(tier, (unit) => unit.supply));
+    // Support is not the bottom rung of the fighting ladder, it is beside it: a Hauler is slower
+    // to train than a Razor and carries three times as much, and neither fact says anything about
+    // where they sit in a battle line, because they are never in one.
+    const fighting = UNIT_TIERS.filter((tier) => tier !== 'support');
+    const offense = fighting.map((tier) => meanOf(tier, (unit) => unit.stats.offense));
+    const time = fighting.map((tier) => meanOf(tier, (unit) => unit.trainSeconds));
+    const supply = fighting.map((tier) => meanOf(tier, (unit) => unit.supply));
 
     for (const series of [offense, time, supply]) {
       expect([...series].sort((a, b) => a - b)).toEqual(series);
+    }
+  });
+
+  /**
+   * The support tier, and the one rule that makes it a different kind of thing.
+   *
+   * `combat: false` is what keeps a Scavenger out of a battle line: not a low offense, which the
+   * engine would happily let stand in a rank and die. Every consumer asks `isCombatUnit`, so the
+   * fact lives on the sheet and the enforcement lives at each door.
+   */
+  it('marks the support tier as non-combat and nothing else', () => {
+    for (const unit of UNIT_CATALOG) {
+      expect(isCombatUnit(unit), unit.id).toBe(unit.tier !== 'support');
+      expect(isSupportUnit(unit), unit.id).toBe(unit.tier === 'support');
+    }
+    expect(unitsInTier('support').length).toBeGreaterThan(0);
+  });
+
+  it('gives the support tier the trade it exists for: a big bag on slow legs', () => {
+    const average = (pick: (unit: UnitSpec) => number) => {
+      const fighters = UNIT_CATALOG.filter((unit) => unit.tier !== 'support');
+      return fighters.reduce((sum, unit) => sum + pick(unit), 0) / fighters.length;
+    };
+    for (const porter of unitsInTier('support')) {
+      expect(porter.stats.speed, porter.id).toBeLessThan(average((unit) => unit.stats.speed));
+      expect(porter.trainedAt, porter.id).toBe('nexus');
     }
   });
 
@@ -150,7 +188,9 @@ describe('unlocking them (§A5)', () => {
   it('lets a crew with nothing field something, and not much', () => {
     const starters = unlockedUnits(NOTHING);
     expect(starters.length).toBeGreaterThan(0);
-    expect(starters.every((unit) => unit.tier === 'rabble')).toBe(true);
+    // Razors and the porters the Nexus itself signs: the two things a crew with no barracks can
+    // put on the street. Nothing that fights properly.
+    expect(starters.every((unit) => unit.tier === 'rabble' || unit.tier === 'support')).toBe(true);
     expect(starters.length).toBeLessThan(UNIT_CATALOG.length / 3);
   });
 
@@ -532,5 +572,44 @@ describe('how many a crew could order (§A5)', () => {
 
   it('stops at the batch the stepper stops at', () => {
     expect(maxTrainable(razors, rich, 10_000)).toBe(TRAINING_MAX_BATCH);
+  });
+});
+
+/**
+ * §A5: which stats are ratings and which are quantities.
+ *
+ * The two lists are hand-written and the schema is the thing that actually decides, so they can
+ * drift the moment a stat is added: a figure left out of `UNIT_FIGURE_KEYS` gets a bar drawn as a
+ * fraction of 100, which for a 600-vitality Colossus is a full track and a lie.
+ */
+describe('rating stats and open figures (§A5)', () => {
+  it('sorts every stat into exactly one of the two', () => {
+    const figures = new Set<string>(UNIT_FIGURE_KEYS);
+    const ratings = new Set<string>(UNIT_RATING_KEYS);
+    expect([...figures].filter((key) => ratings.has(key))).toEqual([]);
+    expect([...figures, ...ratings].sort()).toEqual([...UNIT_STAT_KEYS].sort());
+  });
+
+  it('keeps every rating inside 0..100 across the whole catalogue, and lets the figures out', () => {
+    for (const unit of UNIT_CATALOG) {
+      for (const key of UNIT_RATING_KEYS) {
+        const value = unit.stats[key];
+        expect(typeof value, `${unit.id}.${key}`).toBe('number');
+        expect(value, `${unit.id}.${key}`).toBeGreaterThanOrEqual(0);
+        expect(value, `${unit.id}.${key}`).toBeLessThanOrEqual(100);
+      }
+    }
+    // And the point of the split: at least one figure is already past what a rating may hold, so
+    // a bar out of 100 would have nothing left to say about it.
+    expect(Math.max(...UNIT_CATALOG.map((unit) => unit.stats.vitality))).toBeGreaterThan(100);
+  });
+
+  it('lets attack past the ceiling it used to have', () => {
+    // The cap was 100 and the catalogue already had a unit sitting on it. Parsing 140 is the
+    // assertion: the schema is what enforced the old ceiling.
+    const top = UNIT_CATALOG.reduce((a, b) => (a.stats.offense >= b.stats.offense ? a : b));
+    expect(top.stats.offense).toBe(100);
+    expect(() => UnitStatsSchema.parse({ ...top.stats, offense: 140 })).not.toThrow();
+    expect(() => UnitStatsSchema.parse({ ...top.stats, offense: -1 })).toThrow();
   });
 });

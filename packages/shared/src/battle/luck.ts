@@ -12,10 +12,12 @@
  *
  * It touches two things and nothing else:
  *
- * - **Critical strikes.** Added as percentage points to a unit's own `lethality`, not multiplied
- *   into it. Multiplying makes luck worth almost nothing to the units that need it most: a Razor
- *   at 8% lethality would gain 0.4 points from a perfect roll, while percentage points move the
- *   rabble meaningfully and the assassins barely at all, which is the right way round.
+ * - **Getting through armour.** Added as points to a unit's own `penetration`, not multiplied into
+ *   it. Multiplying makes luck worth almost nothing to the units that need it most: a Razor at 8
+ *   penetration would gain 0.4 points from a perfect roll, while points move the rabble
+ *   meaningfully and the specialists barely at all, which is the right way round. It follows that
+ *   luck only shows up against something actually wearing armour, which is the correct shape: a
+ *   good day helps you get through plate, not past a man in a coat.
  * - **Getting away.** The same points on the flee roll, so a lucky crew that loses still brings
  *   more of itself home. Luck cannot save a fight; it can save the people in one.
  */
@@ -42,7 +44,7 @@ export function drawLuck(next: () => number): number {
 }
 
 /** Percentage points of critical-strike chance a roll of `luck` is worth. */
-export function luckyCritPercent(luck: number): number {
+export function luckyPenetrationPoints(luck: number): number {
   return clampLuck(luck);
 }
 

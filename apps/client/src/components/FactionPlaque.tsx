@@ -2,6 +2,7 @@ import { FACTION_NAME_MAX, type Base } from '@frontline/shared';
 import { useState } from 'react';
 import { useRenameFaction } from '../lib/queries';
 import { Button } from './ui/Button';
+import { cn } from '../lib/cn';
 
 /**
  * The faction's name (§A1), and the one control that changes it.
@@ -9,6 +10,29 @@ import { Button } from './ui/Button';
  * An inline edit rather than a settings page: it is one field, it is the first thing a new player
  * wants to change, and sending them somewhere else to change it is how it never gets changed.
  */
+/**
+ * How big the sign is allowed to be, given how long the name on it is.
+ *
+ * The cap was 40 and every fixture used 21, so the standing bar was fitted to a plaque half the
+ * width of a legal one: at the ceiling the sign pushed the meters and the avatar onto a second
+ * line and 76px of header became 140px, which is 64px off the top of every screen under it.
+ * `FACTION_NAME_MAX` is 28 now, which is what the row can carry, and the note there has the
+ * measurements.
+ *
+ * The bands remain because 28 is the ceiling rather than the common case: a name in the mid
+ * twenties still wants a step down from the size a short one is set at, and a long name set
+ * smaller and whole is what a sign painter does with the same board and more letters to fit on
+ * it. **Ellipsis is not an option**: a cut label is what the board's bar forbids outright and what
+ * the layout gate reports as text sliced by a clipping edge (see the roster rail in
+ * `TrainingPage`).
+ */
+function plaqueType(length: number): string {
+  if (length <= 21) {
+    return 'text-base tracking-[0.06em] [@media(min-width:1400px)]:text-lg [@media(min-width:1400px)]:tracking-[0.08em]';
+  }
+  return 'text-sm tracking-[0.05em] [@media(min-width:1400px)]:text-base';
+}
+
 export function FactionPlaque({ base }: { base: Base }) {
   const rename = useRenameFaction(base.id);
   const [draft, setDraft] = useState<string | null>(null);
@@ -32,7 +56,7 @@ export function FactionPlaque({ base }: { base: Base }) {
       <button
         type="button"
         onClick={() => setDraft(base.name)}
-        title="Rename your faction"
+        data-tip={`${base.name} · rename`}
         aria-label={`${base.name}. Rename your faction`}
         className="group glass painted edge-lit pointer-events-auto flex items-center rounded-md border border-brass-500/50 px-2.5 py-1.5 shadow-panel transition-all duration-150 hover:-translate-y-px hover:border-brass-300/80 hover:shadow-brass active:translate-y-0"
       >
@@ -47,8 +71,17 @@ export function FactionPlaque({ base }: { base: Base }) {
             does in its title and its accessible name. */}
         {/* A step down below 1400px. The plaque moved into the standing bar and it is the widest
             single thing on it, so at the width where the bar is already fighting for room the sign
-            gets smaller rather than the row getting taller. */}
-        <h1 className="font-stamp text-base font-bold leading-none tracking-[0.06em] text-ink-100 text-on-art [@media(min-width:1400px)]:text-lg [@media(min-width:1400px)]:tracking-[0.08em]">
+            gets smaller rather than the row getting taller.
+
+            And a ceiling on the width, which is the other half of the same rule. A name may be 40
+            characters (`FACTION_NAME_MAX`), and the type steps down past 21 so a name at the
+            ceiling still fits the standing bar whole. See `plaqueType`. */}
+        <h1
+          className={cn(
+            'font-stamp font-bold leading-none text-ink-100 text-on-art',
+            plaqueType(base.name.length),
+          )}
+        >
           {base.name}
         </h1>
       </button>

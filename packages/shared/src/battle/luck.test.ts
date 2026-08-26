@@ -10,10 +10,10 @@ import {
   LUCK_LIMIT,
   LUCK_STEP,
   LUCK_VALUES,
-  luckyCritPercent,
+  luckyPenetrationPoints,
   luckyFleeChance,
 } from './luck.js';
-import { exchange } from './matchup.js';
+import { exchange, armorMultiplier } from './matchup.js';
 import { mulberry32 } from './rng.js';
 import { fleeChance } from './rout.js';
 
@@ -93,10 +93,18 @@ describe('the draw', () => {
   });
 });
 
-describe('luck makes critical strikes more likely', () => {
-  it('pays a lucky unit more damage than an unlucky one', () => {
+describe('luck moves how far a hit gets through armour', () => {
+  /*
+   * Measured against something *wearing* armour, which is the whole shape of the stat now. Luck
+   * rides on penetration, penetration cancels armour, so a lucky day against a target in rags is
+   * worth nothing at all: the first version of this test used a lightly-armoured target and could
+   * not tell the new mechanic from a broken one.
+   */
+  const ARMOURED = 'juggernauts';
+
+  it('pays a lucky unit more damage than an unlucky one, against armour', () => {
     const razors = bare('razors');
-    const target = bare('sparks');
+    const target = bare(ARMOURED);
     const at = (luck: number) =>
       exchange(razors, unit('razors').modifiers, target, target.morale, luck).perBody;
 
@@ -104,15 +112,23 @@ describe('luck makes critical strikes more likely', () => {
     expect(at(0)).toBeGreaterThan(at(-LUCK_LIMIT));
   });
 
+  it('is worth nothing at all against a target with no armour to get through', () => {
+    const razors = bare('razors');
+    const bare_target = { ...bare('sparks'), armor: 0 };
+    const at = (luck: number) =>
+      exchange(razors, unit('razors').modifiers, bare_target, bare_target.morale, luck).perBody;
+    expect(at(LUCK_LIMIT)).toBeCloseTo(at(0), 10);
+  });
+
   /**
-   * Points, not a multiplier. A Razor at 8% lethality gains half again from a perfect roll; a
-   * Specter at 80% gains a sixteenth. Multiplying would invert that and hand the luck to the units
-   * that already crit constantly.
+   * Points, not a multiplier. A Razor gains meaningfully from a perfect roll; a Specter that
+   * already cancels most of a target's plate barely notices. Multiplying would invert that and
+   * hand the luck to the units that need it least.
    */
-  it('is worth proportionally more to a unit with little lethality', () => {
+  it('is worth proportionally more to a unit with little penetration', () => {
     const gain = (id: string) => {
       const attacker = bare(id);
-      const target = bare('sparks');
+      const target = bare(ARMOURED);
       const modifiers = unit(id).modifiers;
       const lucky = exchange(attacker, modifiers, target, target.morale, LUCK_LIMIT).perBody;
       const plain = exchange(attacker, modifiers, target, target.morale, 0).perBody;
@@ -121,22 +137,19 @@ describe('luck makes critical strikes more likely', () => {
     expect(gain('razors')).toBeGreaterThan(gain('the_specter'));
   });
 
-  it('never pushes crit chance outside what a chance can be', () => {
-    const specter = bare('the_specter');
-    const target = bare('razors');
-    for (const luck of [-LUCK_LIMIT, 0, LUCK_LIMIT]) {
-      const { parts } = exchange(specter, unit('the_specter').modifiers, target, 50, luck);
-      expect(parts.crit).toBeGreaterThanOrEqual(1);
-      expect(parts.crit).toBeLessThanOrEqual(2);
-    }
+  it('never lets penetration take armour below nothing', () => {
+    // A unit that out-penetrates the plate entirely gets the unarmoured multiplier and no more:
+    // armour cannot go negative and start *adding* damage.
+    expect(armorMultiplier(10, 40)).toBe(armorMultiplier(0, 0));
+    expect(armorMultiplier(10, 40)).toBe(1);
   });
 
-  it('is worth its face value in points of lethality', () => {
-    expect(luckyCritPercent(3.2)).toBe(3.2);
-    expect(luckyCritPercent(-4.1)).toBe(-4.1);
+  it('is worth its face value in points of penetration', () => {
+    expect(luckyPenetrationPoints(3.2)).toBe(3.2);
+    expect(luckyPenetrationPoints(-4.1)).toBe(-4.1);
     // ...and cannot be smuggled past the limit by a caller passing a bigger number.
-    expect(luckyCritPercent(50)).toBe(LUCK_LIMIT);
-    expect(luckyCritPercent(-50)).toBe(-LUCK_LIMIT);
+    expect(luckyPenetrationPoints(50)).toBe(LUCK_LIMIT);
+    expect(luckyPenetrationPoints(-50)).toBe(-LUCK_LIMIT);
   });
 });
 

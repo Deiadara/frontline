@@ -22,7 +22,10 @@ import { buildingLevel, findBuilding, type Building } from './state.js';
 /** Per level, per hour, before the Cistern, modifications and any brownout. */
 const PRODUCTION_PER_LEVEL: Partial<Record<BuildingKind, PartialResources>> = {
   greenhouse: { food: 12 },
-  scrapyard: { scrap: 10, oil: 2, highQualityMetal: 0.25 },
+  // §D5b: the Scrapyard strips timber as well as metal, so it is the source of both halves of what
+  // building costs. Planks come off slightly below scrap: a ruin has more steel in it than sound
+  // wood, and the wood that is sound is what somebody already took.
+  scrapyard: { scrap: 10, planks: 8, oil: 2, highQualityMetal: 0.25 },
   garage: { oil: 4, highQualityMetal: 1 },
 };
 

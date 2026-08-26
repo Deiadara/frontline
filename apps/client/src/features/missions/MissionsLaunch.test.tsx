@@ -1,13 +1,15 @@
 import {
   MISSION_STANCE_SPECS,
-  MISSION_TEMPLATES,
+  MISC_AREA_ID,
   assigneeBonusPercent,
+  missionOffers,
   playerLevelGrants,
+  templateTimings,
   type AssigneesResponse,
   type LaunchMissionRequest,
   type LaunchMissionResponse,
-  type MissionStance,
-  type MissionTemplate,
+  type MissionArea,
+  type MissionOffer,
   type MissionsResponse,
   makeAttributes,
 } from '@frontline/shared';
@@ -18,22 +20,54 @@ import { MissionsPage } from './MissionsPage';
 import { useSession } from '../../store/session';
 
 /**
- * The §G6 launch contract, driven through the real hooks against a stubbed network.
+ * The §E/§G6 launch contract, driven through the real hooks against a stubbed network.
  *
- * Mocked at `fetch` rather than at `lib/queries` on purpose. The gate this covers is a *required
- * request field*: the server refuses every hard template unless the launch names an officer, and a
- * hook-level mock asserts only that some object reached `mutate`: it cannot see what went on the
- * wire, which is exactly how a client that never sent `officerId` passed every gate while four of
- * the eight templates were unlaunchable.
+ * Mocked at `fetch` rather than at `lib/queries` on purpose. What this covers is a set of
+ * *required request fields*: a launch has to name the board it came off, the units going and,
+ * for a hard job, the officer leading it. A hook-level mock asserts only that some object reached
+ * `mutate`: it cannot see what went on the wire, which is exactly how a client that never sent
+ * `officerId` once passed every gate while half the board was unlaunchable.
  */
 
 const NOW = '2026-08-13T12:00:00.000Z';
 
+/** One board's worth of offers, priced as the server prices them. */
+function areaOf(id: string, name: string, payPercent = 0): MissionArea {
+  return {
+    id,
+    name,
+    blurb: `Everything anybody is paying for in ${name}.`,
+    difficulty: 1,
+    payPercent,
+    offers: missionOffers(id).map((template): MissionOffer => ({
+      templateId: template.id,
+      name: template.name,
+      brief: template.brief,
+      kind: template.kind,
+      difficulty: template.difficulty,
+      stance: template.stance,
+      travelMinutes: templateTimings(template).travelMinutes,
+      durationMinutes: template.durationMinutes,
+      totalMinutes: templateTimings(template).totalMinutes,
+      rewards: template.spoils,
+      payoutSlots: 40,
+      xp: 240,
+      failedXp: 48,
+    })),
+    activeMissionId: null,
+  };
+}
+
+const MISC = areaOf(MISC_AREA_ID, 'Odd jobs');
+const RUSTYARD = areaOf('rustyard', 'The Rustyard', 27);
+
 const board: MissionsResponse = {
   missions: [],
   justResolved: [],
-  resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 },
-  activeLimit: 4,
+  resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
+  activeLimit: 2,
+  areas: [MISC, RUSTYARD],
+  army: { razors: 6, scavengers: 4 },
   serverNow: NOW,
 };
 
@@ -86,6 +120,10 @@ const accepted: LaunchMissionResponse = {
     id: 'm-new',
     baseId: 'base-1',
     templateId: 'scrap-run',
+    areaId: MISC_AREA_ID,
+    payPercent: 0,
+    xp: 240,
+    force: { razors: 1 },
     startedAt: NOW,
     travelMinutes: 5,
     durationMinutes: 3,
@@ -175,38 +213,32 @@ function renderBoard() {
   );
 }
 
-/** One card on the board, found by the template it offers. */
-const card = (name: string): HTMLElement => {
-  const article = screen.getByRole('heading', { name }).closest('article');
-  if (!article) throw new Error(`no card for ${name}`);
-  return article;
+/** The first offer on whichever board is showing, and its name. */
+const firstOffer = (area: MissionArea): MissionOffer => {
+  const offer = area.offers[0];
+  if (!offer) throw new Error(`${area.name} offers nothing`);
+  return offer;
 };
 
-const deploy = (name: string) => within(card(name)).getByRole('button', { name: 'Deploy' });
-
-/** The picker on one card. A painted `Dropdown`, so the trigger is a `combobox` button. */
-const picker = (name: string) => within(card(name)).getByRole('combobox');
-
-/**
- * Wait for the roster itself, not for the control that renders it.
- *
- * An easy card's picker exists before the officers arrive: it always offers the "nobody" option,
- * so waiting on the `combobox` is satisfied by an *empty* roster. That made every easy-card
- * assertion below vacuous: selecting an officer silently did nothing because the option was not in
- * the DOM yet, and "unled by default" passed because there was nobody to lead it either way.
- *
- * The picker is no longer a native `<select>`, whose options are in the DOM whether it is open or
- * not: a painted list only exists while it is open. So the signal is now the *hard* card's
- * trigger, which defaults to the first officer and therefore reads their name the moment the
- * roster lands. Still the roster rather than the control, and still not satisfiable by an empty one.
- */
-const rosterLoaded = () => screen.findAllByText('Reza Malik');
-
-/** Open a card's picker and choose somebody. The list is portalled, so it is found on `screen`. */
-async function pick(cardName: string, officer: RegExp): Promise<void> {
-  fireEvent.click(picker(cardName));
-  fireEvent.click(await screen.findByRole('option', { name: officer }));
+/** Open the send window for one offer. */
+async function openSend(offer: MissionOffer): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByTestId(`send-${offer.templateId}`));
+  return screen.getByRole('dialog');
 }
+
+/** Put `count` of a unit in the crew. The stepper's own field is labelled by unit name. */
+function take(dialog: HTMLElement, unitName: string, count: number): void {
+  const field = within(dialog).getByLabelText(`How many ${unitName}`);
+  fireEvent.change(field, { target: { value: String(count) } });
+}
+
+/** Choose the officer leading it. The list is portalled, so it is found on `screen`. */
+async function lead(dialog: HTMLElement, name: RegExp): Promise<void> {
+  fireEvent.click(within(dialog).getByTestId('send-leader'));
+  fireEvent.click(await screen.findByRole('option', { name }));
+}
+
+const send = (dialog: HTMLElement) => fireEvent.click(within(dialog).getByTestId('confirm-send'));
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
@@ -218,106 +250,118 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('§G6: the officer a launch has to name', () => {
-  it('sends the leading officer for a hard template', async () => {
+describe('what a launch puts on the wire (§E, §G6)', () => {
+  it('names the board, the crew and the leader', async () => {
     stubApi({ assignees: staffed });
     renderBoard();
+    await screen.findByTestId('board-area');
 
-    await rosterLoaded();
-    fireEvent.click(deploy('Convoy Ambush'));
+    const offer = firstOffer(MISC);
+    const dialog = await openSend(offer);
+    take(dialog, 'Razors', 2);
+    await lead(dialog, /Reza Malik/);
+    send(dialog);
 
     await waitFor(() =>
       expect(launchBody()).toEqual({
-        templateId: 'convoy-ambush',
+        templateId: offer.templateId,
+        areaId: MISC_AREA_ID,
+        force: { razors: 2 },
         officerId: 'off-1',
       }),
     );
   });
 
-  it('honours the officer the player picked rather than the default', async () => {
+  /**
+   * The arrows are the whole point of the inner board: the area the crew is sent to has to be the
+   * one the player arrowed to, or the pay premium on screen belongs to somewhere else.
+   */
+  it('sends to the area the player arrowed to, not the one it opened on', async () => {
     stubApi({ assignees: staffed });
     renderBoard();
+    await screen.findByTestId('board-area');
 
-    await rosterLoaded();
-    await pick('Foundry Raid', /Odile Marchetti/);
-    fireEvent.click(deploy('Foundry Raid'));
+    expect(screen.getByTestId('board-area')).toHaveTextContent('Odd jobs');
+    fireEvent.click(screen.getByTestId('board-right'));
+    expect(screen.getByTestId('board-area')).toHaveTextContent('The Rustyard');
 
-    await waitFor(() => expect(launchBody().officerId).toBe('off-2'));
+    const offer = firstOffer(RUSTYARD);
+    const dialog = await openSend(offer);
+    take(dialog, 'Razors', 1);
+    send(dialog);
+
+    await waitFor(() => expect(launchBody().areaId).toBe('rustyard'));
+  });
+
+  it('wraps round the boards in both directions', async () => {
+    stubApi({ assignees: staffed });
+    renderBoard();
+    await screen.findByTestId('board-area');
+
+    fireEvent.click(screen.getByTestId('board-left'));
+    expect(screen.getByTestId('board-area')).toHaveTextContent('The Rustyard');
+    fireEvent.click(screen.getByTestId('board-right'));
+    expect(screen.getByTestId('board-area')).toHaveTextContent('Odd jobs');
+  });
+
+  it('will not send a crew that is nobody at all', async () => {
+    stubApi({ assignees: staffed });
+    renderBoard();
+    await screen.findByTestId('board-area');
+
+    const dialog = await openSend(firstOffer(MISC));
+    expect(within(dialog).getByTestId('confirm-send')).toBeDisabled();
   });
 
   /**
-   * The easy branch of §G6, and the reason the picker is not simply always-on: an easy run is
-   * *allowed* to go out on assignees alone, so defaulting it to an officer would silently spend a
-   * leader the player never named.
+   * §A5: the support tier carries and does not fight. A battle job with nothing but porters in it
+   * is refused in the window rather than on the wire, so the player is told before they commit.
    */
-  it('leaves an easy template unled by default, so it runs as a delegation', async () => {
+  it('refuses a battle job crewed entirely by porters', async () => {
     stubApi({ assignees: staffed });
     renderBoard();
+    await screen.findByTestId('board-area');
 
-    await rosterLoaded();
-    fireEvent.click(deploy('Scrap Run'));
+    const battle = MISC.offers.find((offer) => offer.kind === 'battle');
+    if (!battle) throw new Error('fixture error: no battle job on the miscellaneous board');
 
-    await waitFor(() => expect(launchBody()).toEqual({ templateId: 'scrap-run' }));
+    const dialog = await openSend(battle);
+    take(dialog, 'Scavengers', 3);
+    expect(within(dialog).getByTestId('confirm-send')).toBeDisabled();
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/able to fight/i);
+
+    // One fighter among them and it goes.
+    take(dialog, 'Razors', 1);
+    expect(within(dialog).getByTestId('confirm-send')).toBeEnabled();
   });
 
-  it('still lets the player put an officer on an easy run', async () => {
-    stubApi({ assignees: staffed });
-    renderBoard();
-
-    await rosterLoaded();
-    await pick('Scrap Run', /Reza Malik/);
-    fireEvent.click(deploy('Scrap Run'));
-
-    await waitFor(() => expect(launchBody().officerId).toBe('off-1'));
-  });
-
-  /**
-   * With nobody on the books a hard run is genuinely impossible, so the card says so instead of
-   * offering a button that posts a request the server is certain to refuse.
-   */
-  it('explains a hard run it cannot staff instead of offering a dead button', async () => {
+  it('says a hard job cannot go out with nobody on the books', async () => {
     stubApi({ assignees: unstaffed });
     renderBoard();
 
-    // Waited on the message, not on the disabled button: Deploy is disabled while the roster is
-    // merely *loading* too, so that condition is satisfied before the empty roster is even known.
-    await within(card('Convoy Ambush')).findByText(/Hire one at the Bar/);
-    expect(deploy('Convoy Ambush')).toBeDisabled();
-    // The easy work is still live. This is a §G6 gate, not a dead board.
-    expect(deploy('Scrap Run')).toBeEnabled();
-  });
+    const hard = MISC.offers.find((offer) => offer.difficulty === 'hard');
+    if (!hard) throw new Error('fixture error: no hard job on the miscellaneous board');
 
-  /**
-   * The board renders off a static template list, so it is on screen a full round trip before the
-   * roster is. Reading "not loaded" as "nobody hired" told a player with a full crew to go hire an
-   * officer, on all four hard cards, on every visit, and then silently replaced it once the
-   * officers landed.
-   */
-  it('does not claim the player has no officers while the roster is still loading', async () => {
-    stubApi({ assignees: staffed, rosterDelayMs: 40 });
-    renderBoard();
-
-    await screen.findByRole('heading', { name: 'Convoy Ambush' });
-    expect(screen.queryByText(/Hire one at the Bar/)).toBeNull();
-    expect(within(card('Convoy Ambush')).getByText('Reading the roster…')).toBeInTheDocument();
-    // And it cannot be deployed on a leader nobody has named yet.
-    expect(deploy('Convoy Ambush')).toBeDisabled();
-
-    // Once the roster answers, the card offers the officer it found.
-    await rosterLoaded();
-    // The trigger shows who it settled on by *name*, which is the only thing a player can read.
-    expect(picker('Convoy Ambush')).toHaveTextContent('Reza Malik');
-    expect(screen.queryByText('Reading the roster…')).toBeNull();
+    const dialog = await openSend(hard);
+    take(dialog, 'Razors', 2);
+    await within(dialog).findByText(/without an officer leading it/);
+    expect(within(dialog).getByTestId('confirm-send')).toBeDisabled();
   });
 });
 
 describe('a refused launch', () => {
+  const sendAnything = async () => {
+    const dialog = await openSend(firstOffer(MISC));
+    take(dialog, 'Razors', 1);
+    await lead(dialog, /Reza Malik/);
+    send(dialog);
+  };
+
   it('tells the player why instead of returning the board to normal', async () => {
     stubApi({ assignees: staffed, launch: NEEDS_OFFICER });
     renderBoard();
-
-    await rosterLoaded();
-    fireEvent.click(deploy('Scrap Run'));
+    await screen.findByTestId('board-area');
+    await sendAnything();
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'That job is too hard to run without an officer leading it',
@@ -328,7 +372,7 @@ describe('a refused launch', () => {
     stubApi({ assignees: staffed });
     renderBoard();
 
-    await rosterLoaded();
+    await screen.findByTestId('board-area');
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -340,9 +384,8 @@ describe('a refused launch', () => {
   it('still announces a level-up the refused launch had already banked', async () => {
     stubApi({ assignees: staffed, launch: REFUSED_AFTER_LEVELLING });
     renderBoard();
-
-    await rosterLoaded();
-    fireEvent.click(deploy('Scrap Run'));
+    await screen.findByTestId('board-area');
+    await sendAnything();
 
     expect(await screen.findByRole('region', { name: 'Level up' })).toHaveTextContent('LEVEL 4');
     // And the refusal itself is still explained: the banner does not replace the reason.
@@ -352,9 +395,8 @@ describe('a refused launch', () => {
   it('shows no level-up banner when the refusal banked nothing', async () => {
     stubApi({ assignees: staffed, launch: NEEDS_OFFICER });
     renderBoard();
-
-    await rosterLoaded();
-    fireEvent.click(deploy('Scrap Run'));
+    await screen.findByTestId('board-area');
+    await sendAnything();
 
     await screen.findByRole('alert');
     expect(screen.queryByRole('region', { name: 'Level up' })).toBeNull();
@@ -362,54 +404,34 @@ describe('a refused launch', () => {
 });
 
 describe('the board says which way a job points at the Combine (§A3, §D8)', () => {
-  /** A template on the live board with the given stance, so the fixture cannot drift from content. */
-  const templateWith = (stance: MissionStance): MissionTemplate => {
-    const found = MISSION_TEMPLATES.find((t) => t.stance === stance);
-    if (!found) throw new Error(`fixture error: no ${stance} mission on the board`);
-    return found;
-  };
-
-  it('badges anti-Combine work and Combine contracts differently', async () => {
+  it('badges a job that points at the state, and says what the word means', async () => {
     stubApi({ assignees: staffed });
     renderBoard();
-    await rosterLoaded();
+    await screen.findByTestId('board-area');
 
-    const against = templateWith('against_government');
-    const forThem = templateWith('for_government');
+    const pointed = MISC.offers.find((offer) => offer.stance !== 'unaligned');
+    if (!pointed) throw new Error('fixture error: no aligned job on the miscellaneous board');
+    const spec = MISSION_STANCE_SPECS[pointed.stance];
 
-    expect(
-      within(card(against.name)).getByText(MISSION_STANCE_SPECS.against_government.label),
-    ).toBeInTheDocument();
-    expect(
-      within(card(forThem.name)).getByText(MISSION_STANCE_SPECS.for_government.label),
-    ).toBeInTheDocument();
+    const card = within(screen.getByTestId(`offer-${pointed.templateId}`));
+    const badge = card.getByText(spec.label);
+    expect(badge).toBeInTheDocument();
+
+    // And the keyword explains itself in the game's own window rather than in a browser tooltip.
+    fireEvent.focus(badge);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(spec.description);
   });
 
   it('leaves unaligned work unbadged rather than labelling every card', async () => {
     stubApi({ assignees: staffed });
     renderBoard();
-    await rosterLoaded();
+    await screen.findByTestId('board-area');
 
-    const unaligned = within(card(templateWith('unaligned').name));
+    const plain = MISC.offers.find((offer) => offer.stance === 'unaligned');
+    if (!plain) throw new Error('fixture error: no unaligned job on the miscellaneous board');
+    const card = within(screen.getByTestId(`offer-${plain.templateId}`));
     for (const spec of Object.values(MISSION_STANCE_SPECS)) {
-      expect(unaligned.queryByText(spec.label)).toBeNull();
+      expect(card.queryByText(spec.label)).toBeNull();
     }
-  });
-
-  it('keeps both badges inside the card it belongs to', async () => {
-    // Two tags in a header is the one place this change can overflow, and the zero-visual-bugs bar
-    // is a hard one, so the badge and the kind tag are asserted to sit in the same card, wrapped.
-    stubApi({ assignees: staffed });
-    renderBoard();
-    await rosterLoaded();
-
-    const battle = MISSION_TEMPLATES.find(
-      (t) => t.stance === 'against_government' && t.kind === 'battle',
-    );
-    if (!battle) throw new Error('fixture error: no anti-Combine battle on the board');
-
-    const header = within(card(battle.name));
-    expect(header.getByText(MISSION_STANCE_SPECS.against_government.label)).toBeInTheDocument();
-    expect(header.getByText('Battle')).toBeInTheDocument();
   });
 });

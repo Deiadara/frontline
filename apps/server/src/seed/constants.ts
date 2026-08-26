@@ -46,7 +46,14 @@ export const MVP_BOT: BotBlueprint = {
   baseName: 'Vex Holdings',
   overseerPresetId: 'fixer',
   level: 4,
-  resources: { caps: 4200, food: 2400, oil: 1600, scrap: 3800, highQualityMetal: 900 },
+  resources: {
+    caps: 4200,
+    food: 2400,
+    oil: 1600,
+    scrap: 3800,
+    planks: 3200,
+    highQualityMetal: 900,
+  },
   /**
    * A district built the way a rival would build one: the Nexus high enough to authorise a Gate,
    * and then the Gate raised to the cap. `districtDefense` reads that Gate when the player raids
@@ -54,16 +61,23 @@ export const MVP_BOT: BotBlueprint = {
    * seeding a rival with structures at all.
    */
   buildings: [
-    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0, garrisons: 0 },
-    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [], damage: 0, garrisons: 0 },
-    { id: 'vex-gauntlet', kind: 'gauntlet', level: 3, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0, fortification: 0 },
+    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [], damage: 0, fortification: 0 },
+    {
+      id: 'vex-gauntlet',
+      kind: 'gauntlet',
+      level: 3,
+      modifications: [],
+      damage: 0,
+      fortification: 0,
+    },
     {
       id: 'vex-generator',
       kind: 'generator',
       level: 3,
       modifications: [],
       damage: 0,
-      garrisons: 0,
+      fortification: 0,
     },
     {
       id: 'vex-scrapyard',
@@ -71,9 +85,16 @@ export const MVP_BOT: BotBlueprint = {
       level: 2,
       modifications: [],
       damage: 0,
-      garrisons: 0,
+      fortification: 0,
     },
-    { id: 'vex-quarters', kind: 'quarters', level: 2, modifications: [], damage: 0, garrisons: 0 },
+    {
+      id: 'vex-quarters',
+      kind: 'quarters',
+      level: 2,
+      modifications: [],
+      damage: 0,
+      fortification: 0,
+    },
   ],
   army: { razors: 12, wardens: 6, breakers: 4 },
   /* Four of the 19 officer positions (GDD §C1), on the 0..100 attribute scale. */

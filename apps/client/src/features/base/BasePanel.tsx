@@ -11,10 +11,12 @@ import {
   playerXpToNextLevel,
   queueProgressAt,
   queueRemainingMs,
-  reputationOf,
   startOfPayWeek,
   storageCapacity,
-  weeklyWageBill,
+  payrollLedger,
+  payrollBonusPercent,
+  buildingLevel,
+  committedPayroll,
   type Base,
   type BuildingKind,
 } from '@frontline/shared';
@@ -142,7 +144,12 @@ export function BasePanel() {
 
         <div className="grid gap-5 lg:grid-cols-2">
           <Panel title="Standing">
-            <StandingReadout economy={base.economy} reputation={reputationOf(base.economy, now)} />
+            <StandingReadout
+              economy={base.economy}
+              level={base.level}
+              xpIntoLevel={base.progression.xpIntoLevel}
+              xpToNextLevel={playerXpToNextLevel(base.level)}
+            />
           </Panel>
           <Panel title="Payroll">
             <PayrollRows base={base} now={now} />
@@ -295,16 +302,25 @@ function ProductionRows({ base }: { base: Base }) {
  */
 function PayrollRows({ base, now }: { base: Base; now: Date }) {
   const officers = base.commanders.length;
-  const nextPayday = new Date(startOfPayWeek(now).getTime() + PAY_WEEK_MS);
+  const nextUpkeep = new Date(startOfPayWeek(now).getTime() + PAY_WEEK_MS);
+  const ledger = payrollLedger(
+    base.economy.payroll,
+    buildingLevel(base.buildings, 'nexus'),
+    payrollBonusPercent(base.buildings),
+  );
 
   return (
     <dl className="flex flex-col divide-y divide-surface-700">
       <StatRow label="Officers on the books" value={String(officers)} />
-      <StatRow label="Wages / week" value={`${weeklyWageBill(base.economy.payroll.wages)} caps`} />
+      <StatRow
+        label="Payroll committed"
+        value={`${committedPayroll(base.economy.payroll.commitments)} / ${ledger.capacity} caps`}
+      />
+      <StatRow label="Payroll left" value={`${ledger.available} caps`} />
       <StatRow label="Food upkeep / week" value={`${foodUpkeepFor(officers)} food`} />
       <StatRow
-        label="Next payday"
-        value={nextPayday.toLocaleDateString(undefined, {
+        label="Next upkeep"
+        value={nextUpkeep.toLocaleDateString(undefined, {
           weekday: 'short',
           day: 'numeric',
           month: 'short',

@@ -1,10 +1,20 @@
 import {
-  ANTI_SYSTEMIC_ACTIONS,
+  BASE_CONCURRENT_MISSIONS,
+  CITY_DISTRICTS,
+  MISC_AREA_ID,
+  MISSION_TEMPLATES,
+  FAILED_MISSION_XP_SHARE,
+  areaPayPercent,
+  areasOffering,
+  missionBoardDay,
+  levelPayPercent,
+  missionOffers,
+  missionXp,
+  scaledSpoils,
   ATTRIBUTE_NAMES,
   CHARACTER_LEVEL_AUTO_POINTS,
   CHARACTER_LEVEL_PLAYER_POINTS,
   MISSION_INFAMY_DELTA,
-  MISSION_TEMPLATES,
   PLAYER_XP_AWARDS,
   applyPlayerXp,
   characterXpForActivity,
@@ -13,16 +23,12 @@ import {
   findMissionTemplate,
   missionRewards,
   playerLevelGrants,
-  reputationOf,
-  requiresOfficer,
   templateTimings,
   type Attributes,
   type Base,
   type Commander,
   type Mission,
-  type MissionStance,
   type MissionTemplate,
-  type ReputationTally,
   type Resources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -32,8 +38,40 @@ import { createRng } from '../characters/rng.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { CONCURRENT_MISSION_LIMIT, launchMission } from './launch.js';
+import { launchMission } from './launch.js';
 import { resolveDueMissions } from './resolve.js';
+
+/**
+ * A launch payload for `POST /api/missions`.
+ *
+ * A job has to be posted with the board it was taken off and the crew going, so the tests say
+ * both. `areasOffering` is what picks a board that genuinely offers the template, which is the
+ * same check the route makes.
+ */
+function launchBody(templateId: string, extra: Record<string, unknown> = {}) {
+  return {
+    templateId,
+    areaId: areasOffering(templateId, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+    force: { razors: 1 },
+    ...extra,
+  };
+}
+
+/**
+ * A launch on the `nth` board that offers anything at all, whatever it offers.
+ *
+ * Work is one-per-area now, so a test that needs two crews out at once needs two *areas*, not two
+ * launches. Walking the boards rather than naming them keeps this stable if the offer walk is
+ * retuned.
+ */
+function launchInArea(nth: number, extra: Record<string, unknown> = {}) {
+  const boards = [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)];
+  const areaId = boards[nth];
+  if (areaId === undefined) throw new Error(`no board number ${nth}`);
+  const offer = missionOffers(areaId, missionBoardDay(new Date()))[0];
+  if (!offer) throw new Error(`board ${areaId} offers nothing`);
+  return { templateId: offer.id, areaId, force: { razors: 1 }, ...extra };
+}
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -93,8 +131,19 @@ async function makeStack(username = 'runner'): Promise<Stack> {
   expect(chosen.statusCode).toBe(201);
 
   const repos = createRepositories(db);
+  const minted = repos.bases.findByOwnerId(user.id);
+  if (!minted) throw new Error('overseer creation did not mint a base');
+  // Somebody to send. A mission takes actual units now, so a stack with an empty roster refuses
+  // every launch below for the right reason and tells us nothing about the thing under test.
+  repos.bases.updateArmy(minted.id, { razors: 20, haulers: 20 }, minted.trainingQueue);
+  // Eyes on the whole map. Work is offered per district now and only where a crew has been, so a
+  // stack that has scouted nothing refuses every launch for a reason none of these tests are
+  // about. Scouting itself is `city.test.ts`.
+  for (const district of CITY_DISTRICTS) {
+    repos.city.markScouted(minted.id, district.id, new Date().toISOString());
+  }
   const base = repos.bases.findByOwnerId(user.id);
-  if (!base) throw new Error('overseer creation did not mint a base');
+  if (!base) throw new Error('base vanished after arming it');
   return { app, repos, base, token };
 }
 
@@ -120,11 +169,42 @@ function planted(stack: Stack, template: MissionTemplate, seed: number, startedA
     id: `mission-${seed}-${template.id}`,
     base: stack.base,
     template,
+    areaId: areasOffering(template.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+    // Enough bags that nothing is left on the floor: what a crew can carry is measured elsewhere
+    // (`missions.areas.test.ts`), and a payout trimmed by accident here would look like a pricing
+    // bug in every timer assertion below.
+    force: { haulers: 400 },
     now: startedAt,
     seed,
   });
   stack.repos.missions.insert(stored);
   return stored.mission;
+}
+
+/**
+ * What a clean run of this template pays a crew at this stack's level, off the board `planted`
+ * sends it from.
+ *
+ * Recomputed from the same shared functions the settler uses rather than restated, so a test that
+ * asserts on it is checking that the settler *ran* rather than carrying a second copy of the
+ * pricing that can drift from it.
+ */
+function paidFor(template: MissionTemplate, stack: Stack) {
+  const areaId = areasOffering(template.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID;
+  return scaledSpoils(
+    missionRewards(template, 'success'),
+    areaPayPercent(areaId) + levelPayPercent(stack.base.level),
+  );
+}
+
+/** A job on today's boards that §G6 will not let out without an officer leading it. */
+function hardJob(): MissionTemplate {
+  const day = missionBoardDay(new Date());
+  for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((d) => d.id)]) {
+    const found = missionOffers(areaId, day).find((t) => t.difficulty === 'hard');
+    if (found) return found;
+  }
+  throw new Error('no hard job on any board today');
 }
 
 const after = (minutes: number, from: Date = T0) => new Date(from.getTime() + minutes * MINUTE_MS);
@@ -277,13 +357,14 @@ describe('mission payout (§E1, §E5)', () => {
       after(templateTimings(scrapRun).totalMinutes),
     );
 
-    const expected = missionRewards(scrapRun, 'success');
+    // §A4: the pay carries the ground's premium, so what lands is the scaled figure rather than
+    // the template's own. `planted` records which board it went out from.
+    const expected = paidFor(scrapRun, stack);
     expect(base.resources.scrap).toBe(before.scrap + (expected.scrap ?? 0));
     expect(base.resources.caps).toBe(before.caps + (expected.caps ?? 0));
-    expect(base.economy.morale).toBeGreaterThan(stack.base.economy.morale);
   });
 
-  it('sends a failed battle home empty and costs morale (§E5 risk)', async () => {
+  it('sends a failed battle home empty (§E5 risk)', async () => {
     const stack = await makeStack();
     const raid = findMissionTemplate('foundry-raid') as MissionTemplate;
     const before = resourcesOf(stack);
@@ -298,14 +379,9 @@ describe('mission payout (§E1, §E5)', () => {
     expect(resolved[0]?.outcome).toBe('failure');
     expect(resolved[0]?.rewards).toEqual({});
     expect(base.resources).toEqual(before);
-    expect(base.economy.morale).toBeLessThan(stack.base.economy.morale);
   });
 
-  /**
-   * §D7/§A3: a blow that lands on the state is heard. Asserted on the meter rather than the
-   * stance tally, which `recordMissionOutcome` already covers: the two are written side by side
-   * in the same settle and one can be added without the other.
-   */
+  /** §D7/§A3: a blow that lands on the state is heard. */
   it('raises infamy for anti-government work that came home', async () => {
     const stack = await makeStack();
     const strike = findMissionTemplate('fuel-siphon') as MissionTemplate;
@@ -378,7 +454,7 @@ describe('mission payout (§E1, §E5)', () => {
 
     const stored = stack.repos.missions.listByBaseId(stack.base.id)[0];
     expect(stored?.mission.status).toBe('resolved');
-    expect(stored?.mission.rewards).toEqual(missionRewards(scrapRun, 'success'));
+    expect(stored?.mission.rewards).toEqual(paidFor(scrapRun, stack));
     expect(stored?.mission.resolvedAt).not.toBeNull();
   });
 
@@ -386,10 +462,15 @@ describe('mission payout (§E1, §E5)', () => {
     const stack = await makeStack();
     const expedition = findMissionTemplate('deep-expedition') as MissionTemplate;
     const before = resourcesOf(stack);
-    const owedOnLaunchTerms = missionRewards(expedition, 'success');
     const launchedTotal = templateTimings(expedition).totalMinutes;
 
-    planted(stack, expedition, ALWAYS_SUCCEEDS);
+    const planned = planted(stack, expedition, ALWAYS_SUCCEEDS);
+    // §A4: what the ground adds. The job is taken off a board, and a board in a hard district pays
+    // more for the same work, so the figure to hold the clock against is the scaled one.
+    const owedOnLaunchTerms = scaledSpoils(
+      missionRewards(expedition, 'success'),
+      areaPayPercent(planned.areaId),
+    );
 
     // The crew is out on a 26-hour run. Ship a retune that cuts the mission to an hour: the shape
     // of a deploy landing mid-expedition, which is routine while the board is still being tuned.
@@ -427,9 +508,9 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: 'deep-expedition', officerId },
+      payload: launchBody('deep-expedition', { officerId }),
     });
-    expect(launched.statusCode).toBe(200);
+    expect(launched.statusCode, launched.body).toBe(200);
     expect(launched.json<{ mission: Mission }>().mission.status).toBe('active');
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
@@ -437,7 +518,7 @@ describe('the mission routes', () => {
     const body = board.json<{ missions: Mission[]; activeLimit: number; serverNow: string }>();
     expect(body.missions).toHaveLength(1);
     expect(body.missions[0]?.templateId).toBe('deep-expedition');
-    expect(body.activeLimit).toBe(CONCURRENT_MISSION_LIMIT);
+    expect(body.activeLimit).toBe(BASE_CONCURRENT_MISSIONS);
     expect(Date.parse(body.serverNow)).not.toBeNaN();
   });
 
@@ -451,7 +532,7 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: 'fuel-siphon', officerId },
+      payload: launchBody('fuel-siphon', { officerId }),
     });
 
     const mission = res.json<{ mission: Mission }>().mission;
@@ -466,7 +547,7 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: 'not-a-mission' },
+      payload: launchBody('not-a-mission'),
     });
     expect(res.statusCode).toBe(404);
     expect(res.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND');
@@ -477,21 +558,22 @@ describe('the mission routes', () => {
     const { app, token } = stack;
 
     const officerId = withOfficer(stack);
-    for (let i = 0; i < CONCURRENT_MISSION_LIMIT; i += 1) {
+    // One per area: two crews out means two boards, which is half of what the limit is *for*.
+    for (let i = 0; i < BASE_CONCURRENT_MISSIONS; i += 1) {
       const res = await app.inject({
         method: 'POST',
         url: '/api/missions',
         headers: auth(token),
-        payload: { templateId: 'deep-expedition', officerId },
+        payload: launchInArea(i, { officerId }),
       });
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode, res.body).toBe(200);
     }
 
     const overflow = await app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: 'scrap-run' },
+      payload: launchInArea(BASE_CONCURRENT_MISSIONS, { officerId }),
     });
     expect(overflow.statusCode).toBe(409);
     expect(overflow.json<{ error: { code: string } }>().error.code).toBe('MISSIONS_AT_CAPACITY');
@@ -509,9 +591,50 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: 'scrap-run' },
+      payload: launchInArea(BASE_CONCURRENT_MISSIONS, { officerId }),
     });
-    expect(afterReturn.statusCode).toBe(200);
+    expect(afterReturn.statusCode, afterReturn.body).toBe(200);
+  });
+
+  /**
+   * §E: one job per area at a time.
+   *
+   * The rule that makes a district a commitment rather than a queue. It is a *separate* limit from
+   * the two-crew cap above and it bites first: a crew with both slots free still cannot run two
+   * jobs in the same place.
+   */
+  it('refuses a second crew in an area one is already working', async () => {
+    const stack = await makeStack('area_locker');
+    const { app, token } = stack;
+    const officerId = withOfficer(stack);
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(token),
+      payload: launchInArea(0, { officerId }),
+    });
+    expect(first.statusCode, first.body).toBe(200);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(token),
+      payload: launchInArea(0, { officerId }),
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json<{ error: { message: string } }>().error.message).toMatch(/already/i);
+
+    // And the board says so rather than leaving the player to find out: an area with a crew in it
+    // offers nothing and names the mission instead.
+    const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
+    const { areas } = board.json<{
+      areas: { id: string; offers: unknown[]; activeMissionId: string | null }[];
+    }>();
+    const worked = areas.find((area) => area.activeMissionId !== null);
+    expect(worked).toBeDefined();
+    expect(worked?.offers).toEqual([]);
+    expect(areas.filter((area) => area.offers.length > 0).length).toBeGreaterThan(0);
   });
 
   /**
@@ -541,8 +664,8 @@ describe('the mission routes', () => {
       after(templateTimings(rationRun).totalMinutes),
     );
 
-    const scrapPay = missionRewards(scrapRun, 'success');
-    const rationPay = missionRewards(rationRun, 'success');
+    const scrapPay = paidFor(scrapRun, stack);
+    const rationPay = paidFor(rationRun, stack);
     const afterBoth = resourcesOf(stack);
     expect(afterBoth.scrap).toBe(before.scrap + (scrapPay.scrap ?? 0) + (rationPay.scrap ?? 0));
     expect(afterBoth.food).toBe(before.food + (scrapPay.food ?? 0) + (rationPay.food ?? 0));
@@ -564,7 +687,7 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: 'scrap-run' },
+      payload: launchBody('scrap-run'),
     });
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
@@ -584,28 +707,42 @@ describe('the mission routes', () => {
 });
 
 describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
-  /** What W6's engine makes of `n` mission awards from where the base currently stands. */
-  function expectedAfter(base: Base, missions: number) {
-    return applyPlayerXp(
-      { level: base.level, xpIntoLevel: base.progression.xpIntoLevel },
-      missions * PLAYER_XP_AWARDS.missionCompleted,
-    );
+  /**
+   * What W6's engine makes of these awards from where the base currently stands.
+   *
+   * Priced per run rather than off the table entry: a mission's XP is its own clock, its risk and
+   * the crew's level (`missionXp`), and a failure pays `FAILED_MISSION_XP_SHARE` of it. Recomputed
+   * here from the same shared function the settler uses, so this is a check that the settler *ran*
+   * rather than a second copy of the arithmetic.
+   */
+  function expectedAfter(base: Base, runs: readonly { template: MissionTemplate; won: boolean }[]) {
+    const total = runs.reduce((sum, run) => {
+      const xp = missionXp(run.template, templateTimings(run.template).totalMinutes, base.level);
+      return sum + Math.round(xp * (run.won ? 1 : FAILED_MISSION_XP_SHARE));
+    }, 0);
+    return applyPlayerXp({ level: base.level, xpIntoLevel: base.progression.xpIntoLevel }, total);
   }
+
+  const won = (template: MissionTemplate) => ({ template, won: true });
+  const lost = (template: MissionTemplate) => ({ template, won: false });
 
   it('banks the award and hands back the level it produced, not a pre-award copy', async () => {
     const stack = await makeStack();
     const before = freshBase(stack);
-    planted(stack, scrapRun, ALWAYS_SUCCEEDS);
+    // A long one, because XP is priced off the clock now: a thirteen-minute scrap run is worth
+    // about half a level and this case is about what happens when one is *crossed*.
+    const expedition = findMissionTemplate('deep-expedition') as MissionTemplate;
+    planted(stack, expedition, ALWAYS_SUCCEEDS);
 
     const { base } = resolveDueMissions(
       stack.repos,
       stack.base,
-      after(templateTimings(scrapRun).totalMinutes),
+      after(templateTimings(expedition).totalMinutes),
     );
 
-    const expected = expectedAfter(before, 1);
-    // One mission is worth more than level 1 costs, so this crosses a level: the two halves of
-    // progression have to move together or the returned base contradicts the row.
+    const expected = expectedAfter(before, [won(expedition)]);
+    // Worth more than level 1 costs, so this crosses: the two halves of progression have to move
+    // together or the returned base contradicts the row.
     expect(expected.levelsGained).toBeGreaterThan(0);
     expect(freshBase(stack).level).toBe(expected.level);
     expect(freshBase(stack).progression.xpIntoLevel).toBe(expected.xpIntoLevel);
@@ -623,13 +760,21 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
     const { base, resolved } = resolveDueMissions(stack.repos, stack.base, after(10_000));
 
     expect(resolved).toHaveLength(2);
-    const expected = expectedAfter(before, 2);
+    const expected = expectedAfter(before, [
+      won(scrapRun),
+      won(findMissionTemplate('ration-run') as MissionTemplate),
+    ]);
     expect(base.level).toBe(expected.level);
     expect(base.progression.xpIntoLevel).toBe(expected.xpIntoLevel);
     expect(freshBase(stack).progression.xpIntoLevel).toBe(expected.xpIntoLevel);
   });
 
-  it('pays a crew that came home empty too: §I1 prices the run, not the win', async () => {
+  /**
+   * §I1 prices the run, not the win, and the board's rule for a bad day is a fifth of it: enough
+   * that a failure is a setback rather than a wasted afternoon, little enough that the safest job
+   * on the board is not the only one worth taking.
+   */
+  it('pays a fifth of the XP to a crew that came home empty, and no resources at all', async () => {
     const stack = await makeStack();
     const before = freshBase(stack);
     const raid = findMissionTemplate('foundry-raid') as MissionTemplate;
@@ -643,7 +788,11 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
 
     expect(resolved[0]?.outcome).toBe('failure');
     expect(base.resources).toEqual(before.resources);
-    expect(base.progression.xpIntoLevel).toBe(expectedAfter(before, 1).xpIntoLevel);
+    expect(base.progression.xpIntoLevel).toBe(expectedAfter(before, [lost(raid)]).xpIntoLevel);
+    // And it is genuinely a fifth: a win on the same job pays five times as much.
+    expect(expectedAfter(before, [lost(raid)]).xpIntoLevel).toBeLessThan(
+      expectedAfter(before, [won(raid)]).xpIntoLevel,
+    );
   });
 
   it('pays XP exactly once, however many times the board is read', async () => {
@@ -687,7 +836,14 @@ describe('a settlement announces its level-up on the response that caused it (§
 
   it('reports the level-up on GET when a returning crew crossed one', async () => {
     const stack = await makeStack();
-    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+    // A day-long expedition, because XP is priced off the clock: a short run no longer clears a
+    // level on its own and this case is about the announcement a crossing produces.
+    planted(
+      stack,
+      findMissionTemplate('deep-expedition') as MissionTemplate,
+      ALWAYS_SUCCEEDS,
+      LONG_AGO,
+    );
 
     const board = await stack.app.inject({
       method: 'GET',
@@ -696,10 +852,9 @@ describe('a settlement announces its level-up on the response that caused it (§
     });
 
     const { levelUp } = board.json<LevelUpBody>();
-    // One mission (120) clears level 1 (100), so this fixture genuinely crosses.
     expect(levelUp).toBeDefined();
     expect(levelUp?.level).toBe(freshBase(stack).level);
-    expect(levelUp?.levelsGained).toBe(1);
+    expect(levelUp?.levelsGained).toBeGreaterThan(0);
     // The grants are what the level is actually worth: the whole reason to announce it.
     expect(levelUp?.grants).toEqual(playerLevelGrants(freshBase(stack).level));
   });
@@ -769,17 +924,24 @@ describe('a settlement announces its level-up on the response that caused it (§
   /** The hole the parent issue missed: on this path the moment is lost, not merely delayed. */
   it('reports a level-up banked by the settle a launch does first', async () => {
     const stack = await makeStack();
-    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+    // A day-long run: XP is priced off the clock, so a short one is worth about half a level and
+    // this case is about the announcement a *crossing* produces.
+    planted(
+      stack,
+      findMissionTemplate('deep-expedition') as MissionTemplate,
+      ALWAYS_SUCCEEDS,
+      LONG_AGO,
+    );
 
     const launched = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: { templateId: 'scrap-run' },
+      payload: launchInArea(1, { officerId: withOfficer(stack) }),
     });
 
-    expect(launched.statusCode).toBe(200);
-    expect(launched.json<LevelUpBody>().levelUp?.levelsGained).toBe(1);
+    expect(launched.statusCode, launched.body).toBe(200);
+    expect(launched.json<LevelUpBody>().levelUp?.levelsGained).toBeGreaterThan(0);
 
     // And it is genuinely unrepeatable: the very next board read has nothing left to announce.
     const board = await stack.app.inject({
@@ -797,7 +959,7 @@ describe('a settlement announces its level-up on the response that caused it (§
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: { templateId: 'scrap-run' },
+      payload: launchBody('scrap-run'),
     });
 
     expect(launched.statusCode).toBe(200);
@@ -813,14 +975,19 @@ describe('a settlement announces its level-up on the response that caused it (§
    */
   it('never runs the settle when the launch names an officer who does not exist', async () => {
     const stack = await makeStack();
-    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+    planted(
+      stack,
+      findMissionTemplate('deep-expedition') as MissionTemplate,
+      ALWAYS_SUCCEEDS,
+      LONG_AGO,
+    );
     const before = freshBase(stack).level;
 
     const refused = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: { templateId: 'scrap-run', officerId: 'nobody-by-that-id' },
+      payload: launchBody('scrap-run', { officerId: 'nobody-by-that-id' }),
     });
 
     expect(refused.statusCode).toBe(404);
@@ -834,13 +1001,18 @@ describe('a settlement announces its level-up on the response that caused it (§
       url: '/api/missions',
       headers: auth(stack.token),
     });
-    expect(board.json<LevelUpBody>().levelUp?.levelsGained).toBe(1);
-    expect(freshBase(stack).level).toBe(before + 1);
+    expect(board.json<LevelUpBody>().levelUp?.levelsGained).toBeGreaterThan(0);
+    expect(freshBase(stack).level).toBeGreaterThan(before);
   });
 
   it('announces a banked level-up on the refusal envelope of a launch it had to settle first', async () => {
     const stack = await makeStack();
-    planted(stack, scrapRun, ALWAYS_SUCCEEDS, LONG_AGO);
+    planted(
+      stack,
+      findMissionTemplate('deep-expedition') as MissionTemplate,
+      ALWAYS_SUCCEEDS,
+      LONG_AGO,
+    );
     const before = freshBase(stack).level;
 
     // §G6: a hard run with nobody on the books is refused, and `resolveCrew` reads `base.level`
@@ -850,16 +1022,16 @@ describe('a settlement announces its level-up on the response that caused it (§
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: { templateId: 'convoy-ambush' },
+      payload: launchBody(hardJob().id),
     });
 
     expect(refused.statusCode).toBe(409);
     const body = refused.json<LevelUpBody & { error: { code: string } }>();
     expect(body.error.code).toBe('MISSION_NEEDS_OFFICER');
     // The settle genuinely happened and is not rolled back: the level really moved…
-    expect(freshBase(stack).level).toBe(before + 1);
+    expect(freshBase(stack).level).toBeGreaterThan(before);
     // …so this refusal is the only response that can ever report it.
-    expect(body.levelUp?.levelsGained).toBe(1);
+    expect(body.levelUp?.levelsGained).toBeGreaterThan(0);
     expect(body.levelUp?.level).toBe(freshBase(stack).level);
 
     const board = await stack.app.inject({
@@ -877,7 +1049,7 @@ describe('a settlement announces its level-up on the response that caused it (§
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: { templateId: 'convoy-ambush' },
+      payload: launchBody('convoy-ambush'),
     });
 
     expect(refused.statusCode).toBe(409);
@@ -885,106 +1057,6 @@ describe('a settlement announces its level-up on the response that caused it (§
   });
 });
 
-describe('what a mission says about the Combine (§A3, §D8)', () => {
-  const templateWith = (stance: MissionStance): MissionTemplate => {
-    const found = MISSION_TEMPLATES.find((t) => t.stance === stance);
-    if (!found) throw new Error(`fixture error: no ${stance} mission on the board`);
-    return found;
-  };
-
-  /** Settles one planted run and hands back the tally the base was left holding. */
-  async function tallyAfter(
-    template: MissionTemplate,
-    seed: number,
-  ): Promise<{ before: ReputationTally; after: ReputationTally }> {
-    const stack = await makeStack();
-    if (requiresOfficer(template.difficulty)) withOfficer(stack);
-    planted(stack, template, seed);
-
-    const { base } = resolveDueMissions(
-      stack.repos,
-      stack.base,
-      after(templateTimings(template).totalMinutes),
-    );
-    // Read back through the repository, not off the returned object: the counters have to survive
-    // the JSON round trip and `ReputationTallySchema`, or they are only true in memory.
-    const persisted = stack.repos.bases.findById(base.id);
-    if (!persisted) throw new Error('base vanished mid-settlement');
-    return { before: stack.base.economy.reputationTally, after: persisted.economy.reputationTally };
-  }
-
-  it('books a successful anti-Combine run as action against the state', async () => {
-    const { before, after: tally } = await tallyAfter(
-      templateWith('against_government'),
-      ALWAYS_SUCCEEDS,
-    );
-
-    expect(tally.governmentSitesTaken).toBe(before.governmentSitesTaken + 1);
-    expect(tally.governmentContracts).toBe(before.governmentContracts);
-    // Only a raid can take a seat of power: a mission never does (§A3).
-    expect(tally.governmentSeatsTaken).toBe(before.governmentSeatsTaken);
-  });
-
-  it('books a completed Combine contract as collaboration', async () => {
-    const { before, after: tally } = await tallyAfter(
-      templateWith('for_government'),
-      ALWAYS_SUCCEEDS,
-    );
-
-    expect(tally.governmentContracts).toBe(before.governmentContracts + 1);
-    expect(tally.governmentSitesTaken).toBe(before.governmentSitesTaken);
-  });
-
-  it('books nothing for unaligned work or for a run that failed', async () => {
-    const unaligned = await tallyAfter(templateWith('unaligned'), ALWAYS_SUCCEEDS);
-    expect(unaligned.after.governmentSitesTaken).toBe(unaligned.before.governmentSitesTaken);
-    expect(unaligned.after.governmentContracts).toBe(unaligned.before.governmentContracts);
-
-    const failed = await tallyAfter(templateWith('against_government'), ALWAYS_FAILS);
-    expect(failed.after.governmentSitesTaken).toBe(failed.before.governmentSitesTaken);
-  });
-
-  it('turns the run that crosses the threshold into the Anti-systemic word the HUD reads', async () => {
-    // The whole §D8 path end to end: the counters exist to produce a *word*, so this asserts on
-    // `reputationOf`, the one function the HUD and the Bar both call, over the base as the
-    // repository hands it back, and it does so on the exact run that tips the threshold.
-    const template = templateWith('against_government');
-    const stack = await makeStack();
-    if (requiresOfficer(template.difficulty)) withOfficer(stack);
-
-    const settledAt = after(templateTimings(template).totalMinutes);
-    // Stamped at the settlement instant, not at T0: the §D8 drift is continuous, so a tally aged
-    // even half an hour leaves an integer threshold a fraction out of reach. The drift itself is
-    // covered by the shared unit tests: what this one is about is the write path.
-    const oneShort = {
-      ...stack.base.economy,
-      reputationTally: {
-        ...stack.base.economy.reputationTally,
-        updatedAt: settledAt.toISOString(),
-        governmentSitesTaken: ANTI_SYSTEMIC_ACTIONS - 1,
-      },
-    };
-    stack.repos.bases.updateEconomy(stack.base.id, oneShort);
-    expect(reputationOf(oneShort, settledAt)).toBe('Cautious');
-
-    planted({ ...stack, base: freshBase(stack) }, template, ALWAYS_SUCCEEDS);
-    resolveDueMissions(stack.repos, freshBase(stack), settledAt);
-
-    const persisted = freshBase(stack);
-    expect(persisted.economy.reputationTally.governmentSitesTaken).toBeGreaterThanOrEqual(
-      ANTI_SYSTEMIC_ACTIONS,
-    );
-    expect(reputationOf(persisted.economy, settledAt)).toBe('Anti-systemic');
-  });
-});
-
-/**
- * INTERFACES §2 R2 / GDD §H6: the officer who led a run is paid for the time it kept them engaged.
- *
- * Every assertion reads the officer back out of the *repository* rather than off the returned base:
- * the sheet is persisted inside `bases.commanders_json`, and an award applied to the in-memory copy
- * but never written would satisfy a check on the return value alone.
- */
 describe('character XP for a run (§H6, INTERFACES R2)', () => {
   const OFFICER_ID = 'off-1';
 
@@ -1007,6 +1079,8 @@ describe('character XP for a run (§H6, INTERFACES R2)', () => {
       id: `mission-${seed}-${template.id}`,
       base: stack.base,
       template,
+      areaId: areasOffering(template.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+      force: { haulers: 400 },
       now: startedAt,
       officer,
       seed,

@@ -4,6 +4,7 @@ import { BattleSideSchema, BattleTargetSchema, ScheduledBattleSchema } from './b
 import { BaseSchema } from './base.js';
 import { LevelUpSchema } from './api.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
+import { PartialResourcesSchema } from './resources.js';
 import { ArmySchema } from './units/index.js';
 
 /**
@@ -112,7 +113,18 @@ export const StructureDefenceSchema = z.object({
   damage: z.number().min(0).max(100),
   /** 0..1: how much of its job it is still doing. */
   effectiveness: z.number().min(0).max(1),
-  garrisons: z.number().int().min(0),
+  /** How far it is dug in, `0..FORTIFY_MAX_LEVEL`. Only the Gate's is worth anything (§A4). */
+  fortification: z.number().int().min(0),
+  /** Percentage points this structure's digging adds to the district. Zero off the Gate. */
+  fortifyPercent: z.number().min(0),
+  /** What the next level would cost, or null when it is dug in as far as it goes. */
+  nextFortify: z
+    .object({
+      level: z.number().int().positive(),
+      cost: PartialResourcesSchema,
+      bonusPercent: z.number().min(0),
+    })
+    .nullable(),
 });
 export type StructureDefence = z.infer<typeof StructureDefenceSchema>;
 
@@ -232,12 +244,17 @@ export const LayTrapRequestSchema = z.object({
 });
 export type LayTrapRequest = z.infer<typeof LayTrapRequestSchema>;
 
-export const GarrisonStructureRequestSchema = z.object({
+/**
+ * §A4: dig the Gate in one more level.
+ *
+ * No delta and no level: there is one direction and the level is whatever comes next, the same as
+ * every other queue in this game. A structure that could be *un*-fortified would be a refund
+ * mechanic, and materials poured into a wall do not come back out of it.
+ */
+export const FortifyStructureRequestSchema = z.object({
   buildingId: IdSchema,
-  /** Positive stations another watch in it; negative stands one down. */
-  delta: z.number().int(),
 });
-export type GarrisonStructureRequest = z.infer<typeof GarrisonStructureRequestSchema>;
+export type FortifyStructureRequest = z.infer<typeof FortifyStructureRequestSchema>;
 
 /**
  * Buying the one boost a fight is allowed (§D7).

@@ -16,7 +16,7 @@ import type { MissionKind } from '../missions.js';
  *
  * | §F3 example                                   | Live mechanic                                    |
  * | --------------------------------------------- | ------------------------------------------------ |
- * | **Charisma** → leading people, raising morale  | `moraleFromLeadership`: a finished project lifts morale by the Overseer's charisma |
+ * | **Charisma** → leading people                 | `factionXpFromLeadership`: a lead who can present a result gets the crew more out of it |
  * | **Communication** → better ideas out of people | `extraFactsFrom`: a talkative lead gets a second fact out of the same investigation |
  * | **Imagination** → coming up with new things    | `unlocksCrossReference`: §F4's worked example, the option that stays locked otherwise |
  * | A **physical** attribute → keeping things in check | `overseerMissionEdge`: §F5's worked example, Speed and Stealth on a run that risks people |
@@ -24,6 +24,20 @@ import type { MissionKind } from '../missions.js';
  * The thresholds sit just above `attributeTier`'s `strong` boundary (28) and below the
  * recruitment ceiling (40): reachable by choosing the right person for the job, not by default.
  */
+
+/**
+ * §F3: "**Charisma** → leading people". What that buys, now that district morale is gone.
+ *
+ * A finished project is worth more to the faction when the person who ran it can stand up and say
+ * what it means. Percentage points on the XP the project pays (§I1), scaled linearly off charisma,
+ * so a dour genius still finishes the work and a charismatic one turns it into something the whole
+ * crew learns from.
+ */
+export const MAX_RESEARCH_LEADERSHIP_XP = 25;
+
+export function factionXpFromLeadership(attributes: Attributes): number {
+  return Math.round((MAX_RESEARCH_LEADERSHIP_XP * clampAttribute(attributes.charisma)) / 100);
+}
 
 /** §F4: the Imagination the lead researcher needs before the cross-reference option unlocks. */
 export const CROSS_REFERENCE_IMPROVISATION = 30;
@@ -48,19 +62,6 @@ export function unlocksCrossReference(attributes: Attributes): boolean {
  */
 export function extraFactsFrom(attributes: Attributes): number {
   return attributes.communication >= EXTRA_FACT_COMMUNICATION ? 1 : 0;
-}
-
-/** The morale a maximally charismatic Overseer wrings out of a finished project. */
-export const MAX_RESEARCH_MORALE = 4;
-
-/**
- * §F3: "**Charisma** → leading people, raising morale". Landing a result in front of the crew is
- * worth something; how much depends on who is doing the telling.
- *
- * Feeds W2's morale meter (INTERFACES R5). It does not open a second one.
- */
-export function moraleFromLeadership(attributes: Attributes): number {
-  return Math.round((attributes.charisma / MAX_ATTRIBUTE) * MAX_RESEARCH_MORALE);
 }
 
 /**

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useMe } from './lib/queries';
 import { useSession } from './store/session';
+import { TooltipLayer } from './components/ui/TooltipLayer';
 import { AuthScreen } from './screens/AuthScreen';
 import { CharacterSelectScreen } from './screens/CharacterSelectScreen';
 import { GameScreen } from './screens/GameScreen';
@@ -61,6 +62,10 @@ function BootGate({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <BootGate>
+      {/* One listener for every `data-tip` in the game: see `TooltipLayer`. Mounted at the root
+          rather than per screen, so a name drawn over the HUD and a name drawn over a dialog are
+          the same object and cannot drift apart. */}
+      <TooltipLayer />
       <Routes>
         <Route
           path="/auth"

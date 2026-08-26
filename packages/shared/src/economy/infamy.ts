@@ -56,6 +56,9 @@ export const STARTING_INFAMY = 0;
  * anybody can find five hundred Razors and only one crew in the city has an Abomination.
  */
 export const INFAMY_PER_TIER: Readonly<Record<UnitTier, number>> = {
+  // Nobody makes a name out of killing porters. Zero rather than a small number, because a
+  // support unit is never in a battle line to be killed in the first place.
+  support: 0,
   rabble: 1,
   regular: 5,
   specialist: 25,
@@ -73,6 +76,7 @@ export const INFAMY_PER_TIER: Readonly<Record<UnitTier, number>> = {
  * written.
  */
 export const TYPICAL_SUPPLY: Readonly<Record<UnitTier, number>> = {
+  support: 1,
   rabble: 1,
   regular: 2,
   specialist: 2,
@@ -103,10 +107,11 @@ export function infamyForKill(unit: UnitSpec | string): number {
   if (!spec) return 0;
   const override = INFAMY_UNIT_VALUES[spec.id];
   if (override !== undefined) return override;
-  return Math.max(
-    1,
-    Math.round((INFAMY_PER_TIER[spec.tier] * spec.supply) / TYPICAL_SUPPLY[spec.tier]),
-  );
+  // A tier worth nothing is worth nothing, and the floor of 1 below must not override that: the
+  // support tier is not in a battle line to be killed, and nobody makes a name out of a porter.
+  const perTier = INFAMY_PER_TIER[spec.tier];
+  if (perTier <= 0) return 0;
+  return Math.max(1, Math.round((perTier * spec.supply) / TYPICAL_SUPPLY[spec.tier]));
 }
 
 /** What a whole casualty list is worth. The reading every battle settlement wants. */
@@ -181,6 +186,7 @@ export function spendInfamy(infamy: number, cost: number): number | null {
  * it is written. A unit that is not gated returns 0, and every call site can treat 0 as "anybody".
  */
 export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
+  support: 0,
   rabble: 0,
   regular: 0,
   specialist: 0,

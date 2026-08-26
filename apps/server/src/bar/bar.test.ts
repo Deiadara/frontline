@@ -1,4 +1,7 @@
 import {
+  DISMISSAL_WEEKS,
+  PAYROLL_BASE,
+  contractStance,
   districtPopulationCapacity,
   noTerritoryEffects,
   ALIGNMENT_LEAVE_THRESHOLD,
@@ -6,22 +9,15 @@ import {
   ALIGNMENT_START,
   ATTRIBUTE_NAMES,
   CHARACTER_LEVEL_PLAYER_POINTS,
-  AMBITIONS,
   CommanderSchema,
   MAX_RECRUITMENT_ATTRIBUTE,
   MORAL_COMPASSES,
-  PAY_WEEK_MS,
   RECRUIT_MAX_MIN_NOTORIETY,
-  REPUTATION_LABELS,
   alignmentTarget,
   askingWage,
   assessJoin,
   createCommander,
-  hearsAnyCrewOut,
   playerLevelGrants,
-  proratedFirstWage,
-  reputationOf,
-  reputationStance,
   reservationWage,
   startingEconomy,
   startingAssignees,
@@ -39,7 +35,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { assessAgainst, hireRecruit, wageAskedOf } from './hire.js';
+import { hireRecruit, releaseOfficer, wageAskedOf } from './hire.js';
 import { alignmentAt, settleOfficerAlignment } from './officers.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
@@ -109,7 +105,7 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     districtId: 'neon-docks',
     level: 1,
     isBot: false,
-    resources: { caps: 5000, food: 100, oil: 100, scrap: 100, highQualityMetal: 10 },
+    resources: { caps: 5000, food: 100, oil: 100, scrap: 100, highQualityMetal: 10, planks: 100 },
     economy: startingEconomy(NOW.toISOString()),
     progression: startingProgression(),
     research: startingResearch(),
@@ -121,6 +117,7 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
+    unitLoadouts: {},
     fleet: {},
     commanders: [],
     createdAt: NOW.toISOString(),
@@ -131,7 +128,7 @@ function makeBase(overrides: Partial<Base> = {}): Base {
 interface Written {
   commanders?: Commander[];
   caps?: number;
-  wages?: Record<string, number>;
+  commitments?: Record<string, number>;
   /** §H2b: the seat the hire turned over, and how many times this player has signed today. */
   turnedOver?: number;
   hiresToday: number;
@@ -147,8 +144,8 @@ function fakeRepos(hiresToday = 0): {
     updateResources: (_id: string, resources: { caps: number }) => {
       written.caps = resources.caps;
     },
-    updateEconomy: (_id: string, economy: { payroll: { wages: Record<string, number> } }) => {
-      written.wages = economy.payroll.wages;
+    updateEconomy: (_id: string, economy: { payroll: { commitments: Record<string, number> } }) => {
+      written.commitments = economy.payroll.commitments;
     },
     updateCommanders: (_id: string, commanders: Commander[]) => {
       written.commanders = commanders;
@@ -252,25 +249,54 @@ describe('§H2/§H2a: one global roster, generated from the UTC date', () => {
     expect(BAR_OPEN_DOOR_FLOOR).toBe(3);
   });
 
-  it('always seats recruits any crew can approach, on every day and against every word', () => {
-    // The guarantee is about *both* gates, and it is why the Bar can never be an empty screen.
-    // Rolling either one freely leaves days where a new crew has nobody: §H3 alone bottoms out at
-    // one open door, and §H3 plus a bare open-door floor still left a day with nobody interested.
-    const words = [...REPUTATION_LABELS];
+  it('always seats recruits a brand-new crew can approach, on every day and at every calibre', () => {
+    // Why the Bar can never be an empty screen. A new crew is rank `Nobody` at level 1, so every
+    // rolled door is shut to them; the floor is what guarantees there is somebody to talk to on
+    // their first night, whatever the city's own standing has done to the room.
     for (let day = 0; day < 400; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-      const roster = barRoster(key);
-      expect(roster.filter((r) => r.requirement.minNotoriety === 0).length).toBeGreaterThanOrEqual(
-        BAR_OPEN_DOOR_FLOOR,
-      );
-      for (const reputation of words) {
+      for (const cityLevel of [0, 8, 30]) {
+        const roster = barRoster(key, [], BAR_ROSTER_SIZE, cityLevel);
         const willing = roster.filter(
-          (r) => assessJoin(r, r.requirement, { notoriety: 0, reputation }).interested,
+          (r) => assessJoin(r.requirement, { notoriety: 0, level: 1 }).interested,
         );
         expect(
           willing.length,
-          `${key} leaves a crew reading "${reputation}" only ${willing.length} recruits`,
+          `${key} at city level ${cityLevel} leaves a new crew only ${willing.length} recruits`,
         ).toBeGreaterThanOrEqual(BAR_OPEN_DOOR_FLOOR);
+      }
+    }
+  });
+
+  /**
+   * §H2: the room scales with the city. Measured as a distribution rather than per seat, because
+   * one seat's roll can go either way and what the mechanic promises is that the *room* is better.
+   */
+  it('seats better people as the city levels', () => {
+    const meanOf = (cityLevel: number): number => {
+      let total = 0;
+      let count = 0;
+      for (let day = 0; day < 60; day++) {
+        const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
+        for (const recruit of barRoster(key, [], BAR_ROSTER_SIZE, cityLevel)) {
+          for (const name of ATTRIBUTE_NAMES) {
+            total += recruit.attributes[name];
+            count += 1;
+          }
+        }
+      }
+      return total / count;
+    };
+    const early = meanOf(0);
+    const late = meanOf(30);
+    expect(late).toBeGreaterThan(early + 3);
+    // And the recruitment ceiling still holds: the 40..100 band is what progression is for.
+    for (let day = 0; day < 30; day++) {
+      const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
+      for (const recruit of barRoster(key, [], BAR_ROSTER_SIZE, 90)) {
+        for (const name of ATTRIBUTE_NAMES) {
+          expect(recruit.attributes[name]).toBeLessThanOrEqual(MAX_RECRUITMENT_ATTRIBUTE);
+        }
       }
     }
   });
@@ -292,45 +318,33 @@ describe('§H2/§H2a: one global roster, generated from the UTC date', () => {
     );
     expect(compasses.size).toBe(MORAL_COMPASSES.length);
   });
-
-  it('can seat every ambition on a guaranteed-open chair', () => {
-    // The open-door seats fall back to a compass that clears §H4. That fallback has to exist for
-    // *every* ambition, or `recruitAt` throws on some future day rather than at a retune.
-    for (const ambition of AMBITIONS) {
-      expect(
-        MORAL_COMPASSES.some((moralCompass) => hearsAnyCrewOut({ ambition, moralCompass })),
-        `${ambition} has no moral compass that can hear any crew out`,
-      ).toBe(true);
-    }
-  });
 });
 
-describe('§H3/§H4: the roster as one particular crew sees it', () => {
+describe('§H3: the roster as one particular crew sees it', () => {
   it('locks a recruit whose §H3 gate the crew has not cleared, and unlocks it when they do', () => {
     const gated = barRoster('2026-08-13').find((r) => r.requirement.minNotoriety > 0);
     if (!gated) throw new Error('expected the roster to contain at least one gated recruit');
 
     const quiet = makeBase();
-    const notorious = makeBase({
-      economy: { ...quiet.economy, notoriety: RECRUIT_MAX_MIN_NOTORIETY },
-    });
-    expect(
-      wageAskedOf(gated, assessAgainst(notorious, gated, NOW).stance),
-      'a crew that clears the gate gets a price',
-    ).toBeGreaterThan(0);
+    expect(wageAskedOf(gated), 'a crew that clears the gate gets a price').toBeGreaterThan(0);
     // The gate itself is asserted through the route below; here it is enough that the crew's own
     // numbers, not the recruit's, are what changed.
     expect(quiet.economy.notoriety).toBeLessThan(gated.requirement.minNotoriety);
   });
 
-  it('quotes a higher wage to a crew the character dislikes (§H4 → §H7)', () => {
+  it('prices a recruit off their sheet and off nothing about the crew', () => {
     const [recruit] = barRoster('2026-08-13');
     if (!recruit) throw new Error('empty roster');
-    const stance = reputationStance(recruit, 'Cautious');
-    const base = makeBase();
-    expect(wageAskedOf(recruit, assessAgainst(base, recruit, NOW).stance)).toBe(
-      askingWage(recruit.attributes, stance),
-    );
+    expect(wageAskedOf(recruit)).toBe(askingWage(recruit.attributes));
+  });
+
+  /** The half of a walkout that persists. Six hours is a delay; this is what it actually costs. */
+  it('marks a recruit up for every time this crew has walked out on them', () => {
+    const [recruit] = barRoster('2026-08-13');
+    if (!recruit) throw new Error('empty roster');
+    const flat = wageAskedOf(recruit);
+    const twice = wageAskedOf(recruit, { until: NOW.toISOString(), walkouts: 2 });
+    expect(twice).toBeGreaterThan(flat);
   });
 });
 
@@ -341,11 +355,11 @@ describe('§H7/§H8: hiring out of the Bar', () => {
     return found;
   };
 
-  it('signs at the offered wage, banks the officer and writes the wage into W2 payroll', () => {
+  it('signs at the offered fee, banks the officer and commits it against the payroll book', () => {
     const { repos, written } = fakeRepos();
     const base = makeBase();
     const hire = recruit();
-    const asking = wageAskedOf(hire, assessAgainst(base, hire, NOW).stance);
+    const asking = wageAskedOf(hire);
 
     const result = hireRecruit(repos, {
       ...SIGNER,
@@ -363,9 +377,9 @@ describe('§H7/§H8: hiring out of the Bar', () => {
     expect(result.officer.alignment).toBe(ALIGNMENT_START);
     expect(result.officer.level).toBe(1);
     expect(result.officer.unspentPoints).toBe(0);
-    // The wage lives in W2's payroll book and nowhere else (INTERFACES R9).
-    expect(written.wages).toEqual({ [hire.id]: asking });
-    expect(result.base.economy.payroll.wages[hire.id]).toBe(asking);
+    // The fee lives in the payroll book and nowhere else, as a commitment rather than a bill.
+    expect(written.commitments).toEqual({ [hire.id]: asking });
+    expect(result.base.economy.payroll.commitments[hire.id]).toBe(asking);
     expect(written.commanders?.map((c) => c.id)).toEqual([hire.id]);
   });
 
@@ -384,7 +398,7 @@ describe('§H7/§H8: hiring out of the Bar', () => {
         base,
         recruit: hire,
         role: 'head_spy',
-        offerWage: wageAskedOf(hire, assessAgainst(base, hire, NOW).stance),
+        offerWage: wageAskedOf(hire),
         now: NOW,
       });
 
@@ -399,38 +413,101 @@ describe('§H7/§H8: hiring out of the Bar', () => {
     expect(sign(packed)).toEqual({ kind: 'refused', reason: 'no_housing' });
   });
 
-  it('takes the prorated first payment at recruitment (§H7)', () => {
-    const monday = new Date('2026-08-10T00:00:00.000Z');
+  /**
+   * The book, not the stockpile. Signing takes nothing: what it does is spend a slice of a ceiling
+   * the player has to go and buy more of.
+   */
+  it('commits the fee against the book and charges no caps at all', () => {
+    const { repos, written } = fakeRepos();
+    const base = makeBase();
     const hire = recruit();
-
-    // Exactly on the boundary: a full week.
-    const onBoundary = hireRecruit(fakeRepos().repos, {
+    const result = hireRecruit(repos, {
       ...SIGNER,
-      base: makeBase(),
+      base,
       recruit: hire,
       role: 'head_spy',
-      offerWage: 200,
-      now: monday,
+      offerWage: wageAskedOf(hire),
+      now: NOW,
     });
-    expect(onBoundary.kind).toBe('hired');
-    if (onBoundary.kind !== 'hired') return;
-    expect(onBoundary.firstPayment).toBe(onBoundary.wage);
-    expect(onBoundary.base.resources.caps).toBe(5000 - onBoundary.wage);
+    expect(result.kind).toBe('hired');
+    if (result.kind !== 'hired') return;
+    expect(result.base.resources.caps).toBe(base.resources.caps);
+    expect(written.caps, 'signing must not move caps').toBeUndefined();
+    expect(result.payroll.committed).toBe(result.wage);
+    expect(result.payroll.available).toBe(result.payroll.capacity - result.wage);
+  });
 
-    // An hour before the next boundary: an hour's worth.
-    const hourLeft = new Date(monday.getTime() + PAY_WEEK_MS - 60 * 60 * 1000);
-    const lateHire = hireRecruit(fakeRepos().repos, {
+  it('refuses a fee the payroll book will not stretch to', () => {
+    const { repos, written } = fakeRepos();
+    const base = makeBase();
+    const hire = recruit();
+    // Already spoken for, down to a few caps: the fee cannot fit whatever the crew has in the bank.
+    const full = {
+      ...base,
+      economy: {
+        ...base.economy,
+        payroll: { ...base.economy.payroll, commitments: { 'someone-else': PAYROLL_BASE - 1 } },
+      },
+    };
+    const result = hireRecruit(repos, {
       ...SIGNER,
-      base: makeBase(),
+      base: full,
       recruit: hire,
       role: 'head_spy',
-      offerWage: 200,
-      now: hourLeft,
+      offerWage: wageAskedOf(hire),
+      now: NOW,
     });
-    expect(lateHire.kind).toBe('hired');
-    if (lateHire.kind !== 'hired') return;
-    expect(lateHire.firstPayment).toBe(proratedFirstWage(lateHire.wage, hourLeft));
-    expect(lateHire.firstPayment).toBeLessThan(onBoundary.firstPayment);
+    expect(result).toEqual({ kind: 'refused', reason: 'no_payroll' });
+    expect(written.commanders).toBeUndefined();
+  });
+
+  /**
+   * The other end of the contract, and the only place caps move. Committing is free so a player
+   * will sign somebody; walking it back is five weeks so they will think about it first.
+   */
+  it('frees the slice when an officer is let go, and charges five weeks of it', () => {
+    const { repos } = fakeRepos();
+    const hired = hireRecruit(repos, {
+      ...SIGNER,
+      base: makeBase(),
+      recruit: recruit(),
+      role: 'head_spy',
+      offerWage: wageAskedOf(recruit()),
+      now: NOW,
+    });
+    expect(hired.kind).toBe('hired');
+    if (hired.kind !== 'hired') return;
+
+    const released = releaseOfficer(repos, hired.base, hired.officer.id);
+    expect(released.kind).toBe('released');
+    if (released.kind !== 'released') return;
+    expect(released.fee).toBe(hired.wage * DISMISSAL_WEEKS);
+    expect(released.base.resources.caps).toBe(hired.base.resources.caps - released.fee);
+    expect(released.payroll.committed).toBe(0);
+    expect(released.base.commanders).toHaveLength(0);
+  });
+
+  it('refuses to let somebody go the crew cannot pay off, and 404s a stranger', () => {
+    const { repos } = fakeRepos();
+    const hired = hireRecruit(repos, {
+      ...SIGNER,
+      base: makeBase(),
+      recruit: recruit(),
+      role: 'head_spy',
+      offerWage: wageAskedOf(recruit()),
+      now: NOW,
+    });
+    if (hired.kind !== 'hired') throw new Error('expected a hire');
+
+    const broke = { ...hired.base, resources: { ...hired.base.resources, caps: 0 } };
+    expect(releaseOfficer(repos, broke, hired.officer.id)).toEqual({
+      kind: 'refused',
+      reason: 'cannot_afford',
+    });
+    expect(releaseOfficer(repos, hired.base, 'nobody')).toEqual({
+      kind: 'refused',
+      reason: 'not_on_the_books',
+    });
   });
 
   it('counters a lowball instead of signing or erroring (§H7)', () => {
@@ -447,28 +524,9 @@ describe('§H7/§H8: hiring out of the Bar', () => {
     });
     expect(result.kind).toBe('countered');
     if (result.kind !== 'countered') return;
-    expect(result.wage).toBeGreaterThanOrEqual(
-      reservationWage(wageAskedOf(hire, assessAgainst(base, hire, NOW).stance)),
-    );
+    expect(result.wage).toBeGreaterThanOrEqual(reservationWage(wageAskedOf(hire)));
     expect(written.commanders, 'a counter must not hire anybody').toBeUndefined();
     expect(written.caps, 'a counter must not move caps').toBeUndefined();
-  });
-
-  it('refuses when the crew cannot cover the first payment', () => {
-    const { repos, written } = fakeRepos();
-    const broke = makeBase({
-      resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 },
-    });
-    const result = hireRecruit(repos, {
-      ...SIGNER,
-      base: broke,
-      recruit: recruit(),
-      role: 'head_spy',
-      offerWage: 500,
-      now: NOW,
-    });
-    expect(result).toEqual({ kind: 'refused', reason: 'cannot_afford' });
-    expect(written.commanders).toBeUndefined();
   });
 
   it('holds §H8: 2 slots at level 1, +1 per level', () => {
@@ -500,7 +558,7 @@ describe('§H7/§H8: hiring out of the Bar', () => {
         base: levelled,
         recruit: recruit(),
         role: 'head_spy',
-        offerWage: 500,
+        offerWage: wageAskedOf(recruit()),
         now: NOW,
       }).kind,
     ).toBe('hired');
@@ -550,52 +608,54 @@ describe('§H5: alignment drifts to what they make of the crew', () => {
       now: NOW.toISOString(),
     });
 
-  it('falls below the leave threshold for someone who hates what the crew has become', () => {
-    // `Reckless` is one of the four words a live mechanic can produce today, and a knowledge-driven
-    // pragmatist reads it at -2: the only stance whose target sits under §H5's threshold.
-    const officer = officerWho('knowledge', 'pragmatist');
-    expect(alignmentTarget(reputationStance(officer, 'Reckless'))).toBeLessThan(
-      ALIGNMENT_LEAVE_THRESHOLD,
-    );
+  /** Ground all the way to their floor. They turn up knowing it, and they drift accordingly. */
+  it('falls below the leave threshold for an officer squeezed to their reservation', () => {
+    const officer = { ...officerWho('knowledge', 'pragmatist'), askingWage: 100 };
+    const floor = reservationWage(100);
+    expect(alignmentTarget(contractStance(floor, 100))).toBeLessThan(ALIGNMENT_LEAVE_THRESHOLD);
 
     const aMonthLater = new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000);
-    const alignment = alignmentAt(officer, 'Reckless', aMonthLater);
-    expect(alignment).toBeLessThan(ALIGNMENT_LEAVE_THRESHOLD);
+    expect(alignmentAt(officer, floor, aMonthLater)).toBeLessThan(ALIGNMENT_LEAVE_THRESHOLD);
   });
 
-  it('climbs past the bonus threshold for someone the crew suits', () => {
-    const officer = officerWho('notoriety', 'ruthless');
+  it('climbs past the bonus threshold for an officer who got what they asked for', () => {
+    const officer = { ...officerWho('notoriety', 'ruthless'), askingWage: 100 };
     const aMonthLater = new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000);
-    expect(alignmentAt(officer, 'Feared', aMonthLater)).toBeGreaterThan(75);
+    expect(alignmentAt(officer, 100, aMonthLater)).toBeGreaterThan(75);
   });
 
   it('stays inside the meter and does not move on a backwards clock', () => {
-    const officer = officerWho('notoriety', 'ruthless');
-    const before = new Date(NOW.getTime() - PAY_WEEK_MS);
-    expect(alignmentAt(officer, 'Feared', before)).toBe(ALIGNMENT_START);
-    expect(
-      alignmentAt({ ...officer, alignment: ALIGNMENT_MAX }, 'Feared', NOW),
-    ).toBeLessThanOrEqual(ALIGNMENT_MAX);
+    const officer = { ...officerWho('notoriety', 'ruthless'), askingWage: 100 };
+    const before = new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000);
+    expect(alignmentAt(officer, 100, before)).toBe(ALIGNMENT_START);
+    expect(alignmentAt({ ...officer, alignment: ALIGNMENT_MAX }, 100, NOW)).toBeLessThanOrEqual(
+      ALIGNMENT_MAX,
+    );
   });
 
   it('refreshes the anchor of an officer who is sitting exactly on their target', () => {
     // The write gate is the age of the anchor, not movement of the value. An officer whose stance
-    // is 0 targets ALIGNMENT_START and so never moves at all: gating on movement pinned their
-    // anchor to hire time for their whole tenure, and the next word that gave them a stance then
-    // collected the entire accumulated window in one read.
+    // is 0 targets ALIGNMENT_START and so never moves at all: gating on movement would pin their
+    // anchor to hire time for their whole tenure.
     const writes: Commander[][] = [];
     const repos = {
       bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
       // §F2 reads the crew's own sheets to work out how much of a slide it holds off. Answering
-      // "nobody", and "no ground", since §A4's Chapel and Broadcast Station lift officer sheets
-      // before that fold: keeps these two tests about the anchor rather than about the hold.
+      // "nobody", and "no ground", keeps this test about the anchor rather than about the hold.
       users: { findById: () => undefined },
       city: { controls: () => new Map() },
     } as unknown as Parameters<typeof settleOfficerAlignment>[0];
 
-    const indifferent = officerWho('wealth', 'idealist');
-    const base = makeBase({ commanders: [indifferent] });
-    expect(reputationStance(indifferent, reputationOf(base.economy, NOW))).toBe(0);
+    // Nine tenths of their asking price is the neutral contract: they never move.
+    const indifferent = { ...officerWho('wealth', 'idealist'), askingWage: 100 };
+    const base = makeBase({
+      commanders: [indifferent],
+      economy: {
+        ...makeBase().economy,
+        payroll: { ...makeBase().economy.payroll, commitments: { o1: 90 } },
+      },
+    });
+    expect(contractStance(90, 100)).toBe(0);
 
     const threeWeeks = new Date(NOW.getTime() + 21 * 24 * 60 * 60 * 1000);
     const settled = settleOfficerAlignment(repos, base, threeWeeks);
@@ -605,13 +665,6 @@ describe('§H5: alignment drifts to what they make of the crew', () => {
     expect(officer?.alignment).toBe(ALIGNMENT_START);
     expect(writes).toHaveLength(1);
     expect(officer?.alignmentUpdatedAt).toBe(threeWeeks.toISOString());
-
-    // A word they read at +1, one second later, is worth one second of drift, not three weeks of
-    // it. Against a stale anchor this read returned 74.8.
-    const aSecondLater = new Date(threeWeeks.getTime() + 1000);
-    if (!officer) throw new Error('expected the settled officer');
-    expect(reputationStance(officer, 'Respected')).toBe(1);
-    expect(alignmentAt(officer, 'Respected', aSecondLater)).toBeCloseTo(ALIGNMENT_START, 2);
   });
 
   it('persists a drift, and writes nothing while the anchor is fresh', () => {
@@ -625,8 +678,14 @@ describe('§H5: alignment drifts to what they make of the crew', () => {
       city: { controls: () => new Map() },
     } as unknown as Parameters<typeof settleOfficerAlignment>[0];
 
-    const base = makeBase({ commanders: [officerWho('notoriety', 'ruthless')] });
-    const later = new Date(NOW.getTime() + PAY_WEEK_MS);
+    const base = makeBase({
+      commanders: [{ ...officerWho('notoriety', 'ruthless'), askingWage: 100 }],
+      economy: {
+        ...makeBase().economy,
+        payroll: { ...makeBase().economy.payroll, commitments: { o1: 100 } },
+      },
+    });
+    const later = new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000);
     const settled = settleOfficerAlignment(repos, base, later);
     expect(writes).toHaveLength(1);
     expect(settled.commanders[0]?.alignment).not.toBe(ALIGNMENT_START);
@@ -651,8 +710,11 @@ describe('the Bar over HTTP', () => {
     expect(bar.slotsTotal).toBe(playerLevelGrants(1).recruitSlots);
     expect(bar.officers).toEqual([]);
     expect(bar.filledRoles).toEqual([]);
-    expect(bar.reputation).toBe('Cautious');
+    expect(bar.notoriety).toBe(0);
+    expect(bar.level).toBe(1);
     expect(bar.infamy).toBe(0);
+    expect(bar.payroll.capacity).toBeGreaterThan(0);
+    expect(bar.payroll.committed).toBe(0);
   });
 
   it('prices only the recruits who are interested (§H7)', async () => {
@@ -679,28 +741,24 @@ describe('the Bar over HTTP', () => {
       payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
     });
     expect(res.statusCode).toBe(200);
-    const hired = res.json<{ accepted: boolean; wage: number; firstPayment: number }>();
+    const hired = res.json<{
+      accepted: boolean;
+      wage: number;
+      payroll: { committed: number; available: number; capacity: number };
+    }>();
     expect(hired.accepted).toBe(true);
-    /*
-     * The prorated first payment (§H7), recomputed rather than merely asserted positive.
-     *
-     * `toBeGreaterThan(0)` was a date-dependent flake and it went off on a Sunday evening: the
-     * payment covers what is left of the pay week, so in the last hours before the Monday boundary
-     * a modest wage prorates to under half a cap and rounds to zero, which is the documented
-     * behaviour, correctly implemented, failing a test that had only ever run mid-week.
-     *
-     * A cap of tolerance because the clock moves between the route's read and this one.
-     */
-    expect(
-      Math.abs(hired.firstPayment - proratedFirstWage(hired.wage, new Date())),
-    ).toBeLessThanOrEqual(1);
+    // The book, not the stockpile: the fee is spoken for and nothing was charged.
+    expect(hired.payroll.committed).toBe(hired.wage);
+    expect(hired.payroll.available).toBe(hired.payroll.capacity - hired.wage);
 
     const after = await readBar(app, token);
     expect(after.slotsUsed).toBe(1);
     expect(after.filledRoles).toEqual(['head_spy']);
     expect(after.officers[0]?.commander.name).toBe(target.name);
     expect(after.officers[0]?.weeklyWage).toBe(hired.wage);
-    expect(after.caps).toBe(bar.caps - hired.firstPayment);
+    // Nothing was charged: the book is a ceiling, not a bill.
+    expect(after.caps).toBe(bar.caps);
+    expect(after.payroll.committed).toBe(hired.wage);
 
     // …and they are in the crew, which is the screen a player goes to next.
     //
@@ -921,7 +979,7 @@ describe('0006_recruitment.sql', () => {
       id,
       `${id}-user`,
       'Legacy Hold',
-      JSON.stringify({ caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 }),
+      JSON.stringify({ caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 }),
       JSON.stringify(startingEconomy(NOW.toISOString())),
       JSON.stringify(startingProgression()),
       JSON.stringify(commanders),

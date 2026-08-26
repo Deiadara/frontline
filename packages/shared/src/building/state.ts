@@ -8,7 +8,7 @@ import {
   type BuildingKind,
   type BuildingRequirement,
 } from './kinds.js';
-import { MAX_BUILDING_GARRISONS } from './damage.js';
+import { FORTIFY_MAX_LEVEL } from '../city/fortification.js';
 import {
   MAX_MODIFICATION_SLOTS,
   ModificationIdSchema,
@@ -51,10 +51,12 @@ export const BuildingSchema = z.object({
    */
   damagedAt: IsoDateTimeSchema.nullable().optional(),
   /**
-   * How many times it has been garrisoned, 0..`MAX_BUILDING_GARRISONS`. Each one stations people in
-   * it and raises what a raider has to beat. Defaulted for the same reason as `damage`.
+   * How far this structure has been dug in, `0..FORTIFY_MAX_LEVEL`. Only the Gate reads it (see
+   * `gateFortifyPercent`); it lives on every structure because the schema is one shape and a field
+   * that is zero everywhere else costs nothing. Defaulted for the same reason as `damage`, which
+   * is also what quietly retires the watch counts that used to sit here.
    */
-  garrisons: z.number().int().min(0).max(MAX_BUILDING_GARRISONS).default(0),
+  fortification: z.number().int().min(0).max(FORTIFY_MAX_LEVEL).default(0),
 });
 export type Building = z.infer<typeof BuildingSchema>;
 

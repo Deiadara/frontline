@@ -5,16 +5,19 @@ import {
   type AttributeName,
   type Attributes,
 } from '../attributes.js';
-import type { ReputationLabel } from '../economy/reputation.js';
 
 /**
  * What a character wants and what they will do to get it (GDD §H4), and how much they currently
  * agree with the crew holding them (§H5).
  *
- * §H4 makes willingness to join a judgement *the character* makes about *your group's reputation
- * word*, so both halves of that judgement live on the character, and the only thing read off the
- * crew is the §D8 label. Nothing here touches the hidden role table (§B8a): every input is a
- * number or word the player can already see.
+ * §H4 used to make willingness to join a judgement about the crew's *reputation word*, and the
+ * word is gone: recruitment was a quiz about a label the player could not aim at. What is left is
+ * the pair itself, which is worth more than the gate ever was. Ambition and moral compass are what
+ * make two people with identical sheets haggle differently (`negotiation.ts`), and what decides
+ * how an officer takes the contract they end up signing (`contractStance` below).
+ *
+ * Nothing here touches the hidden role table (§B8a): every input is a number or word the player
+ * can already see.
  */
 
 /** What drives them (§H4). One per character. */
@@ -35,60 +38,40 @@ export const MORAL_COMPASSES = ['idealist', 'pragmatist', 'opportunist', 'ruthle
 export const MoralCompassSchema = z.enum(MORAL_COMPASSES);
 export type MoralCompass = z.infer<typeof MoralCompassSchema>;
 
-/**
- * How one trait of character reads a reputation word. `drawnTo` and `repelledBy` are disjoint
- * subsets of `REPUTATION_LABELS`; every other label leaves them indifferent.
- */
+/** What one half of a character's temperament is, in the player's words. */
 export interface DispositionSpec {
   label: string;
   description: string;
-  drawnTo: readonly ReputationLabel[];
-  repelledBy: readonly ReputationLabel[];
 }
 
 export const AMBITION_SPECS: Readonly<Record<Ambition, DispositionSpec>> = {
   wealth: {
     label: 'Wealth',
     description: 'Money first. Everything else is a story people tell about the money.',
-    drawnTo: ['Opportunist', 'Collaborator', 'Respected'],
-    repelledBy: ['Revolutionary', 'Reckless'],
   },
   power: {
     label: 'Power',
     description: 'Wants to be the one deciding, and does not much mind about what.',
-    drawnTo: ['Revolutionary', 'Feared', 'Respected'],
-    repelledBy: ['Collaborator', 'Cautious'],
   },
   revenge: {
     label: 'Revenge',
     description: 'Carries a list. Every job is measured against how far down it gets them.',
-    drawnTo: ['Anti-systemic', 'Hostile', 'Feared'],
-    repelledBy: ['Collaborator', 'Cautious'],
   },
   justice: {
     label: 'Justice',
     description: 'Believes the arrangement is wrong and that wrongs are supposed to be answered.',
-    drawnTo: ['Revolutionary', 'Anti-systemic', 'Honorable'],
-    repelledBy: ['Treacherous', 'Collaborator'],
   },
   knowledge: {
     label: 'Knowledge',
     description: 'Here for what the work teaches them. Corpses teach nothing.',
-    drawnTo: ['Cautious', 'Honorable', 'Respected'],
-    repelledBy: ['Reckless', 'Feared'],
   },
   belonging: {
     label: 'Belonging',
     description: 'Wants a crew that holds together and holds its word.',
-    drawnTo: ['Cautious', 'Honorable', 'Respected'],
-    repelledBy: ['Treacherous', 'Reckless'],
   },
   notoriety: {
     label: 'Notoriety',
     description: 'Wants the street to say the name. Does not care how the sentence ends.',
-    drawnTo: ['Hostile', 'Reckless', 'Feared'],
-    // Being merely well thought of is the one outcome they have no use for.
-    repelledBy: ['Cautious', 'Collaborator', 'Respected'],
   },
 };
 
@@ -96,29 +79,18 @@ export const MORAL_COMPASS_SPECS: Readonly<Record<MoralCompass, DispositionSpec>
   idealist: {
     label: 'Idealist',
     description: 'There is a right way to do this, and they would rather lose doing it.',
-    drawnTo: ['Revolutionary', 'Anti-systemic', 'Honorable'],
-    repelledBy: ['Treacherous', 'Collaborator', 'Opportunist'],
   },
   pragmatist: {
     label: 'Pragmatist',
     description: 'Takes the working option. Distrusts anyone who never counts the cost.',
-    drawnTo: ['Cautious', 'Opportunist', 'Respected'],
-    // W10 made `Anti-systemic` reachable and nobody in this table objected to it, which would have
-    // made it the one live word §H4 could not read badly. A pragmatist is exactly who objects: a
-    // standing war on the Combine with no banner to plant is cost nobody has counted.
-    repelledBy: ['Revolutionary', 'Anti-systemic', 'Reckless'],
   },
   opportunist: {
     label: 'Opportunist',
     description: 'Loyal to whichever way the money and the leverage are pointing today.',
-    drawnTo: ['Opportunist', 'Collaborator', 'Feared'],
-    repelledBy: ['Revolutionary', 'Honorable'],
   },
   ruthless: {
     label: 'Ruthless',
     description: 'Squeamishness is a tax. They have never paid it.',
-    drawnTo: ['Hostile', 'Treacherous', 'Feared'],
-    repelledBy: ['Cautious', 'Honorable', 'Respected'],
   },
 };
 
@@ -129,48 +101,36 @@ export const DispositionSchema = z.object({
 });
 export type Disposition = z.infer<typeof DispositionSchema>;
 
-/** Both halves of §H4 agreeing is the strongest reading either direction can produce. */
+/** Both halves of a contract reading the same way is the strongest signal either can produce. */
 export const STANCE_MIN = -2;
 export const STANCE_MAX = 2;
 
-function opinionOf(spec: DispositionSpec, reputation: ReputationLabel): number {
-  if (spec.drawnTo.includes(reputation)) return 1;
-  if (spec.repelledBy.includes(reputation)) return -1;
-  return 0;
-}
-
 /**
- * §H4: what this character makes of your group's reputation word, `-2`..`+2`.
+ * §H5: what an officer makes of the deal they actually signed, `-2`..`+2`.
  *
- * Their ambition and their moral compass each read the word independently and the two are summed,
- * so a character can be drawn to what you do and appalled by how you do it and come out neutral.
+ * This replaced the reputation reading, and it is a better driver than the word ever was. An
+ * officer's opinion of the crew now comes from the one interaction the player genuinely had with
+ * them: the negotiation. Somebody who got what they asked for turns up pleased; somebody ground
+ * all the way down to their floor turns up knowing it, and drifts accordingly.
+ *
+ * The scale is anchored on the two numbers the Bar already deals in. Their asking price reads as
+ * `+2`; nine tenths of it is neutral; their reservation, which is `WAGE_RESERVATION_FRACTION` of
+ * asking, reads as `-2`. Nothing between them is a surprise, which is what makes the trade legible:
+ * every cap saved at the table is a little less goodwill later.
  */
-export function reputationStance(
-  { ambition, moralCompass }: Disposition,
-  reputation: ReputationLabel,
-): number {
-  return (
-    opinionOf(AMBITION_SPECS[ambition], reputation) +
-    opinionOf(MORAL_COMPASS_SPECS[moralCompass], reputation)
-  );
-}
+export const STANCE_NEUTRAL_SHARE = 0.9;
+export const STANCE_SHARE_PER_POINT = 0.05;
 
-/**
- * Whether this character's two halves can ever object to the *same* word (§H4).
- *
- * Refusing to join takes both of them at once, so a character whose ambition and moral compass are
- * repelled by disjoint sets of reputations will hear any crew out, however the street reads. The
- * Bar deliberately seats a few of these every day, see `BAR_OPEN_DOOR_FLOOR`, because otherwise
- * an unlucky roll can leave a crew with nobody willing to talk to them at all.
- */
-export function hearsAnyCrewOut({ ambition, moralCompass }: Disposition): boolean {
-  const against = new Set<ReputationLabel>(MORAL_COMPASS_SPECS[moralCompass].repelledBy);
-  return !AMBITION_SPECS[ambition].repelledBy.some((label) => against.has(label));
+export function contractStance(agreedFee: number, askingFee: number): number {
+  if (askingFee <= 0) return 0;
+  const share = Math.max(0, agreedFee) / askingFee;
+  const raw = Math.round((share - STANCE_NEUTRAL_SHARE) / STANCE_SHARE_PER_POINT);
+  return Math.min(STANCE_MAX, Math.max(STANCE_MIN, raw));
 }
 
 /**
  * §H5: the alignment meter, 0..100. Starts neutral: a character who has just signed has an
- * opinion of your *reputation*, not yet of the work.
+ * opinion of their *contract*, not yet of the work.
  */
 export const ALIGNMENT_MIN = 0;
 export const ALIGNMENT_MAX = 100;
@@ -262,12 +222,12 @@ export function alignedAttributes(attributes: Attributes, alignment: number): At
 }
 
 /**
- * Where a character's alignment is heading, given what they make of your reputation (§H4, §H5).
+ * Where a character's alignment is heading, given what they made of their contract (§H5).
  * A stance of `0` sits at the neutral start, so an indifferent officer never drifts at all.
  *
  * The step is exactly `(ALIGNMENT_MAX - ALIGNMENT_START) / STANCE_MAX`, which is what keeps the
- * meter honest: the strongest §H4 reading either direction can produce heads for the end of the
- * bar rather than for some interior value. At `20` the reachable range was `10..90`, which left
+ * meter honest: the strongest reading either direction can produce heads for the end of the bar
+ * rather than for some interior value. At `20` the reachable range was `10..90`, which left
  * `devoted` (`>= 95`) and the top of the skill-bonus scale states no live path could enter: the
  * band cuts are written against `ALIGNMENT_MAX`, a schema bound, and only coincide with the
  * reachable bound at this step. `alignmentReachesEveryBand` in the tests pins that.

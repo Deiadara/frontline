@@ -1,5 +1,11 @@
 import { noTerritoryEffects, type TerritoryEffects } from '../city/index.js';
-import { findUnit, type Army, type FittedUpgrades, type UnitSpec } from '../units/index.js';
+import {
+  findUnit,
+  fittedFor,
+  type Army,
+  type UnitLoadouts,
+  type UnitSpec,
+} from '../units/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
 import { effectiveStats, OUTNUMBERED_RATIO, type Effective } from './effects.js';
 import { exchange, threatWeight } from './matchup.js';
@@ -150,8 +156,13 @@ export interface SideSetup {
   army: Army;
   defending: boolean;
   territory?: TerritoryEffects;
-  /** The workshop's refit, folded onto every sheet on this side (`units/upgrades.ts`). */
-  upgrades?: FittedUpgrades;
+  /**
+   * What this side has bolted to each unit, three slots apiece (`units/loadout.ts`).
+   *
+   * Per unit rather than per side: two crews with the same nine upgrades built can field very
+   * different Razors, and folding one flat list onto every sheet would throw that away.
+   */
+  upgrades?: UnitLoadouts;
   /** §A5 teamwork: how much of a force too big for the ground can be brought to bear anyway. */
   cohesionPercent?: number;
 }
@@ -238,7 +249,7 @@ function buildStacks(
   defending: boolean,
   outnumbered: boolean,
   territory: TerritoryEffects,
-  upgrades: FittedUpgrades,
+  upgrades: UnitLoadouts,
 ): Stack[] {
   const stacks: Stack[] = [];
   for (const [unitId, count] of Object.entries(army)) {
@@ -249,7 +260,7 @@ function buildStacks(
       battlefield,
       { defending, outnumbered },
       territory,
-      upgrades,
+      fittedFor(upgrades, unitId),
     );
     stacks.push({
       unit,
@@ -457,7 +468,7 @@ export function simulate(input: SimulateInput): Simulation {
       setup.defending,
       ownCount > 0 && otherCount / ownCount >= OUTNUMBERED_RATIO,
       setup.territory ?? noTerritoryEffects(),
-      setup.upgrades ?? [],
+      setup.upgrades ?? {},
     ),
   });
 

@@ -54,7 +54,7 @@ function seedFreshPlayer(repos: Repositories, username = 'Nikos'): Base {
     research: startingResearch(),
     assignees: startingAssignees(),
     buildings: [
-      { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
+      { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
     ],
     buildQueue: [],
     army: {},
@@ -62,6 +62,7 @@ function seedFreshPlayer(repos: Repositories, username = 'Nikos'): Base {
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
+    unitLoadouts: {},
     fleet: {},
     commanders: [],
     createdAt: NOW,
@@ -135,7 +136,7 @@ describe('UNLOCKED: the end-game sandbox', () => {
     seedFreshPlayer(repos);
     repos.bases.updateDistrict(
       'b1',
-      [{ id: 'n', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 }],
+      [{ id: 'n', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 }],
       [{ id: 'q1', kind: 'quarters', level: 1, startedAt: NOW, durationSeconds: 60 }],
     );
 

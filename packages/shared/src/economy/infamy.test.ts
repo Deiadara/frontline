@@ -24,12 +24,19 @@ describe('what a kill is worth (§D7)', () => {
     expect(infamyForKill('the_specter')).toBe(INFAMY_PER_TIER.legendary);
   });
 
+  it('pays nothing at all for a porter: they are never in the line to be killed', () => {
+    for (const unit of unitsInTier('support')) expect(infamyForKill(unit), unit.id).toBe(0);
+  });
+
   it('climbs strictly with tier, taking the cheapest member of each as the comparison', () => {
-    const cheapest = UNIT_TIERS.map((tier) =>
+    // Support aside: they are not a rung of the ladder, they are off it. Everything that can
+    // actually be killed in a battle line climbs.
+    const fighting = UNIT_TIERS.filter((tier) => tier !== 'support');
+    const cheapest = fighting.map((tier) =>
       Math.min(...unitsInTier(tier).map((unit) => infamyForKill(unit))),
     );
     for (let i = 1; i < cheapest.length; i += 1) {
-      expect(cheapest[i]!, UNIT_TIERS[i]).toBeGreaterThan(cheapest[i - 1]!);
+      expect(cheapest[i]!, fighting[i]).toBeGreaterThan(cheapest[i - 1]!);
     }
   });
 
@@ -49,8 +56,11 @@ describe('what a kill is worth (§D7)', () => {
     expect(infamyForKill('wrecking_crew')).toBe(2 * infamyForKill('snipers'));
   });
 
-  it('never prices anything in the catalogue at nothing', () => {
-    for (const unit of UNIT_CATALOG) expect(infamyForKill(unit), unit.id).toBeGreaterThan(0);
+  it('never prices a fighting unit at nothing', () => {
+    for (const unit of UNIT_CATALOG) {
+      if (unit.tier === 'support') continue;
+      expect(infamyForKill(unit), unit.id).toBeGreaterThan(0);
+    }
   });
 
   it('is worth nothing for a unit id nothing answers to, rather than throwing', () => {

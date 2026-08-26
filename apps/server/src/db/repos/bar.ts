@@ -1,4 +1,4 @@
-import type { Negotiation } from '@frontline/shared';
+import type { Negotiation, Standoff } from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
 
 /**
@@ -45,6 +45,22 @@ export interface BarRepo {
     negotiation: Negotiation,
     at: string,
   ): void;
+  /**
+   * Every recruit this player has walked out on, keyed by recruit id.
+   *
+   * Not scoped to a day: a standoff outlives the roster it was earned on, which is the only way
+   * six hours can mean six hours across the midnight UTC boundary.
+   */
+  standoffs(userId: string): Record<string, Standoff>;
+  standoff(userId: string, recruitId: string): Standoff | undefined;
+  /** Records a walkout: pushes the clock out and adds one to the count. */
+  saveStandoff(userId: string, recruitId: string, standoff: Standoff): void;
+}
+
+interface StandoffRow {
+  recruit_id: string;
+  until: string;
+  walkouts: number;
 }
 
 interface GenerationRow {
@@ -115,6 +131,19 @@ export function createBarRepo(db: AppDatabase): BarRepo {
        updated_at = excluded.updated_at`,
   );
 
+  const standoffsStmt = db.prepare(
+    'SELECT recruit_id, until, walkouts FROM bar_standoffs WHERE user_id = ?',
+  );
+  const standoffStmt = db.prepare(
+    'SELECT recruit_id, until, walkouts FROM bar_standoffs WHERE user_id = ? AND recruit_id = ?',
+  );
+  const saveStandoffStmt = db.prepare(
+    `INSERT INTO bar_standoffs (user_id, recruit_id, until, walkouts) VALUES (?, ?, ?, ?)
+     ON CONFLICT (user_id, recruit_id) DO UPDATE SET
+       until = excluded.until,
+       walkouts = excluded.walkouts`,
+  );
+
   return {
     generations(day, seats) {
       const rows = generationsStmt.all(day) as GenerationRow[];
@@ -153,6 +182,19 @@ export function createBarRepo(db: AppDatabase): BarRepo {
         negotiation.closed ? 1 : 0,
         at,
       );
+    },
+    standoffs(userId) {
+      const rows = standoffsStmt.all(userId) as StandoffRow[];
+      return Object.fromEntries(
+        rows.map((row) => [row.recruit_id, { until: row.until, walkouts: row.walkouts }]),
+      );
+    },
+    standoff(userId, recruitId) {
+      const row = standoffStmt.get(userId, recruitId) as StandoffRow | undefined;
+      return row ? { until: row.until, walkouts: row.walkouts } : undefined;
+    },
+    saveStandoff(userId, recruitId, standoff) {
+      saveStandoffStmt.run(userId, recruitId, standoff.until, standoff.walkouts);
     },
   };
 }

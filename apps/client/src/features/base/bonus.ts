@@ -4,8 +4,8 @@ import {
   buildingProduction,
   characterXpBonus,
   districtDefense,
-  hardshipReduction,
-  moraleTarget,
+  infirmaryRecoveryPercent,
+  payrollBonusPercent,
   populationCapacity,
   powerGrid,
   researchTimeReduction,
@@ -53,7 +53,7 @@ export function districtWith(
   if (level <= 0) return [...buildings];
   return [
     ...buildings,
-    { id: `preview-${kind}`, kind, level, modifications: [], damage: 0, garrisons: 0 },
+    { id: `preview-${kind}`, kind, level, modifications: [], damage: 0, fortification: 0 },
   ];
 }
 
@@ -85,8 +85,8 @@ const LINES: Record<BuildingKind, (buildings: readonly Building[]) => StructureB
     value: `level ${buildings.find((b) => b.kind === 'nexus')?.level ?? 0}`,
   }),
   quarters: (buildings) => ({
-    label: 'Beds for everybody, and where morale settles',
-    value: `${round(populationCapacity(buildings))} · morale ${round(moraleTarget(buildings))}`,
+    label: 'Beds for everybody, and what the payroll book stretches to',
+    value: `${round(populationCapacity(buildings))} beds · +${round(payrollBonusPercent(buildings))}% payroll`,
   }),
   greenhouse: (buildings) => ({
     label: 'Grows',
@@ -125,8 +125,8 @@ const LINES: Record<BuildingKind, (buildings: readonly Building[]) => StructureB
     value: `+${round(characterXpBonus(buildings))}%`,
   }),
   infirmary: (buildings) => ({
-    label: 'Off a missed payday or a starved week',
-    value: `${round(hardshipReduction(buildings))}%`,
+    label: 'Of the fallen back on their feet after a win',
+    value: `${round(infirmaryRecoveryPercent(buildings))}%`,
   }),
 };
 

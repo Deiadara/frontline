@@ -11,9 +11,10 @@ import {
   buildingBuildSeconds,
   buildingCost,
   createCommander,
+  MAX_WAGE_DISCOUNT,
+  askingWage,
   makeAttributes,
   recoverCasualties,
-  runEconomyCycle,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -315,13 +316,16 @@ describe('an attribute changes an outcome', () => {
       progression: startingProgression(),
       research: startingResearch(),
       assignees: startingAssignees(),
-      buildings: [{ id: 'n', kind: 'nexus', level: 3, modifications: [], damage: 0, garrisons: 0 }],
+      buildings: [
+        { id: 'n', kind: 'nexus', level: 3, modifications: [], damage: 0, fortification: 0 },
+      ],
       buildQueue: [],
       army: {},
       trainingQueue: [],
       training: startingTraining(HOUR),
       inventory: {},
       fittedUpgrades: [],
+      unitLoadouts: {},
       fleet: {},
       commanders: [createCommander('o1', 'Spec', 'head_spy', makeAttributes(0, sheet))],
       createdAt: HOUR,
@@ -383,28 +387,12 @@ describe('an attribute changes an outcome', () => {
     expect(paidCheap).toBeGreaterThan(0);
   });
 
-  it('takes caps off the wage book for Authority and Negotiation', () => {
-    const wages = { 'officer-1': 400 };
-    const payroll = {
-      wages,
-      paidThroughAt: '2026-08-03T00:00:00.000Z',
-      lastOutcome: null,
-    } as unknown as Parameters<typeof runEconomyCycle>[0]['payroll'];
-    const plain = runEconomyCycle({
-      resources: STARTING_RESOURCES,
-      payroll,
-      officerCount: 1,
-      now: new Date(HOUR),
-    });
-    const talked = runEconomyCycle({
-      resources: STARTING_RESOURCES,
-      payroll,
-      officerCount: 1,
-      wageDiscountPercent: 20,
-      now: new Date(HOUR),
-    });
-    expect(plain.capsDue).toBeGreaterThan(0);
-    expect(talked.capsDue).toBe(Math.round(plain.capsDue * 0.8));
+  it('takes caps off what an officer asks for, for Authority and Negotiation', () => {
+    const sheet = makeAttributes(30);
+    expect(askingWage(sheet, 0, 20)).toBeLessThan(askingWage(sheet));
+    // Never free, whatever the crew.
+    expect(askingWage(sheet, 0, 100)).toBeGreaterThan(0);
+    expect(askingWage(sheet, 0, 100)).toBe(askingWage(sheet, 0, MAX_WAGE_DISCOUNT));
   });
 
   it('blurs a garrison count for the holder, and sharpens it for the reader', () => {

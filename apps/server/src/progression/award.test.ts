@@ -57,6 +57,7 @@ function seedBase(db: AppDatabase, repos: Repositories, level: number): Base {
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
+    unitLoadouts: {},
     fleet: {},
     commanders: [],
     createdAt: NOW,

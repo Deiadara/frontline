@@ -33,13 +33,13 @@ export const MODIFICATION_EFFECTS = [
   'power_supply_percent',
   'power_draw_reduction',
   'defense_percent',
-  /** Flat points on the morale meter, not a percentage. */
-  'morale_flat',
+  /** Percentage points on the faction's own XP, so the district levels you as well as it feeds you. */
+  'faction_xp_percent',
   'research_time_reduction',
   'housing_percent',
   'character_xp_percent',
-  /** Softens the morale hit from a missed payday or a lean week. */
-  'hardship_reduction',
+  /** Percentage points on the payroll ceiling: room for another name on the book. */
+  'payroll_percent',
   'raid_loot_percent',
   /** Oil the Generator burns to hold the grid up. */
   'fuel_efficiency',
@@ -56,7 +56,7 @@ export interface ModificationSpec {
   name: string;
   description: string;
   effect: ModificationEffect;
-  /** Percentage points, or flat meter points for `morale_flat`. Always positive. */
+  /** Percentage points. Always positive. */
   magnitude: number;
 }
 
@@ -96,8 +96,8 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'nexus',
     name: 'Standing Orders',
     description:
-      'The district keeps running through a bad week because it does not need to be told to.',
-    effect: 'hardship_reduction',
+      'Every job has a written rate and nobody argues about it. The book stretches further for it.',
+    effect: 'payroll_percent',
     magnitude: 20,
   },
   {
@@ -118,17 +118,18 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   },
   {
     building: 'quarters',
-    name: 'Sound Baffling',
-    description: 'Salvaged foam on every bulkhead. People actually sleep.',
-    effect: 'morale_flat',
+    name: 'Debriefing Room',
+    description:
+      'Salvaged foam on every bulkhead, and a table in the middle of it. Crews come back and say what happened.',
+    effect: 'faction_xp_percent',
     magnitude: 4,
   },
   {
     building: 'quarters',
     name: 'Filtered Air Handlers',
     description:
-      'Clean air on the bunk deck. A lean week is a lot less lean without a chest full of undercity.',
-    effect: 'hardship_reduction',
+      'Clean air on the bunk deck. People sign for less when they can breathe where they sleep.',
+    effect: 'payroll_percent',
     magnitude: 15,
   },
   {
@@ -174,16 +175,17 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'greenhouse',
     name: 'Canteen Line',
-    description: 'Fresh food served where it is grown. The crew notices immediately.',
-    effect: 'morale_flat',
+    description:
+      'Fresh food served where it is grown. What gets talked about over it is what went wrong last night.',
+    effect: 'faction_xp_percent',
     magnitude: 5,
   },
   {
     building: 'greenhouse',
     name: 'Seed Vault',
     description:
-      'A cold locker of everything that grows here. A failed crop stops being a catastrophe.',
-    effect: 'hardship_reduction',
+      'A cold locker of everything that grows here. Nobody has to be paid in advance against a bad crop.',
+    effect: 'payroll_percent',
     magnitude: 18,
   },
 
@@ -220,10 +222,10 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   },
   {
     building: 'generator',
-    name: 'Silent Mounts',
+    name: 'Instrument Bench',
     description:
-      'The turbine stops being audible in the Quarters. Small thing. Enormous difference.',
-    effect: 'morale_flat',
+      'The turbine gets a bench and a log book beside it. Everything that breaks is written down and read.',
+    effect: 'faction_xp_percent',
     magnitude: 3,
   },
 
@@ -281,8 +283,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'cistern',
     name: 'Greywater Recovery',
-    description: 'Nothing leaves this district once. A dry month stops being a crisis.',
-    effect: 'hardship_reduction',
+    description:
+      'Nothing leaves this district once, so the wage book is not also paying for water.',
+    effect: 'payroll_percent',
     magnitude: 18,
   },
   {
@@ -305,8 +308,8 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'cistern',
     name: 'Clean Line to the Quarters',
     description:
-      'Drinkable water on tap where the crew sleeps. The Combine charges for this upstairs.',
-    effect: 'morale_flat',
+      'Drinkable water on tap where the crew sleeps. A crew that is not ill learns faster.',
+    effect: 'faction_xp_percent',
     magnitude: 5,
   },
 
@@ -337,8 +340,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'apothecary',
     name: 'Field Kits',
-    description: 'Every crew goes out carrying what it needs to get through a bad one.',
-    effect: 'hardship_reduction',
+    description:
+      'Every crew goes out carrying what it needs, so nobody is owed danger money for going without.',
+    effect: 'payroll_percent',
     magnitude: 15,
   },
   {
@@ -448,8 +452,8 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'gauntlet',
     name: 'Conditioning Programme',
     description:
-      'A crew that is fit takes a hard month the way a crew that is not takes a hard week.',
-    effect: 'hardship_reduction',
+      'A crew that is fit costs less to keep. Half of what an officer charges is for the risk.',
+    effect: 'payroll_percent',
     magnitude: 15,
   },
   {
@@ -471,24 +475,25 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'infirmary',
     name: 'Autoclave Suite',
-    description: 'Sterile instruments, every time. The difference between a wound and a funeral.',
-    effect: 'hardship_reduction',
+    description:
+      'Sterile instruments, every time. An officer who expects to survive the year asks for less of it up front.',
+    effect: 'payroll_percent',
     magnitude: 22,
   },
   {
     building: 'infirmary',
     name: 'Compounding Printer',
     description:
-      'Prints the drugs the Combine will not sell down here, from precursors it cannot trace.',
-    effect: 'hardship_reduction',
+      'Prints the drugs the Combine will not sell down here. What that saves goes straight on the book.',
+    effect: 'payroll_percent',
     magnitude: 16,
   },
   {
     building: 'infirmary',
     name: 'Trauma Bay',
     description:
-      'People come back from jobs they would not have come back from. The crew knows it.',
-    effect: 'morale_flat',
+      'People come back from jobs they would not have come back from, and the crew learns from every one.',
+    effect: 'faction_xp_percent',
     magnitude: 6,
   },
   {

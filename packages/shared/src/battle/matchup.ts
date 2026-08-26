@@ -45,8 +45,16 @@ export const REACH_WEIGHT = 0.45;
 /** ...and a full closing advantage, against something that wanted to stay at range. */
 export const CLOSING_WEIGHT = 0.6;
 
-/** A critical hit doubles. `lethality` is the chance, so this is its expected value. */
-export const CRIT_BONUS = 1;
+/**
+ * Points of armour one point of penetration cancels.
+ *
+ * One for one, and deliberately so: `penetration 30` against `armour 30` means the plate does
+ * nothing at all, which is a sentence a player can hold in their head. Because armour is
+ * exponential (see the module note), cancelling the first points is worth far more than cancelling
+ * the last, so a modest penetration against a heavy target is already a real answer without the
+ * stat needing a curve of its own.
+ */
+export const PENETRATION_PER_ARMOR = 1;
 
 /** Below this morale a target counts as shaken, and `vs_low_morale` sheets switch on. */
 export const SHAKEN_MORALE = 40;
@@ -69,9 +77,22 @@ export function damageTypeMultiplier(attacker: Effective, defender: Effective): 
   return 1 - clamp(raw, MIN_RESISTANCE, MAX_RESISTANCE) / 100;
 }
 
-/** Exponential armour: see the module note on why this is not a subtraction. */
-export function armorMultiplier(armor: number): number {
-  return ARMOR_FALLOFF ** Math.max(0, armor);
+/**
+ * Exponential armour, less whatever the attacker's penetration cancels.
+ *
+ * See the module note on why the armour curve itself is not a subtraction. Penetration *is* a
+ * subtraction, and against an exponential curve that is the strong version: taking 30 points off
+ * a 30-armour target removes the whole multiplier, while taking 30 off a 90-armour target still
+ * leaves it well protected. That is what "good against armour" should mean, and it is why a
+ * specialist with penetration beats a heavy without needing a written counter rule.
+ *
+ * This replaced a critical-hit chance, which is what the stat used to be. A crit is a bonus
+ * against *everything*, so it said nothing about who a unit is for; penetration is worth exactly
+ * as much as the target is armoured, which is a choice about what you send.
+ */
+export function armorMultiplier(armor: number, penetration = 0): number {
+  const defeated = Math.max(0, penetration) * PENETRATION_PER_ARMOR;
+  return ARMOR_FALLOFF ** Math.max(0, armor - defeated);
 }
 
 /**
@@ -139,7 +160,6 @@ export interface Exchange {
     armor: number;
     engagement: number;
     dodge: number;
-    crit: number;
     target: number;
   };
 }
@@ -161,25 +181,23 @@ export function exchange(
   attackerModifiers: readonly UnitModifierId[],
   defender: Effective,
   defenderMorale: number,
-  /** The attacker's luck on the day, in percentage points of crit chance. See `luck.ts`. */
+  /** The attacker's luck on the day, in points of penetration. See `luck.ts`. */
   luck = 0,
 ): Exchange {
   const type = damageTypeMultiplier(attacker, defender);
-  const armor = armorMultiplier(defender.armor);
+  // Luck rides on penetration now that penetration is what the stat is: added in points rather
+  // than multiplied in, so a unit with little of it gains a lot from a good day and a specialist
+  // barely notices, which is the right way round.
+  const armor = armorMultiplier(defender.armor, attacker.penetration + luck);
   const engagement = engagementMultiplier(attacker, defender);
 
   const surprise = clamp(attacker.speed - defender.speed, 0, 100) / 100;
   const dodge = 1 - (defender.evasion / 100) * Math.max(MIN_DODGE_KEPT, 1 - surprise);
-
-  // Luck is added to lethality in points, not multiplied into it: a Razor at 8% gains half again
-  // from a good day and a Specter at 80% barely notices, which is the right way round.
-  const lethality = clamp(attacker.lethality + luck, 0, 100);
-  const crit = 1 + (lethality / 100) * CRIT_BONUS;
   const target = 1 + targetBonusPercent(attackerModifiers, defender, defenderMorale) / 100;
 
   return {
-    perBody: attacker.offense * type * armor * engagement * dodge * crit * target,
-    parts: { type, armor, engagement, dodge, crit, target },
+    perBody: attacker.offense * type * armor * engagement * dodge * target,
+    parts: { type, armor, engagement, dodge, target },
   };
 }
 

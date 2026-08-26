@@ -1,6 +1,7 @@
 import type { PartialResources, Resources } from '../resources.js';
 import { RESOURCE_KEYS } from '../resources.js';
-import type { Building } from './state.js';
+import { fortifyBonusPercent } from '../city/fortification.js';
+import { findBuilding, type Building } from './state.js';
 
 /**
  * What a broken gate lets somebody do to your district (GDD §A4, battle rework).
@@ -18,22 +19,16 @@ import type { Building } from './state.js';
  * food to zero and starve a roster that had nothing to do with the fight, which is a punishment
  * loop rather than a setback. Half is enough to hurt and not enough to end anything.
  *
- * ## Garrisons
+ * ## Digging the gate in
  *
- * The other half of the same screen. A structure can be garrisoned up to
- * {@link MAX_BUILDING_GARRISONS} times, each stationing people in it, and each raising what an
- * attacker has to beat before the breach is worth anything. It is the one defensive investment that
- * costs no materials, only bodies you could have been fighting with somewhere else.
+ * The other half of the same screen. Watches used to live here: a count on every structure that
+ * bought defence and cost nothing, which is not a decision. What replaced them is the same three
+ * levels of fortification the city's locations use, on the Gate alone, paid for in materials. See
+ * `gateFortifyPercent` and `city/fortification.ts`.
  */
 
 /** The most of a structure's job that damage can ever take away. */
 export const MAX_DAMAGE_PENALTY = 0.5;
-
-/** How many times one structure may be garrisoned. */
-export const MAX_BUILDING_GARRISONS = 3;
-
-/** Defence percentage each garrison on a structure is worth to the district. */
-export const DEFENSE_PER_BUILDING_GARRISON = 5;
 
 /**
  * How much of its job a structure is still doing, 0.5..1.
@@ -76,13 +71,17 @@ export function districtEffectiveness(buildings: readonly Building[]): number {
   return levels === 0 ? 1 : weighted / levels;
 }
 
-/** Percentage points every garrisoned structure in the district adds to what it takes to get in. */
-export function garrisonDefensePercent(buildings: readonly Building[]): number {
-  return buildings.reduce(
-    (total, building) =>
-      total + Math.min(MAX_BUILDING_GARRISONS, building.garrisons) * DEFENSE_PER_BUILDING_GARRISON,
-    0,
-  );
+/**
+ * Percentage points the Gate's own fortification adds to what it takes to get into the district.
+ *
+ * Only the Gate. Digging in is work on the way *in*, and the way in is the Gate: spreading it
+ * across every structure was what made watches read as a tick-box on a list rather than as a
+ * position on the map. Read off the medium curve, because a home district has no ground type of
+ * its own the way a location does.
+ */
+export function gateFortifyPercent(buildings: readonly Building[]): number {
+  const gate = findBuilding(buildings, 'gate');
+  return gate ? fortifyBonusPercent('medium', gate.fortification) : 0;
 }
 
 /**

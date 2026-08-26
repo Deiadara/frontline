@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ATTRIBUTE_NAMES, makeAttributes } from '../attributes.js';
 import {
-  MAX_RESEARCH_MORALE,
+  MAX_RESEARCH_LEADERSHIP_XP,
   TRAINING_STEP,
   canDevelop,
   developAttribute,
-  moraleFromLeadership,
+  factionXpFromLeadership,
 } from './effects.js';
 import { consultOnAssignment, factKey, makePairing, pairingsIn, roleFactsIn } from './facts.js';
 import {
@@ -100,12 +100,12 @@ describe('§F2: developing an attribute', () => {
   });
 });
 
-describe('§F3: Charisma turns a result into morale', () => {
+describe('§F3: Charisma turns a result into faction XP', () => {
   it('runs from nothing to the cap, and is monotone in between', () => {
-    expect(moraleFromLeadership(makeAttributes(0))).toBe(0);
-    expect(moraleFromLeadership(makeAttributes(100))).toBe(MAX_RESEARCH_MORALE);
+    expect(factionXpFromLeadership(makeAttributes(0))).toBe(0);
+    expect(factionXpFromLeadership(makeAttributes(100))).toBe(MAX_RESEARCH_LEADERSHIP_XP);
     const readings = [0, 25, 50, 75, 100].map((charisma) =>
-      moraleFromLeadership(makeAttributes(10, { charisma })),
+      factionXpFromLeadership(makeAttributes(10, { charisma })),
     );
     expect(readings).toEqual([...readings].sort((a, b) => a - b));
   });

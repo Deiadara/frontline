@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { IsoDateTimeSchema } from '../primitives.js';
 import { MORAL_COMPASSES, type Ambition, type MoralCompass } from './disposition.js';
 import { reservationWage } from './wage.js';
 
@@ -401,4 +402,50 @@ for (const compass of MORAL_COMPASSES) {
       throw new Error(`no ${mood} line for a ${compass}`);
     }
   }
+}
+
+// --- what a walkout costs, after the door has closed ---
+
+/**
+ * How long somebody who walked out will not talk to this crew again.
+ *
+ * Six hours, which is the board's figure and a good one: long enough that walking away from a
+ * negotiation is a real loss rather than a reload, short enough that it is a setback inside one
+ * day's play rather than the end of an officer. Paired with `WALKOUT_MARKUP`, which is the half
+ * that persists: the clock runs out, the price does not come back down.
+ */
+export const NEGOTIATION_STANDOFF_HOURS = 6;
+export const NEGOTIATION_STANDOFF_MS = NEGOTIATION_STANDOFF_HOURS * 60 * 60 * 1000;
+
+/**
+ * What one crew owes one recruit after a conversation that ended badly.
+ *
+ * Kept per crew, per recruit: another player walking out on this character says nothing about
+ * whether they will sit down with you, and a shared standoff would let one crew close a door on
+ * everybody else's Bar.
+ */
+export const StandoffSchema = z.object({
+  /** They will not sit down again before this. */
+  until: IsoDateTimeSchema,
+  /** Conversations that ended with them leaving. Each one marks their price up. */
+  walkouts: z.number().int().positive(),
+});
+export type Standoff = z.infer<typeof StandoffSchema>;
+
+/** The standoff a walkout leaves behind, given whatever was already on the record. */
+export function standoffAfterWalkout(previous: Standoff | undefined, now: Date): Standoff {
+  return {
+    until: new Date(now.getTime() + NEGOTIATION_STANDOFF_MS).toISOString(),
+    walkouts: (previous?.walkouts ?? 0) + 1,
+  };
+}
+
+/** Milliseconds until they will talk again; 0 once the door is open. */
+export function standoffRemainingMs(standoff: Standoff | undefined, now: Date): number {
+  if (!standoff) return 0;
+  return Math.max(0, Date.parse(standoff.until) - now.getTime());
+}
+
+export function inStandoff(standoff: Standoff | undefined, now: Date): boolean {
+  return standoffRemainingMs(standoff, now) > 0;
 }

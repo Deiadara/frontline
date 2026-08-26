@@ -94,6 +94,20 @@ export const DESTINATIONS: readonly NavDestination[] = [
  * and the row simply has one fewer door. A greyed-out entry would advertise a screen that does not
  * exist in that build.
  */
+/**
+ * The knobs, kept out of the walk of doors and pinned to the right of the bar (board's placement).
+ *
+ * Not a place in the world, which is why it is not in `DESTINATIONS`: it is a drawer, wanted from
+ * wherever a player is standing rather than walked to. The bottom bar is where the hand already
+ * is, so that is where it lives.
+ */
+const SETTINGS: NavDestination = {
+  label: 'Settings',
+  title: 'Your name, mark, clock and passphrase',
+  to: '/game/settings',
+  icon: 'gear',
+};
+
 const BENCH: NavDestination = {
   label: 'Bench',
   title: 'Testing mode: knobs, presets and snapshots',
@@ -124,24 +138,33 @@ function Destination({
     <>
       <span
         className={cn(
-          // Not brushed: eight frayed tiles in a row is texture competing with itself, and the bar
-          // they sit on already carries the hand-made read.
-          'edge-lit relative flex h-[46px] w-[46px] items-center justify-center rounded-md border',
+          // `door-tile` carries the bevel, the interior glow, the sheen and the drop shadow: four
+          // layers a border and a flat fill cannot give, and the reason these read as struck
+          // plates rather than as coloured squares. Shared with the standing bar's own doors so
+          // the two rows are visibly the same kind of object.
+          'door-tile relative flex h-[52px] w-[52px] items-center justify-center rounded-lg border',
           'transition-all duration-150 ease-out',
           active
-            ? 'border-brass-300/80 bg-gradient-to-b from-brass-300/30 to-brass-500/15 text-brass-100 shadow-brass'
-            : 'border-surface-600 bg-gradient-to-b from-surface-700 to-surface-800 text-ink-300 ' +
-                'group-hover:-translate-y-0.5 group-hover:border-iris-300/70 group-hover:text-iris-100 ' +
-                'group-hover:shadow-lifted group-active:translate-y-0',
+            ? 'door-tile-active z-10 -translate-y-1 scale-[1.06] border-brass-300 text-brass-100'
+            : 'border-surface-500/70 text-ink-200 ' +
+                'group-hover:-translate-y-1 group-hover:scale-[1.04] group-hover:border-iris-300/80 ' +
+                'group-hover:text-iris-100 group-hover:shadow-lifted group-active:translate-y-0 ' +
+                'group-active:scale-100',
         )}
       >
-        <Icon name={destination.icon} className={cn('h-6 w-6', locked !== null && 'opacity-40')} />
+        <Icon
+          name={destination.icon}
+          className={cn(
+            'relative z-[2] h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
+            locked !== null && 'opacity-40',
+          )}
+        />
         {/* The padlock, drawn over the glyph rather than replacing it: the door still has to be
             recognisable as the Bar or the Market, or a player cannot tell which one is shut. */}
         {locked !== null && (
           <span
             aria-hidden
-            className="absolute inset-0 flex items-center justify-center"
+            className="absolute inset-0 z-[2] flex items-center justify-center"
             data-testid={`nav-locked-${destination.area ?? ''}`}
           >
             <Icon name="lock" className="h-5 w-5 text-brass-300" />
@@ -152,14 +175,14 @@ function Destination({
         {active && (
           <span
             aria-hidden
-            className="absolute -bottom-[7px] h-[3px] w-8 rounded-full bg-brass-300 shadow-brass"
+            className="absolute -bottom-[7px] z-[2] h-[3px] w-9 rounded-full bg-brass-300 shadow-brass"
           />
         )}
       </span>
       <span
         className={cn(
-          'font-display text-[12px] font-semibold uppercase tracking-[0.1em] transition-colors duration-150',
-          active ? 'text-brass-100' : 'text-ink-300 group-hover:text-ink-100',
+          'font-display text-[11px] font-bold uppercase tracking-[0.1em] transition-colors duration-150',
+          active ? 'text-glow-cyan text-brass-100' : 'text-ink-300 group-hover:text-ink-100',
         )}
       >
         {destination.label}
@@ -176,7 +199,7 @@ function Destination({
     return (
       <span
         className="group flex w-[72px] cursor-not-allowed flex-col items-center gap-1 opacity-40"
-        title={destination.title}
+        data-tip={destination.title}
         aria-disabled="true"
         data-testid={testId(destination.label)}
       >
@@ -191,7 +214,9 @@ function Destination({
       // `end` only on the city map: it is the index route, so without it every child route would
       // light the city up as well as itself.
       end={destination.to === '/game'}
-      title={locked === null ? destination.title : `${destination.title}: opens at level ${locked}`}
+      data-tip={
+        locked === null ? destination.title : `${destination.title}: opens at level ${locked}`
+      }
       className="group flex w-[72px] flex-col items-center gap-1 focus-visible:outline-none"
       data-testid={testId(destination.label)}
     >
@@ -222,7 +247,7 @@ export function BottomNav() {
       // on a second row instead, which the shell absorbs for free because it measures this bar's
       // height rather than assuming it. Adding `shrink-0` here without the wrap is the version that
       // really does push a destination off the side of the screen.
-      className="glass painted washed rivets pointer-events-auto relative flex shrink-0 flex-wrap items-end justify-center gap-x-1.5 gap-y-2 border-t-2 border-brass-500/45 px-4 pb-2 pt-2 shadow-panel"
+      className="glass painted washed rivets pointer-events-auto relative flex shrink-0 flex-wrap items-end justify-center gap-x-1.5 gap-y-2 border-t-2 border-brass-500/45 px-4 pb-2.5 pt-3 shadow-panel"
     >
       {destinations.map((destination) => (
         <Destination
@@ -231,6 +256,27 @@ export function BottomNav() {
           locked={lockedAt(destination)}
         />
       ))}
+
+      {/*
+       * Settings, on the right of the row rather than in it.
+       *
+       * The board's own placement, and it is the right one: the knobs are not a place in the
+       * world, so it does not belong in the walk of doors, but it is wanted from wherever a player
+       * is standing and the bottom bar is where the hand already is.
+       *
+       * One element, positioned absolutely only where the row has room beside it. Below that width
+       * it falls back into the flow and wraps with everything else, which is the version that is
+       * never unreachable. Two copies behind media queries would be two nodes with one test id and
+       * a strict-mode violation for every locator that looked for it.
+       */}
+      <span
+        className={cn(
+          '[@media(min-width:1500px)]:absolute [@media(min-width:1500px)]:right-4',
+          '[@media(min-width:1500px)]:top-1/2 [@media(min-width:1500px)]:-translate-y-1/2',
+        )}
+      >
+        <Destination destination={SETTINGS} locked={null} />
+      </span>
     </nav>
   );
 }

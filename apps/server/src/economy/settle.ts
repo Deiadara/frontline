@@ -1,56 +1,31 @@
-import {
-  adjustMeter,
-  hardshipReduction,
-  moralePenaltyFor,
-  payrollWeeksFor,
-  recordPayrollOutcome,
-  runEconomyCycle,
-  type Base,
-} from '@frontline/shared';
+import { runEconomyCycle, type Base } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { crewEffectsFor } from '../crew/standing.js';
 
 /**
- * Settles every pay-week boundary the base has crossed since it was last read (GDD §H7 wages,
- * §D1 food upkeep).
+ * Settles every upkeep week the base has crossed since it was last read (GDD §D1).
  *
- * Payroll runs on the real-world clock, not on a server tick, so it is applied lazily on the
- * read paths instead of from a scheduler: a base that nobody looks at owes exactly the same
- * amount whenever it is next opened, and there is no background job to keep alive. Writes only
- * happen on a week that actually turned over.
+ * Food only. An officer's caps are a commitment against the payroll book (`economy/payroll.ts`)
+ * rather than a weekly bill, so nothing here touches caps: the book is checked when somebody signs
+ * and charged when somebody is let go, and never in between.
+ *
+ * Upkeep runs on the real-world clock, not on a server tick, so it is applied lazily on the read
+ * paths instead of from a scheduler: a base that nobody looks at owes exactly the same amount
+ * whenever it is next opened, and there is no background job to keep alive. Writes only happen on
+ * a week that actually turned over.
  */
 export function settleBaseEconomy(repos: Repositories, base: Base, now: Date): Base {
   const cycle = runEconomyCycle({
     resources: base.resources,
     payroll: base.economy.payroll,
     officerCount: base.commanders.length,
-    // §F2: what Authority and Negotiation take off the book before it is paid.
-    wageDiscountPercent: crewEffectsFor(repos, base).wageDiscountPercent,
     now,
   });
   if (cycle.weeksSettled === 0) return base;
 
-  // §D4, a week the crew went unpaid or unfed costs morale, and §D8a, the street keeps its own
-  // record of whether the wage book was met. Both are applied here rather than inside
-  // `runEconomyCycle` so the cycle stays a pure statement about the stockpile.
   const settled: Base = {
     ...base,
     resources: cycle.resources,
-    economy: {
-      ...base.economy,
-      payroll: cycle.payroll,
-      // §A1: the Infirmary takes the edge off. Read off the structures standing at the moment the
-      // week turned over, which is what `settleDistrict` has just brought up to date.
-      morale: adjustMeter(
-        base.economy.morale,
-        moralePenaltyFor(cycle, hardshipReduction(base.buildings)),
-      ),
-      reputationTally: recordPayrollOutcome(
-        base.economy.reputationTally,
-        payrollWeeksFor(cycle),
-        now,
-      ),
-    },
+    economy: { ...base.economy, payroll: cycle.payroll },
   };
   repos.bases.updateResources(settled.id, settled.resources);
   repos.bases.updateEconomy(settled.id, settled.economy);

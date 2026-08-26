@@ -1,4 +1,5 @@
 import {
+  type PayrollLedger,
   ALIGNMENT_BAND_LABELS,
   AMBITION_SPECS,
   ATTRIBUTE_LABELS,
@@ -8,12 +9,10 @@ import {
   TRAIT_CATALOG,
   isFlaw,
   notorietyTier,
-  reservationWage,
   type AlignmentBand,
   type AttributeName,
   type BarOfficer,
   type BarRecruit,
-  type DispositionSpec,
   type JoinBlocker,
   type Negotiation,
   type OfficerRole,
@@ -23,10 +22,9 @@ import { useState } from 'react';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { Button } from '../../components/ui/Button';
 import { DescribedTag } from '../../components/ui/DescribedTag';
-import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
-import { useBar, useHireRecruit } from '../../lib/queries';
+import { useBar, useHireRecruit, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
 import { NegotiationDialog } from './NegotiationDialog';
 
@@ -40,7 +38,7 @@ const BAND_STYLE: Record<AlignmentBand, string> = {
 
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
   notoriety: 'Your name is not big enough',
-  reputation: 'Wants no part of you',
+  level: 'Wants a crew that has been doing this longer',
 };
 
 /**
@@ -98,21 +96,14 @@ function Disposition({ ambition, moralCompass }: Pick<BarRecruit, 'ambition' | '
       <DescribedTag
         label={AMBITION_SPECS[ambition].label}
         description={AMBITION_SPECS[ambition].description}
-        detail={dispositionDetail(AMBITION_SPECS[ambition])}
         className="border-hextech-100/40 text-hextech-100"
       />
       <DescribedTag
         label={MORAL_COMPASS_SPECS[moralCompass].label}
         description={MORAL_COMPASS_SPECS[moralCompass].description}
-        detail={dispositionDetail(MORAL_COMPASS_SPECS[moralCompass])}
       />
     </div>
   );
-}
-
-/** Which reputation words this half of §H4 will sign with, and which it will not. */
-function dispositionDetail(spec: DispositionSpec): string {
-  return `Signs with ${spec.drawnTo.join(', ')} · walks from ${spec.repelledBy.join(', ')}`;
 }
 
 /** A trait's whole mechanical effect, written out. `+8 stealth` is the rule; the name is flavour. */
@@ -128,20 +119,29 @@ function traitDetail(trait: TraitId): string {
 interface RecruitCardProps {
   recruit: BarRecruit;
   filledRoles: readonly OfficerRole[];
-  caps: number;
+  /** §H7: caps a week still uncommitted on the payroll book. */
+  payrollLeft: number;
   /** §H8: every slot is taken, so no offer can be made however willing the character is. */
   full: boolean;
   /** §H2b: this crew has already signed somebody today. Same effect, different reason. */
   signedToday: boolean;
-  pending: boolean;
-  /** §H7: they turned an offer down and named their price. A refusal, not a deal. */
-  counter: number | null;
-  /** §H7: a wage struck in the negotiation window that nobody has signed yet. A deal, not a refusal. */
+  /** §H7: a fee struck in the negotiation window, so the card can say so once it closes. */
   agreed: number | null;
   /** §H7: the conversation with this character, if one has been opened today. */
   negotiation: Negotiation | undefined;
-  onOffer: (recruitId: string, role: OfficerRole, offerWage: number) => void;
+  /** The server's clock, so a standoff counts down against the same one that enforces it. */
+  now: Date;
   onNegotiate: (recruitId: string) => void;
+}
+
+/** `4h 12m` until they will sit down again, or `null` once the chair is warm. */
+function coldFor(recruit: BarRecruit, now: Date): string | null {
+  if (!recruit.standoff) return null;
+  const remaining = Date.parse(recruit.standoff.until) - now.getTime();
+  if (remaining <= 0) return null;
+  const hours = Math.floor(remaining / (60 * 60 * 1000));
+  const minutes = Math.floor((remaining % (60 * 60 * 1000)) / 60_000);
+  return hours > 0 ? `${hours}h ${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
 }
 
 /**
@@ -153,32 +153,20 @@ interface RecruitCardProps {
 function RecruitCard({
   recruit,
   filledRoles,
-  caps,
+  payrollLeft,
   full,
   signedToday,
-  pending,
-  counter,
   agreed,
   negotiation,
-  onOffer,
+  now,
   onNegotiate,
 }: RecruitCardProps) {
   const open = OFFICER_ROLES.filter((role) => !filledRoles.includes(role));
-  const [role, setRole] = useState<OfficerRole>(() => open[0] ?? 'head_spy');
-  const [offer, setOffer] = useState<string>('');
-
   const asking = recruit.askingWage;
-  // An agreed wage prefills ahead of a counter-offer: it is the newer fact, and it is the number
-  // the player just spent a conversation arriving at.
-  const proposed = offer === '' ? (agreed ?? counter ?? asking ?? 0) : Number(offer);
-  const affordable = proposed <= caps;
-  const canOffer =
-    recruit.assessment.interested &&
-    !recruit.hired &&
-    !full &&
-    open.length > 0 &&
-    proposed > 0 &&
-    affordable;
+  // Whether their opening price fits what is left of the book. Shown before the conversation
+  // rather than after it, because a fee that cannot be committed is not a fee worth haggling over.
+  const fits = asking === null || asking <= payrollLeft;
+  const cold = coldFor(recruit, now);
 
   return (
     <article
@@ -228,92 +216,71 @@ function RecruitCard({
         </p>
       )}
 
-      {recruit.hired ? null : recruit.assessment.interested ? (
+      {recruit.requirement.minLevel > 1 && (
+        <p className="min-w-0 break-words font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+          And a crew that has reached{' '}
+          <span className="text-ink-200">level {recruit.requirement.minLevel}</span>
+        </p>
+      )}
+
+      {recruit.hired ? null : cold !== null ? (
+        /*
+         * A chair this crew walked out of. Six hours, and their price has already gone up ten
+         * percent for the next conversation, which is the half that persists: see
+         * `standoffAfterWalkout`.
+         */
+        <div className="mt-auto flex min-w-0 flex-col gap-1 pt-1">
+          <p className="min-w-0 break-words font-stamp text-[14px] leading-snug text-oxblood-300">
+            You walked out on them.
+          </p>
+          <p className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+            Back in {cold} · their price is up {recruit.standoff?.walkouts ?? 1}0%
+          </p>
+        </div>
+      ) : recruit.assessment.interested ? (
         <div className="mt-auto flex min-w-0 flex-col gap-2 pt-1">
           {negotiation !== undefined && !negotiation.closed && (
             <p className="min-w-0 break-words font-stamp text-[14px] leading-snug text-brass-100">
               Mid-conversation. They are asking {negotiation.standing.toLocaleString()} a week.
             </p>
           )}
-          {negotiation?.mood === 'walked' && (
-            <p className="min-w-0 break-words font-stamp text-[14px] leading-snug text-oxblood-300">
-              They walked. Nothing more to say to you today.
-            </p>
-          )}
-          {agreed !== null ? (
-            <p className="min-w-0 break-words text-[12px] leading-relaxed text-verdigris-100">
-              Shook on {agreed.toLocaleString()} caps a week. Pick a role and sign them.
-            </p>
-          ) : (
-            counter !== null && (
-              <p className="min-w-0 break-words text-[12px] leading-relaxed text-warning">
-                Turned it down. They will sign for {counter.toLocaleString()} caps a week.
-              </p>
-            )
-          )}
-          <label className="flex min-w-0 flex-col gap-1">
-            <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
-              Hire as
-            </span>
-            {/* The board's word for the native control was "boring", and it was right about more
-                than the look: a `<select>` drops an operating-system menu over the artwork, which
-                is the one surface in the interface no stylesheet can reach. */}
-            <Dropdown
-              label={`Role for ${recruit.name}`}
-              value={role}
-              onChange={setRole}
-              options={open.map((option) => ({
-                value: option,
-                label: OFFICER_ROLE_LABELS[option],
-              }))}
-              data-testid={`role-${recruit.id}`}
-            />
-          </label>
-          <div className="flex min-w-0 items-end gap-2">
-            <label className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
-                Offer (caps/wk)
-              </span>
-              <input
-                aria-label={`Weekly wage for ${recruit.name}`}
-                type="number"
-                min={0}
-                inputMode="numeric"
-                placeholder={String(counter ?? asking ?? 0)}
-                value={offer}
-                onChange={(event) => setOffer(event.target.value)}
-                className="w-full min-w-0 rounded-sm border border-surface-600 bg-surface-900 px-2 py-1.5 font-stamp text-[14px] tabular-nums text-ink-100"
-              />
-            </label>
-            {/* §H7: the door into the conversation, beside the field that skips it. Both stay:
-                a player who knows the number they want should not have to sit through a
-                negotiation to offer it, and a player who does not now has somewhere to find out. */}
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={negotiation?.closed === true || signedToday || pending}
-              onClick={() => onNegotiate(recruit.id)}
-              data-testid={`negotiate-${recruit.id}`}
+          {agreed !== null && (
+            <p
+              className="min-w-0 break-words text-[12px] leading-relaxed text-verdigris-100"
+              data-testid={`signed-${recruit.id}`}
             >
-              {negotiation?.closed === true ? 'Finished' : 'Negotiate'}
-            </Button>
-            <Button
-              size="sm"
-              disabled={!canOffer || signedToday || pending}
-              onClick={() => onOffer(recruit.id, role, Math.round(proposed))}
-            >
-              {pending ? 'Talking…' : signedToday ? 'Not today' : 'Offer'}
-            </Button>
-          </div>
-          {asking !== null && (
-            <p className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-              They will not go below{' '}
-              <span className="tabular-nums text-ink-300">{reservationWage(asking)}</span>
+              Signed at {agreed.toLocaleString()} caps a week.
             </p>
           )}
-          {!affordable && (
+          {/*
+           * One door, and it is a window (§H7).
+           *
+           * The card used to carry a number field and an Offer button beside the Negotiate one,
+           * which meant the whole conversation was optional and the two paths could disagree about
+           * what had been agreed: a player could shake on a figure in the window, close it, and
+           * have the card report "Turned it down" from a stale counter. Hiring now happens in one
+           * place, in front of the person doing it.
+           */}
+          <Button
+            size="sm"
+            disabled={negotiation?.closed === true || signedToday || full || open.length === 0}
+            onClick={() => onNegotiate(recruit.id)}
+            data-testid={`negotiate-${recruit.id}`}
+          >
+            {negotiation?.closed === true
+              ? 'Finished'
+              : signedToday
+                ? 'Not today'
+                : full
+                  ? 'No room'
+                  : open.length === 0
+                    ? 'No post open'
+                    : 'Sit down with them'}
+          </Button>
+          {asking !== null && !fits && (
             <p className="text-[12px] leading-relaxed text-oxblood-300">
-              You do not have the caps for the first payment.
+              Your payroll will not stretch to {asking.toLocaleString()} a week. Raise it at the
+              Nexus.
             </p>
           )}
         </div>
@@ -334,8 +301,11 @@ function RecruitCard({
 }
 
 /** One officer on the books, with their §H5 standing and §H6 level. */
-function OfficerRow({ officer }: { officer: BarOfficer }) {
+function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
   const { commander } = officer;
+  const release = useReleaseOfficer();
+  const [confirming, setConfirming] = useState(false);
+  const affordable = caps >= officer.dismissalFee;
   return (
     <li className="flex min-w-0 flex-col gap-2 px-4 py-3">
       <div className="flex min-w-0 items-baseline justify-between gap-3">
@@ -368,7 +338,119 @@ function OfficerRow({ officer }: { officer: BarOfficer }) {
           {commander.unspentPoints} point{commander.unspentPoints === 1 ? '' : 's'} to assign
         </p>
       )}
+      {/*
+       * §H7: letting somebody go, behind a confirmation.
+       *
+       * Two clicks because it is expensive and irreversible: their slice of the book comes back
+       * immediately and five weeks of it leaves the stockpile on the spot. The figure is on the
+       * button rather than in a dialog, so the price is read before the second click rather than
+       * after it.
+       */}
+      {confirming ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-surface-700 pt-2">
+          <span className="font-body text-[12px] leading-snug text-ink-200">
+            {officer.dismissalFee.toLocaleString()} caps to end it, paid now.
+          </span>
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={!affordable || release.isPending}
+            onClick={() => release.mutate({ officerId: commander.id })}
+            data-testid={`confirm-release-${commander.id}`}
+          >
+            {release.isPending ? 'Ending it…' : 'Let them go'}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+            Keep them
+          </Button>
+          {!affordable && (
+            <span className="font-body text-[12px] text-oxblood-300">You cannot cover it.</span>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          data-testid={`release-${commander.id}`}
+          className="self-start font-display text-[10px] uppercase tracking-[0.16em] text-ink-300 transition-colors hover:text-oxblood-300"
+        >
+          Let them go
+        </button>
+      )}
+      {release.error !== null && (
+        <p role="alert" className="font-body text-[12px] text-oxblood-300">
+          {release.error.message}
+        </p>
+      )}
     </li>
+  );
+}
+
+/**
+ * The book: the ceiling, what is committed against it, and what one more step costs.
+ *
+ * A step is a fixed size at a price the server quotes and that climbs with every step already
+ * bought, so the price is shown rather than derived here: `payrollStepCost` owns it, and a second
+ * copy of that curve on the client is a copy that can disagree.
+ */
+function PayrollPanel({ ledger, caps }: { ledger: PayrollLedger | null; caps: number }) {
+  const raise = useIncreasePayroll();
+  if (!ledger) return <EmptyRow text="Counting it up…" />;
+
+  const pct = ledger.capacity > 0 ? Math.min(100, (ledger.committed / ledger.capacity) * 100) : 0;
+  const affordable = caps >= ledger.nextStepCost;
+
+  return (
+    <div className="flex flex-col gap-3 p-4" data-testid="payroll-book">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
+          Committed
+        </span>
+        <span className="font-display text-lg font-bold tabular-nums text-brass-300">
+          {ledger.committed.toLocaleString()}
+          <span className="text-ink-300"> / {ledger.capacity.toLocaleString()}</span>
+          <span className="ml-1 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+            caps / wk
+          </span>
+        </span>
+      </div>
+      <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950">
+        <span
+          className={cn('block h-full rounded-sm', pct >= 100 ? 'bg-oxblood-300' : 'bg-brass-300')}
+          style={{ width: `${pct}%` }}
+        />
+      </span>
+      <p className="font-body text-[13px] leading-relaxed text-ink-200">
+        <span className="font-semibold tabular-nums text-ink-100">
+          {ledger.available.toLocaleString()}
+        </span>{' '}
+        left to promise. An officer takes a slice of this for as long as they are on the books, and
+        nothing is deducted from the stockpile week to week.
+      </p>
+      <div className="flex flex-wrap items-center gap-2.5 border-t border-surface-700 pt-3">
+        <Button
+          size="sm"
+          disabled={!affordable || raise.isPending}
+          onClick={() => raise.mutate({})}
+          data-testid="increase-payroll"
+        >
+          {raise.isPending ? 'Raising…' : `Increase payroll · +${ledger.stepSize}`}
+        </Button>
+        <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+          {ledger.nextStepCost.toLocaleString()} caps, once
+        </span>
+      </div>
+      {!affordable && (
+        <p className="font-body text-[12px] leading-snug text-oxblood-300">
+          {(ledger.nextStepCost - caps).toLocaleString()} caps short of the next step.
+        </p>
+      )}
+      {raise.error !== null && (
+        <p role="alert" className="font-body text-[12px] text-oxblood-300">
+          {raise.error.message}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -389,7 +471,6 @@ function EmptyRow({ text }: { text: string }) {
 export function BarPage() {
   const barQuery = useBar();
   const hire = useHireRecruit();
-  const [counters, setCounters] = useState<Record<string, number>>({});
   /**
    * Wages struck in the negotiation window and not yet signed.
    *
@@ -424,13 +505,6 @@ export function BarPage() {
       { recruitId, role, offerWage },
       {
         onSuccess: (result) => {
-          setCounters((current) => {
-            if (result.accepted) {
-              const { [recruitId]: _signed, ...rest } = current;
-              return rest;
-            }
-            return { ...current, [recruitId]: result.wage };
-          });
           if (result.accepted) {
             // Signed: the deal is spent, and the window (if this came from one) has done its job.
             setAgreed((current) => {
@@ -453,6 +527,9 @@ export function BarPage() {
     talks[recruitId] ?? data?.negotiations[recruitId];
 
   const talking = recruits.find((recruit) => recruit.id === talkingTo);
+  // The server's clock, so a standoff counts down against the one that enforces it rather than
+  // against a browser that may be minutes off.
+  const serverNow = data ? new Date(data.serverNow) : new Date();
 
   return (
     <PageShell
@@ -465,6 +542,19 @@ export function BarPage() {
         all of them. You get one signature a day. So the question is never whether you can afford
         this person. It is whether they are the one worth spending today on.
       </InfoNote>
+
+      {/*
+       * §H7: the payroll book, above the room it governs.
+       *
+       * Its own panel rather than a line on the header, because it is the constraint every other
+       * decision on this screen answers to: what a crew can offer is not what it has in the bank,
+       * it is what is left of this. Drawn as a bar with both figures on it, and with the one
+       * control that moves it, so the answer to "I cannot afford anybody" is on the same screen
+       * as the problem.
+       */}
+      <Panel title="The payroll book">
+        <PayrollPanel ledger={data?.payroll ?? null} caps={data?.caps ?? 0} />
+      </Panel>
 
       <Panel
         title="Your Crew"
@@ -484,7 +574,7 @@ export function BarPage() {
         ) : (
           <ul className="flex flex-col divide-y divide-surface-700">
             {officers.map((officer) => (
-              <OfficerRow key={officer.commander.id} officer={officer} />
+              <OfficerRow key={officer.commander.id} officer={officer} caps={data?.caps ?? 0} />
             ))}
           </ul>
         )}
@@ -502,8 +592,8 @@ export function BarPage() {
               </span>
             ) : (
               <>
-                Street reads{' '}
-                <span className="text-ink-200">{data?.reputation ?? 'nothing yet'}</span>
+                Payroll left{' '}
+                <span className="text-ink-200">{data?.payroll.available ?? 0} caps</span>
               </>
             )}
           </span>
@@ -526,12 +616,10 @@ export function BarPage() {
                 filledRoles={filledRoles}
                 agreed={agreed[recruit.id] ?? null}
                 signedToday={signedToday}
-                caps={data?.caps ?? 0}
+                payrollLeft={data?.payroll.available ?? 0}
                 full={full}
-                pending={hire.isPending && hire.variables?.recruitId === recruit.id}
-                counter={counters[recruit.id] ?? null}
                 negotiation={negotiationFor(recruit.id)}
-                onOffer={onOffer}
+                now={serverNow}
                 onNegotiate={setTalkingTo}
               />
             ))}
@@ -543,7 +631,7 @@ export function BarPage() {
         <NegotiationDialog
           recruit={talking}
           standing={negotiationFor(talking.id) ?? null}
-          caps={data?.caps ?? 0}
+          payrollLeft={data?.payroll.available ?? 0}
           onClose={() => setTalkingTo(null)}
           onTurn={(negotiation) =>
             setTalks((current) => ({ ...current, [talking.id]: negotiation }))

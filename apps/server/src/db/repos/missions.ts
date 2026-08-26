@@ -6,6 +6,10 @@ interface MissionRow {
   id: string;
   base_id: string;
   template_id: string;
+  area_id: string;
+  pay_percent: number;
+  xp: number;
+  force_json: string;
   started_at: string;
   recalled_at: string | null;
   travel_minutes: number;
@@ -55,6 +59,10 @@ function rowToStored(row: MissionRow): StoredMission {
       id: row.id,
       baseId: row.base_id,
       templateId: row.template_id,
+      areaId: row.area_id,
+      payPercent: row.pay_percent,
+      xp: row.xp,
+      force: readJson(row.force_json),
       startedAt: row.started_at,
       recalledAt: row.recalled_at,
       travelMinutes: row.travel_minutes,
@@ -73,9 +81,10 @@ function rowToStored(row: MissionRow): StoredMission {
 export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   const insertStmt = db.prepare(
     `INSERT INTO missions
-       (id, base_id, template_id, started_at, travel_minutes, duration_minutes,
-        success_chance, seed, status, officer_id, outcome, rewards_json, resolved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, base_id, template_id, area_id, pay_percent, xp, force_json, started_at,
+        travel_minutes, duration_minutes, success_chance, seed, status, officer_id, outcome,
+        rewards_json, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
   const byIdStmt = db.prepare('SELECT * FROM missions WHERE id = ?');
@@ -100,6 +109,10 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         mission.id,
         mission.baseId,
         mission.templateId,
+        mission.areaId,
+        mission.payPercent,
+        mission.xp,
+        JSON.stringify(mission.force),
         mission.startedAt,
         mission.travelMinutes,
         mission.durationMinutes,

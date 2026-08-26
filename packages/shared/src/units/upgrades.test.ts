@@ -138,7 +138,7 @@ describe('what a refit does to a sheet', () => {
     if (!armour || !weapons) throw new Error('expected two rungs');
     const both = upgradedStats(razors.stats, [armour.id, weapons.id]);
     expect(both.vitality).toBe(razors.stats.vitality + (armour.effect.vitality ?? 0));
-    expect(both.lethality).toBe(razors.stats.lethality + (weapons.effect.lethality ?? 0));
+    expect(both.penetration).toBe(razors.stats.penetration + (weapons.effect.penetration ?? 0));
   });
 
   /** Armour is meant to cost speed. A fold that only ever added would quietly drop the tradeoff. */

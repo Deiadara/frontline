@@ -17,7 +17,6 @@ import {
   lootCapacityOf,
   plunder,
   raidTargetOf,
-  recordRaidOutcome,
   recoverCasualties,
   spendResources,
   springTrap,
@@ -232,11 +231,6 @@ function bankOutcome(
   return {
     ...economy,
     infamy: gainInfamy(economy.infamy, earned * (1 + Math.max(0, infamyGainPercent) / 100)),
-    reputationTally: recordRaidOutcome(
-      economy.reputationTally,
-      { winner: won ? 'attacker' : 'defender', target },
-      now,
-    ),
   };
 }
 
@@ -404,7 +398,7 @@ function resolveOne(
     defending: assembled.defending,
     battlefield: ground,
     attackerTerritory: attackerEffects,
-    attackerUpgrades: attacker.fittedUpgrades,
+    attackerUpgrades: attacker.unitLoadouts,
     attackerCohesionPercent: attackerEffects.cohesionPercent,
     attackerPerimeter: assembled.attackerRing,
     defenderPerimeter: assembled.defenderRing,
@@ -413,7 +407,7 @@ function resolveOne(
           // The Gate, and everybody garrisoned inside the structures behind it (§A1, §A4).
           defenderTerritory: withGate(defenderEffects, defenderBase.buildings),
           defenderCohesionPercent: defenderEffects.cohesionPercent,
-          defenderUpgrades: defenderBase.fittedUpgrades,
+          defenderUpgrades: defenderBase.unitLoadouts,
         }
       : {}),
   });
@@ -692,6 +686,23 @@ function breakIn(repos: Repositories, input: SettleInput): PartialResources {
   const { battle, resident, outcome, now } = input;
   if (battle.target.kind === 'gate') {
     repos.sieges.breakGate(battle.target.districtId, breachExpiry(now));
+    /*
+     * §A4: the digging goes with the door.
+     *
+     * A location that changes hands loses its fortification, because nobody inherits the last
+     * holder's work. A Gate is never captured, only broken, so without this it kept every level
+     * through a breach: the one place in the game where paying to fortify carried no risk at all.
+     * The structure itself survives, the way a location's own level does, because a breach is a
+     * door off its hinges rather than a demolition.
+     */
+    if (resident) {
+      repos.bases.updateBuildings(
+        resident.id,
+        resident.buildings.map((building) =>
+          building.kind === 'gate' ? { ...building, fortification: 0 } : building,
+        ),
+      );
+    }
     return {};
   }
   if (battle.target.kind !== 'building' || !resident) return {};

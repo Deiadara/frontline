@@ -45,7 +45,7 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     description:
       'Boards over a stairwell with something underneath them. Cheap, and everybody forgets which floor.',
     requiresTech: 'tech_pressure_plates',
-    cost: { scrap: 700, caps: 400 },
+    cost: { scrap: 700, planks: 520, caps: 400 },
     killShare: 0.06,
     maxKills: 6,
   },
@@ -63,7 +63,7 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     name: 'Prepared Collapse',
     description: 'The whole frontage, cut most of the way through, and one charge holding it up.',
     requiresTech: 'tech_demolition_doctrine',
-    cost: { scrap: 4200, highQualityMetal: 260, caps: 2600 },
+    cost: { scrap: 4200, planks: 2400, highQualityMetal: 260, caps: 2600 },
     killShare: 0.16,
     maxKills: 28,
   },

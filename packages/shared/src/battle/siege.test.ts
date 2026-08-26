@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFENSE_PER_BUILDING_GARRISON,
-  MAX_BUILDING_GARRISONS,
   MAX_DAMAGE_PENALTY,
   MIN_STRIKE_DAMAGE,
   MAX_STRIKE_DAMAGE,
@@ -9,12 +7,12 @@ import {
   buildingEffectiveness,
   buildingProduction,
   damageBuilding,
-  garrisonDefensePercent,
+  gateFortifyPercent,
   repairedByBuilding,
   strikeDamage,
   type Building,
 } from '../building/index.js';
-import { noTerritoryEffects } from '../city/index.js';
+import { FORTIFY_MAX_LEVEL, fortifyBonusPercent, noTerritoryEffects } from '../city/index.js';
 import { blurredCount } from '../crew/index.js';
 import { analyseBattle, reportReaches } from './analysis.js';
 import { bareBattlefield } from './battlefield.js';
@@ -452,12 +450,25 @@ describe('everything that feeds the engine (§A5)', () => {
    */
   it('fights better with the workshop refit fitted', () => {
     const bare = run({});
-    const kitted = run({ upgrades: ['weapons_1', 'armour_1'] });
+    const kitted = run({ upgrades: { razors: ['weapons_1', 'armour_1'] } });
 
     const offense = (side: SideState) => side.stacks[0]!.effective.offense;
     expect(offense(kitted.attacker)).toBeGreaterThan(offense(bare.attacker));
     expect(kitted.attacker.stacks[0]!.effective.vitality).toBeGreaterThan(
       bare.attacker.stacks[0]!.effective.vitality,
+    );
+  });
+
+  /**
+   * The point of slots. A refit is bolted to the unit it was slotted onto, so kitting the Sparks
+   * does nothing for the Razors standing next to them: before this, one flat list was folded onto
+   * every sheet on the side and the choice of what to fit where did not exist.
+   */
+  it('pays only the unit the upgrade is slotted onto', () => {
+    const elsewhere = run({ upgrades: { sparks: ['weapons_1', 'armour_1'] } });
+    const bare = run({});
+    expect(elsewhere.attacker.stacks[0]!.effective.offense).toBe(
+      bare.attacker.stacks[0]!.effective.offense,
     );
   });
 
@@ -508,7 +519,7 @@ describe('what a breach does to a district (§A4)', () => {
     level: 10,
     modifications: [],
     damage,
-    garrisons: 0,
+    fortification: 0,
   });
 
   it('costs a wrecked structure up to half its job, and never more', () => {
@@ -543,13 +554,26 @@ describe('what a breach does to a district (§A4)', () => {
     expect(damageBuilding(structure(90), 40, NOON.toISOString()).damage).toBe(100);
   });
 
-  it('is worth defence to have people standing in a structure, up to three times', () => {
-    const watched = (garrisons: number): Building => ({ ...structure(0), garrisons });
-    expect(garrisonDefensePercent([watched(0)])).toBe(0);
-    expect(garrisonDefensePercent([watched(3)])).toBe(3 * DEFENSE_PER_BUILDING_GARRISON);
-    // The schema caps it at three; the reader caps it again so a hand-written row cannot buy more.
-    expect(garrisonDefensePercent([watched(9)])).toBe(
-      MAX_BUILDING_GARRISONS * DEFENSE_PER_BUILDING_GARRISON,
+  /**
+   * The Gate, and only the Gate.
+   *
+   * Watches used to sit on every structure and cost nothing; what replaced them is the same three
+   * levels the city's locations are dug in with, paid for in materials, on the one structure that
+   * *is* the way in. A dug-in Greenhouse is worth nothing, which is the whole point of moving it.
+   */
+  it('reads the Gate’s fortification and no other structure’s', () => {
+    const dug = (kind: Building['kind'], fortification: number): Building => ({
+      ...structure(0),
+      kind,
+      fortification,
+    });
+    expect(gateFortifyPercent([])).toBe(0);
+    expect(gateFortifyPercent([dug('gate', 0)])).toBe(0);
+    expect(gateFortifyPercent([dug('gate', 3)])).toBe(fortifyBonusPercent('medium', 3));
+    expect(gateFortifyPercent([dug('greenhouse', 3)])).toBe(0);
+    // The schema caps it; the reader caps it again so a hand-written row cannot buy more.
+    expect(gateFortifyPercent([dug('gate', 99)])).toBe(
+      fortifyBonusPercent('medium', FORTIFY_MAX_LEVEL),
     );
   });
 });

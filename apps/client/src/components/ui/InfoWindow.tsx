@@ -28,7 +28,7 @@ export interface InfoWindowProps {
   /** Pinned right of the title: a count, a price, a rating. */
   figure?: ReactNode;
   /** Accent for the frame and the header rule. Defaults to brass. */
-  tone?: 'brass' | 'iris' | 'verdigris' | 'oxblood';
+  tone?: 'brass' | 'iris' | 'verdigris' | 'oxblood' | 'hextech';
   /**
    * What the icon stands on.
    *
@@ -44,6 +44,7 @@ const TONE: Record<NonNullable<InfoWindowProps['tone']>, { edge: string; rule: s
   iris: { edge: 'border-iris-300/60', rule: 'from-iris-300/70' },
   verdigris: { edge: 'border-verdigris-300/60', rule: 'from-verdigris-300/70' },
   oxblood: { edge: 'border-oxblood-300/60', rule: 'from-oxblood-300/70' },
+  hextech: { edge: 'border-hextech-100/60', rule: 'from-hextech-100/70' },
 };
 
 /** The four lit corners. Drawn, not implied. This is the ornament that says "window". */

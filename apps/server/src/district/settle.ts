@@ -2,15 +2,12 @@ import {
   accrueProduction,
   applyQueueEntry,
   disruptionPercentAt,
-  driftMorale,
-  moraleTarget,
   queueCompletesAt,
   splitDueQueue,
   repairedDistrict,
   type Base,
   type Building,
   type BuildQueueEntry,
-  type Meter,
   type PlayerXpAward,
   type Resources,
   type CrewYield,
@@ -24,7 +21,7 @@ import { settleTraining } from '../units/training.js';
 
 /**
  * Everything the district owes since it was last read (GDD §A1): finished builds, the resources
- * its structures made in the meantime, and where morale drifted to while that happened.
+ * its structures made in the meantime.
  *
  * Lazy, like payroll (§H7), missions (§E2) and research (§B9). There is no tick. One stored
  * timestamp, `economy.productionSettledAt`, is the whole of the state this needs.
@@ -60,7 +57,7 @@ export interface DistrictSettlement {
 /**
  * A settle is a walk along the timeline, not a single multiplication.
  *
- * Production and morale both depend on what is *standing*, and what is standing changes partway
+ * Production depends on what is *standing*, and what is standing changes partway
  * through the window whenever a queued build lands in it. Accruing the whole window against the
  * final set of structures would back-date every one of them: three days away and a Greenhouse
  * finishing an hour ago would pay three days of harvests. So the window is cut at each completion
@@ -71,11 +68,10 @@ function walk(
   due: readonly BuildQueueEntry[],
   now: Date,
   crew: CrewYield,
-): { buildings: Building[]; resources: Resources; morale: Meter; carry: ProductionCarry } {
+): { buildings: Building[]; resources: Resources; carry: ProductionCarry } {
   let buildings: Building[] = base.buildings.map((building) => ({ ...building }));
   let resources = base.resources;
   let carry = base.economy.productionCarry;
-  let morale = base.economy.morale;
 
   const since = base.economy.productionSettledAt;
   let cursor = since === null ? now.getTime() : Math.min(Date.parse(since), now.getTime());
@@ -102,7 +98,6 @@ function walk(
       const accrued = accrueProduction(resources, halfway, hours * working, crew, carry);
       resources = accrued.resources;
       carry = accrued.carry;
-      morale = driftMorale(morale, moraleTarget(halfway), hours);
       // ...and the state carried out of the segment is the district as it stands at `mark`.
       buildings = repairedDistrict(buildings, new Date(mark));
       cursor = mark;
@@ -115,7 +110,7 @@ function walk(
   }
   advanceTo(now.getTime());
 
-  return { buildings, resources, morale, carry };
+  return { buildings, resources, carry };
 }
 
 /** Did the walk actually move a structure? Damage and its clock are the only fields it can move. */
@@ -149,7 +144,7 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
   // §A4, and what the ground makes go further (the Abandoned Nuclear Plant). Read from the
   // territory fold rather than the crew one: this is a location's doing, not a person's.
   const { resourceYieldPercent } = standingEffectsFor(repos, base);
-  const { buildings, resources, morale, carry } = walk(base, due, now, {
+  const { buildings, resources, carry } = walk(base, due, now, {
     productionPercent,
     storageCapacityPercent,
     resourceYieldPercent,
@@ -161,7 +156,6 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
     buildQueue: pending,
     economy: {
       ...base.economy,
-      morale,
       productionSettledAt: now.toISOString(),
       productionCarry: carry,
     },

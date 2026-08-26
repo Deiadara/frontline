@@ -1,12 +1,12 @@
 import {
   DeclareBattleRequestSchema,
   DeployRequestSchema,
-  GarrisonStructureRequestSchema,
+  FortifyStructureRequestSchema,
   LayTrapRequestSchema,
-  MAX_BUILDING_GARRISONS,
   BuyBattleBoostRequestSchema,
   RecallColumnRequestSchema,
   canAfford,
+  fortifyCost,
   boostAvailable,
   findBattleBoost,
   findTrap,
@@ -15,6 +15,7 @@ import {
   isHeldBy,
   notorietyUpgradeCost,
   spendInfamy,
+  nextFortifyLevel,
   spendResources,
   type BattleMutationResponse,
   type ActionsResponse,
@@ -63,6 +64,7 @@ const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = {
   not_a_participant: 'You are not in that fight',
   deployment_closed: 'They are on the ground. Nobody is moving now',
   not_enough_units: 'You do not have those units to send',
+  not_a_fighting_force: 'Scavengers carry. They do not fight. Send them on a mission instead',
   needs_infamy: 'They will not take a contract from a name that small',
 };
 
@@ -181,35 +183,48 @@ export function registerBattleRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * §A4: station a watch inside one of your own structures, or stand one down.
+   * §A4: dig the Gate in one more level.
    *
-   * Costs nothing but the people, and the people are the cost: three watches on the Nexus is three
-   * watches that are not on the Greenhouse and not in anybody's field army.
+   * This replaced watches, which were a count on every structure that bought defence and cost
+   * nothing at all: three clicks per building and the district was 15% harder to enter, for free,
+   * with an empty roster. What is here instead is the same three levels the city's locations are
+   * fortified with, on the one structure that is actually the way in, paid for in materials.
+   *
+   * No dig clock, unlike a location's. A location is contested ground somebody can watch you work
+   * on; your own Gate is inside your walls, and the wait there would be a wait with no decision in
+   * it. The price is the whole of the cost.
    */
   app.post(
-    '/battles/garrison',
+    '/battles/fortify',
     { preHandler: app.authenticate },
     (request): BattleMutationResponse => {
-      const body = parseBody(GarrisonStructureRequestSchema, request.body);
+      const body = parseBody(FortifyStructureRequestSchema, request.body);
       const now = new Date();
       const base = settled(request.currentUser.id, now);
 
       const building = base.buildings.find((candidate) => candidate.id === body.buildingId);
       if (!building) throw new AppError('NOT_FOUND', 'Nothing of yours by that name');
+      if (building.kind !== 'gate') {
+        throw new AppError('PLACE_UNAVAILABLE', 'Only the Gate is worth digging in');
+      }
 
-      const garrisons = Math.min(
-        MAX_BUILDING_GARRISONS,
-        Math.max(0, building.garrisons + body.delta),
-      );
-      if (garrisons === building.garrisons) {
-        throw new AppError('PLACE_UNAVAILABLE', 'It is as watched as it can be');
+      const level = nextFortifyLevel(building.fortification);
+      if (level === null) throw new AppError('PLACE_UNAVAILABLE', 'It is as dug in as it goes');
+
+      const cost = fortifyCost(level);
+      if (!canAfford(base.resources, cost)) {
+        throw new AppError('INSUFFICIENT_RESOURCES', 'You cannot cover the materials');
       }
 
       const buildings = base.buildings.map((candidate) =>
-        candidate.id === building.id ? { ...candidate, garrisons } : candidate,
+        candidate.id === building.id ? { ...candidate, fortification: level } : candidate,
       );
-      app.repos.bases.updateBuildings(base.id, buildings);
-      return respond({ ...base, buildings }, now);
+      const resources = spendResources(base.resources, cost);
+      app.db.transaction(() => {
+        app.repos.bases.updateDistrict(base.id, buildings, base.buildQueue);
+        app.repos.bases.updateResources(base.id, resources);
+      })();
+      return respond({ ...base, buildings, resources }, now);
     },
   );
 

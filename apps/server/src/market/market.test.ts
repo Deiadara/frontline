@@ -366,7 +366,7 @@ describe('the workshop, over HTTP', () => {
       base.id,
       [
         ...base.buildings,
-        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0, garrisons: 0 },
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0, fortification: 0 },
       ],
       [],
     );
@@ -411,13 +411,22 @@ describe('the workshop, over HTTP', () => {
     expect(after.inventory.scrap_servo).toBe((before.inventory.scrap_servo ?? 0) - 2);
   });
 
-  /** The whole point of a refit: it reaches the people who are already on the books. */
-  it('improves the roster a crew already has', async () => {
+  /**
+   * The whole point of a refit: it reaches the people who are already on the books.
+   *
+   * And the whole point of a bracket: it reaches the ones you bolted it to. Buying the upgrade
+   * puts it in the crew's stock and changes nobody's sheet; slotting it onto the Razors changes
+   * the Razors, and only them.
+   */
+  it('improves the roster a crew already has, once the upgrade is in a bracket', async () => {
     const { app, token } = await ready();
+    const penetrationOf = (res: { json: <T>() => T }, unitId: string) =>
+      res
+        .json<{ units: { id: string; stats: { penetration: number } }[] }>()
+        .units.find((unit) => unit.id === unitId)?.stats.penetration ?? 0;
+
     const before = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    const lethalityBefore = before
-      .json<{ units: { id: string; stats: { lethality: number } }[] }>()
-      .units.find((unit) => unit.id === 'razors')?.stats.lethality;
+    const penetrationBefore = penetrationOf(before, 'razors');
 
     await app.inject({
       method: 'POST',
@@ -426,11 +435,33 @@ describe('the workshop, over HTTP', () => {
       payload: { upgradeId: 'weapons_1' },
     });
 
+    const bought = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
+    expect(penetrationOf(bought, 'razors')).toBe(penetrationBefore);
+
+    const slotted = await app.inject({
+      method: 'POST',
+      url: '/api/units/loadout',
+      headers: auth(token),
+      payload: { unitId: 'razors', slot: 0, upgradeId: 'weapons_1' },
+    });
+    expect(slotted.statusCode).toBe(200);
+    expect(penetrationOf(slotted, 'razors')).toBeGreaterThan(penetrationBefore);
+    expect(penetrationOf(slotted, 'sparks')).toBe(penetrationOf(before, 'sparks'));
+
     const after = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    const lethalityAfter = after
-      .json<{ units: { id: string; stats: { lethality: number } }[] }>()
-      .units.find((unit) => unit.id === 'razors')?.stats.lethality;
-    expect(lethalityAfter).toBeGreaterThan(lethalityBefore ?? 0);
+    expect(penetrationOf(after, 'razors')).toBeGreaterThan(penetrationBefore);
+  });
+
+  it('refuses a bracket the workshop has not built for', async () => {
+    const { app, token } = await ready();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/units/loadout',
+      headers: auth(token),
+      payload: { unitId: 'razors', slot: 0, upgradeId: 'armour_3' },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: { message: string } }>().error.message).toMatch(/not built/i);
   });
 
   it('refuses the second rung without its blueprint, and takes it with one', async () => {
@@ -475,7 +506,7 @@ describe('the workshop, over HTTP', () => {
       base.id,
       [
         ...base.buildings,
-        { id: 'gar', kind: 'garage', level: 6, modifications: [], damage: 0, garrisons: 0 },
+        { id: 'gar', kind: 'garage', level: 6, modifications: [], damage: 0, fortification: 0 },
       ],
       [],
     );

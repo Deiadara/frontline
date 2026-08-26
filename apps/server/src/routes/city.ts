@@ -40,6 +40,10 @@ const REFUSAL_ERRORS: Record<CityRefusal, { code: ErrorCode; message: string }> 
     message: 'They will not stand on your ground for a name like yours',
   },
   not_enough_units: { code: 'NO_FORCE', message: 'You do not have those units to send' },
+  not_a_fighting_force: {
+    code: 'NO_FORCE',
+    message: 'Scavengers carry. They do not fight. Send them on a mission instead',
+  },
   already_held: { code: 'PLACE_UNAVAILABLE', message: 'You already hold it' },
   not_held: { code: 'PLACE_UNAVAILABLE', message: 'You do not hold that' },
   not_contested: { code: 'INVALID_TARGET', message: 'There is nothing there to take' },

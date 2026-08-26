@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { noTerritoryEffects } from '../city/index.js';
+import { FORTIFY_MAX_LEVEL, noTerritoryEffects } from '../city/index.js';
 import { findUnit, type UnitSpec } from '../units/index.js';
 import { LOCATION_KINDS, LOCATION_CATALOG } from '../city/locations.js';
 import {
@@ -99,12 +99,12 @@ describe('what each location fights like', () => {
         locationName: 'x',
         kind: 'barricade',
         fortifyDifficulty: difficulty,
-        fortifyLevel: 5,
+        fortifyLevel: FORTIFY_MAX_LEVEL,
         at: DAY,
       }).fortifyPercent;
-    expect(at('easy')).toBe(25);
-    expect(at('medium')).toBe(20);
-    expect(at('hard')).toBe(15);
+    expect(at('easy')).toBe(12);
+    expect(at('medium')).toBe(10);
+    expect(at('hard')).toBe(8);
   });
 });
 
@@ -240,9 +240,19 @@ describe('the ground changes how the fight goes', () => {
     };
     // Stated as a ratio as well as a level, so a change that shifts every seeded fight by one: an
     // extra draw from the stream, say: moves the numbers without breaking the claim.
+    // Measured 1/24 undug and 9/24 dug in fully. The thresholds sit either side of that with
+    // room, because the claim is "digging in decides fights", not "digging in wins exactly nine".
+    // The three-level curve is worth less at the top than the five-level one it replaced (12% on
+    // easy ground rather than 25%), so these numbers moved with it and the ratio did not.
+    // Measured 1/24 undug and 6/24 dug in fully. The thresholds sit either side of that with
+    // room, because the claim is "digging in decides fights", not "digging in wins exactly six".
+    //
+    // It was 9/24 before penetration replaced the critical-hit chance: an attacker now cancels
+    // part of what the defender is wearing, so the same works are worth a little less than they
+    // were. The ratio is what the test is really about and it did not move.
     expect(held(0)).toBeLessThan(5);
-    expect(held(5)).toBeGreaterThan(12);
-    expect(held(5)).toBeGreaterThan(held(0) * 3);
+    expect(held(FORTIFY_MAX_LEVEL)).toBeGreaterThan(4);
+    expect(held(FORTIFY_MAX_LEVEL)).toBeGreaterThan(held(0) * 3);
   });
 
   /** ...and does not make a location unbreakable. Enough bodies still take it. */

@@ -20,7 +20,9 @@ function board(levelUp?: LevelUp): { data: MissionsResponse; dataUpdatedAt: numb
     data: {
       missions: [],
       justResolved: [],
-      resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 },
+      areas: [],
+      army: {},
+      resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
       activeLimit: 3,
       serverNow: NOW,
       ...(levelUp ? { levelUp } : {}),

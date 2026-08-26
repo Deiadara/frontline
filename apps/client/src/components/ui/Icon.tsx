@@ -52,6 +52,8 @@ export const ICON_NAMES = [
   'actions',
   'eye',
   'spark',
+  'loot',
+  'level',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -316,6 +318,19 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z" {...S} />
       <circle cx="12" cy="12" r="2.8" {...S} />
+    </>
+  ),
+  level: (
+    <>
+      <path d="M4 13.5 12 6l8 7.5" {...S} />
+      <path d="M4 18.5 12 11l8 7.5" {...S} />
+    </>
+  ),
+  loot: (
+    <>
+      <path d="M5 9.5h14l-1.1 9.2a1.6 1.6 0 0 1-1.6 1.4H7.7a1.6 1.6 0 0 1-1.6-1.4z" {...S} />
+      <path d="M8.6 9.5V7.2a3.4 3.4 0 0 1 6.8 0v2.3" {...S} />
+      <path d="M5 9.5h14" {...S} />
     </>
   ),
   spark: (

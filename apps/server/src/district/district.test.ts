@@ -13,7 +13,6 @@ import {
   trainingCost,
   districtProduction,
   findModification,
-  moraleTarget,
   queueCompletesAt,
   researchCost,
   startingAssignees,
@@ -65,7 +64,7 @@ const build = (kind: Building['kind'], level: number, modifications: string[] = 
   level,
   modifications,
   damage: 0,
-  garrisons: 0,
+  fortification: 0,
 });
 
 interface SeedOptions {
@@ -105,6 +104,7 @@ function seedBase(repos: Repositories, options: SeedOptions = {}): Base {
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
+    unitLoadouts: {},
     fleet: {},
     commanders: options.officers ?? [],
     createdAt: NOW.toISOString(),
@@ -200,7 +200,7 @@ describe('ordering a level (§A1, §D3)', () => {
   it('refuses what the stockpile cannot cover, and takes nothing', () => {
     const repos = openStack();
     const broke = seedBase(repos, {
-      resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 },
+      resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
     });
     expect(queueBuild(repos, { base: broke, structure: 'quarters', id: 'q1', now: NOW })).toEqual({
       kind: 'refused',
@@ -212,7 +212,14 @@ describe('ordering a level (§A1, §D3)', () => {
   it('lets a player queue the Nexus and the structure it unlocks in one sitting', () => {
     const repos = openStack();
     const rich = seedBase(repos, {
-      resources: { caps: 99999, food: 99999, oil: 99999, scrap: 99999, highQualityMetal: 99999 },
+      resources: {
+        caps: 99999,
+        food: 99999,
+        oil: 99999,
+        scrap: 99999,
+        highQualityMetal: 99999,
+        planks: 99999,
+      },
       // Everything the Gate wants except the Nexus rung, already up.
       buildings: [build('nexus', 1), build('generator', 1), build('scrapyard', 3)],
     });
@@ -338,23 +345,6 @@ describe('settling the district (§A1)', () => {
     expect(grown).toBeLessThan((alwaysThere ?? 0) * 2);
   });
 
-  it('drifts morale towards what the district can sustain', () => {
-    const repos = openStack();
-    const social = [build('nexus', 1), build('generator', 2), build('quarters', 10)];
-    const start = new Date(NOW.getTime() - 48 * HOUR_MS);
-    const base = seedBase(repos, { buildings: social, settledAt: start.toISOString() });
-
-    const settled = settleDistrict(repos, base, NOW);
-    const target = moraleTarget(social);
-    const gap = target - base.economy.morale;
-    expect(gap).toBeGreaterThan(0);
-
-    // Two days is four half-lives, so most of the gap is closed, and it never overshoots, which
-    // is the property that makes the drift safe to apply over any window at all.
-    expect(settled.base.economy.morale).toBeGreaterThan(base.economy.morale + gap * 0.9);
-    expect(settled.base.economy.morale).toBeLessThan(target);
-  });
-
   it('burns the Generator’s fuel over a long absence', () => {
     const repos = openStack();
     const start = new Date(NOW.getTime() - 72 * HOUR_MS);
@@ -418,6 +408,7 @@ describe('population (§A1: one pool)', () => {
         oil: 900_000,
         scrap: 900_000,
         highQualityMetal: 0,
+        planks: 900_000,
       },
     });
     const razors = findUnit('razors')!;
@@ -457,6 +448,7 @@ describe('modifications (§A1, §C4)', () => {
     oil: 9999,
     scrap: 9999,
     highQualityMetal: 9999,
+    planks: 9999,
   };
 
   it('reports the whole catalogue, every entry with a reason it is not startable', () => {
@@ -553,7 +545,14 @@ describe('the build clock a player is quoted is the one they get', () => {
   it('freezes the duration at order time, so raising the Nexus cannot retime it', () => {
     const repos = openStack();
     const base = seedBase(repos, {
-      resources: { caps: 99999, food: 99999, oil: 99999, scrap: 99999, highQualityMetal: 99999 },
+      resources: {
+        caps: 99999,
+        food: 99999,
+        oil: 99999,
+        scrap: 99999,
+        highQualityMetal: 99999,
+        planks: 99999,
+      },
     });
 
     const quoted = buildingBuildSeconds('quarters', 1, base.buildings);
@@ -585,6 +584,7 @@ describe('the bench (§A5)', () => {
     oil: 900_000,
     scrap: 900_000,
     highQualityMetal: 900_000,
+    planks: 900_000,
   };
 
   const stack = () => {

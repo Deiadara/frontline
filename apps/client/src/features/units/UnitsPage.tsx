@@ -1,7 +1,8 @@
 import {
   BUILDING_CATALOG,
   MAX_TRAINING_QUEUE,
-  UNIT_STAT_KEYS,
+  UNIT_HEADLINE_KEYS,
+  UNIT_RATING_KEYS,
   UNIT_STAT_EXPLAINERS,
   UNIT_STAT_LABELS,
   UNIT_TIERS,
@@ -13,7 +14,9 @@ import {
   trainingBatchProgress,
   trainingCancelWindowMs,
   trainingCancellable,
+  type BuiltUpgrade,
   type TrainingOrder,
+  type StatKey,
   type UnitOption,
   type UnitTier,
 } from '@frontline/shared';
@@ -29,6 +32,7 @@ import { useCancelTraining, useMe, useTrainUnits, useUnits } from '../../lib/que
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { UnitPortrait } from './UnitPortrait';
+import { UpgradeSlots } from './UpgradeSlots';
 import { PageShell } from '../game/PageShell';
 
 /**
@@ -178,11 +182,20 @@ export function UnitsPage() {
             portrait is that height at 3:4, so a *narrower* card is one where the picture takes a
             bigger share of it: at 1024 two-up the portrait was 54% of the card and the sheet beside
             it was being squeezed for the picture's sake. One card to a row there instead. */}
-        <div className="grid gap-4 xl:grid-cols-2" data-testid="unit-catalogue">
+        {/* Two to a row only from 1440, which is where the card stops fighting for width.
+            At 1280 two cards left each one 590px, and a 408px card with a full-height 3:4
+            portrait puts 47% of that into the picture: the sheet beside it is then 271px, which
+            is where `Penetration` started crossing its own bar. The roster's own layout gate
+            already calls that ratio the defect, in those words. */}
+        <div
+          className="grid gap-4 [@media(min-width:1440px)]:grid-cols-2"
+          data-testid="unit-catalogue"
+        >
           {shown.map((unit) => (
             <UnitCard
               key={unit.id}
               unit={unit}
+              built={data.built}
               resources={data.resources}
               garrisoned={data.garrisoned[unit.id] ?? 0}
               abroad={data.abroad[unit.id] ?? 0}
@@ -200,6 +213,8 @@ export function UnitsPage() {
 
 interface UnitCardProps {
   unit: UnitOption;
+  /** The crew's whole stock, so a bracket's menu opens without going and asking for it. */
+  built: BuiltUpgrade[];
   resources: Parameters<typeof CostLine>[0]['stock'];
   garrisoned: number;
   /** §A4: at a fight or walking to one. Away like a garrison, and counted in the same beds. */
@@ -265,7 +280,7 @@ function BenchRow({
           disabled={pending}
           onClick={onCancel}
           data-testid={`cancel-${order.id}`}
-          title={`Call it off: ${Math.round(TRAINING_CANCEL_REFUND * 100)}% back, ${formatRemaining(trainingCancelWindowMs(order, now))} left to decide`}
+          data-tip={`Call it off: ${Math.round(TRAINING_CANCEL_REFUND * 100)}% back, ${formatRemaining(trainingCancelWindowMs(order, now))} left to decide`}
         >
           Cancel
         </Button>
@@ -297,6 +312,7 @@ function BenchRow({
  */
 function UnitCard({
   unit,
+  built,
   resources,
   garrisoned,
   abroad,
@@ -313,11 +329,19 @@ function UnitCard({
     <section
       data-testid={`unit-${unit.id}`}
       className={cn(
-        // The frame, and its height is the whole mechanism: see the portrait below. A step
-        // shorter until 1440, where two cards to a row leaves each one narrow enough that a
-        // 23rem picture would be nearly half of it.
-        'card-paper washed rivets edge-lit relative flex h-[19rem] gap-3 rounded-sm border p-3',
-        '[@media(min-width:1440px)]:h-[23rem]',
+        // The frame, and its height is the whole mechanism: see the portrait below.
+        //
+        // One height at every width, which the card did not used to have: it was 4rem shorter
+        // below 1440 so that two narrow cards to a row would not each be half picture. What that
+        // actually bought was 60px of price box hanging out of the bottom of every card on a
+        // 1280px screen, because the sheet beside the portrait is the same twelve rows whatever
+        // the card is wide, and the shorter frame had nowhere to put the last of them. The
+        // picture is the part that can afford to give: it narrows with the frame and stays whole.
+        'card-paper washed rivets edge-lit relative flex h-[25.5rem] gap-3 rounded-sm border p-3',
+        // And a ceiling on the width while it is one to a row, so a single card does not become a
+        // 1200px band with a stat table stretched across it. 52rem is about what two of them
+        // measure at 1440, so a card is the same object at every width: it just stops sharing.
+        'w-full max-w-[52rem] [@media(min-width:1440px)]:max-w-none',
         unit.unlocked ? 'border-surface-600/70' : 'border-surface-700 opacity-75',
       )}
     >
@@ -352,13 +376,13 @@ function UnitCard({
         <span className="absolute right-1.5 top-1.5 rounded-sm border border-surface-600 bg-surface-950/85 px-2 py-0.5 font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
           {unit.owned}
           {garrisoned > 0 && (
-            <span className="text-brass-300" title={`${garrisoned} on held ground`}>
+            <span className="text-brass-300" data-tip={`${garrisoned} on held ground`}>
               {' '}
               +{garrisoned}
             </span>
           )}
           {abroad > 0 && (
-            <span className="text-tangerine-300" title={`${abroad} at a fight`}>
+            <span className="text-tangerine-300" data-tip={`${abroad} at a fight`}>
               {' '}
               +{abroad}
             </span>
@@ -367,57 +391,110 @@ function UnitCard({
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col gap-2.5">
-        {/* Row 1. The name is the door to everything that used to be printed on the card. */}
-        <header className="min-w-0">
-          <HoverCard
-            label={unit.name}
-            size="window"
-            className="w-full"
-            card={<UnitDossier unit={unit} />}
+        {/* Row 1. The name is the door to everything that used to be printed on the card, and the
+            carry sits opposite it: one figure, top right, where a card puts a capacity. */}
+        <header className="flex min-w-0 items-start justify-between gap-3">
+          <span className="min-w-0 flex-1">
+            <HoverCard
+              label={unit.name}
+              size="window"
+              className="w-full"
+              card={<UnitDossier unit={unit} />}
+            >
+              <span className="block truncate text-left font-display text-lg font-bold leading-tight tracking-[0.06em] text-ink-100">
+                {unit.name}
+              </span>
+              <span className="block truncate text-left font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
+                {UNIT_TIER_LABELS[unit.tier]} · {BUILDING_CATALOG[unit.trainedAt].name} ·{' '}
+                {unit.supply} pop
+              </span>
+            </HoverCard>
+          </span>
+          {/* The name is on the hover rather than printed: at this size a word beside the figure
+              costs more room than the figure itself, and `Loot` is one word nobody needs twice. */}
+          <span
+            className="flex shrink-0 items-center gap-1 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2 py-1"
+            data-tip="Loot"
           >
-            <span className="block truncate text-left font-display text-lg font-bold leading-tight tracking-[0.06em] text-ink-100">
-              {unit.name}
+            <Icon name="loot" className="h-4 w-4 text-ink-300" />
+            <span className="font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
+              {unit.stats.lootCapacity}
             </span>
-            <span className="block truncate text-left font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-              {UNIT_TIER_LABELS[unit.tier]} · {BUILDING_CATALOG[unit.trainedAt].name} ·{' '}
-              {unit.supply} pop
-            </span>
-          </HoverCard>
+          </span>
         </header>
 
-        {/* Row 2. Always twelve rows, so the box under it never moves. */}
-        <dl className="grid grid-cols-2 gap-x-5 gap-y-1 border-y border-surface-600/50 py-2.5">
-          {UNIT_STAT_KEYS.map((key) => (
-            <div key={key} className="flex items-baseline justify-between gap-2">
-              <dt className="min-w-0">
-                <HoverCard
-                  label={UNIT_STAT_LABELS[key]}
-                  card={
-                    <div className="flex flex-col gap-1.5">
-                      <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
-                        {UNIT_STAT_LABELS[key]}
-                      </p>
-                      <p className="font-body text-[13px] leading-relaxed text-ink-100">
-                        {UNIT_STAT_EXPLAINERS[key]}
-                      </p>
-                    </div>
-                  }
-                >
-                  <span className="truncate font-display text-[11px] uppercase tracking-[0.08em] text-ink-300">
-                    {UNIT_STAT_LABELS[key]}
-                  </span>
-                </HoverCard>
-              </dt>
-              <dd className="font-display text-[14px] font-bold tabular-nums text-ink-100">
-                {unit.stats[key]}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        {/*
+          Row 2, in two halves: the two open figures, then the ratings as bars.
 
-        {/* Row 3, and the reason the card can promise a fixed height: one line of marks, always
-            reserved, never wrapped. What each one means is a hover away. */}
-        <Marks unit={unit} />
+          Attack and hit points are quantities, not scores. A Colossus has twenty times a Razor's
+          vitality and hits four times as hard, and a bar out of 100 cannot say either once
+          anything reaches the top of the track. So those two are printed large, side by side,
+          where the eye lands first. Everything under them genuinely is a rating out of 100, which
+          is what makes a bar honest: the track *is* the maximum, so length is comparable down the
+          column without reading a single number.
+
+          The row count is fixed either way, which is what lets the card promise a height: two
+          figures, four rows of paired bars, one line for the load.
+        */}
+        <div className="border-y border-surface-600/50 py-2.5">
+          <dl className="grid grid-cols-2 gap-2">
+            {UNIT_HEADLINE_KEYS.map((key) => (
+              <div
+                key={key}
+                className="flex items-baseline justify-between gap-2 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2.5 py-1.5"
+              >
+                <dt className="min-w-0 flex-1">
+                  <StatLabel statKey={key} />
+                </dt>
+                <dd className="shrink-0 font-display text-[19px] font-bold leading-none tabular-nums text-brass-300">
+                  {unit.stats[key]}
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          {/* Tight on the fixed costs, because the label is what has to survive them. Two cards to
+              a row at 1280 leaves the sheet 271px, so a column is ~130px, and a 40px track with a
+              20px gutter left `Penetration` 61px to be drawn in at 73px wide: it either crossed
+              its own bar or got cut, and both are forbidden. 24px of track and a 12px gutter give
+              the word 73px, which is what `Penetration` measures at 11px condensed and the
+              widest label on the sheet. */}
+          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+            {UNIT_RATING_KEYS.map((key) => (
+              <div key={key} className="flex items-center gap-1">
+                <dt className="min-w-0 flex-1">
+                  <StatLabel statKey={key} />
+                </dt>
+                <dd className="flex shrink-0 items-center gap-1">
+                  <span
+                    className="relative h-1.5 w-6 overflow-hidden rounded-full bg-black/40"
+                    aria-hidden
+                  >
+                    <span
+                      className="block h-full rounded-full bg-hextech-100/85"
+                      style={{ width: `${Math.max(0, Math.min(100, unit.stats[key]))}%` }}
+                    />
+                  </span>
+                  <span className="w-6 text-right font-display text-[12px] font-bold tabular-nums text-ink-100">
+                    {unit.stats[key]}
+                  </span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          {/* The keywords take the line the carry used to have: one row, side by side, still a
+              fixed height so the box under it never moves. */}
+          <div className="mt-1.5 border-t border-surface-700/70 pt-1.5">
+            <Marks unit={unit} />
+          </div>
+        </div>
+
+        {/* The three brackets (§A5). Under the sheet rather than in it, because what is bolted on
+            is a decision the player makes and everything above is a number they read. */}
+        <div className="mt-2">
+          <UpgradeSlots unit={unit} built={built} />
+        </div>
 
         {/* Row 4, and a *fixed* height, which is the last thing standing between this grid and the
             cards it used to be. A price line wraps to two lines for a unit that costs three
@@ -502,6 +579,39 @@ function UnitCard({
  * `CLOSE QUARTERS` onto a second line, where the row's own fixed height then cut it in half.
  */
 const MARKS_SHOWN = 2;
+
+/** A stat's name, with its explainer one hover away. Shared by the figures and the bars. */
+function StatLabel({ statKey }: { statKey: StatKey }) {
+  return (
+    <HoverCard
+      label={UNIT_STAT_LABELS[statKey]}
+      className="w-full min-w-0 shrink"
+      // The trigger is `shrink-0` by default, which is right for a tag and wrong for a table
+      // label: sized to its own text it grows past the column it was given and `Penetration`
+      // draws straight over the bar beside it, with the `truncate` on the span below powerless
+      // because the button never got narrower than the word. `min-w-0 w-full` puts the width
+      // back under the column's control and lets the truncate do its job.
+      card={
+        <div className="flex flex-col gap-1.5">
+          <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
+            {UNIT_STAT_LABELS[statKey]}
+          </p>
+          <p className="font-body text-[13px] leading-relaxed text-ink-100">
+            {UNIT_STAT_EXPLAINERS[statKey]}
+          </p>
+        </div>
+      }
+    >
+      {/* `block`, and it is not decoration: `truncate` is `overflow:hidden` plus `nowrap`, and an
+          inline span ignores overflow entirely. Without it the word is drawn at its full width
+          whatever the column is, which is how `Penetration` came to be printed across its own
+          bar in a 115px column. */}
+      <span className="block truncate font-display text-[11px] uppercase tracking-[0.08em] text-ink-300">
+        {UNIT_STAT_LABELS[statKey]}
+      </span>
+    </HoverCard>
+  );
+}
 
 function Marks({ unit }: { unit: UnitOption }) {
   const modifiers = unit.modifiers.slice(0, MARKS_SHOWN);

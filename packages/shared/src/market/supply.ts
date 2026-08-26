@@ -163,8 +163,18 @@ export function supplyRefusal(order: SupplyOrder): SupplyRefusal | null {
 }
 
 /** One line of the supply board, as the screen reads it. */
+/**
+ * The keys the supply run deals in, as a schema, derived from {@link SUPPLY_RESOURCES}.
+ *
+ * It was a hand-written `z.enum` listing four resources, and adding a fifth is what found it: the
+ * board built a line for planks off `SUPPLY_RESOURCES` and the schema then refused the payload it
+ * had just built, so the whole market screen hung on its loading state. Every parse of a supply
+ * key goes through this, so the domain list and the wire contract cannot come apart again.
+ */
+export const SupplyResourceSchema = z.enum(SUPPLY_RESOURCES);
+
 export const SupplyLineSchema = z.object({
-  key: z.enum(['food', 'oil', 'scrap', 'highQualityMetal']),
+  key: SupplyResourceSchema,
   /** Caps for one unit, as quoted. The order price is `supplyPrice`, not this times the count. */
   capsPerUnit: z.number().positive(),
   /** The most the crew could take right now, all three limits considered. */
@@ -201,7 +211,9 @@ export function supplyBoard(
     percent: supplyAllowancePercent(level),
     storageCapacity: Math.max(0, Math.floor(storageCapacity)),
     lines: SUPPLY_RESOURCES.map((key) => ({
-      key: key as SupplyLine['key'],
+      // No cast: `SupplyLine['key']` is derived from this very list now, so the two agree by
+      // construction. The cast that used to sit here is what let the enum drift narrow unnoticed.
+      key,
       capsPerUnit: RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP,
       most: supplyAffordable(key, stock, left, storageCapacity),
     })),

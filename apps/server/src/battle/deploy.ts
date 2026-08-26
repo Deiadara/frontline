@@ -1,4 +1,5 @@
 import {
+  isCombatUnit,
   deploymentIsOpen,
   emptyDeployment,
   mulberry32,
@@ -39,6 +40,8 @@ export const DEPLOY_REFUSALS = [
   'not_a_participant',
   'deployment_closed',
   'not_enough_units',
+  /** §A5: a porter is not a soldier. The support tier may never be deployed to a battle. */
+  'not_a_fighting_force',
   'needs_infamy',
 ] as const;
 export type DeployRefusal = (typeof DEPLOY_REFUSALS)[number];
@@ -124,6 +127,7 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     for (const [unitId, delta] of Object.entries(changes)) {
       if (delta === 0) continue;
       if (delta > 0) {
+        if (!isCombatUnit(unitId)) return 'not_a_fighting_force';
         if ((army[unitId] ?? 0) < delta) return 'not_enough_units';
         army = removeForce(army, { [unitId]: delta });
         departing[outbound] = mergeArmies(departing[outbound], { [unitId]: delta });

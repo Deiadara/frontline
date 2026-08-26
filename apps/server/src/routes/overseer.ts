@@ -79,14 +79,21 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
          * than as a decision. Everything else is the player's to lay.
          */
         buildings: [
-          { id: randomUUID(), kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
+          {
+            id: randomUUID(),
+            kind: 'nexus',
+            level: 1,
+            modifications: [],
+            damage: 0,
+            fortification: 0,
+          },
           {
             id: randomUUID(),
             kind: 'generator',
             level: 1,
             modifications: [],
             damage: 0,
-            garrisons: 0,
+            fortification: 0,
           },
         ],
         buildQueue: [],
@@ -104,6 +111,7 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         training: startingTraining(now),
         inventory: {},
         fittedUpgrades: [],
+        unitLoadouts: {},
         fleet: {},
         commanders: [],
         createdAt: now,

@@ -5,6 +5,8 @@ import {
   supplyAllowance,
   supplyBoard,
   BUILDING_CATALOG,
+  fortifyBonusPercent,
+  fortifyCost,
   BATTLE_BOOSTS,
   boostCoverage,
   describeBoostEffect,
@@ -15,7 +17,6 @@ import {
   type BattlesResponse,
   type BattleView,
   startingTraining,
-  UNIT_UPGRADES,
   VEHICLES,
   TECHNOLOGIES,
   type MarketResponse,
@@ -54,6 +55,21 @@ import {
   findDistrict,
   unitsUnlockedByLocation,
   type DistrictDetailResponse,
+  BASE_CONCURRENT_MISSIONS,
+  MISC_AREA_ID,
+  RESOURCE_KG,
+  UNIT_UPGRADES,
+  areaPayPercent,
+  missionOffers,
+  FAILED_MISSION_XP_SHARE,
+  missionRewards,
+  missionXp,
+  payoutSlots,
+  scaledSpoils,
+  type FittedSlot,
+  DISMISSAL_WEEKS,
+  PAYROLL_STEP,
+  payrollStepCost,
   type UnitsResponse,
   MODIFICATIONS,
   addResources,
@@ -152,15 +168,20 @@ export const base: Base = {
   research: startingResearch(),
   assignees: startingAssignees(),
   buildings: [
-    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
-    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
+    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0, fortification: 0 },
+    // A Gate, dug in one level: the §A4 fortification the board screen is built around, so the
+    // default screenshot shows the meter part-filled rather than empty.
+    { id: 'b3', kind: 'gate', level: 2, modifications: [], damage: 0, fortification: 1 },
   ],
   buildQueue: [],
-  army: { razors: 4 },
+  // Fighters and porters both, so the send window and the roster show the support tier (§A5).
+  army: { razors: 4, scavengers: 2 },
   trainingQueue: [],
   training: startingTraining('2026-08-16T00:00:00.000Z'),
   inventory: {},
   fittedUpgrades: [],
+  unitLoadouts: {},
   fleet: {},
   commanders: [],
   createdAt: NOW,
@@ -200,8 +221,15 @@ export const meNoOverseer: MeResponse = {
 export const lateGameBase: Base = {
   ...base,
   level: 12,
-  resources: { caps: 125000, food: 48000, oil: 32000, scrap: 96000, highQualityMetal: 12000 },
-  economy: { ...base.economy, morale: 100, infamy: 100 },
+  resources: {
+    caps: 125000,
+    food: 48000,
+    oil: 32000,
+    scrap: 96000,
+    highQualityMetal: 12000,
+    planks: 96000,
+  },
+  economy: { ...base.economy, infamy: 100 },
   // One XP short of level 13 (§I). Widest the progression readout ever gets: four digits either
   // side of the slash and a bar at ~100%: where the starting base shows `0 / 100`.
   progression: { xpIntoLevel: 7799 },
@@ -369,6 +397,25 @@ export const districtDetail: DistrictDetailResponse = {
 };
 
 /** §A5: the roster as a crew four levels in sees it: some fielded, most still locked. */
+/** The two the crew has paid for. One of them is bolted to the Razors below. */
+const BUILT_UPGRADES = UNIT_UPGRADES.filter(
+  (spec) => spec.id === 'weapons_1' || spec.id === 'armour_1',
+);
+
+function fittedSlots(ids: (string | null)[]): FittedSlot[] {
+  return ids.map((id) => {
+    const spec = id === null ? undefined : UNIT_UPGRADES.find((other) => other.id === id);
+    if (!spec) return { upgradeId: null, name: '', line: null, tier: 0, effect: {} };
+    return {
+      upgradeId: spec.id,
+      name: spec.name,
+      line: spec.line,
+      tier: spec.tier,
+      effect: spec.effect as Record<string, number>,
+    };
+  });
+}
+
 export const unitsResponse: UnitsResponse = {
   serverNow: NOW,
   army: base.army,
@@ -412,6 +459,16 @@ export const unitsResponse: UnitsResponse = {
   resources: base.resources,
   trainingCostReduction: 10,
   trainingSpeedBonus: 0,
+  // A stock with something in it, and a bracket that is filled. An empty stock screenshots three
+  // dashed brackets and a menu with nothing in it, which is the one state the row is *not* for.
+  built: BUILT_UPGRADES.map((spec) => ({
+    id: spec.id,
+    name: spec.name,
+    line: spec.line,
+    tier: spec.tier,
+    description: spec.description,
+    effect: spec.effect as Record<string, number>,
+  })),
   units: UNIT_CATALOG.map((unit) => {
     const unlocked = unit.tier === 'rabble';
     return {
@@ -447,6 +504,9 @@ export const unitsResponse: UnitsResponse = {
       unlocked,
       missing: unlocked ? [] : unit.requires.map(describeRequirement),
       owned: base.army[unit.id] ?? 0,
+      // The Razors have one bolted on and room for two more, which is both halves of the row in
+      // one card. Everybody else is empty, which is what most of the roster looks like.
+      slots: fittedSlots(unit.id === 'razors' ? ['weapons_1', null, null] : [null, null, null]),
     };
   }),
 };
@@ -485,10 +545,11 @@ function barRecruit(id: string, name: string, overrides: Partial<BarRecruit> = {
     traits: ['gutter_born'],
     ambition: 'notoriety',
     moralCompass: 'ruthless',
-    requirement: { minNotoriety: 0 },
-    assessment: { meetsRequirement: true, stance: 2, interested: true, blockers: [] },
+    requirement: { minNotoriety: 0, minLevel: 1 },
+    assessment: { meetsNotoriety: true, meetsLevel: true, interested: true, blockers: [] },
     askingWage: 48,
     hired: false,
+    standoff: null,
     ...overrides,
   };
 }
@@ -519,6 +580,7 @@ function barOfficer(
     bonusAttributes:
       alignmentSkillBonus(alignment) > 0 ? alignmentBonusAttributes(commander.attributes) : [],
     weeklyWage,
+    dismissalFee: weeklyWage * DISMISSAL_WEEKS,
   };
 }
 
@@ -529,10 +591,10 @@ export const bar: BarResponse = {
     barRecruit('bar-1', 'Dorotea "The Undergrid Ghost"'),
     barRecruit('bar-2', 'Emeric Voskuijlen', { askingWage: 1240, traits: [] }),
     barRecruit('bar-3', 'Kestrel Salvatierra', {
-      requirement: { minNotoriety: 3 },
+      requirement: { minNotoriety: 3, minLevel: 1 },
       assessment: {
-        meetsRequirement: false,
-        stance: 1,
+        meetsNotoriety: false,
+        meetsLevel: true,
         interested: false,
         blockers: ['notoriety'],
       },
@@ -542,13 +604,22 @@ export const bar: BarResponse = {
       ambition: 'knowledge',
       moralCompass: 'idealist',
       assessment: {
-        meetsRequirement: false,
-        stance: -2,
+        meetsNotoriety: false,
+        meetsLevel: false,
         interested: false,
-        blockers: ['notoriety', 'reputation'],
+        blockers: ['notoriety', 'level'],
       },
       askingWage: null,
-      requirement: { minNotoriety: 5 },
+      requirement: { minNotoriety: 5, minLevel: 24 },
+    }),
+    // Somebody this crew walked out on: the chair is cold for another few hours, and their price
+    // has already gone up for it.
+    barRecruit('bar-8', 'Wren Adisa', {
+      askingWage: null,
+      standoff: {
+        until: new Date(Date.parse(NOW) + 4 * 60 * 60 * 1000).toISOString(),
+        walkouts: 1,
+      },
     }),
     barRecruit('bar-5', 'Ilse Abara', { hired: true, askingWage: 96 }),
     barRecruit('bar-6', 'Juno Petrosyan', { askingWage: 61, traits: ['silver_tongue'] }),
@@ -566,8 +637,17 @@ export const bar: BarResponse = {
   slotsUsed: 3,
   slotsTotal: 13,
   infamy: 100,
-  reputation: 'Feared',
+  notoriety: 5,
+  level: 12,
   caps: 125000,
+  payroll: {
+    capacity: 2400,
+    committed: 1668,
+    available: 732,
+    purchasedSteps: 6,
+    nextStepCost: payrollStepCost(6),
+    stepSize: PAYROLL_STEP,
+  },
   filledRoles: ['head_spy', 'finance_officer', 'raid_boss'],
   /** §H2b: this crew has not signed anybody today, so the offer buttons are live. */
   hiresLeftToday: BAR_HIRES_PER_DAY,
@@ -588,6 +668,59 @@ export const bar: BarResponse = {
   },
 };
 
+/**
+ * The three boards a screenshot needs: the one that is always open, one district and one being
+ * worked by a crew already.
+ *
+ * Priced off the real offer walk rather than hand-written, so a retune of which jobs an area
+ * offers cannot leave the fixture claiming something the server never says.
+ */
+function areaFixture(id: string, name: string, payPercent: number, activeMissionId: string | null) {
+  return {
+    id,
+    name,
+    blurb:
+      id === MISC_AREA_ID
+        ? 'Work that belongs to nobody. Somebody always needs a wall stripped or a bay emptied.'
+        : (findDistrict(id)?.blurb ?? 'Ground somebody is paying to have worked.'),
+    difficulty: findDistrict(id)?.difficulty ?? 1,
+    payPercent,
+    offers:
+      activeMissionId === null
+        ? missionOffers(id).map((template) => ({
+            templateId: template.id,
+            name: template.name,
+            brief: template.brief,
+            kind: template.kind,
+            difficulty: template.difficulty,
+            stance: template.stance,
+            travelMinutes: templateTimings(template).travelMinutes,
+            durationMinutes: template.durationMinutes,
+            totalMinutes: templateTimings(template).totalMinutes,
+            rewards: scaledSpoils(missionRewards(template, 'success'), payPercent),
+            payoutSlots: Math.round(
+              payoutSlots(
+                scaledSpoils(missionRewards(template, 'success'), payPercent),
+                RESOURCE_KG,
+              ),
+            ),
+            xp: missionXp(template, templateTimings(template).totalMinutes, lateGameBase.level),
+            failedXp: Math.round(
+              missionXp(template, templateTimings(template).totalMinutes, lateGameBase.level) *
+                FAILED_MISSION_XP_SHARE,
+            ),
+          }))
+        : [],
+    activeMissionId,
+  };
+}
+
+const MISSION_AREAS = [
+  areaFixture(MISC_AREA_ID, 'Odd jobs', 0, null),
+  areaFixture('neon-docks', 'The Neon Docks', areaPayPercent('neon-docks'), null),
+  areaFixture('rustyard', 'The Rustyard', areaPayPercent('rustyard'), 'm-1'),
+];
+
 const minutesBefore = (now: Date, minutes: number) =>
   new Date(now.getTime() - minutes * 60_000).toISOString();
 
@@ -600,6 +733,12 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     id,
     baseId: base.id,
     templateId,
+    // The board these came off, and who went. Every fixture crew is sent from the miscellaneous
+    // board so the screenshots do not depend on which districts happen to be scouted.
+    areaId: MISC_AREA_ID,
+    payPercent: 0,
+    xp: 240,
+    force: { razors: 3, scavengers: 4 },
     startedAt,
     travelMinutes,
     durationMinutes,
@@ -649,24 +788,32 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
 
   return {
     missions: [
-      // One minute in on a day-long run: the longest countdown this page can show.
+      /*
+       * One crew out, of the two a base may have (§E).
+       *
+       * Deliberately not at the cap. At the cap every button on the board reads `No crew free`,
+       * which is a real state and the wrong one to make the default screenshot of: the board's own
+       * layout is what these fixtures are for, and a board of three disabled buttons proves
+       * nothing about it. One minute into a day-long run, so the page still shows the longest
+       * countdown it ever can.
+       */
       inFlight('m-1', 'deep-expedition', 1),
-      inFlight('m-2', 'refinery-assault', 90),
-      inFlight('m-3', 'courier-contract', 40),
-      inFlight('m-4', 'scrap-run', 6),
       returned('m-5', 'deep-expedition', 'success', {
         caps: 268,
         food: 268,
         oil: 201,
         scrap: 335,
         highQualityMetal: 40,
+        planks: 335,
       }),
       returned('m-6', 'foundry-raid', 'failure', {}),
       returned('m-7', 'convoy-ambush', 'success', { caps: 52, oil: 35 }),
     ],
     justResolved: [],
     resources: lateGameBase.resources,
-    activeLimit: 4,
+    activeLimit: BASE_CONCURRENT_MISSIONS,
+    areas: MISSION_AREAS,
+    army: lateGameBase.army,
     serverNow: now.toISOString(),
   };
 }
@@ -727,7 +874,9 @@ export function settlingMissions(now: Date = new Date()): {
     missions,
     justResolved,
     resources,
-    activeLimit: 4,
+    activeLimit: BASE_CONCURRENT_MISSIONS,
+    areas: MISSION_AREAS,
+    army: base.army,
     serverNow: now.toISOString(),
   });
 
@@ -1148,7 +1297,7 @@ export const workshop: WorkshopResponse = {
     cost: spec.cost,
     parts: spec.parts,
     effect: spec.effect as Record<string, number>,
-    fitted: spec.tier === 1,
+    built: spec.tier === 1,
     blocker:
       spec.tier === 1
         ? null
@@ -1480,7 +1629,12 @@ export const battles: BattlesResponse = {
     level: building.level,
     damage: index === 0 ? 42 : 0,
     effectiveness: index === 0 ? 0.79 : 1,
-    garrisons: index === 0 ? 2 : 0,
+    fortification: building.kind === 'gate' ? 1 : 0,
+    fortifyPercent: building.kind === 'gate' ? fortifyBonusPercent('medium', 1) : 0,
+    nextFortify:
+      building.kind === 'gate'
+        ? { level: 2, cost: fortifyCost(2), bonusPercent: fortifyBonusPercent('medium', 2) }
+        : null,
   })),
   traps: TRAP_CATALOG.map((spec, index) => ({
     trapId: spec.id,

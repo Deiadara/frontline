@@ -92,8 +92,26 @@ export function resolvePlayerXpAward(
   current: PlayerLevelProgress,
   source: PlayerXpSource,
   catalogue?: readonly PlayerLevelUnlock[],
+  /**
+   * Percentage points on the award, from the district and from whoever ran the thing.
+   *
+   * `factionXpBonus` off the structures and, on a finished project, `factionXpFromLeadership` off
+   * the lead's charisma. Passed in as a plain number so this module never has to know what a
+   * building or an Overseer is.
+   */
+  bonusPercent = 0,
+  /**
+   * The figure to pay instead of this source's table entry.
+   *
+   * For sources whose worth is not a constant: a mission is priced off its own clock, its risk
+   * and the crew's level (`missionXp`), so the table entry is its *anchor* rather than its value.
+   * `bonusPercent` still applies on top, because the district's contribution is a fact about the
+   * crew rather than about the job.
+   */
+  amount?: number,
 ): PlayerXpAward {
-  const xpGained = PLAYER_XP_AWARDS[source];
+  const base = amount ?? PLAYER_XP_AWARDS[source];
+  const xpGained = Math.round(base * (1 + Math.max(0, bonusPercent) / 100));
   const advance = applyPlayerXp(current, xpGained);
   return {
     source,

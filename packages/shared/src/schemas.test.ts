@@ -19,7 +19,6 @@ import {
   raidTargetOf,
   type District,
 } from './city/index.js';
-import { REVOLUTIONARY_SEATS } from './economy/reputation.js';
 import { GOVERNMENT_GARRISONS, governmentGarrisonFor } from './factions.js';
 
 /** Minimum gap between two district positions, in normalized (0..1) map units. */
@@ -85,12 +84,10 @@ describe('who holds the map (§A3)', () => {
     }
   });
 
-  it('holds enough seats of power for a revolution to be possible (§D8)', () => {
-    // `Revolutionary` needs `REVOLUTIONARY_SEATS` of them, so the map has to field at least that
-    // many or the label is unreachable however hard a player plays.
-    expect(CITY_DISTRICTS.filter(isSeatOfGovernmentPower).length).toBeGreaterThanOrEqual(
-      REVOLUTIONARY_SEATS,
-    );
+  it('holds more than one seat of Combine power, so taking the state is a campaign', () => {
+    // Two at least. A single seat would make the whole government a one-district problem, and
+    // `infamyForRaidWon` pays a premium for a seat precisely because there are several to take.
+    expect(CITY_DISTRICTS.filter(isSeatOfGovernmentPower).length).toBeGreaterThanOrEqual(2);
   });
 
   it('calls no residential district Combine ground', () => {

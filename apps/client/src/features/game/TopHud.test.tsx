@@ -1,5 +1,4 @@
 import {
-  FEARED_NOTORIETY,
   OVERSEER_PRESETS,
   RESOURCE_KEYS,
   STARTING_RESOURCES,
@@ -34,6 +33,9 @@ const economy: EconomyState = startingEconomy('2026-08-13T09:30:00.000Z');
 const base = {
   id: 'base-1',
   name: 'The Ninth Street Reclamation Company',
+  level: 7,
+  // The bar reads the level chip straight off these two, so the fixture has to carry them.
+  progression: { xpIntoLevel: 640 },
   economy,
 } as unknown as Base;
 
@@ -45,7 +47,7 @@ const buildings = [
     level: 4,
     modifications: [],
     damage: 0,
-    garrisons: 0,
+    fortification: 0,
   },
 ];
 
@@ -117,12 +119,15 @@ describe('renaming the crew from the standing bar', () => {
 });
 
 describe('TopHud', () => {
-  it('shows every one of the five resources with its amount (GDD §D1-§D6)', () => {
+  it('shows every one of the six resources with its amount (GDD §D1-§D6)', () => {
     renderHud();
 
-    expect(RESOURCE_KEYS).toHaveLength(5);
+    // Asserted against the domain rather than a literal, so §D5b's planks could not be added to
+    // the stockpile and quietly left off the bar. The count is pinned as well, because a loop over
+    // an empty list passes.
+    expect(RESOURCE_KEYS).toHaveLength(6);
     for (const key of RESOURCE_KEYS) {
-      // The chip's name, not a word printed beside it: the bar has to fit five resources, two
+      // The chip's name, not a word printed beside it: the bar has to fit six resources, two
       // meters and an identity on one line over the artwork, so the label is what the icon *means*
       // rather than something taking width next to it.
       const chip = screen.getByTestId(`resource-chip-${key}`);
@@ -134,12 +139,11 @@ describe('TopHud', () => {
     }
   });
 
-  it('shows the morale meter and the infamy wallet (§D4, §D7)', () => {
+  it('shows the faction level and the infamy wallet (§I, §D7)', () => {
     renderHud();
 
-    expect(screen.getByTestId('meter-chip-morale')).toBeInTheDocument();
+    expect(screen.getByTestId('level-chip')).toBeInTheDocument();
     expect(screen.getByTestId('infamy-chip')).toBeInTheDocument();
-    expect(screen.getByText(String(economy.morale))).toBeInTheDocument();
   });
 
   /**
@@ -155,24 +159,28 @@ describe('TopHud', () => {
     expect(screen.getByTestId('infamy-chip')).toHaveTextContent('1200');
   });
 
-  /** The two doors the board asked for, between the resources rather than on the bottom row. */
-  it('puts the Battles and Settings doors in the standing bar', () => {
+  /**
+   * The two doors that stayed up here, between the resources rather than on the bottom row.
+   *
+   * Settings is no longer one of them: it is pinned to the right of the scenery switcher now,
+   * which is the board's placement and closer to the hand. What is left is the fight you have
+   * called and who is on the road, both wanted from wherever a player is standing.
+   */
+  it('puts the Battles and Actions doors in the standing bar, and not Settings', () => {
     renderHud();
 
     expect(screen.getByTestId('hud-battles')).toHaveAttribute('href', '/game/battles');
-    expect(screen.getByTestId('hud-settings')).toHaveAttribute('href', '/game/settings');
+    expect(screen.getByTestId('hud-actions')).toHaveAttribute('href', '/game/actions');
+    expect(screen.queryByTestId('hud-settings')).toBeNull();
   });
 
-  it('shows reputation as a word rather than a number (§D8)', () => {
+  /**
+   * §I: the level is on every screen for the same reason infamy is. It gates what the crew may
+   * hold, so a player has to be able to see how close the next one is without going to look.
+   */
+  it('reads the level and its progress off the base, not off a second copy', () => {
     renderHud();
-
-    expect(screen.getByText('Reputation')).toBeInTheDocument();
-    expect(screen.getByText('Cautious')).toBeInTheDocument();
-  });
-
-  it('follows the reputation the tally actually derives', () => {
-    renderHud({ notoriety: FEARED_NOTORIETY });
-
-    expect(screen.getByText('Feared')).toBeInTheDocument();
+    const chip = screen.getByTestId('level-chip');
+    expect(chip).toHaveTextContent(String(base.level));
   });
 });

@@ -2,16 +2,17 @@ import {
   AMBITIONS,
   MORAL_COMPASSES,
   BAR_HIRES_PER_DAY,
+  RECRUIT_MAX_MIN_LEVEL,
   RECRUIT_MAX_MIN_NOTORIETY,
+  RECRUIT_MIN_LEVEL_GATE,
   RECRUIT_MIN_NOTORIETY_GATE,
-  hearsAnyCrewOut,
   type Ambition,
   type Attributes,
   type JoinRequirement,
   type MoralCompass,
   type TraitId,
 } from '@frontline/shared';
-import { generateCharacter } from '../characters/generate.js';
+import { MAX_CALIBRE, generateCharacter } from '../characters/generate.js';
 import { createRng, randomInt, type Rng } from '../characters/rng.js';
 import { rollName } from './names.js';
 
@@ -40,23 +41,20 @@ export const BAR_ROSTER_SIZE = 8;
 
 /** Recruits whose §H3 gate is simply "anyone may approach me". */
 const OPEN_DOOR_CHANCE = 0.6;
-/** The lowest non-zero infamy gate worth rolling: below this it is not a gate at all. */
+
+/** Of the gated ones, how many want the crew to have been around as well as to be known. */
+const BOTH_DOORS_CHANCE = 0.35;
 
 /**
- * How many of the day's recruits any crew can always approach: no §H3 gate, and a disposition
- * whose two halves cannot object to the same reputation word, so §H4 cannot refuse them either.
+ * How many of the day's recruits any crew can always approach: no §H3 gate at all.
  *
- * Both gates need the guarantee, and measuring is what showed it. Rolling §H3 independently
- * bottoms out at a single open door over 800 days (2026-08-13 is one of those days), and a *plain*
- * floor, one that forces §H3 but leaves the compass rolled, still left 1 day in 1200 where §H4
- * refused every survivor and a brand-new crew had nobody willing. Forcing the compass too (see
- * `recruitAt`) is what closed that: an open-door seat clears both gates by construction, so a Bar
- * that is empty on the day a player first opens it is unreachable for any floor >= 1.
+ * A brand-new crew has rank `Nobody` and level 1, so every rolled gate is shut to them, and a Bar
+ * that is empty on the day a player first opens it reads as a broken screen rather than as a
+ * locked door. Three is a choice rather than a correctness floor: one would be safe, and three is
+ * what makes the first night's room worth reading.
  *
- * Which makes 3 a UX margin rather than the correctness floor: 1 would be safe. On the worst day
- * a brand-new crew sees exactly this many willing recruits (measured over 1200 days x every
- * reputation word), so what this constant sets is how much *choice* that day offers. Weigh it as
- * that.
+ * The floor is a property of the *seat*, not of the person in it, so the first three hires of the
+ * day cannot close the only doors a new crew can walk through.
  */
 export const BAR_OPEN_DOOR_FLOOR = 3;
 
@@ -86,13 +84,18 @@ function pick<T>(rng: Rng, items: readonly T[]): T {
 
 /**
  * §H3: what this character asks of a crew. Most people at the Bar will talk to anyone; the rest
- * want a name that has already been heard.
+ * want a name that has already been heard, and a few want both that and a crew that has lasted.
+ *
+ * The level door is rolled against the room's own calibre rather than out of thin air: a room
+ * scaled up by a level-thirty city asks for a level-thirty crew, so the good ones that turn up
+ * late are gated at something a crew playing that city has actually reached.
  */
-function rollRequirement(rng: Rng): JoinRequirement {
-  if (rng() < OPEN_DOOR_CHANCE) return { minNotoriety: 0 };
-  return {
-    minNotoriety: randomInt(rng, RECRUIT_MIN_NOTORIETY_GATE, RECRUIT_MAX_MIN_NOTORIETY),
-  };
+function rollRequirement(rng: Rng, cityLevel: number): JoinRequirement {
+  if (rng() < OPEN_DOOR_CHANCE) return { minNotoriety: 0, minLevel: 1 };
+  const minNotoriety = randomInt(rng, RECRUIT_MIN_NOTORIETY_GATE, RECRUIT_MAX_MIN_NOTORIETY);
+  if (rng() >= BOTH_DOORS_CHANCE) return { minNotoriety, minLevel: 1 };
+  const ceiling = Math.min(RECRUIT_MAX_MIN_LEVEL, Math.max(RECRUIT_MIN_LEVEL_GATE, cityLevel));
+  return { minNotoriety, minLevel: randomInt(rng, RECRUIT_MIN_LEVEL_GATE, ceiling) };
 }
 
 /** A character on the roster, before any particular crew is judged against them. */
@@ -115,38 +118,42 @@ export interface BarCharacter {
  * retune of the attribute roll cannot silently rename everyone. Both carry the generation, so a
  * seat's replacement differs on every axis rather than being the same person under a new name.
  */
-function recruitAt(day: string, index: number, generation: number): BarCharacter {
-  const { attributes, traits } = generateCharacter(seedFrom(`${day}:${index}:${generation}:sheet`));
+function recruitAt(
+  day: string,
+  index: number,
+  generation: number,
+  cityLevel: number,
+): BarCharacter {
+  const { attributes, traits } = generateCharacter(
+    seedFrom(`${day}:${index}:${generation}:sheet`),
+    barCalibre(cityLevel),
+  );
   const rng = createRng(seedFrom(`${day}:${index}:${generation}:disposition`));
-  // The floor is a property of the *seat*, not of the person in it: otherwise the first three
-  // hires of the day would close the only doors a new crew can walk through.
   const openDoor = index < BAR_OPEN_DOOR_FLOOR;
-
-  const name = rollName(rng);
-  const ambition = pick(rng, AMBITIONS);
-  const drawn = pick(rng, MORAL_COMPASSES);
 
   return {
     id: recruitId(day, index, generation),
-    name,
+    name: rollName(rng),
     attributes,
     traits,
-    ambition,
-    // An open-door seat keeps its rolled compass when that already clears §H4, and otherwise
-    // takes the first one that does. Every ambition has at least one: asserted in the tests, so
-    // a retune of either table that broke it could not land quietly.
-    moralCompass:
-      openDoor && !hearsAnyCrewOut({ ambition, moralCompass: drawn })
-        ? compassThatHearsAnyoneOut(ambition)
-        : drawn,
-    requirement: openDoor ? { minNotoriety: 0 } : rollRequirement(rng),
+    ambition: pick(rng, AMBITIONS),
+    moralCompass: pick(rng, MORAL_COMPASSES),
+    requirement: openDoor ? { minNotoriety: 0, minLevel: 1 } : rollRequirement(rng, cityLevel),
   };
 }
 
-function compassThatHearsAnyoneOut(ambition: Ambition): MoralCompass {
-  const found = MORAL_COMPASSES.find((moralCompass) => hearsAnyCrewOut({ ambition, moralCompass }));
-  if (!found) throw new Error(`no moral compass leaves ${ambition} able to hear any crew out`);
-  return found;
+/**
+ * City levels per attribute point the room gains.
+ *
+ * Three, so a city averaging level thirty puts about ten points on every mean, which is where
+ * `MAX_CALIBRE` caps it: the ceiling is reached by a city that is genuinely mature rather than by
+ * one good player. Below level three it is zero and the first night's Bar is the Bar the game was
+ * balanced on.
+ */
+export const CITY_LEVELS_PER_CALIBRE = 3;
+
+export function barCalibre(cityLevel: number): number {
+  return Math.min(MAX_CALIBRE, Math.max(0, Math.floor(cityLevel / CITY_LEVELS_PER_CALIBRE)));
 }
 
 /**
@@ -171,9 +178,10 @@ export function barRoster(
   day: string,
   generations: readonly number[] = [],
   seats: number = BAR_ROSTER_SIZE,
+  cityLevel = 0,
 ): BarCharacter[] {
   return Array.from({ length: Math.max(BAR_ROSTER_SIZE, seats) }, (_, index) =>
-    recruitAt(day, index, generations[index] ?? 0),
+    recruitAt(day, index, generations[index] ?? 0, cityLevel),
   );
 }
 

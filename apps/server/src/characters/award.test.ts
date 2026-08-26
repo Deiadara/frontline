@@ -27,7 +27,7 @@ const build = (kind: Building['kind'], level: number): Building => ({
   level,
   modifications: [],
   damage: 0,
-  garrisons: 0,
+  fortification: 0,
 });
 
 function baseWith(buildings: Building[]): Base {

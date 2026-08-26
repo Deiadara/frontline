@@ -21,6 +21,7 @@ export type ErrorCode =
   | 'INSUFFICIENT_CAPS'
   | 'NO_POINTS'
   | 'NEGOTIATION_CLOSED'
+  | 'NO_PAYROLL'
   | 'AREA_LOCKED'
   // research and discovery (GDD §B9, §F2-§F4)
   | 'RESEARCH_BUSY'
@@ -76,6 +77,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   BLACK_MARKET_REFUSED: 409,
   MISSION_REFUSED: 409,
   ROLE_TAKEN: 409,
+  NO_PAYROLL: 409,
   WORKSHOP_REFUSED: 409,
   INVALID_TARGET: 400,
   MISSIONS_AT_CAPACITY: 409,

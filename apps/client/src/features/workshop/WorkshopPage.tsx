@@ -22,7 +22,8 @@ import { ItemWindow } from '../market/MarketPage';
 /**
  * The workshop and the yard (workshop extension).
  *
- * Two things a player buys once and keeps: refits that improve every unit of a type forever, and
+ * Two things a player buys once and keeps: refits, which go into the crew's stock until they are
+ * bolted into a unit's brackets over in the roster, and
  * machines that shorten the road. Both are laid out as *ladders* rather than as a shopping list,
  * because the shape of the decision is which line to climb, not which item to buy, and a ladder
  * with its second rung greyed out and labelled "needs the Composite Armour blueprint" is the
@@ -48,7 +49,7 @@ export function WorkshopPage() {
     <PageShell
       title="The Workshop"
       icon="research"
-      lede="Everything here is bought once and kept. A refit reaches the people you trained last week as well as the ones you train tomorrow."
+      lede="Everything here is bought once and kept. Build it here, then bolt it into one of the three brackets on whichever units you want it on, over in the roster."
       wide
     >
       <InfoNote label="How a line opens">
@@ -173,7 +174,7 @@ function UpgradeCard({
       data-testid={`upgrade-${upgrade.id}`}
       className={cn(
         'flex flex-col gap-2 rounded-sm border p-3',
-        upgrade.fitted
+        upgrade.built
           ? 'border-bile-300/50 bg-bile-300/10'
           : upgrade.blocker === null
             ? 'border-surface-600 bg-surface-800/60'
@@ -190,9 +191,9 @@ function UpgradeCard({
       <p className="font-body text-[13px] leading-snug text-ink-200">{upgrade.description}</p>
       <EffectRow effect={upgrade.effect} />
 
-      {upgrade.fitted ? (
+      {upgrade.built ? (
         <p className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-bile-300">
-          Fitted
+          Built
         </p>
       ) : (
         <>
@@ -200,7 +201,7 @@ function UpgradeCard({
           <PartsRow parts={upgrade.parts} />
           <div className="flex items-center gap-2.5">
             <Button size="sm" disabled={upgrade.blocker !== null || pending} onClick={onFit}>
-              Fit it
+              Build it
             </Button>
             {upgrade.blocker !== null && (
               <span className="font-display text-[12px] text-oxblood-300">{upgrade.blocker}</span>

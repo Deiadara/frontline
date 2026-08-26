@@ -1,5 +1,5 @@
 import {
-  reputationOf,
+  playerXpToNextLevel,
   storageCapacity,
   type Base,
   type Building,
@@ -9,7 +9,7 @@ import {
 } from '@frontline/shared';
 import { NavLink } from 'react-router-dom';
 import { FactionPlaque } from '../../components/FactionPlaque';
-import { InfamyChip, MeterChip, ReputationChip } from '../../components/Meters';
+import { FactionLevelChip, InfamyChip } from '../../components/Meters';
 import { RESOURCE_ORDER, ResourceChip } from '../../components/Resources';
 import { OverseerPortrait } from '../overseer/OverseerPortrait';
 import { Icon, type IconName } from '../../components/ui/Icon';
@@ -19,7 +19,7 @@ import { cn } from '../../lib/cn';
  * A door in the standing bar.
  *
  * Sized and lit like the scenery switcher's doors so the two rows read as the same kind of control,
- * but square and label-less: the bar is a strip and there is no room under a 46px tile for a word.
+ * but label-less: the bar is a strip and there is no room under a 44px tile for a word.
  * The name lives in the tooltip and in the accessible label, and the glyph is the identity, which
  * is exactly how Grepolis' own top-bar buttons work.
  */
@@ -35,9 +35,17 @@ function HudDoor({
   title: string;
 }) {
   return (
+    /*
+     * The name, drawn, and nothing else.
+     *
+     * These three used to carry a sentence in a `title` attribute: the operating system's tooltip,
+     * in its own font, on its own grey, a second late. What a player wants off a row of icons is
+     * which door it is, so the hover says "Battles" and the sentence stays where it is genuinely
+     * useful, on `aria-label`, for anyone who cannot see the icon at all.
+     */
     <NavLink
       to={to}
-      title={title}
+      data-tip={label}
       aria-label={`${label}: ${title}`}
       data-testid={`hud-${label.toLowerCase()}`}
       className="group flex shrink-0 items-center focus-visible:outline-none"
@@ -45,15 +53,22 @@ function HudDoor({
       {({ isActive }) => (
         <span
           className={cn(
-            'edge-lit flex h-10 w-10 items-center justify-center rounded-sm border transition-all duration-150 ease-out',
+            // The same struck plate the scenery switcher's doors wear (`door-tile`): bevel,
+            // interior glow, sheen and drop shadow. The two rows are the same kind of object and
+            // now say so, which is what the board asked for.
+            'door-tile relative flex h-11 w-11 items-center justify-center rounded-lg border transition-all duration-150 ease-out',
             isActive
-              ? 'border-brass-300/80 bg-gradient-to-b from-brass-300/30 to-brass-500/15 text-brass-100 shadow-brass'
-              : 'border-surface-600 bg-gradient-to-b from-surface-700 to-surface-800 text-ink-200 ' +
-                  'group-hover:-translate-y-0.5 group-hover:border-iris-300/70 group-hover:text-iris-100 ' +
-                  'group-hover:shadow-lifted group-active:translate-y-0',
+              ? 'door-tile-active z-10 -translate-y-0.5 scale-105 border-brass-300 text-brass-100'
+              : 'border-surface-500/70 text-ink-200 ' +
+                  'group-hover:-translate-y-0.5 group-hover:scale-105 group-hover:border-iris-300/80 ' +
+                  'group-hover:text-iris-100 group-hover:shadow-lifted group-active:translate-y-0 ' +
+                  'group-active:scale-100',
           )}
         >
-          <Icon name={icon} className="h-5 w-5" />
+          <Icon
+            name={icon}
+            className="relative z-[2] h-6 w-6 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]"
+          />
         </span>
       )}
     </NavLink>
@@ -92,7 +107,6 @@ interface TopHudProps {
  * them, and hit targets that clear the 44px guideline for the parts that are clickable.
  */
 export function TopHud({ overseer, base, resources, economy, buildings }: TopHudProps) {
-  const reputation = reputationOf(economy, new Date());
   // One ceiling for every resource: the Apothecary holds this much *of each*, not in total.
   const capacity = storageCapacity(buildings);
 
@@ -123,12 +137,6 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
           navigation step. */}
       <div className="order-1 flex min-w-0 items-center gap-2">
         <FactionPlaque base={base} />
-        {/* The word the street uses, and the first thing to go when the row is tight. It is on the
-            infamy chip's own card at every width, and on the district's Standing panel, so below
-            1400 the bar keeps the plaque and the numbers instead. */}
-        <span className="hidden [@media(min-width:1400px)]:block">
-          <ReputationChip label={reputation} />
-        </span>
       </div>
 
       {/* The identity is a door, not a caption. It names the one person in the game the player
@@ -142,7 +150,7 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
         // The name is in the label as well as in the markup, because below 1560px the markup is
         // hidden, and a door to "your own file" that does not say whose is a door with no name on
         // it, to a screen reader and to a pointer looking for a tooltip alike.
-        title={`${overseer.name}: your own file`}
+        data-tip={`${overseer.name}: your own file`}
         aria-label={`${overseer.name}, Overseer: your own file`}
         className="group order-2 ml-auto flex shrink-0 items-center gap-2.5 rounded-sm px-1 py-0.5 transition-colors hover:bg-brass-300/10 focus-visible:outline-none [@media(min-width:1280px)]:order-5 [@media(min-width:1280px)]:ml-0"
       >
@@ -178,9 +186,10 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
 
           The two doors sit *inside* this group, after the resources, which is Grepolis' own
           arrangement and the board's instruction. They are where a player's eye already is, and
-          they are the two screens most often wanted from anywhere: the fight you have called, and
-          the knobs. Neither is a "place" in the scenery sense, which is why they came off the
-          bottom row rather than being duplicated on it. */}
+          they are the two screens most often wanted from anywhere: the fight you have called and
+          who is on the road. Neither is a "place" in the scenery sense, which is why they are not
+          in the walk of doors below. Settings used to be the third; it is pinned to the right of
+          the bottom bar now, which is the board's placement and closer to the hand. */}
       <div className="order-4 flex min-w-max items-center gap-1">
         {RESOURCE_ORDER.map((kind) => (
           <ResourceChip key={kind} kind={kind} value={resources[kind]} capacity={capacity} />
@@ -207,17 +216,19 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
           label="Actions"
           title="Who is on the road, and how long they have left"
         />
-        <HudDoor
-          to="/game/settings"
-          icon="gear"
-          label="Settings"
-          title="Your name, mark, clock and passphrase"
-        />
       </div>
 
-      {/* Standing. Grouped away from the stockpile: these move slowly and mean something else. */}
+      {/* Standing. Grouped away from the stockpile: these move slowly and mean something else.
+
+          The level sits where the morale meter used to, and it is on every screen for the same
+          reason infamy is: it gates what the crew may hold, so a player needs to be able to see
+          how close the next one is without going and looking for it. */}
       <div className="order-4 flex shrink-0 items-center gap-1.5">
-        <MeterChip kind="morale" value={economy.morale} />
+        <FactionLevelChip
+          level={base.level}
+          xpIntoLevel={base.progression.xpIntoLevel}
+          xpToNextLevel={playerXpToNextLevel(base.level)}
+        />
         <InfamyChip infamy={economy.infamy} notoriety={economy.notoriety} />
       </div>
     </header>

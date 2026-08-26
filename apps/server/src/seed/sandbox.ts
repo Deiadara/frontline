@@ -40,7 +40,7 @@ export function maxedBuildings(): Building[] {
     // Intact and ungarrisoned. The sandbox shows the end-game, and a district that opens
     // pre-damaged would be showing a siege nobody laid.
     damage: 0,
-    garrisons: 0,
+    fortification: 0,
   }));
 }
 
@@ -59,7 +59,7 @@ export const UNLOCKED_FULLNESS = 0.86;
 /** A real end-game stockpile: near the ceiling the maxed Apothecary actually sets. */
 export function unlockedResources(buildings: readonly Building[]): Resources {
   const near = Math.round(storageCapacity(buildings) * UNLOCKED_FULLNESS);
-  return { caps: near, food: near, oil: near, scrap: near, highQualityMetal: near };
+  return { caps: near, food: near, oil: near, scrap: near, highQualityMetal: near, planks: near };
 }
 
 /** A dozen of every unit, so every roster card renders and supply reads like a real army. */

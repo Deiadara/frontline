@@ -102,13 +102,17 @@ export function bundleValue(bundle: TradeBundle): number {
  * What a unit of each resource is worth in caps, for the valuation above.
  *
  * Read off what the Broker and the Runner actually charge rather than invented: caps are caps,
- * food and oil are the cheap bulk goods, scrap sits above them because everything is built out of
- * it, and high-quality metal is the scarce one.
+ * food and oil are the cheap bulk goods, scrap and planks sit above them because everything is
+ * built out of the pair, and high-quality metal is the scarce one.
+ *
+ * Planks price just under scrap: a ruin gives up its timber more readily than its steel, and the
+ * two are wanted in roughly the same quantities, so the cheaper one is the one you strip first.
  */
 export const RESOURCE_CAP_VALUE: Readonly<Record<keyof Resources, number>> = {
   caps: 1,
   food: 1.5,
   oil: 2,
+  planks: 2.2,
   scrap: 2.5,
   highQualityMetal: 12,
 };

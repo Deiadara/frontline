@@ -1,5 +1,8 @@
 import {
+  RESOURCE_KEYS,
+  UNIT_IDS,
   BaseSchema,
+  defaultLoadout,
   BaseSummarySchema,
   type AssigneeState,
   type Base,
@@ -16,6 +19,7 @@ import {
   type TrainingState,
   type Inventory,
   type Fleet,
+  type UnitLoadouts,
 } from '@frontline/shared';
 import { readJson } from '../json.js';
 import type { AppDatabase } from '../index.js';
@@ -40,6 +44,7 @@ interface BaseRow {
   training_json: string | null;
   inventory_json: string | null;
   fitted_upgrades_json: string | null;
+  unit_loadouts_json: string | null;
   fleet_json: string | null;
   created_at: string;
 }
@@ -74,6 +79,16 @@ export interface BasesRepo {
   updateHoldings(baseId: string, resources: Resources, inventory: Inventory): void;
   /** What the workshop has fitted. */
   updateUpgrades(baseId: string, fitted: readonly string[]): void;
+  updateUnitLoadouts(baseId: string, loadouts: UnitLoadouts): void;
+  /**
+   * The mean level of every base standing in the city, bots included, rounded down.
+   *
+   * What the Bar scales its room off (§H2): "better officers based on the overall levels of all
+   * the factions in the districts of the city". Bots are in it on purpose, because they are the
+   * factions holding most of the districts, and a city where the NPC crews have levelled is a city
+   * where a good officer would expect better work.
+   */
+  averageLevel(): number;
   /** What is parked in the yard. */
   updateFleet(baseId: string, fleet: Fleet): void;
   /**
@@ -111,6 +126,34 @@ export interface BasesRepo {
   updateArmy(baseId: string, army: Army, queue: TrainingQueue): void;
 }
 
+/**
+ * A stored stockpile, with any resource the row predates filled in at zero.
+ *
+ * `AmountSchema` has no default, so a row missing a key throws out of `BaseSchema.parse` and takes
+ * the whole server down on the first read: which is what a stockpile written before `planks`
+ * existed did. The backfill migration is not enough on its own, and finding out why is the reason
+ * this exists rather than a wider `.default(0)` on the schema:
+ *
+ *   - A migration is one-shot. Anything that writes a full stockpile from an older build puts the
+ *     gap straight back, and one did: `applyUnlockedSandbox` on a stale dev process rewrote the
+ *     five it knew about over the six the migration had just written.
+ *   - A backup restored from before the migration holds the old shape too, and §9 of this file's
+ *     sibling test says a save like that must be *repairable rather than deleted*.
+ *
+ * Only **absence** is repaired. A key that is present and is a string, a negative or a null is
+ * still a real error, because those are corruption rather than history: the schema judges them
+ * exactly as it did before.
+ */
+function storedResources(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object') return raw;
+  const stored = raw as Record<string, unknown>;
+  const filled: Record<string, unknown> = { ...stored };
+  for (const key of RESOURCE_KEYS) {
+    if (!(key in stored)) filled[key] = 0;
+  }
+  return filled;
+}
+
 function rowToBase(row: BaseRow): Base {
   return BaseSchema.parse({
     id: row.id,
@@ -119,7 +162,7 @@ function rowToBase(row: BaseRow): Base {
     districtId: row.district_id,
     level: row.level,
     isBot: row.is_bot === 1,
-    resources: readJson(row.resources_json),
+    resources: storedResources(readJson(row.resources_json)),
     economy: readJson(row.economy_json),
     progression: readJson(row.progression_json),
     research: readJson(row.research_json),
@@ -137,9 +180,25 @@ function rowToBase(row: BaseRow): Base {
     inventory: row.inventory_json === null ? undefined : readJson(row.inventory_json),
     fittedUpgrades:
       row.fitted_upgrades_json === null ? undefined : readJson(row.fitted_upgrades_json),
+    // A district written before slots existed has no column, and the answer for it is not "three
+    // empty brackets": until today every upgrade it had built applied to every unit it owned, and
+    // an empty map would quietly strip stats off a mid-game crew. It gets the arrangement that
+    // costs it nothing (`defaultLoadout`) until it opens the screen and says otherwise.
+    unitLoadouts:
+      row.unit_loadouts_json === null
+        ? loadoutsForPreSlotSave(row.fitted_upgrades_json)
+        : readJson(row.unit_loadouts_json),
     fleet: row.fleet_json === null ? undefined : readJson(row.fleet_json),
     createdAt: row.created_at,
   });
+}
+
+/** Every unit gets the crew's three strongest, which is what it already had before slots. */
+function loadoutsForPreSlotSave(fittedJson: string | null): UnitLoadouts {
+  const built = fittedJson === null ? [] : (readJson(fittedJson) as string[]);
+  const slots = defaultLoadout(built);
+  if (slots.length === 0) return {};
+  return Object.fromEntries(UNIT_IDS.map((id) => [id, slots]));
 }
 
 function rowToSummary(row: BaseSummaryRow): BaseSummary {
@@ -195,9 +254,10 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
        (id, owner_id, name, district_id, level, is_bot,
         resources_json, economy_json, progression_json, research_json, assignees_json,
         buildings_json, build_queue_json, army_json, training_queue_json,
-        commanders_json, training_json, inventory_json, fitted_upgrades_json, fleet_json,
+        commanders_json, training_json, inventory_json, fitted_upgrades_json,
+        unit_loadouts_json, fleet_json,
         created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
@@ -219,6 +279,8 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     'UPDATE bases SET resources_json = ?, inventory_json = ? WHERE id = ?',
   );
   const updateUpgradesStmt = db.prepare('UPDATE bases SET fitted_upgrades_json = ? WHERE id = ?');
+  const updateLoadoutsStmt = db.prepare('UPDATE bases SET unit_loadouts_json = ? WHERE id = ?');
+  const averageLevelStmt = db.prepare('SELECT avg(level) AS mean FROM bases');
   const updateFleetStmt = db.prepare('UPDATE bases SET fleet_json = ? WHERE id = ?');
   const updateTrainingStmt = db.prepare(
     'UPDATE bases SET training_json = ?, commanders_json = ? WHERE id = ?',
@@ -255,6 +317,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.training),
         JSON.stringify(base.inventory),
         JSON.stringify(base.fittedUpgrades),
+        JSON.stringify(base.unitLoadouts),
         JSON.stringify(base.fleet),
         base.createdAt,
       );
@@ -287,6 +350,13 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateUpgrades(baseId, fitted) {
       updateUpgradesStmt.run(JSON.stringify(fitted), baseId);
+    },
+    averageLevel() {
+      const row = averageLevelStmt.get() as { mean: number | null } | undefined;
+      return Math.max(0, Math.floor(row?.mean ?? 0));
+    },
+    updateUnitLoadouts(baseId, loadouts) {
+      updateLoadoutsStmt.run(JSON.stringify(loadouts), baseId);
     },
     updateFleet(baseId, fleet) {
       updateFleetStmt.run(JSON.stringify(fleet), baseId);

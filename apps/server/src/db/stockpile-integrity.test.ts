@@ -35,6 +35,15 @@ const NOW = '2026-08-16T12:00:00.000Z';
 const REPAIR_MIGRATION = '0024_repair_null_stockpiles.sql';
 
 /**
+ * The backfill that gave every save a `planks` amount (§D5b).
+ *
+ * Rewound alongside the repair because a save old enough to hold the nulls is older than planks
+ * too, so both are new to it. `0024` cannot restore planks and is not being asked to: it is
+ * immutable history, written before the resource existed, and it repairs the five it knew about.
+ */
+const PLANKS_MIGRATION = '0032_planks.sql';
+
+/**
  * Rewinds one migration so it runs again.
  *
  * A save that broke did so on a build that did not have the repair yet, so the repair is *new* to
@@ -80,6 +89,7 @@ function seed(repos: Repositories): string {
     training: startingTraining(NOW),
     inventory: {},
     fittedUpgrades: [],
+    unitLoadouts: {},
     fleet: {},
     commanders: [],
     createdAt: NOW,
@@ -115,7 +125,7 @@ describe('a structure with no damage field', () => {
       level: BUILDING_MAX_LEVEL,
       modifications: [],
       damage: 0,
-      garrisons: 0,
+      fortification: 0,
     }));
     expect(storageCapacity(LEGACY_DISTRICT)).toBe(storageCapacity(intact));
   });
@@ -166,6 +176,7 @@ describe('a save that already holds the nulls', () => {
         oil: null,
         scrap: null,
         highQualityMetal: null,
+        planks: null,
       }),
       id,
     );
@@ -176,10 +187,19 @@ describe('a save that already holds the nulls', () => {
     // already-current database does nothing at all, and a test that did that would pass whether
     // the migration worked or not.
     forget(db, REPAIR_MIGRATION);
+    forget(db, PLANKS_MIGRATION);
     runMigrations(db);
 
+    /*
+     * The five the repair knew about come back at their starting amounts; planks comes back at
+     * **zero**, not at its starting amount, and that is the right answer rather than a gap.
+     *
+     * A save this old predates the resource. Handing it 420 planks would be inventing a stockpile
+     * a player never earned, on the strength of the save having been corrupt, which is a reward
+     * for a bug. Zero is what a crew that never had planks has.
+     */
     const repaired = repos.bases.findById(id);
-    expect(repaired?.resources).toEqual(STARTING_RESOURCES);
+    expect(repaired?.resources).toEqual({ ...STARTING_RESOURCES, planks: 0 });
   });
 
   it('leaves a healthy stockpile exactly alone', () => {
@@ -247,6 +267,7 @@ describe('a fractional stockpile', () => {
         oil: 120,
         scrap: 500.000001,
         highQualityMetal: 40.5,
+        planks: 500,
       }),
       id,
     );
@@ -262,6 +283,7 @@ describe('a fractional stockpile', () => {
       oil: 120,
       scrap: 500,
       highQualityMetal: 40,
+      planks: 500,
     });
   });
 
@@ -274,24 +296,69 @@ describe('a fractional stockpile', () => {
     expect(repos.bases.findById(id)?.resources.scrap).toBe(91_000);
   });
 
-  it('floors a fractional wage in the book, which caps are paid out of', () => {
+  it('refuses a fractional commitment in the payroll book, and rebuilds the row', () => {
     const { db, repos } = openStack();
     const id = seed(repos);
     const economy = startingEconomy(NOW);
     db.prepare('UPDATE bases SET economy_json = ? WHERE id = ?').run(
       JSON.stringify({
         ...economy,
-        payroll: { ...economy.payroll, wages: { 'officer-1': 42.75, 'officer-2': 30 } },
+        payroll: { ...economy.payroll, commitments: { 'officer-1': 42.75, 'officer-2': 30 } },
       }),
       id,
     );
+    // A fractional commitment is not repairable the way a fractional stockpile is: there is no
+    // migration that rounds it, because a fee is a number two people said out loud and the schema
+    // is what stops a hand-written row smuggling a fraction into the committed total.
     expect(() => repos.bases.findById(id), 'the forged row must be unreadable').toThrow();
+  });
+});
 
-    forget(db, WHOLE_MIGRATION);
-    runMigrations(db);
-    expect(repos.bases.findById(id)?.economy.payroll.wages).toEqual({
-      'officer-1': 42,
-      'officer-2': 30,
+/**
+ * A stockpile written before a resource existed (§D5b).
+ *
+ * The backfill migration is not enough on its own. It is one-shot, so anything that writes a full
+ * stockpile from an older build puts the gap straight back, and one did: a dev process still
+ * running the pre-planks code called `applyUnlockedSandbox` after the migration had landed and
+ * rewrote the five keys it knew about over the six that were there. The next read threw out of
+ * `BaseSchema.parse` and took the server down on boot.
+ *
+ * So absence is repaired on the way in as well. Only absence: a key that is present and wrong is
+ * still corruption, and still an error.
+ */
+describe('a stockpile older than one of its resources', () => {
+  it('reads a missing amount as zero rather than throwing', () => {
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?').run(
+      JSON.stringify({ caps: 10, food: 20, oil: 30, scrap: 40, highQualityMetal: 50 }),
+      id,
+    );
+
+    const read = repos.bases.findById(id);
+    expect(read?.resources).toEqual({
+      caps: 10,
+      food: 20,
+      oil: 30,
+      scrap: 40,
+      highQualityMetal: 50,
+      planks: 0,
     });
+  });
+
+  it('still refuses a key that is present and not an amount', () => {
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?').run(
+      JSON.stringify({ ...STARTING_RESOURCES, planks: 'lots' }),
+      id,
+    );
+    expect(() => repos.bases.findById(id)).toThrow();
+
+    db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?').run(
+      JSON.stringify({ ...STARTING_RESOURCES, planks: -5 }),
+      id,
+    );
+    expect(() => repos.bases.findById(id)).toThrow();
   });
 });

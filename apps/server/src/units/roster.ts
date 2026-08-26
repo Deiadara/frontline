@@ -13,6 +13,11 @@ import {
   type UnitOption,
   type UnitsResponse,
   upgradedStats,
+  type FittedSlot,
+  type UpgradeSpec,
+  fittedFor,
+  findUpgrade,
+  slotsFor,
   ENV_LABEL_CATALOG,
   ENV_LABEL_IDS,
   type UnitSpec,
@@ -68,6 +73,19 @@ function groundAffinities(unit: UnitSpec): UnitOption['affinities'] {
   return rows;
 }
 
+/** One bracket, as the card draws it: what is in it, or the fact that nothing is. */
+function describeSlot(upgradeId: string | null): FittedSlot {
+  const spec = upgradeId === null ? undefined : findUpgrade(upgradeId);
+  if (!spec) return { upgradeId: null, name: '', line: null, tier: 0, effect: {} };
+  return {
+    upgradeId: spec.id,
+    name: spec.name,
+    line: spec.line,
+    tier: spec.tier,
+    effect: spec.effect as Record<string, number>,
+  };
+}
+
 export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsResponse {
   const context = unlockContextFor(repos, base);
   const effects = standingEffectsFor(repos, base);
@@ -87,7 +105,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     // Not written into the roster when an upgrade is bought: folding here is what makes a refit
     // reach the units trained last week as well as the ones trained tomorrow, which is what
     // "the workshop refits everybody" has to mean for a player not to find it maddening.
-    stats: upgradedStats(unit.stats, base.fittedUpgrades),
+    stats: upgradedStats(unit.stats, fittedFor(base.unitLoadouts, unit.id)),
     modifiers: unit.modifiers.map((id) => ({
       label: UNIT_MODIFIERS[id].label,
       description: UNIT_MODIFIERS[id].description,
@@ -100,6 +118,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     unlocked: isUnitUnlocked(unit, context),
     missing: missingRequirements(unit, context).map(describeRequirement),
     owned: base.army[unit.id] ?? 0,
+    slots: slotsFor(base.unitLoadouts, unit.id).map(describeSlot),
   }));
 
   return {
@@ -127,6 +146,17 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     queue: base.trainingQueue,
     resources: base.resources,
     trainingCostReduction: effects.trainingCostPercent,
+    built: base.fittedUpgrades
+      .map((id) => findUpgrade(id))
+      .filter((spec): spec is UpgradeSpec => spec !== undefined)
+      .map((spec) => ({
+        id: spec.id,
+        name: spec.name,
+        line: spec.line,
+        tier: spec.tier,
+        description: spec.description,
+        effect: spec.effect as Record<string, number>,
+      })),
     trainingSpeedBonus: effects.trainingSpeedPercent,
   };
 }

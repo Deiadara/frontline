@@ -195,7 +195,12 @@ export function HoverCard({
         aria-disabled={onActivate !== undefined && disabled ? true : undefined}
         onClick={onActivate !== undefined && !disabled ? onActivate : undefined}
         aria-label={label}
-        title={label}
+        /*
+         * Deliberately no `data-tip`. This *is* the tooltip: `TooltipLayer` draws the one-word
+         * name for everything that has no card of its own, and a trigger carrying both opened a
+         * pill on top of its own window. The label stays on `aria-label`, which is what it was
+         * for.
+         */
         aria-describedby={open ? id : undefined}
         aria-expanded={open}
         onMouseEnter={show}

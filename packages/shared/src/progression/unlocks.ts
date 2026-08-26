@@ -98,6 +98,8 @@ export const MILESTONE_STANDING_INVITATION = 'standing_invitation';
 export const MILESTONE_BROKERS_RESPECT = 'brokers_respect';
 /** Level 70: the day's supply run is no longer bounded by what the district can hold. */
 export const MILESTONE_DEEP_POCKETS = 'deep_pockets';
+/** Level 80: a third crew out at once, in a third area (§E). */
+export const MILESTONE_THIRD_CREW = 'third_crew';
 
 const MILESTONES: readonly PlayerLevelUnlock[] = [
   {
@@ -123,6 +125,12 @@ const MILESTONES: readonly PlayerLevelUnlock[] = [
     level: 70,
     name: 'Deep Pockets',
     description: 'Your day of buying is no longer measured against what you can store.',
+  },
+  {
+    id: MILESTONE_THIRD_CREW,
+    level: 80,
+    name: 'A Third Crew',
+    description: 'Three jobs running at once, in three different parts of the city.',
   },
 ];
 

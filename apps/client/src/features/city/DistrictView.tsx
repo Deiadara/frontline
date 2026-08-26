@@ -1,9 +1,9 @@
 import {
   FORTIFY_DIFFICULTY_LABELS,
-  FORTIFY_MAX_LEVEL,
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   fortifyCost,
+  fortifyBonusPercent,
   maxFortifyBonusPercent,
   quoteFortify,
   type Army,
@@ -18,6 +18,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Panel } from '../../components/ui/Panel';
+import { FortifyMeter } from '../../components/ui/FortifyMeter';
 import { LabelRow } from '../../components/ui/LabelChip';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
 import { DistrictScene } from '../base/DistrictScene';
@@ -54,7 +55,14 @@ interface BattleReport {
  * choose *what*.
  */
 /** Only reached before `/me` has answered, when there is nothing to price against yet. */
-const EMPTY_STOCK: Resources = { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 };
+const EMPTY_STOCK: Resources = {
+  caps: 0,
+  food: 0,
+  oil: 0,
+  scrap: 0,
+  highQualityMetal: 0,
+  planks: 0,
+};
 
 export function DistrictView() {
   const { districtId } = useParams<{ districtId: string }>();
@@ -353,7 +361,7 @@ function LocationCard({
             className="flex items-center gap-0.5"
             data-testid={`level-${view.location.id}`}
             data-level={view.level}
-            title={`Level ${view.level} of ${MAX_LOCATION_LEVEL}`}
+            data-tip={`Level ${view.level} of ${MAX_LOCATION_LEVEL}`}
             aria-label={`Level ${view.level} of ${MAX_LOCATION_LEVEL}`}
           >
             {Array.from({ length: MAX_LOCATION_LEVEL }, (_, index) => (
@@ -392,10 +400,23 @@ function LocationCard({
         <Row label="Pays" value={view.bonuses.join(' · ')} />
         <Row label="Defence" value={String(view.defense)} />
         <Row label="Standing there" value={`${view.garrisonSize}`} />
-        <Row
-          label="Dug in"
-          value={`${view.fortification} / ${FORTIFY_MAX_LEVEL} · ${FORTIFY_DIFFICULTY_LABELS[view.location.fortifyDifficulty]}`}
-        />
+        {/* Drawn rather than counted: see `FortifyMeter`. The ground's difficulty stays in words
+            beside it, because it is what decides whether digging here is worth the materials. */}
+        <div className="flex items-center justify-between gap-3 py-1.5">
+          <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+            Dug in
+          </span>
+          <span className="flex items-center gap-2.5">
+            <span className="font-body text-[11px] text-ink-300">
+              {FORTIFY_DIFFICULTY_LABELS[view.location.fortifyDifficulty]}
+            </span>
+            <FortifyMeter
+              level={view.fortification}
+              percent={fortifyBonusPercent(view.location.fortifyDifficulty, view.fortification)}
+              size="sm"
+            />
+          </span>
+        </div>
       </dl>
 
       {view.unlocks.length > 0 && (

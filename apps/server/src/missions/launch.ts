@@ -7,6 +7,12 @@ import {
   type Base,
   type Commander,
   type DelegationTerms,
+  areaPayPercent,
+  levelPayPercent,
+  missionTimings,
+  missionXp,
+  scaledSuccessChance,
+  type Army,
   type MissionTemplate,
   type Overseer,
   hastenedMinutes,
@@ -14,15 +20,11 @@ import {
 import { adminMinutes } from '../admin/mode.js';
 import type { StoredMission } from '../db/repos/missions.js';
 
-/**
- * How many missions one base can have in flight at once.
- *
- * §E2 says the crew is *away* while a mission runs, which is the only thing stopping a player
- * from launching the board a thousand times over and printing resources. The real bound is the
- * size of the assignee pool (§G1-G3, W4): this single constant is the seam it replaces, not a
- * guess at W4's numbers.
+/*
+ * How many missions one base can have in flight is `concurrentMissionSlots` now, off the player's
+ * level: two, and three past the milestone. It lives in `missions.areas.ts` beside the rule that
+ * they have to be in *different* areas, because the two are one constraint.
  */
-export const CONCURRENT_MISSION_LIMIT = 4;
 
 /**
  * Mints the record for a launched mission.
@@ -79,6 +81,10 @@ export function launchMission(args: {
    * road: a shorter way across the city is shorter in both directions and while you are there.
    */
   missionSpeedPercent?: number;
+  /** Which board it came off (`missions.areas.ts`). The area is locked until this crew is home. */
+  areaId: string;
+  /** §A5: the units going. They leave `base.army` in the same transaction that writes this row. */
+  force: Army;
 }): StoredMission {
   const {
     id,
@@ -90,30 +96,46 @@ export function launchMission(args: {
     officer,
     admin = false,
     missionSpeedPercent = 0,
+    areaId,
+    force,
     seed = randomInt(0, 2 ** 32),
   } = args;
 
+  // §E5/§I: the crew's own level makes the same job harder, at the same rate it makes it pay
+  // more. Applied before the Overseer's edge and the delegation, so the two modifiers move a
+  // number that already belongs to this crew.
+  const authored = scaledSuccessChance(template.successChance, base.level);
+  const timings = missionTimings({
+    travelMinutes: admin
+      ? 0
+      : hastenedMinutes(TRAVEL_BAND_MINUTES[template.travelBand], missionSpeedPercent),
+    durationMinutes: adminMinutes(
+      hastenedMinutes(
+        terms ? delegatedMinutes(template.durationMinutes, terms) : template.durationMinutes,
+        missionSpeedPercent,
+      ),
+      admin,
+    ),
+  });
+
   const afterOverseer = overseer
-    ? modifiedSuccessChance(template.successChance, overseer.attributes, template.kind)
-    : template.successChance;
+    ? modifiedSuccessChance(authored, overseer.attributes, template.kind)
+    : authored;
 
   return {
     mission: {
       id,
       baseId: base.id,
       templateId: template.id,
+      areaId,
+      // Both frozen here, with the clock and the odds, so a crew already out keeps its terms.
+      payPercent: areaPayPercent(areaId) + levelPayPercent(base.level),
+      xp: missionXp(template, timings.totalMinutes, base.level),
+      force,
       startedAt: now.toISOString(),
       recalledAt: null,
-      travelMinutes: admin
-        ? 0
-        : hastenedMinutes(TRAVEL_BAND_MINUTES[template.travelBand], missionSpeedPercent),
-      durationMinutes: adminMinutes(
-        hastenedMinutes(
-          terms ? delegatedMinutes(template.durationMinutes, terms) : template.durationMinutes,
-          missionSpeedPercent,
-        ),
-        admin,
-      ),
+      travelMinutes: timings.travelMinutes,
+      durationMinutes: timings.durationMinutes,
       status: 'active',
       officerId: officer?.id ?? null,
       outcome: null,

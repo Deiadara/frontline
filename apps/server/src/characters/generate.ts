@@ -115,6 +115,22 @@ function atRecruitment(value: number, floor: number): number {
 }
 
 /**
+ * Attribute points added to every mean in a roll: how good the room is tonight.
+ *
+ * The Bar scales with the city (§H2). A crew fighting over a city where every district is level
+ * twenty should not still be interviewing the same people it met on its first night, and a fixed
+ * roll is exactly what made the Bar stop being worth opening around the mid game. `barCalibre`
+ * turns the city's own standing into this number and it is the only thing that moves the roll: the
+ * shape, the affinity template and the ceiling are all untouched, so a better room is a room of
+ * better versions of the same people rather than a different generator.
+ *
+ * The recruitment ceiling still holds. `atRecruitment` clamps at `MAX_RECRUITMENT_ATTRIBUTE`, so
+ * calibre compresses towards it rather than running past it, which is what keeps the 40..100 band
+ * something only progression reaches.
+ */
+export const MAX_CALIBRE = MAX_RECRUITMENT_ATTRIBUTE - STRENGTH_MEAN;
+
+/**
  * Which attributes a roll lifts. Most are drawn over the affinity's template: heavier weights
  * come up more often, but one comes from outside it, so the lifted set is never the template's
  * own membership and cannot be read back as one.
@@ -131,18 +147,19 @@ function pickStrengths(rng: Rng, affinity: OfficerRole): AttributeName[] {
   ];
 }
 
-function rollAttributes(rng: Rng, affinity: OfficerRole): Attributes {
+function rollAttributes(rng: Rng, affinity: OfficerRole, calibre = 0): Attributes {
+  const lift = Math.min(MAX_CALIBRE, Math.max(0, calibre));
   const sheet = Object.fromEntries(
     ATTRIBUTE_NAMES.map((name) => [
       name,
-      atRecruitment(gaussian(rng, BASE_MEAN, BASE_STD_DEV), BASE_FLOOR),
+      atRecruitment(gaussian(rng, BASE_MEAN + lift, BASE_STD_DEV), BASE_FLOOR),
     ]),
   ) as Attributes;
 
   const strengths = pickStrengths(rng, affinity);
   for (const name of strengths) {
     // The better of the two: a lift marks an attribute as strong, so it must never pull one down.
-    const lifted = atRecruitment(gaussian(rng, STRENGTH_MEAN, STRENGTH_STD_DEV), BASE_FLOOR);
+    const lifted = atRecruitment(gaussian(rng, STRENGTH_MEAN + lift, STRENGTH_STD_DEV), BASE_FLOOR);
     sheet[name] = Math.max(sheet[name], lifted);
   }
 
@@ -161,12 +178,12 @@ function rollTraits(rng: Rng): TraitId[] {
 }
 
 /** Roll one recruitable character, keeping the affinity. Same seed, same character. */
-export function rollRecruit(seed: number): ShapedRoll {
+export function rollRecruit(seed: number, calibre = 0): ShapedRoll {
   const rng = createRng(seed);
   const affinity = OFFICER_ROLES[randomInt(rng, 0, OFFICER_ROLES.length - 1)];
   if (!affinity) throw new Error('no officer roles to draw an affinity from');
 
-  const rolled = rollAttributes(rng, affinity);
+  const rolled = rollAttributes(rng, affinity, calibre);
   const traits = rollTraits(rng);
 
   // A trait's bonus lands on top of the roll but still cannot break the recruitment ceiling.
@@ -181,8 +198,8 @@ export function rollRecruit(seed: number): ShapedRoll {
   return { attributes, traits, affinity };
 }
 
-/** Roll one recruitable character. Same seed, same character. */
-export function generateCharacter(seed: number): GeneratedCharacter {
-  const { attributes, traits } = rollRecruit(seed);
+/** Roll one recruitable character. Same seed and calibre, same character. */
+export function generateCharacter(seed: number, calibre = 0): GeneratedCharacter {
+  const { attributes, traits } = rollRecruit(seed, calibre);
   return { attributes, traits };
 }

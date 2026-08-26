@@ -18,6 +18,7 @@ import {
   type Building,
 } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
+import { MAX_SQUASH } from '../src/features/base/plots';
 import { base, lateGame, lateGameBase, me } from './fixtures';
 import {
   expectNoImagesClipped,
@@ -41,7 +42,7 @@ function districtAt(level: number): typeof lateGame {
     level,
     modifications: [],
     damage: 0,
-    garrisons: 0,
+    fortification: 0,
   }));
   // The crew's level as well as the district's (§I3): half the ladder is gated on it, so a
   // fixture that maxed the buildings and left the crew at 1 would draw a district full of locks.
@@ -56,8 +57,8 @@ function districtAt(level: number): typeof lateGame {
  */
 function freshDistrict(): typeof lateGame {
   const buildings: Building[] = [
-    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
-    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
+    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0, fortification: 0 },
   ];
   return { ...lateGame, base: { ...lateGameBase, level: 1, buildings, buildQueue: [] } };
 }
@@ -123,9 +124,11 @@ async function settleDistrict(page: Page): Promise<void> {
       const scene = document.querySelector('[data-testid="district-scene"]');
       if (!scene) return false;
       const box = scene.getBoundingClientRect();
-      return box.height > 0 && Math.abs(box.width / box.height - want) < 0.02;
+      if (box.height <= 0) return false;
+      const ratio = box.width / box.height;
+      return ratio >= want.min && ratio <= want.max;
     },
-    aspect,
+    { min: aspect - 0.02, max: aspect / (1 - MAX_SQUASH) + 0.02 },
     { timeout: 5000 },
   );
 }
@@ -162,10 +165,24 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
   // box was no longer the picture.
   const spec = findAssetSpec('plate-district');
   expect(spec, 'the district plate must be in the manifest').toBeDefined();
+  const plateAspect = (spec?.width ?? 1) / (spec?.height ?? 1);
+  const sceneAspect = (scene.right - scene.left) / (scene.bottom - scene.top);
+  // Wider than the plate, never taller, and never wider than the step back can pay for.
+  //
+  // The box is not the plate's exact shape any more. Between the stockpile and the scenery
+  // switcher there is less height than the plate was painted at, and the shortfall used to come
+  // entirely off the top of the picture, which is where the tallest buildings are. The scene now
+  // compresses by up to `MAX_SQUASH` to bring them back into view. Taller than the plate is still
+  // the failure this checks for, and it is the one that means the width was given up and the
+  // painting is being cropped at the sides.
   expect(
-    (scene.right - scene.left) / (scene.bottom - scene.top),
-    'the scene is not the shape of the plate, so the painting in it is cropped',
-  ).toBeCloseTo((spec?.width ?? 1) / (spec?.height ?? 1), 1);
+    sceneAspect,
+    'the scene is taller than the plate, so the painting in it is cropped sideways',
+  ).toBeGreaterThanOrEqual(plateAspect - 0.01);
+  expect(
+    sceneAspect,
+    'the scene is squashed further than the step back allows',
+  ).toBeLessThanOrEqual(plateAspect / (1 - MAX_SQUASH) + 0.01);
 
   const plots = await boxes(page, PLOTS);
   expect(plots, 'every structure in the catalogue has an outline').toHaveLength(
@@ -394,12 +411,14 @@ for (const size of VIEWPORTS) {
 
       // The dialog's own overflow, so the cut is one a fixed box genuinely suffers.
       //
-      // 260px, not 120: the height has to leave the body **partially** visible, because a cut is
-      // what this gate reports and a row squeezed to nothing is hidden rather than sliced. At 120px
-      // the header and footer alone fill the box, the body collapses to zero, and the gate is
-      // correctly quiet, which reads exactly like a gate that has stopped working.
+      // The height has to leave the body **partially** visible, because a cut is what this gate
+      // reports and a row squeezed to nothing is hidden rather than sliced. Too small and the
+      // header and footer alone fill the box, the body collapses to zero, and the gate is
+      // correctly quiet, which reads exactly like a gate that has stopped working. This was 260px
+      // when the header carried a 128px portrait of the building; without it the whole dialog fits
+      // inside that and nothing is cut, so the clamp follows the header down.
       await page.addStyleTag({
-        content: '[role="dialog"] { max-height: 260px !important; overflow-y: hidden !important; }',
+        content: '[role="dialog"] { max-height: 200px !important; overflow-y: hidden !important; }',
       });
       await expect(expectNothingClippedVertically(page, '[role="dialog"]')).rejects.toThrow(
         /sliced/,

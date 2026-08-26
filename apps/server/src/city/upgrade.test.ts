@@ -98,6 +98,7 @@ async function makeStack(): Promise<Stack> {
     oil: 9_000,
     scrap: 9_000,
     highQualityMetal: 900,
+    planks: 9_000,
   });
 
   return { app, db, token, baseId };
@@ -215,6 +216,7 @@ describe('working a location up (§A4)', () => {
       oil: 0,
       scrap: 0,
       highQualityMetal: 0,
+      planks: 0,
     });
     const res = await upgrade(stack);
     expect(res.statusCode).toBe(409);

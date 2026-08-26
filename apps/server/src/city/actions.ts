@@ -3,7 +3,8 @@ import {
   FORTIFY_MAX_LEVEL,
   MAX_LOCATION_LEVEL,
   addResources,
-  adjustMeter,
+  gainInfamy,
+  infirmaryRecoveryPercent,
   addToArmy,
   canAfford,
   disruptionFrom,
@@ -20,7 +21,6 @@ import {
   homeBattlefield,
   plunder,
   raidTargetOf,
-  recordRaidOutcome,
   refreshDisruption,
   spendResources,
   takeFromArmy,
@@ -36,38 +36,38 @@ import {
   type SkirmishEngine,
   recoverCasualties,
 } from '@frontline/shared';
-import { forceSize, hasForce, mergeArmies, removeForce } from '../battle/forces.js';
+import {
+  forceSize,
+  hasForce,
+  isFightingForce,
+  mergeArmies,
+  removeForce,
+} from '../battle/forces.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
- * Taking ground by force is the loudest *infamous* action in the game (GDD §D7), and §D8 keeps its
- * own record of whose ground it was.
+ * Taking ground by force is the loudest *infamous* action in the game (GDD §D7).
  *
- * Both halves move on the same event and neither is stored twice: the meter is nudged and the
- * stance tally is appended, from one reading of the district. `raidTargetOf` is the shared answer
- * to "whose was it", so the map is the only location that is authored.
+ * `raidTargetOf` is the shared answer to "whose was it", so the map is the only place the
+ * distinction between Combine ground and everybody else's is authored.
  */
 function recordTaking(
   economy: EconomyState,
   district: District,
   winner: 'attacker' | 'defender',
-  now: Date,
 ): EconomyState {
+  if (winner !== 'attacker') return economy;
   const target = raidTargetOf(district);
   return {
     ...economy,
-    infamy:
-      winner === 'attacker'
-        ? adjustMeter(
-            economy.infamy,
-            infamyForRaidWon({
-              fromTheState: target.faction === 'government',
-              seatOfPower: target.isSeatOfPower,
-            }),
-          )
-        : economy.infamy,
-    reputationTally: recordRaidOutcome(economy.reputationTally, { winner, target }, now),
+    infamy: gainInfamy(
+      economy.infamy,
+      infamyForRaidWon({
+        fromTheState: target.faction === 'government',
+        seatOfPower: target.isSeatOfPower,
+      }),
+    ),
   };
 }
 
@@ -88,6 +88,8 @@ export const CITY_REFUSALS = [
   'no_force',
   'needs_infamy',
   'not_enough_units',
+  /** §A5: a porter is not a soldier. The support tier may never be sent to a fight. */
+  'not_a_fighting_force',
   'already_held',
   'not_held',
   'not_contested',
@@ -172,6 +174,7 @@ export function attackPlace(
   if (!scouted) return { kind: 'refused', reason: 'unscouted' };
   if (forceSize(force) === 0) return { kind: 'refused', reason: 'no_force' };
   if (!hasForce(base.army, force)) return { kind: 'refused', reason: 'not_enough_units' };
+  if (!isFightingForce(force)) return { kind: 'refused', reason: 'not_a_fighting_force' };
 
   const control = repos.city.control(location.id);
   if (!control) return { kind: 'refused', reason: 'not_contested' };
@@ -207,7 +210,8 @@ export function attackPlace(
   // is at home, so this is only ever *our* dead: the defender's medics are not ours to call on.
   const survived = recoverCasualties(
     outcome.winnerLosses,
-    standingEffectsFor(repos, base).casualtyRecoveryPercent,
+    standingEffectsFor(repos, base).casualtyRecoveryPercent +
+      infirmaryRecoveryPercent(base.buildings),
   );
   const returned = captured ? removeForce(force, survived) : outcome.fled;
 
@@ -231,7 +235,7 @@ export function attackPlace(
   }
 
   const army = mergeArmies(removeForce(base.army, force), returned);
-  const economy = recordTaking(base.economy, district, outcome.winner, now);
+  const economy = recordTaking(base.economy, district, outcome.winner);
   const next: Base = { ...base, army, economy };
   repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
   repos.bases.updateEconomy(next.id, next.economy);
@@ -309,6 +313,7 @@ export function raidDistrict(
   const { base, target, force, district, now } = input;
   if (forceSize(force) === 0) return { kind: 'refused', reason: 'no_force' };
   if (!hasForce(base.army, force)) return { kind: 'refused', reason: 'not_enough_units' };
+  if (!isFightingForce(force)) return { kind: 'refused', reason: 'not_a_fighting_force' };
 
   const effects = standingEffectsFor(repos, base);
   const outcome = engine.resolve({
@@ -345,7 +350,10 @@ export function raidDistrict(
     });
   }
 
-  const survived = recoverCasualties(outcome.winnerLosses, effects.casualtyRecoveryPercent);
+  const survived = recoverCasualties(
+    outcome.winnerLosses,
+    effects.casualtyRecoveryPercent + infirmaryRecoveryPercent(base.buildings),
+  );
   const returned = won ? removeForce(force, survived) : outcome.fled;
   const army = mergeArmies(removeForce(base.army, force), returned);
   // The defender's own books. A raided crew used to lose resources and not one body, whether they
@@ -359,7 +367,7 @@ export function raidDistrict(
     ...base,
     army,
     resources: addResources(base.resources, haul),
-    economy: recordTaking(base.economy, district, outcome.winner, now),
+    economy: recordTaking(base.economy, district, outcome.winner),
   };
   repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
   repos.bases.updateEconomy(next.id, next.economy);

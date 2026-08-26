@@ -4,6 +4,10 @@ import {
   BATTLE_BOOSTS,
   TRAP_CATALOG,
   buildingEffectiveness,
+  fortifyBonusPercent,
+  fortifyCost,
+  nextFortifyLevel,
+  type Building,
   declarableSlots,
   deploymentBlurPercent,
   districtHolder,
@@ -178,6 +182,24 @@ function reportsFor(repos: Repositories, base: Base): BattleReportView[] {
   });
 }
 
+/**
+ * What digging this structure one more level would cost, or null when there is nothing to buy.
+ *
+ * Null off the Gate as well as at the ceiling: the two are different sentences on screen ("only
+ * the Gate is worth it" against "as dug in as it goes") but they are the same absence of an offer,
+ * and the route refuses both.
+ */
+function nextGateFortify(building: Building): StructureDefence['nextFortify'] {
+  if (building.kind !== 'gate') return null;
+  const level = nextFortifyLevel(building.fortification);
+  if (level === null) return null;
+  return {
+    level,
+    cost: fortifyCost(level),
+    bonusPercent: fortifyBonusPercent('medium', level),
+  };
+}
+
 function structuresOf(base: Base): StructureDefence[] {
   return base.buildings.map((building) => ({
     buildingId: building.id,
@@ -186,7 +208,13 @@ function structuresOf(base: Base): StructureDefence[] {
     level: building.level,
     damage: building.damage,
     effectiveness: buildingEffectiveness(building),
-    garrisons: building.garrisons,
+    fortification: building.fortification,
+    // Only the Gate's digging is worth anything, and the screen says so by quoting zero on the
+    // rest rather than by hiding the row: a player who has just spent on the wrong structure
+    // needs to see that it bought nothing.
+    fortifyPercent:
+      building.kind === 'gate' ? fortifyBonusPercent('medium', building.fortification) : 0,
+    nextFortify: nextGateFortify(building),
   }));
 }
 

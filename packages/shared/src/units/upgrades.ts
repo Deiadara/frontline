@@ -15,7 +15,7 @@ import { UNIT_STAT_KEYS, type UnitStats } from './stats.js';
  * ## Three lines, each behind a blueprint
  *
  * **Armour** is plate and padding: vitality and armour, at the cost of a little speed. **Weapons**
- * are what they carry: lethality, offense, range. **Cybernetics** are what goes *in* them:
+ * are what they carry: penetration, offense, range. **Cybernetics** are what goes *in* them:
  * reflex and speed and stealth, and the only line whose top tier asks for a Neural Shunt per
  * upgrade rather than per unit.
  *
@@ -115,7 +115,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 1,
     name: 'Machined Barrels',
     description: 'Bored true instead of bored out. Everything lands where it was pointed.',
-    effect: { lethality: 5, offense: 4 },
+    effect: { penetration: 5, offense: 4 },
     cost: { scrap: 1000, caps: 500 },
     parts: { scrap_servo: 2 },
     requiresGauntletLevel: 3,
@@ -126,7 +126,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 2,
     name: 'Match Loads',
     description: 'Powder measured by somebody who cared. The difference is at distance.',
-    effect: { lethality: 9, offense: 6, range: 8 },
+    effect: { penetration: 9, offense: 6, range: 8 },
     cost: { scrap: 3000, highQualityMetal: 220, caps: 1800 },
     parts: { optic_cluster: 3 },
     requiresGauntletLevel: 8,
@@ -137,7 +137,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 3,
     name: 'Slaved Optics',
     description: 'The sight talks to the trigger. Nobody has to be a good shot any more.',
-    effect: { lethality: 14, offense: 12, range: 14 },
+    effect: { penetration: 14, offense: 12, range: 14 },
     cost: { scrap: 7200, highQualityMetal: 780, caps: 5200 },
     parts: { targeting_core: 2, optic_cluster: 4 },
     requiresGauntletLevel: 14,

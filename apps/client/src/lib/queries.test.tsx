@@ -69,7 +69,7 @@ describe('a refused launch that had already settled the board', () => {
     );
     const { result, invalidated } = harness(useLaunchMission);
 
-    result.current.mutate({ templateId: 'convoy-ambush' });
+    result.current.mutate({ templateId: 'convoy-ambush', areaId: 'misc', force: { razors: 1 } });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(BOTH));
@@ -86,7 +86,7 @@ describe('a refused launch that had already settled the board', () => {
     );
     const { result, invalidated } = harness(useLaunchMission);
 
-    result.current.mutate({ templateId: 'scrap-run' });
+    result.current.mutate({ templateId: 'scrap-run', areaId: 'misc', force: { razors: 1 } });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(BOTH));
@@ -96,7 +96,7 @@ describe('a refused launch that had already settled the board', () => {
     launchMission.mockResolvedValueOnce({ missions: [] });
     const { result, invalidated } = harness(useLaunchMission);
 
-    result.current.mutate({ templateId: 'scrap-run' });
+    result.current.mutate({ templateId: 'scrap-run', areaId: 'misc', force: { razors: 1 } });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(BOTH));
@@ -137,7 +137,7 @@ describe('a level-up refreshes the §G layer it moved', () => {
     );
     const { result, invalidated } = harness(useLaunchMission);
 
-    result.current.mutate({ templateId: 'convoy-ambush' });
+    result.current.mutate({ templateId: 'convoy-ambush', areaId: 'misc', force: { razors: 1 } });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(invalidated()).toContain(JSON.stringify(queryKeys.assignees));

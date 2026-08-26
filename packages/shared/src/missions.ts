@@ -3,6 +3,7 @@ import { MissionDifficultySchema } from './assignees/delegation.js';
 import { MissionStanceSchema, type MissionStance } from './factions.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
+import { ArmySchema } from './units/index.js';
 
 /**
  * Missions, travel and timers: GDD §E.
@@ -31,8 +32,8 @@ export const MISSION_MAX_DURATION_MINUTES = 24 * 60;
 
 /**
  * Battles pay more than standard work and risk your people (§E5). The risk is real: a lost battle
- * pays nothing and costs morale, where a standard run that goes wrong still limps home with a
- * salvage share.
+ * pays nothing and can cost you the crew you sent, where a standard run that goes wrong still
+ * limps home with a salvage share.
  */
 export const MissionKindSchema = z.enum(['standard', 'battle']);
 export type MissionKind = z.infer<typeof MissionKindSchema>;
@@ -41,6 +42,15 @@ export const MissionOutcomeSchema = z.enum(['success', 'failure']);
 export type MissionOutcome = z.infer<typeof MissionOutcomeSchema>;
 
 export const MissionStatusSchema = z.enum(['active', 'resolved']);
+
+/**
+ * Which board a job came off: a district id, or `misc` (`missions.areas.ts`).
+ *
+ * Declared here rather than beside the areas themselves, and it has to be: the area module reads
+ * the template catalogue below, so a schema imported the other way is a cycle, and a cycle in a
+ * module that runs at import time is a `Cannot read properties of undefined` at boot.
+ */
+export const MissionAreaIdSchema = z.string().min(1);
 export type MissionStatus = z.infer<typeof MissionStatusSchema>;
 
 export const MissionTemplateSchema = z.object({
@@ -99,7 +109,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 3,
-    spoils: { scrap: 40, caps: 5 },
+    spoils: { scrap: 40, planks: 30, caps: 5 },
     successChance: 0.97,
   },
   {
@@ -204,8 +214,210 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'furthest',
     durationMinutes: MISSION_MAX_DURATION_MINUTES,
-    spoils: { caps: 20, food: 20, oil: 15, scrap: 25, highQualityMetal: 3 },
+    spoils: { caps: 20, food: 20, oil: 15, scrap: 25, planks: 20, highQualityMetal: 3 },
     successChance: 0.88,
+  },
+
+  // --- the wider board ---------------------------------------------------------------------
+  //
+  // Nine jobs meant every area drew from almost the whole catalogue and two boards a district
+  // apart looked much the same. What follows fills it out to something a player can read as a
+  // city: work at every distance band, both kinds, and every stance, so a three-card board is a
+  // choice rather than a sample of the whole list.
+  {
+    id: 'water-run',
+    name: 'Water Run',
+    brief:
+      'A standpipe two streets over runs clean for about an hour after the pumps cycle. Bring every drum you own and somebody to watch the corner.',
+    kind: 'standard',
+    difficulty: 'easy',
+    stance: 'unaligned',
+    travelBand: 'close',
+    durationMinutes: 8,
+    spoils: { food: 20, caps: 6 },
+    successChance: 0.96,
+  },
+  {
+    id: 'cable-strip',
+    name: 'Cable Strip',
+    brief:
+      'Half a block of Combine conduit nobody has pulled yet, because the ceiling above it is not holding much. Copper all the way down.',
+    kind: 'standard',
+    difficulty: 'easy',
+    stance: 'against_government',
+    travelBand: 'close',
+    durationMinutes: 18,
+    spoils: { scrap: 55, highQualityMetal: 2 },
+    successChance: 0.92,
+  },
+  {
+    id: 'timber-pull',
+    name: 'Timber Pull',
+    brief:
+      'The old market hall is coming down whether anybody helps it or not. Take the joists before it decides for itself.',
+    kind: 'standard',
+    difficulty: 'easy',
+    stance: 'unaligned',
+    travelBand: 'close',
+    durationMinutes: 22,
+    spoils: { planks: 70, scrap: 15 },
+    successChance: 0.94,
+  },
+  {
+    id: 'checkpoint-shakedown',
+    name: 'Checkpoint Shakedown',
+    brief:
+      'A two-man Combine post on a road nobody official uses. They will not radio it in, because they are not supposed to be there either.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'close',
+    durationMinutes: 15,
+    spoils: { caps: 25, scrap: 15 },
+    successChance: 0.84,
+  },
+  {
+    id: 'debt-collection',
+    name: 'Debt Collection',
+    brief:
+      'Somebody owes a broker and the broker is paying to have it explained to them. Nothing about this is complicated.',
+    kind: 'battle',
+    difficulty: 'easy',
+    stance: 'unaligned',
+    travelBand: 'close',
+    durationMinutes: 20,
+    spoils: { caps: 45 },
+    successChance: 0.88,
+  },
+  {
+    id: 'pump-house',
+    name: 'The Pump House',
+    brief:
+      'The Combine meters the water pressure for four blocks out of one pump house, and it has a garrison in it for exactly that reason.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'further',
+    durationMinutes: 55,
+    spoils: { caps: 40, food: 35, scrap: 20 },
+    successChance: 0.76,
+  },
+  {
+    id: 'relay-sabotage',
+    name: 'Relay Sabotage',
+    brief:
+      'One Combine relay mast, one night, and a district that stops being watched for a week afterwards. They will rebuild it. Let them.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'further',
+    durationMinutes: 70,
+    spoils: { highQualityMetal: 8, scrap: 30, caps: 20 },
+    successChance: 0.72,
+  },
+  {
+    id: 'archive-lift',
+    name: 'Archive Lift',
+    brief:
+      'A Combine records office that still has power and a clerk who has stopped caring. Walk out with the drives, not the argument.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'further',
+    durationMinutes: 80,
+    spoils: { caps: 60, highQualityMetal: 4 },
+    successChance: 0.85,
+  },
+  {
+    id: 'ration-escort',
+    name: 'Ration Escort',
+    brief:
+      'The Combine wants its own convoy walked through ground it has stopped policing. Good pay. Everybody on that road will see whose side you took.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'for_government',
+    travelBand: 'further',
+    durationMinutes: 65,
+    spoils: { caps: 85, food: 30 },
+    successChance: 0.8,
+  },
+  {
+    id: 'census-sweep',
+    name: 'Census Sweep',
+    brief:
+      'Knock on every door on a list and write down who answers. The Combine will not say what the list is for and you already know.',
+    kind: 'standard',
+    difficulty: 'easy',
+    stance: 'for_government',
+    travelBand: 'close',
+    durationMinutes: 35,
+    spoils: { caps: 50 },
+    successChance: 0.93,
+  },
+  {
+    id: 'tunnel-survey',
+    name: 'Tunnel Survey',
+    brief:
+      'Nobody has mapped the service tunnels since the flood and half of them go somewhere useful. Take rope. Take somebody who can swim.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'unaligned',
+    travelBand: 'further',
+    durationMinutes: 120,
+    spoils: { scrap: 60, planks: 45, caps: 25 },
+    successChance: 0.87,
+  },
+  {
+    id: 'scrapworks-raid',
+    name: 'Scrapworks Raid',
+    brief:
+      'A yard with a working press and forty people who would rather keep it. Loud, close, and worth every minute of it.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'unaligned',
+    travelBand: 'further',
+    durationMinutes: 100,
+    spoils: { scrap: 90, highQualityMetal: 7, caps: 30 },
+    successChance: 0.74,
+  },
+  {
+    id: 'spire-courier',
+    name: 'Spire Courier',
+    brief:
+      'A sealed Combine case, up the lift, into a lobby with real air in it. You will be searched twice. Do not be carrying anything.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'for_government',
+    travelBand: 'furthest',
+    durationMinutes: 200,
+    spoils: { caps: 160, highQualityMetal: 6 },
+    successChance: 0.86,
+  },
+  {
+    id: 'hydro-farm-strike',
+    name: 'Hydro Farm Strike',
+    brief:
+      'Combine growing decks, four floors of them, lit around the clock. Take what will travel and put the lights out on the way past.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'furthest',
+    durationMinutes: 300,
+    spoils: { food: 140, oil: 30, caps: 40 },
+    successChance: 0.71,
+  },
+  {
+    id: 'blacksite-probe',
+    name: 'Blacksite Probe',
+    brief:
+      'Get close enough to the Combine fence to see what is behind it and get back out again. Nobody has managed the second half yet.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'furthest',
+    durationMinutes: 420,
+    spoils: { highQualityMetal: 14, caps: 70, scrap: 25 },
+    successChance: 0.79,
   },
 ];
 
@@ -312,17 +524,6 @@ export function missionRewards(
 }
 
 /**
- * Morale moved by a mission coming home (§D4). W2 parked this driver as a `TODO-LATER` in
- * `economy/meters.ts` and named W3 as its owner; this is it. A won battle lifts the crew most, a
- * lost one costs the most. That is where "risking your people" lands until W4's assignee pool
- * gives casualties somebody to happen to.
- */
-export const MISSION_MORALE_DELTA: Record<MissionKind, Record<MissionOutcome, number>> = {
-  standard: { success: 1, failure: -2 },
-  battle: { success: 4, failure: -8 },
-};
-
-/**
  * Infamy moved by a mission coming home (§D7, §A3): keyed on which way the job pointed at the
  * Combine rather than on how hard it was, because infamy is about *who you crossed*, not effort.
  *
@@ -351,6 +552,42 @@ export const MissionSchema = z.object({
   id: IdSchema,
   baseId: IdSchema,
   templateId: IdSchema,
+  /**
+   * Which board this came off: a district id, or `misc` (`missions.areas.ts`).
+   *
+   * Frozen at launch like everything else on the row. It is what closes the other two jobs in
+   * that area for as long as this crew is out, and what a player is looking at when they arrow
+   * across the board. Defaulted so a run launched before areas existed parses as miscellaneous
+   * work, which is what it was.
+   */
+  areaId: MissionAreaIdSchema.default('misc'),
+  /**
+   * Percentage points on the payout, frozen at launch (`missions.areas.ts`).
+   *
+   * The ground's premium plus the crew's level, added up once when the crew leaves. Frozen for
+   * exactly the reason the clock and the odds are: a crew that is already out must keep the terms
+   * it went under. Without it the pay depended on *when the settle happened*, so a player who
+   * watched their fleet come home was paid differently from one who slept through it, because
+   * levelling mid-fleet moved the premium under the later crews.
+   */
+  payPercent: z.number().nonnegative().default(0),
+  /**
+   * §I1: faction XP a clean run of this pays, frozen at launch for the same reason.
+   *
+   * What actually lands is this, or `FAILED_MISSION_XP_SHARE` of it for a run that came home
+   * empty. Zero on a row written before missions priced their own XP, which reads as "fall back
+   * to the table entry".
+   */
+  xp: z.number().int().nonnegative().default(0),
+  /**
+   * The units that went (§E, §A5).
+   *
+   * A mission is people now, not an abstraction: they leave `base.army` at launch and come back
+   * into it when the crew is home, so a crew that is out cannot also be defending the district.
+   * What they can carry between them is what caps the payout. Defaulted empty so a run launched
+   * before missions took units parses as the delegation it was.
+   */
+  force: ArmySchema.default({}),
   startedAt: IsoDateTimeSchema,
   travelMinutes: z.number().int().nonnegative(),
   durationMinutes: z.number().int().positive(),

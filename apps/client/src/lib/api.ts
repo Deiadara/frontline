@@ -5,7 +5,7 @@ import {
   BattleMutationResponseSchema,
   type DeclareBattleRequest,
   type DeployRequest,
-  type GarrisonStructureRequest,
+  type FortifyStructureRequest,
   type LayTrapRequest,
   type BuyBattleBoostRequest,
   type RecallColumnRequest,
@@ -49,6 +49,11 @@ import {
   type GarrisonRequest,
   type ScoutRequest,
   type CancelTrainingRequest,
+  IncreasePayrollResponseSchema,
+  ReleaseOfficerResponseSchema,
+  type FitSlotRequest,
+  type IncreasePayrollRequest,
+  type ReleaseOfficerRequest,
   type TrainUnitsRequest,
   type BuildStructureRequest,
   type RenameFactionRequest,
@@ -184,8 +189,8 @@ export const deployToBattle = (body: DeployRequest) =>
 export const layTrap = (body: LayTrapRequest) =>
   apiFetch('/battles/trap', BattleMutationResponseSchema, jsonBody(body));
 
-export const garrisonStructure = (body: GarrisonStructureRequest) =>
-  apiFetch('/battles/garrison', BattleMutationResponseSchema, jsonBody(body));
+export const fortifyStructure = (body: FortifyStructureRequest) =>
+  apiFetch('/battles/fortify', BattleMutationResponseSchema, jsonBody(body));
 
 export const buyBattleBoost = (body: BuyBattleBoostRequest) =>
   apiFetch('/battles/boost', BattleMutationResponseSchema, jsonBody(body));
@@ -198,6 +203,12 @@ export const getActions = () => apiFetch('/actions', ActionsResponseSchema);
 export const recallColumn = (body: RecallColumnRequest) =>
   apiFetch('/actions/recall', ActionsResponseSchema, jsonBody(body));
 
+export const releaseOfficer = (body: ReleaseOfficerRequest) =>
+  apiFetch('/bar/release', ReleaseOfficerResponseSchema, jsonBody(body));
+
+export const increasePayroll = (body: IncreasePayrollRequest) =>
+  apiFetch('/bar/payroll', IncreasePayrollResponseSchema, jsonBody(body));
+
 export const getUnits = () => apiFetch('/units', UnitsResponseSchema);
 
 export const trainUnits = (body: TrainUnitsRequest) =>
@@ -205,6 +216,9 @@ export const trainUnits = (body: TrainUnitsRequest) =>
 
 export const cancelTraining = (body: CancelTrainingRequest) =>
   apiFetch('/units/cancel', TrainUnitsResponseSchema, jsonBody(body));
+
+export const fitSlot = (body: FitSlotRequest) =>
+  apiFetch('/units/loadout', UnitsResponseSchema, jsonBody(body));
 
 export const getMissions = () => apiFetch('/missions', MissionsResponseSchema);
 

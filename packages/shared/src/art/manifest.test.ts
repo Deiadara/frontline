@@ -91,6 +91,10 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['unit-the-saint', 'unit-the-saint.webp', 145028],
   ['unit-the-cartographer', 'unit-the-cartographer.webp', 145029],
   ['unit-the-twins', 'unit-the-twins.webp', 145030],
+  // The support tier is last in the catalogue on purpose: a unit inserted anywhere else
+  // renumbers every seed after it. See the note at the head of `UNIT_CATALOG`.
+  ['unit-scavengers', 'unit-scavengers.webp', 145031],
+  ['unit-haulers', 'unit-haulers.webp', 145032],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -102,6 +106,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-oil', 'icon-oil.webp', 160003],
   ['icon-scrap', 'icon-scrap.webp', 160004],
   ['icon-high-quality-metal', 'icon-high-quality-metal.webp', 160005],
+  ['icon-planks', 'icon-planks.webp', 160006],
   ['icon-archetype-enforcer', 'icon-archetype-enforcer.webp', 160011],
   ['icon-archetype-netrunner', 'icon-archetype-netrunner.webp', 160012],
   ['icon-archetype-fixer', 'icon-archetype-fixer.webp', 160013],
@@ -211,8 +216,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 122 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(122);
+  it('holds the 125 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(125);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -398,8 +403,11 @@ describe('ART_MANIFEST', () => {
     ).toEqual(['plane-city-far', 'plane-city-fore']);
   });
 
-  it('leaves the other 53 assets needing no post-process at all', () => {
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(68);
+  it('leaves the other 54 assets needing no post-process at all', () => {
+    // 123 in the manifest, 69 of them post-processed. The title used to say 53 against the same
+    // two numbers, which did not add up even before planks: an icon is one of the post-processed
+    // ones, so adding a resource moves both figures.
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(69);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {

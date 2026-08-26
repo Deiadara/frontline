@@ -123,7 +123,13 @@ test.describe('haggling (§H7)', () => {
     await expect(page.getByRole('dialog')).toBeHidden();
   });
 
-  /** An accepted deal must never be reported as a rejection on the card behind the window. */
+  /**
+   * An accepted deal must never be reported as a rejection on the card behind the window.
+   *
+   * The inline offer field is gone: the window is the only way to hire now, so the card's one job
+   * afterwards is to report what happened in it, and the failure this guards against is it
+   * reporting the opposite.
+   */
   test('the card calls an agreement an agreement', async ({ page }) => {
     await openBar(page);
     await page.getByTestId(`negotiate-${RECRUIT}`).click();
@@ -138,7 +144,7 @@ test.describe('haggling (§H7)', () => {
     await expect(page.getByRole('dialog')).toBeHidden();
 
     const card = page.getByTestId(`recruit-${RECRUIT}`);
-    await expect(card).toContainText('Shook on');
+    await expect(card).toContainText('Signed at');
     await expect(card).not.toContainText('Turned it down');
   });
 
@@ -159,9 +165,17 @@ test.describe('haggling (§H7)', () => {
       await page.getByTestId(`negotiate-${RECRUIT}`).click();
       await page.getByLabel(/^Offer to /).fill(String(offer));
       await page.getByTestId('negotiation-say').click();
-      // Polled rather than read once: the meter is redrawn when the answer lands.
+      /*
+       * Waited on, not slept on.
+       *
+       * A fixed 150ms pause was enough alone and not enough inside a full suite run, which is the
+       * shape of every flake this file has had: the assertion read the *opening* meter, both
+       * readings came back at 100, and "an insult costs more" then compared two identical numbers.
+       * A conversation that has had a turn is never at full patience, so leaving 100 is the exact
+       * signal that the answer has landed.
+       */
       await expect(page.getByTestId('negotiation-transcript')).toContainText(/\S/);
-      await page.waitForTimeout(150);
+      await expect(meter).not.toHaveAttribute('aria-valuenow', '100');
       return Number(await meter.getAttribute('aria-valuenow'));
     };
 

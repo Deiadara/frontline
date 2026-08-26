@@ -181,12 +181,26 @@ export const UnitStatsSchema = z.object({
    * on every sheet would bury the two entries that matter under four that do not.
    */
   resistances: z.partialRecord(DamageTypeSchema, z.number().int()),
-  /** 0..100. Critical hit chance. */
-  lethality: z.number().int().min(0).max(100),
+  /**
+   * 0..100. Points of the target's armour this cancels outright (`battle/matchup.ts`).
+   *
+   * It was a critical-hit chance. A crit is a bonus against *everything*, which says nothing about
+   * who a unit is for; penetration is worth exactly as much as the target is armoured, so it is
+   * the stat that makes an anti-armour specialist a real answer rather than a bigger number.
+   */
+  penetration: z.number().int().min(0).max(100),
   /** 0..100. How far out it can hurt something. */
   range: z.number().int().min(0).max(100),
-  /** 0..100. Damage. */
-  offense: z.number().int().min(0).max(100),
+  /**
+   * Damage dealt, and **not** a 0..100 rating: the same open scale `vitality` is on.
+   *
+   * It was capped at 100 and the catalogue already had a unit sitting on the cap, which is the
+   * shape of a ceiling about to be in the way rather than a rule anybody chose. Attack and hit
+   * points are the two figures a player compares between units in absolute terms ("this one hits
+   * four times as hard"), and a rating out of 100 cannot say that once anything reaches the top.
+   * Every other stat stays a rating, because a percentage chance to dodge genuinely is out of 100.
+   */
+  offense: z.number().int().min(0),
   /** 0..100. Chance to avoid an attack outright. */
   evasion: z.number().int().min(0).max(100),
   /** 0..100. How hard it is to spot **while infiltrating**, not once a fight has started. */
@@ -204,7 +218,7 @@ export const UNIT_STAT_KEYS = [
   'vitality',
   'morale',
   'armor',
-  'lethality',
+  'penetration',
   'range',
   'offense',
   'evasion',
@@ -213,14 +227,47 @@ export const UNIT_STAT_KEYS = [
   'intimidation',
 ] as const satisfies readonly (keyof UnitStats)[];
 
+/**
+ * A *numeric* stat key: the eleven a sheet prints.
+ *
+ * Deliberately not `keyof UnitStats`, which also carries `damageType` and `resistances`. Those are
+ * a word and a table, and neither has a bar or a figure to draw.
+ */
+export type StatKey = (typeof UNIT_STAT_KEYS)[number];
+
+/**
+ * The two open figures a player reads as quantities rather than as ratings.
+ *
+ * Attack and hit points are unbounded, so a bar out of 100 would be a lie about both: a Colossus
+ * has twenty times a Razor's vitality and no track can show that. They are printed, large, above
+ * the ratings. `lootCapacity` is open-ended too (kilograms) and is printed for the same reason,
+ * but it is not a headline: what a unit *carries home* is a raid concern rather than the thing you
+ * compare two units by.
+ */
+export const UNIT_HEADLINE_KEYS = ['offense', 'vitality'] as const satisfies readonly StatKey[];
+
+/** Open-ended counts. Printed as figures, never as a fraction of anything. */
+export const UNIT_FIGURE_KEYS = [
+  ...UNIT_HEADLINE_KEYS,
+  'lootCapacity',
+] as const satisfies readonly StatKey[];
+
+/**
+ * Everything genuinely scored 0..100, in display order. These are the ones a bar can tell the
+ * truth about, because the track *is* the maximum.
+ */
+export const UNIT_RATING_KEYS: readonly StatKey[] = UNIT_STAT_KEYS.filter(
+  (key) => !UNIT_FIGURE_KEYS.includes(key as (typeof UNIT_FIGURE_KEYS)[number]),
+);
+
 export const UNIT_STAT_LABELS: Record<(typeof UNIT_STAT_KEYS)[number], string> = {
   speed: 'Speed',
   vitality: 'Vitality',
   morale: 'Morale',
   armor: 'Armour',
-  lethality: 'Lethality',
+  penetration: 'Penetration',
   range: 'Range',
-  offense: 'Offense',
+  offense: 'Damage',
   evasion: 'Evasion',
   stealth: 'Stealth',
   lootCapacity: 'Loot',
@@ -240,11 +287,12 @@ export const UNIT_STAT_EXPLAINERS: Record<(typeof UNIT_STAT_KEYS)[number], strin
   vitality: 'How much punishment one of them absorbs before they are out of the fight.',
   morale: 'How far it has to go badly before they break and run rather than hold the line.',
   armor: 'Taken off every hit that lands. Cheap weapons stop mattering against enough of it.',
-  lethality: 'How much a hit takes off when it does land. The other half of what a hit is worth.',
+  penetration:
+    'How much of a target’s armour this gets through. Worth exactly as much as the target is wearing, and nothing at all against something in rags.',
   range: 'How long they get to shoot before the fight closes and range stops counting.',
-  offense: 'How often they hit at all, against whatever is trying not to be hit.',
+  offense: 'What you feel when they land a hit.',
   evasion: 'How often the other side misses. Worth most against many small attacks.',
   stealth: 'Whether a raid is noticed on the way in, and whether anyone comes looking after.',
   lootCapacity: 'How much comes back on the truck when the ground is taken.',
-  intimidation: 'Some places give up rather than find out. That is a fight nobody has to have.',
+  intimidation: 'Sometimes you do not even need to land a hit.',
 };

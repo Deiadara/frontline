@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { TerritoryEffects } from '../city/index.js';
-import type { Army, FittedUpgrades } from '../units/index.js';
+import type { Army, UnitLoadouts } from '../units/index.js';
 import { analyseBattle, BattleAnalysisSchema } from './analysis.js';
 import { perimeterToll } from './perimeter.js';
 import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
@@ -47,9 +47,9 @@ export interface SkirmishInput {
   /** What each side's held territory is worth to its units (§A4). */
   attackerTerritory?: TerritoryEffects;
   defenderTerritory?: TerritoryEffects;
-  /** What each side's workshop has fitted (`units/upgrades.ts`). */
-  attackerUpgrades?: FittedUpgrades;
-  defenderUpgrades?: FittedUpgrades;
+  /** What each side has slotted onto each of its units (`units/loadout.ts`). */
+  attackerUpgrades?: UnitLoadouts;
+  defenderUpgrades?: UnitLoadouts;
   /** §A5 teamwork: how much of an oversized force each side can actually deploy. */
   attackerCohesionPercent?: number;
   defenderCohesionPercent?: number;

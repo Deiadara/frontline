@@ -1,49 +1,80 @@
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
-import {
-  FORTIFY_PERCENT_PER_LEVEL,
-  LOCATION_CATALOG,
-  type FortifyDifficulty,
-  type Location,
-} from './locations.js';
+import { LOCATION_CATALOG, type FortifyDifficulty, type Location } from './locations.js';
 
 /**
  * Digging in (GDD §A4).
  *
- * Five levels on any location you hold, each costing more materials and more time than the last. What
- * differs between one location and another is not the price. It is what the work is *worth*, and
- * that is a property of the ground: rubble and rebar you can keep adding to, spire ferrocrete you
- * can barely drill.
+ * Three levels on any location you hold, and the third is the one you have to mean. What differs
+ * between one location and another is not the price. It is what the work is *worth*, and that is a
+ * property of the ground: rubble and rebar you can keep adding to, spire ferrocrete you can barely
+ * drill.
  *
  * The inversion is deliberate and is the board's: **easy ground pays the most per level.** Hard
  * ground is already defensible, the catalogue's `baseDefense` says so, so what you can add to it
  * is marginal. A location that is both hard to take *and* rewards fortifying would be strictly best,
  * and there would be nothing to choose.
+ *
+ * ## Why the curve accelerates
+ *
+ * The three levels are worth 2.5%, 5% and 10% on medium ground: each one doubles the last, and the
+ * third costs five times the first. That shape is the whole decision. Levels 1 and 2 are cheap
+ * enough to spread thin across everything you hold; level 3 is expensive enough that you can only
+ * afford it on the ground you have actually decided to keep, which is what makes "where is their
+ * real position" a readable question on the map rather than a uniform smear of digging.
  */
 
-export const FORTIFY_MAX_LEVEL = 5;
+/** Three, and the third is a commitment. */
+export const FORTIFY_MAX_LEVEL = 3;
 
-/** Materials for the first level. Every level after multiplies the whole bundle. */
+/**
+ * What each level is worth, per kind of ground, in defence percentage points.
+ *
+ * Medium is the authored curve (2.5 / 5 / 10) and the other two are it, tilted: easy ground pays
+ * 1.2x, hard ground 0.8x, which keeps the board's easy-pays-most inversion intact while every row
+ * still doubles. Read as a total at that level, not as what the level alone adds.
+ */
+export const FORTIFY_LEVEL_PERCENT: Record<FortifyDifficulty, readonly number[]> = {
+  easy: [3, 6, 12],
+  medium: [2.5, 5, 10],
+  hard: [2, 4, 8],
+};
+
+/** Materials for the first level. Each level multiplies the whole bundle by `FORTIFY_COST_STEPS`. */
 export const FORTIFY_BASE_COST: PartialResources = {
   caps: 120,
   scrap: 200,
+  // A dug-in position is revetting and bracing before it is anything else, so timber leads the
+  // bundle. It is the one thing in the game that costs more planks than scrap.
+  planks: 260,
   oil: 40,
   highQualityMetal: 8,
 };
 
-/** Level 5 costs ~8.4x level 1: a real commitment on one location rather than a rounding error. */
-export const FORTIFY_COST_GROWTH = 1.7;
+/**
+ * The cost multiplier at each level: level 3 is five times level 1 and two and a half times level 2.
+ *
+ * Not a smooth exponent, because the point is the step rather than the slope: a curve that grew
+ * evenly would make the top level merely the next purchase instead of the one you have to choose a
+ * location for.
+ */
+export const FORTIFY_COST_STEPS: readonly number[] = [1, 2, 5];
 
-/** Seconds for the first level. Level 5 lands a little over an hour later. */
+/** Seconds at each level, on the same shape as the cost and gentler. */
 export const FORTIFY_BASE_SECONDS = 300;
-export const FORTIFY_TIME_GROWTH = 1.9;
+export const FORTIFY_TIME_STEPS: readonly number[] = [1, 2, 4];
+
+/** Clamps a level to `0..FORTIFY_MAX_LEVEL`, which every reader here wants first. */
+function atLevel(level: number): number {
+  return Math.min(FORTIFY_MAX_LEVEL, Math.max(0, Math.trunc(level)));
+}
 
 /** The defence percentage `level` of fortification is worth on this kind of ground. */
 export function fortifyBonusPercent(difficulty: FortifyDifficulty, level: number): number {
-  const at = Math.min(FORTIFY_MAX_LEVEL, Math.max(0, Math.trunc(level)));
-  return FORTIFY_PERCENT_PER_LEVEL[difficulty] * at;
+  const at = atLevel(level);
+  return at === 0 ? 0 : (FORTIFY_LEVEL_PERCENT[difficulty][at - 1] ?? 0);
 }
 
-/** The most fortification is ever worth on this ground: 25% / 20% / 15%. */
+/** The most fortification is ever worth on this ground: 12% / 10% / 8%. */
 export function maxFortifyBonusPercent(difficulty: FortifyDifficulty): number {
   return fortifyBonusPercent(difficulty, FORTIFY_MAX_LEVEL);
 }
@@ -55,7 +86,7 @@ export function maxFortifyBonusPercent(difficulty: FortifyDifficulty): number {
  * easy/medium/hard axis about *reward* rather than quietly becoming a second cost axis.
  */
 export function fortifyCost(level: number): PartialResources {
-  const growth = FORTIFY_COST_GROWTH ** (level - 1);
+  const growth = FORTIFY_COST_STEPS[atLevel(level) - 1] ?? 1;
   return Object.fromEntries(
     RESOURCE_KEYS.flatMap((key) => {
       const amount = FORTIFY_BASE_COST[key];
@@ -66,7 +97,7 @@ export function fortifyCost(level: number): PartialResources {
 
 /** How long raising a location to `level` takes, in seconds. */
 export function fortifySeconds(level: number): number {
-  return Math.round(FORTIFY_BASE_SECONDS * FORTIFY_TIME_GROWTH ** (level - 1));
+  return Math.round(FORTIFY_BASE_SECONDS * (FORTIFY_TIME_STEPS[atLevel(level) - 1] ?? 1));
 }
 
 /** The level a further order would produce, or `null` when the location is already dug in fully. */

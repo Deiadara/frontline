@@ -19,6 +19,7 @@ import {
   DISTRICT_ASPECT,
   DISTRICT_BACK_EDGE,
   DISTRICT_BAND,
+  MAX_SQUASH,
   DISTRICT_SITES_BY_DEPTH,
   siteCentroid,
   siteDepth,
@@ -128,25 +129,49 @@ export function fitted(room: MeasuredSize, band: MeasuredSize, bleed = true): CS
     const height = Math.min(room.height, room.width / DISTRICT_ASPECT);
     return { width: Math.round(height * DISTRICT_ASPECT), height: Math.round(height) };
   }
-  const height = room.width / DISTRICT_ASPECT;
+  const clear = band.height > 0 ? band.height : room.height;
+  // A step back, so the far side of the district is not behind the stockpile.
+  //
+  // The target is the **building band** rather than the whole plate: the top and bottom of the
+  // painting are empty ground, and hiding those under the bars is the whole point of the bleed.
+  // So the picture compresses until the band fits the room between them, or until `MAX_SQUASH` is
+  // spent, whichever comes first. The width stays pinned to the frame either way, which is the
+  // board's rule and the reason this is a squash rather than a scale: full bleed left and right,
+  // never a slab of background down either side.
+  const aspectHeight = room.width / DISTRICT_ASPECT;
+  const height = Math.max(
+    aspectHeight * (1 - MAX_SQUASH),
+    Math.min(aspectHeight, clear / BAND_SPAN),
+  );
   return {
     width: Math.round(room.width),
     height: Math.round(height),
-    marginTop: Math.round(bleedOffset(height, band.height > 0 ? band.height : room.height)),
+    marginTop: Math.round(bleedOffset(height, clear)),
   };
 }
+
+/** The share of the picture the buildings occupy: what actually has to fit between the bars. */
+const BAND_SPAN = (DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100;
 
 /**
  * How far up the picture is pulled inside the clear band, in pixels.
  *
  * Negative: the picture starts above the band, because the first thing down it is empty ground.
- * The building band is centred in whatever room the bars leave, so a frame with room to spare puts
- * the structures in the middle of it and a frame without splits the shortfall evenly.
+ *
+ * With room to spare the buildings are centred in it, which is the arrangement the board asked
+ * for. Without, **the whole shortfall goes to the bottom**: the band's top edge lands exactly on
+ * the top of the clear area, so the far side of the district, where the tallest buildings are, is
+ * never cut. What slides under the scenery switcher instead is the front row, which is what a
+ * floating bar should be covering, and `plateTop` pulls their name plates back inside so nothing
+ * becomes unclickable.
+ *
+ * Splitting it evenly, which is what this used to do, cropped the back row on any viewport short
+ * enough to overflow at all: the Quarters lost its roofline behind the stockpile on a 720p screen.
  */
 function bleedOffset(height: number, clear: number): number {
   const top = (DISTRICT_BAND.top / 100) * height;
-  const occupied = ((DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100) * height;
-  return -top + (clear - occupied) / 2;
+  const slack = clear - BAND_SPAN * height;
+  return -top + Math.max(0, slack / 2);
 }
 
 /**
@@ -312,7 +337,12 @@ export function DistrictScene({
               src={plate}
               alt=""
               aria-hidden="true"
-              className="absolute inset-0 h-full w-full object-cover"
+              // `fill`, not `cover`. The box is the shape the frame needs rather than the shape
+              // the plate was painted at, and `cover` answers that by cropping, which is the
+              // thing this box exists to avoid: it would take the difference back off the top of
+              // the picture and undo the step back above. Stretching spends it on a couple of
+              // percent of width instead.
+              className="absolute inset-0 h-full w-full object-fill"
               data-testid="district-plate"
             />
           )}
@@ -344,7 +374,12 @@ export function DistrictScene({
                 unmet={unmet}
                 selected={selected === site.kind}
                 readOnly={readOnly}
-                topPercent={plateTop(siteDepth(site), pictureHeight, clear, insetTop)}
+                topPercent={plateTop(
+                  siteDepth(site) + (site.labelShift?.y ?? 0),
+                  pictureHeight,
+                  clear,
+                  insetTop,
+                )}
                 onSelect={() => onSelect(site.kind)}
               />
             ))}
@@ -390,7 +425,11 @@ function PlotLabel({
   onSelect: () => void;
 }) {
   const spec = BUILDING_CATALOG[site.kind];
-  const centre = siteCentroid(site);
+  const middle = siteCentroid(site);
+  // A few buildings move their plate off their own middle, because their middle is the part of the
+  // painting worth looking at (`labelShift`). The outline is untouched, so the pointer target and
+  // the sign come apart by a few percent and nothing else changes.
+  const centre = { x: middle.x + (site.labelShift?.x ?? 0) };
   const name = `${spec.name}, ${describe(state, level, unmet)}`;
 
   const face = (

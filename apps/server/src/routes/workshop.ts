@@ -37,8 +37,9 @@ import { AppError, parseBody } from '../errors.js';
  * every rule: a level gate on their structure, a blueprint gate past the first tier, resources,
  * and parts out of the satchel.
  *
- * Upgrades are *fitted*, vehicles are *counted*. That is the only real difference: fitting the same
- * upgrade twice is meaningless, and a second motorcycle is a second motorcycle.
+ * Upgrades are *built once*, vehicles are *counted*. That is the only real difference: building the
+ * same upgrade twice is meaningless, and a second motorcycle is a second motorcycle. Where a built
+ * upgrade then goes is the roster's business (`units/loadout.ts`): three brackets per unit.
  */
 
 function ownBase(app: FastifyInstance, ownerId: string): Base {
@@ -50,8 +51,8 @@ function ownBase(app: FastifyInstance, ownerId: string): Base {
 /** The player-facing sentence for every gate. The client never writes one of its own. */
 const UPGRADE_TEXT: Record<UpgradeRefusal, (name: string) => string> = {
   unknown_upgrade: () => 'No such upgrade',
-  already_fitted: () => 'Already fitted',
-  needs_previous_tier: (name) => `Fit ${name} first`,
+  already_fitted: () => 'Already built',
+  needs_previous_tier: (name) => `Build ${name} first`,
   needs_blueprint: (name) => `Needs the ${name}`,
   gauntlet_too_low: (name) => `Needs the Gauntlet at level ${name}`,
   cannot_afford: () => 'You cannot cover that',
@@ -160,7 +161,7 @@ export function projectWorkshop(app: FastifyInstance, base: Base): WorkshopRespo
       cost: refitPrice(app, base, spec.cost),
       parts: spec.parts,
       effect: spec.effect as Record<string, number>,
-      fitted: base.fittedUpgrades.includes(spec.id),
+      built: base.fittedUpgrades.includes(spec.id),
       blocker: base.fittedUpgrades.includes(spec.id) ? null : upgradeBlocker(app, base, spec.id),
     })),
     vehicles: VEHICLES.map((spec) => ({

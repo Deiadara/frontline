@@ -28,6 +28,15 @@ export const CommanderSchema = z.object({
   /** When `alignment` was last settled: the anchor for the §H5 drift. */
   alignmentUpdatedAt: IsoDateTimeSchema,
   /**
+   * §H7: what they were asking for when they signed, in caps a week.
+   *
+   * Frozen at hire and never re-derived. It is the denominator of `contractStance`, so what an
+   * officer thinks of the crew is measured against the price *they* named at the time rather than
+   * against whatever they would ask today. Defaulted to zero so an officer written before the
+   * payroll book existed parses as indifferent, which is what they were.
+   */
+  askingWage: z.number().int().nonnegative().default(0),
+  /**
    * §H6: this character's own level (INTERFACES R1). Not player progression: `Base.level` is
    * that, it is owned by W6, and nothing here mirrors it.
    */
@@ -69,6 +78,7 @@ export function createCommander(
     moralCompass: options.moralCompass ?? 'pragmatist',
     alignment: ALIGNMENT_START,
     alignmentUpdatedAt: options.now ?? new Date().toISOString(),
+    askingWage: 0,
     level: CHARACTER_LEVEL_MIN,
     xpIntoLevel: 0,
     unspentPoints: 0,

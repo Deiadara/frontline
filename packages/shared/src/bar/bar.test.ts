@@ -5,8 +5,6 @@ import {
   makeAttributes,
   type AttributeName,
 } from '../attributes.js';
-import { PAY_WEEK_MS, proratedFirstWage, startOfPayWeek } from '../economy/payroll.js';
-import { LIVE_REPUTATION_LABELS, REPUTATION_LABELS } from '../economy/reputation.js';
 import {
   INSULT_FRACTION,
   MAX_PATIENCE,
@@ -19,14 +17,11 @@ import {
   type Negotiation,
 } from './negotiation.js';
 import {
-  ALIGNMENT_BANDS,
   ALIGNMENT_BONUS_ATTRIBUTES,
   ALIGNMENT_BONUS_THRESHOLD,
-  ALIGNMENT_HALF_LIFE_MS,
   ALIGNMENT_LEAVE_THRESHOLD,
   ALIGNMENT_MAX,
   ALIGNMENT_MIN,
-  ALIGNMENT_PER_STANCE,
   ALIGNMENT_START,
   AMBITIONS,
   MORAL_COMPASSES,
@@ -37,14 +32,13 @@ import {
   alignmentBonusAttributes,
   alignmentSkillBonus,
   alignmentTarget,
-  reputationStance,
+  contractStance,
   settleAlignment,
   threatensToLeave,
   type Ambition,
-  type Disposition,
   type MoralCompass,
 } from './disposition.js';
-import { JOIN_REFUSAL_STANCE, assessJoin } from './join.js';
+import { assessJoin } from './join.js';
 import {
   CHARACTER_LEVEL_AUTO_POINTS,
   CHARACTER_LEVEL_MIN,
@@ -55,100 +49,39 @@ import {
   characterXpToNextLevel,
   spendCharacterPoint,
 } from './level.js';
-import { WAGE_RESERVATION_FRACTION, askingWage, negotiateWage, reservationWage } from './wage.js';
+import {
+  RECRUIT_BASE_WAGE,
+  WAGE_RESERVATION_FRACTION,
+  WALKOUT_MARKUP,
+  askingWage,
+  reservationWage,
+} from './wage.js';
 
-const EVERY_DISPOSITION: Disposition[] = AMBITIONS.flatMap((ambition) =>
-  MORAL_COMPASSES.map((moralCompass) => ({ ambition, moralCompass })),
-);
+describe('§H3, who will talk to you', () => {
+  const crew = (notoriety: number, level: number) => ({ notoriety, level });
 
-describe('§H4: reading the crew off its reputation word', () => {
-  it('never scores outside the stance band, for any character against any word', () => {
-    for (const disposition of EVERY_DISPOSITION) {
-      for (const reputation of REPUTATION_LABELS) {
-        const stance = reputationStance(disposition, reputation);
-        expect(stance).toBeGreaterThanOrEqual(STANCE_MIN);
-        expect(stance).toBeLessThanOrEqual(STANCE_MAX);
-        expect(Number.isInteger(stance)).toBe(true);
-      }
-    }
+  it('shuts the door on a crew below the rank the character demands', () => {
+    const wants = { minNotoriety: 3, minLevel: 1 };
+    expect(assessJoin(wants, crew(2, 40)).interested).toBe(false);
+    expect(assessJoin(wants, crew(2, 40)).blockers).toEqual(['notoriety']);
+    expect(assessJoin(wants, crew(3, 1)).interested).toBe(true);
   });
 
-  it('reads the same word differently depending on who is reading it', () => {
-    // The whole point of §H4: identical crew, opposite answers.
-    expect(reputationStance({ ambition: 'notoriety', moralCompass: 'ruthless' }, 'Feared')).toBe(2);
-    expect(reputationStance({ ambition: 'knowledge', moralCompass: 'ruthless' }, 'Cautious')).toBe(
-      0,
-    );
-    expect(
-      reputationStance({ ambition: 'knowledge', moralCompass: 'pragmatist' }, 'Reckless'),
-    ).toBe(-2);
+  it('shuts it on a crew that has not been around long enough, whatever its rank', () => {
+    const wants = { minNotoriety: 0, minLevel: 12 };
+    expect(assessJoin(wants, crew(9, 11)).blockers).toEqual(['level']);
+    expect(assessJoin(wants, crew(0, 12)).interested).toBe(true);
   });
 
-  it('spreads over every label a live mechanic can currently produce', () => {
-    // A table that scored 0 everywhere would pass the band check above and mean nothing. Each
-    // reachable word has to move *somebody*, in both directions. Read off
-    // `LIVE_REPUTATION_LABELS` rather than listed, so a label a later mechanic makes reachable is
-    // covered on the day it lands instead of quietly dropping out of this check.
-    expect(LIVE_REPUTATION_LABELS.length).toBeGreaterThan(0);
-    for (const reputation of LIVE_REPUTATION_LABELS) {
-      const stances = EVERY_DISPOSITION.map((d) => reputationStance(d, reputation));
-      expect(Math.max(...stances), `nobody is drawn to a ${reputation} crew`).toBeGreaterThan(0);
-      expect(Math.min(...stances), `nobody objects to a ${reputation} crew`).toBeLessThan(0);
-    }
-  });
-});
-
-describe('§H3 + §H4, who will talk to you', () => {
-  const anyone: Disposition = { ambition: 'wealth', moralCompass: 'pragmatist' };
-
-  it('shuts the door on a crew below the rank the character demands (§H3)', () => {
-    const gated = assessJoin(anyone, { minNotoriety: 4 }, { notoriety: 3, reputation: 'Cautious' });
-    expect(gated.meetsRequirement).toBe(false);
-    expect(gated.interested).toBe(false);
-    // A full wallet does not open it: what is short is the rank, and only the rank.
-    expect(gated.blockers).toContain('notoriety');
-
-    const cleared = assessJoin(
-      anyone,
-      { minNotoriety: 4 },
-      { notoriety: 4, reputation: 'Cautious' },
-    );
-    expect(cleared.meetsRequirement).toBe(true);
-    expect(cleared.interested).toBe(true);
-    expect(cleared.blockers).toEqual([]);
+  it('reports both doors when both are shut, rank first', () => {
+    const assessment = assessJoin({ minNotoriety: 4, minLevel: 20 }, crew(1, 3));
+    expect(assessment.blockers).toEqual(['notoriety', 'level']);
+    expect(assessment.meetsNotoriety).toBe(false);
+    expect(assessment.meetsLevel).toBe(false);
   });
 
-  it('refuses on reputation alone, with every number in order (§H4)', () => {
-    // Ambition and compass both against you: a crew that clears the §H3 gate outright and is still
-    // turned down. This is the case a purely numeric gate cannot express.
-    const hostile: Disposition = { ambition: 'knowledge', moralCompass: 'pragmatist' };
-    const assessment = assessJoin(
-      hostile,
-      { minNotoriety: 0 },
-      { notoriety: 3, reputation: 'Reckless' },
-    );
-    expect(assessment.meetsRequirement).toBe(true);
-    expect(assessment.stance).toBe(JOIN_REFUSAL_STANCE);
-    expect(assessment.interested).toBe(false);
-    expect(assessment.blockers).toEqual(['reputation']);
-  });
-
-  it('reports both gates when both are shut', () => {
-    const hostile: Disposition = { ambition: 'knowledge', moralCompass: 'pragmatist' };
-    expect(
-      assessJoin(hostile, { minNotoriety: 5 }, { notoriety: 0, reputation: 'Reckless' }).blockers,
-    ).toEqual(['notoriety', 'reputation']);
-  });
-
-  it('lets a single objection through: refusal takes both halves of §H4', () => {
-    const half: Disposition = { ambition: 'knowledge', moralCompass: 'idealist' };
-    const assessment = assessJoin(
-      half,
-      { minNotoriety: 0 },
-      { notoriety: 0, reputation: 'Reckless' },
-    );
-    expect(assessment.stance).toBe(-1);
-    expect(assessment.interested).toBe(true);
+  it('lets an open door through for a crew with nothing at all', () => {
+    expect(assessJoin({ minNotoriety: 0, minLevel: 1 }, crew(0, 1)).interested).toBe(true);
   });
 });
 
@@ -196,88 +129,41 @@ describe('§H5: the alignment meter', () => {
     expect(alignedAttributes(attributes, ALIGNMENT_MAX).stealth).toBe(MAX_ATTRIBUTE);
   });
 
-  it('drifts towards what the character makes of the crew, and stops there', () => {
-    // A stance of -2 targets a value below the leave threshold, which is what makes "too low →
-    // they threaten to leave" reachable at all rather than a band nothing can enter.
-    const doomed = alignmentTarget(STANCE_MIN);
-    expect(doomed).toBeLessThan(ALIGNMENT_LEAVE_THRESHOLD);
-    expect(alignmentTarget(STANCE_MAX)).toBeGreaterThan(ALIGNMENT_BONUS_THRESHOLD);
-    expect(alignmentTarget(0)).toBe(ALIGNMENT_START);
-
-    const oneHalfLife = settleAlignment(ALIGNMENT_START, doomed, ALIGNMENT_HALF_LIFE_MS);
-    expect(oneHalfLife).toBeCloseTo((ALIGNMENT_START + doomed) / 2, 6);
-    // Long enough and they are simply where they were always heading.
-    expect(settleAlignment(ALIGNMENT_START, doomed, 60 * ALIGNMENT_HALF_LIFE_MS)).toBeCloseTo(
-      doomed,
-      6,
-    );
-    expect(
-      threatensToLeave(settleAlignment(ALIGNMENT_START, doomed, 30 * ALIGNMENT_HALF_LIFE_MS)),
-    ).toBe(true);
+  it('drifts towards what the officer made of their contract, and stops there', () => {
+    for (const stance of [STANCE_MIN, -1, 0, 1, STANCE_MAX]) {
+      const target = alignmentTarget(stance);
+      let alignment = ALIGNMENT_START;
+      // 90 days is thirty half-lives: whatever is left is below the meter's own rounding.
+      for (let day = 0; day < 90; day += 1) {
+        alignment = settleAlignment(alignment, target, 24 * 60 * 60 * 1000);
+      }
+      expect(alignment, `stance ${stance}`).toBeCloseTo(target, 4);
+      expect(alignment, `stance ${stance}`).toBeGreaterThanOrEqual(ALIGNMENT_MIN);
+      expect(alignment, `stance ${stance}`).toBeLessThanOrEqual(ALIGNMENT_MAX);
+    }
   });
 
   it('does not move on a zero-length or backwards step', () => {
-    expect(settleAlignment(ALIGNMENT_START, 0, 0)).toBe(ALIGNMENT_START);
-    expect(settleAlignment(ALIGNMENT_START, 0, -PAY_WEEK_MS)).toBe(ALIGNMENT_START);
+    expect(settleAlignment(40, 90, 0)).toBe(40);
+    expect(settleAlignment(40, 90, -5000)).toBe(40);
   });
 
-  it('stays inside the meter for every stance', () => {
-    for (let stance = STANCE_MIN; stance <= STANCE_MAX; stance++) {
-      const target = alignmentTarget(stance);
-      expect(target).toBeGreaterThanOrEqual(ALIGNMENT_MIN);
-      expect(target).toBeLessThanOrEqual(ALIGNMENT_MAX);
-    }
+  /**
+   * The one number that decides an officer's opinion of the crew: what fraction of their asking
+   * price they actually signed for. Their asking price is `+2`, nine tenths of it is neutral, and
+   * their reservation, which is the lowest they would ever take, is `-2`.
+   */
+  it('reads a contract at the asking price as the best it can be, and the floor as the worst', () => {
+    expect(contractStance(100, 100)).toBe(STANCE_MAX);
+    expect(contractStance(90, 100)).toBe(0);
+    expect(contractStance(80, 100)).toBe(STANCE_MIN);
+    expect(contractStance(120, 100)).toBe(STANCE_MAX);
+    expect(contractStance(10, 0)).toBe(0);
   });
 
-  it('leaves no band and no bonus tier that a live officer cannot reach', () => {
-    // The band cuts and the bonus scale are written against ALIGNMENT_MAX, which is a *schema*
-    // bound; what an officer can actually reach is `alignmentTarget(STANCE_MAX)`. When those two
-    // came apart, `devoted` and the top of the bonus scale were states no play could enter and
-    // every test still passed, because each one was asserted against a hand-written value rather
-    // than a drifted one. This walks the only inputs the game can produce.
-    expect(ALIGNMENT_PER_STANCE).toBe(25);
-    expect(alignmentTarget(STANCE_MAX)).toBe(ALIGNMENT_MAX);
-    expect(alignmentTarget(STANCE_MIN)).toBe(ALIGNMENT_MIN);
-
-    const bands = new Set<string>();
-    const bonuses = new Set<number>();
-    for (let stance = STANCE_MIN; stance <= STANCE_MAX; stance++) {
-      const target = alignmentTarget(stance);
-      // A year of daily reads is a tenure the game plainly supports.
-      for (let day = 0; day <= 365; day++) {
-        const alignment = settleAlignment(ALIGNMENT_START, target, day * 24 * 60 * 60 * 1000);
-        bands.add(alignmentBand(alignment));
-        bonuses.add(alignmentSkillBonus(alignment));
-      }
-    }
-
-    expect([...ALIGNMENT_BANDS].every((band) => bands.has(band))).toBe(true);
-    // ...and the scale is entered at every step, not just at its ends.
-    const topBonus = alignmentSkillBonus(ALIGNMENT_MAX);
-    expect(topBonus).toBe(5);
-    for (let bonus = 0; bonus <= topBonus; bonus++) expect(bonuses).toContain(bonus);
-  });
-
-  it('pays a durable bonus only where both halves of §H4 approve', () => {
-    // Entered at every step (above) and *rested* at only two: `alignmentTarget(1)` is exactly
-    // ALIGNMENT_BONUS_THRESHOLD, so a stance +1 officer settles on the first alignment that pays
-    // nothing and stays there. That is the decision, not an accident of the constants: asserted
-    // across the stance range so that moving either constant has to come back through it.
-    for (let stance = STANCE_MIN; stance < STANCE_MAX; stance++) {
-      expect(alignmentSkillBonus(alignmentTarget(stance))).toBe(0);
-    }
-    expect(alignmentSkillBonus(alignmentTarget(STANCE_MAX))).toBeGreaterThan(0);
-    // What +1 buys instead: the band the Bar prints against their name.
-    expect(alignmentBand(alignmentTarget(1))).toBe('settled');
-    expect(alignmentBand(alignmentTarget(0))).toBe('unsettled');
-
-    // And the 1..4 steps are the decay ramp that makes losing a +2 word cost a week rather than
-    // five attribute points on the spot.
-    const day = 24 * 60 * 60 * 1000;
-    const descending = (days: number) =>
-      alignmentSkillBonus(settleAlignment(ALIGNMENT_MAX, alignmentTarget(1), days * day));
-    expect(descending(6)).toBeGreaterThan(0);
-    expect(descending(7)).toBe(0);
+  it('is monotone: every cap squeezed at the table costs goodwill', () => {
+    const readings = [80, 85, 90, 95, 100].map((fee) => contractStance(fee, 100));
+    expect(readings).toEqual([...readings].sort((a, b) => a - b));
   });
 });
 
@@ -381,68 +267,35 @@ describe('§H6/§H6a: the character level', () => {
   });
 });
 
-describe('§H7: negotiating a salary', () => {
-  const ordinary = makeAttributes(18);
-  const excellent = makeAttributes(18, { stealth: 38, logic: 36, hacking: 34, deception: 32 });
+describe('§H7: what a contract costs', () => {
+  const sheet = (value: number) => makeAttributes(value);
 
   it('prices a better sheet higher', () => {
-    expect(askingWage(excellent, 0)).toBeGreaterThan(askingWage(ordinary, 0));
-  });
-
-  it('charges a crew they dislike more, and one they like less', () => {
-    const neutral = askingWage(excellent, 0);
-    expect(askingWage(excellent, STANCE_MIN)).toBeGreaterThan(neutral);
-    expect(askingWage(excellent, STANCE_MAX)).toBeLessThan(neutral);
-  });
-
-  it('takes an offer at or above the reservation, and counters below it', () => {
-    const asking = askingWage(excellent, 0);
-    const floor = reservationWage(asking);
-    expect(floor).toBe(Math.ceil(asking * WAGE_RESERVATION_FRACTION));
-
-    expect(negotiateWage(asking, asking)).toEqual({ accepted: true, wage: asking });
-    expect(negotiateWage(floor, asking)).toEqual({ accepted: true, wage: floor });
-    // Haggling well is worth caps: they sign for what was offered, not for what they asked.
-    expect(negotiateWage(floor, asking).wage).toBeLessThan(asking);
-
-    const lowball = negotiateWage(1, asking);
-    expect(lowball.accepted).toBe(false);
-    expect(lowball.wage).toBeGreaterThanOrEqual(floor);
-    expect(lowball.wage).toBeLessThanOrEqual(asking);
-  });
-
-  it('counters closer to the asking price the closer the offer was', () => {
-    const asking = askingWage(excellent, 0);
-    const floor = reservationWage(asking);
-    const near = negotiateWage(floor - 1, asking);
-    const far = negotiateWage(0, asking);
-    expect(near.accepted).toBe(false);
-    expect(near.wage).toBeGreaterThanOrEqual(far.wage);
+    expect(askingWage(sheet(35))).toBeGreaterThan(askingWage(sheet(20)));
   });
 
   it('never asks less than the floor wage, however poor the sheet', () => {
-    expect(askingWage(makeAttributes(0), STANCE_MAX)).toBeGreaterThan(0);
-  });
-});
-
-describe('§H7: the first payment covers the rest of the week', () => {
-  // W2's payroll engine owns the arithmetic; what W5 has to get right is *which* clock it hands
-  // over. These pin the two boundaries the issue calls out by name.
-  const MONDAY = new Date('2026-08-10T00:00:00.000Z');
-
-  it('costs a full week when the ink dries exactly on the boundary', () => {
-    expect(startOfPayWeek(MONDAY).getTime()).toBe(MONDAY.getTime());
-    expect(proratedFirstWage(140, MONDAY)).toBe(140);
+    expect(askingWage(sheet(0))).toBe(RECRUIT_BASE_WAGE);
   });
 
-  it('costs an hour when there is an hour left', () => {
-    const hourLeft = new Date(MONDAY.getTime() + PAY_WEEK_MS - 60 * 60 * 1000);
-    expect(proratedFirstWage(168, hourLeft)).toBe(1);
+  /**
+   * The whole cost of haggling badly. The six-hour standoff is a delay; this is the part that
+   * persists, and it is what makes an opening lowball a decision rather than a free roll.
+   */
+  it('marks the price up ten percent for every conversation they walked out of', () => {
+    const flat = askingWage(sheet(30));
+    const once = askingWage(sheet(30), 1);
+    const twice = askingWage(sheet(30), 2);
+    expect(once).toBeGreaterThan(flat);
+    expect(twice).toBeGreaterThan(once);
+    expect(once / flat).toBeCloseTo(1 + WALKOUT_MARKUP, 1);
   });
 
-  it('charges the whole of the next week to someone hired a moment after rollover', () => {
-    const justAfter = new Date(MONDAY.getTime() + PAY_WEEK_MS + 1);
-    expect(proratedFirstWage(140, justAfter)).toBe(140);
+  it('puts the floor at a fixed share of the asking price', () => {
+    for (const asking of [12, 40, 137]) {
+      expect(reservationWage(asking)).toBe(Math.ceil(asking * WAGE_RESERVATION_FRACTION));
+      expect(reservationWage(asking)).toBeLessThan(asking);
+    }
   });
 });
 
@@ -586,10 +439,11 @@ describe('haggling with somebody who has an opinion about you (§H7)', () => {
   });
 
   it('agrees on exactly the number the hire gate would accept', () => {
-    // The one invariant that stops the conversation being theatre: `negotiateWage` is what
-    // `/bar/hire` enforces, and it must never disagree with what the character just said yes to.
+    // The one invariant that stops the conversation being theatre: `/bar/hire` re-checks the
+    // agreed figure against `reservationWage`, and that must never disagree with what the
+    // character just said yes to across the table.
     for (let offer = 0; offer <= ASKING + 40; offer++) {
-      expect(say(open(), offer).accepted).toBe(negotiateWage(offer, ASKING).accepted);
+      expect(say(open(), offer).accepted).toBe(offer >= reservationWage(ASKING));
     }
   });
 

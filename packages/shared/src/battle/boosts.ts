@@ -83,6 +83,7 @@ export interface BattleBoostSpec {
 }
 
 const TIER_LABELS: Readonly<Record<UnitTier, string>> = {
+  support: 'porters',
   rabble: 'rabble',
   regular: 'regulars',
   specialist: 'specialists',

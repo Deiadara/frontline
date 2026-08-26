@@ -274,7 +274,7 @@ function OfficerDetail({
                 'rounded-sm border px-2.5 py-1 font-display text-[12px] font-bold uppercase tracking-[0.14em]',
                 BAND_STYLE[officer.alignmentBand],
               )}
-              title={`Alignment ${officer.alignment} of 100`}
+              data-tip={`Alignment ${officer.alignment} of 100`}
             >
               {ALIGNMENT_BAND_LABELS[officer.alignmentBand]}
             </span>

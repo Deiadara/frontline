@@ -47,8 +47,15 @@ const base: Base = {
   research: startingResearch(),
   assignees: startingAssignees(),
   buildings: [
-    { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
-    { id: 'b-generator', kind: 'generator', level: 1, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
+    {
+      id: 'b-generator',
+      kind: 'generator',
+      level: 1,
+      modifications: [],
+      damage: 0,
+      fortification: 0,
+    },
   ],
   buildQueue: [],
   army: {},
@@ -56,6 +63,7 @@ const base: Base = {
   training: startingTraining('2026-08-16T00:00:00.000Z'),
   inventory: {},
   fittedUpgrades: [],
+  unitLoadouts: {},
   fleet: {},
   commanders: [],
   createdAt: NOW,
@@ -98,7 +106,7 @@ const queued: BuildStructureResponse = {
   },
 };
 
-const BROKE = { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 };
+const BROKE = { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 };
 
 const fetchMock = vi.fn();
 
@@ -410,8 +418,8 @@ function levelUp() {
  */
 describe("a neighbour's district (§A4)", () => {
   const theirs = [
-    { id: 'n1', kind: 'nexus' as const, level: 6, modifications: [], damage: 0, garrisons: 0 },
-    { id: 'n2', kind: 'gate' as const, level: 4, modifications: [], damage: 0, garrisons: 0 },
+    { id: 'n1', kind: 'nexus' as const, level: 6, modifications: [], damage: 0, fortification: 0 },
+    { id: 'n2', kind: 'gate' as const, level: 4, modifications: [], damage: 0, fortification: 0 },
   ];
 
   const renderTheirs = () =>
@@ -495,14 +503,21 @@ describe("a neighbour's district (§A4)", () => {
    */
   it('stops calling a plot locked once its prerequisite is in the queue', () => {
     const standing = [
-      { id: 'n1', kind: 'nexus' as const, level: 3, modifications: [], damage: 0, garrisons: 0 },
+      {
+        id: 'n1',
+        kind: 'nexus' as const,
+        level: 3,
+        modifications: [],
+        damage: 0,
+        fortification: 0,
+      },
       {
         id: 'n2',
         kind: 'scrapyard' as const,
         level: 3,
         modifications: [],
         damage: 0,
-        garrisons: 0,
+        fortification: 0,
       },
     ];
     const draw = (queue: BuildQueue) =>
@@ -539,7 +554,7 @@ describe("a neighbour's district (§A4)", () => {
     render(
       <DistrictScene
         buildings={[
-          { id: 'n1', kind: 'nexus', level: 1, modifications: [], damage: 0, garrisons: 0 },
+          { id: 'n1', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
         ]}
         queue={[]}
         playerLevel={1}

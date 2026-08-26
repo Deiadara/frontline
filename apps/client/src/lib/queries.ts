@@ -7,8 +7,12 @@ import type {
   LaunchMissionRequest,
   LaunchMissionResponse,
   MeResponse,
+  AssigneesResponse,
   TrainUnitsResponse,
+  UnitsResponse,
+  FitSlotRequest,
 } from '@frontline/shared';
+import { alignmentBand, assigneeBonusPercent } from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import type { ApiRequestError } from './api';
@@ -21,6 +25,9 @@ import {
   scoutDistrict,
   setGarrison,
   cancelTraining,
+  fitSlot,
+  increasePayroll,
+  releaseOfficer,
   trainUnits,
   buildStructure,
   getAssignees,
@@ -67,7 +74,7 @@ import {
   recallColumn,
   deployToBattle,
   layTrap,
-  garrisonStructure,
+  fortifyStructure,
   buyBattleBoost,
   upgradeNotoriety,
 } from './api';
@@ -289,11 +296,52 @@ export function useHireRecruit() {
     onSuccess: (data) => {
       if (!data.accepted) return;
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-      // A signing adds an officer, and the §G layer is who the officers *are*: the assignee screen
-      // lists them and the mission board's §G6 picker offers them. Without this the cached roster
-      // stays authoritative for its whole `staleTime`, so a player who hires their first officer
-      // and walks straight to the board is told, on every hard card, to go and hire one.
+
+      /*
+       * The new officer, written into the cached crew *before* the invalidation.
+       *
+       * Invalidating alone refetches an open query and only marks a closed one stale, so a player
+       * who signs somebody at the Bar and walks to the Crew screen is served the pre-hire list
+       * first and the new officer appears a round trip later. On the one screen whose whole
+       * content is "who works here", that reads as the signing not having happened.
+       *
+       * Written first and invalidated after, in that order: `setQueryData` clears the invalidated
+       * flag, so doing it the other way round would leave the cache holding an optimistic entry
+       * that nothing ever reconciles. The entry itself is built from the officer the server just
+       * handed back, so nothing is invented: somebody signed a moment ago has no assignees on
+       * them, which is exactly what §G says.
+       */
+      const officer = data.officer;
+      if (officer) {
+        queryClient.setQueryData<AssigneesResponse>(queryKeys.assignees, (current) =>
+          current && !current.officers.some((held) => held.officerId === officer.id)
+            ? {
+                ...current,
+                officers: [
+                  ...current.officers,
+                  {
+                    officerId: officer.id,
+                    name: officer.name,
+                    role: officer.role,
+                    assignees: 0,
+                    bonusPercent: assigneeBonusPercent(0),
+                    nextBonusPercent: assigneeBonusPercent(1),
+                    attributes: officer.attributes,
+                    traits: officer.traits,
+                    alignment: officer.alignment,
+                    alignmentBand: alignmentBand(officer.alignment),
+                    level: officer.level,
+                  },
+                ],
+              }
+            : current,
+        );
+      }
+
+      // And reconciled against the server: the counts beside the list (§G1 pool, §G3 cap) are the
+      // server's arithmetic, not something this can work out from one officer.
       void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
     },
   });
 }
@@ -308,6 +356,36 @@ export function useHireRecruit() {
  */
 export function useNegotiate() {
   return useMutation({ mutationFn: negotiateWithRecruit });
+}
+
+/**
+ * §H7: let an officer go.
+ *
+ * Frees their slice of the book and charges five weeks of it in caps on the spot, so both the Bar
+ * and the stockpile move: everything that reads either is invalidated.
+ */
+export function useReleaseOfficer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: releaseOfficer,
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
+    },
+  });
+}
+
+/** §H7: buy one more step of standing payroll at the Nexus. Costs caps, so the HUD refreshes. */
+export function useIncreasePayroll() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: increasePayroll,
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
 }
 
 /** Spend one of the §H6 points the player assigns by hand. */
@@ -513,6 +591,23 @@ export function useUnits() {
 /** Put a batch on the bench. Costs resources, so the HUD refreshes with the roster. */
 export function useTrainUnits(baseId: string | undefined) {
   return useBenchMutation(trainUnits, baseId);
+}
+
+/**
+ * §A5: put one of the crew's built upgrades in one of a unit's three brackets, or empty it.
+ *
+ * The response is the whole refreshed roster, and it is written straight into the cache rather
+ * than only invalidated: every sheet on the page is folded from the loadout at read time, so the
+ * numbers under a bracket have to change on the same frame the bracket does. Still invalidated as
+ * well, so a poll already in flight cannot land the pre-change roster on top of it.
+ */
+export function useFitSlot() {
+  const queryClient = useQueryClient();
+  return useMutation<UnitsResponse, ApiRequestError, FitSlotRequest>({
+    mutationFn: fitSlot,
+    onSuccess: (roster) => queryClient.setQueryData(queryKeys.units, roster),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.units }),
+  });
 }
 
 /** §A5: take a batch back off it, inside its window. Pays resources back, so the same refresh. */
@@ -793,7 +888,7 @@ export function useRecallColumn() {
 export const useDeclareBattle = battleMutation(declareBattle);
 export const useDeployToBattle = battleMutation(deployToBattle);
 export const useLayTrap = battleMutation(layTrap);
-export const useGarrisonStructure = battleMutation(garrisonStructure);
+export const useFortifyStructure = battleMutation(fortifyStructure);
 export const useBuyBattleBoost = battleMutation(buyBattleBoost);
 export const useUpgradeNotoriety = battleMutation(upgradeNotoriety);
 

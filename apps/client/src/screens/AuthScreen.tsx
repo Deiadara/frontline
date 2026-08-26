@@ -4,8 +4,6 @@ import {
   MVP_DEV_CREDENTIALS,
   RegisterRequestSchema,
   formatClock,
-  zoneCity,
-  zoneLabel,
   type AuthResponse,
 } from '@frontline/shared';
 import { useMutation } from '@tanstack/react-query';
@@ -155,10 +153,13 @@ export function AuthScreen() {
           </ul>
 
           {/* The house clock, stated before anybody signs up. Every schedule in the game runs on
-              it, and finding that out from a countdown that is two hours off is the wrong way. */}
+              it, and finding that out from a countdown that is two hours off is the wrong way.
+              The *zone* is deliberately not named here: it is named once, in Settings, where it is
+              a control rather than trivia. What a player needs before signing up is what the clock
+              currently reads and that they can move it. */}
           <p className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-200">
-            City time is {zoneCity(GAME_TIMEZONE)}: {formatClock(now, GAME_TIMEZONE)}{' '}
-            {zoneLabel(now, GAME_TIMEZONE)}. You can read it in your own clock from Settings.
+            City time is {formatClock(now, GAME_TIMEZONE)}. You can read it in your own clock from
+            Settings.
           </p>
         </section>
 

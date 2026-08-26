@@ -14,6 +14,7 @@ import {
   type ScenePoint,
 } from './plots';
 import type { CSSProperties } from 'react';
+import { MAX_SQUASH } from './plots';
 import { fitted, plateTop } from './DistrictScene';
 
 /**
@@ -228,6 +229,14 @@ describe('the district layout (GDD §A1)', () => {
 describe('fitting the painting into the room the chrome leaves', () => {
   const ratio = (box: CSSProperties): number => Number(box.width) / Number(box.height);
   const room = (width: number, height: number) => ({ width, height });
+  /** Frame width and the clear band a real browser leaves under the bars at that width. */
+  const VIEWPORTS = [
+    [1024, 500],
+    [1280, 503],
+    [1440, 736],
+    [1920, 916],
+    [2560, 1200],
+  ] as const;
   /** The band the buildings occupy, in pixels, for a plate of the given height. */
   const bandOf = (box: CSSProperties): number =>
     (Number(box.height) * (DISTRICT_BAND.bottom - DISTRICT_BAND.top)) / 100;
@@ -242,17 +251,46 @@ describe('fitting the painting into the room the chrome leaves', () => {
   };
 
   it('takes the full width of the frame, at every viewport', () => {
-    for (const [width, clear] of [
-      [1024, 500],
-      [1280, 503],
-      [1440, 736],
-      [1920, 916],
-      [2560, 1200],
-    ] as const) {
+    for (const [width, clear] of VIEWPORTS) {
       const box = fitted(room(width, clear + 200), room(width, clear));
       expect(Number(box.width), `${width}px`).toBe(width);
-      expect(ratio(box), `${width}px`).toBeCloseTo(DISTRICT_ASPECT, 2);
     }
+  });
+
+  /**
+   * The picture is allowed to be *wider* than the plate's shape and never taller.
+   *
+   * Wider is the step back: the frame between the bars is a shorter box than the plate was
+   * painted at, so a full-width picture is compressed a little to bring the far side of the
+   * district out from behind the stockpile. Taller would be the opposite failure, the one this
+   * whole box exists to prevent: it would mean the width had been given up and the painting was
+   * being cropped at the sides.
+   */
+  it('never draws the picture taller than the plate was painted', () => {
+    for (const [width, clear] of VIEWPORTS) {
+      const box = fitted(room(width, clear + 200), room(width, clear));
+      expect(ratio(box), `${width}px`).toBeGreaterThanOrEqual(DISTRICT_ASPECT - 0.001);
+    }
+  });
+
+  /** And the compression is bounded, or the buildings start to look squat. */
+  it('compresses the picture by no more than the cap, at every viewport', () => {
+    for (const [width, clear] of VIEWPORTS) {
+      const box = fitted(room(width, clear + 200), room(width, clear));
+      const squash = 1 - Number(box.height) / (width / DISTRICT_ASPECT);
+      expect(squash, `${width}px`).toBeGreaterThanOrEqual(0);
+      expect(squash, `${width}px`).toBeLessThanOrEqual(MAX_SQUASH + 0.001);
+    }
+  });
+
+  /**
+   * And it is actually spent where it is needed. A laptop is the case the whole cap exists for:
+   * 1280x720 leaves about 500px of clear band under a 720px picture, and before the step back
+   * every one of those pixels came off the top.
+   */
+  it('steps back on a frame too short to hold the whole plate', () => {
+    const tall = fitted(room(1280, 703), room(1280, 503));
+    expect(Number(tall.height)).toBeLessThan(1280 / DISTRICT_ASPECT);
   });
 
   /**
@@ -268,22 +306,35 @@ describe('fitting the painting into the room the chrome leaves', () => {
   });
 
   /**
-   * And when they do not fit, the shortfall is split rather than piling up at one end. Letting it
-   * all fall to the bottom would put the Infirmary under the scenery switcher and the Quarters in
-   * clear air, which is the version that loses a control rather than a roofline.
+   * And when they do not fit, the whole shortfall goes to the **bottom**.
+   *
+   * The back row is where the tallest buildings are, and it was losing its rooflines behind the
+   * stockpile on any viewport short enough to overflow at all. What slides under the scenery
+   * switcher instead is the front row, which is what a floating bar should be covering, and
+   * `plateTop` keeps its name plates reachable. Splitting it evenly, which is what this used to
+   * assert, cropped both ends and the top one is the one a player looks at.
    */
-  it('splits the overflow evenly when the band is shorter than the buildings', () => {
-    const box = fitted(room(1440, 900), room(1440, 525));
+  it('puts the whole overflow at the bottom when the band will not fit', () => {
+    const box = fitted(room(1440, 900), room(1440, 400));
     const band = occupies(box);
-    expect(band.top).toBeLessThan(0);
-    // Within a pixel and a half: the offset is rounded to a whole pixel, and both ends carry it.
-    expect(Math.abs(band.bottom - 525 - -band.top)).toBeLessThanOrEqual(1.5);
+    // The band's top edge lands on the top of the clear area: nothing above it is cut.
+    expect(band.top).toBeCloseTo(0, 0);
+    expect(band.bottom).toBeGreaterThan(400);
   });
 
-  it('never crops sideways: height always follows from width', () => {
+  /** And with room to spare it is centred, which is the arrangement the board asked for. */
+  it('centres the band when there is room for it', () => {
+    const box = fitted(room(1440, 1200), room(1440, 900));
+    const band = occupies(box);
+    expect(band.top).toBeGreaterThan(0);
+    expect(900 - band.bottom).toBeCloseTo(band.top, 0);
+  });
+
+  it('never crops sideways: the box is always the frame wide', () => {
     for (const width of [800, 1024, 1440, 1920, 2560]) {
       const box = fitted(room(width, 400), room(width, 300));
-      expect(ratio(box), `${width}px`).toBeCloseTo(DISTRICT_ASPECT, 2);
+      expect(Number(box.width), `${width}px`).toBe(width);
+      expect(ratio(box), `${width}px`).toBeGreaterThanOrEqual(DISTRICT_ASPECT - 0.001);
       expect(bandOf(box), `${width}px`).toBeGreaterThan(0);
     }
   });

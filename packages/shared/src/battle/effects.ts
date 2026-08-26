@@ -56,7 +56,7 @@ export interface Effective {
   speed: number;
   range: number;
   evasion: number;
-  lethality: number;
+  penetration: number;
   /** Only read on the way out: how well a broken stack gets clear (`rout.ts`). */
   stealth: number;
   intimidation: number;
@@ -151,7 +151,7 @@ export function effectiveStats(
     speed: sheet.speed * (1 + territory.unitSpeedPercent / 100),
     range: sheet.range,
     evasion: sheet.evasion,
-    lethality: sheet.lethality,
+    penetration: sheet.penetration,
     stealth: Math.min(100, Math.round(sheet.stealth * (1 + territory.unitStealthPercent / 100))),
     intimidation: sheet.intimidation,
     morale: clamp(sheet.morale + territory.unitMoraleFlat, 0, 100),

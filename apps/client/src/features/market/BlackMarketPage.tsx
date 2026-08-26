@@ -3,7 +3,6 @@ import {
   findBlackMarketGood,
   formatClock,
   stashBoost,
-  zoneCity,
   type BlackMarketGoodSpec,
   type BlackMarketKind,
   type BlackMarketResponse,
@@ -285,7 +284,7 @@ export function BlackMarketPage() {
           Five things sit on the shelf, the same five for everybody in the city, and{' '}
           <strong>you may take {data.takesPerDay} of them a day</strong>. Anything taken is replaced
           at once, so the shelf is never bare, and whatever you are looking at may be gone a minute
-          from now. The whole shelf turns over at midnight {zoneCity(zone)} time, at{' '}
+          from now. The whole shelf turns over once a day, at{' '}
           {formatClock(new Date(data.refreshesAt), zone)}.
         </InfoNote>
       </div>

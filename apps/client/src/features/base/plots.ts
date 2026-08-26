@@ -39,6 +39,13 @@ import {
 export type ScenePoint = readonly [number, number];
 
 export interface DistrictSite {
+  /**
+   * Percentage points to move this structure's name plate off its own centroid.
+   *
+   * For the handful of buildings whose middle is the one part of the painting worth looking at.
+   * The outline is unchanged, so it moves the label and nothing else.
+   */
+  labelShift?: { x?: number; y?: number };
   kind: BuildingKind;
   /** The building's outline on the plate, clockwise, in percent of the scene box. */
   shape: readonly ScenePoint[];
@@ -70,6 +77,20 @@ export const DISTRICT_ASPECT = PLATE.width / PLATE.height;
  * meets the air.
  */
 export const DISTRICT_BACK_EDGE = 5;
+
+/**
+ * The most the district picture may be compressed vertically to fit the room between the bars.
+ *
+ * Eight percent, which is about the point at which a painting of a slum still reads as the same
+ * painting: past it the buildings start to look squat. It buys the step back that keeps the far
+ * side of the district, where the tallest buildings are, out from behind the stockpile. Spent by
+ * `fitted` in `DistrictScene`, and read by the layout gate that measures the result.
+ *
+ * It lives here rather than beside `fitted` because the gate has to import it and the gate cannot
+ * import a component: `DistrictScene` pulls in the asset loader, which is `import.meta.glob` and
+ * only exists inside Vite.
+ */
+export const MAX_SQUASH = 0.16;
 
 /** The outline in `viewBox` units, ready for an SVG `points` attribute. */
 export function sitePoints(site: DistrictSite): string {
@@ -139,7 +160,11 @@ export function siteDepth(site: DistrictSite): number {
   return Math.max(...site.shape.map(([, y]) => y));
 }
 
-const site = (kind: BuildingKind, shape: readonly ScenePoint[]): DistrictSite => ({ kind, shape });
+const site = (
+  kind: BuildingKind,
+  shape: readonly ScenePoint[],
+  labelShift?: { x?: number; y?: number },
+): DistrictSite => ({ kind, shape, ...(labelShift ? { labelShift } : {}) });
 
 /**
  * The twelve structures, as they are painted.
@@ -175,14 +200,21 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
     [43, 18],
     [39.5, 13],
   ]),
-  site('greenhouse', [
-    [77.5, 25],
-    [87, 14.5],
-    [96.5, 19],
-    [96.5, 30],
-    [85, 36.5],
-    [77.5, 31],
-  ]),
+  // Nudged left and down off its own centre: the plate was sitting square over the graffiti on
+  // the glasshouse wall, which is one of the few pieces of writing in the painting and the sort
+  // of thing the artwork is for. The outline is untouched, so what the pointer hits is unchanged.
+  site(
+    'greenhouse',
+    [
+      [77.5, 25],
+      [87, 14.5],
+      [96.5, 19],
+      [96.5, 30],
+      [85, 36.5],
+      [77.5, 31],
+    ],
+    { x: -6, y: 4 },
+  ),
   site('apothecary', [
     [40.5, 33],
     [43, 28],

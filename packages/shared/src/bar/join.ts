@@ -1,25 +1,23 @@
 import { z } from 'zod';
 import { meetsNotoriety } from '../economy/notoriety.js';
-import type { ReputationLabel } from '../economy/reputation.js';
 import { MILESTONE_SECOND_SIGNATURE, isPlayerUnlockActive } from '../progression/unlocks.js';
-import { reputationStance, STANCE_MIN, type Disposition } from './disposition.js';
 
 /**
- * Who will even talk to you (GDD §H3, §H4).
+ * Who will even talk to you (GDD §H3).
  *
- * Two independent gates, and they fail for different reasons. §H3 is a *threshold* the crew either
- * clears or does not: "at least this much of a name" is the board's own example. §H4 is an *opinion*:
- * the same character will sign with one crew and walk away from another with identical numbers,
- * because they read your reputation word through their own ambition and moral compass.
+ * Two thresholds, and they are both numbers a player can see on their own HUD: the **rank** the
+ * city has given the crew (§D7) and the crew's own **level** (§I). Nothing here is an opinion any
+ * more. The reputation gate that used to sit beside them read a one-word verdict on the crew's
+ * behaviour and let half the room refuse over it, which made recruitment a quiz about a label
+ * rather than a negotiation about caps: a player who wanted a particular officer had no lever to
+ * pull. Now the levers are rank, level and the money, and all three are things you go and get.
+ *
+ * The good ones ask for both. A recruit worth a fifth of the payroll book wants to see that the
+ * crew is known *and* that it has been around, and asking for one of the two is what makes a
+ * mid-table officer reachable early while the top of the room stays something to work towards.
  */
 
-/**
- * §H3: what a character demands of the crew before they will consider signing.
- *
- * One field today because a crew's name is the one standing §H3 names and the only one W2 tallies
- * (INTERFACES R5). It is an object rather than a bare number so a second requirement lands as a
- * field rather than as a second parameter at every call site.
- */
+/** §H3: what a character demands of the crew before they will consider signing. */
 export const JoinRequirementSchema = z.object({
   /**
    * The §D7 **rank** the crew must already hold, as a `NOTORIETY_TIERS` index. `0` is `Nobody`,
@@ -30,6 +28,15 @@ export const JoinRequirementSchema = z.object({
    * the wallet; what they actually care about is whether anybody has heard of you.
    */
   minNotoriety: z.number().int().min(0),
+  /**
+   * The crew's own level (§I), or `1`, which every crew clears.
+   *
+   * A different question from the rank beside it, and the reason both exist. Notoriety is how loud
+   * you are; level is how long you have been doing this. A demolitions specialist does not care
+   * that the street knows your name, they care that you have run enough jobs to be worth working
+   * for. Defaulted so a recruit rolled before levels gated anything parses as asking for nothing.
+   */
+  minLevel: z.number().int().min(1).default(1),
 });
 export type JoinRequirement = z.infer<typeof JoinRequirementSchema>;
 
@@ -44,47 +51,47 @@ export type JoinRequirement = z.infer<typeof JoinRequirementSchema>;
 export const RECRUIT_MIN_NOTORIETY_GATE = 1;
 export const RECRUIT_MAX_MIN_NOTORIETY = 5;
 
-/**
- * §H4: the stance at which a character will not join at all. `-2` is both halves of §H4
- * objecting at once, so refusal needs their ambition *and* their morals to be against you.
- */
-export const JOIN_REFUSAL_STANCE = STANCE_MIN;
+/** And the same shape for the level door: reachable, and worth reaching. */
+export const RECRUIT_MIN_LEVEL_GATE = 2;
+export const RECRUIT_MAX_MIN_LEVEL = 25;
 
 /** What the crew looks like from the other side of the table. */
 export interface CrewStanding {
-  /** §D7 rank, an index into `NOTORIETY_TIERS`. What the door actually judges. */
+  /** §D7 rank, an index into `NOTORIETY_TIERS`. */
   notoriety: number;
-  reputation: ReputationLabel;
+  /** §I: `Base.level`. */
+  level: number;
 }
 
-export const JOIN_BLOCKERS = ['notoriety', 'reputation'] as const;
+export const JOIN_BLOCKERS = ['notoriety', 'level'] as const;
 export type JoinBlocker = (typeof JOIN_BLOCKERS)[number];
 
 export interface JoinAssessment {
   /** §H3: the crew's rank clears their requirement. */
-  meetsRequirement: boolean;
-  /** §H4: what they make of your reputation word, `-2`..`+2`. */
-  stance: number;
-  /** §H7, "if the character is interested": both gates open, so a salary can be discussed. */
+  meetsNotoriety: boolean;
+  /** §H3: and so does its level. */
+  meetsLevel: boolean;
+  /** §H7, "if the character is interested": every door open, so a fee can be discussed. */
   interested: boolean;
   /** Why not, in the order a player should read them. Empty when `interested`. */
   blockers: JoinBlocker[];
 }
 
-/** §H3 + §H4: the whole "will they talk to you" question, in one call. */
-export function assessJoin(
-  disposition: Disposition,
-  requirement: JoinRequirement,
-  crew: CrewStanding,
-): JoinAssessment {
-  const meetsRequirement = meetsNotoriety(crew.notoriety, requirement.minNotoriety);
-  const stance = reputationStance(disposition, crew.reputation);
+/** §H3: the whole "will they talk to you" question, in one call. */
+export function assessJoin(requirement: JoinRequirement, crew: CrewStanding): JoinAssessment {
+  const okNotoriety = meetsNotoriety(crew.notoriety, requirement.minNotoriety);
+  const okLevel = crew.level >= requirement.minLevel;
 
   const blockers: JoinBlocker[] = [];
-  if (!meetsRequirement) blockers.push('notoriety');
-  if (stance <= JOIN_REFUSAL_STANCE) blockers.push('reputation');
+  if (!okNotoriety) blockers.push('notoriety');
+  if (!okLevel) blockers.push('level');
 
-  return { meetsRequirement, stance, interested: blockers.length === 0, blockers };
+  return {
+    meetsNotoriety: okNotoriety,
+    meetsLevel: okLevel,
+    interested: blockers.length === 0,
+    blockers,
+  };
 }
 
 /**

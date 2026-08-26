@@ -153,6 +153,7 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
       training: startingTraining(now),
       inventory: {},
       fittedUpgrades: [],
+      unitLoadouts: {},
       fleet: {},
       commanders: MVP_BOT.commanders,
       createdAt: now,

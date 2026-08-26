@@ -103,14 +103,18 @@ test.describe('the black market', () => {
     await expect(page.getByRole('heading', { name: 'The Market' })).toBeVisible();
   });
 
-  test('counts down to the refresh and names the clock it is counting on', async ({ page }) => {
+  test('counts down to the refresh and says what time it lands', async ({ page }) => {
     await open(page, '/game/market/black', 1280, 720);
     // The countdown is a duration, not a wall clock, so it reads the same wherever the player is.
-    // Which midnight it is counting to is in the note beside it, which is a hover now: the clock is
-    // live and stays on the page, the rule is reference and does not.
+    // When it lands is in the note beside it, which is a hover now: the clock is live and stays on
+    // the page, the rule is reference and does not.
+    //
+    // The note quotes a time and does *not* name a zone. Naming one is Settings' job: everywhere
+    // else the numbers are already drawn in whatever clock the player picked, so a zone in the
+    // sentence is either redundant or, for a player who has moved theirs, wrong.
     await expect(page.getByTestId('black-refresh')).toContainText(/\d/);
     await page.getByTestId('info-note').hover();
-    await expect(page.getByText(/turns over at midnight Athens time/)).toBeVisible();
+    await expect(page.getByText(/turns over once a day, at \d{2}:\d{2}/)).toBeVisible();
   });
 
   test('shows what is in the bag for the next fight', async ({ page }) => {
@@ -186,7 +190,7 @@ test.describe('the bench', () => {
   test('is a door in the scenery switcher when the build has one', async ({ page }) => {
     await open(page, '/game', 1280, 720);
     await expect(page.getByTestId('nav-bench')).toBeVisible();
-    await expect(page.getByTestId('hud-settings')).toBeVisible();
+    await expect(page.getByTestId('nav-settings')).toBeVisible();
   });
 
   test('is not a door when the server says there is no bench', async ({ page }) => {
@@ -199,7 +203,7 @@ test.describe('the bench', () => {
     await page.goto('/game');
     await settleFonts(page);
 
-    await expect(page.getByTestId('hud-settings')).toBeVisible();
+    await expect(page.getByTestId('nav-settings')).toBeVisible();
     await expect(page.getByTestId('nav-bench')).toHaveCount(0);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  factionXpBonus,
   resolvePlayerXpAward,
   type Base,
   type LevelUp,
@@ -20,10 +21,22 @@ export interface AwardedXp {
  * R7 gives W6 the whole XP side, so a system that makes XP happen calls this and names its source
  * rather than deciding an amount or touching the level itself. Call sites stay one line long.
  */
-export function awardPlayerXp(repos: Repositories, base: Base, source: PlayerXpSource): AwardedXp {
+export function awardPlayerXp(
+  repos: Repositories,
+  base: Base,
+  source: PlayerXpSource,
+  /** Percentage points on top of the district's own, e.g. the lead's charisma on a project. */
+  extraPercent = 0,
+  /** The figure to pay instead of the source's table entry, for sources that price themselves. */
+  amount?: number,
+): AwardedXp {
   const award = resolvePlayerXpAward(
     { level: base.level, xpIntoLevel: base.progression.xpIntoLevel },
     source,
+    undefined,
+    // §I1: the district's own contribution, plus whatever the caller is adding on this event.
+    factionXpBonus(base.buildings) + extraPercent,
+    amount,
   );
   repos.bases.updateProgression(base.id, award.level, award.progression);
   return { base: { ...base, level: award.level, progression: award.progression }, award };

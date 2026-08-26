@@ -1,6 +1,4 @@
 import {
-  METER_MIN,
-  MORALE_PER_UNPAID_WAGE_WEEK,
   PAY_WEEK_MS,
   STARTING_RESOURCES,
   createCommander,
@@ -55,7 +53,7 @@ function seedBase(repos: Repositories, officerCount: number, weeklyWage: number)
       ...economy,
       payroll: {
         ...economy.payroll,
-        wages: Object.fromEntries(officers.map((o) => [o, weeklyWage])),
+        commitments: Object.fromEntries(officers.map((o) => [o, weeklyWage])),
       },
     },
     progression: startingProgression(),
@@ -68,6 +66,7 @@ function seedBase(repos: Repositories, officerCount: number, weeklyWage: number)
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
+    unitLoadouts: {},
     fleet: {},
     // §F2 discounts the wage book off Authority and Negotiation, and these tests are about the
     // payroll arithmetic rather than about the discount, so the crew here has neither. The
@@ -108,7 +107,7 @@ describe('the migrated schema (INTERFACES.md R6)', () => {
 });
 
 describe('settleBaseEconomy', () => {
-  it('leaves the stockpile alone before the pay week turns over', () => {
+  it('leaves the stockpile alone before the upkeep week turns over', () => {
     const repos = openStack();
     const base = seedBase(repos, 2, 100);
 
@@ -118,17 +117,21 @@ describe('settleBaseEconomy', () => {
     expect(repos.bases.findById(base.id)?.resources).toEqual(STARTING_RESOURCES);
   });
 
-  it('pays wages and eats food on the boundary, and persists both', () => {
+  /**
+   * The whole shape of the rework, in one assertion pair. Officers eat, and that is upkeep; what
+   * they are paid is a commitment against the payroll book and never leaves the stockpile.
+   */
+  it('eats food on the boundary and never touches caps', () => {
     const repos = openStack();
     const base = seedBase(repos, 2, 100);
 
     const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
 
-    expect(settled.resources.caps).toBe(STARTING_RESOURCES.caps - 200);
+    expect(settled.resources.caps).toBe(STARTING_RESOURCES.caps);
     expect(settled.resources.food).toBe(STARTING_RESOURCES.food - foodUpkeepFor(2));
 
     const reloaded = repos.bases.findById(base.id);
-    expect(reloaded?.resources.caps).toBe(STARTING_RESOURCES.caps - 200);
+    expect(reloaded?.resources.food).toBe(STARTING_RESOURCES.food - foodUpkeepFor(2));
     expect(reloaded?.economy.payroll.paidThroughAt).toBe(NEXT_MONDAY.toISOString());
   });
 
@@ -140,7 +143,7 @@ describe('settleBaseEconomy', () => {
     const second = settleBaseEconomy(repos, first, NEXT_MONDAY);
     const third = settleBaseEconomy(repos, second, new Date(NEXT_MONDAY.getTime() + 60_000));
 
-    expect(third.resources.caps).toBe(STARTING_RESOURCES.caps - 200);
+    expect(third.resources.food).toBe(STARTING_RESOURCES.food - foodUpkeepFor(2));
   });
 
   it('charges every missed week when a base is left alone for a month', () => {
@@ -150,23 +153,24 @@ describe('settleBaseEconomy', () => {
 
     const settled = settleBaseEconomy(repos, base, fourWeeksOn);
 
-    expect(settled.resources.caps).toBe(STARTING_RESOURCES.caps - 4 * 50);
+    expect(settled.resources.food).toBe(STARTING_RESOURCES.food - 4 * foodUpkeepFor(1));
     expect(settled.economy.payroll.paidThroughAt).toBe(startOfPayWeek(fourWeeksOn).toISOString());
   });
 
-  it('bottoms out at zero rather than going negative when the crew cannot be paid', () => {
+  it('bottoms out at zero rather than going negative when the store is short', () => {
     const repos = openStack();
-    const base = seedBase(repos, 3, 100_000);
+    const base = seedBase(repos, 40, 0);
+    const aYearOn = new Date(NEXT_MONDAY.getTime() + 52 * PAY_WEEK_MS);
 
-    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
+    const settled = settleBaseEconomy(repos, base, aYearOn);
 
-    expect(settled.resources.caps).toBe(0);
+    expect(settled.resources.food).toBe(0);
     // The week is still settled, so re-reading does not bill it again.
-    expect(settled.economy.payroll.paidThroughAt).toBe(NEXT_MONDAY.toISOString());
-    expect(repos.bases.findById(base.id)?.resources.caps).toBe(0);
+    expect(settled.economy.payroll.paidThroughAt).toBe(startOfPayWeek(aYearOn).toISOString());
+    expect(repos.bases.findById(base.id)?.resources.food).toBe(0);
   });
 
-  it('charges food for the crew even with no wages agreed yet', () => {
+  it('charges food for the crew whatever the payroll book says', () => {
     const repos = openStack();
     const base = seedBase(repos, 4, 0);
 
@@ -174,100 +178,5 @@ describe('settleBaseEconomy', () => {
 
     expect(settled.resources.caps).toBe(STARTING_RESOURCES.caps);
     expect(settled.resources.food).toBe(STARTING_RESOURCES.food - foodUpkeepFor(4));
-  });
-
-  it('leaves morale alone on a payroll the stockpile covered', () => {
-    const repos = openStack();
-    const base = seedBase(repos, 2, 100);
-
-    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
-
-    expect(settled.economy.morale).toBe(base.economy.morale);
-    expect(repos.bases.findById(base.id)?.economy.morale).toBe(base.economy.morale);
-  });
-
-  /**
-   * §D4: the consequence that makes payroll more than bookkeeping. Asserted through the *persisted*
-   * base, because a penalty computed and then dropped on the way to the database is exactly the
-   * shape of the bug this replaced.
-   */
-  it('costs morale when the crew cannot be paid, and persists the loss', () => {
-    const repos = openStack();
-    const base = seedBase(repos, 3, 100_000);
-
-    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
-
-    expect(settled.resources.caps).toBe(0);
-    expect(settled.economy.morale).toBe(base.economy.morale + MORALE_PER_UNPAID_WAGE_WEEK);
-    expect(repos.bases.findById(base.id)?.economy.morale).toBe(settled.economy.morale);
-  });
-
-  it('charges a week of morale for every week the crew went unpaid', () => {
-    const repos = openStack();
-    const base = seedBase(repos, 3, 100_000);
-    const fourWeeksOn = new Date(NEXT_MONDAY.getTime() + 3 * PAY_WEEK_MS);
-
-    const settled = settleBaseEconomy(repos, base, fourWeeksOn);
-
-    expect(settled.economy.morale).toBe(base.economy.morale + 4 * MORALE_PER_UNPAID_WAGE_WEEK);
-  });
-
-  /**
-   * §D8a: the street's record of whether the wage book was met. Read back off the *persisted*
-   * base for the same reason the morale assertions are: a tally computed and then dropped on the
-   * way to the database looks identical from inside the settle.
-   */
-  it('books a met payday on the reputation tally', () => {
-    const repos = openStack();
-    const base = seedBase(repos, 2, 100);
-
-    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
-
-    expect(settled.economy.reputationTally.paydaysHonoured).toBe(1);
-    expect(settled.economy.reputationTally.paydaysMissed).toBe(0);
-    expect(repos.bases.findById(base.id)?.economy.reputationTally.paydaysHonoured).toBe(1);
-  });
-
-  it('books a missed payday when the crew could not be paid', () => {
-    const repos = openStack();
-    const base = seedBase(repos, 3, 100_000);
-
-    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
-
-    expect(settled.economy.reputationTally.paydaysMissed).toBe(1);
-    expect(settled.economy.reputationTally.paydaysHonoured).toBe(0);
-  });
-
-  it('leaves both payday counters alone when there is no wage book to honour', () => {
-    const repos = openStack();
-    const base = seedBase(repos, 0, 0);
-
-    const settled = settleBaseEconomy(repos, base, NEXT_MONDAY);
-
-    expect(settled.economy.reputationTally.paydaysHonoured).toBe(0);
-    expect(settled.economy.reputationTally.paydaysMissed).toBe(0);
-  });
-
-  it('splits a mixed absence across both counters', () => {
-    // Wages for four weeks, a stockpile that covers one: one payday met, three missed.
-    const repos = openStack();
-    const base = seedBase(repos, 1, STARTING_RESOURCES.caps);
-    const fourWeeksOn = new Date(NEXT_MONDAY.getTime() + 3 * PAY_WEEK_MS);
-
-    const settled = settleBaseEconomy(repos, base, fourWeeksOn);
-    const { paydaysHonoured, paydaysMissed } = settled.economy.reputationTally;
-
-    expect(paydaysHonoured + paydaysMissed).toBe(4);
-    expect(paydaysMissed).toBe(3);
-  });
-
-  it('never drives morale below the meter floor', () => {
-    const repos = openStack();
-    const base = seedBase(repos, 3, 100_000);
-    const aYearOn = new Date(NEXT_MONDAY.getTime() + 52 * PAY_WEEK_MS);
-
-    const settled = settleBaseEconomy(repos, base, aYearOn);
-
-    expect(settled.economy.morale).toBe(METER_MIN);
   });
 });

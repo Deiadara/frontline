@@ -16,7 +16,6 @@ import {
   unifiedBonusFor,
 } from './districts.js';
 import {
-  FORTIFY_PERCENT_PER_LEVEL,
   LOCATION_KINDS,
   LOCATION_CATALOG,
   applyHoldBonus,
@@ -31,6 +30,7 @@ import {
   travelMinutes,
 } from './geography.js';
 import {
+  FORTIFY_LEVEL_PERCENT,
   FORTIFY_MAX_LEVEL,
   fortifyBonusPercent,
   fortifyCost,
@@ -208,18 +208,24 @@ describe('geography (§A4)', () => {
 });
 
 describe('digging in (§A4)', () => {
-  it('pays the board’s 5 / 4 / 3 per level, and easy ground pays the most', () => {
-    expect(FORTIFY_PERCENT_PER_LEVEL).toEqual({ easy: 5, medium: 4, hard: 3 });
-    expect(fortifyBonusPercent('easy', 3)).toBe(15);
-    expect(maxFortifyBonusPercent('easy')).toBe(25);
-    expect(maxFortifyBonusPercent('medium')).toBe(20);
-    expect(maxFortifyBonusPercent('hard')).toBe(15);
+  it('doubles at every level, and easy ground still pays the most', () => {
+    // The authored curve is medium's: 2.5 / 5 / 10. Asserted literally because it is the number
+    // the screen quotes and the one a balance change would come for first.
+    expect(FORTIFY_LEVEL_PERCENT.medium).toEqual([2.5, 5, 10]);
+    for (const difficulty of ['easy', 'medium', 'hard'] as const) {
+      const [one, two, three] = FORTIFY_LEVEL_PERCENT[difficulty];
+      expect(two).toBe(one! * 2);
+      expect(three).toBe(two! * 2);
+    }
+    // The board's inversion: what digging is *worth* falls as the ground gets harder.
+    expect(maxFortifyBonusPercent('easy')).toBeGreaterThan(maxFortifyBonusPercent('medium'));
+    expect(maxFortifyBonusPercent('medium')).toBeGreaterThan(maxFortifyBonusPercent('hard'));
+    expect(maxFortifyBonusPercent('medium')).toBe(10);
   });
 
-  it('costs the same on every kind of ground: the difference is what it buys', () => {
+  it('costs the same on every kind of ground, and the top level is the one you have to mean', () => {
     // The board's call, and it is what keeps easy/medium/hard a reward axis rather than a second
     // price axis. Asserted directly because it would be very easy to "fix" by accident.
-    expect(fortifyCost(3)).toEqual(fortifyCost(3));
     for (let level = 2; level <= FORTIFY_MAX_LEVEL; level += 1) {
       const lower = fortifyCost(level - 1);
       const higher = fortifyCost(level);
@@ -228,18 +234,30 @@ describe('digging in (§A4)', () => {
       }
       expect(fortifySeconds(level)).toBeGreaterThan(fortifySeconds(level - 1));
     }
+    // The step, not the slope: the last level costs more than the two below it put together.
+    const top = fortifyCost(FORTIFY_MAX_LEVEL);
+    const below = Array.from({ length: FORTIFY_MAX_LEVEL - 1 }, (_, index) =>
+      fortifyCost(index + 1),
+    );
+    for (const key of RESOURCE_KEYS) {
+      const under = below.reduce((total, cost) => total + (cost[key] ?? 0), 0);
+      if (under === 0) continue;
+      expect(top[key] ?? 0, `${key} at the top level`).toBeGreaterThan(under);
+    }
   });
 
-  it('stops at five levels', () => {
+  it('stops at three levels', () => {
+    expect(FORTIFY_MAX_LEVEL).toBe(3);
     expect(nextFortifyLevel(0)).toBe(1);
     expect(nextFortifyLevel(FORTIFY_MAX_LEVEL)).toBeNull();
     expect(fortifyBonusPercent('easy', 99)).toBe(maxFortifyBonusPercent('easy'));
+    expect(fortifyBonusPercent('easy', 0)).toBe(0);
 
     const location = CITY_LOCATIONS[0]!;
     expect(quoteFortify(location, FORTIFY_MAX_LEVEL)).toBeNull();
     const quote = quoteFortify(location, 0);
     expect(quote?.level).toBe(1);
-    expect(quote?.bonusPercent).toBe(FORTIFY_PERCENT_PER_LEVEL[location.fortifyDifficulty]);
+    expect(quote?.bonusPercent).toBe(FORTIFY_LEVEL_PERCENT[location.fortifyDifficulty][0]);
   });
 });
 

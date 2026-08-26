@@ -446,6 +446,11 @@ export const RESOURCE_ICON_SUBJECTS: Readonly<Record<ResourceKey, string>> = {
     on the top one, a cold #22d3ee temper sheen along the top edges, one corner cracked away to
     show bright grain.
   `),
+  planks: block(`
+    A short stack of sawn boards bound with wire, ends rough-cut and splintered, one board
+    warped away from the others, weathered grey timber with warm tan #b98a52 showing where the
+    saw went through.
+  `),
 };
 
 /** ART-PROMPTS §6.2: keyed by `OverseerArchetype`. */
@@ -665,6 +670,17 @@ export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
  * break the frame in a way none of the others do.
  */
 export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
+  scavengers: block(`
+    A wiry salvager in a patched coat with a canvas satchel across the chest and a coil of copper
+    wire over one shoulder. Fingerless gloves black to the second knuckle, a headlamp pushed up
+    onto the forehead, a short pry bar hanging from the belt where a weapon would be on anybody
+    else. Reading a wall rather than watching a door.
+  `),
+  haulers: block(`
+    A broad-shouldered porter in a leather harness braced against the weight of a loaded barrow,
+    the strap worn shiny across one shoulder. Boots wrapped against the wet, a folded tarpaulin
+    lashed over the load, both hands on the shafts. Nothing on them that could be called a weapon.
+  `),
   razors: block(`
     A lean street fighter in a cut-down jacket over bare arms, holding a ground-down machete low
     and away from the body. Cloth wrapped from knuckle to elbow in place of armour, one shoulder

@@ -10,7 +10,6 @@ import {
   describeBundle,
   marketDay,
   utcHourInZone,
-  zoneCity,
   heldItems,
   type ItemId,
   type ItemRarity,
@@ -189,7 +188,7 @@ function VendorPanel({ market, now }: { market: MarketResponse; now: Date }) {
         {vendor.sessions
           .map((session) => utcHourInZone(marketDay(now), session.startHour, zone))
           .join(' and ')}
-        , two hours each, {zoneCity(zone)} time.
+        , two hours each.
       </p>
       <ul className="flex flex-col divide-y divide-surface-700" data-testid="vendor-stock">
         {vendor.stock.map((offer) => (

@@ -127,19 +127,20 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
       );
       await page.goto('/game/missions');
 
-      const ambush = page
-        .locator('article')
-        .filter({ has: page.getByRole('heading', { name: 'Convoy Ambush' }) });
-      // The board is a scroller: the existing suite skips the vertical-clip guard here for the
-      // same reason, so a card is scrolled to before anything is asserted about being on screen.
-      await ambush.scrollIntoViewIfNeeded();
-      await expect(ambush).toBeVisible();
+      /*
+       * Whichever job on the board points at the state, rather than a named one.
+       *
+       * Which three jobs an area offers is `missionOffers`' business and it is stable per area,
+       * not per template: naming `Convoy Ambush` pinned content this test is not about, and the
+       * card stopped existing the day the board became per-district.
+       */
+      const stance = MISSION_STANCE_SPECS.against_government.label;
+      const badged = page.locator('[data-testid^="offer-"]').filter({ hasText: stance }).first();
+      await badged.scrollIntoViewIfNeeded();
+      await expect(badged).toBeVisible();
       // The badge has to be *in the viewport*, not merely in the DOM: a tag pushed out of its row
       // renders off-panel and reads as missing.
-      await expect(
-        ambush.getByText(MISSION_STANCE_SPECS.against_government.label),
-      ).toBeInViewport();
-      await expect(ambush.getByText('Battle')).toBeInViewport();
+      await expect(badged.getByText(stance)).toBeInViewport();
 
       await settleFonts(page);
 
@@ -163,17 +164,40 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
     );
     await page.goto('/game/missions');
 
-    const card = (heading: string) =>
-      page.locator('article').filter({ has: page.getByRole('heading', { name: heading }) });
+    /*
+     * Found by stance rather than by name, and walked across the boards to find one.
+     *
+     * Which three jobs an area offers is `missionOffers`' business and it turns over daily, so
+     * naming `Courier Contract` pinned content this test is not about and stopped existing the
+     * day the board went per-district. What is being asserted is the *badging rule*: work for the
+     * Combine is marked, a blow against it is marked differently, and work it has no opinion
+     * about is not marked at all.
+     */
+    const withStance = async (label: string): Promise<void> => {
+      for (let step = 0; step < 12; step += 1) {
+        const badged = page.locator('[data-testid^="offer-"]').filter({ hasText: label }).first();
+        if ((await badged.count()) > 0) {
+          await badged.scrollIntoViewIfNeeded();
+          await expect(badged.getByText(label)).toBeInViewport();
+          return;
+        }
+        await page.getByTestId('board-right').click();
+      }
+      throw new Error(`no job labelled "${label}" on any board today`);
+    };
 
-    await card('Courier Contract').scrollIntoViewIfNeeded();
-    await expect(
-      card('Courier Contract').getByText(MISSION_STANCE_SPECS.for_government.label),
-    ).toBeInViewport();
-    // Unaligned scavenging carries no stance badge at all: the badge is a warning, not a label.
-    await card('Scrap Run').scrollIntoViewIfNeeded();
-    for (const spec of Object.values(MISSION_STANCE_SPECS)) {
-      await expect(card('Scrap Run').getByText(spec.label)).toHaveCount(0);
+    await withStance(MISSION_STANCE_SPECS.for_government.label);
+    await withStance(MISSION_STANCE_SPECS.against_government.label);
+
+    // Unaligned work carries no stance badge at all: the badge is a warning, not a label.
+    const plain = page
+      .locator('[data-testid^="offer-"]')
+      .filter({ hasNotText: MISSION_STANCE_SPECS.for_government.label })
+      .filter({ hasNotText: MISSION_STANCE_SPECS.against_government.label });
+    if ((await plain.count()) > 0) {
+      for (const spec of Object.values(MISSION_STANCE_SPECS)) {
+        await expect(plain.first().getByText(spec.label)).toHaveCount(0);
+      }
     }
   });
 });

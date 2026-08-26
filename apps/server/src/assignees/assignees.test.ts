@@ -1,5 +1,9 @@
 import {
-  MISSION_TEMPLATES,
+  CITY_DISTRICTS,
+  MISC_AREA_ID,
+  areasOffering,
+  missionBoardDay,
+  missionOffers,
   assigneeBonusPercent,
   assigneeCapPerOfficer,
   assigneePool,
@@ -18,6 +22,22 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
+
+/**
+ * A launch payload for `POST /api/missions`.
+ *
+ * A job has to be posted with the board it was taken off and the crew going, so the tests say
+ * both. `areasOffering` is what picks a board that genuinely offers the template, which is the
+ * same check the route makes.
+ */
+function launchBody(templateId: string, extra: Record<string, unknown> = {}) {
+  return {
+    templateId,
+    areaId: areasOffering(templateId, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+    force: { razors: 1 },
+    ...extra,
+  };
+}
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -63,8 +83,16 @@ async function makeStack(username = 'placer'): Promise<Stack> {
   ).toBe(201);
 
   const repos = createRepositories(db);
+  const minted = repos.bases.findByOwnerId(user.id);
+  if (!minted) throw new Error('overseer creation did not mint a base');
+  // Somebody to send, and eyes on the map. Work is per district and takes actual units now, so a
+  // bare stack refuses every launch below for reasons none of these §G tests are about.
+  repos.bases.updateArmy(minted.id, { razors: 3 }, minted.trainingQueue);
+  for (const district of CITY_DISTRICTS) {
+    repos.city.markScouted(minted.id, district.id, new Date().toISOString());
+  }
   const base = repos.bases.findByOwnerId(user.id);
-  if (!base) throw new Error('overseer creation did not mint a base');
+  if (!base) throw new Error('base vanished after arming it');
   return { app, repos, base, token };
 }
 
@@ -328,14 +356,33 @@ describe('POST /api/assignees/reskill (§G4/§C4)', () => {
 });
 
 describe('§G6 at the launch gate', () => {
-  const hard = MISSION_TEMPLATES.filter((template) => template.difficulty === 'hard');
-  const easy = MISSION_TEMPLATES.filter((template) => template.difficulty === 'easy');
+  /**
+   * The jobs actually on a board today, rather than the whole catalogue.
+   *
+   * The pool is larger than the city's boards can show at once and turns over daily, so a launch
+   * naming a template nobody is offering is a 404 before it ever reaches the §G6 gate this suite
+   * is about.
+   */
+  const onOfferToday = (difficulty: 'easy' | 'hard'): MissionTemplate[] => {
+    const day = missionBoardDay(new Date());
+    const seen = new Map<string, MissionTemplate>();
+    for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
+      for (const template of missionOffers(areaId, day)) {
+        if (template.difficulty === difficulty) seen.set(template.id, template);
+      }
+    }
+    return [...seen.values()];
+  };
+
+  const hard = onOfferToday('hard');
+  const easy = onOfferToday('easy');
 
   it('has both difficulties on the board, and they are not just kind renamed', () => {
     expect(hard.length).toBeGreaterThan(0);
     expect(easy.length).toBeGreaterThan(0);
     // `deep-expedition` is a *standard* mission that is nonetheless hard: a full day beyond the
-    // wire. If difficulty were derived from `kind` this would be impossible to express.
+    // wire. If difficulty were derived from `kind` this would be impossible to express. Read off
+    // the catalogue rather than off today's boards, because it is a claim about the content.
     const expedition = findMissionTemplate('deep-expedition') as MissionTemplate;
     expect(expedition.kind).toBe('standard');
     expect(expedition.difficulty).toBe('hard');
@@ -350,7 +397,7 @@ describe('§G6 at the launch gate', () => {
         method: 'POST',
         url: '/api/missions',
         headers: auth(stack.token),
-        payload: { templateId: template.id },
+        payload: launchBody(template.id),
       });
       expect(res.statusCode, template.id).toBe(409);
       expect(res.json<{ error: { code: string } }>().error.code).toBe('MISSION_NEEDS_OFFICER');
@@ -367,7 +414,7 @@ describe('§G6 at the launch gate', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: { templateId: siphon.id },
+      payload: launchBody(siphon.id),
     });
     expect(alone.statusCode).toBe(200);
     const unled = alone.json<{ mission: Mission }>().mission;
@@ -387,7 +434,7 @@ describe('§G6 at the launch gate', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(led.token),
-      payload: { templateId: siphon.id, officerId: leader!.id },
+      payload: launchBody(siphon.id, { officerId: leader!.id }),
     });
     expect(withOfficer.statusCode).toBe(200);
     const ledMission = withOfficer.json<{ mission: Mission }>().mission;
@@ -410,7 +457,7 @@ describe('§G6 at the launch gate', () => {
         method: 'POST',
         url: '/api/missions',
         headers: auth(stack.token),
-        payload: { templateId, officerId: 'not-on-the-books' },
+        payload: launchBody(templateId, { officerId: 'not-on-the-books' }),
       });
       expect(res.statusCode, templateId).toBe(404);
       expect(res.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND');
@@ -432,7 +479,7 @@ describe('§G6 at the launch gate', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: { templateId: 'scrap-run' },
+      payload: launchBody('scrap-run'),
     });
     expect(res.statusCode).toBe(409);
     expect(res.json<{ error: { code: string } }>().error.code).toBe('NO_ASSIGNEES');

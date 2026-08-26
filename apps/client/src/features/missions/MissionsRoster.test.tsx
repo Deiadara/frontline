@@ -1,5 +1,8 @@
 import {
+  MISC_AREA_ID,
   assigneeBonusPercent,
+  missionOffers,
+  templateTimings,
   createCommander,
   type AssigneesResponse,
   type HireRecruitResponse,
@@ -36,10 +39,49 @@ const NOW = '2026-08-13T12:00:00.000Z';
 const board: MissionsResponse = {
   missions: [],
   justResolved: [],
-  resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0 },
-  activeLimit: 4,
+  resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
+  activeLimit: 2,
+  areas: [
+    {
+      id: MISC_AREA_ID,
+      name: 'Odd jobs',
+      blurb: 'Work that belongs to nobody.',
+      difficulty: 1,
+      payPercent: 0,
+      offers: missionOffers(MISC_AREA_ID).map((template) => ({
+        templateId: template.id,
+        name: template.name,
+        brief: template.brief,
+        kind: template.kind,
+        difficulty: template.difficulty,
+        stance: template.stance,
+        travelMinutes: templateTimings(template).travelMinutes,
+        durationMinutes: template.durationMinutes,
+        totalMinutes: templateTimings(template).totalMinutes,
+        rewards: template.spoils,
+        payoutSlots: 40,
+        xp: 240,
+        failedXp: 48,
+      })),
+      activeMissionId: null,
+    },
+  ],
+  army: { razors: 4 },
   serverNow: NOW,
 };
+
+/** The first job on the miscellaneous board, whatever it happens to be. */
+function anyOffer() {
+  const offer = board.areas[0]?.offers[0];
+  if (!offer) throw new Error('fixture error: the miscellaneous board offers nothing');
+  return offer;
+}
+
+/** Open the send window for it: the one place the roster is read on this screen now. */
+async function openSend(): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByTestId(`send-${anyOffer().templateId}`));
+  return screen.getByRole('dialog');
+}
 
 const staffed: AssigneesResponse = {
   level: 6,
@@ -85,14 +127,6 @@ function renderBoard(queryClient: QueryClient) {
   );
 }
 
-const card = (name: string): HTMLElement => {
-  const article = screen.getByRole('heading', { name }).closest('article');
-  if (!article) throw new Error(`no card for ${name}`);
-  return article;
-};
-
-const deploy = (name: string) => within(card(name)).getByRole('button', { name: 'Deploy' });
-
 /** The app's own client: it never retries a read, which is what makes a failed roster permanent. */
 const appClient = () =>
   new QueryClient({
@@ -133,43 +167,28 @@ describe('the board cannot read the roster', () => {
 
     // The sentence names no remedy, matching the §G screen. The one it used to name: "Reload to
     // try again": was wrong: re-entering the page refetches, so a reload was never the only way.
-    await within(card('Convoy Ambush')).findByText('Could not read your officers.');
+    const dialog = await openSend();
+    await within(dialog).findByText('Could not read your officers.');
     expect(screen.queryByText(/Hire one at the Bar/)).toBeNull();
     expect(screen.queryByText('Reading the roster…')).toBeNull();
     expect(screen.queryByText(/Reload/)).toBeNull();
-    // The gate still holds: nothing may be sent out under a leader the page could not name.
-    expect(deploy('Convoy Ambush')).toBeDisabled();
-    // A message *or* the select, never both. The card used to make that impossible by construction;
-    // it is now three separate guards agreeing with `canPick`, so the agreement has to be watched:
-    // a hard card that renders a zero-option dropdown under its own error line is a visual defect.
-    expect(within(card('Convoy Ambush')).queryByRole('combobox')).toBeNull();
-    // Easy work is unaffected: §G6 lets it go out on a delegation, roster or no roster.
-    expect(deploy('Scrap Run')).toBeEnabled();
+    // A message *or* the picker, never both: a dropdown with no options under its own error line
+    // is a dead control, and a visual defect on a bar that forbids them.
+    expect(within(dialog).queryByTestId('send-leader')).toBeNull();
   });
 
   /**
-   * The quiet half of the same lie. An easy card keeps its picker on a failed read, so it renders
-   * "Nobody: assignees alone, slower" and nothing else: a stocked player reads that as an empty
-   * roster and is silently denied the §G6 choice to put an officer on easy work for the §G5/§G7
-   * bonus. The card has to say the roster is missing, not merely behave as though it were empty.
+   * The other half of the same lie, and the one that is quiet. Reading a failure as an empty
+   * roster silently denies a stocked player the §G6 choice to put an officer on easy work for the
+   * §G5/§G7 bonus, with nothing on screen to say why the option is missing.
    */
-  it('tells an easy card why its picker is short instead of leaving it unexplained', async () => {
+  it('never reads a failed roster as an empty one', async () => {
     refuseTheRoster();
     renderBoard(appClient());
 
-    const easy = within(card('Scrap Run'));
-    await easy.findByText('Could not read your officers.');
-    // The choice itself survives: the card still offers the delegation, it just cannot offer
-    // officers, and the line above now says so. Assert on what the picker *holds*: a surviving
-    // combobox that had lost its one option would be a dead control, and the §G6 entitlement this
-    // whole case exists to protect would be gone with the error line still sitting above it.
-    //
-    // The painted picker only renders its list while it is open, so the list is opened to be read.
-    // Portalled to the body, so the options are found on `screen` rather than inside the card.
-    fireEvent.click(easy.getByRole('combobox'));
-    expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
-      'NobodyAssignees alone, and slower for it',
-    ]);
+    const dialog = await openSend();
+    await within(dialog).findByText('Could not read your officers.');
+    expect(within(dialog).queryByText(/Nobody on your books/)).toBeNull();
   });
 });
 
@@ -178,8 +197,14 @@ describe('a signing reaches the board', () => {
     accepted: true,
     wage: 40,
     officer: createCommander('off-9', 'Reza Malik', 'raid_boss'),
-    firstPayment: 12,
-    resources: null,
+    payroll: {
+      capacity: 300,
+      committed: 40,
+      available: 260,
+      purchasedSteps: 0,
+      nextStepCost: 500,
+      stepSize: 30,
+    },
   };
 
   /**
@@ -188,7 +213,15 @@ describe('a signing reaches the board', () => {
    * 30s `staleTime`, so a player who hires their first officer and walks straight to the board is
    * told, on all four hard cards, to go to the Bar and hire one.
    */
-  it('refreshes the roster the §G6 picker reads', async () => {
+  /**
+   * The §G list the Crew screen and the mission board's officer picker both read.
+   *
+   * Two claims, and the first is the one a player feels: the officer is *in the cached list* the
+   * moment the hire lands, so the Crew screen shows them without waiting for a round trip. The
+   * second is that the list is still reconciled against the server afterwards, because the counts
+   * beside it are the server's arithmetic.
+   */
+  it('puts the new officer in the crew list at once, and still reconciles it', async () => {
     fetchMock.mockImplementation((path: string) => {
       if (path.endsWith('/bar/hire')) return reply(signed);
       throw new Error(`unstubbed request: ${path}`);
@@ -203,6 +236,12 @@ describe('a signing reaches the board', () => {
     await act(async () => {
       await result.current.mutateAsync({ recruitId: 'r-1', role: 'raid_boss', offerWage: 40 });
     });
+
+    const cached = queryClient.getQueryData<AssigneesResponse>(queryKeys.assignees);
+    expect(cached?.officers.map((officer) => officer.officerId)).toEqual(['off-9']);
+    expect(cached?.officers[0]?.name).toBe('Reza Malik');
+    // Freshly signed: nobody is placed with them yet, which is what §G says of a new officer.
+    expect(cached?.officers[0]?.assignees).toBe(0);
 
     await waitFor(() =>
       expect(queryClient.getQueryState(queryKeys.assignees)?.isInvalidated).toBe(true),

@@ -413,8 +413,8 @@ describe('GET /api/city', () => {
       research: startingResearch(),
       assignees: startingAssignees(),
       buildings: [
-        { id: 'r-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0, garrisons: 0 },
-        { id: 'r-gate', kind: 'gate', level: 3, modifications: [], damage: 0, garrisons: 0 },
+        { id: 'r-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0, fortification: 0 },
+        { id: 'r-gate', kind: 'gate', level: 3, modifications: [], damage: 0, fortification: 0 },
       ],
       buildQueue: [],
       army: {},
@@ -422,6 +422,7 @@ describe('GET /api/city', () => {
       training: startingTraining('2026-08-16T00:00:00.000Z'),
       inventory: {},
       fittedUpgrades: [],
+      unitLoadouts: {},
       fleet: {},
       commanders: [],
       createdAt: new Date().toISOString(),

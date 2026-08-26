@@ -143,10 +143,23 @@ describe('combat width', () => {
     expect(Math.abs(survived(48) - survived(12))).toBeLessThan(0.1);
   });
 
-  /** ...and does nothing at all to a force that fits inside it. */
+  /**
+   * ...and does nothing at all to a force that fits inside it.
+   *
+   * Four bodies, because a sewer junction is five wide.
+   *
+   * This sent eight into both grounds and asserted that all of them deployed, which is not true of
+   * a frontage of five and never was: it passed because an even 8-v-8 had already killed the
+   * attacker down under the width by the time anything was counted, so what it actually measured
+   * was attrition. A one percent change in damage moved who died and the whole thing fell over.
+   * Now the force genuinely fits, and the defender is small enough that it is still standing to
+   * be counted.
+   */
   it('costs a force that fits within the frontage nothing', () => {
-    const [wide] = run({ razors: 8 }, { razors: 8 }, field('rail_yard'), 1).simulations;
-    const [narrow] = run({ razors: 8 }, { razors: 8 }, field('sewer_junction'), 1).simulations;
+    // The narrow ground is the binding one, so the force is sized to it and checked against both.
+    expect(field('sewer_junction').frontage).toBeGreaterThanOrEqual(4);
+    const [wide] = run({ razors: 4 }, { razors: 1 }, field('rail_yard'), 1).simulations;
+    const [narrow] = run({ razors: 4 }, { razors: 1 }, field('sewer_junction'), 1).simulations;
     expect(wide && narrow).toBeTruthy();
     if (!wide || !narrow) return;
     expect(frontageShare(wide.attacker, field('rail_yard').frontage)).toBe(1);

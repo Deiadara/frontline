@@ -1,5 +1,5 @@
 import {
-  RESOURCE_KEYS,
+  RESOURCE_ORDER as DOMAIN_RESOURCE_ORDER,
   RESOURCE_LORE,
   type PartialResources,
   type ResourceKey,
@@ -96,6 +96,50 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
       </>,
     ),
   },
+  planks: {
+    label: 'Planks',
+    color: 'text-tangerine-300',
+    fill: 'bg-tangerine-300',
+    /*
+     * The procedural fallback, behind `assets/icon-planks.webp`.
+     *
+     * Every resource keeps one: `ResourceIcon` draws the painted asset when it has landed and this
+     * when it has not, so a missing or failed asset degrades to a legible glyph rather than to a
+     * gap. Three stacked boards with a binding strap, which is what the painted one shows.
+     */
+    icon: glyph(
+      <>
+        <rect
+          x="2.2"
+          y="4.2"
+          width="11.6"
+          height="2.6"
+          rx="0.6"
+          stroke="currentColor"
+          strokeWidth="1.2"
+        />
+        <rect
+          x="2.2"
+          y="7.6"
+          width="11.6"
+          height="2.6"
+          rx="0.6"
+          stroke="currentColor"
+          strokeWidth="1.2"
+        />
+        <rect
+          x="2.2"
+          y="11"
+          width="11.6"
+          height="2.6"
+          rx="0.6"
+          stroke="currentColor"
+          strokeWidth="1.2"
+        />
+        <path d="M11.2 3.4v11" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      </>,
+    ),
+  },
   highQualityMetal: {
     label: 'HQ Metal',
     color: 'text-ink-100',
@@ -120,7 +164,12 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
 };
 
 /** Fixed display order: taken from the shared schema so a new resource cannot be dropped. */
-export const RESOURCE_ORDER: readonly ResourceKey[] = RESOURCE_KEYS;
+/*
+ * Reading order, which is not storage order: `RESOURCE_KEYS` fixes the art seeds and so has to be
+ * appended to, while this is about what the numbers mean. Owned by the domain now, because the
+ * market and the HUD were both deriving their own and had already drifted once.
+ */
+export const RESOURCE_ORDER = DOMAIN_RESOURCE_ORDER;
 
 /**
  * One resource's mark: the delivered icon once `icon-<resource>` has landed, the line glyph until
@@ -235,23 +284,36 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
    */
   const chip = (
     <div
-      className="edge-lit flex shrink-0 items-center gap-1.5 rounded-sm border border-surface-600/80 bg-surface-800/80 px-1.5 py-1"
+      className="resource-chip flex shrink-0 items-center gap-1 rounded-lg px-1 py-1"
       data-testid={`resource-chip-${kind}`}
     >
-      <span className="icon-tile flex h-12 w-12 shrink-0 items-center justify-center rounded-sm">
-        <ResourceIcon kind={kind} className="h-11 w-11" />
+      {/*
+        Tight padding and a slightly smaller number, and that is a fit rather than a taste.
+        Six stockpiles, three buttons, two meters and an identity share one line. The sixth
+        (§D5b's planks) pushed the row over its width, the identity wrapped to a second line, and
+        the 50px that cost came straight out of the screen below: district cards were sliced by
+        the bottom nav at 1280.
+        The width comes out of the padding and the figure rather than the glyph, deliberately. The
+        icons are painted masters and the reason the bar is worth looking at, and shrinking them
+        would also shorten the chip: an 8px change in the bar's height moves every screen under it
+        past a fold, which is its own class of bug.
+      */}
+      <span className="resource-well flex h-12 w-12 shrink-0 items-center justify-center rounded-lg">
+        <ResourceIcon kind={kind} className="resource-art h-11 w-11" />
       </span>
       <span className="flex min-w-0 flex-col gap-1.5">
         <span
-          className={cn('font-display text-lg font-bold leading-none tabular-nums', meta.color)}
+          className={cn('font-display text-base font-bold leading-none tabular-nums', meta.color)}
         >
           {compactAmount(value)}
         </span>
+        {/* Thinner and rounder than it was, and the track is a shadow in the glass rather than a
+            black slot: the bar is a reading *on* the chip, not a second component inside it. */}
         {capacity !== undefined && (
-          <span className="block h-1.5 w-full overflow-hidden rounded-sm bg-surface-950/80">
+          <span className="block h-1 w-full overflow-hidden rounded-full bg-black/35">
             <span
               className={cn(
-                'block h-full rounded-sm transition-[width] duration-500',
+                'block h-full rounded-full opacity-80 transition-[width] duration-500',
                 nearlyFull ? 'bg-oxblood-300' : meta.fill,
               )}
               style={{ width: `${fill * 100}%` }}
@@ -267,7 +329,7 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
   // than growing a control that opens onto one line of text.
   if (capacity === undefined) {
     return (
-      <div role="img" aria-label={reading} title={reading}>
+      <div role="img" aria-label={reading} data-tip={reading}>
         {chip}
       </div>
     );

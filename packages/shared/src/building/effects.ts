@@ -36,7 +36,6 @@ const REDUCTIONS: readonly ModificationEffect[] = [
   'build_time_reduction',
   'power_draw_reduction',
   'research_time_reduction',
-  'hardship_reduction',
   'fuel_efficiency',
 ];
 

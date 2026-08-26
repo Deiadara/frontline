@@ -107,7 +107,7 @@ export const CHANNEL_LABELS: Readonly<Record<EffectChannel, ChannelLabel>> = {
   productionPercent: { label: 'What the district makes', unit: 'percent' },
   storageCapacityPercent: { label: 'Room to keep it', unit: 'percent' },
   buildCostPercent: { label: 'Off the cost of a build', unit: 'percent' },
-  wageDiscountPercent: { label: 'Off the wage book', unit: 'percent' },
+  wageDiscountPercent: { label: 'Off what an officer asks for', unit: 'percent' },
   recruitPoolPercent: { label: 'Who turns up at the bar', unit: 'percent' },
   alignmentHoldPercent: { label: 'Keeping the ones you have', unit: 'percent' },
   intelYieldPercent: { label: 'What a scout brings back', unit: 'percent' },

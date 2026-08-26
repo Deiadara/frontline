@@ -231,7 +231,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     districtId: 'neon-docks',
     level: 3,
     isBot: false,
-    resources: { caps: 9000, food: 100, oil: 100, scrap: 100, highQualityMetal: 10 },
+    resources: { caps: 9000, food: 100, oil: 100, scrap: 100, highQualityMetal: 10, planks: 100 },
     economy: { ...startingEconomy(NOW.toISOString()), infamy: 70 },
     progression: startingProgression(),
     research: startingResearch(),
@@ -243,6 +243,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
+    unitLoadouts: {},
     fleet: {},
     commanders: [
       createCommander(
@@ -261,7 +262,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
 
   /** Exactly what `GET /api/bar` serialises, minus the clock. */
   const rosterResponse = (on: Base = base) => ({
-    recruits: barRoster(barDay(NOW)).map((recruit) => projectRecruit(on, recruit, NOW)),
+    recruits: barRoster(barDay(NOW)).map((recruit) => projectRecruit(on, recruit, undefined)),
     officers: on.commanders.map((officer) => projectOfficer(on, officer)),
     filledRoles: on.commanders.map((officer) => officer.role),
   });
@@ -302,11 +303,11 @@ describe('the Bar roster response (INTERFACES R4)', () => {
   it('derives every shipped figure from the visible sheet, not from role fit', () => {
     const day = barDay(NOW);
     for (const recruit of barRoster(day)) {
-      const straight = projectRecruit(base, recruit, NOW);
+      const straight = projectRecruit(base, recruit, undefined);
       const permuted = projectRecruit(
         base,
         { ...recruit, attributes: rotateSheet(recruit.attributes) },
-        NOW,
+        undefined,
       );
       expect(permuted.askingWage, `${recruit.id}'s wage moved when only the roles did`).toBe(
         straight.askingWage,

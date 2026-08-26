@@ -1,4 +1,5 @@
 import {
+  MISC_AREA_ID,
   OFFICER_ROLES,
   CROSS_REFERENCE_IMPROVISATION,
   characterXpForActivity,
@@ -16,7 +17,7 @@ import {
   findMissionTemplate,
   makeAttributes,
   modifiedSuccessChance,
-  moraleFromLeadership,
+  factionXpFromLeadership,
   overseerMissionEdge,
   pairingsIn,
   researchCompletesAt,
@@ -96,7 +97,7 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     districtId: 'neon-docks',
     level: 1,
     isBot: false,
-    resources: { caps: 5000, food: 100, oil: 100, scrap: 100, highQualityMetal: 10 },
+    resources: { caps: 5000, food: 100, oil: 100, scrap: 100, highQualityMetal: 10, planks: 100 },
     economy: startingEconomy(NOW.toISOString()),
     progression: startingProgression(),
     assignees: startingAssignees(),
@@ -108,6 +109,7 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
+    unitLoadouts: {},
     fleet: {},
     commanders: [],
     createdAt: NOW.toISOString(),
@@ -387,19 +389,11 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     expect(pairingsIn(settlement.discovered)).toHaveLength(1);
   });
 
-  it('§F3: Charisma turns a finished project into morale, and a dour Overseer does not', () => {
-    const lead = professor('p', 10, 10);
-    const base = makeBase({ commanders: [lead] });
-    const charismatic = makeOverseer({
-      attributes: makeAttributes(10, { charisma: MAX_ATTRIBUTE }),
-    });
-    const dour = makeOverseer({ attributes: makeAttributes(10, { charisma: 0 }) });
-
-    expect(moraleFromLeadership(dour.attributes)).toBe(0);
-    const lifted = runToCompletion(base, charismatic, investigate('p'));
-    const flat = runToCompletion(base, dour, investigate('p'));
-    expect(lifted.base.economy.morale).toBeGreaterThan(flat.base.economy.morale);
-    expect(flat.base.economy.morale).toBe(base.economy.morale);
+  it('§F3: Charisma is worth faction XP on a finished project, and a dour Overseer is not', () => {
+    const charismatic = makeAttributes(10, { charisma: MAX_ATTRIBUTE });
+    const dour = makeAttributes(10, { charisma: 0 });
+    expect(factionXpFromLeadership(dour)).toBe(0);
+    expect(factionXpFromLeadership(charismatic)).toBeGreaterThan(0);
   });
 
   it('lands the project even if the lead was fired mid-flight, without their bonus', () => {
@@ -532,14 +526,22 @@ describe('§F5: the Overseer modifies a run that risks people', () => {
     const sharp = makeOverseer({
       attributes: makeAttributes(10, { speed: MAX_ATTRIBUTE, stealth: MAX_ATTRIBUTE }),
     });
-    const stored = launchMission({ id: 'm', base, template: battle, now: NOW, overseer: sharp });
+    const args = { areaId: MISC_AREA_ID, force: { razors: 1 } };
+    const stored = launchMission({
+      id: 'm',
+      base,
+      template: battle,
+      now: NOW,
+      overseer: sharp,
+      ...args,
+    });
     expect(stored.successChance).toBe(
       modifiedSuccessChance(battle.successChance, sharp.attributes, 'battle'),
     );
     // No Overseer means the template's authored chance, untouched: the pre-§F5 behaviour.
-    expect(launchMission({ id: 'm', base, template: battle, now: NOW }).successChance).toBe(
-      battle.successChance,
-    );
+    expect(
+      launchMission({ id: 'm', base, template: battle, now: NOW, ...args }).successChance,
+    ).toBe(battle.successChance);
   });
 });
 

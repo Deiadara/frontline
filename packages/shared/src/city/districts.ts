@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { RaidTarget } from '../economy/reputation.js';
 import { FactionSchema, governmentGarrisonFor, type Faction } from '../factions.js';
 import { IdSchema } from './../primitives.js';
 import {
@@ -398,7 +397,17 @@ export function garrisonOf(district: District): string {
     : 'whoever holds the ground and has decided to keep it';
 }
 
-/** Everything §D8's stance counters need to know about a raided district, and nothing more. */
+/**
+ * Everything the infamy ledger needs to know about a raided district, and nothing more.
+ *
+ * It used to feed the §D8 stance tally as well. That is gone with reputation, and this is the one
+ * place the map is read for either: the ledger never has to know what a district is.
+ */
+export interface RaidTarget {
+  faction: Faction;
+  isSeatOfPower: boolean;
+}
+
 export function raidTargetOf(district: District): RaidTarget {
   return { faction: district.faction, isSeatOfPower: isSeatOfGovernmentPower(district) };
 }

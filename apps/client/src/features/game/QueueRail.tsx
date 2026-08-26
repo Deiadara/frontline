@@ -201,7 +201,7 @@ export function QueueRail() {
           type="button"
           onClick={() => setOpened(entry.id)}
           data-testid={`queue-rail-${entry.id}`}
-          title={`${entry.kind}: ${entry.what}`}
+          data-tip={`${entry.kind}: ${entry.what}`}
           className={cn(
             'glass painted rivets group relative flex shrink-0 items-center gap-2 overflow-hidden rounded-sm',
             'border border-surface-600/80 py-1 pl-1.5 pr-2.5 text-left transition-colors hover:border-brass-300/70',

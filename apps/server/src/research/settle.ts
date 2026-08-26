@@ -1,9 +1,8 @@
 import {
-  adjustMeter,
   developAttribute,
   extraFactsFrom,
   isResearchDue,
-  moraleFromLeadership,
+  factionXpFromLeadership,
   recordFacts,
   type ActiveResearch,
   type Base,
@@ -103,10 +102,6 @@ export function settleResearch(
       ? { ...overseer, attributes: developAttribute(overseer.attributes, active.project.attribute) }
       : overseer;
 
-  // §F3: Charisma is "leading people, raising morale", and landing a result in front of the crew
-  // is where that cashes out. Feeds W2's meter (INTERFACES R5); it does not open a second one.
-  const morale = adjustMeter(base.economy.morale, moraleFromLeadership(overseer.attributes));
-
   // §A1: modification work ends with the thing bolted on. `fitModification` is a no-op when the
   // structure or its slot went away while the work was under way, which is why this is a plain
   // assignment rather than a branch: the project lands either way and never runs twice.
@@ -118,7 +113,6 @@ export function settleResearch(
   const settled: Base = {
     ...base,
     buildings,
-    economy: { ...base.economy, morale },
     research: { ...recordFacts(base.research, discovered), active: null },
   };
 
@@ -143,7 +137,14 @@ export function settleResearch(
   // §I1, and the player. A project is the longest single commitment in the game, so it is the one
   // clock that has to be worth waiting out on its own. Last, after the officer's own XP, for the
   // same reason: the two ledgers are separate and this one must not change what that one paid.
-  const progressed = awardPlayerXp(repos, paid, 'researchCompleted');
+  // §F3: Charisma is "leading people". A lead who can present a result gets the crew more out of
+  // it, which is the one thing that attribute buys now that district morale is gone.
+  const progressed = awardPlayerXp(
+    repos,
+    paid,
+    'researchCompleted',
+    factionXpFromLeadership(overseer.attributes),
+  );
 
   return {
     base: progressed.base,

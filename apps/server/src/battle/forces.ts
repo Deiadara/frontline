@@ -1,4 +1,4 @@
-import { addToArmy, takeFromArmy, type Army } from '@frontline/shared';
+import { addToArmy, isCombatUnit, takeFromArmy, type Army } from '@frontline/shared';
 
 /**
  * Moving bodies between the four locations they can stand.
@@ -16,6 +16,18 @@ export const forceSize = (force: Army): number =>
 /** Whether `army` really contains everything `force` claims to be taking. */
 export function hasForce(army: Army, force: Army): boolean {
   return Object.entries(force).every(([unitId, count]) => (army[unitId] ?? 0) >= count);
+}
+
+/**
+ * Whether every unit in this force is one that can actually be put in a line (§A5).
+ *
+ * The support tier cannot: Scavengers and Haulers carry, they do not fight, and a fight is the
+ * one place they may never be sent. Checked here rather than at each route because a force is a
+ * force wherever it is going, and a door that forgot the rule would put a porter in a rank and
+ * quietly kill them for a percentage of an exchange.
+ */
+export function isFightingForce(force: Army): boolean {
+  return Object.entries(force).every(([unitId, count]) => count <= 0 || isCombatUnit(unitId));
 }
 
 export function removeForce(army: Army, force: Army): Army {

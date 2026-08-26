@@ -6,18 +6,32 @@ import {
   negotiate,
   negotiationLine,
   openNegotiation,
+  IncreasePayrollRequestSchema,
+  ReleaseOfficerRequestSchema,
+  inStandoff,
+  payrollStepCost,
   playerLevelGrants,
-  reputationOf,
   spendCharacterPoint,
+  standoffAfterWalkout,
+  standoffRemainingMs,
   type AssignPointResponse,
   type Base,
   type BarResponse,
   type Commander,
   type HireRecruitResponse,
+  type IncreasePayrollResponse,
   type NegotiateResponse,
+  type ReleaseOfficerResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { assessAgainst, hireRecruit, wageAskedOf, type HireRefusal } from '../bar/hire.js';
+import {
+  assessAgainst,
+  hireRecruit,
+  ledgerFor,
+  releaseOfficer,
+  wageAskedOf,
+  type HireRefusal,
+} from '../bar/hire.js';
 import { settleOfficerAlignment } from '../bar/officers.js';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
 import { barSeatsFor, barDay, barRoster, findBarRecruit, seatOf } from '../bar/roster.js';
@@ -72,11 +86,18 @@ const REFUSAL_ERRORS: Record<HireRefusal, { code: ErrorCode; message: string }> 
     code: 'RECRUIT_UNAVAILABLE',
     message: 'They will not work for a crew this far off the street',
   },
-  reputation: {
+  level: {
     code: 'RECRUIT_UNAVAILABLE',
-    message: 'They want nothing to do with a crew like yours',
+    message: 'They want a crew that has been doing this longer',
   },
-  cannot_afford: { code: 'INSUFFICIENT_CAPS', message: 'You cannot cover their first payment' },
+  standoff: {
+    code: 'RECRUIT_UNAVAILABLE',
+    message: 'You walked out on them. They are not ready to talk again',
+  },
+  no_payroll: {
+    code: 'NO_PAYROLL',
+    message: 'Your payroll will not stretch that far. Raise it at the Nexus',
+  },
 };
 
 export function registerBarRoutes(app: FastifyInstance): void {
@@ -89,19 +110,24 @@ export function registerBarRoutes(app: FastifyInstance): void {
     // §F2: Charisma and Diplomacy widen the room. Word gets around about who is hiring.
     const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
     const generations = app.repos.bar.generations(day, seats);
+    // §H2: the room scales with the city. Averaged across every base standing in it, so it is the
+    // whole city's standing that raises the calibre rather than the reader's own.
+    const standoffs = app.repos.bar.standoffs(request.currentUser.id);
 
     return {
       day,
       serverNow: now.toISOString(),
-      recruits: barRoster(day, generations, seats).map((recruit) =>
-        projectRecruit(base, recruit, now),
+      recruits: barRoster(day, generations, seats, app.repos.bases.averageLevel()).map((recruit) =>
+        projectRecruit(base, recruit, standoffs[recruit.id]),
       ),
       officers: base.commanders.map((officer) => projectOfficer(base, officer)),
       slotsUsed: base.commanders.length,
       slotsTotal: playerLevelGrants(base.level).recruitSlots,
       infamy: base.economy.infamy,
-      reputation: reputationOf(base.economy, now),
+      notoriety: base.economy.notoriety,
+      level: base.level,
       caps: base.resources.caps,
+      payroll: ledgerFor(base),
       filledRoles: base.commanders.map((officer) => officer.role),
       hiresLeftToday: Math.max(
         0,
@@ -134,14 +160,25 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const recruit = findBarRecruit(day, recruitId, app.repos.bar.generations(day, seats), seats);
     if (!recruit) throw new AppError('NOT_FOUND', 'They are not at the Bar today');
 
-    const { stance, blockers } = assessAgainst(base, recruit, now);
-    // §H3/§H4 come first: somebody who will not work for this crew at any price is not somebody to
+    const { blockers } = assessAgainst(base, recruit);
+    // §H3 comes first: somebody who will not work for this crew at any price is not somebody to
     // haggle with, and letting the conversation open would teach the player nothing true.
     if (blockers.length > 0) {
       throw new AppError('RECRUIT_UNAVAILABLE', 'They will not talk terms with a crew like yours');
     }
 
-    const asking = wageAskedOf(recruit, stance);
+    // And a walkout is a closed door with a clock on it. Six hours, and their price has already
+    // gone up ten percent for the next conversation: see `standoffAfterWalkout`.
+    const standoff = app.repos.bar.standoff(request.currentUser.id, recruitId);
+    if (inStandoff(standoff, now)) {
+      const hours = Math.ceil(standoffRemainingMs(standoff, now) / (60 * 60 * 1000));
+      throw new AppError(
+        'RECRUIT_UNAVAILABLE',
+        `You walked out on them. They will not sit down again for another ${hours}h`,
+      );
+    }
+
+    const asking = wageAskedOf(recruit, standoff);
     const current =
       app.repos.bar.negotiation(request.currentUser.id, day, recruitId) ??
       openNegotiation(asking, recruit.ambition, recruit.moralCompass);
@@ -163,6 +200,16 @@ export function registerBarRoutes(app: FastifyInstance): void {
       turn.negotiation,
       now.toISOString(),
     );
+    // The half of a walkout that outlives the roster: six hours of silence, and ten percent on
+    // the price for good. Written here rather than inside `negotiate` because it is a fact about
+    // this crew and this person rather than about the conversation.
+    if (turn.walkedAway) {
+      app.repos.bar.saveStandoff(
+        request.currentUser.id,
+        recruitId,
+        standoffAfterWalkout(standoff, now),
+      );
+    }
 
     return {
       negotiation: turn.negotiation,
@@ -182,6 +229,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const generations = app.repos.bar.generations(day, seats);
     const recruit = findBarRecruit(day, recruitId, generations, seats);
     const seat = seatOf(day, recruitId);
+    const standoff = app.repos.bar.standoff(request.currentUser.id, recruitId);
     if (!recruit || seat === null) {
       // Two ways to land here and one honest answer for both: the roster turned over at midnight
       // UTC (§H2), or somebody else signed this person and their seat has already moved on
@@ -198,6 +246,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
         recruit,
         role,
         offerWage,
+        ...(standoff ? { standoff } : {}),
         now,
         admin: app.config.admin,
       }),
@@ -207,13 +256,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       throw new AppError(code, message);
     }
     if (result.kind === 'countered') {
-      return {
-        accepted: false,
-        wage: result.wage,
-        officer: null,
-        firstPayment: 0,
-        resources: null,
-      };
+      return { accepted: false, wage: result.wage, officer: null, payroll: null };
     }
     // §I1: signing somebody is one of the two or three things a player does in a session that
     // takes a real decision, so it pays. Outside the hire transaction deliberately: the XP ledger
@@ -223,10 +266,76 @@ export function registerBarRoutes(app: FastifyInstance): void {
       accepted: true,
       wage: result.wage,
       officer: result.officer,
-      firstPayment: result.firstPayment,
-      resources: result.base.resources,
+      payroll: result.payroll,
       levelUp: levelUpFrom([award]),
     };
+  });
+
+  /**
+   * §H7: let an officer go.
+   *
+   * Their slice of the book is freed immediately and five weeks of it is taken in caps on the
+   * spot. Deliberately not reversible and deliberately expensive: the book is a standing promise,
+   * and a crew that could rotate its officers for free would never have to live with one.
+   */
+  app.post('/bar/release', { preHandler: app.authenticate }, (request): ReleaseOfficerResponse => {
+    const { officerId } = parseBody(ReleaseOfficerRequestSchema, request.body);
+    const now = new Date();
+    const base = settledBase(app, request.currentUser.id, now);
+
+    const result = app.db.transaction(() =>
+      releaseOfficer(app.repos, base, officerId, app.config.admin),
+    )();
+    if (result.kind === 'refused') {
+      if (result.reason === 'not_on_the_books') {
+        throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+      }
+      throw new AppError('INSUFFICIENT_CAPS', 'You cannot cover what letting them go would cost');
+    }
+
+    return {
+      officerId,
+      fee: result.fee,
+      resources: result.base.resources,
+      payroll: result.payroll,
+    };
+  });
+
+  /**
+   * §H7: buy one more step of standing payroll.
+   *
+   * The Nexus screen's `Increase Payroll`. A fixed step at a price that climbs with every step
+   * already bought, and no ceiling: `payrollStepCost` owns both halves of that and this route only
+   * moves the caps.
+   */
+  app.post('/bar/payroll', { preHandler: app.authenticate }, (request): IncreasePayrollResponse => {
+    parseBody(IncreasePayrollRequestSchema, request.body ?? {});
+    const now = new Date();
+    const base = settledBase(app, request.currentUser.id, now);
+
+    const cost = payrollStepCost(base.economy.payroll.purchasedSteps);
+    if (cost > base.resources.caps && !app.config.admin) {
+      throw new AppError('INSUFFICIENT_CAPS', 'You cannot cover that');
+    }
+
+    const raised = app.db.transaction(() => {
+      const resources = {
+        ...base.resources,
+        caps: base.resources.caps - (app.config.admin ? 0 : cost),
+      };
+      const economy = {
+        ...base.economy,
+        payroll: {
+          ...base.economy.payroll,
+          purchasedSteps: base.economy.payroll.purchasedSteps + 1,
+        },
+      };
+      app.repos.bases.updateResources(base.id, resources);
+      app.repos.bases.updateEconomy(base.id, economy);
+      return { ...base, resources, economy };
+    })();
+
+    return { spent: cost, resources: raised.resources, payroll: ledgerFor(raised) };
   });
 
   /** §H6/§H6a: the 2 points per level the player assigns by hand. */

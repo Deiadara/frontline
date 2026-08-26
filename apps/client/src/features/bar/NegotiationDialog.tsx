@@ -64,8 +64,14 @@ export interface NegotiationDialogProps {
   recruit: BarRecruit;
   /** Where the conversation stands, or `null` if it has not started. */
   standing: Negotiation | null;
-  /** Caps in hand: an offer that cannot be paid for is not an offer. */
-  caps: number;
+  /**
+   * Caps a week still uncommitted on the payroll book (§H7).
+   *
+   * Not the stockpile. Signing takes nothing out of it: what an offer has to fit inside is the
+   * ceiling, so an offer above what is left is one the server will refuse however rich the crew
+   * is. Shown as it is typed rather than discovered on the refusal.
+   */
+  payrollLeft: number;
   onClose: () => void;
   /**
    * Every turn, as it lands.
@@ -99,7 +105,7 @@ export interface NegotiationDialogProps {
 export function NegotiationDialog({
   recruit,
   standing,
-  caps,
+  payrollLeft,
   onClose,
   onTurn,
   onAgreed,
@@ -130,7 +136,7 @@ export function NegotiationDialog({
   const scroller = useRef<HTMLDivElement>(null);
 
   const proposed = Math.max(0, Math.trunc(Number(offer) || 0));
-  const affordable = proposed <= caps;
+  const affordable = proposed <= payrollLeft;
   const tone = MOOD_TONE[state.mood];
   const patienceLeft = state.closed && state.mood === 'walked' ? 0 : state.patience;
   // Their patience at the start, as far as this window can know it: what is left plus what has
@@ -257,8 +263,15 @@ export function NegotiationDialog({
 
         {state.closed && state.mood === 'walked' ? (
           <div className="flex items-center justify-between gap-3">
+            <p
+              className="font-display text-lg font-bold uppercase tracking-[0.14em] text-oxblood-300"
+              data-testid="negotiation-walked"
+            >
+              They walked out
+            </p>
             <p className={cn('font-body text-[13px] leading-relaxed', tone.text)}>
-              They are not coming back to this table today.
+              Nothing signed. They will not sit down with you again for six hours, and when they do
+              they will be asking ten percent more than they were tonight.
             </p>
             <Button size="sm" onClick={onClose}>
               Done
@@ -267,12 +280,19 @@ export function NegotiationDialog({
         ) : state.closed ? (
           /* The handshake, and the signature, in one place: see `openRoles` on the props. */
           <div className="flex flex-col gap-3" data-testid="negotiation-sign">
+            <p
+              className="font-display text-lg font-bold uppercase tracking-[0.14em] text-verdigris-100"
+              data-testid="negotiation-agreed"
+            >
+              They said yes
+            </p>
             <p className={cn('font-body text-[13px] leading-relaxed', tone.text)}>
               Agreed at{' '}
               <span className="font-semibold tabular-nums">
                 {(state.lastOffer ?? 0).toLocaleString()}
               </span>{' '}
-              caps a week. Put them somewhere and it is done.
+              caps a week, off a book with {payrollLeft.toLocaleString()} left on it. Put them
+              somewhere and it is done.
             </p>
             {openRoles.length === 0 ? (
               <p role="alert" className="font-body text-[13px] text-oxblood-300">
@@ -343,7 +363,8 @@ export function NegotiationDialog({
             </div>
             {!affordable && (
               <p role="alert" className="font-body text-[13px] text-oxblood-300">
-                You do not have the caps for the first payment on that.
+                Your payroll book has {payrollLeft.toLocaleString()} caps a week left. Raise it at
+                the Nexus, or offer less.
               </p>
             )}
             {negotiateTurn.error !== null && (

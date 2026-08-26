@@ -25,19 +25,25 @@ import { findUnit, type Army } from './units/index.js';
  */
 
 /**
- * Kilograms per unit of each resource.
+ * Load per unit of each resource: what one of the thing takes up in a unit's carry.
  *
- * Caps are coins and paper: a thousand of them is a satchel. Scrap and metal are what they sound
- * like. This is the whole reason loot capacity is measured in kg rather than in "resources": it
- * makes the choice of *what* to carry out interesting, and it makes a light fast raid a real
- * strategy rather than a worse version of a heavy one.
+ * Whole numbers of *slots* rather than kilograms. The screen used to print `25 kg`, which asks a
+ * player to convert twice: once from the resource to a weight and once from the weight back to
+ * "how much can this unit actually bring home". A load is compared directly against a unit's
+ * `lootCapacity`, so the sum is the answer.
+ *
+ * The spread is the whole point of measuring the carry at all: high-quality metal is dense and
+ * precious and costs five, food and oil come in drums and cans at three, and the bulk materials a
+ * city is made of cost one apiece. A light fast raid is a real strategy rather than a worse
+ * version of a heavy one, because *what* you carry out is a decision.
  */
 export const RESOURCE_KG: Record<ResourceKey, number> = {
-  caps: 0.02,
-  food: 1,
-  oil: 0.9,
-  scrap: 2,
-  highQualityMetal: 3,
+  caps: 1,
+  food: 3,
+  oil: 3,
+  scrap: 1,
+  planks: 1,
+  highQualityMetal: 5,
 };
 
 /**

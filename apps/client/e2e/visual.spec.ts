@@ -7,6 +7,12 @@
  * frame, so review time is spent on the ones that are not (composition, colour, legibility).
  */
 import { expect, test, type Page } from '@playwright/test';
+import {
+  FACTION_NAME_MAX,
+  MISSIONS_PER_AREA,
+  RESOURCE_LABELS,
+  RESOURCE_ORDER,
+} from '@frontline/shared';
 import { activeResearch, lateGame, me, meNoOverseer, missionsResponse } from './fixtures';
 import {
   expectNothingClippedVertically,
@@ -222,13 +228,59 @@ for (const size of VIEWPORTS) {
       // Each chip is a hover trigger now: a real button, so the reading is its accessible name
       // rather than a `role="img"` wrapper. "The whole readout is on screen" is still the thing
       // being asserted, which is what matters when the numbers get long enough to wrap the bar.
+      // Derived from the domain rather than listed, because a hand-written list is how §D5b's
+      // planks reached the stockpile, the market and the HUD without this ever checking it was on
+      // screen. A resource added to `RESOURCE_ORDER` is now asserted here the day it exists.
       const hud = page.locator('header');
-      for (const chip of ['Caps', 'Food', 'Oil', 'Scrap', 'HQ Metal', 'Morale', 'Infamy']) {
-        await expect(hud.getByRole('button', { name: new RegExp(`^${chip}:`) })).toBeInViewport({
-          ratio: 1,
-        });
+      const readouts = [...RESOURCE_ORDER.map((key) => RESOURCE_LABELS[key]), 'Infamy'];
+      expect(readouts).toHaveLength(7);
+      for (const chip of readouts) {
+        await expect(
+          hud.getByRole('button', { name: new RegExp(`^${chip}:`, 'i') }),
+        ).toBeInViewport({ ratio: 1 });
       }
+      // The faction level took the morale meter's place in the bar (§I). Named differently
+      // because it is not a `Thing: number` readout: it is a level, and it reads as one.
+      await expect(hud.getByRole('button', { name: /^Faction level/i })).toBeInViewport({
+        ratio: 1,
+      });
       await page.screenshot({ path: `screenshots/visual/hud-late-game-${tag}.png` });
+    });
+
+    /**
+     * The bar has to survive a name the game itself allows.
+     *
+     * The cap was 40 and every fixture uses 21, so the row was fitted to a plaque half the width
+     * of a legal one and the bar wrapped at the ceiling. `FACTION_NAME_MAX` is 28 now, chosen as
+     * what the row can actually carry, so the bar is asserted to keep **one line** at the longest
+     * name the game will accept. The chips are not the thing to count: an over-wide plaque pushes
+     * the meters and the avatar onto the second line and leaves every stockpile chip where it was,
+     * which is how the first version of this passed with the fix taken out.
+     */
+    test(`the HUD survives the longest legal faction name at ${tag}`, async ({ page }) => {
+      const longest = 'The Ninth Street Reclamation Company Ltd'.slice(0, FACTION_NAME_MAX);
+      expect(longest).toHaveLength(FACTION_NAME_MAX);
+      const crew = lateGame.base;
+      if (crew === null) throw new Error('the late-game fixture must have a crew');
+      await installApi(page, { ...lateGame, base: { ...crew, name: longest } });
+      await page.goto('/game');
+      await expect(page.getByTestId('resource-chip-caps')).toBeVisible();
+      await settleFonts(page);
+
+      // Whole, on screen, and on one line with everything else. The name is the one label on this
+      // bar a player chose themselves, so it is also the one that must not be sliced.
+      await expect(page.getByRole('heading', { name: longest })).toBeVisible();
+      const rows = await page.evaluate(() => {
+        const bar = document.querySelector('header')!;
+        const items = [
+          ...bar.querySelectorAll('[data-testid^="resource-chip-"], [data-testid^="meter-chip-"]'),
+          ...bar.querySelectorAll('[data-testid="infamy-chip"], .hud-overseer'),
+        ];
+        return new Set(items.map((i) => Math.round(i.getBoundingClientRect().top))).size;
+      });
+      expect(rows, 'a legal faction name wrapped the standing bar').toBe(1);
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
     });
 
     test(`base view at ${tag}`, async ({ page }) => {
@@ -306,14 +358,63 @@ for (const size of VIEWPORTS) {
       await expect(page.getByRole('heading', { name: 'Missions' })).toBeVisible();
       await settleFonts(page);
 
-      // §E4: travel and mission time are quoted separately, and the total is the §E8 sum.
-      const expedition = page.getByRole('article').filter({ hasText: 'Deep Expedition' }).first();
-      await expect(expedition.getByText('Travel', { exact: true })).toBeVisible();
-      await expect(expedition.getByText('1h 00m')).toBeVisible();
-      await expect(expedition.getByText('On site', { exact: true })).toBeVisible();
-      await expect(expedition.getByText('24h 00m')).toBeVisible();
-      await expect(expedition.getByText('Total round trip')).toBeVisible();
-      await expect(expedition.getByText('26h 00m')).toBeVisible();
+      // The inner board: one area at a time, with the arrows either side of its name (§E4).
+      await expect(page.getByTestId('board-area')).toBeVisible();
+      await expect(page.getByTestId('board-left')).toBeVisible();
+      await expect(page.getByTestId('board-right')).toBeVisible();
+
+      // §E4: travel and mission time are quoted separately, and the total is the §E8 sum. Read off
+      // whichever job the board is offering rather than a named one: which three an area offers is
+      // `missionOffers`' business, and naming one here would pin content this test is not about.
+      const offers = page.locator('[data-testid^="offer-"]');
+      await expect(offers).toHaveCount(MISSIONS_PER_AREA);
+      const first = offers.first();
+      await expect(first.getByText('Travel', { exact: true })).toBeVisible();
+      await expect(first.getByText('On site', { exact: true })).toBeVisible();
+      await expect(first.getByText('Round trip', { exact: true })).toBeVisible();
+
+      /*
+       * Three cards, and every section on the same line across all three.
+       *
+       * The board asked for it in those words, and it is what makes three offers comparable at a
+       * glance: a player reading them is comparing them, and a column that shifts because one
+       * brief is a line longer makes that comparison work. Measured on the deploy button, which is
+       * the last thing in a card and therefore carries every drift above it.
+       */
+      const buttonTops = await offers.evaluateAll((cards) =>
+        cards.map((card) =>
+          Math.round(
+            (card.querySelector('button:last-of-type')?.getBoundingClientRect().top ?? 0) -
+              card.getBoundingClientRect().top,
+          ),
+        ),
+      );
+      expect(new Set(buttonTops).size, `deploy buttons at ${buttonTops.join(', ')}px`).toBe(1);
+
+      /*
+       * And no band's contents running through the band under it.
+       *
+       * Every section of an offer card is a fixed height, which is what makes three cards
+       * comparable and is also how a card comes to overlap *itself*: a six-resource haul wraps to
+       * two rows, and a band sized for one line drew its own last line straight through the
+       * experience row below.
+       *
+       * Measured on the *text*, not on the bands. The bands are fixed boxes, so their rectangles
+       * never overlap however far their contents spill; and nothing here reaches the document's
+       * edges, so neither the overflow guard nor the cut-text sweep can see it either.
+       */
+      const spilling = await offers.evaluateAll((cards) =>
+        cards.flatMap((card) =>
+          [...card.children].flatMap((band) => {
+            const box = band.getBoundingClientRect();
+            return [...band.querySelectorAll('*')]
+              .filter((el) => el.children.length === 0 && (el.textContent ?? '').trim().length > 0)
+              .filter((el) => el.getBoundingClientRect().bottom > box.bottom + 1)
+              .map((el) => `"${el.textContent?.trim().slice(0, 24)}"`);
+          }),
+        ),
+      );
+      expect(spilling, `text below its own band: ${spilling.join(' | ')}`).toEqual([]);
 
       /*
        * The §E4 breakdown is the narrowest fixed copy on the page, and it shipped cut once
@@ -335,7 +436,7 @@ for (const size of VIEWPORTS) {
       // The board is the §E4 surface and it sits below the fold in a bounded inner scroller, so
       // `fullPage` cannot reach it. It has to be scrolled to and shot separately, or the pre-
       // commit screen never actually gets looked at.
-      await expedition.scrollIntoViewIfNeeded();
+      await first.scrollIntoViewIfNeeded();
       await settleFonts(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/missions-board-${tag}.png` });
@@ -546,6 +647,52 @@ for (const size of VIEWPORTS) {
       );
       expect(clipped, `cut text on the roster: ${clipped.join(' | ')}`).toEqual([]);
 
+      /*
+       * Nothing hanging out of its own card, and no label drawn across the graphic beside it.
+       *
+       * Both were live: the price box hung 58px below the bottom border of every card on a
+       * 1280px screen, and `Penetration` was printed straight over its own bar in the narrow
+       * column that the same layout produced. Neither is caught by the guards above. Document
+       * overflow does not see it, because a card that overflows *downward* inside a page that
+       * scrolls anyway adds nothing to the document's width; and the cut-text sweep does not see
+       * it either, because a `truncate` on an inline span does not clip, so `scrollWidth` and
+       * `clientWidth` agree while the word is drawn well past its box.
+       */
+      const spilling = await page.evaluate<string[]>(() => {
+        const cards = [
+          ...document.querySelectorAll('[data-testid="unit-catalogue"] > [data-testid^="unit-"]'),
+        ];
+        return cards.flatMap((card) => {
+          const frame = card.getBoundingClientRect();
+          return [...card.querySelectorAll('*')]
+            .filter((el) => {
+              const box = el.getBoundingClientRect();
+              return (
+                box.height > 0 && (box.bottom > frame.bottom + 1 || box.right > frame.right + 1)
+              );
+            })
+            .slice(0, 2)
+            .map((el) => `"${el.textContent?.trim().slice(0, 24)}"`);
+        });
+      });
+      expect(spilling, `content outside its card: ${spilling.join(' | ')}`).toEqual([]);
+
+      const crossing = await page.evaluate<string[]>(() => {
+        const cells = [
+          ...document.querySelectorAll(
+            '[data-testid="unit-catalogue"] dt, [data-testid="unit-catalogue"] dd',
+          ),
+        ];
+        return cells.flatMap((cell) => {
+          const box = cell.getBoundingClientRect();
+          return [...cell.querySelectorAll('*')]
+            .filter((el) => el.children.length === 0 && (el.textContent ?? '').trim().length > 0)
+            .filter((el) => el.getBoundingClientRect().right > box.right + 0.5)
+            .map((el) => `"${el.textContent?.trim()}"`);
+        });
+      });
+      expect(crossing, `stat text drawn outside its cell: ${crossing.join(' | ')}`).toEqual([]);
+
       // No vertical guard here, and deliberately: the roster is a scrolling document, so the last
       // visible row is *always* half-cut by the fold. That is what a scroller does, and it is why
       // the other document pages in this file gate on overflow and horizontal clipping instead.
@@ -725,9 +872,9 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('upgrade-armour_1')).toBeVisible();
       await settleFonts(page);
 
-      // A fitted rung, a reachable one and a locked one all render differently, and all three are
+      // A built rung, a reachable one and a locked one all render differently, and all three are
       // on this fixture, which is the point of the fixture.
-      await expect(page.getByTestId('upgrade-armour_1')).toContainText('Fitted');
+      await expect(page.getByTestId('upgrade-armour_1')).toContainText('Built');
       await expect(page.getByTestId('upgrade-armour_3')).toContainText('Needs the Gauntlet');
       await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Blueprint');
 

@@ -7,7 +7,14 @@ import {
   NOTORIETY_FIRST_COST,
   findBattleBoost,
   NOTORIETY_TO_FIELD,
-  MAX_BUILDING_GARRISONS,
+  FORTIFY_MAX_LEVEL,
+  STARTING_RESOURCES,
+  startingAssignees,
+  startingEconomy,
+  startingProgression,
+  startingResearch,
+  startingTraining,
+  type Base,
   declarationWindow,
   deployedSize,
   districtDefense,
@@ -165,6 +172,74 @@ async function board(stack: Stack): Promise<BattlesResponse> {
   });
   expect(res.statusCode).toBe(200);
   return res.json<BattlesResponse>();
+}
+
+/** A Gate on the ground, since a new district has none and only the Gate can be dug in. */
+function raiseGate(stack: Stack): { id: string } {
+  const base = stack.repos.bases.findById(stack.baseId)!;
+  const gate = {
+    id: 'gate-1',
+    kind: 'gate' as const,
+    level: 1,
+    modifications: [],
+    damage: 0,
+    fortification: 0,
+  };
+  stack.repos.bases.updateDistrict(base.id, [...base.buildings, gate], base.buildQueue);
+  return gate;
+}
+
+/**
+ * A rival crew living in the Rustyard, with a Gate they have dug in.
+ *
+ * `residentOf` finds a district's inhabitant by `districtId` alone, so planting a base there is
+ * all it takes to turn an NPC district into somebody's home, which is what a breach needs before
+ * it has a Gate to knock the digging out of.
+ */
+function plantRival(stack: Stack, fortification: number): string {
+  stack.repos.users.insert({
+    id: 'rival-user',
+    username: 'Rival',
+    passwordHash: 'x',
+    createdAt: new Date().toISOString(),
+  });
+  const now = new Date().toISOString();
+  const rival: Base = {
+    id: 'rival-base',
+    ownerId: 'rival-user',
+    name: 'The Other Crew',
+    districtId: 'rustyard',
+    level: 4,
+    isBot: false,
+    resources: STARTING_RESOURCES,
+    economy: startingEconomy(now),
+    progression: startingProgression(),
+    research: startingResearch(),
+    assignees: startingAssignees(),
+    buildings: [
+      {
+        id: 'rival-nexus',
+        kind: 'nexus',
+        level: 4,
+        modifications: [],
+        damage: 0,
+        fortification: 0,
+      },
+      { id: 'rival-gate', kind: 'gate', level: 4, modifications: [], damage: 0, fortification },
+    ],
+    buildQueue: [],
+    army: {},
+    trainingQueue: [],
+    training: startingTraining(now),
+    inventory: {},
+    fittedUpgrades: [],
+    unitLoadouts: {},
+    fleet: {},
+    commanders: [],
+    createdAt: now,
+  };
+  stack.repos.bases.insert(rival);
+  return rival.id;
 }
 
 async function units(stack: Stack): Promise<UnitsResponse> {
@@ -516,6 +591,49 @@ describe('resolving it (§A4)', () => {
     expect(stack.repos.sieges.trap(SQUATTED_RUSTYARD_LOCATION)).toBeUndefined();
   });
 
+  /**
+   * §A4: the digging goes with the door.
+   *
+   * A location that changes hands loses its fortification, because nobody inherits the last
+   * holder's work. A Gate is not captured, only broken, so it kept its levels through a breach and
+   * the crew that had dug in three times was still dug in three times while the door lay open.
+   * That is the one case where paying for fortification carried no risk at all.
+   */
+  it('knocks the Gate’s fortification out when it is breached', async () => {
+    const stack = await makeStack('breaker', decided('attacker'));
+    shutTheRustyard(stack);
+    const rivalId = plantRival(stack, FORTIFY_MAX_LEVEL);
+
+    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    expect(declared.statusCode).toBe(200);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    bringForward(stack, battle, new Date(Date.now() - 60_000));
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const gate = stack.repos.bases
+      .findById(rivalId)!
+      .buildings.find((building) => building.kind === 'gate')!;
+    expect(gate.fortification).toBe(0);
+    // The structure itself is still theirs: a breach is a door off its hinges, not a demolition.
+    expect(gate.level).toBe(4);
+  });
+
+  it('leaves the Gate’s fortification alone when the breach is beaten off', async () => {
+    const stack = await makeStack('repelled', decided('defender'));
+    shutTheRustyard(stack);
+    const rivalId = plantRival(stack, FORTIFY_MAX_LEVEL);
+
+    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    bringForward(stack, battle, new Date(Date.now() - 60_000));
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const gate = stack.repos.bases
+      .findById(rivalId)!
+      .buildings.find((building) => building.kind === 'gate')!;
+    expect(gate.fortification).toBe(FORTIFY_MAX_LEVEL);
+  });
+
   it('breaks a gate for a day when the way in is what was attacked', async () => {
     const stack = await makeStack('breacher', decided('attacker'));
     shutTheRustyard(stack);
@@ -701,27 +819,94 @@ describe('what a name buys (§D7)', () => {
 });
 
 describe('holding a district (§A4)', () => {
-  it('garrisons a structure up to three times and no further, and it is worth defence', async () => {
+  /**
+   * §A4: the Gate, in materials, replacing watches.
+   *
+   * Watches were a count on every structure that bought 5% each and cost nothing at all, so a
+   * crew with an empty roster could click a district 15% harder to enter. What is here now is the
+   * same three levels the city's locations are dug in with, on the one structure that is the way
+   * in, and it is paid for.
+   */
+  it('digs the Gate in for materials, three levels and no further', async () => {
+    const stack = await makeStack();
+    const gate = raiseGate(stack);
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateResources(base.id, {
+      caps: 900_000,
+      food: 900_000,
+      oil: 900_000,
+      scrap: 900_000,
+      highQualityMetal: 9_000,
+      planks: 900_000,
+    });
+
+    const bare = districtDefense(base.buildings);
+    for (let level = 1; level <= FORTIFY_MAX_LEVEL; level += 1) {
+      const res = await stack.app.inject({
+        method: 'POST',
+        url: '/api/battles/fortify',
+        headers: auth(stack.token),
+        payload: { buildingId: gate.id },
+      });
+      expect(res.statusCode, `level ${level}`).toBe(200);
+      const after = res.json<BattleMutationResponse>().base;
+      expect(after.buildings.find((b) => b.id === gate.id)!.fortification).toBe(level);
+    }
+
+    const dug = stack.repos.bases.findById(stack.baseId)!;
+    expect(districtDefense(dug.buildings)).toBeGreaterThan(bare);
+
+    // And that is as far as it goes.
+    const past = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/fortify',
+      headers: auth(stack.token),
+      payload: { buildingId: gate.id },
+    });
+    expect(past.statusCode).toBe(409);
+  });
+
+  it('charges for it, and refuses when the materials are not there', async () => {
+    const stack = await makeStack();
+    const gate = raiseGate(stack);
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateResources(base.id, {
+      caps: 0,
+      food: 0,
+      oil: 0,
+      scrap: 0,
+      highQualityMetal: 0,
+      planks: 0,
+    });
+    const broke = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/fortify',
+      headers: auth(stack.token),
+      payload: { buildingId: gate.id },
+    });
+    expect(broke.statusCode).toBe(409);
+    expect(errorCode(broke)).toBe('INSUFFICIENT_RESOURCES');
+  });
+
+  it('will not dig in anything that is not the Gate', async () => {
     const stack = await makeStack();
     const base = stack.repos.bases.findById(stack.baseId)!;
-    const nexus = base.buildings[0]!;
-    const bare = districtDefense(base.buildings);
-
-    const post = (delta: number) =>
-      stack.app.inject({
-        method: 'POST',
-        url: '/api/battles/garrison',
-        headers: auth(stack.token),
-        payload: { buildingId: nexus.id, delta },
-      });
-
-    for (let i = 0; i < MAX_BUILDING_GARRISONS; i += 1)
-      expect((await post(1)).statusCode).toBe(200);
-    expect((await post(1)).statusCode).toBe(409);
-
-    const held = stack.repos.bases.findById(stack.baseId)!;
-    expect(held.buildings.find((b) => b.id === nexus.id)!.garrisons).toBe(MAX_BUILDING_GARRISONS);
-    expect(districtDefense(held.buildings)).toBeGreaterThan(bare);
+    const nexus = base.buildings.find((building) => building.kind === 'nexus')!;
+    stack.repos.bases.updateResources(base.id, {
+      caps: 900_000,
+      food: 900_000,
+      oil: 900_000,
+      scrap: 900_000,
+      highQualityMetal: 9_000,
+      planks: 900_000,
+    });
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/fortify',
+      headers: auth(stack.token),
+      payload: { buildingId: nexus.id },
+    });
+    expect(res.statusCode).toBe(409);
   });
 });
 
@@ -766,6 +951,7 @@ describe('the beds an army abroad still occupies (§A1, §A4)', () => {
       oil: 900_000,
       scrap: 900_000,
       highQualityMetal: 0,
+      planks: 900_000,
     });
 
     const before = await units(stack);

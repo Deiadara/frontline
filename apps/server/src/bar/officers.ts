@@ -2,12 +2,10 @@ import {
   ALIGNMENT_MAX,
   ALIGNMENT_MIN,
   alignmentTarget,
-  reputationStance,
-  reputationOf,
+  contractStance,
   settleAlignment,
   type Base,
   type Commander,
-  type ReputationLabel,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { crewEffectsFor } from '../crew/standing.js';
@@ -15,12 +13,15 @@ import { crewEffectsFor } from '../crew/standing.js';
 /**
  * The §H5 alignment meter, kept current.
  *
- * Like payroll (§H7) and the §D8 reputation drift, alignment settles on the real-world clock and
- * is therefore applied lazily on the read path rather than from a scheduler: under an unchanging
- * reputation word an officer who was left alone for a week has drifted exactly as far as one who
- * was watched the whole time, because the decay composes over any split of the interval. Across a
- * *change* of word it is the anchor that decides which stance the elapsed time is credited to;
- * `ALIGNMENT_ANCHOR_MAX_AGE_MS` below is what keeps that honest.
+ * Alignment settles on the real-world clock and is therefore applied lazily on the read path
+ * rather than from a scheduler: an officer who was left alone for a week has drifted exactly as
+ * far as one who was watched the whole time, because the decay composes over any split of the
+ * interval.
+ *
+ * What they drift *towards* is what they made of their own contract (`contractStance`), which is
+ * fixed the moment they sign and does not move again. That is a simplification the reputation
+ * rework bought outright: the target used to change whenever the crew's reputation word did, which
+ * is why there was an anchor-staleness problem to manage at all.
  */
 
 function clampAlignment(value: number): number {
@@ -30,17 +31,18 @@ function clampAlignment(value: number): number {
 /**
  * §H5: where one officer's opinion of the crew has got to by `now`.
  *
- * What they are drifting *towards* is what they make of your reputation word (§H4), so a crew
- * whose reputation turns hostile to a given officer's ambitions watches that officer's alignment
- * fall from wherever it stood, and, past §H5's threshold, start threatening to leave.
+ * They drift towards what they made of the deal they signed: somebody who got their asking price
+ * settles high, somebody ground down to their floor settles low and, past §H5's threshold, starts
+ * threatening to leave. The two numbers that decide it are the fee in the payroll book and what
+ * that person was asking, both of which the player chose.
  */
 export function alignmentAt(
   officer: Commander,
-  reputation: ReputationLabel,
+  agreedFee: number,
   now: Date,
   holdPercent = 0,
 ): number {
-  const target = alignmentTarget(reputationStance(officer, reputation));
+  const target = alignmentTarget(contractStance(agreedFee, officer.askingWage));
   const elapsed = now.getTime() - new Date(officer.alignmentUpdatedAt).getTime();
   return clampAlignment(settleAlignment(officer.alignment, target, elapsed, holdPercent));
 }
@@ -48,12 +50,10 @@ export function alignmentAt(
 /**
  * How stale an officer's alignment anchor may get before a read is worth a write.
  *
- * Sizing it: a meter can be the whole `ALIGNMENT_MIN`..`ALIGNMENT_MAX` range from its target: an
- * officer who has settled near 0 under a word their disposition hates, the moment that word turns
- * to one it loves, and over a minute of a three-day half-life that is 0.016 alignment points, two
- * orders below the meter's own rounding. So the granularity costs nothing a player can see and
- * buys one write per minute per roster. What it does *not* bound is the misattribution below: that
- * window is the gap between two Bar reads, which this constant does not cap.
+ * A minute. The target is fixed at signing now, so the anchor cannot be credited to the wrong
+ * stance the way it could when a reputation word could change under it; what is left is only
+ * arithmetic hygiene, and a minute of a three-day half-life is two orders below the meter's own
+ * rounding. It buys one write per minute per roster.
  */
 const ALIGNMENT_ANCHOR_MAX_AGE_MS = 60 * 1000;
 
@@ -77,7 +77,6 @@ const ALIGNMENT_ANCHOR_MAX_AGE_MS = 60 * 1000;
  * inside the granularity is still one write.
  */
 export function settleOfficerAlignment(repos: Repositories, base: Base, now: Date): Base {
-  const reputation = reputationOf(base.economy, now);
   const stale = base.commanders.some(
     (officer) =>
       now.getTime() - new Date(officer.alignmentUpdatedAt).getTime() >= ALIGNMENT_ANCHOR_MAX_AGE_MS,
@@ -89,7 +88,7 @@ export function settleOfficerAlignment(repos: Repositories, base: Base, now: Dat
   const hold = crewEffectsFor(repos, base).alignmentHoldPercent;
   const settled = base.commanders.map((officer) => ({
     ...officer,
-    alignment: alignmentAt(officer, reputation, now, hold),
+    alignment: alignmentAt(officer, base.economy.payroll.commitments[officer.id] ?? 0, now, hold),
     alignmentUpdatedAt: now.toISOString(),
   }));
 
