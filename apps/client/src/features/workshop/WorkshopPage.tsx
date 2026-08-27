@@ -46,12 +46,7 @@ export function WorkshopPage() {
   }
 
   return (
-    <PageShell
-      title="The Workshop"
-      icon="research"
-      lede="Everything here is bought once and kept. Build it here, then bolt it into one of the three brackets on whichever units you want it on, over in the roster."
-      wide
-    >
+    <PageShell quote="Nothing down here is broken. It is between jobs." wide>
       <InfoNote label="How a line opens">
         Every line's first rung is open to anybody. Past that you need the line's blueprint, and the
         Runner is the only one who sells them. Parts come out of your satchel.

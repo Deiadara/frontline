@@ -65,7 +65,7 @@ a one-line change.
 
 ### R3: resource keys vs. resource art
 
-W2's §D9 migration replaces `credits/power/data/alloy` with `caps/food/oil/scrap/highQualityMetal`.
+W2's §D9 migration replaces `credits/power/data/alloy` with `caps/supplies/oil/scrap/highQualityMetal`.
 Two art surfaces are keyed off `keyof Resources` and break with it:
 
 - `RESOURCE_ICON_SUBJECTS` in `packages/shared/src/art/prompts.ts`: typed

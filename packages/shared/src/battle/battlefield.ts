@@ -147,13 +147,23 @@ export function frontageFor(
   return Math.max(1, Math.round(base * frontageFactor(labels)));
 }
 
-/** The hour a raid lands decides whether the sheets that say "after dark" mean anything. */
-export const NIGHT_FROM_HOUR = 21;
-export const NIGHT_UNTIL_HOUR = 5;
+/**
+ * From what tier of `Dark` a location counts as low-light ground.
+ *
+ * This is what is left of the day/night cycle, and it is a better version of it. The clock used to
+ * decide: every fight after 21:00 UTC was a night fight, wherever it was, so a Muckraker was worth
+ * 20% more in a floodlit yard at ten at night and nothing in a pitch-black sewer at noon. Darkness
+ * is a property of the **ground** now, read off the location's own `dark` label, which the
+ * catalogue has always carried: sewers, tunnels, cellars and the graveyard are dark all day, and a
+ * street is not dark at any hour.
+ *
+ * Tier 2, not 1: `Dark I` is a room with bad lighting, and a unit trained to work without light
+ * should not get its whole bonus for a dim stairwell.
+ */
+export const DARK_GROUND_TIER = 2;
 
-export function isNight(at: Date): boolean {
-  const hour = at.getUTCHours();
-  return hour >= NIGHT_FROM_HOUR || hour < NIGHT_UNTIL_HOUR;
+function isDarkGround(labels: readonly EnvLabel[]): boolean {
+  return labels.some((label) => label.id === 'dark' && label.tier >= DARK_GROUND_TIER);
 }
 
 export interface BattlefieldInput {
@@ -180,13 +190,12 @@ export interface BattlefieldInput {
  */
 export function battlefieldFor(input: BattlefieldInput): Battlefield {
   const level = Math.min(FORTIFY_MAX_LEVEL, Math.max(0, Math.trunc(input.fortifyLevel)));
-  const night = isNight(input.at);
   const contexts: CombatContext[] = [...LOCATION_CONTEXTS[input.kind]];
   if (level > 0) contexts.push('vs_structure');
-  if (night) contexts.push('night');
 
   const weather = input.weather ?? weatherAt(input.at);
-  const labels = mergeLabels(LOCATION_CATALOG[input.kind].labels, weatherLabels(weather, night));
+  const labels = mergeLabels(LOCATION_CATALOG[input.kind].labels, weatherLabels(weather));
+  if (isDarkGround(labels)) contexts.push('dark');
 
   return {
     locationName: input.locationName,
@@ -201,16 +210,14 @@ export function battlefieldFor(input: BattlefieldInput): Battlefield {
 
 /**
  * A crew's own district under raid (GDD §A4). There is no fortification to speak of and no location
- * kind: a home district is streets and structures, so it fights urban, and at night if it is
- * night.
+ * kind: a home district is streets and structures, so it fights urban.
  */
 export function homeBattlefield(locationName: string, at: Date): Battlefield {
-  const night = isNight(at);
-  const contexts: CombatContext[] = night ? ['urban', 'night'] : ['urban'];
+  const contexts: CombatContext[] = ['urban'];
   // A district is streets, so it has no labels of its own, but the sky is over it like everywhere
-  // else, and a raid called for a snowy night is a raid in the snow.
+  // else, and a raid called on a snowy day is a raid in the snow.
   const weather = weatherAt(at);
-  const labels = mergeLabels(weatherLabels(weather, night));
+  const labels = mergeLabels(weatherLabels(weather));
   return {
     locationName,
     contexts,

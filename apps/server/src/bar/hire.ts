@@ -10,6 +10,7 @@ import {
   dismissalFee,
   payrollBonusPercent,
   payrollFits,
+  inStandoff,
   payrollLedger,
   playerLevelGrants,
   reservationWage,
@@ -122,9 +123,11 @@ function refusalFor(
     base,
     recruit,
     role,
+    standoff,
     hiresToday,
     spare,
-  }: Omit<HireInput, 'offerWage' | 'now' | 'userId' | 'seat'> & {
+    now,
+  }: Omit<HireInput, 'offerWage' | 'userId' | 'seat'> & {
     hiresToday: number;
     /** Beds left in the district (§A1), read once by the caller that has the repositories. */
     spare: number;
@@ -150,6 +153,17 @@ function refusalFor(
 
   if (blockers.includes('notoriety')) return 'requirement';
   if (blockers.includes('level')) return 'level';
+  /*
+   * §H7: the six hours a walkout buys, enforced *here* and not only in the conversation.
+   *
+   * `/bar/negotiate` refuses to open a chair that is still cold, which is what a player sees. It
+   * is not what a request has to go through: signing is its own route, and a tab left open across
+   * a walkout, or anything posting the floor price straight at `/bar/hire`, would put the officer
+   * on the books during the standoff. The markup already applied because `wageAskedOf` reads the
+   * same record; the clock did not, and the clock is the half that makes a walkout cost something
+   * today rather than next week.
+   */
+  if (inStandoff(standoff, now)) return 'standoff';
   return null;
 }
 
@@ -172,6 +186,8 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
       base,
       recruit,
       role,
+      ...(standoff ? { standoff } : {}),
+      now,
       hiresToday: repos.bar.hiresBy(userId, day),
       spare: districtPopulation(repos, base).spare,
     },

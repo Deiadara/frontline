@@ -2,10 +2,8 @@ import {
   BLACK_MARKET_KIND_LABELS,
   findBlackMarketGood,
   formatClock,
-  stashBoost,
   type BlackMarketGoodSpec,
   type BlackMarketKind,
-  type BlackMarketResponse,
 } from '@frontline/shared';
 import { NavLink } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
@@ -178,57 +176,6 @@ function SlotCard({
   );
 }
 
-/** What the crew is carrying into its next fight. */
-function StashPanel({ market }: { market: BlackMarketResponse }) {
-  const held = Object.entries(market.stash).filter(([, count]) => count > 0);
-  // Weighted by the same city average the shelf is priced against, so what the bag says it is
-  // worth is what the fight will apply. Duplicates count once: see `stashBoost`.
-  const total = stashBoost(market.stash, market.cityLevel);
-
-  return (
-    <Panel
-      tone="tangerine"
-      title="In the bag"
-      action={
-        <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-          Spent on the next fight
-        </span>
-      }
-    >
-      {held.length === 0 ? (
-        <p className="p-4 font-body text-[13px] text-ink-300">
-          Nothing yet. A boost sits here until the next battle and is gone after it.
-        </p>
-      ) : (
-        <>
-          <ul className="flex flex-col divide-y divide-tangerine-700/40" data-testid="boost-stash">
-            {held.map(([goodId, count]) => {
-              const spec = findBlackMarketGood(goodId);
-              if (!spec) return null;
-              return (
-                <li key={goodId} className="flex items-center gap-3 px-4 py-2.5">
-                  <span className="min-w-0 flex-1 truncate font-display text-[13px] font-bold text-ink-100">
-                    {spec.name}
-                  </span>
-                  <span className="shrink-0 font-display text-[13px] tabular-nums text-tangerine-300">
-                    ×{count}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="px-4 py-3 font-display text-[12px] uppercase tracking-[0.12em] text-ink-200">
-            Together: {total.offensePercent >= 0 ? '+' : ''}
-            {total.offensePercent}% offense · {total.defensePercent >= 0 ? '+' : ''}
-            {total.defensePercent}% defence · {total.moralePercent >= 0 ? '+' : ''}
-            {total.moralePercent}% morale
-          </p>
-        </>
-      )}
-    </Panel>
-  );
-}
-
 export function BlackMarketPage() {
   const query = useBlackMarket();
   const take = useTakeFromBlackMarket();
@@ -250,23 +197,7 @@ export function BlackMarketPage() {
   const refreshesIn = Date.parse(data.refreshesAt) - now.getTime();
 
   return (
-    <PageShell
-      title="The Black Market"
-      icon="market"
-      wide
-      lede="Contraband, off-book refits, stolen plans and things to take into a fight. Priced in your name, not your caps."
-      action={
-        <span
-          className="flex items-center gap-1.5 rounded-sm border border-tangerine-500/70 bg-tangerine-700/25 px-2.5 py-1.5"
-          data-testid="black-infamy"
-        >
-          <Icon name="infamy" className="h-5 w-5 text-tangerine-300" />
-          <span className="font-display text-[14px] font-bold tabular-nums text-tangerine-100">
-            {data.infamy.toLocaleString()}
-          </span>
-        </span>
-      }
-    >
+    <PageShell wide quote="Nothing on this shelf has papers, and nothing on it takes caps.">
       <MarketTabs active="black" />
 
       {/* The clock is not a rule, so it does not go behind a hover: it is the one thing on this
@@ -280,6 +211,15 @@ export function BlackMarketPage() {
             {formatRemaining(refreshesIn)}
           </span>
         </span>
+        <span
+          className="order-last ml-auto flex items-center gap-1.5 rounded-sm border border-tangerine-500/70 bg-tangerine-700/25 px-2.5 py-1.5"
+          data-testid="black-infamy"
+        >
+          <Icon name="infamy" className="h-5 w-5 text-tangerine-300" />
+          <span className="font-display text-[14px] font-bold tabular-nums text-tangerine-100">
+            {data.infamy.toLocaleString()}
+          </span>
+        </span>
         <InfoNote tone="warn" label="How the shelf works">
           Five things sit on the shelf, the same five for everybody in the city, and{' '}
           <strong>you may take {data.takesPerDay} of them a day</strong>. Anything taken is replaced
@@ -289,7 +229,10 @@ export function BlackMarketPage() {
         </InfoNote>
       </div>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,2.6fr)_minmax(0,1fr)]">
+      {/* The bag used to sit beside the shelf here. Contraband is applied on the battle it is
+          meant for now, so what a crew is carrying is listed under Boosts on that fight's own
+          screen and the shelf has the width to itself. */}
+      <div className="grid items-start gap-5">
         <Panel
           tone="tangerine"
           title="On the shelf"
@@ -337,8 +280,6 @@ export function BlackMarketPage() {
             </p>
           )}
         </Panel>
-
-        <StashPanel market={data} />
       </div>
     </PageShell>
   );

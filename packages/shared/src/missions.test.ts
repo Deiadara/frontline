@@ -170,15 +170,25 @@ describe('reward scaling (§E5)', () => {
     }
   });
 
-  it('sends a failed standard run home with a salvage share and a failed battle with nothing', () => {
-    const scrapRun = findMissionTemplate('scrap-run') as MissionTemplate;
-    const salvage = missionRewards(scrapRun, 'failure');
-    expect(salvage.scrap).toBeGreaterThan(0);
-    expect(salvage.scrap).toBeLessThan(missionRewards(scrapRun, 'success').scrap ?? 0);
-    expect(FAILURE_REWARD_SHARE.battle).toBe(0);
-
-    for (const battle of MISSION_TEMPLATES.filter((t) => t.kind === 'battle')) {
-      expect(missionRewards(battle, 'failure')).toEqual({});
+  /**
+   * A run that came home empty banks nothing, whichever kind it was.
+   *
+   * A failed standard run used to limp home with a quarter of the salvage. The board's rule now is
+   * no resources and a fifth of the XP, and this is the assertion that keeps the two halves of it
+   * from drifting: the settler pays through `missionRewards`, so a share that crept back above
+   * zero here would quietly start paying failures again.
+   */
+  it('sends every failed run home with nothing at all', () => {
+    for (const kind of ['standard', 'battle'] as const) {
+      expect(FAILURE_REWARD_SHARE[kind], kind).toBe(0);
+    }
+    for (const template of MISSION_TEMPLATES) {
+      expect(missionRewards(template, 'failure'), template.id).toEqual({});
+      // And a clean run still pays, or the assertion above would pass on a board that pays
+      // nothing at all.
+      expect(Object.keys(missionRewards(template, 'success')).length, template.id).toBeGreaterThan(
+        0,
+      );
     }
   });
 
@@ -195,7 +205,11 @@ describe('reward scaling (§E5)', () => {
       spoils: { scrap: 100, highQualityMetal: 1 },
       successChance: 1,
     };
-    const rewards = missionRewards(template, 'failure');
+    // A two-minute run is well under `REWARD_BASELINE_MINUTES`, so the §E5 curve scales the whole
+    // bundle down: the scrap line survives and the single ingot rounds away. It used to be a
+    // *failed* run that produced the fraction; failures pay nothing at all now, so the same
+    // arithmetic is reached through a short successful one.
+    const rewards = missionRewards(template, 'success');
     expect(rewards.scrap).toBeGreaterThan(0);
     expect(rewards).not.toHaveProperty('highQualityMetal');
   });

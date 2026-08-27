@@ -44,6 +44,16 @@ const REPAIR_MIGRATION = '0024_repair_null_stockpiles.sql';
 const PLANKS_MIGRATION = '0032_planks.sql';
 
 /**
+ * The rename that made `food` into `supplies`.
+ *
+ * Rewound wherever a row is forged in the old shape, for the same reason as the two above: a save
+ * old enough to hold nulls or fractions spells the key `food`, and the repairs that know how to
+ * fix it are written against that spelling. Forging the *new* key and rewinding only the old
+ * repairs would test a chain no real database has ever walked.
+ */
+const SUPPLIES_MIGRATION = '0037_supplies.sql';
+
+/**
  * Rewinds one migration so it runs again.
  *
  * A save that broke did so on a build that did not have the repair yet, so the repair is *new* to
@@ -188,6 +198,7 @@ describe('a save that already holds the nulls', () => {
     // the migration worked or not.
     forget(db, REPAIR_MIGRATION);
     forget(db, PLANKS_MIGRATION);
+    forget(db, SUPPLIES_MIGRATION);
     runMigrations(db);
 
     /*
@@ -274,12 +285,13 @@ describe('a fractional stockpile', () => {
     expect(() => repos.bases.findById(id), 'the forged row must be unreadable').toThrow();
 
     forget(db, WHOLE_MIGRATION);
+    forget(db, SUPPLIES_MIGRATION);
     runMigrations(db);
 
     // Down, never up: a repair must not hand a crew a resource it did not earn.
     expect(repos.bases.findById(id)?.resources).toEqual({
       caps: 37_772,
-      food: 300,
+      supplies: 300,
       oil: 120,
       scrap: 500,
       highQualityMetal: 40,
@@ -315,6 +327,50 @@ describe('a fractional stockpile', () => {
 });
 
 /**
+ * The rename, on a save that spells the resource the old way.
+ *
+ * A key rename inside a JSON blob is the one migration shape that can silently *lose* a stockpile:
+ * set the new key without removing the old and the row carries both for ever; remove the old
+ * without reading it first and the crew's supplies go to zero on a schema that has no default. So
+ * the amount is asserted, not just the key.
+ */
+describe('a save that still calls it food', () => {
+  it('carries the amount across to supplies and leaves nothing behind', () => {
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?').run(
+      JSON.stringify({ ...STARTING_RESOURCES, supplies: undefined, food: 812 }),
+      id,
+    );
+    // Read without the migration this is not an error, which is the danger: the missing-amount
+    // repair loads an absent `supplies` as **zero**, so an unmigrated save reads as a crew whose
+    // stores were emptied rather than as a crew whose row needs moving.
+    expect(repos.bases.findById(id)?.resources.supplies).toBe(0);
+
+    forget(db, SUPPLIES_MIGRATION);
+    runMigrations(db);
+
+    expect(repos.bases.findById(id)?.resources.supplies).toBe(812);
+    const raw = db.prepare('SELECT resources_json AS json FROM bases WHERE id = ?').get(id) as {
+      json: string;
+    };
+    expect(JSON.parse(raw.json)).not.toHaveProperty('food');
+  });
+
+  it('carries the production remainder across too, so a settle does not lose its part-unit', () => {
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    const economy = { ...startingEconomy(NOW), productionCarry: { food: 0.25 } };
+    db.prepare('UPDATE bases SET economy_json = ? WHERE id = ?').run(JSON.stringify(economy), id);
+
+    forget(db, SUPPLIES_MIGRATION);
+    runMigrations(db);
+
+    expect(repos.bases.findById(id)?.economy.productionCarry).toEqual({ supplies: 0.25 });
+  });
+});
+
+/**
  * A stockpile written before a resource existed (§D5b).
  *
  * The backfill migration is not enough on its own. It is one-shot, so anything that writes a full
@@ -331,14 +387,14 @@ describe('a stockpile older than one of its resources', () => {
     const { db, repos } = openStack();
     const id = seed(repos);
     db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?').run(
-      JSON.stringify({ caps: 10, food: 20, oil: 30, scrap: 40, highQualityMetal: 50 }),
+      JSON.stringify({ caps: 10, supplies: 20, oil: 30, scrap: 40, highQualityMetal: 50 }),
       id,
     );
 
     const read = repos.bases.findById(id);
     expect(read?.resources).toEqual({
       caps: 10,
-      food: 20,
+      supplies: 20,
       oil: 30,
       scrap: 40,
       highQualityMetal: 50,

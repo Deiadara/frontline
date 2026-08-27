@@ -530,8 +530,8 @@ describe('what a breach does to a district (§A4)', () => {
   });
 
   it('actually reaches the district clocks rather than sitting on the record', () => {
-    const intact = buildingProduction('greenhouse', [structure(0)]).food ?? 0;
-    const wrecked = buildingProduction('greenhouse', [structure(100)]).food ?? 0;
+    const intact = buildingProduction('greenhouse', [structure(0)]).supplies ?? 0;
+    const wrecked = buildingProduction('greenhouse', [structure(100)]).supplies ?? 0;
     expect(wrecked).toBeLessThan(intact);
     // Halved, not stopped: a Greenhouse wrecked to a standstill starves a roster that had nothing
     // to do with the fight, which is a punishment loop rather than a setback.

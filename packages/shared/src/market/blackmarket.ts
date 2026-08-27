@@ -82,7 +82,7 @@ export function blackMarketTakesPerDay(level: number): number {
  * Percentages rather than flat numbers, so a syringe is worth the same to a squad of Runners as to
  * a Colossus and the table does not have to be retuned every time a unit sheet moves. Kept as a
  * plain bundle with no engine in it: the fight belongs to `battle/`, and this is the *contract*
- * between a purchase and whoever resolves the next battle.
+ * between a purchase and the fight a player chooses to spend it on.
  */
 export const BattleBoostSchema = z.object({
   /** Added to every unit's offense, as a percentage. */
@@ -106,7 +106,7 @@ export interface BlackMarketGoodSpec {
   effect: string;
   /** The price, in infamy. Nothing here is priced in anything else. */
   infamy: number;
-  /** Battle boosts only: what the next fight gets. */
+  /** Battle boosts only: what a fight the crate is taken into gets. */
   boost?: BattleBoost;
   /** Everything else: what lands in the satchel. */
   grants?: ItemCost;
@@ -127,7 +127,8 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'battle_boost',
     name: 'Adrenaline Syringes',
     description: 'A case of autoinjectors with the dosage label scraped off.',
-    effect: 'Your next battle: +18% offense, +10% morale. Everybody is faster and nobody is calm.',
+    effect:
+      'Any fight you take it into: +18% offense, +10% morale. Everybody is faster and nobody is calm.',
     infamy: 120,
     boost: { offensePercent: 18, defensePercent: 0, moralePercent: 10 },
   },
@@ -136,7 +137,8 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'battle_boost',
     name: 'Biochemical Infusers',
     description: 'Pump packs that thread into the vest and feed something into the neck.',
-    effect: 'Your next battle: +12% offense, +14% defence. It is not clear what is in them.',
+    effect:
+      'Any fight you take it into: +12% offense, +14% defence. It is not clear what is in them.',
     infamy: 180,
     boost: { offensePercent: 12, defensePercent: 14, moralePercent: 0 },
   },
@@ -145,7 +147,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'battle_boost',
     name: 'Banned Explosives',
     description: 'Pre-Collapse breaching charges. The kind the Combine put a bounty on.',
-    effect: 'Your next battle: +30% offense. Doors, walls and the people behind them.',
+    effect: 'Any fight you take it into: +30% offense. Doors, walls and the people behind them.',
     infamy: 260,
     boost: { offensePercent: 30, defensePercent: -4, moralePercent: 0 },
   },
@@ -154,7 +156,8 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'battle_boost',
     name: 'Combat Stims',
     description: 'Blister packs, chalky, bitter, and they work.',
-    effect: 'Your next battle: +16% morale, +8% defence. Nobody breaks and nobody sleeps after.',
+    effect:
+      'Any fight you take it into: +16% morale, +8% defence. Nobody breaks and nobody sleeps after.',
     infamy: 140,
     boost: { offensePercent: 0, defensePercent: 8, moralePercent: 16 },
   },
@@ -163,7 +166,8 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'battle_boost',
     name: 'Nerve Gas Canisters',
     description: 'Four squat cylinders in a foam case, seals intact, stencils in a dead language.',
-    effect: 'Your next battle: +26% offense, -8% morale. Your own people know what you brought.',
+    effect:
+      'Any fight you take it into: +26% offense, -8% morale. Your own people know what you brought.',
     infamy: 320,
     boost: { offensePercent: 26, defensePercent: 0, moralePercent: -8 },
   },
@@ -470,9 +474,11 @@ export function blackMarketEffect(spec: BlackMarketGoodSpec, cityLevel: number):
     .map(
       ([label, value]) => `${(value as number) > 0 ? '+' : ''}${String(value)}% ${String(label)}`,
     );
+  // "Whichever battle you take it into", not "your next battle": a crate is applied to a fight on
+  // that fight's own screen now rather than spending itself on whatever happens next.
   return parts.length === 0
     ? spec.effect
-    : `Your next battle: ${parts.join(', ')}. ${spec.effect.split('. ').slice(1).join('. ')}`.trim();
+    : `Any fight you take it into: ${parts.join(', ')}. ${spec.effect.split('. ').slice(1).join('. ')}`.trim();
 }
 
 export function blackMarketBoost(
@@ -575,10 +581,15 @@ export function takeRefusal(request: TakeRequest): BlackMarketRefusal | null {
 }
 
 /**
- * Boosts a crew is holding, waiting for a fight.
+ * Boosts a crew is holding, waiting to be taken into a fight.
  *
  * A sparse count map, exactly like the satchel and for the same reason: two syringes are two
  * syringes, and a zero is not a fact worth storing.
+ *
+ * The bag used to empty itself into whichever battle resolved next, on both sides, which meant the
+ * only decision a crate involved was when to next press attack. Its contents are listed under
+ * **Boosts** on a fight's own screen now and one is applied there, against intel the player has
+ * already read. See `battle/view.ts` and `appliedBoost` in `battle/resolve.ts`.
  */
 export const BoostStashSchema: z.ZodType<Record<string, number>> = z.record(
   z.string().min(1),
@@ -601,59 +612,4 @@ export function takeFromStash(stash: BoostStash, goodId: string): BoostStash {
   if (left > 0) next[goodId] = left;
   else delete next[goodId];
   return next;
-}
-
-/**
- * What a set of boosts is worth to **one** fight, added together.
- *
- * Additive rather than multiplicative, and deliberately: a player reading "+18%" and "+12%" on two
- * cards expects thirty, and a compounding rule that quietly gives them 32.2 is a rule nobody can
- * plan around.
- *
- * **The same boost counts once, however many are in the bag** (board). Different crates stack;
- * duplicates do not. Two of a thing stacking is the shape that ends one way: the correct play
- * becomes hoarding a fortnight of infamy into six syringes and deleting somebody with a number no
- * defence was balanced against, and every fight before that one is spent saving up rather than
- * fighting. One of each is a bag a defender can reason about and an attacker can still build.
- *
- * The extras are not wasted: {@link spentStash} takes one of each, so the second syringe is the
- * next fight's.
- */
-export function stashBoost(stash: BoostStash, cityLevel: number): BattleBoost {
-  return Object.keys(stash).reduce<BattleBoost>((total, goodId) => {
-    const spec = stashCount(stash, goodId) > 0 ? findBlackMarketGood(goodId) : undefined;
-    const boost = spec ? blackMarketBoost(spec, cityLevel) : undefined;
-    if (!boost) return total;
-    return {
-      offensePercent: total.offensePercent + boost.offensePercent,
-      defensePercent: total.defensePercent + boost.defensePercent,
-      moralePercent: total.moralePercent + boost.moralePercent,
-    };
-  }, NO_BOOST);
-}
-
-/**
- * The bag after a fight has taken what it was allowed to take: **one of each**.
- *
- * The other half of "the same boost only once". A fight applies one syringe, so a fight consumes
- * one syringe: clearing the whole bag instead would make the second one a crate a player paid
- * infamy for and never got to open, and stacking it would put the rule back.
- *
- * Called win or lose. A boost is bought for *a* battle, not for a won one.
- */
-export function spentStash(stash: BoostStash): BoostStash {
-  return Object.keys(stash).reduce<BoostStash>(
-    (left, goodId) => takeFromStash(left, goodId),
-    stash,
-  );
-}
-
-/** Whether anything in the stash would change a fight. Cheaper to ask than to compare a bundle. */
-export function hasBoost(stash: BoostStash): boolean {
-  // Asked of the *catalogue* rather than of a weighted figure: "is there contraband in this bag" is
-  // a question about the bag, and a potency that happened to round a crate's only figure to zero
-  // must not make the crate disappear from the settle that is supposed to consume it.
-  return Object.keys(stash).some(
-    (goodId) => stashCount(stash, goodId) > 0 && findBlackMarketGood(goodId)?.boost !== undefined,
-  );
 }

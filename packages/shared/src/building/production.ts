@@ -2,6 +2,7 @@ import {
   RESOURCE_KEYS,
   type FractionalResources,
   type PartialResources,
+  type ResourceKey,
   type Resources,
 } from '../resources.js';
 import { buildingEffectiveness, districtEffectiveness } from './damage.js';
@@ -21,7 +22,7 @@ import { buildingLevel, findBuilding, type Building } from './state.js';
 
 /** Per level, per hour, before the Cistern, modifications and any brownout. */
 const PRODUCTION_PER_LEVEL: Partial<Record<BuildingKind, PartialResources>> = {
-  greenhouse: { food: 12 },
+  greenhouse: { supplies: 12 },
   // §D5b: the Scrapyard strips timber as well as metal, so it is the source of both halves of what
   // building costs. Planks come off slightly below scrap: a ruin has more steel in it than sound
   // wood, and the wood that is sound is what somebody already took.
@@ -115,7 +116,30 @@ export const STORAGE_BASE = 800;
 /** The Apothecary multiplies the ceiling by this per level: level 20 holds ~55x the bare floor. */
 export const STORAGE_GROWTH = 1.22;
 
-/** How much of any one resource this district can hold. */
+/**
+ * Three shelves in the Apothecary, and caps on none of them.
+ *
+ * One ceiling for six resources said that a barrel of refined fuel takes the same room as a plank,
+ * which is not what any of these things are. The store has a **bulk** shelf for what a district is
+ * built out of, a shorter one for what it burns and eats, and a small locked one for the metal it
+ * almost never sees. The shares hold at every Apothecary level, so upgrading widens all three in
+ * proportion rather than changing which of them is the binding one: at a 30,000 bulk shelf that is
+ * 20,000 of oil or supplies and 10,000 of high-quality metal.
+ *
+ * **Caps have no ceiling at all.** A currency that fills up is a currency that starts throwing away
+ * what a player earned while they were not looking, and there is no version of that a player reads
+ * as anything but a bug. They are absent from this table rather than set to a large number, so
+ * every consumer has to decide what "no ceiling" means rather than inheriting a wall nobody chose.
+ */
+export const STORAGE_SHARES: Readonly<Partial<Record<ResourceKey, number>>> = {
+  scrap: 1,
+  planks: 1,
+  oil: 2 / 3,
+  supplies: 2 / 3,
+  highQualityMetal: 1 / 3,
+};
+
+/** The bulk shelf: what this district can hold of scrap or planks, and the figure the rest scale off. */
 export function storageCapacity(buildings: readonly Building[]): number {
   const level = buildingLevel(buildings, 'apothecary');
   const effects = districtEffects(buildings);
@@ -123,6 +147,22 @@ export function storageCapacity(buildings: readonly Building[]): number {
     withBonus(STORAGE_BASE * STORAGE_GROWTH ** level, effects.storage_percent) *
       buildingEffectiveness(findBuilding(buildings, 'apothecary')),
   );
+}
+
+/**
+ * What this district can hold of one resource. `Infinity` for caps, which have no ceiling.
+ *
+ * `bulk` is passed in wherever a caller already has it, because the ceiling is read once per
+ * resource inside a settle loop and recomputing the Apothecary six times is six walks of the
+ * building list for one number.
+ */
+export function storageCapacityFor(
+  buildings: readonly Building[],
+  key: ResourceKey,
+  bulk = storageCapacity(buildings),
+): number {
+  const share = STORAGE_SHARES[key];
+  return share === undefined ? Number.POSITIVE_INFINITY : Math.round(bulk * share);
 }
 
 /**
@@ -161,7 +201,7 @@ export interface CrewYield {
    *
    * The Abandoned Nuclear Plant: enough power on tap that every barrel of oil you burn does more
    * work. Deliberately *per resource* and deliberately separate from `productionPercent`, which is
-   * the whole line running faster: a location that makes oil go further should not also make food
+   * the whole line running faster: a location that makes oil go further should not also make supplies
    * appear, and folding the two together is how a specific bonus becomes a general one nobody
    * chose.
    */
@@ -220,7 +260,10 @@ export function accrueProduction(
   if (hours <= 0) return { resources: stock, carry };
   const { perHour } = districtProduction(buildings);
   const rate = Math.max(0, 1 + crew.productionPercent / 100);
-  const ceiling = Math.round(
+  // The bulk shelf once, with the crew's bonus on it. Each resource takes its own share of this
+  // below, and caps take none of it: production has never made caps, but a ceiling that applied to
+  // them would start throwing away raid pay the moment a settle ran long.
+  const bulk = Math.round(
     storageCapacity(buildings) * Math.max(1, 1 + crew.storageCapacityPercent / 100),
   );
 
@@ -247,7 +290,7 @@ export function accrueProduction(
 
     // Already over the ceiling (raid loot, say) means production adds nothing, but nothing is
     // taken away either. Burning oil is the one thing allowed to draw a stock down.
-    const cap = Math.max(stock[key], ceiling);
+    const cap = Math.max(stock[key], storageCapacityFor(buildings, key, bulk));
     if (next >= cap) {
       resources[key] = cap;
       continue;

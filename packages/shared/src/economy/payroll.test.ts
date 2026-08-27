@@ -6,28 +6,13 @@ import {
   PAYROLL_STEP_BASE_COST,
   committedPayroll,
   dismissalFee,
-  foodUpkeepFor,
   payrollCapacity,
   payrollFits,
   payrollLedger,
   payrollStepCost,
-  runEconomyCycle,
-  startOfPayWeek,
   startingPayroll,
+  PayrollStateSchema,
 } from './payroll.js';
-import { STARTING_RESOURCES } from '../resources.js';
-
-const NOW = '2026-08-24T09:00:00.000Z';
-
-describe('the pay week (§H7)', () => {
-  it('starts on Monday 00:00 UTC, whatever day it is asked on', () => {
-    for (const day of ['2026-08-24T00:00:00.000Z', '2026-08-27T13:22:11.000Z']) {
-      const monday = startOfPayWeek(new Date(day));
-      expect(monday.getUTCDay()).toBe(1);
-      expect(monday.toISOString()).toBe('2026-08-24T00:00:00.000Z');
-    }
-  });
-});
 
 describe('the payroll book (§H7)', () => {
   it('starts every crew at the same standing figure', () => {
@@ -60,7 +45,7 @@ describe('the payroll book (§H7)', () => {
   });
 
   it('reports what is spoken for and what is left', () => {
-    const payroll = { ...startingPayroll(NOW), commitments: { a: 60, b: 40 } };
+    const payroll = { ...startingPayroll(), commitments: { a: 60, b: 40 } };
     const ledger = payrollLedger(payroll, 0);
     expect(ledger.committed).toBe(100);
     expect(ledger.available).toBe(PAYROLL_BASE - 100);
@@ -68,13 +53,13 @@ describe('the payroll book (§H7)', () => {
   });
 
   it('never reports a negative remainder, however far over the book a crew is', () => {
-    const payroll = { ...startingPayroll(NOW), commitments: { a: PAYROLL_BASE + 500 } };
+    const payroll = { ...startingPayroll(), commitments: { a: PAYROLL_BASE + 500 } };
     expect(payrollLedger(payroll, 0).available).toBe(0);
   });
 
   /** The one rule the whole book exists to enforce: you cannot promise what you do not have. */
   it('refuses a commitment that does not fit in what is left', () => {
-    const ledger = payrollLedger({ ...startingPayroll(NOW), commitments: { a: 150 } }, 0);
+    const ledger = payrollLedger({ ...startingPayroll(), commitments: { a: 150 } }, 0);
     expect(payrollFits(ledger, PAYROLL_BASE - 150)).toBe(true);
     expect(payrollFits(ledger, PAYROLL_BASE - 149)).toBe(false);
   });
@@ -85,48 +70,37 @@ describe('the payroll book (§H7)', () => {
   });
 });
 
-describe('the weekly upkeep cycle (§D1)', () => {
-  const cycle = (food: number, officers: number, now: string) =>
-    runEconomyCycle({
-      resources: { ...STARTING_RESOURCES, food },
-      payroll: startingPayroll(NOW),
-      officerCount: officers,
-      now: new Date(now),
-    });
-
-  it('does nothing inside the week it already settled', () => {
-    const result = cycle(500, 3, '2026-08-26T09:00:00.000Z');
-    expect(result.weeksSettled).toBe(0);
-    expect(result.foodDue).toBe(0);
+/**
+ * Nothing in the game is charged on a clock, and this is the guard on that.
+ *
+ * The payroll module is where every recurring draw lived: caps every Monday, then supplies every
+ * Monday after the caps went. Both are gone, and what pins it is the *state*: a book with no
+ * settled-through date has nothing for a cycle to catch up from, so a reinstated weekly draw
+ * cannot be written without changing this shape and failing here.
+ *
+ * `DISMISSAL_WEEKS` is deliberately not caught by this. Weeks are still the unit a fee is quoted
+ * in; what is gone is anything that comes due on its own.
+ */
+describe('nothing recurs', () => {
+  it('starts a crew with a book and no settled-through date', () => {
+    expect(startingPayroll()).toEqual({ purchasedSteps: 0, commitments: {} });
   });
 
-  it('eats food per officer, and more per officer as the crew grows', () => {
-    expect(foodUpkeepFor(0)).toBe(0);
-    expect(foodUpkeepFor(2) / 2).toBeLessThan(foodUpkeepFor(6) / 6);
-    const result = cycle(500, 3, '2026-08-31T09:00:00.000Z');
-    expect(result.weeksSettled).toBe(1);
-    expect(result.foodDue).toBe(foodUpkeepFor(3));
-    expect(result.resources.food).toBe(500 - result.foodConsumed);
+  it('keeps no timestamp on the book, so there is nothing to settle from', () => {
+    const shape = Object.keys(PayrollStateSchema.shape);
+    expect(shape).toEqual(['purchasedSteps', 'commitments']);
   });
 
-  it('catches up honestly across a long absence', () => {
-    expect(cycle(9000, 2, '2026-09-21T09:00:00.000Z').weeksSettled).toBe(4);
-  });
-
-  it('eats what it can when the store is short and reports the rest', () => {
-    const result = cycle(1, 6, '2026-08-31T09:00:00.000Z');
-    expect(result.foodConsumed).toBe(1);
-    expect(result.foodShortfall).toBe(result.foodDue - 1);
-    expect(result.resources.food).toBe(0);
-  });
-
-  /** Caps are the book's business and the book is not a bill: nothing here touches them. */
-  it('never takes caps out of the stockpile', () => {
-    const result = cycle(500, 4, '2026-09-14T09:00:00.000Z');
-    expect(result.resources.caps).toBe(STARTING_RESOURCES.caps);
-  });
-
-  it('never claws upkeep back when the clock runs backwards', () => {
-    expect(cycle(500, 3, '2026-08-10T09:00:00.000Z').weeksSettled).toBe(0);
+  it('has dropped the weekly cycle outright', async () => {
+    const payroll = await import('./payroll.js');
+    for (const gone of [
+      'runEconomyCycle',
+      'foodUpkeepFor',
+      'suppliesUpkeepFor',
+      'startOfPayWeek',
+      'PAY_WEEK_MS',
+    ]) {
+      expect(payroll, gone).not.toHaveProperty(gone);
+    }
   });
 });

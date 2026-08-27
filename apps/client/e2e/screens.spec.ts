@@ -113,7 +113,9 @@ test('assignee placement renders at the §G7 ceiling without clipping', async ({
   await installApi(page, lateGame);
   await page.goto('/game/assignees');
 
-  await expect(page.getByRole('heading', { name: 'Your crew' })).toBeVisible();
+  // The crew screen opens on a quotation rather than its own name: the scenery switcher already
+  // carries the word, lit, at the bottom of the frame. What identifies the screen is its content.
+  await expect(page.getByTestId('crew-books')).toBeVisible();
   // §G7's last row and a decimal bonus rendered without a stray `.0`, both on their slots.
   await expect(page.getByText('24 / 24 · 75%')).toBeVisible();
   await expect(page.getByText('3 / 24 · 14.5%')).toBeVisible();
@@ -188,7 +190,7 @@ test('the hideout stands its structures on clickable plots', async ({ page }) =>
   await installApi(page, me);
   await page.goto('/game/base');
 
-  await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
+  await expect(page.getByTestId('faction-plaque')).toContainText('The Ninth Street Crew');
   // §A1: the structures are plots in a place now, not rows in a list, so they are found by the
   // control you click rather than by a name printed somewhere on the page.
   await expect(page.getByRole('button', { name: /^The Nexus,/ })).toBeVisible();
@@ -210,19 +212,41 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   await installApi(page, lateGame);
   await page.goto('/game/bar');
 
-  await expect(page.getByRole('heading', { name: 'The Bar' })).toBeVisible();
+  // The room is the page now, and the first person in it is drawn in the middle.
+  await expect(page.getByTestId('bar-room')).toBeVisible();
+  await expect(page.getByTestId('recruit-name')).toHaveText('Dorotea "The Undergrid Ghost"');
+
+  /*
+   * §H3 refusals say which door is shut rather than just greying the card out, and there are two:
+   * the rank the city has given the crew, and how long the crew has been at it. Both are on the
+   * file of the person they apply to, so each is opened rather than read off a wall of cards.
+   */
+  const refusals = ['Your name is not big enough', 'Wants a crew that has been doing this longer'];
+  for (const refusal of refusals) {
+    let found = false;
+    for (const row of await page.getByTestId('bar-room').getByRole('button').all()) {
+      await row.click();
+      if ((await page.getByTestId('bar-file').getByText(refusal).count()) > 0) {
+        found = true;
+        break;
+      }
+    }
+    expect(found, `no recruit in the room is refused with "${refusal}"`).toBe(true);
+  }
+
+  /* §H5's two ends, both of which live with the crew rather than with the room: a walkout warning
+     and an earned skill bonus. Behind the crew door now. */
+  await page.getByTestId('open-crew').click();
   await expect(page.getByText('The Ghost of Sector Nine')).toBeVisible();
-  await expect(page.getByText('Dorotea "The Undergrid Ghost"')).toBeVisible();
-  // §H5's two ends both render: a walkout warning and an earned skill bonus.
   await expect(page.getByText('Says they are done unless something changes.')).toBeVisible();
-  await expect(page.getByText(/^\+5 to /)).toBeVisible();
-  // §H3 refusals say which door is shut rather than just greying the card out. Two doors now:
-  // the rank the city has given the crew, and how long the crew has been at it.
-  await expect(page.getByText('Your name is not big enough').first()).toBeVisible();
-  await expect(page.getByText('Wants a crew that has been doing this longer')).toBeVisible();
-  // §H7: the payroll book is the constraint every offer on this screen answers to, so it is on it.
+  await expect(page.getByText(/^Stealth \+5$/)).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // §H7: the book is the constraint every offer on this screen answers to, one click away.
+  await page.getByTestId('open-payroll').click();
   await expect(page.getByTestId('payroll-book')).toBeVisible();
   await expect(page.getByTestId('increase-payroll')).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await settleFonts(page);
 
@@ -413,14 +437,24 @@ test('a project that lands while the page is open shows what it found', async ({
   // The server banks it on the next read.
   landed = true;
 
-  // The facts land on the page, the "just in" flag names how many, and the slot frees up.
+  /*
+   * The landing has to be visible from the section the player is standing on, which is the desk.
+   *
+   * The facts themselves live behind the files now, so the flag on the rail is what carries the
+   * news: without it a project could finish under somebody's nose and they would find the three
+   * facts an hour later with nothing having said so. Asserted *before* opening the files, because
+   * a flag that only appears once you are already looking at the thing it announces is not a flag.
+   */
   await expect(page.getByText('+3 just in')).toBeVisible({ timeout: AFTER_POLL });
+  // And the bench is free again, so something else can be put on it.
+  await expect(page.getByTestId('research-section-the-desk')).toContainText('Free');
+
+  await page.getByTestId('research-section-the-files').click();
   const raidBossFacts = page.getByRole('listitem').filter({ hasText: 'Raid Boss' }).first();
   await expect(raidBossFacts).toBeVisible();
   await expect(raidBossFacts).toContainText('Intimidation');
   await expect(raidBossFacts).toContainText('Demolition');
   await expect(raidBossFacts, 'both facts count against the §B9 cap').toContainText('2 / 3 leads');
-  await expect(page.getByRole('heading', { name: 'Put someone on it' })).toBeVisible();
 
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/research-settled.png', fullPage: false });

@@ -222,7 +222,9 @@ test.describe('doors behind a level (§I3)', () => {
 
     await expect(page.getByText('Opens at level 10')).toHaveCount(0);
     await expect(page.getByTestId('nav-locked-bar')).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: 'The Bar' })).toBeVisible();
+    // The room itself, which is what being through the door means. The payroll book used to stand
+    // in for it; it is behind a door on the strip now.
+    await expect(page.getByTestId('bar-room')).toBeVisible();
   });
 });
 
@@ -233,11 +235,16 @@ test.describe('the painted picker', () => {
     await page.goto('/game/market');
     await settleFonts(page);
 
-    const trigger = page.getByTestId('supply-resource');
+    // The supply run picks its material off painted tiles now, so the page's remaining `Dropdown`
+    // is the composer's item slot: it sits near the bottom of a long sheet, which is the position
+    // the bug below actually needed.
+    await expect(page.getByRole('radiogroup', { name: 'What to buy with caps' })).toBeVisible();
+
+    const trigger = page.getByTestId('offer-item');
     await trigger.click();
 
     // A real listbox, drawn by us, not the operating system's menu, which no test can see at all.
-    const list = page.getByRole('listbox', { name: 'What to buy with caps' });
+    const list = page.getByRole('listbox', { name: 'An item to include in the offer' });
     await expect(list).toBeVisible();
 
     // Positioned against the viewport. This is the bug that shipped first: `.glass-strong` sets

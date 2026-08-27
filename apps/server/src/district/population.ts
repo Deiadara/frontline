@@ -61,6 +61,21 @@ export function unitsAbroad(repos: Repositories, base: Base): Army {
   for (const movement of repos.movements.forBase(base.id)) {
     total = mergeArmies(total, movementForce(movement));
   }
+  /*
+   * §E: and the crews out on missions, which were missing entirely.
+   *
+   * A launch takes the force out of `base.army` and parks it on the mission row, so until this
+   * they were counted nowhere: not at home, not abroad, not against the ceiling. That made the
+   * §A1 population cap dodgeable by anybody with a day-long job on the board. Send the army out,
+   * watch `supplyUsed` fall, train a second one into the gap, and be over the cap the moment the
+   * first came home.
+   *
+   * They are still people this crew feeds, which is the same sentence that puts a garrison and a
+   * marching column in this fold.
+   */
+  for (const stored of repos.missions.listActiveByBaseId(base.id)) {
+    total = mergeArmies(total, stored.mission.force);
+  }
   return total;
 }
 

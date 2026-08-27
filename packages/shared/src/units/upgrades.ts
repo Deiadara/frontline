@@ -27,7 +27,7 @@ import { UNIT_STAT_KEYS, type UnitStats } from './stats.js';
  *
  * That is the board's rule and it is a good one: scrap is the material the city is made of, so
  * every physical improvement comes out of the same pile that the buildings do. High-quality metal
- * appears at tier two and above, components at tier two and three. Nothing costs food, because
+ * appears at tier two and above, components at tier two and three. Nothing costs supplies, because
  * nothing here is a person.
  */
 
@@ -197,14 +197,22 @@ export function upgradesInLine(line: UpgradeLine): UpgradeSpec[] {
 export const FittedUpgradesSchema = z.array(z.string());
 export type FittedUpgrades = readonly string[];
 
-export type UpgradeRefusal =
-  | 'unknown_upgrade'
-  | 'already_fitted'
-  | 'needs_previous_tier'
-  | 'needs_blueprint'
-  | 'gauntlet_too_low'
-  | 'cannot_afford'
-  | 'missing_parts';
+/**
+ * Why the workshop will not build this yet.
+ *
+ * A tuple rather than a bare union so the strings are readable at runtime: the testing build's
+ * waiver list quotes refusals by name, and it has no way to check itself against a type.
+ */
+export const UPGRADE_REFUSALS = [
+  'unknown_upgrade',
+  'already_fitted',
+  'needs_previous_tier',
+  'needs_blueprint',
+  'gauntlet_too_low',
+  'cannot_afford',
+  'missing_parts',
+] as const;
+export type UpgradeRefusal = (typeof UPGRADE_REFUSALS)[number];
 
 /**
  * The order the checks run in is the order a player wants to hear them.
@@ -249,9 +257,17 @@ export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStat
     for (const key of UNIT_STAT_KEYS) {
       const delta = spec.effect[key];
       if (delta === undefined) continue;
-      // `lootCapacity` and `range` are unbounded above; the 0..100 stats are not. Both floor at 0.
+      /*
+       * `lootCapacity` is the one genuinely unbounded stat: it counts slots, and nothing
+       * downstream divides it by a hundred. Everything else is a 0..100 rating, and floors at 0.
+       *
+       * `range` used to be excluded here too, and that was wrong. Both of its readers treat it as
+       * a rating: `matchup.ts` clamps `range - speed` into 0..100, and `rangedShare` divides it by
+       * 100 to produce a share it documents as 0..1. Slaved Optics put a Sniper on 109, which drew
+       * a bar past the end of its own track on the roster and handed the engine a share of 1.09.
+       */
       const raw = next[key] + delta;
-      const capped = key === 'lootCapacity' || key === 'range' ? raw : Math.min(100, raw);
+      const capped = key === 'lootCapacity' ? raw : Math.min(100, raw);
       next[key] = Math.max(0, Math.round(capped));
     }
   }

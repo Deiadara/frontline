@@ -426,7 +426,7 @@ export const RESOURCE_ICON_SUBJECTS: Readonly<Record<ResourceKey, string>> = {
     A loose handful of crimped bottle caps, painted faces scratched back to bare steel, one
     standing on edge against the pile, warm amber #f59e0b catching the ridged rims.
   `),
-  food: block(`
+  supplies: block(`
     A dented ration tin with its lid peeled half back on a torn hinge of metal, a scorched crust
     of pressed protein inside, the paper label stripped to a pale ghost, warm amber #ffd166
     glancing off the peeled edge.

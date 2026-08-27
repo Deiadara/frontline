@@ -96,9 +96,8 @@ export const BattleAnalysisSchema = z.object({
    *
    * The labels decide a real share of the outcome: Anodics at +46% in a press hall, a Colossus
    * losing a fifth of itself to a corridor, and for a while the report said nothing about any of
-   * it. A player read a loss with no way to learn that they had sent riflemen into `Crammed IV` on
-   * a foggy night, which makes the whole system a hidden dice roll rather than a thing to plan
-   * around.
+   * it. A player read a loss with no way to learn that they had sent riflemen into `Crammed IV` in
+   * the fog, which makes the whole system a hidden dice roll rather than a thing to plan around.
    *
    * Stored on the analysis rather than recomputed when the card is drawn: the ground is a fact
    * about a moment that has passed, and the weather will have moved by the time anybody reads it.

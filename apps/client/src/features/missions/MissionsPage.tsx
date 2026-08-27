@@ -183,8 +183,6 @@ export function MissionsPage() {
 
   return (
     <PageShell
-      title="Missions"
-      icon="missions"
       // A quotation, not a lede. It is the one line on this screen that is not telling anybody a
       // number, and it was set in the same grey help text as the travel-time explainer beside it.
       quote="The first death is in the heart. Get out there and show you are still alive."

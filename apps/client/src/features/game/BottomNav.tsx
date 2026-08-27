@@ -72,7 +72,7 @@ export const DESTINATIONS: readonly NavDestination[] = [
     label: 'Training',
     title: 'Drills and reading',
     to: '/game/training',
-    icon: 'units',
+    icon: 'training',
     area: 'training',
   },
   {
@@ -82,8 +82,13 @@ export const DESTINATIONS: readonly NavDestination[] = [
     icon: 'market',
     area: 'market',
   },
-  { label: 'Workshop', title: 'Refits and the yard', to: '/game/workshop', icon: 'research' },
-  { label: 'Satchel', title: 'Blueprints, parts and relics', to: '/game/inventory', icon: 'crew' },
+  { label: 'Workshop', title: 'Refits and the yard', to: '/game/workshop', icon: 'workshop' },
+  {
+    label: 'Satchel',
+    title: 'Blueprints, parts and relics',
+    to: '/game/inventory',
+    icon: 'satchel',
+  },
 ];
 
 /**
@@ -199,7 +204,6 @@ function Destination({
     return (
       <span
         className="group flex w-[72px] cursor-not-allowed flex-col items-center gap-1 opacity-40"
-        data-tip={destination.title}
         aria-disabled="true"
         data-testid={testId(destination.label)}
       >
@@ -214,9 +218,18 @@ function Destination({
       // `end` only on the city map: it is the index route, so without it every child route would
       // light the city up as well as itself.
       end={destination.to === '/game'}
-      data-tip={
-        locked === null ? destination.title : `${destination.title}: opens at level ${locked}`
-      }
+      /*
+       * No `data-tip`.
+       *
+       * Every tile already prints its own name under the icon, so the tooltip was a black box that
+       * appeared over the world to repeat the word six pixels below it, and it did so on the row a
+       * player's pointer crosses on the way to everywhere. A hover hint earns its place where the
+       * control cannot say what it is; this one can. What a locked door costs is on the tile too,
+       * as `Lv N`, so nothing goes with it.
+       *
+       * The lit frame on hover is the `door-tile` styling and is untouched: that is the feedback
+       * worth having.
+       */
       className="group flex w-[72px] flex-col items-center gap-1 focus-visible:outline-none"
       data-testid={testId(destination.label)}
     >
@@ -271,7 +284,13 @@ export function BottomNav() {
        */}
       <span
         className={cn(
-          '[@media(min-width:1500px)]:absolute [@media(min-width:1500px)]:right-4',
+          // `!absolute`, and it has to be said out loud: `.painted > *` sets `position: relative`
+          // on every direct child of the bar, at the same specificity as a positioning utility, so
+          // which one wins is decided by emission order in the generated stylesheet. It currently
+          // falls this way and that is luck rather than design: the same rule *did* defeat the
+          // plaque's corner brackets, which use a plain `absolute`. The important flag makes the
+          // outcome a decision instead of a coincidence a Tailwind upgrade could reverse.
+          '[@media(min-width:1500px)]:!absolute [@media(min-width:1500px)]:right-4',
           '[@media(min-width:1500px)]:top-1/2 [@media(min-width:1500px)]:-translate-y-1/2',
         )}
       >

@@ -1,6 +1,5 @@
 import {
   RESOURCE_ORDER as DOMAIN_RESOURCE_ORDER,
-  RESOURCE_LORE,
   type PartialResources,
   type ResourceKey,
   type Resources,
@@ -9,7 +8,7 @@ import type { ReactNode } from 'react';
 import { deliveredUrl } from '../assets/delivered';
 import { cn } from '../lib/cn';
 import { HoverCard } from './ui/HoverCard';
-import { InfoWindow, WindowSection } from './ui/InfoWindow';
+import { InfoWindow } from './ui/InfoWindow';
 
 export type { ResourceKey };
 
@@ -51,8 +50,8 @@ export const RESOURCE_META: Record<ResourceKey, ResourceMeta> = {
       </>,
     ),
   },
-  food: {
-    label: 'Food',
+  supplies: {
+    label: 'Supplies',
     color: 'text-bile-300',
     fill: 'bg-bile-300',
     icon: glyph(
@@ -213,10 +212,18 @@ interface ResourceChipProps {
   kind: ResourceKey;
   value: number;
   /**
-   * What the Apothecary will hold. Omitted where there is no ceiling to show: the readouts that
-   * are not the HUD.
+   * What the Apothecary will hold of *this* resource: the three shelves are different sizes.
+   *
+   * Three states, and the two that are not a number mean different things.
+   *
+   * - a **number**: the shelf, drawn as a fill under the figure.
+   * - `'uncapped'`: there is no shelf. Caps, and only caps. The chip still opens onto its window,
+   *   because the chip prints `125K` and the exact figure has to be somewhere; there is simply no
+   *   bar and no `/ N` in it.
+   * - **omitted**: this readout does not show ceilings at all, which is every readout that is not
+   *   the standing bar. A plain labelled figure, no window.
    */
-  capacity?: number;
+  capacity?: number | 'uncapped' | undefined;
 }
 
 /**
@@ -242,8 +249,8 @@ export function compactAmount(value: number): string {
  * `applyProduction`), so a district can legitimately sit over its own ceiling, and a bar that
  * rendered 140% would run out of its own track.
  */
-export function fillFraction(value: number, capacity: number | undefined): number {
-  if (capacity === undefined || capacity <= 0) return 0;
+export function fillFraction(value: number, capacity: number | 'uncapped' | undefined): number {
+  if (capacity === undefined || capacity === 'uncapped' || capacity <= 0) return 0;
   return Math.max(0, Math.min(1, value / capacity));
 }
 
@@ -268,10 +275,13 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
   const amount = Math.round(value);
   const fill = fillFraction(value, capacity);
   const nearlyFull = fill >= STORAGE_WARN_AT;
+  // The shelf, or `null` where there is not one. Everything below asks this rather than asking
+  // `capacity` twice, so the "no shelf" and "not shown here" cases cannot drift apart.
+  const shelf = typeof capacity === 'number' ? capacity : null;
   const reading =
-    capacity === undefined
+    shelf === null
       ? `${meta.label}: ${amount.toLocaleString()}`
-      : `${meta.label}: ${amount.toLocaleString()} of ${Math.round(capacity).toLocaleString()}`;
+      : `${meta.label}: ${amount.toLocaleString()} of ${Math.round(shelf).toLocaleString()}`;
 
   /*
    * Icon left, reading right: rather than icon-and-number over a full-width bar.
@@ -309,7 +319,7 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
         </span>
         {/* Thinner and rounder than it was, and the track is a shadow in the glass rather than a
             black slot: the bar is a reading *on* the chip, not a second component inside it. */}
-        {capacity !== undefined && (
+        {shelf !== null && (
           <span className="block h-1 w-full overflow-hidden rounded-full bg-black/35">
             <span
               className={cn(
@@ -325,8 +335,9 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
     </div>
   );
 
-  // Without a ceiling there is nothing to explain, so it stays a plain labelled readout rather
-  // than growing a control that opens onto one line of text.
+  // A readout that does not deal in ceilings at all stays a plain labelled figure rather than
+  // growing a control that opens onto one line of text. `'uncapped'` is not this case: caps have
+  // no shelf but they do have an exact figure the compact chip is hiding.
   if (capacity === undefined) {
     return (
       <div role="img" aria-label={reading} data-tip={reading}>
@@ -334,8 +345,6 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
       </div>
     );
   }
-
-  const lore = RESOURCE_LORE[kind];
 
   return (
     <HoverCard
@@ -353,55 +362,30 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
               <span className={cn('font-display text-2xl font-bold tabular-nums', meta.color)}>
                 {amount.toLocaleString()}
               </span>
-              <span className="font-display text-base tabular-nums text-ink-300">
-                / {Math.round(capacity).toLocaleString()}
-              </span>
+              {shelf !== null && (
+                <span className="font-display text-base tabular-nums text-ink-300">
+                  / {Math.round(shelf).toLocaleString()}
+                </span>
+              )}
             </span>
           }
         >
-          {/* The bar again, at a size worth reading, since the chip's is 6px tall. */}
-          <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950/80">
-            <span
-              className={cn('block h-full rounded-sm', nearlyFull ? 'bg-oxblood-300' : meta.fill)}
-              style={{ width: `${fill * 100}%` }}
-            />
-          </span>
-
-          <p className="font-body text-[14px] italic leading-relaxed text-ink-200">{lore.what}</p>
-
-          <WindowSection label="Spent on">
-            <ul className="flex flex-col gap-0.5">
-              {lore.spentOn.map((use) => (
-                <li
-                  key={use}
-                  className="flex gap-2 font-body text-[13px] leading-snug text-ink-100"
-                >
-                  <span
-                    aria-hidden
-                    className={cn('mt-[7px] h-1 w-1 shrink-0 rounded-full', meta.fill)}
-                  />
-                  {use}
-                </li>
-              ))}
-            </ul>
-          </WindowSection>
-
-          <WindowSection label="Comes from">
-            <p className="font-body text-[13px] leading-snug text-ink-100">{lore.from}</p>
-          </WindowSection>
-
-          <p
-            className={cn(
-              'rounded-sm border-l-2 px-2.5 py-1.5 font-body text-[13px] leading-snug',
-              nearlyFull
-                ? 'border-oxblood-300 bg-oxblood-500/10 text-oxblood-300'
-                : 'border-surface-600 bg-surface-900/50 text-ink-300',
-            )}
-          >
-            {nearlyFull
-              ? 'Nearly full. Anything produced above the ceiling is thrown away. Raise the Apothecary.'
-              : 'The Apothecary sets the ceiling. Production stops there; raids and pay do not.'}
-          </p>
+          {/* The bar again, at a size worth reading, since the chip's is 6px tall.
+           *
+           * And it is the last thing in the window. What used to follow was three paragraphs of
+           * what the material is, what it is spent on and where it comes from: a player looking at
+           * a stockpile wants the number and the ceiling, and every other game in this genre gives
+           * them exactly that. The lore is still authored (`RESOURCE_LORE`); it is simply not read
+           * out over the top of the figure a player was checking. Full is said by the bar turning
+           * red rather than by a sentence about the Apothecary. */}
+          {shelf !== null && (
+            <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950/80">
+              <span
+                className={cn('block h-full rounded-sm', nearlyFull ? 'bg-oxblood-300' : meta.fill)}
+                style={{ width: `${fill * 100}%` }}
+              />
+            </span>
+          )}
         </InfoWindow>
       }
     >

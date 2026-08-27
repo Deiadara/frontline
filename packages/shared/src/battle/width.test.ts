@@ -88,7 +88,7 @@ describe('combat width', () => {
   });
 
   it('falls back to a default for ground with nothing to say about its shape', () => {
-    expect(frontageFor(['night'])).toBe(DEFAULT_FRONTAGE);
+    expect(frontageFor(['dark'])).toBe(DEFAULT_FRONTAGE);
     expect(frontageFor([])).toBe(DEFAULT_FRONTAGE);
   });
 

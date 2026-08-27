@@ -152,7 +152,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * unreachable until one was standing.
      */
     requires: [],
-    cost: { caps: 40, food: 10 },
+    cost: { caps: 40, supplies: 10 },
     trainSeconds: 45,
     supply: 1,
     stats: sheet({
@@ -191,7 +191,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * What Anodics are *for* is the ground, not the sheet: a room, a tunnel, a factory floor with a
      * press running. Fight them in a yard and they are worse than Razors.
      */
-    cost: { caps: 55, food: 15, scrap: 10 },
+    cost: { caps: 55, supplies: 15, scrap: 10 },
     trainSeconds: 60,
     supply: 1,
     stats: sheet({
@@ -231,7 +231,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(1)],
-    cost: { caps: 45, scrap: 20 },
+    cost: { caps: 45, supplies: 5, scrap: 20 },
     trainSeconds: 50,
     supply: 1,
     stats: sheet({
@@ -257,7 +257,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(2)],
-    cost: { caps: 50, scrap: 25 },
+    cost: { caps: 50, supplies: 10, scrap: 25 },
     trainSeconds: 55,
     supply: 1,
     stats: sheet({
@@ -285,7 +285,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(2)],
-    cost: { caps: 60, food: 20 },
+    cost: { caps: 60, supplies: 20 },
     trainSeconds: 60,
     supply: 1,
     stats: sheet({
@@ -316,7 +316,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(4)],
-    cost: { caps: 120, scrap: 60, oil: 15 },
+    cost: { caps: 120, supplies: 20, scrap: 60, oil: 15 },
     trainSeconds: 150,
     supply: 2,
     stats: sheet({
@@ -343,7 +343,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(4)],
-    cost: { caps: 130, scrap: 80 },
+    cost: { caps: 130, supplies: 20, scrap: 80 },
     trainSeconds: 160,
     supply: 2,
     stats: sheet({
@@ -370,7 +370,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(5)],
-    cost: { caps: 160, oil: 20 },
+    cost: { caps: 160, supplies: 25, oil: 20 },
     trainSeconds: 180,
     supply: 2,
     stats: sheet({
@@ -398,7 +398,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'garage',
     unique: false,
     requires: [gauntlet(5), structure('garage', 4)],
-    cost: { caps: 180, scrap: 90, oil: 60 },
+    cost: { caps: 180, supplies: 25, scrap: 90, oil: 60 },
     trainSeconds: 200,
     supply: 2,
     stats: sheet({
@@ -426,7 +426,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(6), structure('scrapyard', 5)],
-    cost: { caps: 200, scrap: 140, highQualityMetal: 10 },
+    cost: { caps: 200, supplies: 30, scrap: 140, highQualityMetal: 10 },
     trainSeconds: 240,
     supply: 3,
     stats: sheet({
@@ -456,7 +456,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(6), structure('cistern', 5)],
-    cost: { caps: 190, scrap: 70, oil: 40 },
+    cost: { caps: 190, supplies: 30, scrap: 70, oil: 40 },
     trainSeconds: 220,
     supply: 2,
     stats: sheet({
@@ -490,7 +490,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(7), fitted('gauntlet_live_fire_range')],
-    cost: { caps: 260, scrap: 60, highQualityMetal: 12 },
+    cost: { caps: 260, supplies: 40, scrap: 60, highQualityMetal: 12 },
     trainSeconds: 300,
     supply: 2,
     stats: sheet({
@@ -518,7 +518,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(7), structure('infirmary', 5)],
-    cost: { caps: 220, food: 60 },
+    cost: { caps: 220, supplies: 60 },
     trainSeconds: 280,
     supply: 2,
     stats: sheet({
@@ -548,7 +548,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(8), structure('scrapyard', 6)],
-    cost: { caps: 280, scrap: 120, oil: 80, highQualityMetal: 15 },
+    cost: { caps: 280, supplies: 40, scrap: 120, oil: 80, highQualityMetal: 15 },
     trainSeconds: 330,
     supply: 3,
     stats: sheet({
@@ -576,7 +576,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(8), structure('lab', 6)],
-    cost: { caps: 300, highQualityMetal: 20 },
+    cost: { caps: 300, supplies: 45, highQualityMetal: 20 },
     trainSeconds: 320,
     supply: 2,
     stats: sheet({
@@ -603,7 +603,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(8), structure('lab', 5)],
-    cost: { caps: 280, scrap: 40, highQualityMetal: 18 },
+    cost: { caps: 280, supplies: 40, scrap: 40, highQualityMetal: 18 },
     trainSeconds: 310,
     supply: 2,
     stats: sheet({
@@ -632,7 +632,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(9), structure('lab', 8), fitted('lab_quantum_modeling')],
-    cost: { caps: 360, highQualityMetal: 30 },
+    cost: { caps: 360, supplies: 55, highQualityMetal: 30 },
     trainSeconds: 380,
     supply: 3,
     stats: sheet({
@@ -661,7 +661,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(9), fitted('nexus_encrypted_core')],
-    cost: { caps: 340, oil: 30 },
+    cost: { caps: 340, supplies: 50, oil: 30 },
     trainSeconds: 360,
     supply: 2,
     stats: sheet({
@@ -689,7 +689,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'infirmary',
     unique: false,
     requires: [structure('infirmary', 6), holds('doghouse')],
-    cost: { caps: 190, food: 90, highQualityMetal: 15 },
+    cost: { caps: 190, supplies: 90, highQualityMetal: 15 },
     trainSeconds: 420,
     supply: 1,
     stats: sheet({
@@ -722,7 +722,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(10), holds('broadcast_tower')],
-    cost: { caps: 380, scrap: 60, highQualityMetal: 25 },
+    cost: { caps: 380, supplies: 55, scrap: 60, highQualityMetal: 25 },
     trainSeconds: 400,
     supply: 3,
     stats: sheet({
@@ -751,7 +751,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'garage',
     unique: false,
     requires: [gauntlet(10), structure('garage', 8)],
-    cost: { caps: 420, scrap: 220, oil: 120, highQualityMetal: 35 },
+    cost: { caps: 420, supplies: 65, scrap: 220, oil: 120, highQualityMetal: 35 },
     trainSeconds: 450,
     supply: 4,
     stats: sheet({
@@ -781,7 +781,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(12), structure('generator', 10), holds('gene_clinic')],
-    cost: { caps: 700, scrap: 300, oil: 200, highQualityMetal: 90 },
+    cost: { caps: 700, supplies: 105, scrap: 300, oil: 200, highQualityMetal: 90 },
     trainSeconds: 900,
     supply: 6,
     stats: sheet({
@@ -808,7 +808,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(13), structure('infirmary', 10), holds('gene_clinic')],
-    cost: { caps: 650, food: 200, highQualityMetal: 70 },
+    cost: { caps: 650, supplies: 200, highQualityMetal: 70 },
     trainSeconds: 840,
     supply: 5,
     stats: sheet({
@@ -838,7 +838,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     requires: [gauntlet(12), holds('fight_pit')],
-    cost: { caps: 300, food: 120 },
+    cost: { caps: 300, supplies: 120 },
     trainSeconds: 600,
     supply: 3,
     stats: sheet({
@@ -870,7 +870,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'lab',
     unique: true,
     requires: [structure('lab', 15), fitted('lab_shielded_datacore'), holds('satellite_uplink')],
-    cost: { caps: 1500, oil: 300, highQualityMetal: 250 },
+    cost: { caps: 1500, supplies: 225, oil: 300, highQualityMetal: 250 },
     trainSeconds: 3600,
     supply: 8,
     stats: sheet({
@@ -900,7 +900,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'lab',
     unique: true,
     requires: [structure('lab', 16), structure('infirmary', 12), holds('mad_scientist_lair')],
-    cost: { caps: 1400, food: 400, highQualityMetal: 200 },
+    cost: { caps: 1400, supplies: 400, highQualityMetal: 200 },
     trainSeconds: 4200,
     supply: 10,
     stats: sheet({
@@ -940,7 +940,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * puts the Colossus in the same band as the Specter and the Juggernaut.
      */
     requires: [structure('garage', 16), structure('generator', 14), holds('construction_site')],
-    cost: { caps: 2200, scrap: 900, oil: 600, highQualityMetal: 400 },
+    cost: { caps: 2200, supplies: 330, scrap: 900, oil: 600, highQualityMetal: 400 },
     trainSeconds: 5400,
     supply: 12,
     stats: sheet({
@@ -972,7 +972,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: true,
     requires: [gauntlet(15), structure('quarters', 12), holds('tavern')],
-    cost: { caps: 1200, food: 300, highQualityMetal: 120 },
+    cost: { caps: 1200, supplies: 300, highQualityMetal: 120 },
     trainSeconds: 3000,
     supply: 6,
     stats: sheet({
@@ -999,7 +999,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'lab',
     unique: true,
     requires: [structure('lab', 12), holds('rail_yard'), holds('satellite_uplink')],
-    cost: { caps: 1000, oil: 150, highQualityMetal: 100 },
+    cost: { caps: 1000, supplies: 150, oil: 150, highQualityMetal: 100 },
     trainSeconds: 2700,
     supply: 5,
     stats: sheet({
@@ -1034,7 +1034,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * on the map rather than only in the stockpile.
      */
     requires: [structure('lab', 15), holds('mad_scientist_lair'), holds('gene_clinic')],
-    cost: { caps: 1800, scrap: 700, oil: 300, highQualityMetal: 320 },
+    cost: { caps: 1800, supplies: 270, scrap: 700, oil: 300, highQualityMetal: 320 },
     trainSeconds: 4200,
     supply: 7,
     stats: sheet({
@@ -1082,7 +1082,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     unique: false,
     combat: false,
     requires: [],
-    cost: { caps: 25, food: 15 },
+    cost: { caps: 25, supplies: 15 },
     trainSeconds: 30,
     supply: 1,
     stats: sheet({
@@ -1115,7 +1115,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     unique: false,
     combat: false,
     requires: [structure('nexus', 4)],
-    cost: { caps: 60, food: 20, planks: 30 },
+    cost: { caps: 60, supplies: 20, planks: 30 },
     trainSeconds: 90,
     supply: 2,
     stats: sheet({

@@ -92,8 +92,12 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      */
     // Priced off the premium frozen on the row, not off today's: a crew already out keeps the
     // terms it went under, and a level gained mid-flight cannot re-price it either way.
+    //
+    // A failure pays nothing, and that is `FAILURE_REWARD_SHARE`'s business rather than a second
+    // condition here: `missionRewards` already returns an empty bundle for one, and a guard on
+    // `outcome` beside it would be the same rule written twice and free to drift.
     const paid =
-      template && !recalled && outcome === 'success'
+      template && !recalled
         ? scaledSpoils(
             missionRewards(template, outcome, missionTimings(stored.mission).totalMinutes),
             stored.mission.payPercent,

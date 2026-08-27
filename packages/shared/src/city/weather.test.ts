@@ -77,35 +77,36 @@ describe('the daily roll', () => {
 describe('what a sky puts on the ground', () => {
   it('says nothing at all on an ordinary day', () => {
     expect(isPlainDay('normal')).toBe(true);
-    expect(weatherLabels('normal', false)).toEqual([]);
+    expect(weatherLabels('normal')).toEqual([]);
   });
 
-  /** The one inversion: nothing in this city holds heat, so a clear day is cold once the sun is off it. */
-  it('turns a clear day cold after dark', () => {
-    expect(tierOf(weatherLabels('sunny', false), 'hot')).toBeGreaterThan(0);
-    expect(tierOf(weatherLabels('sunny', false), 'cold')).toBe(0);
-    expect(tierOf(weatherLabels('sunny', true), 'hot')).toBe(0);
-    expect(tierOf(weatherLabels('sunny', true), 'cold')).toBeGreaterThan(0);
+  it('spells a clear day hot and a cold snap cold', () => {
+    expect(tierOf(weatherLabels('sunny'), 'hot')).toBeGreaterThan(0);
+    expect(tierOf(weatherLabels('sunny'), 'cold')).toBe(0);
+    expect(tierOf(weatherLabels('cold'), 'cold')).toBeGreaterThan(0);
+    expect(tierOf(weatherLabels('cold'), 'hot')).toBe(0);
   });
 
-  it('makes every other sky colder at night rather than different', () => {
-    for (const kind of ['cold', 'rainy', 'stormy', 'snowy'] as const) {
-      const day = tierOf(weatherLabels(kind, false), 'cold');
-      const night = tierOf(weatherLabels(kind, true), 'cold');
-      expect(night, kind).toBeGreaterThan(day);
-    }
-  });
-
-  it('is dark at night whatever the sky is doing', () => {
+  /**
+   * The day/night cycle is gone, and this is the guard on it.
+   *
+   * The sky used to be half the answer: `Dark II` after 21:00 UTC, a tier of Cold on top, and a
+   * clear day that inverted from Hot to Cold once the sun went. All of it turned on a wall clock
+   * nothing on screen counted down to. A sky is now one set of labels, and asking for it twice at
+   * different hours has to give the same answer.
+   */
+  it('puts the same labels on the ground at every hour of the day', () => {
     for (const kind of WEATHER_KINDS) {
-      expect(tierOf(weatherLabels(kind, true), 'dark'), kind).toBeGreaterThan(0);
-      expect(tierOf(weatherLabels(kind, false), 'dark'), kind).toBe(0);
+      expect(weatherLabels(kind), kind).toEqual(weatherLabels(kind));
+      // And no sky brings darkness with it. Dark ground is a property of the place: see the
+      // `dark` labels in `LOCATION_CATALOG` and `DARK_GROUND_TIER`.
+      expect(tierOf(weatherLabels(kind), 'dark'), kind).toBe(0);
     }
   });
 
   it('spells rain as wet and cold, and a storm as more of both plus wind and noise', () => {
-    const rain = weatherLabels('rainy', false);
-    const storm = weatherLabels('stormy', false);
+    const rain = weatherLabels('rainy');
+    const storm = weatherLabels('stormy');
     expect(tierOf(rain, 'wet')).toBeGreaterThan(0);
     expect(tierOf(rain, 'cold')).toBeGreaterThan(0);
     expect(tierOf(storm, 'wet')).toBeGreaterThan(tierOf(rain, 'wet'));
@@ -114,18 +115,16 @@ describe('what a sky puts on the ground', () => {
   });
 
   it('spells snow as snow *and* deep cold, which is what makes it the worst sky', () => {
-    const snow = weatherLabels('snowy', false);
+    const snow = weatherLabels('snowy');
     expect(tierOf(snow, 'snowy')).toBeGreaterThan(0);
-    expect(tierOf(snow, 'cold')).toBeGreaterThan(tierOf(weatherLabels('cold', false), 'cold'));
+    expect(tierOf(snow, 'cold')).toBeGreaterThan(tierOf(weatherLabels('cold'), 'cold'));
   });
 
   it('never produces a tier the scale does not have', () => {
     for (const kind of WEATHER_KINDS) {
-      for (const night of [false, true]) {
-        for (const label of weatherLabels(kind, night)) {
-          expect(label.tier, `${kind}/${night}`).toBeGreaterThanOrEqual(1);
-          expect(label.tier, `${kind}/${night}`).toBeLessThanOrEqual(4);
-        }
+      for (const label of weatherLabels(kind)) {
+        expect(label.tier, kind).toBeGreaterThanOrEqual(1);
+        expect(label.tier, kind).toBeLessThanOrEqual(4);
       }
     }
   });

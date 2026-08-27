@@ -9,6 +9,8 @@ import {
   fortifyCost,
   boostAvailable,
   findBattleBoost,
+  findBlackMarketGood,
+  stashCount,
   findTrap,
   deploymentIsOpen,
   emptyDeployment,
@@ -255,12 +257,34 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       }
 
       const spec = findBattleBoost(boostId);
-      if (!spec) throw new AppError('NOT_FOUND', 'Nothing on offer by that name');
-      const allowed = boostAvailable(spec.unlock, {
-        technologies: base.research.technologies,
-        roles: base.commanders.map((officer) => officer.role),
-      });
-      if (!allowed) throw new AppError('FORBIDDEN', 'Nobody has put that on the table for you');
+      const crate = spec ? undefined : findBlackMarketGood(boostId);
+      if (spec === undefined && crate === undefined) {
+        throw new AppError('NOT_FOUND', 'Nothing on offer by that name');
+      }
+
+      if (spec !== undefined) {
+        const allowed = boostAvailable(spec.unlock, {
+          technologies: base.research.technologies,
+          roles: base.commanders.map((officer) => officer.role),
+        });
+        if (!allowed) throw new AppError('FORBIDDEN', 'Nobody has put that on the table for you');
+      } else {
+        /*
+         * Contraband is applied here rather than applying itself to whatever fight happened next.
+         *
+         * Nothing is taken out of the bag at this point: the crate is *named* on the deployment and
+         * spent when the fight resolves, which is what lets a player change their mind for free
+         * right up to the mark. It also means naming the same crate on two battles is legal and
+         * only the first one to land gets it, which is checked in `appliedBoost`.
+         */
+        if (crate?.boost === undefined) {
+          throw new AppError('FORBIDDEN', 'That is not something you take into a fight');
+        }
+        const stash = app.repos.blackMarket.stashFor(base.id);
+        if (stashCount(stash, boostId) <= 0) {
+          throw new AppError('FORBIDDEN', 'You are not carrying one of those');
+        }
+      }
 
       const deployment =
         app.repos.sieges.deployment(battleId, side) ??
@@ -273,14 +297,15 @@ export function registerBattleRoutes(app: FastifyInstance): void {
        * undimmed) all bill full price for a row that does not move. Swapping to a *different*
        * boost still pays again, which is the §D7 rule and is pinned by its own test.
        */
-      if (deployment.boostId === spec.id) return respond(base, now);
+      if (deployment.boostId === boostId) return respond(base, now);
 
-      const left = spendInfamy(base.economy.infamy, spec.cost);
+      // A crate costs nothing here: it was paid for at the shelf. Only a name burns infamy.
+      const left = spec ? spendInfamy(base.economy.infamy, spec.cost) : base.economy.infamy;
       if (left === null) throw new AppError('NOT_ENOUGH_INFAMY', 'Your name is not worth that yet');
       app.repos.sieges.putDeployment({
         ...deployment,
         baseId: base.id,
-        boostId: spec.id,
+        boostId,
         updatedAt: now.toISOString(),
       });
 

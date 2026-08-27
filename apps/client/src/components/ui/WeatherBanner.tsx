@@ -1,6 +1,5 @@
 import {
   WEATHER_CATALOG,
-  isNight,
   isPlainDay,
   weatherAt,
   weatherLabels,
@@ -15,7 +14,7 @@ import { cn } from '../../lib/cn';
  * One roll a day for the whole map, so this is deliberately *not* per-location: it belongs at the
  * top of the district screen where it reads as a fact about the day rather than about the ground.
  * A player planning a push at 23:50 has to be able to see that the ground is about to change under
- * them, and that the same yard is a different fight after dark.
+ * them when the day rolls over at midnight.
  *
  * **Seven days in ten it renders nothing at all.** An ordinary day carries no labels and gets no
  * banner: a strip that is always there saying "Ordinary" would make the one morning it says "Fog"
@@ -23,9 +22,8 @@ import { cn } from '../../lib/cn';
  */
 export function WeatherBanner({ at, className }: { at: Date; className?: string }) {
   const kind: WeatherKind = weatherAt(at);
-  const night = isNight(at);
-  const labels = weatherLabels(kind, night);
-  if (isPlainDay(kind) && !night) return null;
+  const labels = weatherLabels(kind);
+  if (isPlainDay(kind)) return null;
 
   const spec = WEATHER_CATALOG[kind];
   return (
@@ -38,12 +36,10 @@ export function WeatherBanner({ at, className }: { at: Date; className?: string 
       )}
     >
       <span className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
-        {isPlainDay(kind) ? 'After dark' : spec.name}
+        {spec.name}
       </span>
       <p className="min-w-0 flex-1 font-body text-[12px] leading-relaxed text-ink-300">
-        {isPlainDay(kind)
-          ? 'Nothing in the sky worth naming, and no light to see the ground by.'
-          : spec.blurb}
+        {spec.blurb}
       </p>
       <LabelRow labels={labels} size="sm" />
     </div>

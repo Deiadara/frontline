@@ -225,7 +225,10 @@ function rangedShare(side: SideState): number {
   let total = 0;
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null) continue;
-    weighted += stack.alive * (stack.effective.range / 100);
+    // Clamped, because this function promises a share. `upgradedStats` holds range to 100 so a
+    // sheet cannot arrive above it, and this is the engine refusing to produce a fraction greater
+    // than one whatever it is handed: they are different statements and both are worth making.
+    weighted += stack.alive * (Math.min(100, Math.max(0, stack.effective.range)) / 100);
     total += stack.alive;
   }
   return total === 0 ? 0 : weighted / total;

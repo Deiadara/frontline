@@ -77,7 +77,9 @@ test.describe('the black market', () => {
     test(`lays the shelf out whole at ${name}`, async ({ page }) => {
       await open(page, '/game/market/black', width, height);
 
-      await expect(page.getByRole('heading', { name: 'The Black Market' })).toBeVisible();
+      // The screen no longer prints its own name: the bottom bar and the lit tab say where you
+      // are, so the tab's own `aria-current` is what identifies the page.
+      await expect(page.getByTestId('market-tab-black')).toHaveAttribute('aria-current', 'page');
       // Five slots, always. The refill rule is the reason this number never drops.
       // Five, written as a number. Reading the count off the shared constant would make this
       // assertion agree with whatever the code currently does, which is not an assertion.
@@ -97,10 +99,11 @@ test.describe('the black market', () => {
 
     await expect(page.getByTestId('market-tabs')).toBeVisible();
     await page.getByTestId('market-tab-black').click();
-    await expect(page.getByRole('heading', { name: 'The Black Market' })).toBeVisible();
+    await expect(page.getByTestId('black-market-shelf')).toBeVisible();
+    await expect(page.getByTestId('market-tab-black')).toHaveAttribute('aria-current', 'page');
 
     await page.getByTestId('market-tab-market').click();
-    await expect(page.getByRole('heading', { name: 'The Market' })).toBeVisible();
+    await expect(page.getByTestId('market-board')).toBeVisible();
   });
 
   test('counts down to the refresh and says what time it lands', async ({ page }) => {
@@ -117,11 +120,24 @@ test.describe('the black market', () => {
     await expect(page.getByText(/turns over once a day, at \d{2}:\d{2}/)).toBeVisible();
   });
 
-  test('shows what is in the bag for the next fight', async ({ page }) => {
+  /**
+   * The bag is not on this screen any more, and this is both halves of that.
+   *
+   * Contraband used to sit here and apply itself to whichever battle resolved next, on both sides.
+   * It is applied on a fight's own screen now, so what a crew is carrying belongs there: a test
+   * that only checked it had left the shelf would pass just as happily if it had gone nowhere.
+   */
+  test('keeps no bag here: contraband is applied on the fight it is for', async ({ page }) => {
     await open(page, '/game/market/black', 1280, 720);
-    const stash = page.getByTestId('boost-stash');
-    await expect(stash.locator('> li')).toHaveCount(2);
-    await expect(page.getByText(/Together:/)).toBeVisible();
+    await expect(page.getByTestId('boost-stash')).toHaveCount(0);
+    await expect(page.getByText(/Together:/)).toHaveCount(0);
+
+    await open(page, '/game/battles', 1280, 720);
+    await page.getByTestId('boost-picker').click();
+    const crate = page.getByRole('option', { name: /Adrenaline Syringes/ });
+    await expect(crate).toBeVisible();
+    // Already paid for at the shelf, so the line quotes the bag rather than a price in infamy.
+    await expect(crate).toContainText(/in the bag/i);
   });
 });
 
@@ -130,7 +146,7 @@ test.describe('settings', () => {
     test(`lays out the three panels at ${name}`, async ({ page }) => {
       await open(page, '/game/settings', width, height);
 
-      await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+      await expect(page.getByTestId('settings-display-name')).toBeVisible();
       await expect(page.getByTestId('settings-username')).toHaveValue('operator');
       // The painted picker shows the *city*, which is the only part a player reads. The IANA name
       // is what it sends; `Athens (house)` is what it says.

@@ -1,18 +1,15 @@
 import {
   BUILDING_CATALOG,
   MAX_BUILD_QUEUE,
-  PAY_WEEK_MS,
   RESOURCE_KEYS,
   districtProduction,
-  foodUpkeepFor,
   populationCapacity,
   populationDraw,
   playerLevelGrants,
   playerXpToNextLevel,
   queueProgressAt,
   queueRemainingMs,
-  startOfPayWeek,
-  storageCapacity,
+  storageCapacityFor,
   payrollLedger,
   payrollBonusPercent,
   buildingLevel,
@@ -60,8 +57,6 @@ export function BasePanel() {
     );
   }
 
-  const now = new Date();
-
   // A fresh plot starts with a clean slate: the refusal from the last one is not about this one.
   const selectPlot = (kind: BuildingKind) => {
     build.reset();
@@ -88,7 +83,7 @@ export function BasePanel() {
           // The HUD, and nothing else. The district used to dock its own title bar under the
           // stockpile, carrying the faction plaque and three tags, and it cost the painting forty
           // pixels of height on every viewport for information that belongs to the *player* rather
-          // than to this screen. The plaque is in the standing bar now (`FactionPlaque`), where it
+          // than to this screen. The plaque is in the standing bar now (`DistrictPlaque`), where it
           // is on every screen instead of only this one, and the district is just the district.
           '--scene-top': 'var(--hud-h, 0px)',
         } as React.CSSProperties
@@ -136,9 +131,14 @@ export function BasePanel() {
 
         <Panel title="Stockpile">
           <ResourceGrid resources={base.resources} className="p-4" />
+          {/* Three shelves and three figures. One number for "of each" was true when there was
+              one ceiling; now the bulk shelf holds three times what the metal shelf does, and a
+              single figure would be wrong for four of the five capped resources. */}
           <p className="border-t border-surface-700 px-4 py-2 font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-            The Apothecary holds {storageCapacity(base.buildings).toLocaleString()} of each.
-            Production stops there. Raids and pay do not.
+            The Apothecary holds {storageCapacityFor(base.buildings, 'scrap').toLocaleString()}{' '}
+            scrap or planks, {storageCapacityFor(base.buildings, 'oil').toLocaleString()} oil or
+            supplies and {storageCapacityFor(base.buildings, 'highQualityMetal').toLocaleString()}{' '}
+            HQ metal. Production stops there. Raids and pay do not. Caps have no ceiling.
           </p>
         </Panel>
 
@@ -152,7 +152,7 @@ export function BasePanel() {
             />
           </Panel>
           <Panel title="Payroll">
-            <PayrollRows base={base} now={now} />
+            <PayrollRows base={base} />
           </Panel>
         </div>
 
@@ -276,8 +276,8 @@ function ProductionRows({ base }: { base: Base }) {
   if (producing.length === 0) {
     return (
       <p className="p-4 font-body text-xs leading-relaxed text-ink-300">
-        Nothing is being made yet. The Greenhouse grows food, the Scrapyard strips salvage and the
-        Garage cracks fuel.
+        Nothing is being made yet. The Greenhouse grows supplies, the Scrapyard strips salvage and
+        the Garage cracks fuel.
       </p>
     );
   }
@@ -297,12 +297,13 @@ function ProductionRows({ base }: { base: Base }) {
 }
 
 /**
- * The wage book (GDD §H7): what the crew costs every week and when the caps next leave. Salary
- * negotiation itself is W5/MOU-164. This is the money side of it, which is what already moves.
+ * The wage book (GDD §H7): how much of the crew's standing capacity is spoken for.
+ *
+ * No date on it, because nothing leaves on one. The book is a ceiling checked when somebody signs,
+ * not a bill that comes due.
  */
-function PayrollRows({ base, now }: { base: Base; now: Date }) {
+function PayrollRows({ base }: { base: Base }) {
   const officers = base.commanders.length;
-  const nextUpkeep = new Date(startOfPayWeek(now).getTime() + PAY_WEEK_MS);
   const ledger = payrollLedger(
     base.economy.payroll,
     buildingLevel(base.buildings, 'nexus'),
@@ -317,15 +318,6 @@ function PayrollRows({ base, now }: { base: Base; now: Date }) {
         value={`${committedPayroll(base.economy.payroll.commitments)} / ${ledger.capacity} caps`}
       />
       <StatRow label="Payroll left" value={`${ledger.available} caps`} />
-      <StatRow label="Food upkeep / week" value={`${foodUpkeepFor(officers)} food`} />
-      <StatRow
-        label="Next upkeep"
-        value={nextUpkeep.toLocaleDateString(undefined, {
-          weekday: 'short',
-          day: 'numeric',
-          month: 'short',
-        })}
-      />
     </dl>
   );
 }

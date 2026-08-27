@@ -105,7 +105,14 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     districtId: 'neon-docks',
     level: 1,
     isBot: false,
-    resources: { caps: 5000, food: 100, oil: 100, scrap: 100, highQualityMetal: 10, planks: 100 },
+    resources: {
+      caps: 5000,
+      supplies: 100,
+      oil: 100,
+      scrap: 100,
+      highQualityMetal: 10,
+      planks: 100,
+    },
     economy: startingEconomy(NOW.toISOString()),
     progression: startingProgression(),
     research: startingResearch(),
@@ -179,10 +186,20 @@ function fakeRepos(hiresToday = 0): {
    */
   const sieges = { deploymentsFor: () => [] };
   const movements = { forBase: () => [] };
+  // §A1: the population fold counts everybody a crew feeds, and that now includes the crews out on
+  // missions. Nobody is out in these cases; the double has to answer the question all the same.
+  const missions = { listActiveByBaseId: () => [] };
   return {
-    repos: { bases, bar, city, users, overseers, sieges, movements } as unknown as Parameters<
-      typeof hireRecruit
-    >[0],
+    repos: {
+      bases,
+      bar,
+      city,
+      users,
+      overseers,
+      sieges,
+      movements,
+      missions,
+    } as unknown as Parameters<typeof hireRecruit>[0],
     written,
   };
 }
@@ -435,6 +452,39 @@ describe('§H7/§H8: hiring out of the Bar', () => {
     expect(written.caps, 'signing must not move caps').toBeUndefined();
     expect(result.payroll.committed).toBe(result.wage);
     expect(result.payroll.available).toBe(result.payroll.capacity - result.wage);
+  });
+
+  /**
+   * §H7: the six hours a walkout buys, enforced at the *signing* and not only in the conversation.
+   *
+   * `/bar/negotiate` refuses to reopen a cold chair, which is what a player sees, and it is not
+   * what a request has to go through: signing is its own route. A tab left open across a walkout,
+   * or anything posting the floor price straight at `/bar/hire`, put the officer on the books
+   * during the standoff. The markup applied (`wageAskedOf` reads the same record); the clock did
+   * not, and the clock is the half that makes a walkout cost something today.
+   */
+  it('refuses a signing while they are still walked out on, and takes it once the clock runs out', () => {
+    const hire = recruit();
+    const sign = (standoff: { until: string; walkouts: number } | undefined) =>
+      hireRecruit(fakeRepos().repos, {
+        ...SIGNER,
+        base: makeBase(),
+        recruit: hire,
+        role: 'head_spy',
+        ...(standoff ? { standoff } : {}),
+        offerWage: wageAskedOf(hire, standoff),
+        now: NOW,
+      });
+
+    const cold = { until: new Date(NOW.getTime() + 60_000).toISOString(), walkouts: 1 };
+    expect(sign(cold)).toEqual({ kind: 'refused', reason: 'standoff' });
+
+    // The same record an hour after it expires: they will sit down, and at the marked-up price.
+    const expired = { until: new Date(NOW.getTime() - 60_000).toISOString(), walkouts: 1 };
+    const signed = sign(expired);
+    expect(signed.kind).toBe('hired');
+    if (signed.kind !== 'hired') return;
+    expect(signed.wage).toBeGreaterThan(wageAskedOf(hire));
   });
 
   it('refuses a fee the payroll book will not stretch to', () => {
@@ -979,7 +1029,7 @@ describe('0006_recruitment.sql', () => {
       id,
       `${id}-user`,
       'Legacy Hold',
-      JSON.stringify({ caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 }),
+      JSON.stringify({ caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 }),
       JSON.stringify(startingEconomy(NOW.toISOString())),
       JSON.stringify(startingProgression()),
       JSON.stringify(commanders),

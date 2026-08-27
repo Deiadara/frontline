@@ -236,7 +236,18 @@ export function maxTrainable(
   spare: number,
   discountPercent = 0,
 ): number {
-  if (unit.unique) return spare >= unit.supply ? 1 : 0;
+  /*
+   * A legendary is one or none, and it still has to be paid for.
+   *
+   * This used to return on the beds alone, which skipped the affordability walk below entirely:
+   * **Max** offered a Colossus to a crew holding a single cap, and the server refused it with
+   * `cannot_afford`. Uniques are the five most expensive things in the game, so they were exactly
+   * the units the button lied about most often.
+   */
+  if (unit.unique) {
+    const room = spare >= unit.supply;
+    return room && affordable(trainingCost(unit, 1, discountPercent), stock) ? 1 : 0;
+  }
   const byRoom = Math.floor(Math.max(0, spare) / Math.max(1, unit.supply));
   // Binary search would be neater; the batch price is linear in `count` before rounding, so the
   // straight division is exact enough and then walked back until it actually fits. `TRAINING_MAX`

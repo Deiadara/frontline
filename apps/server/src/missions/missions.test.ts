@@ -39,6 +39,8 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { launchMission } from './launch.js';
+import { projectUnits } from '../units/roster.js';
+import { removeForce } from '../battle/forces.js';
 import { resolveDueMissions } from './resolve.js';
 
 /**
@@ -71,6 +73,30 @@ function launchInArea(nth: number, extra: Record<string, unknown> = {}) {
   const offer = missionOffers(areaId, missionBoardDay(new Date()))[0];
   if (!offer) throw new Error(`board ${areaId} offers nothing`);
   return { templateId: offer.id, areaId, force: { razors: 1 }, ...extra };
+}
+
+/**
+ * The **longest** easy job on a board today, with the area that offers it.
+ *
+ * Two things are going on here. Naming a template outright is a test that works until the day its
+ * board does not offer it, and `fuel-siphon` is how that was found: the boards turn over daily, so
+ * a hard-coded id is a fixture with a hidden expiry date.
+ *
+ * Longest rather than first, because durations are whole minutes. Today's first easy job is a
+ * three-minute scrap run, and three minutes times the §G6 penalty rounds back to three: the rule
+ * fires and the assertion cannot see it. A job of any real length has room for the effect to show.
+ */
+function anEasyJobToday(): { template: MissionTemplate; areaId: string } {
+  const day = missionBoardDay(new Date());
+  const offered = MISSION_TEMPLATES.filter((template) => template.difficulty === 'easy')
+    .map((template) => ({ template, areaId: areasOffering(template.id, day)[0] }))
+    .filter(
+      (entry): entry is { template: MissionTemplate; areaId: string } => entry.areaId !== undefined,
+    )
+    .sort((a, b) => b.template.durationMinutes - a.template.durationMinutes);
+  const longest = offered[0];
+  if (!longest) throw new Error(`no easy job on any board on ${day}`);
+  return longest;
 }
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -528,17 +554,18 @@ describe('the mission routes', () => {
     // An officer with nobody under them: §G5/§G7 both come out at 1, so this stays a test about
     // the freeze rather than a test about the assignee bonus.
     const officerId = withOfficer(stack);
+    const { template, areaId } = anEasyJobToday();
     const res = await app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: launchBody('fuel-siphon', { officerId }),
+      payload: { templateId: template.id, areaId, force: { razors: 1 }, officerId },
     });
+    expect(res.statusCode, res.body).toBe(200);
 
     const mission = res.json<{ mission: Mission }>().mission;
-    const siphon = findMissionTemplate('fuel-siphon') as MissionTemplate;
-    expect(mission.travelMinutes).toBe(templateTimings(siphon).travelMinutes);
-    expect(mission.durationMinutes).toBe(siphon.durationMinutes);
+    expect(mission.travelMinutes).toBe(templateTimings(template).travelMinutes);
+    expect(mission.durationMinutes).toBe(template.durationMinutes);
   });
 
   it('rejects a mission that is not on the board', async () => {
@@ -668,7 +695,9 @@ describe('the mission routes', () => {
     const rationPay = paidFor(rationRun, stack);
     const afterBoth = resourcesOf(stack);
     expect(afterBoth.scrap).toBe(before.scrap + (scrapPay.scrap ?? 0) + (rationPay.scrap ?? 0));
-    expect(afterBoth.food).toBe(before.food + (scrapPay.food ?? 0) + (rationPay.food ?? 0));
+    expect(afterBoth.supplies).toBe(
+      before.supplies + (scrapPay.supplies ?? 0) + (rationPay.supplies ?? 0),
+    );
     expect(afterBoth.caps).toBe(before.caps + (scrapPay.caps ?? 0) + (rationPay.caps ?? 0));
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
@@ -703,6 +732,57 @@ describe('the mission routes', () => {
 
   it('offers a board that spans every travel band and both kinds', () => {
     expect(MISSION_TEMPLATES.length).toBeGreaterThanOrEqual(6);
+  });
+});
+
+/**
+ * §A1: a crew that is out is still a crew the district feeds.
+ *
+ * A launch takes the force out of `base.army` and parks it on the mission row, so unless the
+ * population fold goes and reads that row, the people on it are counted nowhere: not at home, not
+ * abroad, not against the ceiling. That made the cap dodgeable by anybody with a long job on the
+ * board, which is the one thing a cap must not be.
+ *
+ * Measured through the roster projection rather than through `districtPopulation` directly,
+ * because the roster is where a player reads it and where **Max** is sized from: a figure that is
+ * right in the fold and wrong on the screen would let the same trick through the front door.
+ */
+describe('a crew on a mission still eats (§A1, §E)', () => {
+  it('keeps them in the population draw and shows them as abroad', async () => {
+    const stack = await makeStack();
+    const before = projectUnits(stack.repos, freshBase(stack), T0);
+
+    const force = { razors: 4 };
+    launchMission({
+      id: 'mission-supply',
+      base: freshBase(stack),
+      template: scrapRun,
+      areaId: areasOffering(scrapRun.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+      force,
+      now: T0,
+      seed: ALWAYS_SUCCEEDS,
+    });
+    // The launch route is what takes them off the roster; `launchMission` only writes the row.
+    const sent = freshBase(stack);
+    stack.repos.bases.updateArmy(sent.id, removeForce(sent.army, force), sent.trainingQueue);
+    stack.repos.missions.insert(
+      launchMission({
+        id: 'mission-supply',
+        base: sent,
+        template: scrapRun,
+        areaId: areasOffering(scrapRun.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+        force,
+        now: T0,
+        seed: ALWAYS_SUCCEEDS,
+      }),
+    );
+
+    const during = projectUnits(stack.repos, freshBase(stack), T0);
+    // The ceiling has not moved and neither has the draw: they left the army and joined `abroad`.
+    expect(during.supplyCap).toBe(before.supplyCap);
+    expect(during.supplyUsed).toBe(before.supplyUsed);
+    expect(during.abroad.razors).toBe(4);
+    expect(during.army.razors ?? 0).toBe((before.army.razors ?? 0) - 4);
   });
 });
 

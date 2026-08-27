@@ -166,7 +166,9 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
 
   // --- STEP 4: the hideout, and building in it against the real server (GDD §A1, §D3) ---
   await page.getByRole('link', { name: 'District', exact: true }).click();
-  await expect(page.getByRole('heading', { name: /Crew/ })).toBeVisible();
+  // The crew's name, read off the sign in the middle of the standing bar. It stopped being a
+  // heading when the plaque moved there: the bar carries no page heading now.
+  await expect(page.getByTestId('faction-plaque')).toContainText(/Crew/);
   await expect(page.getByRole('button', { name: /^The Nexus,/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /^The Generator,/ })).toBeVisible();
   await shootEveryViewport(page, 'base');

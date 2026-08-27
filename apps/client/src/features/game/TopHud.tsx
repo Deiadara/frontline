@@ -1,10 +1,12 @@
 import {
   playerXpToNextLevel,
   storageCapacity,
+  storageCapacityFor,
   type Base,
   type Building,
   type EconomyState,
   type Overseer,
+  type ResourceKey,
   type Resources,
 } from '@frontline/shared';
 import { NavLink } from 'react-router-dom';
@@ -107,129 +109,133 @@ interface TopHudProps {
  * them, and hit targets that clear the 44px guideline for the parts that are clickable.
  */
 export function TopHud({ overseer, base, resources, economy, buildings }: TopHudProps) {
-  // One ceiling for every resource: the Apothecary holds this much *of each*, not in total.
-  const capacity = storageCapacity(buildings);
+  /*
+   * Three shelves, not one, and caps are on none of them.
+   *
+   * `storageCapacityFor` answers `Infinity` for the one resource with no ceiling. The chip takes
+   * `'uncapped'` for that rather than the infinity: it still opens onto its window, because the
+   * chip prints `125K` and the exact figure has to live somewhere, but there is no bar and no
+   * "x of y" in it. An absent capacity means something else again: see `ResourceChipProps`.
+   */
+  const bulk = storageCapacity(buildings);
+  const ceiling = (kind: ResourceKey): number | 'uncapped' => {
+    const room = storageCapacityFor(buildings, kind, bulk);
+    return Number.isFinite(room) ? room : 'uncapped';
+  };
 
   return (
     /*
-     * One row where there is room for one, two tiers where there is not.
+     * Three groups, and the middle one is dead centre.
      *
-     * Four groups on a single wrapping flex line: who you are, what you have, how you stand, and
-     * whose face this is. All four fit on one line from about 1650px of frame, which is most
-     * desks, and that is the arrangement the board asked for, because a wide browser has the space
-     * and a second tier is height taken off the world for nothing.
+     * A grid rather than a flex row, and `1fr auto 1fr` rather than `justify-between`: the sign in
+     * the middle has to sit on the frame's centre line whatever the two side groups measure, and a
+     * flex row centres the *gap between them* instead, which drifts as soon as one side is wider.
+     * The two outer columns are equal by construction, so the plaque is centred at every width
+     * even before the groups happen to balance.
      *
-     * Below that they have to break, and *where* they break is the whole problem. Left to plain
-     * `flex-wrap` the identity dropped alone to a second line and read as a rendering fault. So the
-     * break is authored: a zero-height item with `basis-full` forces the wrap at a chosen point,
-     * and `order` puts the identity above it. Narrow, that gives the Grepolis arrangement: a thin
-     * identity strip over the numbers you actually watch. Wide, the breaker is `hidden` and the
-     * order is the natural one. One DOM, no duplicated markup, and neither state is a wrap nobody
-     * chose.
+     * The groups are: **what you have** on the left, **where you are** in the middle, **what you
+     * have earned** on the right. The two doors sit at the head of the right group rather than
+     * floating in the middle of the row, which is where the board put them: immediately left of
+     * the level, so the three things a player checks between actions are one block.
+     *
+     * The symmetry has a floor. Below `1500px` the six resource chips alone are more than half
+     * the frame, so the outer columns cannot be equal and the grid gives way to a plain flex row:
+     * the three groups still read left, middle, right, the sign is simply not on the centre line.
+     *
+     * Below `1280px` they cannot share a line at all, and an authored break drops the sign and the
+     * identity onto their own tier. Zero-height, full-width, so the wrap happens at a chosen point
+     * rather than wherever flexbox decides: left to itself the identity dropped alone and read as
+     * a rendering fault. The break is at 1280 rather than at the grid's own 1500 because a second
+     * tier costs seventy pixels of the world underneath, and that is too much to spend on
+     * centring a sign. Zero-height, full-width, so the wrap happens at a chosen point
+     * rather than wherever flexbox decides: left to itself the identity dropped alone and read as
+     * a rendering fault.
      */
-    <header className="glass painted washed rivets edge-lit pointer-events-auto relative flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b-2 border-brass-500/45 px-3 py-2 shadow-panel xl:px-4">
-      {/* Who you are, and what the street calls you. First on both arrangements.
-
-          The plaque is a *control*: it is where the faction is renamed, and it lives here rather
-          than on the district page because the name belongs to the player rather than to one
-          screen. The district used to carry it on a title bar of its own, which cost the painting
-          forty pixels on every viewport and put the one rename control in the game behind a
-          navigation step. */}
-      <div className="order-1 flex min-w-0 items-center gap-2">
-        <FactionPlaque base={base} />
-      </div>
-
-      {/* The identity is a door, not a caption. It names the one person in the game the player
-          *is*, and the sheet behind it is what every effect in the district is computed from, so
-          clicking the face is the shortest route to the page that says what those numbers do.
-
-          `order-2` narrow so it finishes the identity strip; `order-5` wide so it closes the row. */}
-      <NavLink
-        to="/game/overseer"
-        data-testid="hud-overseer"
-        // The name is in the label as well as in the markup, because below 1560px the markup is
-        // hidden, and a door to "your own file" that does not say whose is a door with no name on
-        // it, to a screen reader and to a pointer looking for a tooltip alike.
-        data-tip={`${overseer.name}: your own file`}
-        aria-label={`${overseer.name}, Overseer: your own file`}
-        className="group order-2 ml-auto flex shrink-0 items-center gap-2.5 rounded-sm px-1 py-0.5 transition-colors hover:bg-brass-300/10 focus-visible:outline-none [@media(min-width:1280px)]:order-5 [@media(min-width:1280px)]:ml-0"
-      >
-        {/* The name and title are the first thing to go when the row is tight: the face is what
-            makes this read as a door, and the sheet behind it opens with the name at the top of it.
-            Hidden rather than truncated: a nameplate cut to "Var…" is worse than no nameplate. */}
-        <span className="hidden text-right [@media(min-width:1800px)]:block">
-          <span className="block font-display text-sm font-semibold leading-tight tracking-[0.04em] text-ink-100">
-            {overseer.name}
-          </span>
-          {/* "Overseer" is what this person *is*; the archetype is what they are good at, and it
-              was being shown as though it were their title. */}
-          <span className="block font-display text-[11px] uppercase leading-tight tracking-[0.18em] text-brass-300">
-            Overseer
-          </span>
-        </span>
-        <span className="block h-10 w-10 shrink-0 overflow-hidden rounded-sm border border-surface-600 shadow-lifted transition-colors group-hover:border-brass-300/70">
-          <OverseerPortrait
-            portraitId={overseer.portraitId}
-            archetype={overseer.archetype}
-            aspect="square"
-            showTag={false}
-          />
-        </span>
-      </NavLink>
-
-      {/* The authored break. Zero height, full width, so the line ends here and nothing else has to
-          guess where. Gone entirely once everything fits on one line. */}
-      <span aria-hidden className="order-3 h-0 basis-full [@media(min-width:1280px)]:hidden" />
-
-      {/* The stockpile: the row read most often. Never the group that wraps: a stockpile that
-          reflows onto four lines takes a third of the screen away from the artwork.
-
-          The two doors sit *inside* this group, after the resources, which is Grepolis' own
-          arrangement and the board's instruction. They are where a player's eye already is, and
-          they are the two screens most often wanted from anywhere: the fight you have called and
-          who is on the road. Neither is a "place" in the scenery sense, which is why they are not
-          in the walk of doors below. Settings used to be the third; it is pinned to the right of
-          the bottom bar now, which is the board's placement and closer to the hand. */}
-      <div className="order-4 flex min-w-max items-center gap-1">
+    <header className="glass painted washed rivets edge-lit pointer-events-auto relative flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b-2 border-brass-500/45 px-3 py-2 shadow-panel [@media(min-width:1500px)]:grid [@media(min-width:1500px)]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] xl:px-4">
+      {/* The stockpile: the row read most often, and now the left third of the bar on its own.
+          Never the group that wraps: a stockpile that reflows onto four lines takes a third of
+          the screen away from the artwork. */}
+      <div className="order-1 flex min-w-max items-center gap-1 [@media(min-width:1500px)]:justify-self-start">
         {RESOURCE_ORDER.map((kind) => (
-          <ResourceChip key={kind} kind={kind} value={resources[kind]} capacity={capacity} />
+          <ResourceChip key={kind} kind={kind} value={resources[kind]} capacity={ceiling(kind)} />
         ))}
       </div>
 
-      {/* The two doors, in the gap between what you have and how you stand.
+      {/* The authored break. Zero height, full width, so the line ends here and nothing else has
+          to guess where. Gone entirely once all three groups fit on one line. */}
+      <span aria-hidden className="order-2 h-0 basis-full [@media(min-width:1280px)]:hidden" />
 
-          Their own group with a margin either side rather than tacked onto the end of the
-          stockpile: they are neither a resource nor a standing, and sitting flush against the
-          scrap counter made them read as a sixth and seventh material. Grepolis puts the same
-          two in the same place, and for the same reason: a player looking for the fight they
-          called or for the knobs looks at the top bar, not at the row of places. */}
-      <div className="order-4 mx-auto flex shrink-0 items-center gap-1">
-        <HudDoor
-          to="/game/battles"
-          icon="battles"
-          label="Battles"
-          title="Declared fights, and what came back"
-        />
-        <HudDoor
-          to="/game/actions"
-          icon="actions"
-          label="Actions"
-          title="Who is on the road, and how long they have left"
-        />
+      {/* Where you are. The one control in the bar that changes anything about the crew itself:
+          see `FactionPlaque`. */}
+      <div className="order-3 flex min-w-0 justify-center [@media(min-width:1500px)]:justify-self-center">
+        <FactionPlaque base={base} />
       </div>
 
-      {/* Standing. Grouped away from the stockpile: these move slowly and mean something else.
+      {/* What you have earned, and the two doors that open from anywhere.
+          
+          Battles and Actions are neither a resource nor a standing, which is why they are their
+          own pair with a rule between them and the level: one is the fight you have called and the
+          other is who is on the road, and both are wanted from wherever a player is standing
+          rather than walked to. Settings used to be a third; it is pinned to the right of the
+          scenery switcher now, closer to the hand. */}
+      <div className="order-4 ml-auto flex shrink-0 items-center gap-1.5 [@media(min-width:1500px)]:ml-0 [@media(min-width:1500px)]:justify-self-end">
+        <div className="flex shrink-0 items-center gap-1 border-r border-surface-600/70 pr-2.5">
+          <HudDoor
+            to="/game/battles"
+            icon="battles"
+            label="Battles"
+            title="Declared fights, and what came back"
+          />
+          <HudDoor
+            to="/game/actions"
+            icon="actions"
+            label="Actions"
+            title="Who is on the road, and how long they have left"
+          />
+        </div>
 
-          The level sits where the morale meter used to, and it is on every screen for the same
-          reason infamy is: it gates what the crew may hold, so a player needs to be able to see
-          how close the next one is without going and looking for it. */}
-      <div className="order-4 flex shrink-0 items-center gap-1.5">
         <FactionLevelChip
           level={base.level}
           xpIntoLevel={base.progression.xpIntoLevel}
           xpToNextLevel={playerXpToNextLevel(base.level)}
         />
         <InfamyChip infamy={economy.infamy} notoriety={economy.notoriety} />
+
+        {/* The identity is a door, not a caption. It names the one person in the game the player
+            *is*, and the sheet behind it is what every effect in the district is computed from, so
+            clicking the face is the shortest route to the page that says what those numbers do. */}
+        <NavLink
+          to="/game/overseer"
+          data-testid="hud-overseer"
+          // The name is in the label as well as in the markup, because below 1800px the markup is
+          // hidden, and a door to "your own file" that does not say whose is a door with no name
+          // on it, to a screen reader and to a pointer looking for a tooltip alike.
+          data-tip={`${overseer.name}: your own file`}
+          aria-label={`${overseer.name}, Overseer: your own file`}
+          className="group flex shrink-0 items-center gap-2.5 rounded-sm px-1 py-0.5 transition-colors hover:bg-brass-300/10 focus-visible:outline-none"
+        >
+          {/* The name and title are the first thing to go when the row is tight: the face is what
+              makes this read as a door, and the sheet behind it opens with the name at the top of
+              it. Hidden rather than truncated: a nameplate cut to "Var…" is worse than none. */}
+          <span className="hidden text-right [@media(min-width:1800px)]:block">
+            <span className="block font-display text-sm font-semibold leading-tight tracking-[0.04em] text-ink-100">
+              {overseer.name}
+            </span>
+            {/* "Overseer" is what this person *is*; the archetype is what they are good at, and it
+                was being shown as though it were their title. */}
+            <span className="block font-display text-[11px] uppercase leading-tight tracking-[0.18em] text-brass-300">
+              Overseer
+            </span>
+          </span>
+          <span className="block h-10 w-10 shrink-0 overflow-hidden rounded-sm border border-surface-600 shadow-lifted transition-colors group-hover:border-brass-300/70">
+            <OverseerPortrait
+              portraitId={overseer.portraitId}
+              archetype={overseer.archetype}
+              aspect="square"
+              showTag={false}
+            />
+          </span>
+        </NavLink>
       </div>
     </header>
   );

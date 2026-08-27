@@ -2,12 +2,14 @@ import {
   BAR_HIRES_PER_DAY,
   barterRateFor,
   storageCapacity,
+  storageCapacityFor,
   supplyAllowance,
   supplyBoard,
   BUILDING_CATALOG,
   fortifyBonusPercent,
   fortifyCost,
   BATTLE_BOOSTS,
+  BLACK_MARKET_GOODS,
   boostCoverage,
   describeBoostEffect,
   describeBoostUnlock,
@@ -19,6 +21,7 @@ import {
   startingTraining,
   VEHICLES,
   TECHNOLOGIES,
+  describeTechEffect,
   type MarketResponse,
   type WorkshopResponse,
   EFFECT_CHANNELS,
@@ -36,7 +39,6 @@ import {
   ENV_LABEL_IDS,
   LOCATION_CATALOG,
   bonusesAt,
-  isNight,
   mergeLabels,
   upgradeCost,
   upgradeNote,
@@ -223,7 +225,7 @@ export const lateGameBase: Base = {
   level: 12,
   resources: {
     caps: 125000,
-    food: 48000,
+    supplies: 48000,
     oil: 32000,
     scrap: 96000,
     highQualityMetal: 12000,
@@ -387,10 +389,7 @@ export const districtDetail: DistrictDetailResponse = {
       reward: spec.reward,
       // The same fold the server does: the ground's own character plus today's sky. `NOW` is a
       // fixed instant, so the fixture's labels are stable and a screenshot of them is comparable.
-      labels: mergeLabels(
-        spec.labels,
-        weatherLabels(weatherAt(new Date(NOW)), isNight(new Date(NOW))),
-      ),
+      labels: mergeLabels(spec.labels, weatherLabels(weatherAt(new Date(NOW)))),
       unlocks: unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
     };
   }),
@@ -716,7 +715,7 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
 }
 
 const MISSION_AREAS = [
-  areaFixture(MISC_AREA_ID, 'Odd jobs', 0, null),
+  areaFixture(MISC_AREA_ID, 'Miscellaneous Missions', 0, null),
   areaFixture('neon-docks', 'The Neon Docks', areaPayPercent('neon-docks'), null),
   areaFixture('rustyard', 'The Rustyard', areaPayPercent('rustyard'), 'm-1'),
 ];
@@ -800,7 +799,7 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
       inFlight('m-1', 'deep-expedition', 1),
       returned('m-5', 'deep-expedition', 'success', {
         caps: 268,
-        food: 268,
+        supplies: 268,
         oil: 201,
         scrap: 335,
         highQualityMetal: 40,
@@ -979,7 +978,9 @@ const researchBase = {
     description: spec.description,
     cost: spec.cost,
     parts: spec.parts,
-    effect: `+${spec.magnitude}% ${spec.channel}`,
+    // The same words the route sends. This printed the raw channel key for a while, so every
+    // screenshot of the Lab certified `+8% PRODUCTIONPERCENT`: the fixture *is* the contract.
+    effect: describeTechEffect(spec),
     known: spec.tier === 1,
     blocker: spec.tier === 3 ? `Needs the Lab at level ${spec.requiresLabLevel}` : null,
   })),
@@ -1279,6 +1280,7 @@ export const market: MarketResponse = {
       lateGameBase.resources,
       capacity,
       Math.floor(allowance / 3),
+      (key) => storageCapacityFor(lateGameBase.buildings, key, capacity),
     );
   })(),
   barterRate: barterRateFor(lateGameBase.level),
@@ -1558,17 +1560,35 @@ const comingBattle = (
   // it, so the fattest screenshot of the drop-down is the real arithmetic rather than round numbers
   // somebody typed. The Lab has finished nothing and the crew is one officer, so the gated half of
   // the shelf is drawn locked, which is the state worth screenshotting.
-  boosts: BATTLE_BOOSTS.map((spec) => ({
-    id: spec.id,
-    name: spec.name,
-    description: spec.description,
-    cost: spec.cost,
-    effect: describeBoostEffect(spec.effect),
-    source: describeBoostUnlock(spec.unlock, (techId) => techId),
-    reach: Math.round(boostCoverage(spec.effect, muster.army) * 100),
-    affordable: BOARD_INFAMY >= spec.cost,
-    available: spec.unlock.kind === 'open',
-  })),
+  boosts: [
+    // One crate the crew is already carrying, at the head of the list where the server puts them.
+    // Contraband is applied on this screen now rather than emptying itself into whichever fight
+    // happened next, so the state worth screenshotting is a bag with something in it.
+    {
+      id: 'adrenaline_syringes',
+      name: BLACK_MARKET_GOODS['adrenaline_syringes']?.name ?? 'Adrenaline Syringes',
+      description: BLACK_MARKET_GOODS['adrenaline_syringes']?.description ?? '',
+      cost: 0,
+      effect: blackMarketEffect(BLACK_MARKET_GOODS['adrenaline_syringes']!, 12),
+      source: '2 in the bag',
+      reach: 100,
+      affordable: true,
+      available: true,
+      held: true,
+    },
+    ...BATTLE_BOOSTS.map((spec) => ({
+      id: spec.id,
+      name: spec.name,
+      description: spec.description,
+      cost: spec.cost,
+      effect: describeBoostEffect(spec.effect),
+      source: describeBoostUnlock(spec.unlock, (techId) => techId),
+      reach: Math.round(boostCoverage(spec.effect, muster.army) * 100),
+      affordable: BOARD_INFAMY >= spec.cost,
+      available: spec.unlock.kind === 'open',
+      held: false,
+    })),
+  ],
   boostId: null,
 });
 

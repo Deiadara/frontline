@@ -124,7 +124,9 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
       'Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they cannot sleep in.',
     role: 'Houses the crew. Officers and assignees both need a bed, and nobody can be placed without one.',
     requires: [nexus(1)],
-    baseCost: { caps: 120, scrap: 90, planks: 110, oil: 10 },
+    // Supplies, alongside the timber: a bigger bunkhouse is stores laid in as much as it is beds
+    // built, and it is the one structure whose whole purpose is keeping people.
+    baseCost: { caps: 120, supplies: 70, scrap: 90, planks: 110, oil: 10 },
     baseSeconds: 20,
     basePowerDraw: 2,
   },
@@ -133,9 +135,9 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Greenhouse',
     description:
       'Grow lamps over stacked trays, humming on district power. The only food down here nobody had to fight for.',
-    role: 'Grows food around the clock. The Cistern raises the yield.',
+    role: 'Grows supplies around the clock. The Cistern raises the yield.',
     requires: [nexus(1)],
-    baseCost: { caps: 100, scrap: 70, food: 40, planks: 90, oil: 10 },
+    baseCost: { caps: 100, scrap: 70, supplies: 40, planks: 90, oil: 10 },
     baseSeconds: 20,
     basePowerDraw: 3,
   },
@@ -212,7 +214,8 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
       'A run of welded obstacles, a mat that has seen better decades, and somebody shouting. People come out of it better than they went in.',
     role: 'Trains the crew. Officers earn more from every job they are sent on.',
     requires: [nexus(8), needs('quarters', 4), needs('gate', 2), crew(7)],
-    baseCost: { caps: 280, scrap: 180, planks: 100, oil: 40, highQualityMetal: 8 },
+    // Every recruit trained here eats while they do it, and the ground itself is no different.
+    baseCost: { caps: 280, supplies: 90, scrap: 180, planks: 100, oil: 40, highQualityMetal: 8 },
     baseSeconds: 55,
     basePowerDraw: 4,
   },
@@ -221,9 +224,13 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Infirmary',
     description:
       'Four beds, a printer for the drugs the Combine will not sell down here, and a medic who does not ask.',
-    role: 'Looks after the crew. A district with a working infirmary takes a missed payday or a lean week far better.',
+    // The old line promised it softened "a missed payday or a lean week". Nothing is charged on a
+    // clock any more, so there is no lean week to soften: what it does is get people off the
+    // casualty list, which is what `infirmaryRecoveryPercent` has always actually paid out.
+    role: 'Looks after the crew. Some of the people a fight would have cost you walk out of here instead.',
     requires: [nexus(10), needs('cistern', 4), needs('lab', 2), crew(10)],
-    baseCost: { caps: 300, scrap: 160, planks: 70, oil: 45, highQualityMetal: 14 },
+    // Medical stores are stores.
+    baseCost: { caps: 300, supplies: 80, scrap: 160, planks: 70, oil: 45, highQualityMetal: 14 },
     baseSeconds: 60,
     basePowerDraw: 5,
   },

@@ -1,10 +1,13 @@
 import {
   BUILDING_KINDS,
   BUILDING_MAX_LEVEL,
+  RESOURCE_KEYS,
   storageCapacity,
+  storageCapacityFor,
   UNIT_IDS,
   type Army,
   type Building,
+  type ResourceKey,
   type Resources,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
@@ -56,10 +59,21 @@ export function maxedBuildings(): Building[] {
  */
 export const UNLOCKED_FULLNESS = 0.86;
 
-/** A real end-game stockpile: near the ceiling the maxed Apothecary actually sets. */
+/**
+ * A real end-game stockpile: near the ceiling the maxed Apothecary actually sets, per shelf.
+ *
+ * Per shelf, and derived off `RESOURCE_KEYS`, because the three of them are different sizes now: a
+ * flat figure would pin the metal bar to full and leave the bulk ones a third along, which is the
+ * same "number the game could not have produced" the note above is about. Caps have no ceiling, so
+ * they get the bulk figure: a plausible end-game wallet rather than an arithmetic accident.
+ */
 export function unlockedResources(buildings: readonly Building[]): Resources {
-  const near = Math.round(storageCapacity(buildings) * UNLOCKED_FULLNESS);
-  return { caps: near, food: near, oil: near, scrap: near, highQualityMetal: near, planks: near };
+  const bulk = storageCapacity(buildings);
+  const near = (key: ResourceKey): number => {
+    const room = storageCapacityFor(buildings, key, bulk);
+    return Math.round((Number.isFinite(room) ? room : bulk) * UNLOCKED_FULLNESS);
+  };
+  return Object.fromEntries(RESOURCE_KEYS.map((key) => [key, near(key)])) as Resources;
 }
 
 /** A dozen of every unit, so every roster card renders and supply reads like a real army. */

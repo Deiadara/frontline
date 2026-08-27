@@ -73,7 +73,7 @@ export function NumberField({
         data-testid={testId}
         // `appearance-none` is the whole point: it takes the browser's own spinners out, and the
         // two `::-webkit-*` rules in `index.css` take them out of Chromium, which ignores it.
-        className="no-spinner w-12 appearance-none border-x border-surface-600 bg-transparent px-1 py-1.5 text-center font-display text-[14px] font-bold tabular-nums text-ink-100 focus-visible:outline-none"
+        className="no-spinner w-12 grow appearance-none border-x border-surface-600 bg-transparent px-1 py-1.5 text-center font-display text-[14px] font-bold tabular-nums text-ink-100 focus-visible:outline-none"
       />
       <Step
         direction="up"

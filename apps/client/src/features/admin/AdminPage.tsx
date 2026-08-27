@@ -50,7 +50,7 @@ const PRESETS: readonly { label: string; blurb: string; knobs: AdminKnobsRequest
       infamy: 900,
       resources: {
         caps: 60_000,
-        food: 60_000,
+        supplies: 60_000,
         oil: 60_000,
         scrap: 90_000,
         planks: 80_000,
@@ -68,7 +68,7 @@ const PRESETS: readonly { label: string; blurb: string; knobs: AdminKnobsRequest
       infamy: 25_000,
       resources: {
         caps: 400_000,
-        food: 400_000,
+        supplies: 400_000,
         oil: 400_000,
         scrap: 600_000,
         planks: 500_000,

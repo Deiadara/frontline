@@ -8,15 +8,13 @@ import {
   blackMarketBoard,
   blackMarketDay,
   findBlackMarketGood,
-  hasBoost,
   averageCityLevel,
   blackMarketBoost,
   blackMarketEffect,
   blackMarketPotency,
   blackMarketPrice,
   MAX_BLACK_MARKET_POTENCY,
-  spentStash,
-  stashBoost,
+  stashCount,
   takeFromStash,
   takeRefusal,
 } from './blackmarket.js';
@@ -231,60 +229,42 @@ describe('taking something', () => {
   });
 });
 
-describe('the stash of boosts', () => {
+/**
+ * The bag: a count of crates, and nothing that knows about a fight.
+ *
+ * What a crate is worth and when it is spent used to live here, as a bag that added itself up and
+ * emptied itself into whichever battle resolved next. Both moved to the fight's own screen when
+ * contraband became something a player applies; the bag is now just a count, and this is what is
+ * left to say about it.
+ */
+describe('the bag of contraband', () => {
   const syringes = 'adrenaline_syringes';
   const explosives = 'banned_explosives';
 
-  it('is empty until something is bought, and reads as no edge at all', () => {
-    expect(hasBoost({})).toBe(false);
-    expect(stashBoost({}, 1)).toEqual({ offensePercent: 0, defensePercent: 0, moralePercent: 0 });
+  it('is empty until something is bought', () => {
+    expect(stashCount({}, syringes)).toBe(0);
   });
 
-  it('adds up across different boosts', () => {
-    const stash = addToStash(addToStash({}, syringes), explosives);
-    const total = stashBoost(stash, 1);
-    const a = BLACK_MARKET_GOODS[syringes]!.boost!;
-    const b = BLACK_MARKET_GOODS[explosives]!.boost!;
-    expect(total.offensePercent).toBe(a.offensePercent + b.offensePercent);
-    expect(total.defensePercent).toBe(a.defensePercent + b.defensePercent);
-    expect(total.moralePercent).toBe(a.moralePercent + b.moralePercent);
+  it('counts each crate separately, and two of one as two', () => {
+    const stash = addToStash(addToStash(addToStash({}, syringes), explosives), syringes);
+    expect(stashCount(stash, syringes)).toBe(2);
+    expect(stashCount(stash, explosives)).toBe(1);
   });
 
-  /**
-   * Two of a thing do **not** stack (board. "You can use the same boost only once").
-   *
-   * The rule this replaced said they did, and the shape that ends one way: the correct play becomes
-   * hoarding a fortnight of infamy into six syringes and deleting somebody with a number no defence
-   * was balanced against, and every fight before that one is spent saving up rather than fighting.
-   */
-  it('counts two of the same thing once', () => {
+  it('takes one out at a time, leaving the rest for another fight', () => {
     const stash = addToStash(addToStash({}, syringes), syringes);
-    expect(stash[syringes]).toBe(2);
-    expect(stashBoost(stash, 1).offensePercent).toBe(
-      BLACK_MARKET_GOODS[syringes]!.boost!.offensePercent,
-    );
-  });
-
-  /** ...and the second one is kept rather than billed for and thrown away. */
-  it('spends one of each, leaving the rest for the next fight', () => {
-    const stash = addToStash(addToStash({}, syringes), syringes);
-    expect(spentStash(stash)).toEqual({ [syringes]: 1 });
-    expect(spentStash(spentStash(stash))).toEqual({});
+    expect(takeFromStash(stash, syringes)).toEqual({ [syringes]: 1 });
   });
 
   it('drops the key when the last one is spent, rather than storing a zero', () => {
     const stash = takeFromStash(addToStash({}, syringes), syringes);
     expect(stash).toEqual({});
-    expect(hasBoost(stash)).toBe(false);
+    expect(stashCount(stash, syringes)).toBe(0);
   });
 
-  it('ignores anything in the stash the catalogue no longer knows about', () => {
-    // A save written against a shelf entry that has since been retired must still open.
-    expect(stashBoost({ ghost_item: 3 }, 1)).toEqual({
-      offensePercent: 0,
-      defensePercent: 0,
-      moralePercent: 0,
-    });
+  it('never goes negative on a crate the crew does not have', () => {
+    expect(takeFromStash({}, syringes)).toEqual({});
+    expect(stashCount(takeFromStash({}, syringes), syringes)).toBe(0);
   });
 });
 

@@ -27,7 +27,7 @@ export const ICON_NAMES = [
   'crew',
   'market',
   'caps',
-  'food',
+  'supplies',
   'oil',
   'scrap',
   'metal',
@@ -54,6 +54,15 @@ export const ICON_NAMES = [
   'spark',
   'loot',
   'level',
+  'training',
+  'workshop',
+  'satchel',
+  'physical',
+  'mental',
+  'social',
+  'technical',
+  'archive',
+  'desk',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -79,17 +88,18 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   district: (
     <>
-      <path d="M3 20h18" {...S} />
-      <path d="M4 20l4-8h8l4 8" {...S} />
-      <path d="M8.5 12V7l3.5-3 3.5 3v5" {...S} />
-      <path d="M11 20v-3h2v3" {...S} />
+      <path d="M3 20.5h18" {...S} />
+      <path d="M4 20.5V11h5v9.5" {...S} />
+      <path d="M15 20.5V11h5v9.5" {...S} />
+      <path d="M9 20.5v-6a3 3 0 0 1 6 0v6" {...S} />
+      <path d="M6.5 14.5h.01M17.5 14.5h.01" {...S} />
     </>
   ),
   units: (
     <>
-      <path d="M12 3l7 3v6c0 4-3 7.5-7 9-4-1.5-7-5-7-9V6z" {...S} />
-      <path d="M12 9v5" {...S} />
-      <path d="M9.5 11.5h5" {...S} />
+      <path d="M4.5 15.5a7.5 7.5 0 0 1 15 0v2.5h-15z" {...S} />
+      <path d="M4.8 12.5h14.4" {...S} />
+      <path d="M9 18v2.5h6V18" {...S} />
     </>
   ),
   missions: (
@@ -122,9 +132,11 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   market: (
     <>
-      <path d="M4 8h16l-1.6 11H5.6z" {...S} />
-      <path d="M8.5 8V6a3.5 3.5 0 0 1 7 0v2" {...S} />
-      <path d="M9 12v3M15 12v3" {...S} />
+      <path d="M3 9.5l2-5h14l2 5z" {...S} />
+      <path d="M3 9.5h18" {...S} />
+      <path d="M5.5 9.5V20.5h13V9.5" {...S} />
+      <path d="M5.5 20.5h13" {...S} />
+      <path d="M9.5 20.5v-5h5v5" {...S} />
     </>
   ),
   caps: (
@@ -134,7 +146,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M12 4.5v2M12 17.5v2M4.5 12h2M17.5 12h2" {...S} />
     </>
   ),
-  food: (
+  supplies: (
     <>
       <path d="M12 20c-3.5 0-6-2.8-6-6.5C6 9 9 5 12 3c3 2 6 6 6 10.5 0 3.7-2.5 6.5-6 6.5z" {...S} />
       <path d="M12 20V9" {...S} />
@@ -320,6 +332,40 @@ const PATHS: Record<IconName, ReactNode> = {
       <circle cx="12" cy="12" r="2.8" {...S} />
     </>
   ),
+  /**
+   * Training: a striking post with a wrapped grip and a target ring, not a shield.
+   *
+   * It wore the `units` shield, which is the roster's glyph: two doors with the same mark side by
+   * side is two doors a player has to read the label of every time, and the row is supposed to
+   * scan as a set of destinations without reading a word.
+   */
+  training: (
+    <>
+      <path d="M12 20V9" {...S} />
+      <path d="M8.5 20h7" {...S} />
+      <circle cx="12" cy="6" r="3.2" {...S} />
+      <path d="M6.5 11.5h11" {...S} />
+      <path d="M9 9.5l-2.5-2M15 9.5l2.5-2" {...S} />
+    </>
+  ),
+  /** The yard: a spanner over a strut. It wore the Archive's flask, which is a different room. */
+  workshop: (
+    <>
+      <path d="M14.8 4.6a4 4 0 0 0 5.1 5.1l-9.2 9.2a2.3 2.3 0 0 1-3.3-3.3z" {...S} />
+      <path d="M5.5 5.5l3.5 3.5" {...S} />
+      <path d="M4 9l3.5-3.5" {...S} />
+      <path d="M17.5 17.5l2 2" {...S} />
+    </>
+  ),
+  /** The satchel: a flapped bag on a strap. It wore the crew's two faces, which is a room of people. */
+  satchel: (
+    <>
+      <rect x="3.5" y="7" width="17" height="12.5" rx="1.6" {...S} />
+      <path d="M9.5 7v12.5" {...S} />
+      <path d="M14.5 7v12.5" {...S} />
+      <path d="M9.5 11.5h5v3.5h-5z" {...S} />
+    </>
+  ),
   level: (
     <>
       <path d="M4 13.5 12 6l8 7.5" {...S} />
@@ -336,6 +382,66 @@ const PATHS: Record<IconName, ReactNode> = {
   spark: (
     <>
       <path d="M12 3.5l1.9 5.6 5.6 1.9-5.6 1.9L12 18.5l-1.9-5.6L4.5 11l5.6-1.9z" {...S} />
+    </>
+  ),
+  /*
+   * The four attribute groups, for the Training sheet's headers.
+   *
+   * Each is a *different kind of object* rather than four variations on a person, because the
+   * point of them is to tell four columns apart at a glance: a bar, a head, a conversation, a
+   * board. They deliberately avoid the marks already spoken for elsewhere in the set: `crew` is
+   * two faces, `research` a flask and `workshop` a spanner, so none of those can be reused here
+   * without making two doors read the same.
+   */
+  /** Physical: a loaded bar. */
+  physical: (
+    <>
+      <path d="M3 12h18" {...S} />
+      <path d="M6.5 8v8M9 6.5v11M15 6.5v11M17.5 8v8" {...S} />
+    </>
+  ),
+  /** Mental: a head in profile with the works turning inside it. */
+  mental: (
+    <>
+      <path d="M18.5 13.5a6.5 6.5 0 1 0-9.6 5.7V21" {...S} />
+      <path d="M18.5 13.5h1.7l-1.7 3h-1.6v2.2a1.8 1.8 0 0 1-1.8 1.8h-2" {...S} />
+      <circle cx="12.5" cy="11" r="2.4" {...S} />
+      <path d="M12.5 6.8v1.8M12.5 13.4v1.8M8.3 11h1.8M14.9 11h1.8" {...S} />
+    </>
+  ),
+  /** Social: two people talking, drawn as the talk rather than as the faces. */
+  social: (
+    <>
+      <path
+        d="M3.5 6.5h10a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5H8l-3.5 3v-3H3.5A1.5 1.5 0 0 1 2 12V8a1.5 1.5 0 0 1 1.5-1.5z"
+        {...S}
+      />
+      <path d="M18 9.5h2.5A1.5 1.5 0 0 1 22 11v4a1.5 1.5 0 0 1-1.5 1.5H20v3l-3.5-3h-3" {...S} />
+    </>
+  ),
+  /** The archive: a card index with one drawer out. What the crew has actually written down. */
+  archive: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="1.4" {...S} />
+      <path d="M3.5 9.5h17M3.5 14.5h17" {...S} />
+      <path d="M10 7h4M10 12h4M10 17h4" {...S} />
+    </>
+  ),
+  /** The desk: a sheet under a pen, which is where a project is put on somebody. */
+  desk: (
+    <>
+      <path d="M5.5 3.5h8.4l4.6 4.5v12h-13z" {...S} />
+      <path d="M13.5 3.5V8h5" {...S} />
+      <path d="M8 12.5h6M8 16h4" {...S} />
+    </>
+  ),
+  /** Technical: a board with its legs out. */
+  technical: (
+    <>
+      <rect x="7.5" y="7.5" width="9" height="9" rx="1.2" {...S} />
+      <path d="M10.5 10.5h3v3h-3z" {...S} />
+      <path d="M10 7.5V4.5M14 7.5V4.5M10 19.5v-3M14 19.5v-3" {...S} />
+      <path d="M7.5 10H4.5M7.5 14H4.5M19.5 10h-3M19.5 14h-3" {...S} />
     </>
   ),
 };

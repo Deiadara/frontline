@@ -59,6 +59,16 @@ export const BattleBoostOptionSchema = z.object({
   affordable: z.boolean(),
   /** The Lab or the right officer has put it on the table. */
   available: z.boolean(),
+  /**
+   * Contraband the crew already owns, rather than a name they can burn infamy on.
+   *
+   * The black market's crates used to sit in a bag on the market screen and apply themselves to
+   * whatever fight happened next, on both sides, whether or not the player wanted them spent on
+   * it. They are on this list now: bought days ago, held, and *applied at the moment a battle is
+   * set up, by a player who has already read the intel on it*. `cost` is 0 for these, because it
+   * was paid at the shelf; what a held boost costs is the crate.
+   */
+  held: z.boolean().default(false),
 });
 export type BattleBoostOption = z.infer<typeof BattleBoostOptionSchema>;
 

@@ -15,11 +15,14 @@ import {
   deploymentIsOpen,
   deployedSize,
   findDistrict,
+  blackMarketEffect,
   boostAvailable,
   boostCoverage,
   describeBoostEffect,
   describeBoostUnlock,
+  findBlackMarketGood,
   findTech,
+  stashCount,
   hasInfamy,
   intelQualityLine,
   movementCancellable,
@@ -33,6 +36,7 @@ import {
   type ActionsResponse,
   type BattlesResponse,
   type Base,
+  type BoostStash,
   type DistrictGateView,
   type BattleBoostOption,
   type ScheduledBattle,
@@ -41,6 +45,7 @@ import {
 } from '@frontline/shared';
 import { crewEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
+import { cityLevelFor } from '../blackmarket/shelf.js';
 import { cityContextFor } from '../city/view.js';
 import { sideOf } from './deploy.js';
 import { defendingBaseOf } from './declare.js';
@@ -146,7 +151,14 @@ function viewOf(
         : (defenderBase?.name ?? holderLabel(battle.defender.kind)),
     // A bystander is not buying anything for a fight they are not in, and sending them the shelf
     // would be sending them the caller's own research and officer list.
-    boosts: side ? boostsFor(base, muster?.army ?? {}) : [],
+    boosts: side
+      ? boostsFor(
+          base,
+          muster?.army ?? {},
+          repos.blackMarket.stashFor(base.id),
+          cityLevelFor(repos),
+        )
+      : [],
     boostId: deployment?.boostId ?? null,
   };
 }
@@ -238,12 +250,17 @@ function trapsFor(base: Base): TrapOption[] {
  * the drop-down honest: "+35% defence for your heavy units" on a force with no heavy units in it is
  * worth nothing, and a player should be able to see that before they pay rather than after.
  */
-function boostsFor(base: Base, force: Army): BattleBoostOption[] {
+function boostsFor(
+  base: Base,
+  force: Army,
+  stash: BoostStash,
+  cityLevel: number,
+): BattleBoostOption[] {
   const crew = {
     technologies: base.research.technologies,
     roles: base.commanders.map((officer) => officer.role),
   };
-  return BATTLE_BOOSTS.map((spec) => ({
+  const names = BATTLE_BOOSTS.map((spec) => ({
     id: spec.id,
     name: spec.name,
     description: spec.description,
@@ -253,7 +270,36 @@ function boostsFor(base: Base, force: Army): BattleBoostOption[] {
     reach: Math.round(boostCoverage(spec.effect, force) * 100),
     affordable: hasInfamy(base.economy.infamy, spec.cost),
     available: boostAvailable(spec.unlock, crew),
+    held: false,
   }));
+
+  /*
+   * The crates the crew is carrying, on the same list.
+   *
+   * Weighted by the city's average level, exactly as the shelf priced them, so what the option
+   * says is what the fight applies. `reach` is 100 because contraband lands on the whole force:
+   * there is no weight class on a syringe. `affordable` and `available` are both true because the
+   * crate is already paid for and already in the bag: what gates it is having one.
+   */
+  const crates = Object.keys(stash)
+    .filter((goodId) => stashCount(stash, goodId) > 0)
+    .map((goodId) => ({ goodId, spec: findBlackMarketGood(goodId) }))
+    .filter((entry) => entry.spec?.boost !== undefined)
+    .map(({ goodId, spec }) => ({
+      id: goodId,
+      name: spec!.name,
+      description: spec!.description,
+      cost: 0,
+      effect: blackMarketEffect(spec!, cityLevel),
+      source: `${stashCount(stash, goodId)} in the bag`,
+      reach: 100,
+      affordable: true,
+      available: true,
+      held: true,
+    }));
+
+  // Contraband first: it is the part of the list a player can act on without spending anything.
+  return [...crates, ...names];
 }
 
 /**

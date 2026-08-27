@@ -97,7 +97,7 @@ export const SUPPLY_MARKUP = 1.5;
  * What `units` of `key` costs in caps. Always a whole number, always at least one.
  *
  * Priced on the whole order and rounded once. Rounding a per-unit price instead would either make a
- * hundred food cost a hundred roundings of error or make single units free.
+ * hundred supplies cost a hundred roundings of error or make single units free.
  */
 export function supplyPrice(key: ResourceKey, units: number): number {
   const count = Math.max(0, Math.floor(units));
@@ -105,14 +105,20 @@ export function supplyPrice(key: ResourceKey, units: number): number {
   return Math.max(1, Math.ceil(count * RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP));
 }
 
-/** The most of `key` this crew could buy right now, given caps, the day's ration and the store. */
+/**
+ * The most of `key` this crew could buy right now, given caps, the day's ration and the store.
+ *
+ * `capacity` is the ceiling **for this resource**, not the bulk shelf: the Apothecary holds three
+ * times as much scrap as high-quality metal, so a single figure here would have sold a crew metal
+ * their store cannot take and then refused the order at the till.
+ */
 export function supplyAffordable(
   key: ResourceKey,
   stock: Resources,
   allowanceLeft: number,
-  storageCapacity: number,
+  capacity: number,
 ): number {
-  const room = Math.max(0, storageCapacity - stock[key]);
+  const room = Math.max(0, capacity - stock[key]);
   const perUnit = RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP;
   const byCaps = Math.floor(stock.caps / perUnit);
   return Math.max(0, Math.min(allowanceLeft, room, byCaps));
@@ -141,8 +147,8 @@ export interface SupplyOrder {
   stock: Resources;
   /** Units of the day's ration still unspent. */
   allowanceLeft: number;
-  /** How much of any one resource the district can hold. */
-  storageCapacity: number;
+  /** How much of **this** resource the district can hold: see {@link supplyAffordable}. */
+  capacity: number;
 }
 
 /**
@@ -157,7 +163,7 @@ export function supplyRefusal(order: SupplyOrder): SupplyRefusal | null {
   const units = Math.floor(order.units);
   if (units <= 0) return 'nothing_ordered';
   if (units > order.allowanceLeft) return 'over_allowance';
-  if (order.stock[order.key] + units > order.storageCapacity) return 'no_room';
+  if (order.stock[order.key] + units > order.capacity) return 'no_room';
   if (supplyPrice(order.key, units) > order.stock.caps) return 'cannot_afford';
   return null;
 }
@@ -179,6 +185,8 @@ export const SupplyLineSchema = z.object({
   capsPerUnit: z.number().positive(),
   /** The most the crew could take right now, all three limits considered. */
   most: z.number().int().nonnegative(),
+  /** This resource's own shelf in the store, which is not the same size for all of them. */
+  capacity: z.number().int().nonnegative(),
 });
 export type SupplyLine = z.infer<typeof SupplyLineSchema>;
 
@@ -190,7 +198,7 @@ export const SupplyBoardSchema = z.object({
   used: z.number().int().nonnegative(),
   /** The share of a full store the ration is, at this level. */
   percent: z.number().int().positive(),
-  /** What one resource's store holds, which the share is measured against. */
+  /** The bulk shelf, which is what the day's ration is measured against. Per-line room is on the line. */
   storageCapacity: z.number().int().nonnegative(),
   lines: z.array(SupplyLineSchema),
 });
@@ -200,22 +208,27 @@ export type SupplyBoard = z.infer<typeof SupplyBoardSchema>;
 export function supplyBoard(
   level: number,
   stock: Resources,
-  storageCapacity: number,
+  bulkCapacity: number,
   used: number,
+  capacityFor: (key: ResourceKey) => number,
 ): SupplyBoard {
-  const allowance = supplyAllowance(level, storageCapacity);
+  const allowance = supplyAllowance(level, bulkCapacity);
   const left = Math.max(0, allowance - Math.max(0, Math.floor(used)));
   return {
     allowance,
     used: Math.max(0, Math.floor(used)),
     percent: supplyAllowancePercent(level),
-    storageCapacity: Math.max(0, Math.floor(storageCapacity)),
-    lines: SUPPLY_RESOURCES.map((key) => ({
-      // No cast: `SupplyLine['key']` is derived from this very list now, so the two agree by
-      // construction. The cast that used to sit here is what let the enum drift narrow unnoticed.
-      key,
-      capsPerUnit: RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP,
-      most: supplyAffordable(key, stock, left, storageCapacity),
-    })),
+    storageCapacity: Math.max(0, Math.floor(bulkCapacity)),
+    lines: SUPPLY_RESOURCES.map((key) => {
+      const capacity = Math.max(0, Math.floor(capacityFor(key)));
+      return {
+        // No cast: `SupplyLine['key']` is derived from this very list now, so the two agree by
+        // construction. The cast that used to sit here is what let the enum drift narrow unnoticed.
+        key,
+        capsPerUnit: RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP,
+        most: supplyAffordable(key, stock, left, capacity),
+        capacity,
+      };
+    }),
   };
 }

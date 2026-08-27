@@ -372,6 +372,11 @@ export function useReleaseOfficer() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
+      // …and the district, which is a *different* copy of the base. `BasePanel` prefers
+      // `queryKeys.base(id)` over the one on `/me`, and its Reports drawer prints the payroll
+      // book and the caps this just moved: without this the two screens disagree until the
+      // district's own poll catches up. Prefix-matched because the mutation has no base id.
+      void queryClient.invalidateQueries({ queryKey: ['base'] });
     },
   });
 }
@@ -384,6 +389,9 @@ export function useIncreasePayroll() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      // The district's own copy of the base, which prints the book and the caps this just spent.
+      // See the note in `useReleaseOfficer`.
+      void queryClient.invalidateQueries({ queryKey: ['base'] });
     },
   });
 }

@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
-import type { Resources } from '../resources.js';
+import { IdSchema } from '../primitives.js';
 
 /**
  * The payroll book (GDD §H7): what the crew can commit to officers, and what it has committed.
@@ -28,42 +27,15 @@ import type { Resources } from '../resources.js';
  *
  * Releasing an officer frees their slice immediately and costs `DISMISSAL_WEEKS` of it in caps on
  * the spot. Firing is meant to be a real decision rather than a way to rotate the roster for free.
- */
-
-export const PAY_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-
-/**
- * §H7: upkeep settles "once a week on the real-world clock". That clock is Monday 00:00:00 UTC:
- * one global boundary for every player, so the week does not depend on when an account was made.
- */
-export function startOfPayWeek(at: Date): Date {
-  const midnight = new Date(
-    Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate(), 0, 0, 0, 0),
-  );
-  const daysSinceMonday = (midnight.getUTCDay() + 6) % 7;
-  midnight.setUTCDate(midnight.getUTCDate() - daysSinceMonday);
-  return midnight;
-}
-
-/**
- * §D1: "more officers require more food", and each extra mouth costs more than the last, because
- * supplying a bigger crew is harder than supplying a smaller one twice.
  *
- * Food is the one thing still drawn weekly, and it is not a wage: it is what the district eats.
- * The caps side of an officer's contract is the payroll book above and never touches the stockpile.
+ * ## Nothing is charged on a clock
+ *
+ * There is no weekly draw of any kind left in the game. Officers used to take caps every Monday and
+ * the district used to eat supplies on the same boundary; both are gone. A cost a player is not
+ * present for is a cost they cannot plan against, and the two of them together meant a crew could
+ * come back from a fortnight away poorer than they left with nothing on screen to say why. Every
+ * price in the game is now paid at the moment somebody presses something.
  */
-export const FOOD_UPKEEP_PER_OFFICER = 2;
-export const FOOD_UPKEEP_CROWDING = 0.5;
-
-export function foodUpkeepFor(officerCount: number): number {
-  if (officerCount <= 0) return 0;
-  const crew = Math.trunc(officerCount);
-  // Rounded even though `n(n+3)/2` is integral for every integral `n`. The identity holds for
-  // today's two constants and for nothing else, and food is spent straight out of a stockpile that
-  // may not hold a fraction, so the guarantee lives here rather than in a comment about arithmetic
-  // somebody may retune.
-  return Math.round(crew * (FOOD_UPKEEP_PER_OFFICER + FOOD_UPKEEP_CROWDING * (crew - 1)));
-}
 
 // --- the book itself ---
 
@@ -93,8 +65,6 @@ export const PAYROLL_STEP_GROWTH = 1.15;
 export const DISMISSAL_WEEKS = 5;
 
 export const PayrollStateSchema = z.object({
-  /** Start of the last upkeep week already settled. Always a Monday 00:00 UTC once normalised. */
-  paidThroughAt: IsoDateTimeSchema,
   /**
    * How many `PAYROLL_STEP` purchases the crew has made.
    *
@@ -113,12 +83,8 @@ export const PayrollStateSchema = z.object({
 });
 export type PayrollState = z.infer<typeof PayrollStateSchema>;
 
-export function startingPayroll(now: string): PayrollState {
-  return {
-    paidThroughAt: startOfPayWeek(new Date(now)).toISOString(),
-    purchasedSteps: 0,
-    commitments: {},
-  };
+export function startingPayroll(): PayrollState {
+  return { purchasedSteps: 0, commitments: {} };
 }
 
 /** Caps per week the crew may commit in total, before the district's own bonus. */
@@ -197,65 +163,4 @@ export function payrollLedger(
 /** Whether one more commitment of this size fits in what is left. */
 export function payrollFits(ledger: PayrollLedger, weeklyFee: number): boolean {
   return ledger.committed + Math.max(0, Math.round(weeklyFee)) <= ledger.capacity;
-}
-
-// --- the weekly upkeep cycle: food only ---
-
-export interface EconomyCycleInput {
-  resources: Resources;
-  payroll: PayrollState;
-  /** Officers on the books: drives food upkeep (§D1). */
-  officerCount: number;
-  now: Date;
-}
-
-export interface EconomyCycleResult {
-  /** Weeks settled by this run. 0 means nothing was owed and nothing changed. */
-  weeksSettled: number;
-  foodDue: number;
-  foodConsumed: number;
-  /** Upkeep the store could not cover. Nobody is owed caps: the book is not a bill. */
-  foodShortfall: number;
-  resources: Resources;
-  payroll: PayrollState;
-}
-
-/**
- * Settles every week boundary crossed since `payroll.paidThroughAt`: food upkeep down (§D1), and
- * nothing else. Catches up honestly across a long absence and eats what it can when the store is
- * short, reporting the rest.
- */
-export function runEconomyCycle({
-  resources,
-  payroll,
-  officerCount,
-  now,
-}: EconomyCycleInput): EconomyCycleResult {
-  const settledThrough = startOfPayWeek(new Date(payroll.paidThroughAt)).getTime();
-  const dueThrough = startOfPayWeek(now).getTime();
-  // A backwards clock must never claw upkeep back, so the week count floors at zero.
-  const weeksSettled = Math.max(0, Math.round((dueThrough - settledThrough) / PAY_WEEK_MS));
-
-  if (weeksSettled === 0) {
-    return {
-      weeksSettled: 0,
-      foodDue: 0,
-      foodConsumed: 0,
-      foodShortfall: 0,
-      resources,
-      payroll,
-    };
-  }
-
-  const foodDue = weeksSettled * foodUpkeepFor(officerCount);
-  const foodConsumed = Math.min(resources.food, foodDue);
-
-  return {
-    weeksSettled,
-    foodDue,
-    foodConsumed,
-    foodShortfall: foodDue - foodConsumed,
-    resources: { ...resources, food: resources.food - foodConsumed },
-    payroll: { ...payroll, paidThroughAt: new Date(dueThrough).toISOString() },
-  };
 }

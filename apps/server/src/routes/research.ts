@@ -12,7 +12,7 @@ import {
   type ResearchLead,
   type ResearchResponse,
   type StartResearchResponse,
-  CHANNEL_LABELS,
+  describeTechEffect,
   ITEM_CATALOG,
   StartTechRequestSchema,
   TECHNOLOGIES,
@@ -173,7 +173,7 @@ function labTechnologies(base: Base): LabTech[] {
     description: spec.description,
     cost: spec.cost,
     parts: spec.parts,
-    effect: `+${spec.magnitude}${spec.channel.endsWith('Flat') ? '' : '%'} ${CHANNEL_LABELS[spec.channel].label.toLowerCase()}`,
+    effect: describeTechEffect(spec),
     known: base.research.technologies.includes(spec.id),
     blocker: base.research.technologies.includes(spec.id) ? null : techBlocker(base, spec.id),
   }));

@@ -82,16 +82,35 @@ describe('what a resource chip says when you look at it', () => {
   /**
    * A full stockpile is a silent, continuous loss: production stops dead while raid loot still
    * lands, so the one state worth shouting about is the one just before it.
+   *
+   * Said by the bar turning red rather than by a sentence, which is how every other game in this
+   * genre says it and the reason the prose came out of these cards. The assertion is on the fill's
+   * colour class for exactly that reason: it is the whole signal now.
    */
-  it('warns when the ceiling is close, and does not before', () => {
+  it('turns the fill red as the ceiling comes up, and not before', () => {
+    const fill = () =>
+      screen.getByRole('tooltip').querySelector('span[style*="width"]')?.className ?? '';
+
     const { unmount } = render(<ResourceChip kind="scrap" value={100} capacity={1000} />);
     fireEvent.focus(screen.getByTestId('resource-hover-scrap'));
-    expect(screen.getByRole('tooltip').textContent).not.toMatch(/nearly full/i);
+    expect(fill()).not.toContain('bg-oxblood-300');
     unmount();
 
     render(<ResourceChip kind="scrap" value={STORAGE_WARN_AT * 1000 + 1} capacity={1000} />);
     fireEvent.focus(screen.getByTestId('resource-hover-scrap'));
-    expect(screen.getByRole('tooltip').textContent).toMatch(/nearly full/i);
+    expect(fill()).toContain('bg-oxblood-300');
+  });
+
+  /**
+   * And nothing else. The card is the figure, the ceiling and the bar: what a player opens one for
+   * is the number, and the three paragraphs that used to follow it explained a mechanic over the
+   * top of the thing they were reading.
+   */
+  it('carries no explanation of what the material is for', () => {
+    render(<ResourceChip kind="oil" value={400} capacity={1000} />);
+    fireEvent.focus(screen.getByTestId('resource-hover-oil'));
+    const card = screen.getByRole('tooltip');
+    expect(card.textContent).not.toMatch(/spent on|comes from|apothecary/i);
   });
 });
 
@@ -105,8 +124,14 @@ describe('what the standing chips say when you look at them', () => {
     // them is a layout detail. What matters is that both numbers are there.
     expect(within(card).getByText('1,240')).toBeInTheDocument();
     expect(card.textContent).toContain('2,800');
-    // And what is left, which is the one figure a player actually plans against.
-    expect(card.textContent).toContain('1,560');
+  });
+
+  /** The figure and the bar. No sentence about what a level is worth or what pays for one. */
+  it('narrates nothing under the XP bar', () => {
+    render(<FactionLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
+    fireEvent.focus(screen.getByTestId('level-hover'));
+    const card = screen.getByRole('tooltip');
+    expect(card.textContent).not.toMatch(/what pays it|recruit slot|every level/i);
   });
 
   it('closes again when the pointer leaves', () => {

@@ -1,6 +1,7 @@
 import {
   CITY_DISTRICTS,
   MISC_AREA_ID,
+  MISSION_TEMPLATES,
   areasOffering,
   missionBoardDay,
   missionOffers,
@@ -30,6 +31,30 @@ import { createRepositories, type Repositories } from '../db/repos/index.js';
  * both. `areasOffering` is what picks a board that genuinely offers the template, which is the
  * same check the route makes.
  */
+/**
+ * The **longest** easy job on a board today, with the area that offers it.
+ *
+ * Two things are going on here. Naming a template outright is a test that works until the day its
+ * board does not offer it, and `fuel-siphon` is how that was found: the boards turn over daily, so
+ * a hard-coded id is a fixture with a hidden expiry date.
+ *
+ * Longest rather than first, because durations are whole minutes. Today's first easy job is a
+ * three-minute scrap run, and three minutes times the §G6 penalty rounds back to three: the rule
+ * fires and the assertion cannot see it. A job of any real length has room for the effect to show.
+ */
+function anEasyJobToday(): { template: MissionTemplate; areaId: string } {
+  const day = missionBoardDay(new Date());
+  const offered = MISSION_TEMPLATES.filter((template) => template.difficulty === 'easy')
+    .map((template) => ({ template, areaId: areasOffering(template.id, day)[0] }))
+    .filter(
+      (entry): entry is { template: MissionTemplate; areaId: string } => entry.areaId !== undefined,
+    )
+    .sort((a, b) => b.template.durationMinutes - a.template.durationMinutes);
+  const longest = offered[0];
+  if (!longest) throw new Error(`no easy job on any board on ${day}`);
+  return longest;
+}
+
 function launchBody(templateId: string, extra: Record<string, unknown> = {}) {
   return {
     templateId,
@@ -404,29 +429,49 @@ describe('§G6 at the launch gate', () => {
     }
   });
 
+  /**
+   * The template is whichever easy job is on a board today, not a named one.
+   *
+   * It used to name `fuel-siphon`, which worked until a day whose boards did not offer it: the
+   * launch 400s, the mission comes back undefined, and the failure reads as an arithmetic bug in
+   * §G7 rather than as an expired fixture. The boards turn over daily, so any hard-coded id is a
+   * fixture with a hidden expiry date.
+   *
+   * What that costs is the two literal minute figures this used to carry (45 → 52 and → 34). They
+   * are replaced by the three claims that were the point of them and that hold for *any* easy job:
+   * unled is slower than the sheet, led is faster than the sheet, and led beats unled. None of the
+   * three re-derives the duration formula from the source, which a computed expectation would.
+   */
   it('lets an easy mission go out on assignees alone: slower and with worse odds', async () => {
     const stack = await makeStack();
     staff(stack, ['field_commander'], 10);
-    const siphon = findMissionTemplate('fuel-siphon') as MissionTemplate;
-    expect(siphon.difficulty).toBe('easy');
+    const { template: easy, areaId } = anEasyJobToday();
+
+    const body = (extra: Record<string, unknown> = {}) => ({
+      templateId: easy.id,
+      areaId,
+      force: { razors: 1 },
+      ...extra,
+    });
 
     const alone = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: launchBody(siphon.id),
+      payload: body(),
     });
-    expect(alone.statusCode).toBe(200);
+    expect(alone.statusCode, alone.body).toBe(200);
     const unled = alone.json<{ mission: Mission }>().mission;
 
-    // Level 10: pool 13, cap 5, so the delegation is 5 strong, worth 23.5% (§G7).
+    // Level 10: pool 13, cap 5, so the delegation is 5 strong, worth 23.5% (§G7). This figure is
+    // the rule under test and stays a literal.
     const delegation = 5;
     expect(assigneeBonusPercent(delegation)).toBe(23.5);
-    // 45 × (1 − 0.235) × 1.5 = 51.6 → 52. Slower than the authored 45 despite the bonus.
-    expect(unled.durationMinutes).toBe(52);
-    expect(unled.durationMinutes).toBeGreaterThan(siphon.durationMinutes);
+    // §G6's penalty outweighs the delegation's bonus: an unled crew is slower than the sheet.
+    expect(unled.durationMinutes).toBeGreaterThan(easy.durationMinutes);
 
-    // The same job under an officer with the same five people is strictly faster.
+    // The same job under an officer with the same five people is faster than the sheet, and
+    // strictly faster than the unled run.
     const led = await makeStack('led');
     const [leader] = staff(led, ['field_commander'], 10);
     led.repos.bases.updateAssignees(led.base.id, { placements: { [leader!.id]: delegation } });
@@ -434,12 +479,11 @@ describe('§G6 at the launch gate', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(led.token),
-      payload: launchBody(siphon.id, { officerId: leader!.id }),
+      payload: body({ officerId: leader!.id }),
     });
-    expect(withOfficer.statusCode).toBe(200);
+    expect(withOfficer.statusCode, withOfficer.body).toBe(200);
     const ledMission = withOfficer.json<{ mission: Mission }>().mission;
-    // 45 × (1 − 0.235) = 34.4 → 34.
-    expect(ledMission.durationMinutes).toBe(34);
+    expect(ledMission.durationMinutes).toBeLessThan(easy.durationMinutes);
     expect(ledMission.durationMinutes).toBeLessThan(unled.durationMinutes);
   });
 

@@ -132,7 +132,7 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       }
 
       if (body.resources !== undefined) {
-        // Absent keys keep what is there. A knob that sets food should not silently zero the oil.
+        // Absent keys keep what is there. A knob that sets supplies should not silently zero the oil.
         const resources: Resources = RESOURCE_KEYS.reduce(
           (into, key) => ({ ...into, [key]: body.resources?.[key] ?? into[key] }),
           next.resources,

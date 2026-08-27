@@ -122,7 +122,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 12,
-    spoils: { food: 35, caps: 8 },
+    spoils: { supplies: 35, caps: 8 },
     successChance: 0.95,
   },
   {
@@ -187,7 +187,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'for_government',
     travelBand: 'close',
     durationMinutes: 40,
-    // Combine pay: caps and the metal a state armoury can spare, never food it would rather ration.
+    // Combine pay: caps and the metal a state armoury can spare, never supplies it would rather ration.
     spoils: { caps: 70, highQualityMetal: 4 },
     successChance: 0.82,
   },
@@ -214,7 +214,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'furthest',
     durationMinutes: MISSION_MAX_DURATION_MINUTES,
-    spoils: { caps: 20, food: 20, oil: 15, scrap: 25, planks: 20, highQualityMetal: 3 },
+    spoils: { caps: 20, supplies: 20, oil: 15, scrap: 25, planks: 20, highQualityMetal: 3 },
     successChance: 0.88,
   },
 
@@ -234,7 +234,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 8,
-    spoils: { food: 20, caps: 6 },
+    spoils: { supplies: 20, caps: 6 },
     successChance: 0.96,
   },
   {
@@ -299,7 +299,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 55,
-    spoils: { caps: 40, food: 35, scrap: 20 },
+    spoils: { caps: 40, supplies: 35, scrap: 20 },
     successChance: 0.76,
   },
   {
@@ -338,7 +338,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'for_government',
     travelBand: 'further',
     durationMinutes: 65,
-    spoils: { caps: 85, food: 30 },
+    spoils: { caps: 85, supplies: 30 },
     successChance: 0.8,
   },
   {
@@ -403,7 +403,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 300,
-    spoils: { food: 140, oil: 30, caps: 40 },
+    spoils: { supplies: 140, oil: 30, caps: 40 },
     successChance: 0.71,
   },
   {
@@ -480,9 +480,17 @@ export const KIND_REWARD_MULTIPLIER: Record<MissionKind, number> = {
   battle: 1.6,
 };
 
-/** A failed *standard* run still comes home with something; a failed battle does not (§E5). */
+/**
+ * What a run that came home empty pays: nothing, either kind (§E5).
+ *
+ * A failed standard run used to limp home with a quarter of the salvage. It does not any more:
+ * the board's rule is that a failure banks **no resources at all** and pays a fifth of the XP
+ * instead (`FAILED_MISSION_XP_SHARE`), which is a cleaner trade and the one the mission cards
+ * quote. Kept as a table rather than folded into `missionRewards` as a literal zero, because it
+ * is the one place the rule is written down and the settler reads it through this function.
+ */
 export const FAILURE_REWARD_SHARE: Record<MissionKind, number> = {
-  standard: 0.25,
+  standard: 0,
   battle: 0,
 };
 

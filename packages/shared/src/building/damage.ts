@@ -16,7 +16,7 @@ import { findBuilding, type Building } from './state.js';
  *
  * A structure carries 0..100 damage and gives up {@link MAX_DAMAGE_PENALTY} of its output at 100.
  * The board's ceiling, and the right one: a Greenhouse wrecked to a standstill would take a crew's
- * food to zero and starve a roster that had nothing to do with the fight, which is a punishment
+ * supplies to zero and starve a roster that had nothing to do with the fight, which is a punishment
  * loop rather than a setback. Half is enough to hurt and not enough to end anything.
  *
  * ## Digging the gate in

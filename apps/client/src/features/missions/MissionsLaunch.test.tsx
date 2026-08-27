@@ -58,13 +58,13 @@ function areaOf(id: string, name: string, payPercent = 0): MissionArea {
   };
 }
 
-const MISC = areaOf(MISC_AREA_ID, 'Odd jobs');
+const MISC = areaOf(MISC_AREA_ID, 'Miscellaneous Missions');
 const RUSTYARD = areaOf('rustyard', 'The Rustyard', 27);
 
 const board: MissionsResponse = {
   missions: [],
   justResolved: [],
-  resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
+  resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
   activeLimit: 2,
   areas: [MISC, RUSTYARD],
   army: { razors: 6, scavengers: 4 },
@@ -281,7 +281,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
     renderBoard();
     await screen.findByTestId('board-area');
 
-    expect(screen.getByTestId('board-area')).toHaveTextContent('Odd jobs');
+    expect(screen.getByTestId('board-area')).toHaveTextContent('Miscellaneous Missions');
     fireEvent.click(screen.getByTestId('board-right'));
     expect(screen.getByTestId('board-area')).toHaveTextContent('The Rustyard');
 
@@ -301,7 +301,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
     fireEvent.click(screen.getByTestId('board-left'));
     expect(screen.getByTestId('board-area')).toHaveTextContent('The Rustyard');
     fireEvent.click(screen.getByTestId('board-right'));
-    expect(screen.getByTestId('board-area')).toHaveTextContent('Odd jobs');
+    expect(screen.getByTestId('board-area')).toHaveTextContent('Miscellaneous Missions');
   });
 
   it('will not send a crew that is nobody at all', async () => {

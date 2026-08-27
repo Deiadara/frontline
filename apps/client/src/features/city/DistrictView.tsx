@@ -57,7 +57,7 @@ interface BattleReport {
 /** Only reached before `/me` has answered, when there is nothing to price against yet. */
 const EMPTY_STOCK: Resources = {
   caps: 0,
-  food: 0,
+  supplies: 0,
   oil: 0,
   scrap: 0,
   highQualityMetal: 0,

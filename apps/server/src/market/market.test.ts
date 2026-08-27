@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { projectMarket } from './board.js';
 
 /**
  * The market and the workshop, end to end over HTTP.
@@ -24,10 +25,30 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
  * home. A trade is the one place in this game where a bug takes something off a player that they
  * cannot get back, so every assertion below is about a stockpile before and after.
  *
- * The Runner's hours are derived from the UTC date, so no test can simply decide he is in: the
- * closed-shop assertion checks the board first and returns early if he happens to be open, because
- * a test that pretended to control the clock would be testing a mock of the thing under test.
+ * The Runner's hours are derived from the UTC date, so a test that goes over HTTP cannot decide
+ * whether he is in: it gets whatever hour the suite happens to run at. Anything that needs him
+ * open, or needs him shut, calls `projectMarket` with an explicit `now` instead. That is the same
+ * function the route calls, one layer down, and it is the layer the hours actually live in: see
+ * `anOpenMoment` and `aShutMoment`.
  */
+
+/** A moment inside one of the Runner's two windows on `day`, and one well outside both. */
+function anOpenMoment(day = marketDay(new Date())): Date {
+  const session = vendorSessionsFor(day)[0];
+  if (!session) throw new Error('fixture error: the Runner keeps no hours today');
+  return new Date(`${day}T${String(session.startHour).padStart(2, '0')}:30:00.000Z`);
+}
+
+function aShutMoment(day = marketDay(new Date())): Date {
+  const hours = new Set(
+    vendorSessionsFor(day).flatMap((session) =>
+      Array.from({ length: session.hours }, (_, step) => (session.startHour + step) % 24),
+    ),
+  );
+  const free = Array.from({ length: 24 }, (_, hour) => hour).find((hour) => !hours.has(hour));
+  if (free === undefined) throw new Error('fixture error: the Runner never leaves today');
+  return new Date(`${day}T${String(free).padStart(2, '0')}:30:00.000Z`);
+}
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 
@@ -92,29 +113,69 @@ function baseOf(app: FastifyInstance, username: string) {
 }
 
 describe('the Runner, over HTTP', () => {
-  it('says when he is in and what he is carrying', async () => {
+  it('says when he is in, whatever hour the suite runs at', async () => {
     const app = await makeApp();
     const view = await board(app, await signIn(app));
 
     expect(view.vendor.sessions).toHaveLength(2);
-    expect(view.vendor.stock.length).toBeGreaterThan(0);
     // The hours the server reports are the ones the shared derivation produces for today.
     expect(view.vendor.sessions).toEqual(vendorSessionsFor(marketDay(new Date())));
     expect(new Date(view.vendor.opensAt).getTime()).toBeGreaterThan(Date.now());
+    // And the barrow agrees with the sign on it at whatever hour this ran: goods only while he is
+    // standing there. Both branches, so the run that happens to catch him out still asserts.
+    if (view.vendor.open) expect(view.vendor.stock.length).toBeGreaterThan(0);
+    else expect(view.vendor.stock).toEqual([]);
   });
 
+  /**
+   * Nobody sees the barrow until he is behind it.
+   *
+   * The stock used to be on every response all day with the buttons dead, which meant a player who
+   * read the network could line their caps up for the one blueprint hours before a player who only
+   * looked at the screen. What he has is a pure function of the date, so withholding it on the
+   * client alone would have been a curtain rather than a rule.
+   *
+   * Driven through `projectMarket` with a chosen `now`: the route has no way to be told the hour,
+   * and this is the function inside it that the hours belong to.
+   */
+  it('carries nothing at all while he is out, and the day\u2019s goods while he is in', async () => {
+    const app = await makeApp();
+    await signIn(app);
+    const base = baseOf(app, 'trader');
+
+    const shut = projectMarket(app.repos, base, aShutMoment());
+    expect(shut.vendor.open).toBe(false);
+    expect(shut.vendor.stock).toEqual([]);
+
+    const open = projectMarket(app.repos, base, anOpenMoment());
+    expect(open.vendor.open).toBe(true);
+    expect(open.vendor.stock.map((offer) => offer.line.item)).toEqual(
+      vendorStockFor(marketDay(new Date())).map((line) => line.item),
+    );
+  });
+
+  /**
+   * The till refuses out of hours, and the line id comes from the *catalogue* rather than from the
+   * response.
+   *
+   * It used to be read off the board, which worked while a shut barrow still listed its goods. Now
+   * that it does not, that spelling would post an empty id and be refused as a malformed request:
+   * a 400 dressed up as the rule under test. Naming a line the crew could not have seen is also
+   * the case the guard is actually for, which is somebody who kept an id from this morning.
+   */
   it('will not sell while he is out of the district', async () => {
     const app = await makeApp();
     const token = await signIn(app);
     const view = await board(app, token);
     if (view.vendor.open) return; // He is in right now; the closed path is the next test's job.
 
-    const line = view.vendor.stock[0];
+    const line = vendorStockFor(marketDay(new Date()))[0];
+    expect(line, 'fixture error: nothing on the barrow today').toBeDefined();
     const res = await app.inject({
       method: 'POST',
       url: '/api/market/buy',
       headers: auth(token),
-      payload: { lineId: line?.line.id ?? '', count: 1 },
+      payload: { lineId: line?.id ?? '', count: 1 },
     });
     expect(res.statusCode).toBe(409);
     expect(res.json<{ error: { message: string } }>().error.message).toContain(
@@ -535,10 +596,13 @@ describe('the workshop, over HTTP', () => {
 describe('the barrow is the same for the whole city', () => {
   it('serves two crews the same stock on the same day', async () => {
     const app = await makeApp();
-    const one = await signIn(app, 'one');
-    const two = await signIn(app, 'two');
-    const first = await board(app, one);
-    const second = await board(app, two);
+    await signIn(app, 'one');
+    await signIn(app, 'two');
+    // At an hour he is actually there, or both crews would correctly be served nothing and the
+    // assertion would pass on two empty lists.
+    const at = anOpenMoment();
+    const first = projectMarket(app.repos, baseOf(app, 'one'), at);
+    const second = projectMarket(app.repos, baseOf(app, 'two'), at);
     expect(first.vendor.stock.map((offer) => offer.line.item)).toEqual(
       second.vendor.stock.map((offer) => offer.line.item),
     );

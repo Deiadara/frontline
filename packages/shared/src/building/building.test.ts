@@ -53,6 +53,7 @@ import {
   districtProduction,
   populationCapacity,
   storageCapacity,
+  storageCapacityFor,
   type ProductionCarry,
 } from './production.js';
 import {
@@ -373,10 +374,10 @@ describe('what the district makes (§A1)', () => {
     }
   });
 
-  it('grows more food with a Cistern than without one', () => {
+  it('grows more supplies with a Cistern than without one', () => {
     const dry = buildingProduction('greenhouse', [build('greenhouse', 5)]);
     const wet = buildingProduction('greenhouse', [build('greenhouse', 5), build('cistern', 10)]);
-    expect(wet.food ?? 0).toBeGreaterThan(dry.food ?? 0);
+    expect(wet.supplies ?? 0).toBeGreaterThan(dry.supplies ?? 0);
   });
 
   it('applies a structure’s own production modifications to itself and to nothing else', () => {
@@ -386,8 +387,8 @@ describe('what the district makes (§A1)', () => {
     ];
     const plain = [build('greenhouse', 5), build('scrapyard', 5)];
 
-    expect(buildingProduction('greenhouse', boosted).food ?? 0).toBeGreaterThan(
-      buildingProduction('greenhouse', plain).food ?? 0,
+    expect(buildingProduction('greenhouse', boosted).supplies ?? 0).toBeGreaterThan(
+      buildingProduction('greenhouse', plain).supplies ?? 0,
     );
     expect(buildingProduction('scrapyard', boosted)).toEqual(
       buildingProduction('scrapyard', plain),
@@ -410,25 +411,25 @@ describe('what the district makes (§A1)', () => {
     const starved = [build('nexus', 20), build('greenhouse', 20), build('generator', 1)];
     const { perHour, fullPowerPerHour, grid } = districtProduction(starved);
     expect(grid.brownout).toBe(true);
-    expect(perHour.food ?? 0).toBeLessThan(fullPowerPerHour.food ?? 0);
-    expect(perHour.food ?? 0).toBeGreaterThan(0);
+    expect(perHour.supplies ?? 0).toBeLessThan(fullPowerPerHour.supplies ?? 0);
+    expect(perHour.supplies ?? 0).toBeGreaterThan(0);
   });
 
   it('accrues over elapsed hours and banks whole units, carrying the rest', () => {
     const district = [build('nexus', 1), build('generator', 1), build('greenhouse', 1)];
-    const stock: Resources = { ...STARTING_RESOURCES, food: 0 };
+    const stock: Resources = { ...STARTING_RESOURCES, supplies: 0 };
     const oneHour = accrueProduction(stock, district, 1);
     const halfHour = accrueProduction(stock, district, 0.5);
 
-    expect(oneHour.resources.food).toBeGreaterThan(0);
-    expect(Number.isInteger(oneHour.resources.food)).toBe(true);
-    expect(Number.isInteger(halfHour.resources.food)).toBe(true);
+    expect(oneHour.resources.supplies).toBeGreaterThan(0);
+    expect(Number.isInteger(oneHour.resources.supplies)).toBe(true);
+    expect(Number.isInteger(halfHour.resources.supplies)).toBe(true);
 
     // Two half-hours must equal one hour, or a player is paid for how often they refresh. What
     // makes that true with an integral stockpile is the carry, so the comparison is of the *sum*.
     const twice = accrueProduction(halfHour.resources, district, 0.5, undefined, halfHour.carry);
     const held = (accrual: ReturnType<typeof accrueProduction>): number =>
-      accrual.resources.food + (accrual.carry.food ?? 0);
+      accrual.resources.supplies + (accrual.carry.supplies ?? 0);
     expect(held(twice)).toBeCloseTo(held(oneHour), 6);
   });
 
@@ -489,12 +490,12 @@ describe('what the district makes (§A1)', () => {
     const district = [build('nexus', 1), build('generator', 1), build('greenhouse', 20)];
     const ceiling = storageCapacity(district);
 
-    const full: Resources = { ...STARTING_RESOURCES, food: ceiling };
-    expect(accrueProduction(full, district, 100).resources.food).toBe(ceiling);
+    const full: Resources = { ...STARTING_RESOURCES, supplies: ceiling };
+    expect(accrueProduction(full, district, 100).resources.supplies).toBe(ceiling);
 
     // Raid loot can put a stock over the ceiling. Production adds nothing, but takes nothing.
-    const overflowing: Resources = { ...STARTING_RESOURCES, food: ceiling * 2 };
-    expect(accrueProduction(overflowing, district, 100).resources.food).toBe(ceiling * 2);
+    const overflowing: Resources = { ...STARTING_RESOURCES, supplies: ceiling * 2 };
+    expect(accrueProduction(overflowing, district, 100).resources.supplies).toBe(ceiling * 2);
   });
 
   it('never hands a settle a fractional stockpile, however the window is cut', () => {
@@ -530,6 +531,50 @@ describe('what the district makes (§A1)', () => {
       { ...build('apothecary', 10), modifications: ['apothecary_deep_racking'] },
     ];
     expect(storageCapacity(modded)).toBeGreaterThan(storageCapacity([build('apothecary', 10)]));
+  });
+
+  /**
+   * Three shelves, in a fixed ratio, at every level of the building that sets them.
+   *
+   * The ratio is the promise: raising the Apothecary must widen all three together rather than
+   * changing which one is the binding constraint, or a player who upgraded to fix a scrap problem
+   * would find their metal store had quietly become the new one.
+   */
+  it('holds bulk, then what it burns, then the scarce metal, in that order at every level', () => {
+    for (const level of [0, 1, 7, 14, BUILDING_MAX_LEVEL]) {
+      const district = level === 0 ? [] : [build('apothecary', level)];
+      const bulk = storageCapacityFor(district, 'scrap');
+      const burned = storageCapacityFor(district, 'oil');
+      const scarce = storageCapacityFor(district, 'highQualityMetal');
+
+      expect(bulk, `level ${level}`).toBe(storageCapacity(district));
+      expect(storageCapacityFor(district, 'planks')).toBe(bulk);
+      expect(storageCapacityFor(district, 'supplies')).toBe(burned);
+
+      expect(burned / bulk).toBeCloseTo(2 / 3, 2);
+      expect(scarce / bulk).toBeCloseTo(1 / 3, 2);
+    }
+  });
+
+  /**
+   * Caps are money, and money does not fill up.
+   *
+   * `Infinity` rather than a large number on purpose: a ceiling of 10^9 is still a ceiling, and the
+   * player who finds it is the one who has been playing longest.
+   */
+  it('gives caps no ceiling at all, at any level', () => {
+    for (const level of [0, 1, BUILDING_MAX_LEVEL]) {
+      const district = level === 0 ? [] : [build('apothecary', level)];
+      expect(storageCapacityFor(district, 'caps')).toBe(Number.POSITIVE_INFINITY);
+    }
+  });
+
+  /** And production never clamps them, which is the half that would actually lose a player caps. */
+  it('never clamps a caps stockpile back to a ceiling', () => {
+    const district = [build('apothecary', 1), build('nexus', 1)];
+    const over = { ...STARTING_RESOURCES, caps: 10_000_000 };
+    const { resources } = accrueProduction(over, district, 24);
+    expect(resources.caps).toBe(over.caps);
   });
 
   it('houses the founding crew with no Quarters, and more with them', () => {

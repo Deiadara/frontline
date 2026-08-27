@@ -102,7 +102,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['ui-plate-nav', 'ui-plate-nav.png', 150005],
   ['ui-divider', 'ui-divider.png', 150006],
   ['icon-caps', 'icon-caps.webp', 160001],
-  ['icon-food', 'icon-food.webp', 160002],
+  ['icon-supplies', 'icon-supplies.webp', 160002],
   ['icon-oil', 'icon-oil.webp', 160003],
   ['icon-scrap', 'icon-scrap.webp', 160004],
   ['icon-high-quality-metal', 'icon-high-quality-metal.webp', 160005],

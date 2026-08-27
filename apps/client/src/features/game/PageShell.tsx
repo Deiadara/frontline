@@ -44,23 +44,45 @@ export const CONTENT_WIDTH = 'mx-auto w-full max-w-[80rem]';
 export const WIDE_CONTENT_WIDTH = 'mx-auto w-full max-w-[104rem]';
 
 interface PageShellProps {
-  /** The screen's own name, shown as its heading. */
-  title: string;
+  /**
+   * The screen's own name, and **most screens do not have one**.
+   *
+   * A door on the scenery switcher already carries the name, lit, at the bottom of every screen in
+   * the game: printing it again at the top of the sheet is the same word twice on one frame, and
+   * the second one costs a header. So the pages the switcher leads to open on a quotation instead
+   * (`quote`), which is what the roster has always done.
+   *
+   * What keeps a title is a screen with no door: the two the standing bar leads to, the back room
+   * behind the Market, the testing bench, and a character's own file, where the heading is a
+   * *person's name* rather than the name of a screen.
+   */
+  title?: string;
   /** The icon this screen is known by in the scenery switcher: same glyph, so the two agree. */
   icon?: IconName;
   /** A short line under the title. Optional: most screens say enough with a title. */
   lede?: string;
   /**
-   * A line under the title that is *not* information: a fragment of the city talking.
+   * The line a screen opens on when it has no name to print: a fragment of the city talking.
    *
    * Separate from `lede` because the two want opposite typography. A lede is read at a glance and
    * set small and quiet; a quotation is meant to be read once, properly, and set as lettering. A
-   * screen may carry either but not both: two lines under a heading is a subtitle and a slogan
-   * arguing.
+   * screen may carry either but not both: two lines at the top of a sheet is a subtitle and a
+   * slogan arguing.
    */
   quote?: string;
   /** Pinned to the right of the heading: a filter, a count, a primary action. */
   action?: ReactNode;
+  /**
+   * The page fills the sheet and does its own scrolling, rather than the sheet scrolling the page.
+   *
+   * The default is right for a document: everything stacks, the body scrolls, and a screen that
+   * grew a row is a screen you scroll a little further. It is wrong for a screen that is a
+   * *console*, where the useful thing is that the controls stay where they were put and one region
+   * inside them moves. Training is the first: the roster rail scrolls and nothing else does, so a
+   * player picking the fourth officer does not lose the sheet they were reading off the top of the
+   * screen to do it.
+   */
+  fills?: boolean;
   /** Give the sheet the wider measure. For screens carrying art rather than paragraphs. */
   wide?: boolean;
   children: ReactNode;
@@ -97,6 +119,7 @@ export function PageShell({
   quote,
   action,
   wide = false,
+  fills = false,
   children,
 }: PageShellProps) {
   return (
@@ -117,34 +140,54 @@ export function PageShell({
             'glass painted washed rivets taped edge-lit relative flex min-h-0 flex-1 flex-col rounded-md',
             'border border-surface-600/70 shadow-panel',
           )}
+          data-testid="page-sheet"
         >
-          <header className="relative flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5">
-            {icon !== undefined && (
-              <span className="flex h-9 w-9 items-center justify-center rounded-sm border border-brass-500/40 bg-brass-300/10 text-brass-300">
-                <Icon name={icon} className="h-5 w-5" />
-              </span>
-            )}
-            <div className="min-w-0">
-              {/* The hand face, because the name of a place is the one label on the screen that is
-                  not a field. Larger than the stamped equivalent it replaced: a pen stroke needs
-                  the size to read as a stroke rather than as a wobble. */}
-              <h1 className="font-stamp text-[22px] font-semibold leading-[1.1] text-ink-100">
-                {title}
-              </h1>
-              {lede !== undefined && (
-                <p className="mt-0.5 max-w-prose text-xs leading-relaxed text-ink-300">{lede}</p>
+          {/* No name, no header. A screen that opens on a quotation has nothing to pin: the
+              quotation belongs in the scrolling body (read once, on arrival) and a header holding
+              only a rule is forty pixels of the sheet spent on a line. A screen with a count or a
+              filter keeps the row for it, with no heading in it. */}
+          {(title !== undefined || action !== undefined) && (
+            <header className="relative flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5">
+              {icon !== undefined && title !== undefined && (
+                <span className="flex h-9 w-9 items-center justify-center rounded-sm border border-brass-500/40 bg-brass-300/10 text-brass-300">
+                  <Icon name={icon} className="h-5 w-5" />
+                </span>
               )}
-            </div>
-            {action !== undefined && <div className="ml-auto">{action}</div>}
-            <span aria-hidden className="ink-rule absolute inset-x-4 bottom-0" />
-          </header>
+              {title !== undefined && (
+                <div className="min-w-0">
+                  {/* The hand face, because the name of a place is the one label on the screen that
+                      is not a field. Larger than the stamped equivalent it replaced: a pen stroke
+                      needs the size to read as a stroke rather than as a wobble. */}
+                  <h1 className="font-stamp text-[22px] font-semibold leading-[1.1] text-ink-100">
+                    {title}
+                  </h1>
+                  {lede !== undefined && (
+                    <p className="mt-0.5 max-w-prose text-xs leading-relaxed text-ink-300">
+                      {lede}
+                    </p>
+                  )}
+                </div>
+              )}
+              {action !== undefined && <div className="ml-auto">{action}</div>}
+              <span aria-hidden className="ink-rule absolute inset-x-4 bottom-0" />
+            </header>
+          )}
 
-          <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-5">
-            <div className="flex flex-col gap-5">
+          <div
+            className={cn(
+              'relative min-h-0 flex-1 px-5',
+              fills ? 'flex flex-col overflow-hidden py-4' : 'overflow-y-auto py-5',
+            )}
+          >
+            <div className={cn('flex flex-col', fills ? 'min-h-0 flex-1 gap-3' : 'gap-5')}>
               {/* Inside the scrolling body rather than in the pinned header: a quotation is read
                   once on arrival, and a pinned one would keep a line of poetry on screen for the
                   whole time a player is working three screens down a roster. */}
-              {quote !== undefined && <Quote>{quote}</Quote>}
+              {quote !== undefined && (
+                <span className={cn(fills && 'shrink-0')}>
+                  <Quote>{quote}</Quote>
+                </span>
+              )}
               {children}
             </div>
           </div>

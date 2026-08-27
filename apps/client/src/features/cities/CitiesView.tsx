@@ -1,7 +1,7 @@
 import { CITY_DISTRICTS } from '@frontline/shared';
 import { Button } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
-import { InfoWindow, WindowSection } from '../../components/ui/InfoWindow';
+import { InfoWindow } from '../../components/ui/InfoWindow';
 import { Panel } from '../../components/ui/Panel';
 import { Quote } from '../../components/ui/Quote';
 
@@ -48,16 +48,6 @@ export function CitiesView({ onEnterCity }: { onEnterCity: () => void }) {
               </span>
             }
           >
-            <p className="font-body text-[14px] leading-relaxed text-ink-200">
-              Ten districts, the places inside them, and whoever is currently standing on each.
-              Every crew you will meet for now lives somewhere on this map.
-            </p>
-            <WindowSection label="What that gets you">
-              <p className="font-body text-[13px] leading-snug text-ink-100">
-                Ground here pays for itself: a held place feeds your district, and the two seats of
-                Combine power are worth a name that carries.
-              </p>
-            </WindowSection>
             <span className="flex items-center gap-2 font-display text-[12px] font-bold uppercase tracking-[0.16em] text-brass-300">
               <Icon name="city" aria-hidden className="h-4 w-4" />
               Go back in

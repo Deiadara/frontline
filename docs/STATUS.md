@@ -4,8 +4,8 @@ What is built, what is stubbed, and what is not started. `GDD.md` says what the 
 this says where it actually is. Keep it current: a stale status doc is worse than none, because
 the next person plans against it.
 
-Last verified: **2026-08-14**, gates green (`format:check`, `lint`, `typecheck`, `build`,
-1399 unit tests, 104 e2e).
+Last verified: **2026-08-27**, gates green (`format:check`, `lint`, `typecheck`,
+2387 unit tests, 202 e2e).
 
 ---
 
@@ -40,7 +40,7 @@ out: production scales down, nothing stops. Fuel burn scales with _load carried_
 
 ✅ **Production**, accrued lazily and piecewise (the window is cut at each completed build, so a
 structure that finished an hour ago is not paid for the three days nobody looked). Greenhouse →
-food, Scrapyard → scrap/oil/HQ metal, Garage → oil/HQ metal. Caps are not farmed: they come off
+supplies, Scrapyard → scrap/oil/HQ metal, Garage → oil/HQ metal. Caps are not farmed: they come off
 missions and raids.
 
 ✅ **Storage** (Apothecary) clamps production only: raid loot and pay are never clawed back.
@@ -55,7 +55,7 @@ mechanic.
 
 ### Economy and standing
 
-✅ Payroll (§H7) and food upkeep (§D1), settled lazily across every pay-week boundary crossed.
+✅ Payroll (§H7) as a standing capacity. Nothing in the game is charged on a clock: no weekly draw of caps, supplies or anything else.
 ✅ Morale (§D4) as a **target the district drifts toward**: frequency-independent, so it cannot be
 farmed by refreshing. The Quarters and power raise it; the Infirmary softens the hit from a missed
 payday.
@@ -229,14 +229,13 @@ by `pnpm --filter @frontline/scripts encode-art --landed`, and the client picks 
 `assets/` glob with **no TypeScript edit**. Every view falls back to procedural art per key, so a
 half-delivered set is a normal state rather than a broken one.
 
-**Painting today: 18 of 97:**
+**Painting today: 44 of 125:**
 
-| Class    | Painted                                                                 |
-| -------- | ----------------------------------------------------------------------- |
-| building | nexus, quarters, greenhouse, generator, scrapyard, cistern, apothecary, |
-|          | lab, gauntlet, garage: 10 of 13                                         |
-| icon     | caps, food, high-quality-metal: 3 of 31                                 |
-| unit     | scrapers: 1 of 27                                                       |
+| Class    | Painted                                 |
+| -------- | --------------------------------------- |
+| building | all twelve                              |
+| icon     | the six resources: 6 of 55              |
+| unit     | 25 of 32; the seven left are procedural |
 
 The district itself is now a **town view rather than a grid** (`features/base/plots.ts`): no sky,
 the whole scene is ground seen from above. Since the delivered `plate-district` paints its own

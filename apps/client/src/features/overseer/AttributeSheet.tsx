@@ -3,35 +3,18 @@ import {
   ATTRIBUTE_GROUPS,
   ATTRIBUTE_LABELS,
   MAX_ATTRIBUTE,
-  attributeTier,
   type AttributeGroup,
   type AttributeName,
   type Attributes,
-  type AttributeTier,
 } from '@frontline/shared';
 import { cn } from '../../lib/cn';
+import { RATING_FILL, RATING_TEXT, ratingBand } from '../../lib/rating';
 
 const GROUP_LABELS: Record<AttributeGroup, string> = {
   physical: 'Physical',
   mental: 'Mental',
   social: 'Social',
   technical: 'Technical',
-};
-
-/** Weak reads hostile, strong reads like the player's own accent. */
-const TIER_TEXT: Record<AttributeTier, string> = {
-  elite: 'text-hextech-100',
-  strong: 'text-brass-300',
-  average: 'text-ink-200',
-  weak: 'text-oxblood-300',
-};
-
-/** The same four steps as a fill, so the bar and the figure cannot disagree. */
-const TIER_FILL: Record<AttributeTier, string> = {
-  elite: 'bg-hextech-100',
-  strong: 'bg-brass-300',
-  average: 'bg-ink-300',
-  weak: 'bg-oxblood-300',
 };
 
 /**
@@ -49,7 +32,7 @@ const TIER_FILL: Record<AttributeTier, string> = {
  * best attribute look like an elite one.
  */
 function AttributeRow({ name, value, bar }: { name: AttributeName; value: number; bar: boolean }) {
-  const tier = attributeTier(value);
+  const band = ratingBand(value);
   const share = Math.max(0, Math.min(1, value / MAX_ATTRIBUTE));
   return (
     // Without the bar this is the row the thumbnail always had, to the pixel: a 4px gap and a
@@ -74,7 +57,7 @@ function AttributeRow({ name, value, bar }: { name: AttributeName; value: number
           aria-hidden
         >
           <span
-            className={cn('block h-full rounded-full opacity-90', TIER_FILL[tier])}
+            className={cn('block h-full rounded-full opacity-90', RATING_FILL[band])}
             style={{ width: `${share * 100}%` }}
           />
         </span>
@@ -83,7 +66,7 @@ function AttributeRow({ name, value, bar }: { name: AttributeName; value: number
         className={cn(
           'shrink-0 text-right font-display text-[12px] font-bold leading-[1.15] tabular-nums',
           bar && 'w-6',
-          TIER_TEXT[tier],
+          RATING_TEXT[band],
         )}
       >
         {value}

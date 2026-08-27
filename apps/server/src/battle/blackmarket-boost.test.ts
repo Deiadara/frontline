@@ -18,11 +18,16 @@ import { settleBattles } from './resolve.js';
  * The seam between the black market and the fight.
  *
  * A battle boost is bought with infamy days before anybody declares anything, sits in a stash, and
- * is worth exactly nothing until a battle resolves. Two halves of the game were built against that
- * contract independently: the market side stashes it, the battle side is supposed to spend it,
- * and a contract with nobody standing on both sides of it is the classic location for a feature to be
- * *shipped* and *inert*. So this test stands on both sides: it buys the thing through the real
- * route and then reads what the engine was handed.
+ * is worth exactly nothing until a player **applies it to a fight**. Two halves of the game were
+ * built against that contract independently: the market side stashes it, the battle side is
+ * supposed to spend it, and a contract with nobody standing on both sides of it is the classic
+ * location for a feature to be *shipped* and *inert*. So this test stands on both sides: it puts
+ * the crate in the bag, applies it through the real route, and then reads what the engine was
+ * handed.
+ *
+ * It used to apply itself to whichever fight happened next, on both sides, and the assertions here
+ * were about a bag emptying rather than about a decision. The interesting failures are different
+ * now: a crate that does nothing because nobody applied it, and a crate applied twice.
  *
  * The engine is a spy rather than a stub. What matters is not who won but **what numbers the fight
  * was given**, and the only way to see those is to capture the input.
@@ -130,7 +135,11 @@ function stash(stack: Stack): void {
  * pending call on a target: a second fight has to be somewhere else, exactly as it would be in a
  * real evening's play.
  */
-async function fight(stack: Stack, target: BattleTarget = PRESS): Promise<void> {
+async function stage(
+  stack: Stack,
+  target: BattleTarget = PRESS,
+  apply: string | null = null,
+): Promise<void> {
   const declared = await stack.app.inject({
     method: 'POST',
     url: '/api/battles/declare',
@@ -144,7 +153,12 @@ async function fight(stack: Stack, target: BattleTarget = PRESS): Promise<void> 
     url: '/api/battles',
     headers: auth(stack.token),
   });
-  const view = board.json<BattlesResponse>().coming[0];
+  // Matched on the target rather than taken off the front, because two fights can be staged at
+  // once and `coming` is not ordered by when they were declared.
+  const key = JSON.stringify(target);
+  const view = board
+    .json<BattlesResponse>()
+    .coming.find((coming) => JSON.stringify(coming.battle.target) === key);
   if (!view) throw new Error('expected a declared battle');
   const battle = view.battle;
 
@@ -155,15 +169,43 @@ async function fight(stack: Stack, target: BattleTarget = PRESS): Promise<void> 
     payload: { battleId: battle.id, changes: { razors: 4 }, perimeterChanges: {} },
   });
 
-  stack.db
-    .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
-    .run(new Date(Date.now() - 60_000).toISOString(), battle.id);
+  if (apply !== null) {
+    const applied = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/boost',
+      headers: auth(stack.token),
+      payload: { battleId: battle.id, boostId: apply },
+    });
+    expect(applied.statusCode, applied.body).toBe(200);
+  }
+}
 
+/**
+ * Drags every pending mark into the past.
+ *
+ * Separate from {@link stage} because every read of `/api/battles` settles what is due first: a
+ * fight backdated inside `stage` resolves during the *next* call's board read, which is why two
+ * staged-and-boosted battles could not be set up one at a time.
+ */
+function backdate(stack: Stack): void {
+  stack.db
+    .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE resolved_at IS NULL')
+    .run(new Date(Date.now() - 60_000).toISOString());
+}
+
+/** Stages a fight and resolves it: the ordinary case, one battle at a time. */
+async function fight(
+  stack: Stack,
+  target: BattleTarget = PRESS,
+  apply: string | null = null,
+): Promise<void> {
+  await stage(stack, target, apply);
+  backdate(stack);
   settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 }
 
 describe('contraband reaches the fight', () => {
-  it('hands the engine nothing extra when the stash is empty', async () => {
+  it('hands the engine nothing extra when the bag is empty', async () => {
     const stack = await makeStack();
     await fight(stack);
 
@@ -174,14 +216,34 @@ describe('contraband reaches the fight', () => {
     expect(input?.attackerTerritory?.unitOffensePercent).toBeLessThan(BOOST.offensePercent);
   });
 
-  it('adds the boost to what the attacker brings', async () => {
+  /**
+   * A crate in the bag and nothing done with it changes nothing.
+   *
+   * This is the whole point of the move, and it is the assertion that would have failed under the
+   * old rule: the bag used to empty itself into whatever fight came next whether or not the player
+   * wanted it spent there.
+   */
+  it('leaves a crate alone when nobody applied it', async () => {
+    const plain = await makeStack();
+    await fight(plain);
+    const before = plain.seen[0]?.attackerTerritory?.unitOffensePercent ?? 0;
+
+    const carrying = await makeStack();
+    stash(carrying);
+    await fight(carrying);
+
+    expect(carrying.seen[0]?.attackerTerritory?.unitOffensePercent ?? 0).toBe(before);
+    expect(carrying.app.repos.blackMarket.stashFor(carrying.baseId)).toEqual({ [SYRINGE_ID]: 1 });
+  });
+
+  it('adds the boost to what the attacker brings, once applied', async () => {
     const plain = await makeStack();
     await fight(plain);
     const before = plain.seen[0]?.attackerTerritory?.unitOffensePercent ?? 0;
 
     const boosted = await makeStack();
     stash(boosted);
-    await fight(boosted);
+    await fight(boosted, PRESS, SYRINGE_ID);
     const after = boosted.seen[0]?.attackerTerritory?.unitOffensePercent ?? 0;
 
     // Exactly the crate's figure on top of the same baseline: additive, like every other source.
@@ -192,14 +254,29 @@ describe('contraband reaches the fight', () => {
     ).toBe(BOOST.moralePercent);
   });
 
+  /**
+   * It was paid for at the shelf. Applying it must not bill the crew's name a second time.
+   *
+   * Read either side of the *apply*, not either side of the fight: winning pays infamy, so a
+   * measurement that spanned the resolve would be reading the prize rather than the price.
+   */
+  it('costs no infamy to take one in', async () => {
+    const stack = await makeStack();
+    stash(stack);
+    const before = stack.app.repos.bases.findById(stack.baseId)?.economy.infamy;
+    await stage(stack, PRESS, SYRINGE_ID);
+    expect(stack.app.repos.bases.findById(stack.baseId)?.economy.infamy).toBe(before);
+  });
+
   it('spends it, so the next fight does not get it again', async () => {
     const stack = await makeStack();
     stash(stack);
-    await fight(stack);
+    await fight(stack, PRESS, SYRINGE_ID);
     expect(stack.app.repos.blackMarket.stashFor(stack.baseId)).toEqual({});
 
-    // And the second fight is back to the baseline. A boost bought for *a* battle that survived
-    // into the next one would make contraband permanent rather than expensive.
+    // And the second fight is back to the baseline, even though it names the same crate: a boost
+    // bought for *a* battle that survived into the next one would make contraband permanent
+    // rather than expensive.
     await fight(stack, RAMP);
     const [first, second] = stack.seen;
     expect(second?.attackerTerritory?.unitOffensePercent).toBe(
@@ -208,34 +285,49 @@ describe('contraband reaches the fight', () => {
   });
 
   /**
-   * The board's rule: the same boost counts **once**, however many are in the bag.
+   * One crate, two fights, and only the first one gets it.
    *
-   * Two of a thing stacking is the shape that ends one way: the correct play becomes hoarding a
-   * fortnight of infamy into six syringes and deleting somebody with a number no defence was
-   * balanced against. The second crate is not wasted, though: it is the next fight's.
+   * Nothing leaves the bag when a crate is applied: the deployment names it and the resolve spends
+   * it, which is what lets a player change their mind for free right up to the mark. The cost of
+   * that is that the same crate can legally be named on two battles, and the second one has to
+   * find the bag empty rather than opening a syringe that no longer exists.
    */
-  it('counts a duplicate once, and keeps it for the next fight', async () => {
+  it('opens one syringe when the same one is named on two fights', async () => {
     const plain = await makeStack();
     await fight(plain);
     const before = plain.seen[0]?.attackerTerritory?.unitOffensePercent ?? 0;
 
-    const hoarder = await makeStack();
-    hoarder.app.repos.blackMarket.writeStash(hoarder.baseId, { [SYRINGE_ID]: 2 });
-    await fight(hoarder);
+    const stack = await makeStack();
+    stash(stack);
+    // Both staged before either resolves, which is the only way to reach this: apply the crate to
+    // a second fight *after* the first has settled and the route refuses it outright, because the
+    // bag really is empty by then. Two battles called for the same mark is not an exotic state.
+    await stage(stack, PRESS, SYRINGE_ID);
+    await stage(stack, RAMP, SYRINGE_ID);
+    backdate(stack);
+    settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 
-    // One syringe's worth, not two.
-    expect((hoarder.seen[0]?.attackerTerritory?.unitOffensePercent ?? 0) - before).toBe(
-      BOOST.offensePercent,
+    const opened = stack.seen.map(
+      (input) => (input.attackerTerritory?.unitOffensePercent ?? 0) - before,
     );
-    // ...and the other one is still in the bag rather than billed for and thrown away.
-    expect(hoarder.app.repos.blackMarket.stashFor(hoarder.baseId)).toEqual({ [SYRINGE_ID]: 1 });
+    expect(opened).toHaveLength(2);
+    expect(opened.filter((delta) => delta === BOOST.offensePercent)).toHaveLength(1);
+    expect(opened.filter((delta) => delta === 0)).toHaveLength(1);
+    expect(stack.app.repos.blackMarket.stashFor(stack.baseId)).toEqual({});
+  });
 
-    // Which the next fight then gets, at the same one-crate figure.
-    await fight(hoarder, RAMP);
-    expect((hoarder.seen[1]?.attackerTerritory?.unitOffensePercent ?? 0) - before).toBe(
-      BOOST.offensePercent,
-    );
-    expect(hoarder.app.repos.blackMarket.stashFor(hoarder.baseId)).toEqual({});
+  /** And once it really is gone, the screen will not even let you name it. */
+  it('refuses a crate the crew has already spent', async () => {
+    const stack = await makeStack();
+    stash(stack);
+    await fight(stack, PRESS, SYRINGE_ID);
+    await expect(fight(stack, RAMP, SYRINGE_ID)).rejects.toThrow();
+  });
+
+  /** A crate the crew is not carrying cannot be applied at all. */
+  it('refuses a crate that is not in the bag', async () => {
+    const stack = await makeStack();
+    await expect(fight(stack, PRESS, SYRINGE_ID)).rejects.toThrow();
   });
 
   it('spends it on a loss as well', async () => {
@@ -246,7 +338,35 @@ describe('contraband reaches the fight', () => {
       stack.seen.push(input);
       return skirmishOutcome({ winner: 'defender', log: ['decided'] });
     };
-    await fight(stack);
+    await fight(stack, PRESS, SYRINGE_ID);
     expect(stack.app.repos.blackMarket.stashFor(stack.baseId)).toEqual({});
+  });
+
+  /** And the crate is on the fight's own screen, which is the only place it can now be spent. */
+  it('lists what the crew is carrying under the fight’s boosts', async () => {
+    const stack = await makeStack();
+    stash(stack);
+    await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/declare',
+      headers: auth(stack.token),
+      payload: {
+        target: PRESS,
+        scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
+      },
+    });
+
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/battles',
+      headers: auth(stack.token),
+    });
+    const options = board.json<BattlesResponse>().coming[0]?.boosts ?? [];
+    const crate = options.find((option) => option.id === SYRINGE_ID);
+    expect(crate, 'the syringes should be on the fight’s boost list').toBeDefined();
+    expect(crate?.held).toBe(true);
+    // Already paid for, and it lands on everyone you sent.
+    expect(crate?.cost).toBe(0);
+    expect(crate?.reach).toBe(100);
   });
 });

@@ -267,18 +267,23 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('resource-chip-caps')).toBeVisible();
       await settleFonts(page);
 
-      // Whole, on screen, and on one line with everything else. The name is the one label on this
-      // bar a player chose themselves, so it is also the one that must not be sliced.
-      await expect(page.getByRole('heading', { name: longest })).toBeVisible();
+      // Whole and on screen. The crew name is the one label on this bar a player chose
+      // themselves, so it is also the one that must not be sliced. It reads off the plaque rather
+      // than off a heading now: the bar carries no page heading, and the sign in the middle of it
+      // is a button with two names on it (`FactionPlaque`).
+      const plaque = page.getByTestId('faction-plaque');
+      await expect(plaque).toBeVisible();
+      await expect(plaque).toContainText(longest);
+
+      // The stockpile stays on one line whatever the name does. It is the row read most often, and
+      // a name that reflowed it would cost a tier of the world underneath. The plaque itself may
+      // sit on a second tier below 1500px, which is authored: see the note in `TopHud`.
       const rows = await page.evaluate(() => {
         const bar = document.querySelector('header')!;
-        const items = [
-          ...bar.querySelectorAll('[data-testid^="resource-chip-"], [data-testid^="meter-chip-"]'),
-          ...bar.querySelectorAll('[data-testid="infamy-chip"], .hud-overseer'),
-        ];
+        const items = [...bar.querySelectorAll('[data-testid^="resource-chip-"]')];
         return new Set(items.map((i) => Math.round(i.getBoundingClientRect().top))).size;
       });
-      expect(rows, 'a legal faction name wrapped the standing bar').toBe(1);
+      expect(rows, 'a legal faction name wrapped the stockpile').toBe(1);
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
     });
@@ -286,7 +291,7 @@ for (const size of VIEWPORTS) {
     test(`base view at ${tag}`, async ({ page }) => {
       await installApi(page, me);
       await page.goto('/game/base');
-      await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
+      await expect(page.getByTestId('faction-plaque')).toContainText('The Ninth Street Crew');
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       /*
@@ -355,7 +360,7 @@ for (const size of VIEWPORTS) {
     test(`missions page at ${tag}`, async ({ page }) => {
       await installApi(page, me);
       await page.goto('/game/missions');
-      await expect(page.getByRole('heading', { name: 'Missions' })).toBeVisible();
+      await expect(page.getByTestId('board-area')).toBeVisible();
       await settleFonts(page);
 
       // The inner board: one area at a time, with the arrows either side of its name (§E4).
@@ -451,7 +456,7 @@ for (const size of VIEWPORTS) {
     test(`late-game progression readout at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/base');
-      await expect(page.getByRole('heading', { name: 'The Ninth Street Crew' })).toBeVisible();
+      await expect(page.getByTestId('faction-plaque')).toContainText('The Ninth Street Crew');
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
 
@@ -493,37 +498,120 @@ for (const size of VIEWPORTS) {
       // HUD, which only the screenshot caught (MOU-207).
       await installApi(page, lateGame);
       await page.goto('/game/bar');
-      await expect(page.getByRole('heading', { name: 'The Bar' })).toBeVisible();
+      await expect(page.getByTestId('bar-room')).toBeVisible();
       await settleFonts(page);
-
-      // §H8: the slot counter is the one figure on this screen that has to stay legible at the
-      // narrowest viewport, and a full crew is what makes it widest.
-      await expect(page.getByText('recruits', { exact: false }).first()).toBeInViewport({
-        ratio: 1,
-      });
 
       /*
        * Every label on this screen is authored copy at a fixed size, so an ellipsis is a permanent
        * defect rather than a fat-content edge case: the §E4 breakdown shipped cut exactly this
        * way. The §H4 disposition tags and §H5 band tags are the narrowest of them.
        */
-      const clipped = await page.evaluate<string[]>(() =>
-        [...document.querySelectorAll<HTMLElement>('article span, article p, li span, li p')]
-          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
-          .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
-      );
-      expect(clipped, `cut text on the Bar: ${clipped.join(' | ')}`).toEqual([]);
+      const clipped = async () =>
+        page.evaluate<string[]>(() =>
+          [...document.querySelectorAll<HTMLElement>('span, p, h2, h3')]
+            .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+            .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+        );
 
+      // §H8: the slot counter is the one figure on this screen that has to stay legible at the
+      // narrowest viewport, and a full crew is what makes it widest. It is on the door to the crew
+      // now rather than on a panel heading, which is the only place it still appears unopened.
+      await expect(page.getByTestId('open-crew')).toBeInViewport({ ratio: 1 });
+
+      const cutRoom = await clipped();
+      expect(cutRoom, `cut text on the Bar: ${cutRoom.join(' | ')}`).toEqual([]);
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/bar-${tag}.png` });
 
-      // The roster is the §H1-§H4 surface and sits below the fold, so `fullPage` cannot reach it.
-      const lastCard = page.getByRole('article').filter({ hasText: 'Juno Petrosyan' }).first();
-      await lastCard.scrollIntoViewIfNeeded();
+      /*
+       * The file in the middle, for the person with the longest name in the fixture.
+       *
+       * The room used to be a grid of ten cards below the fold, so this shot had to scroll to
+       * reach the last of them. One is shown at a time now, so what this asserts instead is that
+       * *choosing* somebody off the rail draws their sheet whole: the §B6 thirty-three attributes
+       * in four columns is the widest thing this screen ever renders.
+       */
+      const longest = page.getByTestId('bar-room').getByRole('button').last();
+      await longest.click();
       await settleFonts(page);
+      const cutFile = await clipped();
+      expect(cutFile, `cut text on a recruit's file: ${cutFile.join(' | ')}`).toEqual([]);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/bar-roster-${tag}.png` });
+
+      /* The two screens behind the doors on the strip. Both were panels on this page, so neither
+         was ever shot on its own; a modal has its own width and its own scroller. */
+      await page.getByTestId('open-payroll').click();
+      await expect(page.getByTestId('payroll-book')).toBeVisible();
+      await settleFonts(page);
+      const cutPayroll = await clipped();
+      expect(cutPayroll, `cut text in the payroll book: ${cutPayroll.join(' | ')}`).toEqual([]);
+      await page.screenshot({ path: `screenshots/visual/bar-payroll-${tag}.png` });
+      await page.keyboard.press('Escape');
+
+      await page.getByTestId('open-crew').click();
+      await expect(page.getByTestId('crew-list')).toBeVisible();
+      await settleFonts(page);
+      const cutCrew = await clipped();
+      expect(cutCrew, `cut text in the crew list: ${cutCrew.join(' | ')}`).toEqual([]);
+      await page.screenshot({ path: `screenshots/visual/bar-crew-${tag}.png` });
+    });
+
+    /**
+     * The Bar is one screen, and the room is the only thing in it that moves.
+     *
+     * It was a scrolling column of three panels, so the recruits a player came for started two
+     * screens down. The two things that are about the *crew* rather than the room are behind doors
+     * now, and what is left is a fixed frame with a rail in it.
+     *
+     * The order claim is the load-bearing one. "Nothing scrolls" nearly passes on its own, because
+     * the file pane has its own overflow and would quietly absorb what the page would have
+     * scrolled: the rail sitting beside the file rather than above it cannot be faked that way.
+     */
+    test(`the bar holds its shape at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/bar');
+      await expect(page.getByTestId('bar-room')).toBeVisible();
+      await settleFonts(page);
+
+      const box = async (id: string) => {
+        const rect = await page.getByTestId(id).boundingBox();
+        if (!rect) throw new Error(`${id} has no box`);
+        return rect;
+      };
+      const room = await box('bar-room');
+      const file = await box('bar-file');
+      expect(file.x, 'the file belongs to the right of the room').toBeGreaterThan(
+        room.x + room.width - 1,
+      );
+
+      const scrolled = await page.evaluate(
+        () =>
+          document.documentElement.scrollHeight > document.documentElement.clientHeight + 1 ||
+          document.body.scrollHeight > document.body.clientHeight + 1,
+      );
+      expect(scrolled, 'the Bar itself scrolled').toBe(false);
+
+      /*
+       * Clicking a name in the room draws that person in the middle, which is the whole
+       * interaction the rework exists for.
+       *
+       * Read off the row's own heading rather than the button's text: a button's `textContent` is
+       * everything inside it run together, so matching on it would compare `Emeric Voskuijlen` to
+       * `Emeric VoskuijlenRuthless1240/wk` and fail on a screen that is working.
+       */
+      // Named, not `getByRole('heading')`: the attribute sheet's four group titles are headings
+      // too, so the role selector resolves to five elements.
+      const heading = page.getByTestId('recruit-name');
+      const first = await heading.textContent();
+      const second = page.getByTestId('bar-room').getByRole('button').nth(1);
+      const name = (await second.locator('.font-stamp').first().textContent())?.trim() ?? '';
+      expect(name.length, 'the room should name people').toBeGreaterThan(2);
+      expect(name, 'the second name should not be the one already open').not.toBe(first?.trim());
+
+      await second.click();
+      await expect(heading).toHaveText(name);
     });
 
     /*
@@ -538,33 +626,110 @@ for (const size of VIEWPORTS) {
     test(`research at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/research');
-      await expect(page.getByRole('heading', { name: 'The Archive' })).toBeVisible();
+      await expect(page.getByTestId('research-sections')).toBeVisible();
       await settleFonts(page);
 
-      // Every label here is authored copy at a fixed size, so an ellipsis is a permanent defect
-      // rather than a fat-content edge case. The §F4 lock notice and the fact tags are narrowest.
-      const clipped = await page.evaluate<string[]>(() =>
-        [...document.querySelectorAll<HTMLElement>('span, p, h3, option, label')]
-          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
-          .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
-      );
-      expect(clipped, `cut text on the research page: ${clipped.join(' | ')}`).toEqual([]);
+      /*
+       * The sweep runs on all three sections, not just the one the page opens on.
+       *
+       * The page used to be five panels in one scrolling column, so a single pass saw everything.
+       * It is a rail and a workspace now: two thirds of the screen's copy is behind a door, and a
+       * sweep of the desk alone would certify a third of the page and call it the page.
+       */
+      const clipped = async () =>
+        page.evaluate<string[]>(() =>
+          [...document.querySelectorAll<HTMLElement>('span, p, h3, option, label')]
+            .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+            .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+        );
 
+      const box = async (id: string) => {
+        const rect = await page.getByTestId(id).boundingBox();
+        if (!rect) throw new Error(`${id} has no box`);
+        return rect;
+      };
+
+      // The desk, on each of its three benches.
+      for (const bench of ['investigate', 'develop', 'modify']) {
+        await page.getByTestId(`research-bench-${bench}`).click();
+        await settleFonts(page);
+        const cut = await clipped();
+        expect(cut, `cut text on the ${bench} bench: ${cut.join(' | ')}`).toEqual([]);
+      }
+      await page.getByTestId('research-bench-investigate').click();
+      await settleFonts(page);
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/research-${tag}.png` });
 
       /*
-       * What the crew knows sits below the fold on the short viewports, and `fullPage` cannot
-       * reach it through the page's own scroller. Centred explicitly rather than with
-       * `scrollIntoViewIfNeeded`, which treats a heading already peeking over the fold as in view
-       * and leaves the panel it introduces entirely out of the shot.
+       * The Lab's tree, and the one thing on it that has been wrong before.
+       *
+       * Every rung prints what it does and what it costs, and both used to leak the field name
+       * instead of the words: `+8% PRODUCTIONPERCENT` and `140 highQualityMetal`. The effect line
+       * was worse than a typo, because the *fixture* built it differently from the route, so every
+       * screenshot of this page certified a string the running game never produced.
+       *
+       * Caught by shape rather than by matching a list of names: a raw key is camelCase or a
+       * SCREAMING run with no spaces, and neither is anything a person writes.
        */
+      /*
+       * The bench strip does not move when the bench does.
+       *
+       * It used to live *inside* the scrolling workspace, and the modification bench is sixty-five
+       * cards: scrolling down to read them carried the three buttons off the top of the screen, so
+       * the controls for choosing a bench disappeared the moment you used the bench you chose. At
+       * 1280x720 the strip ended up at y=-77, which is off the sheet entirely.
+       *
+       * Measured against the *frame* rather than merely asserted visible: Playwright counts an
+       * element clipped out of a scroll container as visible, so `toBeVisible` passed throughout
+       * the bug.
+       *
+       * Scrolled with the **wheel**, over the middle of the sheet, rather than by calling
+       * `scrollTo` on the element this test believes is the scroller. That belief is exactly what
+       * regressed: moving the overflow one level up the tree reintroduces the bug and leaves a
+       * `scrollTo` on the old node doing nothing, so the gate passes on the broken build. A wheel
+       * scrolls whatever is actually scrollable under the pointer, which is also what a player
+       * does.
+       */
+      await page.getByTestId('research-bench-modify').click();
+      await settleFonts(page);
+      const stripBefore = await box('research-benches');
+      const sheet = await box('research-workspace');
+      await page.mouse.move(sheet.x + sheet.width / 2, sheet.y + sheet.height / 2);
+      for (let turn = 0; turn < 12; turn += 1) await page.mouse.wheel(0, 400);
+      await page.waitForTimeout(200);
+      const stripAfter = await box('research-benches');
+      expect(stripAfter.y, 'the bench strip scrolled away with its own content').toBe(
+        stripBefore.y,
+      );
+      await expect(page.getByTestId('research-benches')).toBeInViewport({ ratio: 1 });
+      await page.getByTestId('research-bench-investigate').click();
+
+      await page.getByTestId('research-section-programmes').click();
+      await settleFonts(page);
+      const raw = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('[data-testid^="tech-track-"] p')]
+          .map((el) => el.textContent ?? '')
+          .filter((text) => /\b(?:[a-z]+[A-Z]|[A-Z]{6,})[A-Za-z]*\b/.test(text)),
+      );
+      expect(raw, `a field name reached the Lab's tree: ${raw.join(' | ')}`).toEqual([]);
+      const cutTree = await clipped();
+      expect(cutTree, `cut text on the Lab's tree: ${cutTree.join(' | ')}`).toEqual([]);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/research-programmes-${tag}.png` });
+
+      // And the files, which is where the fat fixture's longest labels live.
+      await page.getByTestId('research-section-the-files').click();
+      await expect(page.getByTestId('research-file')).toBeVisible();
+      await settleFonts(page);
       const pairings = page.getByText('What goes with what', { exact: true });
       await pairings.evaluate((el) => el.scrollIntoView({ block: 'center' }));
       await expect(pairings).toBeInViewport({ ratio: 1 });
       await settleFonts(page);
+      const cutFiles = await clipped();
+      expect(cutFiles, `cut text on the files: ${cutFiles.join(' | ')}`).toEqual([]);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/research-facts-${tag}.png` });
     });
@@ -578,9 +743,10 @@ for (const size of VIEWPORTS) {
     test(`units at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/units');
-      await expect(
-        page.getByRole('heading', { name: "It's the suffering that brings us together." }),
-      ).toBeVisible();
+      // The line is a quotation now rather than the page's heading, which is what it always read
+      // as: every screen the scenery switcher leads to opens on one instead of repeating its own
+      // name back at the player.
+      await expect(page.getByTestId('unit-catalogue')).toBeVisible();
       await settleFonts(page);
 
       /*
@@ -709,7 +875,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('training-in-flight')).toBeVisible();
       await settleFonts(page);
 
-      // Thirty-five drills in four columns is the one screen in the game where a label has real
+      // Thirty-three drills in four columns is the one screen in the game where a label has real
       // competition for its width.
       const clipped = await page.evaluate<string[]>(() =>
         [...document.querySelectorAll<HTMLElement>('span, p, h3')]
@@ -718,10 +884,123 @@ for (const size of VIEWPORTS) {
       );
       expect(clipped, `cut text on the training page: ${clipped.join(' | ')}`).toEqual([]);
 
+      /*
+       * The rating gauges are actually drawn, and drawn to the rating.
+       *
+       * Every row carries a painted stroke along its bottom edge as long as the rating is out of a
+       * hundred, and it is the thing that stops thirty-three rows of `label ..... number` being a
+       * spreadsheet. It is also invisible to every other assertion on this page: it has no text, so
+       * the clipping sweep cannot see it, and it overflows nothing, so the layout gates cannot
+       * either. It shipped broken once, as a 3px nick at the right of every row, because
+       * `.paint-track` sets `position: relative` itself and beat the `absolute` utility.
+       *
+       * Measured rather than merely counted: a track that has collapsed to its content is the
+       * exact failure, and a track that is present but 3px wide passes any "is it there" check.
+       */
+      const gauges = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll<HTMLElement>('[data-testid^="drill-"]')];
+        return rows.map((row) => {
+          const track = row.querySelector<HTMLElement>('.paint-track');
+          const fill = row.querySelector<HTMLElement>('.paint-fill');
+          return {
+            row: row.getBoundingClientRect().width,
+            track: track?.getBoundingClientRect().width ?? 0,
+            fill: fill?.getBoundingClientRect().width ?? 0,
+          };
+        });
+      });
+      expect(gauges.length, 'no drill rows on the training page').toBeGreaterThan(20);
+      for (const gauge of gauges) {
+        // The track runs the width of its row, give or take the row's own border.
+        expect(gauge.track, 'a rating gauge collapsed to its content').toBeGreaterThan(
+          gauge.row - 6,
+        );
+        // And the pigment in it is a fraction of that, never the whole track: nobody in the
+        // fixture is at a hundred, so a full bar would mean the width is not being read at all.
+        expect(gauge.fill).toBeGreaterThan(0);
+        expect(gauge.fill).toBeLessThan(gauge.track);
+      }
+
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/training-${tag}.png` });
+    });
+
+    /**
+     * The shape of the console: what is where, and what moves.
+     *
+     * Training is a console rather than a document. The page used to stack a note, the day and the
+     * sheet inside a scrolling body, which put a hundred and ten pixels of standing chrome above
+     * the only thing anybody comes here to read and meant picking the fourth officer scrolled the
+     * sheet off the top of the screen to do it.
+     *
+     * Three claims, and the *order* one is the load-bearing one. "Nothing scrolls" on its own is
+     * nearly free: it passed on a build with the fixed frame taken out, because the sheet's own
+     * overflow quietly absorbed what the page would have scrolled. The vertical order of the rail
+     * cannot be faked that way.
+     */
+    test(`the training console keeps its shape at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/training');
+      await expect(page.getByTestId('training-subjects')).toBeVisible();
+      await settleFonts(page);
+
+      const box = async (id: string) => {
+        const rect = await page.getByTestId(id).boundingBox();
+        if (!rect) throw new Error(`${id} has no box`);
+        return rect;
+      };
+
+      // 1. The rail reads top to bottom: the crew, then the day, then the rule of the room.
+      //
+      // Measured on the day's *card* rather than on the tally strokes inside it: the strokes are
+      // indented past their own label, so comparing them to the note's left edge would be
+      // comparing an inner box to an outer one and failing on a layout that is correct.
+      const roster = await box('training-subjects');
+      const day = await box('training-day');
+      const note = await box('info-note');
+      expect(day.y, 'the day belongs under the roster').toBeGreaterThan(roster.y);
+      expect(note.y, 'the note belongs under the day').toBeGreaterThan(day.y);
+      // All three in the same column, left-aligned with each other rather than merely stacked.
+      expect(Math.abs(note.x - day.x)).toBeLessThan(12);
+      expect(Math.abs(day.x - roster.x)).toBeLessThan(12);
+
+      // 2. The rail sits beside the sheet, not above it: one row, two columns.
+      const sheet = await box('training-sheet');
+      expect(sheet.x, 'the sheet belongs to the right of the rail').toBeGreaterThan(
+        roster.x + roster.width - 1,
+      );
+
+      /*
+       * 3. The frame fills the screen, and the note is pinned to the foot of it.
+       *
+       * This is the assertion that catches the fixed frame being taken out. Without it the page
+       * falls back to stacking at content height: the order above still holds, the page still
+       * does not scroll (the sheet's own overflow absorbs it), and every other check here passes
+       * on a layout where the note has floated up into the middle of the screen.
+       */
+      const frame = await box('page-sheet');
+      const floor = frame.y + frame.height;
+      expect(
+        floor - (note.y + note.height),
+        'the note is not at the foot of the rail',
+      ).toBeLessThan(48);
+      expect(floor - (sheet.y + sheet.height), 'the sheet does not reach the floor').toBeLessThan(
+        48,
+      );
+
+      // 4. The page itself does not scroll, and the roster is a scrolling region.
+      const shape = await page.evaluate(() => ({
+        page:
+          document.documentElement.scrollHeight > document.documentElement.clientHeight + 1 ||
+          document.body.scrollHeight > document.body.clientHeight + 1,
+        roster: getComputedStyle(
+          document.querySelector('[data-testid="training-subjects"]') as HTMLElement,
+        ).overflowY,
+      }));
+      expect(shape.page, 'the training page itself scrolled').toBe(false);
+      expect(shape.roster, 'the roster is not a scrolling region').toBe('auto');
     });
 
     /** The Overseer's own file, reached by clicking the identity in the HUD. */
@@ -743,6 +1022,32 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/overseer-profile-${tag}.png` });
+
+      /*
+       * The file is one screen, and the person on it is legible at every height.
+       *
+       * The identity block sits under a 3:4 portrait at the rail's full width, which is 405px tall:
+       * on a 720-tall laptop that left nothing under it and the name was cut in half at the panel's
+       * own scroll edge. `toBeVisible` is no use for that class of defect, because an element
+       * clipped out of a scroll container still counts as visible, so the name is measured against
+       * the viewport instead.
+       */
+      await expect(page.getByTestId('overseer-name')).toBeInViewport({ ratio: 1 });
+
+      const shape = await page.evaluate(() => {
+        const rect = (id: string) =>
+          document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect() ?? null;
+        return {
+          scrolled:
+            document.documentElement.scrollHeight > document.documentElement.clientHeight + 1 ||
+            document.body.scrollHeight > document.body.clientHeight + 1,
+          name: rect('overseer-name'),
+          body: rect('file-body'),
+        };
+      });
+      expect(shape.scrolled, "the overseer's file scrolled as a page").toBe(false);
+      // The rail is beside the numbers rather than above them: one row, two columns.
+      expect(shape.body?.x ?? 0).toBeGreaterThan((shape.name?.x ?? 0) + (shape.name?.width ?? 0));
     });
 
     /**

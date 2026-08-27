@@ -69,6 +69,24 @@ describe('unit upgrade slots', () => {
   });
 
   /**
+   * The one assumption a mission makes about a fitted unit, stated where it can be checked.
+   *
+   * `missionCarry` reads `lootCapacity` off the **catalogue**, not off the upgraded sheet, because
+   * a force is a bag of unit ids and has no loadout to fold. That is correct exactly while no
+   * upgrade touches the bag: the moment one does, the roster would promise a carry the mission
+   * does not honour, silently, and a payout would be left on the floor with no figure on any
+   * screen disagreeing.
+   */
+  it('has no upgrade that changes what a unit can carry, which missions rely on', () => {
+    for (const spec of UNIT_UPGRADES) {
+      expect(
+        spec.effect.lootCapacity,
+        `${spec.id} moves lootCapacity: teach missionCarry about loadouts before shipping it`,
+      ).toBeUndefined();
+    }
+  });
+
+  /**
    * Three of the nine, not nine of the nine. Pinned as a number rather than as a shape because the
    * cap is the design: raise `UNIT_UPGRADE_SLOTS` and this says so.
    */

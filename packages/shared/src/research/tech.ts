@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { EffectChannel } from '../crew/effects.js';
+import { CHANNEL_LABELS, type EffectChannel } from '../crew/effects.js';
 import type { ItemId } from '../items/catalog.js';
 import type { ItemCost } from '../items/inventory.js';
 import type { PartialResources } from '../resources.js';
@@ -163,7 +163,7 @@ const SPECS: readonly TechSpec[] = [
     name: 'Field Triage',
     description: 'Deciding fast who can wait is most of the job.',
     requiresLabLevel: 2,
-    cost: { caps: 1100, scrap: 500, food: 400 },
+    cost: { caps: 1100, scrap: 500, supplies: 400 },
     parts: {},
     channel: 'casualtyRecoveryPercent',
     magnitude: 10,
@@ -314,6 +314,22 @@ export function techRefusal(
   if (!affordable(spec.cost)) return 'cannot_afford';
   if (!hasParts(spec.parts)) return 'missing_parts';
   return null;
+}
+
+/**
+ * What one programme does, in the words a player reads.
+ *
+ * Here rather than at the route, because it was written twice: the route folded the channel
+ * through `CHANNEL_LABELS` and the e2e fixture printed the raw key, so every screenshot of the Lab
+ * said `+8% PRODUCTIONPERCENT` while the running game said `+8% production speed`. A fixture that
+ * disagrees with the server is a fixture that certifies the wrong screen, and a format string is
+ * exactly the kind of thing nobody notices two copies of.
+ *
+ * `Flat` channels are points rather than percentages: the suffix is what says which.
+ */
+export function describeTechEffect(spec: TechSpec): string {
+  const unit = spec.channel.endsWith('Flat') ? '' : '%';
+  return `+${spec.magnitude}${unit} ${CHANNEL_LABELS[spec.channel].label.toLowerCase()}`;
 }
 
 /**

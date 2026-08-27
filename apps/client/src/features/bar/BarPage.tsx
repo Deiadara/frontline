@@ -18,12 +18,15 @@ import {
   type OfficerRole,
   type TraitId,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { Button } from '../../components/ui/Button';
 import { DescribedTag } from '../../components/ui/DescribedTag';
+import { Icon, type IconName } from '../../components/ui/Icon';
+import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
+import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { useBar, useHireRecruit, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
 import { NegotiationDialog } from './NegotiationDialog';
@@ -66,17 +69,32 @@ function Tag({ label, className = TAG_NEUTRAL }: { label: string; className?: st
   );
 }
 
-/** §H5: the meter itself, so "too low" and "high" are visible rather than inferred. */
-function AlignmentMeter({ value, band }: { value: number; band: AlignmentBand }) {
-  const fill =
-    band === 'leaving' ? 'bg-oxblood-300' : band === 'devoted' ? 'bg-bile-300' : 'bg-brass-300';
+/**
+ * §H5: the meter itself, so "too low" and "high" are visible rather than inferred.
+ *
+ * On the same four bands every other 0-100 rating in the game is read on (`lib/rating.ts`) rather
+ * than on the three §H5 bands. Those are still here and still mean what they meant: the *word*
+ * beside the meter is `Devoted` or `Threatening to walk`, and that is a domain rule about what
+ * happens next. Colouring the bar by it as well spent the one channel a player has already learned
+ * to read as "how big is this number" on a fact the tag was already carrying.
+ */
+function AlignmentMeter({ value }: { value: number }) {
+  const rating = Math.round(value);
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <div className="h-1 min-w-0 flex-1 overflow-hidden bg-surface-700">
-        <div className={cn('h-full', fill)} style={{ width: `${Math.round(value)}%` }} />
-      </div>
-      <span className="shrink-0 font-display text-[11px] font-semibold tabular-nums text-ink-200">
-        {Math.round(value)}
+      <span className="paint-track h-2 min-w-0 flex-1 overflow-hidden rounded-sm">
+        <span
+          className={cn('paint-fill block h-full', RATING_FILL[ratingBand(rating)])}
+          style={{ width: `${ratingPercent(rating)}%` }}
+        />
+      </span>
+      <span
+        className={cn(
+          'shrink-0 font-display text-[12px] font-bold tabular-nums',
+          RATING_TEXT[ratingBand(rating)],
+        )}
+      >
+        {rating}
       </span>
     </div>
   );
@@ -150,6 +168,73 @@ function coldFor(recruit: BarRecruit, now: Date): string | null {
  * Nothing on this card says what role they would be *good* at: the player reads the sheet and
  * decides, which is what §B8 asks for. The role picker is a hiring choice (§C2), not a hint.
  */
+/**
+ * One name on the rail: who they are, and the one word that says whether to sit down.
+ *
+ * The room used to be a grid of full cards, each carrying the whole thirty-three-attribute sheet.
+ * Ten of those is a page nobody reads top to bottom: the question a player is answering as they
+ * scan the room is "which of these is worth an evening", and the sheet is what they open to answer
+ * "is this one". So the rail carries the name, the post they would take and the price, and the
+ * sheet lives in the middle of the screen where it has the width to be read.
+ */
+function RecruitRow({
+  recruit,
+  selected,
+  now,
+  onSelect,
+}: {
+  recruit: BarRecruit;
+  selected: boolean;
+  now: Date;
+  onSelect: () => void;
+}) {
+  const cold = coldFor(recruit, now);
+  const state = recruit.hired ? (
+    <span className="text-bile-300">Signed</span>
+  ) : cold !== null ? (
+    <span className="text-oxblood-300">Back in {cold}</span>
+  ) : !recruit.assessment.interested ? (
+    <span className="text-oxblood-300">Not talking</span>
+  ) : (
+    <span className="tabular-nums text-brass-300">{recruit.askingWage ?? 0}/wk</span>
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      data-testid={`recruit-row-${recruit.id}`}
+      className={cn(
+        // The same lit left edge the Training and Research rails use.
+        'flex w-full items-center gap-3 border-l-[3px] py-2.5 pl-2.5 pr-3 text-left transition-all duration-150',
+        selected
+          ? 'border-brass-300 bg-brass-300/10'
+          : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm [&_svg]:h-5 [&_svg]:w-5',
+          selected ? 'text-brass-300' : 'text-ink-300',
+        )}
+      >
+        <Icon name="crew" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block break-words font-stamp text-[13px] leading-[1.15] text-ink-100">
+          {recruit.name}
+        </span>
+        <span className="block font-display text-[10px] uppercase tracking-[0.12em] text-ink-300">
+          {MORAL_COMPASS_SPECS[recruit.moralCompass].label}
+        </span>
+      </span>
+      <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.12em]">{state}</span>
+    </button>
+  );
+}
+
 function RecruitCard({
   recruit,
   filledRoles,
@@ -170,11 +255,16 @@ function RecruitCard({
 
   return (
     <article
-      className="flex min-w-0 flex-col gap-3 border border-surface-700 bg-surface-950 p-4"
+      className="card-paper washed rivets edge-lit flex min-w-0 flex-col gap-3 rounded-sm border border-surface-500/70 p-4 shadow-panel"
       data-testid={`recruit-${recruit.id}`}
     >
       <header className="flex min-w-0 items-start justify-between gap-3">
-        <h3 className="min-w-0 break-words font-display text-sm font-semibold uppercase tracking-[0.12em] text-ink-100">
+        {/* The stamped face and a real size: this is a *name*, and it is the heading of the one
+            file on screen rather than one card of ten. */}
+        <h3
+          className="min-w-0 break-words font-stamp text-[20px] leading-tight text-ink-100"
+          data-testid="recruit-name"
+        >
           {recruit.name}
         </h3>
         {recruit.hired ? (
@@ -188,7 +278,10 @@ function RecruitCard({
 
       <Disposition ambition={recruit.ambition} moralCompass={recruit.moralCompass} />
 
-      <AttributeSheet attributes={recruit.attributes} />
+      {/* Four columns, because this sheet now has a full-width pane to itself. At two, each
+          group column is ~590px wide and the fixed short track strands at the far right with a
+          hand's width of nothing between it and its label. */}
+      <AttributeSheet attributes={recruit.attributes} columns={4} />
 
       {recruit.traits.length > 0 && (
         <div className="flex min-w-0 flex-wrap gap-1.5">
@@ -307,81 +400,102 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
   const [confirming, setConfirming] = useState(false);
   const affordable = caps >= officer.dismissalFee;
   return (
-    <li className="flex min-w-0 flex-col gap-2 px-4 py-3">
-      <div className="flex min-w-0 items-baseline justify-between gap-3">
-        <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.12em] text-ink-100">
-          {commander.name}
-        </span>
-        <Tag label={ALIGNMENT_BAND_LABELS[officer.band]} className={BAND_STYLE[officer.band]} />
-      </div>
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <span className="min-w-0 truncate font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-          {OFFICER_ROLE_LABELS[commander.role]} · Lv {commander.level}
-        </span>
-        <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-          <span className="tabular-nums text-ink-200">{officer.weeklyWage}</span> caps/wk
-        </span>
-      </div>
-      <AlignmentMeter value={commander.alignment} band={officer.band} />
-      {officer.skillBonus > 0 && (
-        <p className="min-w-0 break-words font-display text-[10px] uppercase tracking-[0.14em] text-bile-300">
-          +{officer.skillBonus} to {officer.bonusAttributes.join(', ')}
-        </p>
-      )}
-      {officer.threateningToLeave && (
-        <p className="min-w-0 break-words text-[12px] leading-relaxed text-oxblood-300">
-          Says they are done unless something changes.
-        </p>
-      )}
-      {commander.unspentPoints > 0 && (
-        <p className="min-w-0 break-words font-display text-[10px] uppercase tracking-[0.14em] text-brass-300">
-          {commander.unspentPoints} point{commander.unspentPoints === 1 ? '' : 's'} to assign
-        </p>
-      )}
-      {/*
-       * §H7: letting somebody go, behind a confirmation.
-       *
-       * Two clicks because it is expensive and irreversible: their slice of the book comes back
-       * immediately and five weeks of it leaves the stockpile on the spot. The figure is on the
-       * button rather than in a dialog, so the price is read before the second click rather than
-       * after it.
-       */}
-      {confirming ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-surface-700 pt-2">
-          <span className="font-body text-[12px] leading-snug text-ink-200">
-            {officer.dismissalFee.toLocaleString()} caps to end it, paid now.
+    <li className="flex min-w-0 gap-3 px-4 py-3">
+      {/* A plated mark down the left, so a roster of thirteen reads as a list of people rather
+          than as thirteen paragraphs. */}
+      <span
+        aria-hidden
+        className="icon-plate mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-6 [&_svg]:w-6"
+      >
+        <Icon name="crew" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 items-baseline justify-between gap-3">
+          <span className="min-w-0 break-words font-stamp text-[15px] leading-tight text-ink-100">
+            {commander.name}
           </span>
-          <Button
-            size="sm"
-            variant="danger"
-            disabled={!affordable || release.isPending}
-            onClick={() => release.mutate({ officerId: commander.id })}
-            data-testid={`confirm-release-${commander.id}`}
-          >
-            {release.isPending ? 'Ending it…' : 'Let them go'}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
-            Keep them
-          </Button>
-          {!affordable && (
-            <span className="font-body text-[12px] text-oxblood-300">You cannot cover it.</span>
-          )}
+          <Tag label={ALIGNMENT_BAND_LABELS[officer.band]} className={BAND_STYLE[officer.band]} />
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          data-testid={`release-${commander.id}`}
-          className="self-start font-display text-[10px] uppercase tracking-[0.16em] text-ink-300 transition-colors hover:text-oxblood-300"
-        >
-          Let them go
-        </button>
-      )}
-      {release.error !== null && (
-        <p role="alert" className="font-body text-[12px] text-oxblood-300">
-          {release.error.message}
-        </p>
-      )}
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+            {OFFICER_ROLE_LABELS[commander.role]} · Lv {commander.level}
+          </span>
+          <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
+            <span className="tabular-nums text-ink-200">{officer.weeklyWage}</span> caps/wk
+          </span>
+        </div>
+        <AlignmentMeter value={commander.alignment} />
+        {/* What they are worth on a job, as chips rather than a comma-separated sentence: it is
+            three attributes and a figure, which is a set of facts and not a paragraph. */}
+        {officer.skillBonus > 0 && (
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            {officer.bonusAttributes.map((name) => (
+              <span
+                key={name}
+                className="rounded-sm border border-bile-300/50 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.12em] text-bile-300"
+              >
+                {/* Named off the shared table: `bonusAttributes` carries field names, and two of
+                    them do not title-case to their real spelling. */}
+                {ATTRIBUTE_LABELS[name]} <span className="tabular-nums">+{officer.skillBonus}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        {officer.threateningToLeave && (
+          <p className="min-w-0 break-words text-[12px] leading-relaxed text-oxblood-300">
+            Says they are done unless something changes.
+          </p>
+        )}
+        {commander.unspentPoints > 0 && (
+          <p className="min-w-0 break-words font-display text-[10px] uppercase tracking-[0.14em] text-brass-300">
+            {commander.unspentPoints} point{commander.unspentPoints === 1 ? '' : 's'} to assign
+          </p>
+        )}
+        {/*
+         * §H7: letting somebody go, behind a confirmation.
+         *
+         * Two clicks because it is expensive and irreversible: their slice of the book comes back
+         * immediately and five weeks of it leaves the stockpile on the spot. The figure is on the
+         * button rather than in a dialog, so the price is read before the second click rather than
+         * after it.
+         */}
+        {confirming ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-surface-700 pt-2">
+            <span className="font-body text-[12px] leading-snug text-ink-200">
+              {officer.dismissalFee.toLocaleString()} caps to end it, paid now.
+            </span>
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={!affordable || release.isPending}
+              onClick={() => release.mutate({ officerId: commander.id })}
+              data-testid={`confirm-release-${commander.id}`}
+            >
+              {release.isPending ? 'Ending it…' : 'Let them go'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+              Keep them
+            </Button>
+            {!affordable && (
+              <span className="font-body text-[12px] text-oxblood-300">You cannot cover it.</span>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            data-testid={`release-${commander.id}`}
+            className="self-start font-display text-[10px] uppercase tracking-[0.16em] text-ink-300 transition-colors hover:text-oxblood-300"
+          >
+            Let them go
+          </button>
+        )}
+        {release.error !== null && (
+          <p role="alert" className="font-body text-[12px] text-oxblood-300">
+            {release.error.message}
+          </p>
+        )}
+      </div>
     </li>
   );
 }
@@ -468,6 +582,136 @@ function EmptyRow({ text }: { text: string }) {
  * The roster is the same for every player on the same UTC day (§H2), which the header says out
  * loud: it is a shared room, not a personalised shortlist.
  */
+/** A door on the top strip: a plated mark, a name, and the one figure behind it. */
+function DeskButton({
+  icon,
+  label,
+  value,
+  tone = 'ink',
+  onOpen,
+  testId,
+}: {
+  icon: IconName;
+  label: string;
+  value: ReactNode;
+  tone?: 'ink' | 'warn';
+  onOpen: () => void;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-testid={testId}
+      className={cn(
+        'door-tile flex items-center gap-2.5 rounded-md border px-3 py-2 transition-all duration-150',
+        'hover:-translate-y-0.5 hover:border-brass-300 focus-visible:outline-none',
+        tone === 'warn' ? 'border-oxblood-500/60' : 'border-surface-500/70',
+      )}
+    >
+      <span aria-hidden className="relative z-[2] text-brass-300 [&_svg]:h-[18px] [&_svg]:w-[18px]">
+        <Icon name={icon} />
+      </span>
+      <span className="relative z-[2] flex flex-col items-start leading-none">
+        <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+          {label}
+        </span>
+        <span className="mt-1 font-display text-[13px] font-bold tabular-nums text-ink-100">
+          {value}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/** §H7: the book, as a screen of its own rather than a panel above the room it governs. */
+function PayrollDialog({
+  ledger,
+  caps,
+  onClose,
+}: {
+  ledger: PayrollLedger | null;
+  caps: number;
+  onClose: () => void;
+}) {
+  return (
+    <Modal onClose={onClose} labelledBy="payroll-dialog-title" className="border-brass-300/30">
+      <div className="flex shrink-0 items-center gap-3 border-b border-surface-600/60 px-5 py-4">
+        <span
+          aria-hidden
+          className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+        >
+          <Icon name="caps" />
+        </span>
+        <h2 id="payroll-dialog-title" className="font-stamp text-[19px] leading-tight text-ink-100">
+          The payroll book
+        </h2>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+      <div className="min-h-0 overflow-y-auto">
+        <PayrollPanel ledger={ledger} caps={caps} />
+      </div>
+    </Modal>
+  );
+}
+
+/** The crew on the books, as a screen of its own. Scrolls: a full roster is thirteen people. */
+function CrewDialog({
+  officers,
+  caps,
+  used,
+  total,
+  loading,
+  onClose,
+}: {
+  officers: readonly BarOfficer[];
+  caps: number;
+  used: number;
+  total: number;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Modal onClose={onClose} labelledBy="crew-dialog-title" size="wide">
+      <div className="flex shrink-0 items-center gap-3 border-b border-surface-600/60 px-5 py-4">
+        <span
+          aria-hidden
+          className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+        >
+          <Icon name="crew" />
+        </span>
+        <h2 id="crew-dialog-title" className="font-stamp text-[19px] leading-tight text-ink-100">
+          Your crew
+        </h2>
+        <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+          <span className={cn('tabular-nums', used >= total ? 'text-warning' : 'text-ink-200')}>
+            {used}
+          </span>
+          <span className="tabular-nums"> / {total}</span> recruits
+        </span>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+      <div className="min-h-0 overflow-y-auto" data-testid="crew-list">
+        {loading ? (
+          <EmptyRow text="Reading the room…" />
+        ) : officers.length === 0 ? (
+          <EmptyRow text="You are drinking alone" />
+        ) : (
+          <ul className="flex flex-col divide-y divide-surface-700">
+            {officers.map((officer) => (
+              <OfficerRow key={officer.commander.id} officer={officer} caps={caps} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 export function BarPage() {
   const barQuery = useBar();
   const hire = useHireRecruit();
@@ -531,101 +775,120 @@ export function BarPage() {
   // against a browser that may be minutes off.
   const serverNow = data ? new Date(data.serverNow) : new Date();
 
+  const [selected, setSelected] = useState<string | null>(null);
+  const [desk, setDesk] = useState<'payroll' | 'crew' | null>(null);
+  // The one in the middle: whatever was clicked, or the first person in the room.
+  const shown = recruits.find((recruit) => recruit.id === selected) ?? recruits[0];
+
   return (
     <PageShell
-      title="The Bar"
-      icon="bar"
-      lede="Same faces in here whoever you are, and every crew in the city is reading the same list. Sign somebody and they walk out of it. For everybody."
+      quote="Everyone in here is for hire. The trick is working out what they are worth before they tell you."
+      wide
+      fills
     >
-      <InfoNote tone="warn" label="How the Bar works">
-        Every crew in the city is reading this same list, and signing somebody takes them off it for
-        all of them. You get one signature a day. So the question is never whether you can afford
-        this person. It is whether they are the one worth spending today on.
-      </InfoNote>
-
       {/*
-       * §H7: the payroll book, above the room it governs.
+       * One screen: the room down the left, whoever is being read in the middle, and the two
+       * things that are *about the crew rather than the room* behind doors on the strip.
        *
-       * Its own panel rather than a line on the header, because it is the constraint every other
-       * decision on this screen answers to: what a crew can offer is not what it has in the bank,
-       * it is what is left of this. Drawn as a bar with both figures on it, and with the one
-       * control that moves it, so the answer to "I cannot afford anybody" is on the same screen
-       * as the problem.
+       * It was a scrolling column of three panels, and the recruits were the third of them: ten
+       * cards, each carrying the whole thirty-three-attribute sheet, so the room a player came
+       * here for started two screens down and the sheet they came to read was in a 61px column.
        */}
-      <Panel title="The payroll book">
-        <PayrollPanel ledger={data?.payroll ?? null} caps={data?.caps ?? 0} />
-      </Panel>
-
-      <Panel
-        title="Your Crew"
-        action={
-          <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-            <span className={cn('tabular-nums', full ? 'text-warning' : 'text-ink-200')}>
-              {data?.slotsUsed ?? 0}
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <DeskButton
+          icon="caps"
+          label="Payroll"
+          value={`${data?.payroll.available ?? 0} left`}
+          onOpen={() => setDesk('payroll')}
+          testId="open-payroll"
+        />
+        <DeskButton
+          icon="crew"
+          label="Your crew"
+          value={`${data?.slotsUsed ?? 0} / ${data?.slotsTotal ?? 0}`}
+          tone={full ? 'warn' : 'ink'}
+          onOpen={() => setDesk('crew')}
+          testId="open-crew"
+        />
+        <span className="ml-auto font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+          {full ? (
+            <span className="text-warning">No room for another</span>
+          ) : signedToday ? (
+            <span className="text-warning" data-testid="daily-hire-limit">
+              Signed somebody today. Back tomorrow
             </span>
-            <span className="tabular-nums"> / {data?.slotsTotal ?? 0}</span> recruits
-          </span>
-        }
-      >
-        {barQuery.isLoading ? (
-          <EmptyRow text="Reading the room…" />
-        ) : officers.length === 0 ? (
-          <EmptyRow text="You are drinking alone" />
-        ) : (
-          <ul className="flex flex-col divide-y divide-surface-700">
-            {officers.map((officer) => (
-              <OfficerRow key={officer.commander.id} officer={officer} caps={data?.caps ?? 0} />
-            ))}
-          </ul>
-        )}
-      </Panel>
+          ) : (
+            <>Tonight, {data?.day ?? ''}</>
+          )}
+        </span>
+        <InfoNote tone="warn" label="How the Bar works">
+          Every crew in the city is reading this same list, and signing somebody takes them off it
+          for all of them. You get one signature a day. So the question is never whether you can
+          afford this person. It is whether they are the one worth spending today on.
+        </InfoNote>
+      </div>
 
-      <Panel
-        title={data ? `Tonight, ${data.day}` : 'Tonight'}
-        action={
-          <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-            {full ? (
-              <span className="text-warning">No room for another</span>
-            ) : signedToday ? (
-              <span className="text-warning" data-testid="daily-hire-limit">
-                Signed somebody today. Back tomorrow
-              </span>
-            ) : (
-              <>
-                Payroll left{' '}
-                <span className="text-ink-200">{data?.payroll.available ?? 0} caps</span>
-              </>
-            )}
-          </span>
-        }
-      >
-        {/*
-         * Two columns only from `xl`. A recruit card carries the whole 32-attribute sheet (§B6),
-         * and at 1024px a two-up grid squeezes its four columns to 61px: enough to ellipsise
-         * `communication` and `marksmanship`, which is fixed copy and so a permanent defect
-         * rather than a fat-content edge case.
-         */}
-        {barQuery.isLoading ? (
-          <EmptyRow text="Reading the room…" />
-        ) : (
-          <div className="grid gap-3 p-4 xl:grid-cols-2">
-            {recruits.map((recruit) => (
-              <RecruitCard
-                key={recruit.id}
-                recruit={recruit}
-                filledRoles={filledRoles}
-                agreed={agreed[recruit.id] ?? null}
-                signedToday={signedToday}
-                payrollLeft={data?.payroll.available ?? 0}
-                full={full}
-                negotiation={negotiationFor(recruit.id)}
-                now={serverNow}
-                onNegotiate={setTalkingTo}
-              />
-            ))}
-          </div>
-        )}
-      </Panel>
+      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <Panel title="In the room" className="min-h-0 flex-1 border border-surface-500/70">
+          {barQuery.isLoading ? (
+            <EmptyRow text="Reading the room…" />
+          ) : (
+            <ul
+              className="min-h-0 flex-1 divide-y divide-surface-700 overflow-y-auto"
+              data-testid="bar-room"
+            >
+              {recruits.map((recruit) => (
+                <li key={recruit.id}>
+                  <RecruitRow
+                    recruit={recruit}
+                    selected={recruit.id === shown?.id}
+                    now={serverNow}
+                    onSelect={() => setSelected(recruit.id)}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+
+        <div className="min-h-0 overflow-y-auto" data-testid="bar-file">
+          {barQuery.isLoading ? (
+            <EmptyRow text="Reading the room…" />
+          ) : shown === undefined ? (
+            <EmptyRow text="Nobody in tonight." />
+          ) : (
+            <RecruitCard
+              recruit={shown}
+              filledRoles={filledRoles}
+              agreed={agreed[shown.id] ?? null}
+              signedToday={signedToday}
+              payrollLeft={data?.payroll.available ?? 0}
+              full={full}
+              negotiation={negotiationFor(shown.id)}
+              now={serverNow}
+              onNegotiate={setTalkingTo}
+            />
+          )}
+        </div>
+      </div>
+
+      {desk === 'payroll' && (
+        <PayrollDialog
+          ledger={data?.payroll ?? null}
+          caps={data?.caps ?? 0}
+          onClose={() => setDesk(null)}
+        />
+      )}
+      {desk === 'crew' && (
+        <CrewDialog
+          officers={officers}
+          caps={data?.caps ?? 0}
+          used={data?.slotsUsed ?? 0}
+          total={data?.slotsTotal ?? 0}
+          loading={barQuery.isLoading}
+          onClose={() => setDesk(null)}
+        />
+      )}
 
       {talking !== undefined && (
         <NegotiationDialog

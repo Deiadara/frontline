@@ -16,6 +16,7 @@ import {
   removeItems,
   spendResources,
   storageCapacity,
+  storageCapacityFor,
   SUPPLY_REFUSAL_TEXT,
   supplyAllowance,
   supplyBoard,
@@ -104,23 +105,35 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
    * code carries a comment about exactly this failure; the vendor had it.
    */
   const discount = standingEffectsFor(repos, base).marketDiscountPercent;
-  const stock = vendorStockFor(day).map((line) => {
-    const left = Math.max(0, line.stock - vendorSoldCount(day, line.id));
-    const price = discountedCaps(line.price, discount);
-    return {
-      line: { ...line, stock: left, price },
-      affordable: left > 0 && base.resources.caps >= price,
-    };
-  });
+  /*
+   * The barrow is empty while he is away, and it is empty **here** rather than on the screen.
+   *
+   * What he has that day is a pure function of the date, so a shut shop that still answered with
+   * its stock was telling every client what would be on the barrow hours before he arrived: a
+   * player who read the response could line up their caps for the one blueprint on it, and one who
+   * only looked at the page could not. That is not a shop with opening hours, it is a shop with a
+   * keyhole. Nobody sees the goods until he is standing there.
+   */
+  const open = vendorOpenAt(now);
+  const stock = open
+    ? vendorStockFor(day).map((line) => {
+        const left = Math.max(0, line.stock - vendorSoldCount(day, line.id));
+        const price = discountedCaps(line.price, discount);
+        return {
+          line: { ...line, stock: left, price },
+          affordable: left > 0 && base.resources.caps >= price,
+        };
+      })
+    : [];
 
-  const open = repos.market.listByStatus('open');
+  const listings = repos.market.listByStatus('open');
   return {
     serverNow: now.toISOString(),
     caps: base.resources.caps,
     resources: base.resources,
     inventory: base.inventory,
     vendor: {
-      open: vendorOpenAt(now),
+      open,
       sessions: vendorSessionsFor(day),
       closesAt: vendorClosesAt(now)?.toISOString() ?? null,
       opensAt: nextVendorOpening(now).toISOString(),
@@ -128,13 +141,14 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
     },
     // Somebody else's public listings, plus counters aimed at this crew. Never its own. Those are
     // `mine`, and a board that showed a crew its own listing twice would read as two offers.
-    offers: open.filter((offer) => offer.sellerBaseId !== base.id && visibleTo(offer, base.id)),
-    mine: open.filter((offer) => offer.sellerBaseId === base.id),
+    offers: listings.filter((offer) => offer.sellerBaseId !== base.id && visibleTo(offer, base.id)),
+    mine: listings.filter((offer) => offer.sellerBaseId === base.id),
     supply: supplyBoard(
       base.level,
       base.resources,
       storageCapacity(base.buildings),
       repos.market.supplyUsed(base.id, day),
+      (key) => storageCapacityFor(base.buildings, key),
     ),
     barterRate: barterRateFor(base.level),
   };
@@ -156,8 +170,8 @@ export function buySupply(
   now: Date,
 ): MarketResult {
   const day = marketDay(now);
-  const capacity = storageCapacity(base.buildings);
-  const allowance = supplyAllowance(base.level, capacity);
+  // The ration is measured against the bulk shelf; the room is measured against this resource's own.
+  const allowance = supplyAllowance(base.level, storageCapacity(base.buildings));
   const used = repos.market.supplyUsed(base.id, day);
 
   const refusal = supplyRefusal({
@@ -165,7 +179,7 @@ export function buySupply(
     units,
     stock: base.resources,
     allowanceLeft: Math.max(0, allowance - used),
-    storageCapacity: capacity,
+    capacity: storageCapacityFor(base.buildings, key),
   });
   if (refusal !== null) return { kind: 'refused', reason: refusal };
 

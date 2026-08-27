@@ -106,7 +106,7 @@ const queued: BuildStructureResponse = {
   },
 };
 
-const BROKE = { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 };
+const BROKE = { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 };
 
 const fetchMock = vi.fn();
 

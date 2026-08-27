@@ -1,5 +1,4 @@
 import {
-  NOTORIETY_BLURBS,
   notorietyTier,
   notorietyUpgradeCost,
   nextNotorietyTier,
@@ -35,7 +34,6 @@ export function FactionLevelChip({
 }) {
   const pct =
     xpToNextLevel > 0 ? Math.max(0, Math.min(100, (xpIntoLevel / xpToNextLevel) * 100)) : 0;
-  const remaining = Math.max(0, xpToNextLevel - xpIntoLevel);
 
   return (
     <HoverCard
@@ -66,31 +64,13 @@ export function FactionLevelChip({
           <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950/80">
             <span className="block h-full rounded-sm bg-hextech-100" style={{ width: `${pct}%` }} />
           </span>
-          <p className="font-body text-[14px] leading-relaxed text-ink-100">
-            {remaining.toLocaleString()} XP to level {level + 1}. Every level widens what the crew
-            may hold: another recruit slot, another structure, another thing the workshop will fit.
-          </p>
-          <WindowSection label="What pays it">
-            <ul className="flex flex-col gap-0.5">
-              {LEVEL_DRIVERS.map((driver) => (
-                <li
-                  key={driver}
-                  className="flex gap-2 font-body text-[13px] leading-snug text-ink-100"
-                >
-                  <span
-                    aria-hidden
-                    className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-hextech-100"
-                  />
-                  {driver}
-                </li>
-              ))}
-            </ul>
-          </WindowSection>
         </InfoWindow>
       }
     >
       <div
-        className="resource-chip flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1"
+        // `px-3` rather than `px-1.5`: the level was set hard against the chip's own edge, which
+        // reads as a number that has run out of room rather than as one sitting on a plate.
+        className="resource-chip flex shrink-0 items-center gap-2 rounded-lg px-3 py-1"
         data-testid="level-chip"
       >
         <span
@@ -117,13 +97,6 @@ export function FactionLevelChip({
     </HoverCard>
   );
 }
-
-/** The concrete levers behind the level, so the window teaches rather than describes. */
-const LEVEL_DRIVERS: readonly string[] = [
-  'Every mission that comes home, won or lost',
-  'Every structure finished and every project off the Archive board',
-  'Raids, batches off the training bench, and signing somebody at the Bar',
-];
 
 /**
  * §D7: the wallet and the rank, side by side.
@@ -174,13 +147,12 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
             </span>
           }
         >
-          <p className="font-body text-[14px] leading-relaxed text-ink-100">
-            {NOTORIETY_BLURBS[tier]}
-          </p>
+          {/* The rank blurb is gone with the rest of the standing-bar prose: what is left is the
+              ladder itself, which is a price and a button rather than an explanation. */}
           <WindowSection label={next === null ? 'The top of it' : 'Next up'}>
             {next === null || cost === null ? (
-              <p className="font-body text-[13px] leading-snug text-ink-100">
-                There is no name above this one. Everything you earn from here is yours to spend.
+              <p className="font-body text-[13px] leading-snug text-ink-300">
+                No rank above this one.
               </p>
             ) : (
               <div className="flex flex-col gap-2" data-testid="notoriety-next">
@@ -198,11 +170,15 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
                     style={{ width: `${pct}%` }}
                   />
                 </span>
-                <p className="font-body text-[13px] leading-snug text-ink-300">
-                  {affordable
-                    ? 'The points are spent and the name is yours for good. Nothing takes a rank back.'
-                    : `${Math.max(0, cost - Math.round(infamy)).toLocaleString()} short. Kill something worth talking about.`}
-                </p>
+                {/* The shortfall as a figure, not a sentence about how to earn it. */}
+                {!affordable && (
+                  <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
+                    <span className="tabular-nums text-oxblood-300">
+                      {Math.max(0, cost - Math.round(infamy)).toLocaleString()}
+                    </span>{' '}
+                    short
+                  </p>
+                )}
                 <Button
                   size="sm"
                   disabled={!affordable || upgrade.isPending}
@@ -218,7 +194,9 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
       }
     >
       <div
-        className="resource-chip flex shrink-0 items-center gap-1.5 rounded-lg px-1.5 py-1"
+        // Same room as the level beside it, and a little more between the points and the rank:
+        // `Nobody` was touching the right edge of the plate.
+        className="resource-chip flex shrink-0 items-center gap-2 rounded-lg px-3 py-1"
         data-testid="infamy-chip"
       >
         <span
@@ -250,7 +228,7 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
             card carries the rank at every width, and it is the only place the ladder and its price
             are legible anyway. */}
         <span
-          className="hidden shrink-0 border-l border-surface-600 pl-1.5 font-display text-[12px] font-bold uppercase leading-none tracking-[0.1em] text-brass-300 [@media(min-width:1400px)]:block"
+          className="hidden shrink-0 border-l border-surface-600 pl-2.5 pr-1 font-display text-[12px] font-bold uppercase leading-none tracking-[0.1em] text-brass-300 [@media(min-width:1400px)]:block"
           data-testid="notoriety-tier"
         >
           {tier}

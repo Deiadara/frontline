@@ -9,6 +9,8 @@ import {
   startingResearch,
   STARTING_RESOURCES,
   storageCapacity,
+  storageCapacityFor,
+  type ResourceKey,
   type Base,
   startingTraining,
 } from '@frontline/shared';
@@ -120,15 +122,25 @@ describe('UNLOCKED: the end-game sandbox', () => {
     expect(Object.keys(after?.army ?? {}).sort()).toEqual([...UNIT_IDS].sort());
     expect(after?.level).toBe(UNLOCKED_LEVEL);
 
-    // Near the ceiling, under it. A flat six-figure handout was twenty times what a maxed
-    // Apothecary can hold, which pinned every capacity bar in the HUD to full and red: an
-    // end-game that spends its whole life warning about a state it can never leave.
-    const ceiling = storageCapacity(after?.buildings ?? []);
+    /*
+     * Near the ceiling, under it, on **each shelf**. A flat six-figure handout was twenty times
+     * what a maxed Apothecary can hold, which pinned every capacity bar in the HUD to full and
+     * red: an end-game that spends its whole life warning about a state it can never leave.
+     *
+     * Per shelf rather than against one figure, because the three of them are different sizes: a
+     * handout sized to the bulk shelf sits at 300% on the metal one and is exactly the bug this
+     * assertion exists to catch, arriving from the other side.
+     */
+    const buildings = after?.buildings ?? [];
+    const bulk = storageCapacity(buildings);
     for (const [key, value] of Object.entries(after?.resources ?? {})) {
-      expect(value, key).toBeLessThan(ceiling);
-      expect(value, key).toBeGreaterThan(ceiling * 0.5);
+      const room = storageCapacityFor(buildings, key as ResourceKey, bulk);
+      // Caps have no shelf, so what is asserted of them is only that the wallet is not absurd.
+      const against = Number.isFinite(room) ? room : bulk;
+      expect(value, key).toBeLessThan(against);
+      expect(value, key).toBeGreaterThan(against * 0.5);
     }
-    expect(ceiling).toBeGreaterThan(10_000);
+    expect(bulk).toBeGreaterThan(10_000);
   });
 
   it('clears the queues, so nothing is mid-build in a state meant to be finished', () => {

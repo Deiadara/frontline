@@ -39,12 +39,12 @@ const NOW = '2026-08-13T12:00:00.000Z';
 const board: MissionsResponse = {
   missions: [],
   justResolved: [],
-  resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
+  resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
   activeLimit: 2,
   areas: [
     {
       id: MISC_AREA_ID,
-      name: 'Odd jobs',
+      name: 'Miscellaneous Missions',
       blurb: 'Work that belongs to nobody.',
       difficulty: 1,
       payPercent: 0,

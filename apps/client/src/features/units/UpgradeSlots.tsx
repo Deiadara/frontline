@@ -1,5 +1,6 @@
 import {
   UNIT_STAT_LABELS,
+  isCombatUnit,
   UPGRADE_LINE_LABELS,
   type BuiltUpgrade,
   type FittedSlot,
@@ -50,6 +51,28 @@ function describeEffect(effect: Record<string, number>): string {
 export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUpgrade[] }) {
   const [open, setOpen] = useState<number | null>(null);
   const fit = useFitSlot();
+
+  /*
+   * Nothing bolts onto a porter, so they are told so rather than offered three brackets.
+   *
+   * Every upgrade in the catalogue moves armour, weapons or reflexes, and a Scavenger uses none of
+   * the three: they never stand in a line, and nothing the workshop builds touches what they are
+   * actually for, which is `lootCapacity`. Three empty brackets on their card would be an
+   * invitation to spend a signing on a unit the fitting cannot help.
+   *
+   * The strip is the same height as the row it replaces, because the card promises a fixed height
+   * and the price box under it must not move between one unit and the next.
+   */
+  if (!isCombatUnit(unit.id)) {
+    return (
+      <p
+        data-testid={`slots-${unit.id}`}
+        className="flex h-6 items-center justify-center rounded-sm border border-dashed border-surface-700 font-display text-[10px] uppercase tracking-[0.14em] text-ink-300"
+      >
+        Carries. Nothing to bolt on
+      </p>
+    );
+  }
 
   return (
     <>

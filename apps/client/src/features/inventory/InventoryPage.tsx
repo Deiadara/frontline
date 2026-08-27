@@ -46,12 +46,7 @@ export function InventoryPage() {
   const total = inventorySize(data.inventory);
 
   return (
-    <PageShell
-      title="What you are carrying"
-      icon="market"
-      lede="Blueprints unlock work nobody else can do. Components go into the things you build. Relics are worth caps and nothing else."
-      wide
-    >
+    <PageShell quote="Down here you are exactly what you can carry out." wide>
       {total === 0 && (
         <InfoNote label="How the satchel fills">
           Nothing yet. Missions bring things back, and the Runner sells what the city has not

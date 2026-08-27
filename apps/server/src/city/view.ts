@@ -23,7 +23,6 @@ import {
   type TerritoryEffects,
   blurredCount,
   bonusesAt,
-  isNight,
   mergeLabels,
   upgradeCost,
   upgradeNote,
@@ -237,7 +236,7 @@ export function projectLocation(
      * same order. A screen that promised `Crammed IV, Wet II` and a fight that produced something
      * else would be worse than showing nothing.
      */
-    labels: mergeLabels(spec.labels, weatherLabels(weatherAt(now), isNight(now))),
+    labels: mergeLabels(spec.labels, weatherLabels(weatherAt(now))),
     unlocks: unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
   };
 }

@@ -420,7 +420,7 @@ function Layout({ data }: { data: AssigneesResponse }) {
   const open = data.officers.find((officer) => officer.officerId === opened);
 
   return (
-    <PageShell title="Your crew" icon="crew" wide>
+    <PageShell quote="Nobody here is doing the job they trained for. That is the job." wide>
       {/* Three figures and one control. The paragraph that used to sit beside the Reskill button
           explaining what it does is on the button now, where a player is already pointing. */}
       <div className="flex flex-wrap items-center gap-2">

@@ -4,20 +4,23 @@ import {
   createCommander,
   declarationWindow,
   findLocation,
-  isNight,
   skirmishOutcome,
   weatherAt,
+  weatherLabels,
   type BattlesResponse,
   type BattleTarget,
   type DistrictDetailResponse,
   type MarketResponse,
   type SkirmishEngine,
+  marketDay,
+  vendorSessionsFor,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { projectMarket } from '../market/board.js';
 import { settleBattles } from '../battle/resolve.js';
 
 /**
@@ -252,17 +255,22 @@ describe('the Downtown Market', () => {
    */
   it('quotes the price it is going to charge', async () => {
     const stack = await makeStack();
-    const read = async (): Promise<MarketResponse> => {
-      const res = await stack.app.inject({
-        method: 'GET',
-        url: '/api/market',
-        headers: auth(stack.token),
-      });
-      expect(res.statusCode, res.body).toBe(200);
-      return res.json<MarketResponse>();
-    };
+    /*
+     * Read through `projectMarket` at an hour the Runner is actually there, rather than over HTTP
+     * at whatever hour the suite runs at.
+     *
+     * The barrow is empty while he is away now, and an empty shelf makes the loop below iterate
+     * zero times: the assertion would pass on a discount that was never applied. This is the same
+     * function the route calls and the one the discount is applied in.
+     */
+    const day = marketDay(new Date());
+    const session = vendorSessionsFor(day)[0];
+    if (!session) throw new Error('fixture error: the Runner keeps no hours today');
+    const whileHeIsIn = new Date(`${day}T${String(session.startHour).padStart(2, '0')}:30:00.000Z`);
+    const read = (): MarketResponse =>
+      projectMarket(stack.app.repos, stack.app.repos.bases.findById(stack.baseId)!, whileHeIsIn);
 
-    const before = await read();
+    const before = read();
     await stack.app.inject({
       method: 'POST',
       url: '/api/city/scout',
@@ -270,7 +278,7 @@ describe('the Downtown Market', () => {
       payload: { districtId: 'chrome-row' },
     });
     give(stack, 'chrome-row-exchange');
-    const after = await read();
+    const after = read();
 
     // Something is on the shelf to compare, or the assertion below is vacuous.
     expect(before.vendor.stock.length).toBeGreaterThan(0);
@@ -366,16 +374,14 @@ describe('the sky a fight happens under', () => {
    *
    * Battles settle lazily, so the gap between the two is however long it takes somebody to open a
    * page: hours, overnight, longer. Reading the settle clock meant a fight declared for a foggy
-   * night could be decided in the next morning's sunshine, and *which* morning depended on when a
-   * stranger loaded a screen.
+   * evening could be decided in the next morning's sunshine, and *which* morning depended on when
+   * a stranger loaded a screen.
    */
   it('reads the sky at the scheduled hour rather than at the settle', async () => {
-    // A day apart and either side of dusk. The precondition is asserted rather than assumed: if
+    // A day apart, so two different rolls. The precondition is asserted rather than assumed: if
     // these two moments ever shared a sky the test below would pass without measuring anything.
     const called = new Date('2026-12-03T23:30:00.000Z');
     const settled = new Date('2026-12-04T11:00:00.000Z');
-    expect(isNight(called)).toBe(true);
-    expect(isNight(settled)).toBe(false);
     expect(weatherAt(called)).not.toBe(weatherAt(settled));
 
     const stack = await makeStack(bloodless);
@@ -399,8 +405,8 @@ describe('the sky a fight happens under', () => {
     const view = board.json<BattlesResponse>().coming[0];
     if (!view) throw new Error('expected a declared battle');
 
-    // Called for that stormy night; settled the next lunchtime, which is when somebody happened to
-    // open a page. The fight is the one that was called for.
+    // Called for that stormy evening; settled the next lunchtime, which is when somebody happened
+    // to open a page. The fight is the one that was called for.
     stack.db
       .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
       .run(called.toISOString(), view.battle.id);
@@ -411,7 +417,21 @@ describe('the sky a fight happens under', () => {
     expect(resolved?.analysis.weather, 'the fight was resolved in the settler’s weather').toBe(
       weatherAt(called),
     );
-    // And in the dark it was called for: `Dark` is what night puts on every ground there is.
-    expect(resolved?.analysis.ground.map((label) => label.id)).toContain('dark');
+    /*
+     * And the ground actually carries that sky's labels.
+     *
+     * The line above is the discriminating half: `analysis.weather` names which of the two days
+     * was read. This half is the one that catches a sky recorded on the report and never applied
+     * to the fight, which is the same feature-shipped-and-inert shape the boost seam guards.
+     *
+     * Positive only. A "not the settler's sky" assertion cannot be written cleanly here because
+     * the location carries labels of its own (`crammed`, `noisy`) that overlap whatever the other
+     * day happens to roll, and an assertion that has to exclude those is one that will be quietly
+     * vacuous the day the catalogue changes.
+     */
+    const ground = resolved?.analysis.ground.map((label) => label.id) ?? [];
+    const sky = weatherLabels(weatherAt(called));
+    expect(sky.length, 'the called day must have a sky worth asserting').toBeGreaterThan(0);
+    for (const label of sky) expect(ground).toContain(label.id);
   });
 });

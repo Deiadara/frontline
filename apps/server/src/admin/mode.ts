@@ -91,13 +91,14 @@ export function adminCaps(caps: number, admin: boolean): number {
  * Membership is stated once, here, rather than as an `if (admin)` beside each gate, so what admin
  * mode does is one list somebody can read, and a new refusal is closed by default.
  */
-const WAIVED: ReadonlySet<string> = new Set([
+export const WAIVED_REFUSALS: ReadonlySet<string> = new Set([
   // Progress gates: this is behind something you have not built or reached yet.
   'locked',
   'option_locked',
   'nexus_cap',
   'requirement',
-  'reputation',
+  /** §H3's other door: the crew level a recruit wants to see before they will sign. */
+  'level',
   'modification_unavailable',
   'no_lead',
   'no_lead_engineer',
@@ -108,6 +109,16 @@ const WAIVED: ReadonlySet<string> = new Set([
   'no_slots',
   'no_supply',
   'daily_limit',
+  /** §H7: the payroll book has no room for another fee. A ceiling, like the beds and the slots. */
+  'no_payroll',
+  /**
+   * §H7: the six hours after a walkout.
+   *
+   * A cooldown rather than a capacity, and waived for the same reason `daily_limit` is: on the
+   * bench the point is to reach the state, and a reviewer who wanted to see what a marked-up
+   * second negotiation looks like should not have to wait until this afternoon for it.
+   */
+  'standoff',
   // Price gates. `adminCost` already makes the charge zero; this is the check in front of it.
   'cannot_afford',
   'missing_parts',
@@ -121,5 +132,5 @@ const WAIVED: ReadonlySet<string> = new Set([
  * rule and the exemption on the same line.
  */
 export function adminWaives(reason: string, admin: boolean): boolean {
-  return admin && WAIVED.has(reason);
+  return admin && WAIVED_REFUSALS.has(reason);
 }

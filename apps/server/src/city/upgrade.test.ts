@@ -94,7 +94,7 @@ async function makeStack(): Promise<Stack> {
   // Enough to cover three upgrades of anything on this ground without the test being about money.
   app.repos.bases.updateResources(baseId, {
     caps: 99_000,
-    food: 9_000,
+    supplies: 9_000,
     oil: 9_000,
     scrap: 9_000,
     highQualityMetal: 900,
@@ -212,7 +212,7 @@ describe('working a location up (§A4)', () => {
     const stack = await makeStack();
     stack.app.repos.bases.updateResources(stack.baseId, {
       caps: 0,
-      food: 0,
+      supplies: 0,
       oil: 0,
       scrap: 0,
       highQualityMetal: 0,

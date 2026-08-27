@@ -351,11 +351,7 @@ export function SettingsPage() {
   }
 
   return (
-    <PageShell
-      title="Settings"
-      icon="gear"
-      lede="Your name, your mark, your clock and your passphrase."
-    >
+    <PageShell quote="The Combine keeps a file on you either way. This is the part you get to write.">
       <InfoNote label="What is yours alone">
         Everything here is yours alone. Changing your Operator ID changes what you log in with;
         changing your Name changes only what other crews see.

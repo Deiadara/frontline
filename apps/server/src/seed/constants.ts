@@ -48,7 +48,7 @@ export const MVP_BOT: BotBlueprint = {
   level: 4,
   resources: {
     caps: 4200,
-    food: 2400,
+    supplies: 2400,
     oil: 1600,
     scrap: 3800,
     planks: 3200,

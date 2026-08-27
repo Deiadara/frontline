@@ -39,7 +39,7 @@ export const DAMAGE_TYPE_LABELS: Record<DamageType, string> = {
  */
 export const COMBAT_CONTEXTS = [
   'urban',
-  'night',
+  'dark',
   'indoor',
   'open_ground',
   'underground',
@@ -54,7 +54,7 @@ export type CombatContext = z.infer<typeof CombatContextSchema>;
 
 export const COMBAT_CONTEXT_LABELS: Record<CombatContext, string> = {
   urban: 'in built-up ground',
-  night: 'after dark',
+  dark: 'on unlit ground',
   indoor: 'inside a structure',
   open_ground: 'in the open',
   underground: 'below street level',
@@ -90,7 +90,9 @@ export const UNIT_MODIFIERS = {
   night_operations: {
     label: 'Night Operations',
     description: 'Trained to work without light, and better for the enemy not being.',
-    context: 'night',
+    // Ground, not hour. The clock used to decide this and it made a floodlit yard at ten at night
+    // count while a pitch-black sewer at noon did not. See `DARK_GROUND_TIER`.
+    context: 'dark',
     percent: 20,
   },
   close_quarters: {

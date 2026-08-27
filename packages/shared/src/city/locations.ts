@@ -253,8 +253,8 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
   water_works: {
     label: 'Water Works',
     blurb: 'Intake screens, settling beds and a pumphouse under a corrugated roof.',
-    reward: 'Food, because clean water is most of what growing it takes.',
-    bonuses: [{ kind: 'resource', resource: 'food', perHour: 26 }],
+    reward: 'Supplies, because clean water is most of what growing it takes.',
+    bonuses: [{ kind: 'resource', resource: 'supplies', perHour: 26 }],
     baseDefense: 3,
     labels: [L('wet', 2), L('crammed', 1), L('noisy', 1)],
     upgradeCost: { caps: 300, scrap: 150, planks: 90 },
@@ -319,15 +319,15 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
   soup_kitchen: {
     label: 'Soup Kitchen',
     blurb: 'Trestle tables, a queue that starts before dawn, and two women who never sit down.',
-    reward: 'Food off the ration line, and a crew that has eaten fights like one.',
+    reward: 'Supplies off the ration line, and a crew that has eaten fights like one.',
     bonuses: [
-      { kind: 'resource', resource: 'food', perHour: 14 },
+      { kind: 'resource', resource: 'supplies', perHour: 14 },
       { kind: 'unit_morale', flat: 6 },
       { kind: 'population', flat: 15 },
     ],
     baseDefense: 1,
     labels: [L('crammed', 3), L('noisy', 2)],
-    upgradeCost: { caps: 200, food: 120, planks: 90 },
+    upgradeCost: { caps: 200, supplies: 120, planks: 90 },
     upgrades: [
       'A second serving line, so the queue clears before the food does.',
       'Cold store out the back. Nothing is thrown away at the end of a day any more.',
@@ -347,7 +347,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 1,
     labels: [L('crammed', 3), L('open', 2), L('noisy', 2), L('cold', 1)],
-    upgradeCost: { caps: 240, food: 200, planks: 220 },
+    upgradeCost: { caps: 240, supplies: 200, planks: 220 },
     upgrades: [
       'Standpipes and latrines. The camp stops being an outbreak waiting to happen.',
       'Timber and sheet steel go up where the tarpaulins were. It becomes a place people stay.',
@@ -576,7 +576,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_morale', flat: 8 }],
     baseDefense: 2,
     labels: [L('crammed', 3), L('noisy', 4)],
-    upgradeCost: { caps: 300, food: 80, planks: 160 },
+    upgradeCost: { caps: 300, supplies: 80, planks: 160 },
     upgrades: [
       'Tiered benches and a bell. Twice the crowd and four times the noise.',
       'A card every night instead of whenever somebody feels like it.',
@@ -606,7 +606,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'intimidation', flat: 6 }],
     baseDefense: 3,
     labels: [L('noisy', 3), L('crammed', 2)],
-    upgradeCost: { caps: 420, food: 160, highQualityMetal: 10, planks: 130 },
+    upgradeCost: { caps: 420, supplies: 160, highQualityMetal: 10, planks: 130 },
     upgrades: [
       'The surgery gets a clean room, and the survival rate stops being a talking point.',
       'A run and a scent yard, so the animals are trained rather than merely kept.',
@@ -765,7 +765,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_vitality', percent: 12 }],
     baseDefense: 3,
     labels: [L('crammed', 2), L('noisy', 1)],
-    upgradeCost: { caps: 500, food: 100, planks: 160 },
+    upgradeCost: { caps: 500, supplies: 100, planks: 160 },
     upgrades: [
       'The generator is overhauled, so a theatre stops going dark mid-operation.',
       'A blood bank. The thing they most often ran out of stops running out.',
@@ -781,7 +781,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'battle_stims', flat: 2 }],
     baseDefense: 4,
     labels: [L('crammed', 3), L('dark', 2), L('toxic', 1)],
-    upgradeCost: { caps: 520, food: 60, highQualityMetal: 10, planks: 90 },
+    upgradeCost: { caps: 520, supplies: 60, highQualityMetal: 10, planks: 90 },
     upgrades: [
       'A second bench and a chemist on it. Output goes from a trickle to a supply.',
       'Cold storage, so a batch stops going off before it is used.',
@@ -817,7 +817,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_morale', flat: 5 }],
     baseDefense: 3,
     labels: [L('crammed', 4), L('noisy', 4), L('dark', 2)],
-    upgradeCost: { caps: 360, food: 80, planks: 140 },
+    upgradeCost: { caps: 360, supplies: 80, planks: 140 },
     upgrades: [
       'The cellar is restocked and the back room is yours whenever you want it.',
       'A door policy. The people worth meeting stop being drowned out by the people who are not.',
@@ -1205,7 +1205,7 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
 /** Short resource names for the one-line bonus text. Kept here so this module stands alone. */
 const RESOURCE_LABELS: Record<ResourceKey, string> = {
   caps: 'caps',
-  food: 'food',
+  supplies: 'supplies',
   oil: 'oil',
   scrap: 'scrap',
   planks: 'planks',

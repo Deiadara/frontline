@@ -70,7 +70,7 @@ Conventions used below:
 
 ## D. Economy: resources and meters
 
-- **D1 [BOARD]** **Food**: core supply. **More officers require more food.**
+- **D1 [BOARD]** **Supplies**: core stores. Spent on training units and on raising the Quarters.
 - **D2 [BOARD]** **Caps**: the currency (Fallout-style). Officer **wages** are paid in caps (§H7).
 - **D3 [BOARD]** **Oil**: consumed by upgrading and building inside the hideout.
 - **D4 [BOARD]** **Morale**: a meter.
@@ -85,7 +85,7 @@ Conventions used below:
   - **D8a [BOARD]** Add **all** of them now. Ones with no mechanic to drive them yet get an explicit
     **[TODO-LATER]** marker in code and are wired up when the mechanic lands.
 - **D9 [CEO]** The current MVP resources (`credits`, `power`, `data`, `alloy`) are **replaced**, not
-  extended: caps, food, oil, scrap, high-quality metal. There is no live player data to preserve, so a
+  extended: caps, supplies, oil, scrap, high-quality metal. There is no live player data to preserve, so a
   destructive migration is acceptable.
 
 ## E. Missions, travel and timers

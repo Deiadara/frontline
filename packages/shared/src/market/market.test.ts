@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
 import { addItems, hasItems, heldItems, removeItems } from '../items/inventory.js';
-import { STARTING_RESOURCES } from '../resources.js';
+import { STARTING_RESOURCES, type ResourceKey } from '../resources.js';
+import { STORAGE_SHARES } from '../building/production.js';
 import {
   MAX_OPEN_OFFERS,
   bundleValue,
@@ -288,8 +289,8 @@ describe('listings', () => {
     /** High-quality metal is the scarce one, and the valuation has to say so. */
     it('prices the scarce resource above the bulk ones', () => {
       const metal = bundleValue(bundle({ resources: { highQualityMetal: 100 } }));
-      const food = bundleValue(bundle({ resources: { food: 100 } }));
-      expect(metal).toBeGreaterThan(food * 4);
+      const supplies = bundleValue(bundle({ resources: { supplies: 100 } }));
+      expect(metal).toBeGreaterThan(supplies * 4);
     });
   });
 
@@ -345,6 +346,8 @@ describe('listings', () => {
 
 describe('the supply run: caps into materials', () => {
   const rich = { ...STARTING_RESOURCES, caps: 1_000_000 };
+  /** The three shelves, off the same table the district's own store uses. */
+  const shelf = (key: ResourceKey): number => Math.round(2_000 * (STORAGE_SHARES[key] ?? 0));
 
   it('widens the day’s ration from 30% of a store to 100%, and no further', () => {
     expect(supplyAllowancePercent(1)).toBe(SUPPLY_MIN_PERCENT);
@@ -380,8 +383,8 @@ describe('the supply run: caps into materials', () => {
       expect(price).toBeGreaterThan(100 * RESOURCE_CAP_VALUE[key]);
     }
     // Never free, however small the order and however cheap the thing.
-    expect(supplyPrice('food', 1)).toBeGreaterThan(0);
-    expect(supplyPrice('food', 0)).toBe(0);
+    expect(supplyPrice('supplies', 1)).toBeGreaterThan(0);
+    expect(supplyPrice('supplies', 0)).toBe(0);
   });
 
   it('will not sell caps for caps', () => {
@@ -391,33 +394,33 @@ describe('the supply run: caps into materials', () => {
         units: 10,
         stock: rich,
         allowanceLeft: 10_000,
-        storageCapacity: 10_000,
+        capacity: 10_000,
       }),
     ).toBe('not_a_resource');
   });
 
   it('refuses past the ration, past the warehouse and past the wallet: in that order', () => {
-    const order = { key: 'scrap' as const, stock: rich, storageCapacity: 10_000 };
+    const order = { key: 'scrap' as const, stock: rich, capacity: 10_000 };
     expect(supplyRefusal({ ...order, units: 0, allowanceLeft: 100 })).toBe('nothing_ordered');
     expect(supplyRefusal({ ...order, units: 101, allowanceLeft: 100 })).toBe('over_allowance');
     // Inside the ration, over the shelf: the store already holds what `rich` starts with.
-    expect(
-      supplyRefusal({ ...order, units: 9_999, allowanceLeft: 99_999, storageCapacity: 1_000 }),
-    ).toBe('no_room');
+    expect(supplyRefusal({ ...order, units: 9_999, allowanceLeft: 99_999, capacity: 1_000 })).toBe(
+      'no_room',
+    );
     expect(
       supplyRefusal({
         key: 'highQualityMetal',
         units: 5_000,
         stock: { ...STARTING_RESOURCES, caps: 10 },
         allowanceLeft: 99_999,
-        storageCapacity: 999_999,
+        capacity: 999_999,
       }),
     ).toBe('cannot_afford');
     expect(supplyRefusal({ ...order, units: 100, allowanceLeft: 100 })).toBeNull();
   });
 
   it('quotes a board whose "most" is actually buyable on every line', () => {
-    const board = supplyBoard(5, rich, 2_000, 0);
+    const board = supplyBoard(5, rich, 2_000, 0, shelf);
     expect(board.percent).toBe(supplyAllowancePercent(5));
     expect(board.lines).toHaveLength(SUPPLY_RESOURCES.length);
     for (const line of board.lines) {
@@ -428,7 +431,7 @@ describe('the supply run: caps into materials', () => {
           units: line.most,
           stock: rich,
           allowanceLeft: board.allowance - board.used,
-          storageCapacity: board.storageCapacity,
+          capacity: line.capacity,
         }),
         `${line.key} quoted ${line.most} as buyable`,
       ).toBeNull();
@@ -436,7 +439,7 @@ describe('the supply run: caps into materials', () => {
   });
 
   it('spends the ration as one pooled budget rather than a quota a line', () => {
-    const board = supplyBoard(1, rich, 1_000, 290);
+    const board = supplyBoard(1, rich, 1_000, 290, shelf);
     // 300 allowed, 290 spent: ten left, for whichever line the player wants them on.
     expect(board.allowance - board.used).toBe(10);
     for (const line of board.lines) expect(line.most).toBeLessThanOrEqual(10);

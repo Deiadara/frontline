@@ -66,7 +66,7 @@ const TABS: readonly { id: Tab; label: string }[] = [
 /** An empty stockpile, for the frame before `me` has landed. Nothing is affordable against it. */
 const NOTHING_IN_STORE: Resources = {
   caps: 0,
-  food: 0,
+  supplies: 0,
   oil: 0,
   scrap: 0,
   highQualityMetal: 0,
@@ -444,12 +444,18 @@ function Forces({ view }: { view: BattleView }) {
 }
 
 /**
- * §D7: what a name buys, for this fight and no other.
+ * §D7: the one boost this fight goes in with, from either of the two places one comes from.
  *
- * A drop-down rather than a wall of cards, because one is bought per battle and the choice is
+ * A drop-down rather than a wall of cards, because one is applied per battle and the choice is
  * between comparable things: the same shape of effect at different prices and different reach. The
  * option list carries the price and the reach on every line, so the comparison is in the list and
  * not in the player's head.
+ *
+ * Two kinds are on it. A **name** is bought here and now with infamy. **Contraband** was bought off
+ * the black market days ago and is sitting in the crew's bag; it used to apply itself to whichever
+ * fight happened next, on both sides, which meant the decision a player had actually made was
+ * "when to next press attack". It is a choice on this screen now, made against intel they have
+ * already read, and it costs nothing to change right up to the mark.
  *
  * The ones nobody has put on the table are still shown, greyed and labelled with what would put
  * them there. A boost you cannot see is a boost you never research.
@@ -464,11 +470,11 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
   const blocked = blockerFor(choice, shut);
 
   return (
-    <Panel title="What a name buys">
+    <Panel title="Boosts">
       <div className="flex flex-col gap-2.5 p-4" data-testid="name-buys">
         <PanelSection
           label="Running"
-          note={bought ? undefined : 'One per fight, paid the moment you take it'}
+          note={bought ? undefined : 'One per fight'}
           data-testid="boost-bought"
         >
           {bought ? (
@@ -482,7 +488,8 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
             </>
           ) : (
             <p className="font-body text-[12px] leading-relaxed text-ink-300">
-              Nothing taken. Changing your mind later costs the name twice.
+              Nothing taken. Swapping a name for another one later costs the name twice; swapping
+              contraband costs nothing.
             </p>
           )}
         </PanelSection>
@@ -493,7 +500,7 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
           action={
             <Button
               size="sm"
-              variant="danger"
+              variant={choice?.held ? 'primary' : 'danger'}
               disabled={choice === null || blocked !== null || buy.isPending}
               onClick={() =>
                 choice &&
@@ -504,7 +511,7 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
               }
               data-testid="buy-boost"
             >
-              Burn the name
+              {choice?.held ? 'Take it in' : 'Burn the name'}
             </Button>
           }
         >
@@ -532,7 +539,8 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
                   {choice.effect}
                 </p>
                 <p className="mt-0.5 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-                  {choice.cost} infamy · reaches {choice.reach}% of your force
+                  {choice.held ? choice.source : `${choice.cost} infamy`} · reaches {choice.reach}%
+                  of your force
                 </p>
               </div>
             )}
@@ -546,7 +554,10 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
 function hintFor(option: BattleBoostOption): string {
   if (!option.available) return option.source || 'Nobody has put this on the table';
   const reach = option.reach === 0 ? 'reaches nothing you sent' : `reaches ${option.reach}%`;
-  return `${option.cost} infamy · ${option.effect} · ${reach}`;
+  // A crate's price is not on this line because it has already been paid. What a player wants to
+  // know about one is how many are left in the bag, which is what `source` carries for held boosts.
+  const price = option.held ? option.source : `${option.cost} infamy`;
+  return `${price} · ${option.effect} · ${reach}`;
 }
 
 /** Why the button is off, in the player's words, or null when it is on. */

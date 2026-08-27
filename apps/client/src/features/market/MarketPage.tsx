@@ -2,12 +2,11 @@ import {
   BARTER_MINIMUM,
   ITEM_CATALOG,
   ITEM_RARITY_LABELS,
-  RESOURCE_KEYS,
   RESOURCE_LABELS,
+  RESOURCE_ORDER,
   barterQuote,
   supplyPrice,
   bundleValue,
-  describeBundle,
   marketDay,
   utcHourInZone,
   heldItems,
@@ -19,12 +18,16 @@ import {
   type SupplyLine,
   type VendorOffer,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
+import { Icon } from '../../components/ui/Icon';
+import { NumberField } from '../../components/ui/NumberField';
+import { ResourcePicker } from './ResourcePicker';
+import { BundleChips, GoodChip, TradeArrow, ValueBadge } from './TradeParts';
 import { HoverCard } from '../../components/ui/HoverCard';
-import { InfoWindow, WindowSection } from '../../components/ui/InfoWindow';
+import { InfoWindow } from '../../components/ui/InfoWindow';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
@@ -75,7 +78,7 @@ export function MarketPage() {
   }
 
   return (
-    <PageShell title="The Market" icon="market" wide>
+    <PageShell quote="Every price on this street is an argument about who needs it more." wide>
       <MarketTabs active="market" />
 
       <InfoNote label="The Runner's hours">
@@ -96,15 +99,29 @@ export function MarketPage() {
   );
 }
 
+/**
+ * Rarity, in the frame rather than in a word beside it.
+ *
+ * A shop is scanned, not read: what a player wants off a shelf is which of these is the unusual
+ * one, and a coloured edge answers that before a label can be focused on. The word is still on the
+ * hover window, where somebody who has already picked a thing up can read it.
+ */
 const RARITY_TONE: Record<ItemRarity, string> = {
   common: 'border-surface-600 text-ink-200',
   uncommon: 'border-verdigris-300/60 text-verdigris-100',
   rare: 'border-iris-300/60 text-iris-100',
-  exotic: 'border-brass-300/70 text-brass-300',
+  exotic: 'border-brass-300/70 text-brass-300 shadow-brass',
 };
 
-/** One line on the barrow, with the whole item behind a hover. */
-function VendorRow({
+/**
+ * One thing on the barrow, as a card.
+ *
+ * A row of art, a name, a rarity tag, a price and a button is five columns of text with a picture
+ * at one end. A card puts the art at the size it was drawn for, the price where a price goes, and
+ * the rarity in the frame itself rather than in a word beside it, which is how every shop in the
+ * genre does it and why they are readable at a glance.
+ */
+function VendorCard({
   offer,
   pending,
   onBuy,
@@ -117,43 +134,43 @@ function VendorRow({
   const soldOut = offer.line.stock <= 0;
 
   return (
-    <li className="flex items-center gap-3 px-4 py-3">
-      <HoverCard
-        label={spec.name}
-        size="window"
-        card={<ItemWindow id={spec.id} />}
-        className="shrink-0"
-      >
-        <span className="icon-tile flex h-12 w-12 items-center justify-center rounded-sm">
-          <ItemGlyph id={spec.id} className="h-9 w-9" />
+    <li
+      className={cn(
+        'card-paper washed edge-lit relative flex flex-col items-center gap-2 rounded-md border p-3',
+        RARITY_TONE[spec.rarity],
+        soldOut && 'opacity-50',
+      )}
+      data-testid={`vendor-line-${offer.line.id}`}
+    >
+      {/* The stock count in the corner, the way a shelf label sits on a shelf. */}
+      <span className="absolute right-1.5 top-1.5 rounded-sm bg-surface-950/80 px-1.5 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.12em]">
+        {soldOut ? 'gone' : `${offer.line.stock} left`}
+      </span>
+
+      <HoverCard label={spec.name} size="window" card={<ItemWindow id={spec.id} />}>
+        <span className="icon-tile flex h-16 w-16 items-center justify-center rounded-md">
+          <ItemGlyph id={spec.id} className="h-12 w-12" />
         </span>
       </HoverCard>
 
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-display text-[14px] font-bold text-ink-100">
-          {spec.name}
-        </span>
-        <span
-          className={cn(
-            'mt-0.5 inline-block rounded-sm border px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.14em]',
-            RARITY_TONE[spec.rarity],
-          )}
-        >
-          {ITEM_RARITY_LABELS[spec.rarity]}
-        </span>
+      <span className="min-w-0 text-center font-display text-[13px] font-bold leading-tight text-ink-100">
+        {spec.name}
       </span>
 
-      <span className="shrink-0 text-right">
-        <span className="block font-display text-[15px] font-bold tabular-nums text-warning">
+      <span className="flex items-center gap-1.5">
+        <ResourceIcon kind="caps" className="h-5 w-5" />
+        <span className="font-display text-[15px] font-bold tabular-nums text-warning">
           {offer.line.price.toLocaleString()}
         </span>
-        <span className="block font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-          {soldOut ? 'sold out' : `${offer.line.stock} left`}
-        </span>
       </span>
 
-      <Button size="sm" disabled={soldOut || !offer.affordable || pending} onClick={onBuy}>
-        Buy
+      <Button
+        size="sm"
+        className="w-full"
+        disabled={soldOut || !offer.affordable || pending}
+        onClick={onBuy}
+      >
+        {soldOut ? 'Sold out' : offer.affordable ? 'Buy' : 'Too dear'}
       </Button>
     </li>
   );
@@ -190,16 +207,43 @@ function VendorPanel({ market, now }: { market: MarketResponse; now: Date }) {
           .join(' and ')}
         , two hours each.
       </p>
-      <ul className="flex flex-col divide-y divide-surface-700" data-testid="vendor-stock">
-        {vendor.stock.map((offer) => (
-          <VendorRow
-            key={offer.line.id}
-            offer={offer}
-            pending={buy.isPending || !vendor.open}
-            onBuy={() => buy.mutate({ lineId: offer.line.id, count: 1 })}
-          />
-        ))}
-      </ul>
+      {/* Nothing on the barrow until he is standing behind it.
+          
+          The cards used to be drawn the whole time with their buttons dead, which showed a player
+          exactly what to save for and made the opening hours a formality: the decision the shop is
+          supposed to create is "be here when he is", and a shelf you can read all day removes it.
+          The server withholds the stock as well, so this is not a curtain over data the client was
+          sent anyway. */}
+      {vendor.open ? (
+        <ul
+          className="grid gap-2.5 p-4 pt-3 sm:grid-cols-2 [@media(min-width:1500px)]:grid-cols-3"
+          data-testid="vendor-stock"
+        >
+          {vendor.stock.map((offer) => (
+            <VendorCard
+              key={offer.line.id}
+              offer={offer}
+              pending={buy.isPending}
+              onBuy={() => buy.mutate({ lineId: offer.line.id, count: 1 })}
+            />
+          ))}
+        </ul>
+      ) : (
+        <div
+          className="edge-lit m-4 mt-3 flex flex-col items-center gap-2 rounded-md border border-surface-600/70 bg-surface-950/40 px-4 py-8"
+          data-testid="vendor-shut"
+        >
+          <span className="text-ink-500 [&_svg]:h-9 [&_svg]:w-9">
+            <Icon name="market" />
+          </span>
+          <p className="font-display text-[12px] uppercase tracking-[0.16em] text-ink-300">
+            The barrow is covered
+          </p>
+          <p className="font-body text-[13px] text-ink-300">
+            Nobody sees what he has until he is here.
+          </p>
+        </div>
+      )}
       {buy.error !== null && (
         <p role="alert" className="px-4 pb-3 font-body text-[13px] text-oxblood-300">
           {buy.error.message}
@@ -209,7 +253,44 @@ function VendorPanel({ market, now }: { market: MarketResponse; now: Date }) {
   );
 }
 
-/** The always-open half-rate exchange. */
+/** A labelled step of a counter's form: the same small-caps hand on every one of them. */
+function Field({
+  label,
+  tone = 'ink',
+  children,
+}: {
+  label: string;
+  tone?: 'ink' | 'give' | 'take';
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span
+        className={cn(
+          'font-display text-[11px] font-bold uppercase tracking-[0.16em]',
+          tone === 'give'
+            ? 'text-oxblood-300'
+            : tone === 'take'
+              ? 'text-verdigris-300'
+              : 'text-ink-200',
+        )}
+      >
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The Broker: always in, always half.
+ *
+ * Two picked materials and one number, and it used to be two dropdowns of six words with a bare
+ * spinner between them. It is a *trade*, so it is drawn as one: what leaves on the left, what
+ * arrives on the right, the rate stamped on the arrow between them, and the answer underneath at
+ * a size worth reading. The quote stays above the button, which was always right: nobody should
+ * find out the rate afterwards.
+ */
 function BrokerPanel({ market }: { market: MarketResponse }) {
   const barter = useBarter();
   const [give, setGive] = useState<ResourceKey>('oil');
@@ -221,78 +302,115 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
   // which one applied. A client that recomputed the milestone would be a second opinion about it.
   const quote = barterQuote(amount, market.barterRate);
   const blocked =
-    give === want || amount < BARTER_MINIMUM || amount > held || barter.isPending
-      ? give === want
-        ? 'Pick two different things'
-        : amount < BARTER_MINIMUM
-          ? `He will not move for less than ${BARTER_MINIMUM}`
-          : amount > held
-            ? 'You do not have that much'
-            : null
-      : null;
+    give === want
+      ? 'Pick two different things'
+      : amount < BARTER_MINIMUM
+        ? `He will not move for less than ${BARTER_MINIMUM}`
+        : amount > held
+          ? 'You do not have that much'
+          : null;
 
   return (
     <Panel
       title="The Broker"
       action={
-        <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-          Always in · gives back {Math.round(market.barterRate * 100)}%
+        <span className="shrink-0 rounded-sm border border-brass-500/40 px-2 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em] text-brass-300">
+          Always in
         </span>
       }
     >
-      <div className="flex flex-col gap-3 p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex w-40 min-w-0 flex-col gap-1">
-            <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200">
-              Give
-            </span>
-            <Dropdown
-              label="What to give the Broker"
-              value={give}
-              onChange={setGive}
-              options={RESOURCE_KEYS.map((key) => ({ value: key, label: RESOURCE_LABELS[key] }))}
-              data-testid="broker-give"
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200">
-              How much
-            </span>
-            <input
-              type="number"
-              min={BARTER_MINIMUM}
+      <div className="flex flex-col gap-3.5 p-4">
+        {/* What leaves. The tiles carry the stockpile, so "which of these do I have spare" is
+            answered on the control itself rather than in a line under the button. */}
+        <Field label="You hand over" tone="give">
+          <ResourcePicker
+            label="What to give the Broker"
+            value={give}
+            onChange={setGive}
+            held={market.resources}
+            data-testid="broker-give"
+          />
+        </Field>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="How much">
+            <NumberField
+              label="how much to give the Broker"
               value={amount}
-              onChange={(event) => setAmount(Math.max(0, Math.trunc(Number(event.target.value))))}
-              className="w-28 rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 text-[13px] tabular-nums text-ink-100"
+              onChange={setAmount}
+              min={0}
+              max={Math.max(BARTER_MINIMUM, held)}
+              className="w-32"
+              data-testid="broker-amount"
             />
-          </label>
-          <label className="flex w-40 min-w-0 flex-col gap-1">
-            <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200">
-              Take
-            </span>
-            <Dropdown
-              label="What to take from the Broker"
-              value={want}
-              onChange={setWant}
-              options={RESOURCE_KEYS.map((key) => ({ value: key, label: RESOURCE_LABELS[key] }))}
-              data-testid="broker-take"
-            />
-          </label>
+          </Field>
+          {/* Quick amounts, because a barter is a proportion of what you are sitting on rather
+              than a number anybody has in mind. Only the ones that clear his minimum.
+
+              Sized up from the ghost buttons they were: at 12px on a dark plate a `¼` is a smudge,
+              and these are the controls a player reaches for far more often than the stepper
+              beside them. Full-height against the field, a real plate under them, and the
+              fractions at a size the glyph actually survives. */}
+          <span className="flex gap-2">
+            {(
+              [
+                ['¼', 0.25],
+                ['½', 0.5],
+                ['All', 1],
+              ] as const
+            ).map(([label, share]) => {
+              const value = Math.floor(held * share);
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={value < BARTER_MINIMUM}
+                  onClick={() => setAmount(value)}
+                  data-tip={`${value.toLocaleString()} ${RESOURCE_LABELS[give].toLowerCase()}`}
+                  className={cn(
+                    'door-tile flex h-[38px] min-w-[3rem] items-center justify-center rounded-md border px-3',
+                    'font-display text-[17px] font-bold leading-none tracking-[0.04em] transition-all duration-150',
+                    value < BARTER_MINIMUM
+                      ? 'cursor-not-allowed border-surface-600/60 text-ink-500'
+                      : 'border-brass-500/60 text-brass-200 hover:-translate-y-0.5 hover:border-brass-300 hover:text-brass-100',
+                  )}
+                >
+                  <span className="relative z-[2]">{label}</span>
+                </button>
+              );
+            })}
+          </span>
         </div>
 
-        {/* The quote, before the button. Nobody should find out the rate afterwards. */}
-        <p
-          className="rounded-sm border border-brass-500/40 bg-surface-900/60 px-3 py-2.5 font-display text-[14px] tabular-nums text-ink-100"
+        {/* The deal, drawn. */}
+        <div
+          className="edge-lit flex w-fit items-center gap-3 rounded-md border border-brass-500/40 bg-surface-950/50 px-4 py-3"
           data-testid="barter-quote"
         >
-          <span className="flex items-center gap-2">
+          <GoodChip amount={amount} tone="give">
             <ResourceIcon kind={give} className="h-6 w-6" />
-            {amount.toLocaleString()}
-            <span className="text-ink-300">→</span>
-            <ResourceIcon kind={want} className="h-6 w-6" />
-            <span className="font-bold text-brass-300">{quote.toLocaleString()}</span>
+          </GoodChip>
+          <span className="flex flex-col items-center gap-0.5">
+            <TradeArrow />
+            <span className="font-display text-[10px] font-bold uppercase tracking-[0.12em] text-ink-300">
+              {Math.round(market.barterRate * 100)}%
+            </span>
           </span>
-        </p>
+          <GoodChip amount={quote} tone="take">
+            <ResourceIcon kind={want} className="h-6 w-6" />
+          </GoodChip>
+        </div>
+
+        <Field label="You walk away with" tone="take">
+          <ResourcePicker
+            label="What to take from the Broker"
+            value={want}
+            onChange={setWant}
+            held={market.resources}
+            disabled={(key) => key === give}
+            data-testid="broker-take"
+          />
+        </Field>
 
         <div className="flex items-center gap-3">
           <Button
@@ -300,11 +418,11 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
             disabled={blocked !== null || barter.isPending}
             onClick={() => barter.mutate({ give, want, amount })}
           >
-            Trade
+            {barter.isPending ? 'Counting it out…' : 'Trade'}
           </Button>
-          <span className="font-display text-[12px] text-ink-300">
-            {blocked ?? `You are holding ${held.toLocaleString()}`}
-          </span>
+          {blocked !== null && (
+            <span className="font-display text-[12px] text-warning">{blocked}</span>
+          )}
         </div>
         {barter.error !== null && (
           <p role="alert" className="font-body text-[13px] text-oxblood-300">
@@ -327,24 +445,35 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
  * across every material, so a five-row form would suggest five separate budgets, which is exactly
  * the wrong model of the thing.
  */
+/**
+ * Why the run cannot carry a single unit of this material, in the same order the server refuses.
+ *
+ * A zero here has three quite different cures: come back tomorrow, build a store, or go and earn.
+ * "More than you can pay for or store" covered all three and pointed at none of them.
+ */
+function supplyStall(key: SupplyLine['key'], market: MarketResponse, left: number): string {
+  if (left === 0) return "Today's ration is spent, back at midnight";
+  if ((market.resources[key] ?? 0) >= market.supply.storageCapacity) {
+    return `Your store of ${RESOURCE_LABELS[key].toLowerCase()} is full`;
+  }
+  return 'Not enough caps for a single unit';
+}
+
 function SupplyPanel({ market }: { market: MarketResponse }) {
   const buy = useBuySupply();
   const { supply } = market;
   const [key, setKey] = useState<SupplyLine['key']>('scrap');
-  const [units, setUnits] = useState(100);
+  const [wanted, setWanted] = useState(100);
 
   const line = supply.lines.find((entry) => entry.key === key);
   const left = Math.max(0, supply.allowance - supply.used);
   const most = line?.most ?? 0;
+  // The order is held at what the crew could actually take, rather than at whatever was last typed.
+  // The screen used to open on 100 with the button dead and a complaint under it, because 100 is
+  // over the ration on a full warehouse: a first impression of a counter that refuses to serve you.
+  const units = Math.min(wanted, most);
   const price = supplyPrice(key, units);
-  const blocked =
-    units <= 0
-      ? 'Say how much you want'
-      : units > left
-        ? `Today's run will only carry ${left.toLocaleString()} more`
-        : units > most
-          ? 'More than you can pay for or store'
-          : null;
+  const blocked = most === 0 ? supplyStall(key, market, left) : units <= 0 ? 'Say how much' : null;
 
   return (
     <Panel
@@ -365,71 +494,75 @@ function SupplyPanel({ market }: { market: MarketResponse }) {
           data-testid="supply-allowance"
         />
 
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex w-44 min-w-0 flex-col gap-1">
-            <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200">
-              Buy
-            </span>
-            <Dropdown
+        {/* Pick, count, pay: the three steps of the run laid left to right, so the panel's width is
+            the order of the transaction rather than empty tin beside a narrow form. */}
+        <div className="grid justify-start gap-x-6 gap-y-4 [@media(min-width:1100px)]:grid-cols-[auto_auto_auto]">
+          <Field label="What to load up on">
+            <ResourcePicker
               label="What to buy with caps"
               value={key}
               onChange={setKey}
-              options={supply.lines.map((entry) => ({
-                value: entry.key,
-                label: RESOURCE_LABELS[entry.key],
-                hint: `${entry.capsPerUnit.toLocaleString()} caps each`,
-              }))}
+              held={market.resources}
+              keys={supply.lines.map((entry) => entry.key)}
+              caption={(each) => (
+                <>
+                  <ResourceIcon kind="caps" className="h-3 w-3" />
+                  {supplyPrice(each, 1).toLocaleString()}
+                </>
+              )}
               data-testid="supply-resource"
             />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200">
-              How many
-            </span>
-            <input
-              aria-label="How many units to buy"
-              type="number"
-              min={1}
-              value={units}
-              onChange={(event) => setUnits(Math.max(0, Math.trunc(Number(event.target.value))))}
-              className="w-28 rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 font-stamp text-[15px] tabular-nums text-ink-100"
-            />
-          </label>
-          {/* Only when there is something to take. "All 0" on a full warehouse is a control that
-              advertises its own uselessness, and the line under the button already says why. */}
-          {most > 0 && (
-            <Button size="sm" variant="ghost" onClick={() => setUnits(most)}>
-              All {most.toLocaleString()}
-            </Button>
-          )}
+          </Field>
+
+          <Field label="How many">
+            <div className="flex items-center gap-2">
+              <NumberField
+                label="how many units to buy"
+                value={units}
+                onChange={setWanted}
+                min={0}
+                max={Math.max(1, most)}
+                className="w-32"
+                data-testid="supply-units"
+              />
+              {/* Only when there is something to take. "All 0" on a full warehouse is a control
+                  that advertises its own uselessness. */}
+              {most > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => setWanted(most)}>
+                  All {most.toLocaleString()}
+                </Button>
+              )}
+            </div>
+          </Field>
+
+          <Field label="What it costs">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* The price drawn the way the Broker draws his rate, so both counters quote in the
+                  same hand. */}
+              <div
+                className="edge-lit flex w-fit items-center gap-3 rounded-md border border-brass-500/40 bg-surface-950/50 px-3 py-2"
+                data-testid="supply-quote"
+              >
+                <GoodChip amount={price} tone="give">
+                  <ResourceIcon kind="caps" className="h-6 w-6" />
+                </GoodChip>
+                <TradeArrow />
+                <GoodChip amount={units} tone="take">
+                  <ResourceIcon kind={key} className="h-6 w-6" />
+                </GoodChip>
+              </div>
+              <Button
+                size="sm"
+                disabled={blocked !== null || buy.isPending}
+                onClick={() => buy.mutate({ key, units })}
+              >
+                {buy.isPending ? 'Loading up…' : 'Buy it'}
+              </Button>
+            </div>
+          </Field>
         </div>
 
-        {/* The price before the button, exactly as the Broker quotes his rate. */}
-        <p
-          className="flex flex-wrap items-center gap-2 rounded-sm border border-brass-500/40 bg-surface-900/60 px-3 py-2.5 font-stamp text-[16px] text-ink-100"
-          data-testid="supply-quote"
-        >
-          <ResourceIcon kind="caps" className="h-6 w-6" />
-          <span className="tabular-nums text-warning">{price.toLocaleString()}</span>
-          <span className="text-ink-300">for</span>
-          <ResourceIcon kind={key} className="h-6 w-6" />
-          <span className="tabular-nums text-brass-300">
-            {units.toLocaleString()} {RESOURCE_LABELS[key].toLowerCase()}
-          </span>
-        </p>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            size="sm"
-            disabled={blocked !== null || buy.isPending}
-            onClick={() => buy.mutate({ key, units })}
-          >
-            {buy.isPending ? 'Loading up…' : 'Buy it'}
-          </Button>
-          <span className="font-display text-[12px] text-ink-300">
-            {blocked ?? `Your store holds ${supply.storageCapacity.toLocaleString()} of each`}
-          </span>
-        </div>
+        {blocked !== null && <p className="font-display text-[12px] text-ink-300">{blocked}</p>}
         {buy.error !== null && (
           <p role="alert" className="font-body text-[13px] text-oxblood-300">
             {buy.error.message}
@@ -440,7 +573,15 @@ function SupplyPanel({ market }: { market: MarketResponse }) {
   );
 }
 
-/** One listing on the board, with what it is worth beside what it says. */
+/**
+ * One listing on the board, as the trade it is.
+ *
+ * This was a sentence: `Gives 200 scrap for 100 oil · worth 400 against 300 · stands 12h`. Every
+ * question a player brings to a board is "what for what, and is that fair", and a sentence makes
+ * them parse the answer. Two rows of chips with an arrow between them answers the first before the
+ * eye has finished moving, and the verdict badge answers the second without printing arithmetic.
+ * The figures are still on the badge's hover for anybody haggling.
+ */
 function OfferRow({
   offer,
   mine,
@@ -458,26 +599,31 @@ function OfferRow({
   onWithdraw: () => void;
   pending: boolean;
 }) {
-  const giving = bundleValue(offer.give);
-  const wanting = bundleValue(offer.want);
   const standsFor = Date.parse(offer.createdAt) + 48 * 3_600_000 - now.getTime();
 
   return (
     <li
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2.5 px-4 py-3"
       data-testid={`offer-${offer.id}`}
     >
-      <span className="min-w-0 flex-1">
-        <span className="block font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
-          {offer.counterTo !== null ? 'Counter from' : 'Offered by'} {offer.sellerName}
+      <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-display text-[11px] uppercase tracking-[0.14em] text-brass-300">
+            {offer.counterTo !== null ? 'Counter from' : 'Offered by'} {offer.sellerName}
+          </span>
+          <ValueBadge received={offer.give} paid={offer.want} />
+          <span
+            className="font-display text-[10px] uppercase tracking-[0.12em] text-ink-300"
+            data-tip="How long this listing stands before it lapses"
+          >
+            {formatRemaining(Math.max(0, standsFor))}
+          </span>
         </span>
-        <span className="mt-0.5 block font-body text-[14px] leading-snug text-ink-100">
-          Gives <span className="text-bile-300">{describeBundle(offer.give)}</span> for{' '}
-          <span className="text-warning">{describeBundle(offer.want)}</span>
-        </span>
-        <span className="mt-0.5 block font-display text-[11px] uppercase tracking-[0.12em] text-ink-300">
-          worth {giving.toLocaleString()} against {wanting.toLocaleString()} · stands{' '}
-          {formatRemaining(Math.max(0, standsFor))}
+
+        <span className="flex flex-wrap items-center gap-2.5">
+          <BundleChips bundle={offer.give} tone="take" empty="nothing" />
+          <TradeArrow className="h-6 w-6" />
+          <BundleChips bundle={offer.want} tone="give" empty="nothing" />
         </span>
       </span>
 
@@ -575,8 +721,13 @@ function BoardPanel({ market, now }: { market: MarketResponse; now: Date }) {
  * Posting a listing, and countering one.
  *
  * The same form both ways, because a counter *is* a listing: it just knows who it is aimed at.
- * Resources on one axis, items on the other, and the running valuation under both so a player can
- * see what they are proposing before anybody else does.
+ *
+ * It used to be twelve bare number spinners in two grids, which is a tax form for a screen whose
+ * whole job is "this pile, for that pile". You build each side by **pointing at what goes in it**:
+ * the tiles are the same ones the Broker uses, a tap adds a chip, and the chip carries its own
+ * stepper. What is on screen at rest is the two piles, not twelve empty fields, and the verdict
+ * between them is the same badge the board prints so a player can see how their own offer will
+ * read before anybody else sees it.
  */
 function OfferComposer({
   market,
@@ -599,39 +750,19 @@ function OfferComposer({
   };
   const want = { resources: wantRes, items: {} };
   const held = heldItems(market.inventory);
-
-  const field = (
-    label: string,
-    state: Partial<Record<ResourceKey, number>>,
-    set: (next: Partial<Record<ResourceKey, number>>) => void,
-  ) => (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200">
-        {label}
-      </span>
-      <div className="grid grid-cols-2 gap-1.5">
-        {RESOURCE_KEYS.map((key) => (
-          <label key={key} className="flex items-center gap-1.5">
-            <ResourceIcon kind={key} className="h-5 w-5 shrink-0" />
-            <input
-              type="number"
-              min={0}
-              value={state[key] ?? 0}
-              onChange={(event) =>
-                set({ ...state, [key]: Math.max(0, Math.trunc(Number(event.target.value))) })
-              }
-              className="w-full min-w-0 rounded-sm border border-surface-600 bg-surface-950 px-1.5 py-1 text-[12px] tabular-nums text-ink-100"
-            />
-          </label>
-        ))}
-      </div>
-    </div>
-  );
+  const empty = bundleValue(give) === 0 && bundleValue(want) === 0;
 
   return (
     <Panel title={counterTo === null ? 'Offer something' : 'Counter'}>
-      <div className="flex flex-col gap-3 p-4">
-        {field('You give', giveRes, setGiveRes)}
+      <div className="flex flex-col gap-3.5 p-4">
+        <BundleBuilder
+          label="You give"
+          tone="give"
+          state={giveRes}
+          onChange={setGiveRes}
+          held={market.resources}
+          testId="offer-give"
+        />
 
         {held.length > 0 && (
           <label className="flex items-end gap-2">
@@ -654,28 +785,40 @@ function OfferComposer({
                 data-testid="offer-item"
               />
             </span>
-            <input
-              type="number"
-              min={1}
-              value={giveItemCount}
-              onChange={(event) =>
-                setGiveItemCount(Math.max(1, Math.trunc(Number(event.target.value))))
-              }
-              className="w-16 rounded-sm border border-surface-600 bg-surface-950 px-2 py-2 text-[13px] tabular-nums text-ink-100"
-            />
+            {giveItem !== '' && (
+              <NumberField
+                label="how many of the item"
+                value={giveItemCount}
+                onChange={setGiveItemCount}
+                min={1}
+                max={market.inventory[giveItem] ?? 1}
+                className="w-24"
+              />
+            )}
           </label>
         )}
 
-        {field('You want', wantRes, setWantRes)}
+        <BundleBuilder
+          label="You want"
+          tone="take"
+          state={wantRes}
+          onChange={setWantRes}
+          held={market.resources}
+          testId="offer-want"
+        />
 
-        <p className="font-display text-[12px] uppercase tracking-[0.12em] text-ink-300">
-          Giving {bundleValue(give).toLocaleString()} · asking {bundleValue(want).toLocaleString()}
-        </p>
+        {/* The deal as the board will print it, before anybody else sees it. */}
+        <div className="edge-lit flex flex-wrap items-center justify-center gap-2.5 rounded-md border border-brass-500/40 bg-surface-950/50 px-3 py-3">
+          <BundleChips bundle={give} tone="give" empty="nothing yet" />
+          <TradeArrow className="h-6 w-6" />
+          <BundleChips bundle={want} tone="take" empty="nothing yet" />
+          {!empty && <ValueBadge received={want} paid={give} />}
+        </div>
 
         <div className="flex items-center gap-3">
           <Button
             size="sm"
-            disabled={post.isPending}
+            disabled={post.isPending || empty}
             onClick={() =>
               post.mutate(counterTo === null ? { give, want } : { give, want, counterTo }, {
                 onSuccess: onDone,
@@ -700,6 +843,97 @@ function OfferComposer({
   );
 }
 
+/**
+ * One side of a proposed trade: tap a material to put it in, then say how much.
+ *
+ * A tile that is already in the pile keeps its stepper under it and drops out when it reaches
+ * zero, so adding and removing are the same gesture and there is no delete button to hunt for.
+ */
+function BundleBuilder({
+  label,
+  tone,
+  state,
+  onChange,
+  held,
+  testId,
+}: {
+  label: string;
+  tone: 'give' | 'take';
+  state: Partial<Record<ResourceKey, number>>;
+  onChange: (next: Partial<Record<ResourceKey, number>>) => void;
+  held: Partial<Record<ResourceKey, number>>;
+  testId: string;
+}) {
+  const chosen = RESOURCE_ORDER.filter((key) => (state[key] ?? 0) > 0);
+
+  const set = (key: ResourceKey, amount: number): void => {
+    const next = { ...state };
+    if (amount <= 0) delete next[key];
+    else next[key] = amount;
+    onChange(next);
+  };
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span
+        className={cn(
+          'font-display text-[11px] font-bold uppercase tracking-[0.16em]',
+          tone === 'give' ? 'text-oxblood-300' : 'text-verdigris-100',
+        )}
+      >
+        {label}
+      </span>
+
+      <div className="flex flex-wrap gap-1.5" data-testid={testId}>
+        {RESOURCE_ORDER.map((key) => {
+          const inPile = (state[key] ?? 0) > 0;
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={inPile}
+              aria-label={`${RESOURCE_LABELS[key]} into ${label}`}
+              data-tip={`${RESOURCE_LABELS[key]} · ${(held[key] ?? 0).toLocaleString()} held`}
+              data-testid={`${testId}-${key}`}
+              onClick={() => set(key, inPile ? 0 : 1)}
+              className={cn(
+                'door-tile flex h-11 w-11 items-center justify-center rounded-lg border transition-all duration-150',
+                inPile
+                  ? 'door-tile-active -translate-y-0.5 border-brass-300'
+                  : 'border-surface-500/70 hover:-translate-y-0.5 hover:border-iris-300/80',
+              )}
+            >
+              <ResourceIcon
+                kind={key}
+                className="relative z-[2] h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]"
+              />
+            </button>
+          );
+        })}
+      </div>
+
+      {chosen.length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-0.5">
+          {chosen.map((key) => (
+            <span key={key} className="flex items-center gap-1.5">
+              <ResourceIcon kind={key} className="h-5 w-5" />
+              <NumberField
+                label={`how much ${RESOURCE_LABELS[key].toLowerCase()}`}
+                value={state[key] ?? 0}
+                onChange={(next) => set(key, next)}
+                min={0}
+                max={999_999}
+                className="w-28"
+                data-testid={`${testId}-amount-${key}`}
+              />
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The whole item, as a window. Shared by the barrow, the satchel and the board. */
 export function ItemWindow({ id }: { id: ItemId }) {
   const spec = ITEM_CATALOG[id];
@@ -718,17 +952,9 @@ export function ItemWindow({ id }: { id: ItemId }) {
       <p className="font-body text-[14px] italic leading-relaxed text-ink-200">
         {spec.description}
       </p>
-      {spec.usedFor !== '' ? (
-        <WindowSection label="What it is for">
-          <p className="font-body text-[13px] leading-snug text-ink-100">{spec.usedFor}</p>
-        </WindowSection>
-      ) : (
-        <WindowSection label="What it is for">
-          <p className="font-body text-[13px] leading-snug text-ink-300">
-            Nothing. Somebody will still pay for it.
-          </p>
-        </WindowSection>
-      )}
+      {/* No "what it is for" section. The line above says what the thing is and the figure says
+          what it costs, which is what a shop listing is; the rest was an explanation of a mechanic
+          under the price a player was reading. */}
     </InfoWindow>
   );
 }

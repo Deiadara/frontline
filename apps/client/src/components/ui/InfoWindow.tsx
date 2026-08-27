@@ -34,9 +34,22 @@ export interface InfoWindowProps {
    *
    * `light` is the pale plate the painted resource masters need. `dark` is for a stroked
    * single-colour mark, which the light plate washes out: see `.icon-plate`.
+   *
+   * `none` is for a **picture**: a unit portrait is a whole painting with its own frame and its
+   * own light, and standing one on a pale lilac square inset it by two pixels on every side and
+   * ringed it in lavender. Nothing to stand on, no padding, and the box takes the picture's own
+   * shape rather than forcing a 3:4 painting into a square and matting the sides.
    */
-  plate?: 'light' | 'dark';
-  children: ReactNode;
+  plate?: 'light' | 'dark' | 'none';
+  /**
+   * The body, and it is optional.
+   *
+   * A window with a figure and a bar and nothing under them is the common case now: what a player
+   * opens one of these for is the number, and the paragraphs explaining what the number is for
+   * came out of every readout in the standing bar. The body block disappears entirely when there
+   * is nothing in it, so an empty window closes on its header rather than on a strip of padding.
+   */
+  children?: ReactNode;
 }
 
 const TONE: Record<NonNullable<InfoWindowProps['tone']>, { edge: string; rule: string }> = {
@@ -100,9 +113,12 @@ export function InfoWindow({
         {icon !== undefined && (
           <span
             className={cn(
-              'flex h-24 w-24 shrink-0 items-center justify-center rounded-sm p-2',
-              plate === 'dark' ? 'icon-plate' : 'icon-tile',
-              'shadow-lifted',
+              'flex h-24 shrink-0 items-center justify-center rounded-sm shadow-lifted',
+              plate === 'none'
+                ? // The picture *is* the plate. `w-auto` so a 3:4 portrait comes out 72x96 rather
+                  // than sitting in a 96-wide square with a mat down both sides.
+                  'w-auto overflow-hidden'
+                : cn('w-24 p-2', plate === 'dark' ? 'icon-plate' : 'icon-tile'),
             )}
           >
             {icon}
@@ -130,7 +146,9 @@ export function InfoWindow({
         className={cn('mx-4 block h-px bg-gradient-to-r to-transparent', TONE[tone].rule)}
       />
 
-      <div className="relative flex flex-col gap-2.5 px-4 pb-4 pt-3">{children}</div>
+      {children !== undefined && children !== null && children !== false && (
+        <div className="relative flex flex-col gap-2.5 px-4 pb-4 pt-3">{children}</div>
+      )}
     </div>
   );
 }

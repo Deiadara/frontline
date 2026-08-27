@@ -144,9 +144,9 @@ Body: `RenameFactionRequestSchema` `{name}`: trimmed and bounded by `FactionName
 ### Lazy settlement
 
 Every read path that touches a base calls `settleBase`, which runs **the district first and
-payroll second**. The order is load-bearing in both directions: a Greenhouse has to have grown
-this week's rations before the upkeep is taken, and the Infirmary that softens a missed payday has
-to be standing before the payday is missed.
+training second**: a batch landing does not feed anything else in the settle. There used to be a
+weekly upkeep pass between the two, taking supplies out of the store for every officer on the
+books. No recurring charge is left in the game, so nothing settles on a calendar.
 
 The district settle walks the window rather than multiplying it. It is cut at each completed
 build so a structure that finished an hour ago is not paid for the three days the district went

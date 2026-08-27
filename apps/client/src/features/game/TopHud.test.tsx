@@ -5,6 +5,7 @@ import {
   startingEconomy,
   type Base,
   type EconomyState,
+  type Resources,
   type Overseer,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -33,6 +34,9 @@ const economy: EconomyState = startingEconomy('2026-08-13T09:30:00.000Z');
 const base = {
   id: 'base-1',
   name: 'The Ninth Street Reclamation Company',
+  // The sign in the middle of the bar reads the district's real name off the map, so the fixture
+  // has to name one that is actually on it.
+  districtId: 'neon-docks',
   level: 7,
   // The bar reads the level chip straight off these two, so the fixture has to carry them.
   progression: { xpIntoLevel: 640 },
@@ -53,14 +57,17 @@ const buildings = [
 
 // Inside a router *and* a query client: the identity on the right is a link, and the infamy chip
 // carries the §D7 Upgrade Tier control, which is a mutation. Neither degrades outside its provider.
-const renderHud = (override: Partial<EconomyState> = {}) =>
+const renderHud = (
+  override: Partial<EconomyState> = {},
+  resources: Resources = STARTING_RESOURCES,
+) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
       <MemoryRouter>
         <TopHud
           overseer={overseer}
           base={{ ...base, economy: { ...economy, ...override } }}
-          resources={STARTING_RESOURCES}
+          resources={resources}
           economy={{ ...economy, ...override }}
           buildings={buildings}
         />
@@ -98,10 +105,14 @@ describe('renaming the crew from the standing bar', () => {
     fetchMock.mockReset();
   });
 
-  it('names the faction, and offers to rename it', async () => {
+  it('names the crew, and offers to rename it', async () => {
     renderHud();
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(base.name);
+    // The crew's own name and nothing else: the district's name was on here for a while and made
+    // the smaller of the two read as a subtitle of the larger. The plaque is not an `<h1>` either:
+    // the bar carries no page heading, and the one on each screen behind it is the page's own.
+    const plaque = screen.getByTestId('faction-plaque');
+    expect(plaque).toHaveTextContent(base.name);
 
     // The whole plaque is the control, so it is named for the thing it *is* plus the thing it
     // does, which is what a player reads on hover and what a screen reader announces.
@@ -135,8 +146,35 @@ describe('TopHud', () => {
       expect(within(chip).getByText(String(STARTING_RESOURCES[key]))).toBeInTheDocument();
       // The ceiling is drawn as a fill, which is the half of "how much do I have" a bare number
       // cannot answer: whether the next hour of production has anywhere to go.
-      expect(within(chip).getByTestId(`resource-fill-${key}`)).toBeInTheDocument();
+      //
+      // Caps are the exception, and they are the reason this is a branch rather than a loop body:
+      // they have no ceiling anywhere in the game, so a bar under them would be a track that can
+      // never fill. Both halves asserted, because a chip that lost its bar by accident and a
+      // currency that grew one both have to fail here.
+      const fill = within(chip).queryByTestId(`resource-fill-${key}`);
+      if (key === 'caps') expect(fill, 'caps have no ceiling to draw').toBeNull();
+      else expect(fill, `${key} should show how full its shelf is`).toBeInTheDocument();
     }
+  });
+
+  /**
+   * The three shelves, as the player sees them.
+   *
+   * The Apothecary holds three times as much scrap as high-quality metal, so two chips holding the
+   * same amount must not read as equally full. Asserted off the rendered widths rather than off
+   * `STORAGE_SHARES`, which would just be the table agreeing with itself.
+   */
+  it('draws a shorter shelf for the scarce materials than for the bulk ones', () => {
+    renderHud(
+      {},
+      { ...STARTING_RESOURCES, scrap: 100, highQualityMetal: 100, oil: 100, planks: 100 },
+    );
+
+    const width = (key: string): number =>
+      Number.parseFloat(screen.getByTestId(`resource-fill-${key}`).style.width.replace('%', ''));
+
+    expect(width('highQualityMetal')).toBeGreaterThan(width('scrap'));
+    expect(width('oil')).toBeGreaterThan(width('planks'));
   });
 
   it('shows the faction level and the infamy wallet (§I, §D7)', () => {

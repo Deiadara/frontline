@@ -51,8 +51,12 @@ function infamyOf(base: Base): number {
  *
  * Read from the summaries rather than from full base rows: this runs on every read of the shelf,
  * and the only column it needs is the level.
+ *
+ * Exported because the shelf is not the only thing that reads it: a fight weights the contraband
+ * it applies by the same number, and the battle screen has to quote the figure the fight will use.
+ * There were two copies of this function and no test that would have noticed them disagreeing.
  */
-function cityLevelFor(repos: Repositories): number {
+export function cityLevelFor(repos: Repositories): number {
   return averageCityLevel(
     repos.bases
       .listSummaries()

@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { FORTIFY_MAX_LEVEL, noTerritoryEffects } from '../city/index.js';
-import { findUnit, type UnitSpec } from '../units/index.js';
-import { LOCATION_KINDS, LOCATION_CATALOG } from '../city/locations.js';
+import { findUnit, type CombatContext, type UnitSpec } from '../units/index.js';
+import { LOCATION_KINDS, LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
 import {
   bareBattlefield,
   battlefieldFor,
   homeBattlefield,
-  isNight,
   LOCATION_CONTEXTS,
 } from './battlefield.js';
 import { contextBonusPercent, effectiveStats, MAX_HELD_DEFENSE } from './effects.js';
@@ -73,23 +72,32 @@ describe('what each location fights like', () => {
     expect(battlefieldFor({ ...base, fortifyLevel: 1 }).contexts).toContain('vs_structure');
   });
 
-  it('is night when it is night', () => {
-    expect(isNight(NIGHT)).toBe(true);
-    expect(isNight(DAY)).toBe(false);
-    expect(
+  /**
+   * Darkness is a property of the place, not of the hour.
+   *
+   * The day/night cycle used to decide this: every fight after 21:00 UTC was a night fight,
+   * wherever it was. Both halves are asserted because both were wrong under the old rule: an open
+   * market is lit at every hour, and a sewer is dark at every hour.
+   */
+  it('reads darkness off the ground rather than off the clock', () => {
+    const ground = (kind: LocationKind, at: Date): readonly CombatContext[] =>
       battlefieldFor({
         locationName: 'x',
-        kind: 'market',
+        kind,
         fortifyDifficulty: 'easy',
         fortifyLevel: 0,
-        at: NIGHT,
-      }).contexts,
-    ).toContain('night');
+        at,
+      }).contexts;
+
+    for (const at of [DAY, NIGHT]) {
+      expect(ground('market', at)).not.toContain('dark');
+      expect(ground('sewer_junction', at)).toContain('dark');
+    }
   });
 
-  it('fights a home district in the streets', () => {
+  it('fights a home district in the streets, at every hour', () => {
     expect(homeBattlefield('Kettle Row', DAY).contexts).toEqual(['urban']);
-    expect(homeBattlefield('Kettle Row', NIGHT).contexts).toEqual(['urban', 'night']);
+    expect(homeBattlefield('Kettle Row', NIGHT).contexts).toEqual(['urban']);
   });
 
   /** Easy ground pays the most per level: the board's inversion, carried through to the fight. */
@@ -116,9 +124,9 @@ describe('what the ground does to a unit', () => {
   });
 
   it('sums stacked modifiers rather than multiplying them', () => {
-    // Muckrakers are `tunnel_rat` (25) and `night_operations` (20). Below street level, at night,
+    // Muckrakers are `tunnel_rat` (25) and `night_operations` (20). Below street level and unlit,
     // that is 45 percentage points and not 1.25 × 1.20.
-    const both = contextBonusPercent(unit('muckrakers'), ['underground', 'night']);
+    const both = contextBonusPercent(unit('muckrakers'), ['underground', 'dark']);
     expect(both.percent).toBe(45);
     expect(both.reasons).toHaveLength(2);
   });
@@ -203,8 +211,8 @@ describe('the ground changes how the fight goes', () => {
       }
       return left / runs;
     };
-    // Muckrakers are a poor unit that is good below street level and at night. The same fight in a
-    // rail yard must cost them more than the same fight in a sewer.
+    // Muckrakers are a poor unit that is good below street level and on unlit ground, and a sewer
+    // junction is both. The same fight in a rail yard must cost them more.
     expect(run('sewer_junction')).toBeGreaterThan(run('rail_yard') * 1.3);
   });
 

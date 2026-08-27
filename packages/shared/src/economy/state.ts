@@ -74,7 +74,7 @@ export function startingEconomy(now: string): EconomyState {
   return {
     infamy: STARTING_INFAMY,
     notoriety: STARTING_NOTORIETY,
-    payroll: startingPayroll(now),
+    payroll: startingPayroll(),
     productionSettledAt: now,
     disruption: noDisruption(),
     productionCarry: {},

@@ -135,7 +135,7 @@ export function projectAreas(
   return [
     board(
       MISC_AREA_ID,
-      'Odd jobs',
+      'Miscellaneous Missions',
       'Work that belongs to nobody. Somebody always needs a wall stripped or a bay emptied.',
       1,
     ),

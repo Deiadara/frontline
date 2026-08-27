@@ -15,7 +15,6 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
-import { settleBaseEconomy } from '../economy/settle.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { settleTraining } from '../units/training.js';
 
@@ -187,17 +186,15 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
  * Everything a base owes on a read, in the one order that is correct: **the** entry point for
  * every route that touches a base.
  *
- * The district settles first and payroll second, and the order is load-bearing in both directions:
- * a Greenhouse has to have grown this week's rations before the upkeep is taken, and the Infirmary
- * that softens a missed payday has to be standing before the payday is missed. Routes that need
- * finer control can still call the two halves themselves; nothing else should.
+ * The district settles first and training second. There used to be a weekly upkeep pass between
+ * the two, and the order mattered because the Greenhouse had to have grown the week's rations
+ * before they were eaten; no recurring charge is left in the game, so what is left is production
+ * and then the batches it paid for.
  */
 export function settleBase(repos: Repositories, base: Base, now: Date): DistrictSettlement {
   const district = settleDistrict(repos, base, now);
-  // Training last: a batch landing does not feed anything else in the settle, and putting it
-  // first would mean the army the payroll sees differs from the one the district produced with.
-  const paid = settleBaseEconomy(repos, district.base, now);
-  const trained = settleTraining(repos, paid, now);
+  // Training last: a batch landing does not feed anything else in the settle.
+  const trained = settleTraining(repos, district.base, now);
   // Both runs of awards, in the order they happened, so one read that finished a building and a
   // batch announces one level-up rather than losing whichever came first.
   return { ...district, base: trained.base, awards: [...district.awards, ...trained.awards] };

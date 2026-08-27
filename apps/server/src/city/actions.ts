@@ -413,6 +413,18 @@ export function setGarrison(
   const sending: Army = Object.fromEntries(
     Object.entries(changes).filter(([, delta]) => delta > 0),
   );
+  /*
+   * §A5: and the same argument again, for the same reason.
+   *
+   * A garrison *is* a defending force: `assemble` merges it into the line when somebody comes for
+   * the ground. So the support tier may not be posted to one, exactly as it may not be deployed
+   * to a fight or sent on a raid. Without this a player could park Scavengers on a rooftop and
+   * have them killed for a share of an exchange they cannot take part in, which is precisely what
+   * `isFightingForce` exists to refuse at every other door.
+   *
+   * Only what is being *sent out* is checked, so bringing anybody home is never blocked.
+   */
+  if (!isFightingForce(sending)) return { kind: 'refused', reason: 'not_a_fighting_force' };
   if (unitsBeyondNotoriety(sending, base.economy.notoriety).length > 0) {
     return { kind: 'refused', reason: 'needs_infamy' };
   }

@@ -200,7 +200,7 @@ describe('ordering a level (§A1, §D3)', () => {
   it('refuses what the stockpile cannot cover, and takes nothing', () => {
     const repos = openStack();
     const broke = seedBase(repos, {
-      resources: { caps: 0, food: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
+      resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
     });
     expect(queueBuild(repos, { base: broke, structure: 'quarters', id: 'q1', now: NOW })).toEqual({
       kind: 'refused',
@@ -214,7 +214,7 @@ describe('ordering a level (§A1, §D3)', () => {
     const rich = seedBase(repos, {
       resources: {
         caps: 99999,
-        food: 99999,
+        supplies: 99999,
         oil: 99999,
         scrap: 99999,
         highQualityMetal: 99999,
@@ -268,8 +268,8 @@ describe('settling the district (§A1)', () => {
 
     // …so the next read that clears it accrues the whole hour, not the remainder.
     const later = settleDistrict(repos, skipped.base, new Date(NOW.getTime() + HOUR_MS));
-    const expected = districtProduction(district).perHour.food ?? 0;
-    expect(later.base.resources.food - base.resources.food).toBeCloseTo(expected, 6);
+    const expected = districtProduction(district).perHour.supplies ?? 0;
+    expect(later.base.resources.supplies - base.resources.supplies).toBeCloseTo(expected, 6);
   });
 
   it('stands a finished order up, drops it from the queue and pays its XP', () => {
@@ -337,9 +337,9 @@ describe('settling the district (§A1)', () => {
       build('nexus', 1),
       build('generator', 1),
       build('greenhouse', 1),
-    ]).perHour.food;
+    ]).perHour.supplies;
 
-    const grown = lateSettled.base.resources.food - late.resources.food;
+    const grown = lateSettled.base.resources.supplies - late.resources.supplies;
     // One hour's worth, not three.
     expect(grown).toBeCloseTo(alwaysThere ?? 0, 4);
     expect(grown).toBeLessThan((alwaysThere ?? 0) * 2);
@@ -404,7 +404,7 @@ describe('population (§A1: one pool)', () => {
       buildings: [build('nexus', 1), build('generator', 1), build('gauntlet', 4)],
       resources: {
         caps: 900_000,
-        food: 900_000,
+        supplies: 900_000,
         oil: 900_000,
         scrap: 900_000,
         highQualityMetal: 0,
@@ -444,7 +444,7 @@ describe('modifications (§A1, §C4)', () => {
   const engineer = () => [createCommander('eng', 'Wrench', 'lead_engineer')];
   const rich: Resources = {
     caps: 9999,
-    food: 9999,
+    supplies: 9999,
     oil: 9999,
     scrap: 9999,
     highQualityMetal: 9999,
@@ -547,7 +547,7 @@ describe('the build clock a player is quoted is the one they get', () => {
     const base = seedBase(repos, {
       resources: {
         caps: 99999,
-        food: 99999,
+        supplies: 99999,
         oil: 99999,
         scrap: 99999,
         highQualityMetal: 99999,
@@ -580,7 +580,7 @@ describe('the build clock a player is quoted is the one they get', () => {
 describe('the bench (§A5)', () => {
   const rich: Resources = {
     caps: 900_000,
-    food: 900_000,
+    supplies: 900_000,
     oil: 900_000,
     scrap: 900_000,
     highQualityMetal: 900_000,

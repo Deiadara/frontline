@@ -445,6 +445,17 @@
   }
 
   /** Panel contents sit above the wash. */
+  /*
+   * Content sits above the soft-light texture layer.
+   *
+   * **This defeats `absolute` on a direct child.** `.painted > *` and `.absolute` have the same
+   * specificity, so which wins is decided by where each lands in the generated stylesheet, and a
+   * plain positioning utility loses. It has bitten twice: the district plaque's corner brackets
+   * fell into the flex flow and stacked into an I-beam, and the scenery switcher's Settings tile
+   * only stays pinned because an arbitrary-variant utility happens to be emitted later.
+   *
+   * A direct child of a `painted` box that needs to be positioned must say `!absolute`.
+   */
   .painted > * {
     position: relative;
     z-index: 1;

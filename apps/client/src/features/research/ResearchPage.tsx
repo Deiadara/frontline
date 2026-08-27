@@ -16,6 +16,8 @@ import {
   MAX_ROLE_FACTS,
   OFFICER_ROLE_LABELS,
   RESEARCH_MINUTES,
+  RESOURCE_LABELS,
+  RESOURCE_ORDER,
   attributeTier,
   consultOnAssignment,
   formatCountdown,
@@ -35,8 +37,10 @@ import {
   type LabTech,
 } from '@frontline/shared';
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
+import { Icon, type IconName } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
@@ -136,189 +140,242 @@ interface StartFormProps {
   onStart: (project: Parameters<ReturnType<typeof useStartResearch>['mutate']>[0]) => void;
 }
 
+/**
+ * One bench: a sheet of paper on the desk, with a lit edge and rivets like every other card.
+ *
+ * `narrow` caps the two that are forms. A pair of dropdowns and a button stretched across 1200px
+ * is a control that has lost its own shape: the eye has to travel the width of the screen from the
+ * label to the field. The modification bench is a grid of sixty-five cards and wants every pixel.
+ */
+function Bench({ narrow = false, children }: { narrow?: boolean; children: ReactNode }) {
+  return (
+    <section
+      className={cn(
+        'card-paper washed rivets edge-lit flex min-w-0 flex-col gap-3 rounded-sm border border-surface-500/70 p-4 shadow-panel',
+        narrow && 'max-w-3xl',
+      )}
+    >
+      {children}
+    </section>
+  );
+}
+
+/**
+ * The head of one bench: what it is, and what an order on it costs.
+ *
+ * The three used to open with a small brass heading and a figure at the other end of the line, and
+ * three of those stacked read as one form with three paragraphs in it. A plated mark, a name at a
+ * size worth reading, and a drawn rule under it is what makes them three *places*.
+ */
+function BenchHead({
+  icon,
+  title,
+  cost,
+  children,
+}: {
+  icon: IconName;
+  title: string;
+  cost: string;
+  children: ReactNode;
+}) {
+  return (
+    <header className="flex flex-col gap-2">
+      <div className="flex items-center gap-2.5">
+        <span
+          aria-hidden
+          className="icon-plate flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+        >
+          <Icon name={icon} />
+        </span>
+        <h3 className="min-w-0 flex-1 font-stamp text-[17px] leading-tight text-ink-100">
+          {title}
+        </h3>
+        <span className="shrink-0 rounded-sm border border-brass-500/40 px-2 py-1 font-display text-[11px] font-bold uppercase tracking-[0.1em] tabular-nums text-brass-300">
+          {cost}
+        </span>
+      </div>
+      <span aria-hidden className="ink-rule block w-full" />
+      <p className="font-body text-[13px] leading-relaxed text-ink-300">{children}</p>
+    </header>
+  );
+}
+
 /** §B9 + §F2 + §F4: the two things the crew can be put on, and the option one of them unlocks. */
-function StartForm({ data, pending, onStart }: StartFormProps) {
+/**
+ * §B9: put the Professor on a position, and find out what the job leans on.
+ */
+function InvestigateBench({ data, pending, onStart }: StartFormProps) {
   const [role, setRole] = useState<OfficerRole | ''>('');
   const [leadId, setLeadId] = useState('');
   const [crossReference, setCrossReference] = useState(false);
-  const [attribute, setAttribute] = useState<AttributeName>('improvisation');
-
   const lead = data.leads.find((candidate) => candidate.officerId === leadId) ?? data.leads[0];
   const canCrossReference = (lead?.crossReference ?? false) && !data.pairingsExhausted;
   const chosenRole = role === '' ? data.openRoles[0] : role;
+  const affordable = data.caps >= data.costs.investigation;
 
-  const affordable = (kind: 'investigation' | 'training' | 'modification') =>
-    data.caps >= data.costs[kind];
+  return (
+    <Bench narrow>
+      <BenchHead
+        icon="eye"
+        title="Investigate a position"
+        cost={`${data.costs.investigation}c · ${formatDuration(RESEARCH_MINUTES.investigation)}`}
+      >
+        Your Professor reads the files on who has worked out well where. You get told what a job
+        leans on. Never how much, and never all of it.
+      </BenchHead>
+
+      {data.leads.length === 0 ? (
+        <p className="text-[13px] text-warning">
+          Nobody on your books can run this. Hire a Professor or a Head of Research.
+        </p>
+      ) : (
+        <>
+          <label className="flex flex-col gap-1">
+            <span className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-ink-200">
+              Lead
+            </span>
+            <Dropdown
+              label="Who leads the project"
+              value={lead?.officerId ?? ''}
+              onChange={(officerId) => {
+                setLeadId(officerId);
+                setCrossReference(false);
+              }}
+              options={data.leads.map((candidate) => ({
+                value: candidate.officerId,
+                label: candidate.name,
+                hint: OFFICER_ROLE_LABELS[candidate.role],
+              }))}
+              data-testid="research-lead"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-ink-200">
+              Position
+            </span>
+            <Dropdown
+              label="Which role to investigate"
+              value={chosenRole ?? ''}
+              onChange={setRole}
+              options={data.openRoles.map((open) => ({
+                value: open,
+                label: OFFICER_ROLE_LABELS[open],
+              }))}
+              data-testid="research-role"
+            />
+          </label>
+
+          {/* §F4: an option that is *locked*, and says why, rather than quietly doing nothing. */}
+          <label
+            className={cn(
+              'flex items-start gap-2 border p-2',
+              canCrossReference ? 'border-bile-300/40' : 'border-surface-700',
+            )}
+          >
+            <input
+              type="checkbox"
+              checked={crossReference && canCrossReference}
+              disabled={!canCrossReference}
+              onChange={(event) => setCrossReference(event.target.checked)}
+              className="mt-0.5 shrink-0 accent-bile-300"
+            />
+            <span className="min-w-0 text-[13px] leading-relaxed">
+              <span className={canCrossReference ? 'text-bile-300' : 'text-ink-300'}>
+                Cross-reference
+              </span>
+              <span className="block text-ink-300">
+                {data.pairingsExhausted
+                  ? 'Every connection they could draw, they already have.'
+                  : canCrossReference
+                    ? 'They will also notice what goes with what.'
+                    : `Locked. Needs Improvisation ${CROSS_REFERENCE_IMPROVISATION}.`}
+              </span>
+            </span>
+          </label>
+
+          <Button
+            size="sm"
+            disabled={pending || !chosenRole || !affordable || data.active !== null}
+            onClick={() => {
+              if (!chosenRole || !lead) return;
+              onStart({
+                kind: 'investigation',
+                role: chosenRole,
+                leadOfficerId: lead.officerId,
+                crossReference: crossReference && canCrossReference,
+              });
+            }}
+          >
+            {affordable ? 'Put them on it' : 'Not enough caps'}
+          </Button>
+        </>
+      )}
+    </Bench>
+  );
+}
+
+/** §F2: an hour of the Overseer's own time, bought with caps, one point at a time. */
+function DevelopBench({ data, pending, onStart }: StartFormProps) {
+  const [attribute, setAttribute] = useState<AttributeName>('improvisation');
+  const affordable = data.caps >= data.costs.training;
   const trainable = data.overseerAttributes[attribute] < MAX_ATTRIBUTE;
 
   return (
-    <div className="grid gap-4 p-4 lg:grid-cols-2">
-      <section className="flex min-w-0 flex-col gap-3 rounded-sm border border-surface-600/70 bg-surface-900/40 p-4">
-        <header className="flex items-baseline justify-between gap-2">
-          <h3 className="font-display text-sm font-bold uppercase tracking-[0.16em] text-brass-300">
-            Investigate a position
-          </h3>
-          <span className="shrink-0 font-display text-[12px] font-semibold tabular-nums text-ink-200">
-            {data.costs.investigation}c · {formatDuration(RESEARCH_MINUTES.investigation)}
-          </span>
-        </header>
-        <p className="text-[13px] leading-relaxed text-ink-300">
-          Your Professor reads the files on who has worked out well where. You get told what a job
-          leans on. Never how much, and never all of it.
-        </p>
+    <Bench narrow>
+      <BenchHead
+        icon="training"
+        title="Develop yourself"
+        cost={`${data.costs.training}c · ${formatDuration(RESEARCH_MINUTES.training)}`}
+      >
+        Any attribute, whether or not it suits you. Time and caps, one point at a time.
+      </BenchHead>
 
-        {data.leads.length === 0 ? (
-          <p className="text-[13px] text-warning">
-            Nobody on your books can run this. Hire a Professor or a Head of Research.
-          </p>
-        ) : (
-          <>
-            <label className="flex flex-col gap-1">
-              <span className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-ink-200">
-                Lead
-              </span>
-              <Dropdown
-                label="Who leads the project"
-                value={lead?.officerId ?? ''}
-                onChange={(officerId) => {
-                  setLeadId(officerId);
-                  setCrossReference(false);
-                }}
-                options={data.leads.map((candidate) => ({
-                  value: candidate.officerId,
-                  label: candidate.name,
-                  hint: OFFICER_ROLE_LABELS[candidate.role],
-                }))}
-                data-testid="research-lead"
-              />
-            </label>
-
-            <label className="flex flex-col gap-1">
-              <span className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-ink-200">
-                Position
-              </span>
-              <Dropdown
-                label="Which role to investigate"
-                value={chosenRole ?? ''}
-                onChange={setRole}
-                options={data.openRoles.map((open) => ({
-                  value: open,
-                  label: OFFICER_ROLE_LABELS[open],
-                }))}
-                data-testid="research-role"
-              />
-            </label>
-
-            {/* §F4: an option that is *locked*, and says why, rather than quietly doing nothing. */}
-            <label
-              className={cn(
-                'flex items-start gap-2 border p-2',
-                canCrossReference ? 'border-bile-300/40' : 'border-surface-700',
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={crossReference && canCrossReference}
-                disabled={!canCrossReference}
-                onChange={(event) => setCrossReference(event.target.checked)}
-                className="mt-0.5 shrink-0 accent-bile-300"
-              />
-              <span className="min-w-0 text-[13px] leading-relaxed">
-                <span className={canCrossReference ? 'text-bile-300' : 'text-ink-300'}>
-                  Cross-reference
-                </span>
-                <span className="block text-ink-300">
-                  {data.pairingsExhausted
-                    ? 'Every connection they could draw, they already have.'
-                    : canCrossReference
-                      ? 'They will also notice what goes with what.'
-                      : `Locked. Needs Improvisation ${CROSS_REFERENCE_IMPROVISATION}.`}
-                </span>
-              </span>
-            </label>
-
-            <Button
-              size="sm"
-              disabled={
-                pending || !chosenRole || !affordable('investigation') || data.active !== null
-              }
-              onClick={() => {
-                if (!chosenRole || !lead) return;
-                onStart({
-                  kind: 'investigation',
-                  role: chosenRole,
-                  leadOfficerId: lead.officerId,
-                  crossReference: crossReference && canCrossReference,
-                });
-              }}
-            >
-              {affordable('investigation') ? 'Put them on it' : 'Not enough caps'}
-            </Button>
-          </>
-        )}
-      </section>
-
-      <section className="flex min-w-0 flex-col gap-3 rounded-sm border border-surface-600/70 bg-surface-900/40 p-4">
-        <header className="flex items-baseline justify-between gap-2">
-          <h3 className="font-display text-sm font-bold uppercase tracking-[0.16em] text-brass-300">
-            Develop yourself
-          </h3>
-          <span className="shrink-0 font-display text-[12px] font-semibold tabular-nums text-ink-200">
-            {data.costs.training}c · {formatDuration(RESEARCH_MINUTES.training)}
-          </span>
-        </header>
-        <p className="text-[13px] leading-relaxed text-ink-300">
-          Any attribute, whether or not it suits you. Time and caps, one point at a time.
-        </p>
-
-        <label className="flex flex-col gap-1">
-          <span className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-ink-200">
-            Attribute
-          </span>
-          <Dropdown
-            label="Which attribute to train"
-            value={attribute}
-            onChange={setAttribute}
-            options={ATTRIBUTE_GROUPS.flatMap((group) =>
-              ATTRIBUTES_BY_GROUP[group].map((name) => ({
-                value: name,
-                label: labelOf(name),
-                hint: `at ${data.overseerAttributes[name]}`,
-                group: labelOf(group),
-              })),
-            )}
-            data-testid="research-attribute"
-          />
-        </label>
-
-        <p className="text-[12px] text-ink-300">
-          {labelOf(attribute)}{' '}
-          <span className="font-display font-semibold tabular-nums text-ink-200">
-            {data.overseerAttributes[attribute]}
-          </span>
-          {trainable ? (
-            <>
-              {' → '}
-              <span className="font-display font-semibold tabular-nums text-brass-300">
-                {data.overseerAttributes[attribute] + 1}
-              </span>
-            </>
-          ) : (
-            <span className="text-warning"> (already at the ceiling)</span>
+      <label className="flex flex-col gap-1">
+        <span className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-ink-200">
+          Attribute
+        </span>
+        <Dropdown
+          label="Which attribute to train"
+          value={attribute}
+          onChange={setAttribute}
+          options={ATTRIBUTE_GROUPS.flatMap((group) =>
+            ATTRIBUTES_BY_GROUP[group].map((name) => ({
+              value: name,
+              label: labelOf(name),
+              hint: `at ${data.overseerAttributes[name]}`,
+              group: labelOf(group),
+            })),
           )}
-        </p>
+          data-testid="research-attribute"
+        />
+      </label>
 
-        <Button
-          size="sm"
-          disabled={pending || !trainable || !affordable('training') || data.active !== null}
-          onClick={() => onStart({ kind: 'training', attribute })}
-        >
-          {affordable('training') ? 'Begin training' : 'Not enough caps'}
-        </Button>
-      </section>
+      <p className="text-[12px] text-ink-300">
+        {labelOf(attribute)}{' '}
+        <span className="font-display font-semibold tabular-nums text-ink-200">
+          {data.overseerAttributes[attribute]}
+        </span>
+        {trainable ? (
+          <>
+            {' → '}
+            <span className="font-display font-semibold tabular-nums text-brass-300">
+              {data.overseerAttributes[attribute] + 1}
+            </span>
+          </>
+        ) : (
+          <span className="text-warning"> (already at the ceiling)</span>
+        )}
+      </p>
 
-      <ModificationsSection data={data} pending={pending} onStart={onStart} />
-    </div>
+      <Button
+        size="sm"
+        disabled={pending || !trainable || !affordable || data.active !== null}
+        onClick={() => onStart({ kind: 'training', attribute })}
+      >
+        {affordable ? 'Begin training' : 'Not enough caps'}
+      </Button>
+    </Bench>
   );
 }
 
@@ -343,30 +400,36 @@ function ModificationsSection({ data, pending, onStart }: StartFormProps) {
   const [kind, setKind] = useState<BuildingKind>('nexus');
   const shown = data.modifications.filter((option) => option.building === kind);
 
+  const fitted = shown.filter((option) => option.installed).length;
+
   return (
-    <section className="flex min-w-0 flex-col gap-3 rounded-sm border border-surface-600/70 bg-surface-900/40 p-4 lg:col-span-2">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="font-display text-sm font-bold uppercase tracking-[0.16em] text-brass-300">
-          Fit a modification
-        </h3>
-        <span className="shrink-0 font-display text-[12px] font-semibold tabular-nums text-ink-200">
-          {data.costs.modification}c + materials · {formatDuration(RESEARCH_MINUTES.modification)}
-        </span>
-      </header>
-      <p className="text-[13px] leading-relaxed text-ink-300">
+    <Bench>
+      <BenchHead
+        icon="workshop"
+        title="Fit a modification"
+        cost={`${data.costs.modification}c + materials · ${formatDuration(RESEARCH_MINUTES.modification)}`}
+      >
         Permanent, and limited to {MAX_MODIFICATION_SLOTS} per structure. Slots open at levels{' '}
         {MODIFICATION_SLOT_LEVELS.join(', ')}. Your Lead Engineer does the work.
-      </p>
+      </BenchHead>
 
       {!data.canModify && (
-        <p className="text-[13px] text-warning">
+        <p className="rounded-sm border border-oxblood-500/50 bg-oxblood-700/20 px-3 py-2 font-body text-[13px] leading-relaxed text-oxblood-100">
           Nobody on your books can run this. Hire a Lead Engineer.
         </p>
       )}
 
       <label className="flex flex-col gap-1">
-        <span className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-ink-200">
-          Structure
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-ink-200">
+            Structure
+          </span>
+          {/* What is already in it, against what it will ever hold. The list below is sixty-five
+              rows across twelve structures, and "how full is this one" is the question a player
+              is actually asking before they read any of them. */}
+          <span className="font-display text-[11px] uppercase tracking-[0.12em] tabular-nums text-ink-300">
+            {fitted} of {MAX_MODIFICATION_SLOTS} fitted
+          </span>
         </span>
         <Dropdown
           label="Which structure to modify"
@@ -380,21 +443,38 @@ function ModificationsSection({ data, pending, onStart }: StartFormProps) {
         />
       </label>
 
-      <ul className="flex flex-col gap-2" data-testid="modification-options">
+      <ul
+        className="grid gap-2 md:grid-cols-2 [@media(min-width:1500px)]:grid-cols-3"
+        data-testid="modification-options"
+      >
         {shown.map((option) => (
           <li
             key={option.id}
-            className="flex flex-wrap items-center justify-between gap-2 border border-surface-700 p-2"
+            className={cn(
+              'edge-lit flex min-w-0 flex-col gap-2 rounded-sm border p-2.5 transition-colors',
+              option.installed
+                ? 'border-brass-300/60 bg-brass-300/10'
+                : option.blocker === null
+                  ? 'border-surface-500/70 bg-surface-900/50'
+                  : 'border-surface-700 bg-surface-900/40 opacity-60',
+            )}
           >
-            <div className="min-w-0 flex-1">
-              <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
-                {option.name}{' '}
-                <span className="tabular-nums text-brass-300">+{option.magnitude}</span>
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 font-display text-[12px] uppercase leading-tight tracking-[0.12em] text-ink-100">
+                {option.name}
               </p>
-              <p className="text-[13px] leading-relaxed text-ink-300">{option.description}</p>
+              {/* The figure on a plate rather than loose in the title: it is the one number on the
+                  card and it is what two modifications are compared on. */}
+              <span className="shrink-0 rounded-sm border border-brass-500/40 px-1.5 py-0.5 font-display text-[12px] font-bold tabular-nums text-brass-300">
+                +{option.magnitude}
+              </span>
             </div>
+            <p className="min-w-0 flex-1 font-body text-[12px] leading-relaxed text-ink-300">
+              {option.description}
+            </p>
             {option.installed ? (
-              <span className="shrink-0 border border-brass-500/60 px-2 py-1 font-display text-[10px] uppercase tracking-[0.16em] text-brass-300">
+              <span className="flex items-center gap-1.5 font-display text-[10px] uppercase tracking-[0.16em] text-brass-300">
+                <Icon name="check" className="h-3.5 w-3.5" />
                 Fitted
               </span>
             ) : (
@@ -409,7 +489,7 @@ function ModificationsSection({ data, pending, onStart }: StartFormProps) {
           </li>
         ))}
       </ul>
-    </section>
+    </Bench>
   );
 }
 
@@ -589,8 +669,14 @@ function TechCard({
               (tech.cost.caps ?? 0) > caps ? 'text-oxblood-300' : 'text-ink-200',
             )}
           >
-            {Object.entries(tech.cost)
-              .map(([key, amount]) => `${(amount ?? 0).toLocaleString()} ${key}`)
+            {/* Named off the shared table, not printed raw. This read `140 highQualityMetal`,
+                which is a field name rather than the words on a crate, and the same table is what
+                the market and the stockpile use. */}
+            {RESOURCE_ORDER.filter((key) => (tech.cost[key] ?? 0) > 0)
+              .map(
+                (key) =>
+                  `${(tech.cost[key] ?? 0).toLocaleString()} ${RESOURCE_LABELS[key].toLowerCase()}`,
+              )
               .join(' · ')}
           </p>
           <button
@@ -612,108 +698,317 @@ function TechCard({
   );
 }
 
+/**
+ * The three benches on the desk, as one strip of choices.
+ *
+ * Investigating a position, developing yourself and fitting a modification are three different
+ * kinds of work that happen to share one constraint: only one of them can be running. Stacked as
+ * three forms they read as one long form with three submit buttons, and the modification list
+ * alone is sixty-five rows, so whichever bench a player wanted was somewhere below the fold of a
+ * screen that had already stopped looking like a decision.
+ *
+ * One at a time, then, chosen off a strip that says what each costs before it is opened.
+ */
+const BENCHES = [
+  { id: 'investigate', label: 'Investigate', icon: 'eye' },
+  { id: 'develop', label: 'Develop', icon: 'training' },
+  { id: 'modify', label: 'Modify', icon: 'workshop' },
+] as const;
+type BenchId = (typeof BENCHES)[number]['id'];
+
+/** The sections of the archive, and what each one is for. */
+const SECTIONS = [
+  { id: 'desk', label: 'The desk', icon: 'desk', blurb: 'Put somebody on something' },
+  { id: 'programmes', label: 'Programmes', icon: 'flask', blurb: 'The Lab’s standing tracks' },
+  { id: 'files', label: 'The files', icon: 'archive', blurb: 'What the crew has learned' },
+] as const;
+type SectionId = (typeof SECTIONS)[number]['id'];
+
+/** One door on the rail: a plated mark, what it is, and what is happening behind it. */
+function SectionButton({
+  icon,
+  label,
+  blurb,
+  state,
+  selected,
+  onSelect,
+}: {
+  icon: IconName;
+  label: string;
+  blurb: string;
+  state: ReactNode;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      data-testid={`research-section-${label.toLowerCase().replace(/[^a-z]+/g, '-')}`}
+      className={cn(
+        // A lit left edge on the chosen one, the same signal the training rail uses.
+        'flex w-full items-center gap-3 border-l-[3px] py-2.5 pl-2.5 pr-3 text-left transition-all duration-150',
+        selected
+          ? 'border-brass-300 bg-brass-300/10'
+          : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm [&_svg]:h-5 [&_svg]:w-5',
+          selected ? 'text-brass-300' : 'text-ink-300',
+        )}
+      >
+        <Icon name={icon} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block break-words font-stamp text-[14px] leading-[1.15] text-ink-100">
+          {label}
+        </span>
+        <span className="block break-words font-body text-[11px] leading-snug text-ink-300">
+          {blurb}
+        </span>
+      </span>
+      <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.12em]">{state}</span>
+    </button>
+  );
+}
+
 export function ResearchPage() {
   const researchQuery = useResearch();
   const start = useStartResearch();
   const startTechMutation = useStartTech();
   const data = researchQuery.data;
   const now = useTick(data?.active != null);
+  const [section, setSection] = useState<SectionId>('desk');
+  const [bench, setBench] = useState<BenchId>('investigate');
+
+  const technologies = data?.technologies ?? [];
+  const finished = technologies.filter((tech) => tech.known).length;
+  const facts = data?.facts ?? [];
+
+  const stateOf = (id: SectionId): ReactNode => {
+    if (id === 'desk') {
+      return data?.active ? (
+        <span className="text-brass-300">Busy</span>
+      ) : (
+        <span className="text-verdigris-300">Free</span>
+      );
+    }
+    if (id === 'programmes') {
+      return (
+        <span className="tabular-nums text-ink-200">
+          {finished}/{technologies.length}
+        </span>
+      );
+    }
+    /*
+     * The files carry a *new* count when something has just landed.
+     *
+     * The old page stacked every panel, so "+3 just in" was on screen whatever a player was doing.
+     * Behind a door it is not, and a project finishing while somebody is at the desk is exactly the
+     * moment the flag exists for: they would open the files an hour later and find three facts
+     * they were never told about.
+     */
+    const fresh = data?.justDiscovered.length ?? 0;
+    if (fresh > 0) {
+      return <span className="text-bile-300">+{fresh} just in</span>;
+    }
+    return <span className="tabular-nums text-ink-200">{facts.length}</span>;
+  };
 
   return (
     <PageShell
-      title="The Archive"
-      icon="research"
-      lede="Nobody hands you the list of what a job needs. Put the right officer on the files for long enough and you will work some of it out. A better officer finds more, and cross-referencing two projects finds things neither would alone."
+      quote="Nobody wrote down how any of it works. Somebody has to sit with the files until it does."
       wide
+      fills
     >
-      {/* The standing note that used to sit here said the same thing as the lede above, one line
-          lower and in a box. Two paragraphs of the same explanation is how a screen stops being
-          read at all. */}
-      <Panel
-        title={data?.active ? 'In progress' : 'Put someone on it'}
-        action={
-          <span className="shrink-0 font-display text-[12px] font-bold uppercase tracking-[0.18em] text-ink-200">
-            <span className="tabular-nums text-brass-300">
-              {(data?.caps ?? 0).toLocaleString()}
-            </span>{' '}
-            caps
-          </span>
-        }
-      >
-        {researchQuery.isLoading || !data ? (
-          <EmptyRow text="Opening the archive…" />
-        ) : data.active ? (
-          <ActiveProject data={data} now={now} />
-        ) : (
-          <StartForm data={data} pending={start.isPending} onStart={(p) => start.mutate(p)} />
-        )}
-        {start.error && (
-          <p className="border-t border-surface-700 px-4 py-2 text-[12px] text-oxblood-300">
-            {start.error.message}
-          </p>
-        )}
-      </Panel>
-
-      {/* The Lab's own tree. Four tracks, three rungs each, and every locked one says why,
-          which is where a player learns that the Runner's barrow is on their critical path. */}
-      <Panel
-        title="Standing programmes"
-        action={
-          <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200">
-            {(data?.technologies ?? []).filter((tech) => tech.known).length} finished
-          </span>
-        }
-      >
-        <div className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-4">
-          {TECH_TRACKS.map((track) => (
-            <section key={track} className="flex min-w-0 flex-col gap-2">
-              <h3 className="font-display text-sm font-bold uppercase tracking-[0.16em] text-brass-300">
-                {TECH_TRACK_LABELS[track]}
-              </h3>
-              <p className="font-body text-[12px] leading-snug text-ink-300">
-                {TECH_TRACK_BLURBS[track]}
-              </p>
-              {(data?.technologies ?? [])
-                .filter((tech) => tech.track === track)
-                .map((tech) => (
-                  <TechCard
-                    key={tech.id}
-                    tech={tech}
-                    caps={data?.caps ?? 0}
-                    pending={startTechMutation.isPending}
-                    onStart={() => startTechMutation.mutate({ techId: tech.id })}
+      {/*
+       * A fixed frame, a rail of doors, and one workspace: the same shape the Training tab uses,
+       * and for the same reason. This page was five panels in a scrolling column, so the Lab's
+       * tree and the crew's own files, which are the two things a player comes back to, lived
+       * below a form that fills a screen on its own.
+       */}
+      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
+        <div className="flex min-h-0 min-w-0 flex-col gap-3">
+          {/* Hugging, not filling. Three doors is the whole list and it can never grow, so a
+              stretched panel would be a framed sheet of empty tin under them. The training rail
+              fills because its roster does grow; this one does not. */}
+          <Panel title="The archive" className="min-h-0 border border-surface-500/70">
+            <ul
+              className="min-h-0 flex-1 divide-y divide-surface-700 overflow-y-auto"
+              data-testid="research-sections"
+            >
+              {SECTIONS.map((entry) => (
+                <li key={entry.id}>
+                  <SectionButton
+                    icon={entry.icon}
+                    label={entry.label}
+                    blurb={entry.blurb}
+                    state={stateOf(entry.id)}
+                    selected={section === entry.id}
+                    onSelect={() => setSection(entry.id)}
                   />
-                ))}
-            </section>
-          ))}
+                </li>
+              ))}
+            </ul>
+          </Panel>
+
+          {/* What the whole page is spent out of, at the foot of the rail. */}
+          <div className="card-paper washed rivets edge-lit mt-auto flex shrink-0 items-center gap-2 rounded-sm border border-surface-600/70 px-3 py-2.5">
+            <span className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
+              Caps
+            </span>
+            <span className="ml-auto font-display text-[15px] font-bold tabular-nums text-ink-100">
+              {(data?.caps ?? 0).toLocaleString()}
+            </span>
+          </div>
         </div>
-        {startTechMutation.error !== null && (
-          <p role="alert" className="px-4 pb-3 font-body text-[13px] text-oxblood-300">
-            {startTechMutation.error.message}
-          </p>
-        )}
-      </Panel>
 
-      {/* Side by side: what the crew has learned, and the one thing you do with it. Stacked, the
-          consult form sat below a list that grows without bound, so the longer a campaign ran the
-          less likely anybody was to find it. */}
-      <div className="grid items-start gap-5 xl:grid-cols-2">
-        <Panel
-          title="What we know"
-          action={
-            data && data.justDiscovered.length > 0 ? (
-              <span className="shrink-0 font-display text-[12px] font-bold uppercase tracking-[0.18em] text-bile-300">
-                +{data.justDiscovered.length} just in
-              </span>
-            ) : undefined
-          }
-        >
-          <FactsPanel facts={data?.facts ?? []} />
-        </Panel>
+        <div className="flex min-h-0 min-w-0 flex-col gap-3">
+          {/* The bench in flight, over whatever section is open: a project running is a fact about
+              the whole archive, not about the page a player happens to be on. */}
+          {data?.active && (
+            <div className="card-paper washed rivets edge-lit shrink-0 rounded-sm border border-brass-500/40 shadow-panel">
+              <ActiveProject data={data} now={now} />
+            </div>
+          )}
 
-        <Panel title="Consult on an assignment">
-          <ConsultPanel facts={data?.facts ?? []} />
-        </Panel>
+          {(start.error || startTechMutation.error) && (
+            <p
+              role="alert"
+              className="shrink-0 font-body text-[13px] leading-relaxed text-oxblood-300"
+            >
+              {(start.error ?? startTechMutation.error)?.message}
+            </p>
+          )}
+
+          {/*
+           * The bench strip is **outside** the scroller.
+           *
+           * It was inside it, and the modification bench is sixty-five cards: scrolling down to
+           * read them carried the three buttons off the top of the screen with the content, so
+           * the controls for choosing a bench vanished the moment you used the bench you chose.
+           * At 1280x720 the strip ended up at y=-77. A control is not content, and it does not
+           * move when the thing it controls does.
+           */}
+          {section === 'desk' && data && (
+            <div className="flex shrink-0 flex-wrap gap-2" data-testid="research-benches">
+              {BENCHES.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => setBench(entry.id)}
+                  aria-pressed={bench === entry.id}
+                  data-testid={`research-bench-${entry.id}`}
+                  className={cn(
+                    'door-tile flex items-center gap-2 rounded-md border px-3 py-2 transition-all duration-150',
+                    'font-display text-[12px] font-bold uppercase tracking-[0.14em]',
+                    bench === entry.id
+                      ? 'door-tile-active -translate-y-0.5 border-brass-300 text-brass-100'
+                      : 'border-surface-500/70 text-ink-300 hover:-translate-y-0.5 hover:border-iris-300/80 hover:text-iris-100',
+                  )}
+                >
+                  <span aria-hidden className="relative z-[2] [&_svg]:h-4 [&_svg]:w-4">
+                    <Icon name={entry.icon} />
+                  </span>
+                  <span className="relative z-[2]">{entry.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="min-h-0 flex-1 overflow-y-auto" data-testid="research-workspace">
+            {researchQuery.isLoading || !data ? (
+              <EmptyRow text="Opening the archive…" />
+            ) : section === 'desk' ? (
+              <div className="flex flex-col gap-3">
+                {bench === 'investigate' && (
+                  <InvestigateBench
+                    data={data}
+                    pending={start.isPending}
+                    onStart={(project) => start.mutate(project)}
+                  />
+                )}
+                {bench === 'develop' && (
+                  <DevelopBench
+                    data={data}
+                    pending={start.isPending}
+                    onStart={(project) => start.mutate(project)}
+                  />
+                )}
+                {bench === 'modify' && (
+                  <ModificationsSection
+                    data={data}
+                    pending={start.isPending}
+                    onStart={(project) => start.mutate(project)}
+                  />
+                )}
+              </div>
+            ) : section === 'programmes' ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {TECH_TRACKS.map((track) => (
+                  <section
+                    key={track}
+                    className="card-paper washed edge-lit flex min-w-0 flex-col gap-2 rounded-sm border border-surface-500/70 p-3 shadow-panel"
+                    data-testid={`tech-track-${track}`}
+                  >
+                    <header className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <span
+                          aria-hidden
+                          className="icon-plate flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                        >
+                          <Icon name="flask" />
+                        </span>
+                        <h3 className="min-w-0 flex-1 font-display text-[12px] font-bold uppercase tracking-[0.16em] text-brass-300">
+                          {TECH_TRACK_LABELS[track]}
+                        </h3>
+                      </div>
+                      <span aria-hidden className="ink-rule block w-full" />
+                      <p className="font-body text-[12px] leading-snug text-ink-300">
+                        {TECH_TRACK_BLURBS[track]}
+                      </p>
+                    </header>
+                    {technologies
+                      .filter((tech) => tech.track === track)
+                      .map((tech) => (
+                        <TechCard
+                          key={tech.id}
+                          tech={tech}
+                          caps={data.caps}
+                          pending={startTechMutation.isPending}
+                          onStart={() => startTechMutation.mutate({ techId: tech.id })}
+                        />
+                      ))}
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <div className="grid items-start gap-3 xl:grid-cols-2">
+                <Panel
+                  title="What we know"
+                  className="border border-surface-500/70"
+                  action={
+                    data.justDiscovered.length > 0 ? (
+                      <span className="shrink-0 font-display text-[12px] font-bold uppercase tracking-[0.18em] text-bile-300">
+                        +{data.justDiscovered.length} just in
+                      </span>
+                    ) : undefined
+                  }
+                >
+                  <FactsPanel facts={facts} />
+                </Panel>
+
+                <Panel title="Consult on an assignment" className="border border-surface-500/70">
+                  <ConsultPanel facts={facts} />
+                </Panel>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </PageShell>
   );

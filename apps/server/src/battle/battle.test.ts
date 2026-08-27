@@ -833,7 +833,7 @@ describe('holding a district (§A4)', () => {
     const base = stack.repos.bases.findById(stack.baseId)!;
     stack.repos.bases.updateResources(base.id, {
       caps: 900_000,
-      food: 900_000,
+      supplies: 900_000,
       oil: 900_000,
       scrap: 900_000,
       highQualityMetal: 9_000,
@@ -872,7 +872,7 @@ describe('holding a district (§A4)', () => {
     const base = stack.repos.bases.findById(stack.baseId)!;
     stack.repos.bases.updateResources(base.id, {
       caps: 0,
-      food: 0,
+      supplies: 0,
       oil: 0,
       scrap: 0,
       highQualityMetal: 0,
@@ -894,7 +894,7 @@ describe('holding a district (§A4)', () => {
     const nexus = base.buildings.find((building) => building.kind === 'nexus')!;
     stack.repos.bases.updateResources(base.id, {
       caps: 900_000,
-      food: 900_000,
+      supplies: 900_000,
       oil: 900_000,
       scrap: 900_000,
       highQualityMetal: 9_000,
@@ -947,7 +947,7 @@ describe('the beds an army abroad still occupies (§A1, §A4)', () => {
     stack.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
     stack.repos.bases.updateResources(base.id, {
       caps: 900_000,
-      food: 900_000,
+      supplies: 900_000,
       oil: 900_000,
       scrap: 900_000,
       highQualityMetal: 0,

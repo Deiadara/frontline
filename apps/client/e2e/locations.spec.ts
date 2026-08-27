@@ -136,9 +136,27 @@ test.describe('the weather over the city', () => {
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute('data-weather', 'stormy');
     await expect(banner).toContainText('Storm');
-    // Wet, and worse than it would be in plain rain: plus dark, because it is half past eleven.
+    // Wet, and worse than it would be in plain rain: a storm is three tiers of it plus wind.
     await expect(banner.getByTestId('label-wet')).toHaveAttribute('data-tier', '3');
-    await expect(banner.getByTestId('label-dark')).toBeVisible();
+    await expect(banner.getByTestId('label-windy')).toBeVisible();
+    /*
+     * And nothing about the hour. The banner used to carry `Dark II` after 21:00 UTC and a tier of
+     * Cold on top, which made the same yard a different fight at 20:59 and 21:01 with nothing on
+     * screen counting down to it. The whole day/night cycle is gone: darkness is a property of the
+     * ground now (`DARK_GROUND_TIER`), so the sky never puts it on.
+     *
+     * Asserted at 23:30, deliberately: this is the hour that used to produce it.
+     */
+    await expect(banner.getByTestId('label-dark')).toHaveCount(0);
+  });
+
+  /** The same storm, twelve hours earlier, reads exactly the same. */
+  test('puts the same labels on the ground at noon as at midnight', async ({ page }) => {
+    await openDistrict(page, '2026-12-04T23:30:00.000Z');
+    const atNight = await page.getByTestId('weather').innerText();
+
+    await openDistrict(page, '2026-12-04T11:30:00.000Z');
+    expect(await page.getByTestId('weather').innerText()).toBe(atNight);
   });
 
   /*

@@ -42,7 +42,7 @@ or client-facing type.
 | `roles.ts`              | `OFFICER_ROLES` (19) + labels; the requirement weights stay server-side (GDD §B8)    |
 | `overseer.ts`           | `Overseer`, archetypes, `OVERSEER_PRESETS` (4), `findOverseerPreset`                 |
 | `commander.ts`          | Staff roles (head_doctor/battle_analyst/accountant/head_spy), factory                |
-| `resources.ts`          | `Resources` {caps,food,oil,scrap,highQualityMetal}, `STARTING_RESOURCES`             |
+| `resources.ts`          | `Resources` {caps,supplies,oil,scrap,highQualityMetal}, `STARTING_RESOURCES`         |
 | `building/`             | The district: 13 kinds, costs, power, production, standing, queue, 65 modifications  |
 | `base.ts`               | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)      |
 | `city/`                 | The map: 10 districts, 42 location kinds, labels, weather, control, levels           |
@@ -154,9 +154,9 @@ looked at for three days owes exactly the same amount whenever it is next opened
 background job to keep alive.
 
 `settleBase` (`apps/server/src/district/settle.ts`) is the one entry point every route uses. It
-runs the district first and payroll second: a Greenhouse has to have grown this week's rations
-before the upkeep is taken, and the Infirmary that softens a missed payday has to be standing
-before the payday is missed.
+runs the district first and training second. There used to be a weekly upkeep pass between the
+two; nothing in the game is charged on a clock any more, so what is left is production and then
+the batches it paid for.
 
 Two rules the settle paths follow, both learned the hard way:
 

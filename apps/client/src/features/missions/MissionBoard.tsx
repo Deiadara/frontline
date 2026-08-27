@@ -57,9 +57,9 @@ const STANCE_STYLE: Record<MissionStance, string> = {
 /** What a keyword on a card actually means, drawn rather than left to the operating system. */
 const KIND_BLURB: Record<MissionKind, string> = {
   standard:
-    'Work nobody is going to shoot at you for. It pays less than a fight and a run that goes wrong still limps home with a share of the salvage.',
+    'Work nobody is going to shoot at you for. It pays less than a fight, and it can be run by porters alone.',
   battle:
-    'Somebody is on that ground and intends to stay there. It pays a premium, and a battle that goes badly comes home with nothing at all.',
+    'Somebody is on that ground and intends to stay there. It pays a premium, and it needs people who can fight.',
 };
 
 /**

@@ -35,13 +35,13 @@ import {
   type SkirmishOutcome,
   type TerritoryEffects,
   NO_BOOST,
-  averageCityLevel,
-  hasBoost,
   boostBundle,
+  blackMarketBoost,
   findBattleBoost,
+  findBlackMarketGood,
+  stashCount,
+  takeFromStash,
   type BattleDeployment,
-  spentStash,
-  stashBoost,
   type BattleBoost,
   type CrewEffects,
   findUnit,
@@ -49,6 +49,7 @@ import {
 import { standingEffectsFor } from '../crew/standing.js';
 import { recallOvertaken } from './movement.js';
 import type { Repositories } from '../db/repos/index.js';
+import { cityLevelFor } from '../blackmarket/shelf.js';
 import { defendingBaseOf } from './declare.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
 import { controlsIn, residentOf, targetName } from './ground.js';
@@ -269,36 +270,38 @@ export function settleBattles(
  * The same reading `blackmarket/shelf.ts` prices against, and bots are excluded for the same
  * reason: §A3's rival is a fixture rather than a customer.
  */
-function cityLevelOf(repos: Repositories): number {
-  return averageCityLevel(
-    repos.bases
-      .listSummaries()
-      .filter((summary) => !summary.isBot)
-      .map((summary) => summary.level),
-  );
-}
+/**
+ * The one boost this side applied to this fight, whatever kind it was.
+ *
+ * Two things can be on `boostId` and they are settled here rather than in two places: a §D7 name,
+ * burned with infamy on this battle's own screen, or a crate of contraband the crew bought off the
+ * black market days ago and *chose* to spend here.
+ *
+ * The crate is checked against the bag at the moment it is applied, not at the moment it was
+ * picked. A player can set the same crate on two battles that land minutes apart, and the second
+ * one has to find the bag empty rather than spending a syringe twice; `stashCount` is what makes
+ * that a miss instead of a duplicate.
+ */
+function appliedBoost(
+  repos: Repositories,
+  baseId: string,
+  deployment: BattleDeployment | undefined,
+  force: Army,
+  cityLevel: number,
+): BattleBoost {
+  const id = deployment?.boostId;
+  if (!id) return NO_BOOST;
 
-/** Takes one of each boost out of a crew's bag: exactly what the fight was allowed to use. */
-function spendBoosts(repos: Repositories, baseId: string): void {
+  const name = findBattleBoost(id);
+  if (name) return boostBundle(name.effect, force);
+
+  const crate = findBlackMarketGood(id);
   const stash = repos.blackMarket.stashFor(baseId);
-  if (hasBoost(stash)) repos.blackMarket.writeStash(baseId, spentStash(stash));
-}
-
-/** §D7: the boost this side bought for this fight, as a whole-force bundle. */
-function nameBoost(deployment: BattleDeployment | undefined, force: Army): BattleBoost {
-  const spec = deployment?.boostId ? findBattleBoost(deployment.boostId) : undefined;
-  if (!spec) return NO_BOOST;
-  return boostBundle(spec.effect, force);
-}
-
-/** Two bundles on the same three channels. Additive, like everything else in this file. */
-function addBoosts(a: BattleBoost, b: BattleBoost): BattleBoost {
-  if (b === NO_BOOST) return a;
-  return {
-    offensePercent: a.offensePercent + b.offensePercent,
-    defensePercent: a.defensePercent + b.defensePercent,
-    moralePercent: a.moralePercent + b.moralePercent,
-  };
+  if (!crate || stashCount(stash, id) <= 0) return NO_BOOST;
+  // Spent, whatever happens next. A crate is applied to *a* battle, not to a won one, and leaving
+  // it in the bag on a loss would make contraband a free retry.
+  repos.blackMarket.writeStash(baseId, takeFromStash(stash, id));
+  return blackMarketBoost(crate, cityLevel) ?? NO_BOOST;
 }
 
 /**
@@ -364,18 +367,24 @@ function resolveOne(
   // What a crate is worth is a fact about the city, not about the crew that bought it: a shelf
   // priced and stocked for a veteran street hands out veteran contraband, and this is where that
   // lands. Read once for the fight, so both sides' bags are weighted by the same number.
-  const cityLevel = cityLevelOf(repos);
-  const attackerBoost = addBoosts(
-    stashBoost(repos.blackMarket.stashFor(attacker.id), cityLevel),
-    // §D7: what a name bought for *this* fight, folded down against the force it actually
-    // reaches. See `battle/boosts.ts`: a boost on one weight class is worth its own percentage
-    // times that class's share of the supply standing on the ground.
-    nameBoost(repos.sieges.deployment(battle.id, 'attacker'), assembled.attacking),
+  const cityLevel = cityLevelFor(repos);
+  // §D7: what a name bought for *this* fight, folded down against the force it actually reaches.
+  // See `battle/boosts.ts`: a boost on one weight class is worth its own percentage times that
+  // class's share of the supply standing on the ground. Contraband reaches the whole force.
+  const attackerBoost = appliedBoost(
+    repos,
+    attacker.id,
+    repos.sieges.deployment(battle.id, 'attacker'),
+    assembled.attacking,
+    cityLevel,
   );
   const defenderBoost = defenderBase
-    ? addBoosts(
-        stashBoost(repos.blackMarket.stashFor(defenderBase.id), cityLevel),
-        nameBoost(repos.sieges.deployment(battle.id, 'defender'), assembled.defending),
+    ? appliedBoost(
+        repos,
+        defenderBase.id,
+        repos.sieges.deployment(battle.id, 'defender'),
+        assembled.defending,
+        cityLevel,
       )
     : NO_BOOST;
 
@@ -411,14 +420,6 @@ function resolveOne(
         }
       : {}),
   });
-
-  // Spent, whatever happened. A boost is bought for *a* battle, not for a won one, and leaving it
-  // in the stash on a loss would make contraband a free retry.
-  //
-  // One of each, matching what the fight was allowed to use (board: "the same boost only once").
-  // Clearing the whole bag instead would bill a crew for a second syringe they never got to open.
-  spendBoosts(repos, attacker.id);
-  if (defenderBase) spendBoosts(repos, defenderBase.id);
 
   // §A4: anybody still on the road to this fight turns around. A column arriving at a battle that
   // has already been decided is not a state the game should be able to reach, and the units are

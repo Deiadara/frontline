@@ -14,6 +14,7 @@ import {
   type UnitSpec,
   type UnitTier,
 } from './catalog.js';
+import { UPGRADE_LINES, upgradedStats, upgradesInLine } from './upgrades.js';
 import {
   UNIT_FIGURE_KEYS,
   UNIT_MODIFIERS,
@@ -148,6 +149,32 @@ describe('the catalogue (§A5)', () => {
    * engine would happily let stand in a rank and die. Every consumer asks `isCombatUnit`, so the
    * fact lives on the sheet and the enforcement lives at each door.
    */
+  /**
+   * Every rating stays inside the track the card draws it on, kitted as well as bare.
+   *
+   * The roster prints eight of these as bars out of 100, and two of the engine's readers treat
+   * them the same way: `matchup.ts` clamps `range - speed` into 0..100, and `rangedShare` divides
+   * range by 100 to produce a share it documents as 0..1. `upgradedStats` used to leave range
+   * uncapped, so Slaved Optics put a Sniper on 109: a bar drawn past the end of its own track, and
+   * a "share" of 1.09 inside the engine.
+   *
+   * `lootCapacity` is the one exception and genuinely is a count: it is not on a bar and nothing
+   * divides it.
+   */
+  it('holds every rating inside 0..100, with the whole workshop bolted on', () => {
+    const strongest = UPGRADE_LINES.map((line) => upgradesInLine(line).at(-1)?.id ?? '');
+    for (const unit of UNIT_CATALOG) {
+      const kitted = upgradedStats(unit.stats, strongest);
+      for (const key of UNIT_STAT_KEYS) {
+        if (key === 'lootCapacity') continue;
+        expect(kitted[key], `${unit.id}.${key}`).toBeGreaterThanOrEqual(0);
+        expect(kitted[key], `${unit.id}.${key}`).toBeLessThanOrEqual(100);
+      }
+      // And the exception is a real one rather than a stat nobody upgrades: the bag survives.
+      expect(kitted.lootCapacity, unit.id).toBeGreaterThanOrEqual(0);
+    }
+  });
+
   it('marks the support tier as non-combat and nothing else', () => {
     for (const unit of UNIT_CATALOG) {
       expect(isCombatUnit(unit), unit.id).toBe(unit.tier !== 'support');
@@ -170,6 +197,23 @@ describe('the catalogue (§A5)', () => {
   it('makes every legendary one of a kind, and nothing else', () => {
     for (const unit of UNIT_CATALOG) {
       expect(unit.unique, unit.id).toBe(unit.tier === 'legendary');
+    }
+  });
+
+  /**
+   * Every recruit eats while they are being trained, so every price on the roster has a supplies
+   * line and a caps line.
+   *
+   * Both halves are asserted because the interesting failure is a *new* unit: a catalogue entry
+   * added with the materials its designer was thinking about and no ration, which costs nothing to
+   * write and quietly makes one unit the only one in the game that trains for free on the stores.
+   */
+  it('charges caps and supplies for every unit on the roster', () => {
+    for (const unit of UNIT_CATALOG) {
+      expect(unit.cost.caps, unit.id).toBeGreaterThan(0);
+      expect(unit.cost.supplies, unit.id).toBeGreaterThan(0);
+      // And it survives the batch price, which is where a rounding could drop a small line.
+      expect(trainingCost(unit, 3).supplies, unit.id).toBeGreaterThan(0);
     }
   });
 
@@ -487,7 +531,7 @@ describe('changing your mind (§A5)', () => {
   });
 
   it('opens for the first tenth of the batch and shuts after it', () => {
-    const batch = order('a', 'razors', 4, now, 600, { caps: 160, food: 40 });
+    const batch = order('a', 'razors', 4, now, 600, { caps: 160, supplies: 40 });
     expect(trainingCancellable(batch, now)).toBe(true);
     expect(trainingCancellable(batch, at(0.09))).toBe(true);
     expect(trainingCancellable(batch, at(TRAINING_CANCEL_WINDOW))).toBe(false);
@@ -515,8 +559,8 @@ describe('changing your mind (§A5)', () => {
   });
 
   it('hands back ninety-five percent of what was actually charged, and never more', () => {
-    const batch = order('a', 'razors', 4, now, 600, { caps: 160, food: 40 });
-    expect(trainingRefund(batch)).toEqual({ caps: 152, food: 38 });
+    const batch = order('a', 'razors', 4, now, 600, { caps: 160, supplies: 40 });
+    expect(trainingRefund(batch)).toEqual({ caps: 152, supplies: 38 });
     for (const [key, amount] of Object.entries(trainingRefund(batch))) {
       expect(amount, key).toBeLessThan(batch.paid[key as keyof typeof batch.paid] ?? 0);
     }
@@ -546,7 +590,15 @@ describe('changing your mind (§A5)', () => {
 
 describe('how many a crew could order (§A5)', () => {
   const razors = findUnit('razors')!;
-  const rich = { caps: 100_000, food: 100_000, oil: 100_000, scrap: 100_000 };
+  /*
+   * Deep in *every* material, derived rather than listed.
+   *
+   * It used to be four hand-written keys, which stopped being "rich" the day units started costing
+   * planks and high-quality metal: the Colossus needs 400 of the metal and the fixture held none.
+   * That went unnoticed because the unique branch of `maxTrainable` never checked the price at
+   * all, so the one case that would have caught it was the case the bug lived in.
+   */
+  const rich = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 100_000]));
 
   it('is bounded by the beds when the stockpile is deep', () => {
     expect(maxTrainable(razors, rich, 12)).toBe(12);
@@ -555,12 +607,34 @@ describe('how many a crew could order (§A5)', () => {
 
   it('is bounded by the stockpile when the district has room to spare', () => {
     const cost = razors.cost.caps ?? 1;
-    expect(maxTrainable(razors, { caps: cost * 3, food: 100_000 }, 50)).toBe(3);
+    expect(maxTrainable(razors, { caps: cost * 3, supplies: 100_000 }, 50)).toBe(3);
+  });
+
+  /**
+   * A legendary is one or none, and it still has to be paid for.
+   *
+   * The unique branch used to return on the beds alone and skip the affordability walk entirely,
+   * so **Max** offered a Colossus to a crew holding a single cap and the route refused it with
+   * `cannot_afford`. Uniques are the five most expensive things in the game, which made them the
+   * units the button lied about most often.
+   */
+  it('never offers a unique the crew cannot pay for', () => {
+    for (const unique of UNIT_CATALOG.filter((unit) => unit.unique)) {
+      const broke = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 1]));
+      expect(maxTrainable(unique, broke, 500), unique.id).toBe(0);
+
+      // And it is genuinely offered when the crew can cover it: an assertion that always reads
+      // zero would pass on a `maxTrainable` that had stopped working entirely.
+      const purse = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 1_000_000]));
+      expect(maxTrainable(unique, purse, 500), unique.id).toBe(1);
+      // Beds still bind: a crew with no room gets none however deep the stockpile.
+      expect(maxTrainable(unique, purse, 0), unique.id).toBe(0);
+    }
   });
 
   it('takes the discount into account, so Max is what the route will actually accept', () => {
     const cost = razors.cost.caps ?? 1;
-    const purse = { caps: cost * 4, food: 100_000 };
+    const purse = { caps: cost * 4, supplies: 100_000 };
     expect(maxTrainable(razors, purse, 50, 50)).toBeGreaterThan(maxTrainable(razors, purse, 50));
   });
 

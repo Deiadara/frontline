@@ -33,13 +33,13 @@ import { findUnit, type Army } from './units/index.js';
  * `lootCapacity`, so the sum is the answer.
  *
  * The spread is the whole point of measuring the carry at all: high-quality metal is dense and
- * precious and costs five, food and oil come in drums and cans at three, and the bulk materials a
+ * precious and costs five, supplies and oil come in drums and cans at three, and the bulk materials a
  * city is made of cost one apiece. A light fast raid is a real strategy rather than a worse
  * version of a heavy one, because *what* you carry out is a decision.
  */
 export const RESOURCE_KG: Record<ResourceKey, number> = {
   caps: 1,
-  food: 3,
+  supplies: 3,
   oil: 3,
   scrap: 1,
   planks: 1,
@@ -57,7 +57,7 @@ export const PLUNDER_PRIORITY: readonly ResourceKey[] = [
   'highQualityMetal',
   'oil',
   'scrap',
-  'food',
+  'supplies',
 ];
 
 /**

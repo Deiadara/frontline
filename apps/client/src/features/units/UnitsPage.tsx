@@ -28,6 +28,7 @@ import { Icon } from '../../components/ui/Icon';
 import { NumberField } from '../../components/ui/NumberField';
 import { InfoWindow, WindowSection } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
+import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { useCancelTraining, useMe, useTrainUnits, useUnits } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
@@ -65,7 +66,7 @@ export function UnitsPage() {
   const overSupply = data.supplyUsed >= data.supplyCap;
 
   return (
-    <PageShell title="It's the suffering that brings us together." icon="units" wide>
+    <PageShell quote="It's the suffering that brings us together." wide>
       {/* The standing rule about supply used to be a paragraph pinned above the roster, read once
           and then in the way forever. It is on the figure it describes now: the number is the thing
           a player looks at, and the explanation belongs where they are already looking. */}
@@ -74,6 +75,9 @@ export function UnitsPage() {
           data-testid="supply"
           size="window"
           label={`Population: ${data.supplyUsed} of ${data.supplyCap}`}
+          // The two figures, and nothing under them. What was here explained what the ceiling
+          // counts and which structures raise it, which is a paragraph about a mechanic printed
+          // over the number the card was opened to read.
           card={
             <InfoWindow
               eyebrow="The district"
@@ -85,17 +89,7 @@ export function UnitsPage() {
                   {data.supplyUsed} / {data.supplyCap}
                 </span>
               }
-            >
-              <p className="font-body text-[14px] leading-relaxed text-ink-100">
-                A hard ceiling, and it is the whole district: officers and assignees sleep in the
-                same beds your soldiers do. Go over it and nothing new trains.
-              </p>
-              <WindowSection label="What raises it">
-                <p className="font-body text-[13px] leading-snug text-ink-100">
-                  The Quarters, the Cistern, and every location you hold out in the city.
-                </p>
-              </WindowSection>
-            </InfoWindow>
+            />
           }
         >
           <span
@@ -460,27 +454,38 @@ function UnitCard({
               the word 73px, which is what `Penetration` measures at 11px condensed and the
               widest label on the sheet. */}
           <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-            {UNIT_RATING_KEYS.map((key) => (
-              <div key={key} className="flex items-center gap-1">
-                <dt className="min-w-0 flex-1">
-                  <StatLabel statKey={key} />
-                </dt>
-                <dd className="flex shrink-0 items-center gap-1">
-                  <span
-                    className="relative h-1.5 w-6 overflow-hidden rounded-full bg-black/40"
-                    aria-hidden
-                  >
+            {UNIT_RATING_KEYS.map((key) => {
+              // The same four bands every other rating out of a hundred is read on: see
+              // `lib/rating.ts`. These were a flat cyan at every value, which made the bar a
+              // second drawing of the number's *existence* rather than of the number.
+              const band = ratingBand(unit.stats[key]);
+              return (
+                <div key={key} className="flex items-center gap-1">
+                  <dt className="min-w-0 flex-1">
+                    <StatLabel statKey={key} />
+                  </dt>
+                  <dd className="flex shrink-0 items-center gap-1">
                     <span
-                      className="block h-full rounded-full bg-hextech-100/85"
-                      style={{ width: `${Math.max(0, Math.min(100, unit.stats[key]))}%` }}
-                    />
-                  </span>
-                  <span className="w-6 text-right font-display text-[12px] font-bold tabular-nums text-ink-100">
-                    {unit.stats[key]}
-                  </span>
-                </dd>
-              </div>
-            ))}
+                      className="relative h-1.5 w-6 overflow-hidden rounded-full bg-black/40"
+                      aria-hidden
+                    >
+                      <span
+                        className={cn('block h-full rounded-full opacity-90', RATING_FILL[band])}
+                        style={{ width: `${ratingPercent(unit.stats[key])}%` }}
+                      />
+                    </span>
+                    <span
+                      className={cn(
+                        'w-6 text-right font-display text-[12px] font-bold tabular-nums',
+                        RATING_TEXT[band],
+                      )}
+                    >
+                      {unit.stats[key]}
+                    </span>
+                  </dd>
+                </div>
+              );
+            })}
           </dl>
 
           {/* The keywords take the line the carry used to have: one row, side by side, still a
@@ -690,7 +695,11 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
       eyebrow={`${UNIT_TIER_LABELS[unit.tier]} · ${unit.supply} population`}
       title={unit.name}
       tone={unit.unlocked ? 'brass' : 'oxblood'}
-      icon={<UnitPortrait unitId={unit.id} tier={unit.tier} fill className="border-0 !bg-none" />}
+      // `plate="none"`: the portrait is a painting, not a glyph, so it keeps its own frame and
+      // fills the box. It used to be stripped of its border and inset on the window's lilac tile,
+      // which put a lavender ring round every face on the roster.
+      plate="none"
+      icon={<UnitPortrait unitId={unit.id} tier={unit.tier} fill />}
     >
       <p className="font-body text-[14px] leading-relaxed text-ink-100">{unit.blurb}</p>
 

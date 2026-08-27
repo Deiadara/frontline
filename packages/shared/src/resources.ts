@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * The five base resources (GDD §D1 food, §D2 caps, §D3 oil, §D5 scrap, §D6 high-quality metal).
+ * The five base resources (GDD §D1 supplies, §D2 caps, §D3 oil, §D5 scrap, §D6 high-quality metal).
  *
  * `caps` is the currency: officer wages are paid in caps (§D2, §H7). `scrap` and high-quality
  * metal are deliberately distinct (§D6): scrap is the salvage floor, high-quality metal is the
@@ -25,7 +25,7 @@ const AmountSchema = z.number().int().nonnegative();
 
 export const ResourcesSchema = z.object({
   caps: AmountSchema,
-  food: AmountSchema,
+  supplies: AmountSchema,
   oil: AmountSchema,
   scrap: AmountSchema,
   highQualityMetal: AmountSchema,
@@ -62,7 +62,7 @@ export const RESOURCE_KEYS = Object.keys(ResourcesSchema.shape) as readonly Reso
  */
 export const RESOURCE_ORDER: readonly ResourceKey[] = [
   'caps',
-  'food',
+  'supplies',
   'oil',
   'scrap',
   'planks',
@@ -72,7 +72,7 @@ export const RESOURCE_ORDER: readonly ResourceKey[] = [
 /** One resource *name*, for anything a player picks rather than a stockpile the server writes. */
 export const ResourceKeySchema = z.enum([
   'caps',
-  'food',
+  'supplies',
   'oil',
   'scrap',
   'highQualityMetal',
@@ -123,7 +123,7 @@ export type FractionalResources = z.infer<typeof FractionalResourcesSchema>;
  */
 export const STARTING_RESOURCES: Resources = {
   caps: 600,
-  food: 300,
+  supplies: 300,
   oil: 120,
   scrap: 500,
   /*
@@ -148,7 +148,7 @@ export const STARTING_RESOURCES: Resources = {
  */
 export const RESOURCE_LABELS: Readonly<Record<ResourceKey, string>> = {
   caps: 'Caps',
-  food: 'Food',
+  supplies: 'Supplies',
   oil: 'Oil',
   scrap: 'Scrap',
   planks: 'Planks',
@@ -246,7 +246,7 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
     ],
     from: 'Contracts, raids, and selling what you do not need.',
   },
-  food: {
+  supplies: {
     what: 'Ration bricks, tank protein, whatever the Greenhouse manages to grow.',
     spentOn: ['Feeding the crew every week', 'Training the units that eat before they fight'],
     from: 'The Greenhouse, and anything you take off somebody else.',

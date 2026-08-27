@@ -23,12 +23,14 @@ import { envLabel, mergeLabels, type EnvLabel } from './labels.js';
  * looks like without moving a clock. The alternative, rolling and storing, puts the one piece of
  * world state everybody reads behind a write that can fail.
  *
- * ## The clock is half of it
+ * ## A day is a day, whatever the hour
  *
- * A sky is not a set of labels on its own: a sunny day is **Hot** at noon and **Cold** at four in
- * the morning, because the heat goes out of a city like this one the moment the sun does. So the
- * labels come from the sky *and the hour*, and the same location fights differently either side of
- * dusk, which is what makes "declare it for tonight" a decision.
+ * The sky used to be half of it: `Dark II` after nine, a tier of Cold on top of whatever was
+ * already there, and a Clear day that inverted from Hot to Cold once the sun went. That whole
+ * clock is gone. It made the same location fight differently at 20:59 and 21:01 with nothing on
+ * screen counting down to it, and it turned every declaration into a question about the wall clock
+ * rather than about the fight. What is left is the sky: a cold snap is cold, a storm is a storm,
+ * and both of them are the same all day.
  */
 
 export const WEATHER_KINDS = [
@@ -145,14 +147,7 @@ export function weatherAt(at: Date): WeatherKind {
   return weatherOn(weatherDay(at));
 }
 
-/**
- * What each sky puts on the ground **by day**.
- *
- * Night is not a seventh sky: it is a modifier on whichever sky it is, applied by
- * {@link weatherLabels}. Writing fourteen rows instead of seven would let the day and the night
- * versions of one sky drift apart, and the interesting fact about a cold snap is precisely that
- * the night version is the day version and worse.
- */
+/** What each sky puts on the ground. One row per sky, and it holds all day. */
 export const WEATHER_LABELS: Readonly<Record<WeatherKind, readonly EnvLabel[]>> = {
   normal: [],
   sunny: [envLabel('hot', 2)],
@@ -163,32 +158,7 @@ export const WEATHER_LABELS: Readonly<Record<WeatherKind, readonly EnvLabel[]>> 
   snowy: [envLabel('snowy', 2), envLabel('cold', 3)],
 };
 
-/**
- * Night, as labels.
- *
- * `Dark II` on every night whatever the sky, because it is dark. The rest of the night's work is
- * done by {@link NIGHT_COLD_STEP} and by the one sky that inverts after dusk.
- */
-export const NIGHT_LABELS: readonly EnvLabel[] = [envLabel('dark', 2)];
-
-/** How many tiers of Cold the night adds on a sky that was already cold. */
-export const NIGHT_COLD_STEP = 1;
-
-/**
- * The labels the sky and the hour put on every location in the city.
- *
- * The one inversion worth reading twice: a **Clear** day is Hot while the sun is on it and Cold
- * once it is not, because nothing in this city holds heat. Every other sky gets colder at night
- * and otherwise stays itself.
- */
-export function weatherLabels(kind: WeatherKind, night: boolean): EnvLabel[] {
-  if (!night) return mergeLabels(WEATHER_LABELS[kind]);
-
-  const afterDark: EnvLabel[] =
-    kind === 'sunny'
-      ? [envLabel('cold', 2)]
-      : WEATHER_LABELS[kind].map((label) =>
-          label.id === 'cold' ? envLabel('cold', label.tier + NIGHT_COLD_STEP) : label,
-        );
-  return mergeLabels(afterDark, NIGHT_LABELS);
+/** The labels the sky puts on every location in the city. */
+export function weatherLabels(kind: WeatherKind): EnvLabel[] {
+  return mergeLabels(WEATHER_LABELS[kind]);
 }
