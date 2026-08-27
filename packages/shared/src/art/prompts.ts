@@ -241,6 +241,15 @@ export const PLATE_SUBJECTS = {
     distinguishable neighbourhood characters across the frame, separated by canals, walls and roadways.
     Keep the outer eight percent of the frame quiet.
   `),
+  'plate-bar': block(`
+    The inside of an undercity dive bar, seen square on from the customer side of the counter: a
+    long scarred counter running the full width of the frame, a barman behind it drying a tin cup, a
+    back bar of mismatched bottles lit from beneath in magenta, three enamel pendant lamps hanging
+    low over the counter, and corrugated iron and patched brick behind. Four regulars sit on stools
+    with their backs to the viewer, two to the left and two to the right, and **the stool in the
+    dead centre of the frame is empty**, lit by the lamp above it: that empty seat is the subject of
+    the painting and nothing may occupy or overlap it. Floor of cracked tile and steel plate.
+  `),
   'plate-district': block(`
     A crew's own walled compound seen from directly above and slightly forward, a town-view camera
     with **no sky and no horizon**: the whole frame is ground. Drawn as the ground *only*: the

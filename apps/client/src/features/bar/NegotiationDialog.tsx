@@ -167,7 +167,15 @@ export function NegotiationDialog({
   };
 
   return (
-    <Modal onClose={onClose} labelledBy="negotiation-title" size="wide" className={tone.edge}>
+    // Named, because it now opens *over* the seat screen: two dialogs are on the page at once and
+    // `getByRole('dialog')` no longer picks one.
+    <Modal
+      onClose={onClose}
+      labelledBy="negotiation-title"
+      size="wide"
+      className={tone.edge}
+      data-testid="negotiation-window"
+    >
       <header className="flex shrink-0 items-start justify-between gap-4 border-b border-surface-600/60 px-5 py-4">
         <div className="min-w-0">
           <p className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300">

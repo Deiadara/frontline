@@ -144,6 +144,12 @@ export function HoverCard({
    * The card's width depends on its own content, so the only way to keep it inside the frame is to
    * lay it out and then move it. Placed by arithmetic on the trigger alone, the last chip in the
    * bar hangs its card off the right of the screen.
+   *
+   * `side` is a preference, not an instruction, and it has to be. The Bar's standing note is a chip
+   * on the floor of the room, so its card opened below the chip and ran off the bottom of the
+   * screen: the half of the rule a player most needs was the half they could not read. So the
+   * requested side is taken when the card fits there, the opposite side when it does not, and
+   * whatever is left is clamped into the frame the same way the horizontal axis already was.
    */
   const place = useCallback(() => {
     const trigger = triggerRef.current;
@@ -152,7 +158,20 @@ export function HoverCard({
     const at = trigger.getBoundingClientRect();
     const size = box.getBoundingClientRect();
     const left = Math.min(Math.max(EDGE, at.left), window.innerWidth - size.width - EDGE);
-    const top = side === 'bottom' ? at.bottom + GAP : at.top - size.height - GAP;
+
+    const below = at.bottom + GAP;
+    const above = at.top - size.height - GAP;
+    const fitsBelow = below + size.height <= window.innerHeight - EDGE;
+    const fitsAbove = above >= EDGE;
+    const wanted = side === 'bottom' ? below : above;
+    const other = side === 'bottom' ? above : below;
+    const fitsWanted = side === 'bottom' ? fitsBelow : fitsAbove;
+    const fitsOther = side === 'bottom' ? fitsAbove : fitsBelow;
+
+    const top = Math.max(
+      EDGE,
+      Math.min(fitsWanted || !fitsOther ? wanted : other, window.innerHeight - size.height - EDGE),
+    );
     setPlacement({ top, left });
   }, [side]);
 

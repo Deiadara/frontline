@@ -1,12 +1,17 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../lib/cn';
+
+/** Every dialog on the page, in mount order. The last one is the one on top. See the effect below. */
+const MODAL_STACK: object[] = [];
 
 interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   /** Accessible dialog label. */
   labelledBy?: string;
+  /** Names this window, for the screens that open one over another. */
+  'data-testid'?: string;
   /**
    * How much of the frame the dialog takes.
    *
@@ -36,10 +41,41 @@ const WIDTH: Record<NonNullable<ModalProps['size']>, string> = {
  * rendered inside a screen can never rise above the scenery switcher, however large its own
  * `z-50` is. It looked fine and swallowed clicks on the primary button.
  */
-export function Modal({ onClose, children, labelledBy, size = 'default', className }: ModalProps) {
+export function Modal({
+  onClose,
+  children,
+  labelledBy,
+  size = 'default',
+  className,
+  'data-testid': testId,
+}: ModalProps) {
+  /*
+   * Escape closes the **topmost** window, not every open one.
+   *
+   * Each dialog listens on `window`, so a single Escape reached all of them: opening the
+   * negotiation over the Bar's seat screen and pressing it once shut both, dropping the player
+   * back into the room rather than back to the person they were talking to. A stack of the mounted
+   * dialogs, in mount order, and only the last one acts.
+   *
+   * Module-level rather than context, because a dialog is portalled to `document.body` and has no
+   * provider above it by construction: that is the whole point of the portal.
+   */
+  const self = useRef({}).current;
+
+  useEffect(() => {
+    MODAL_STACK.push(self);
+    return () => {
+      const at = MODAL_STACK.indexOf(self);
+      if (at !== -1) MODAL_STACK.splice(at, 1);
+    };
+  }, [self]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      // The last mounted dialog is the one on top, and the only one Escape is for.
+      if (MODAL_STACK[MODAL_STACK.length - 1] !== self) return;
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -54,6 +90,7 @@ export function Modal({ onClose, children, labelledBy, size = 'default', classNa
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
+        data-testid={testId}
         className={cn(
           'glass-strong washed rivets taped brushed relative flex max-h-[calc(100vh-2rem)] w-full min-w-0 flex-col rounded-sm shadow-panel',
           WIDTH[size],

@@ -49,6 +49,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plane-city-fore', 'plane-city-fore.webp', 130004],
   ['splash-auth', 'splash-auth.webp', 130005],
   ['plate-district', 'plate-district.webp', 130006],
+  ['plate-bar', 'plate-bar.webp', 130007],
   ['building-nexus', 'building-nexus.webp', 140001],
   ['building-quarters', 'building-quarters.webp', 140002],
   ['building-greenhouse', 'building-greenhouse.webp', 140003],
@@ -216,8 +217,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 125 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(125);
+  it('holds the 126 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(126);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -254,6 +255,9 @@ describe('ART_MANIFEST', () => {
     // positions on this exact image, so a change to it has to be made in two places by somebody
     // who meant it, rather than in one and agreed with automatically.
     'plate-district': { width: 1672, height: 941, aspect: '1672:941' },
+    // And the Bar's room, for the same reason: the Sit Down control is positioned as a fraction of
+    // this exact image, so the empty stool moves out from under it if the delivery size changes.
+    'plate-bar': { width: 1264, height: 848, aspect: '1264:848' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {

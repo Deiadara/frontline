@@ -1,6 +1,7 @@
 import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  bar,
   lateGame,
   me,
   meNoOverseer,
@@ -212,27 +213,29 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   await installApi(page, lateGame);
   await page.goto('/game/bar');
 
-  // The room is the page now, and the first person in it is drawn in the middle.
-  await expect(page.getByTestId('bar-room')).toBeVisible();
+  // The room is the page, and the seat is the way into it.
+  await expect(page.getByTestId('sit-down')).toBeVisible();
+  await page.getByTestId('sit-down').click();
   await expect(page.getByTestId('recruit-name')).toHaveText('Dorotea "The Undergrid Ghost"');
 
   /*
    * §H3 refusals say which door is shut rather than just greying the card out, and there are two:
    * the rank the city has given the crew, and how long the crew has been at it. Both are on the
-   * file of the person they apply to, so each is opened rather than read off a wall of cards.
+   * dossier of the person they apply to, so the seat is stepped along until each turns up.
    */
   const refusals = ['Your name is not big enough', 'Wants a crew that has been doing this longer'];
   for (const refusal of refusals) {
     let found = false;
-    for (const row of await page.getByTestId('bar-room').getByRole('button').all()) {
-      await row.click();
+    for (let step = 0; step < bar.recruits.length; step += 1) {
       if ((await page.getByTestId('bar-file').getByText(refusal).count()) > 0) {
         found = true;
         break;
       }
+      await page.getByTestId('seat-on').click();
     }
-    expect(found, `no recruit in the room is refused with "${refusal}"`).toBe(true);
+    expect(found, `nobody at the bar is refused with "${refusal}"`).toBe(true);
   }
+  await page.keyboard.press('Escape');
 
   /* §H5's two ends, both of which live with the crew rather than with the room: a walkout warning
      and an earned skill bonus. Behind the crew door now. */
@@ -259,17 +262,29 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   );
   expect(truncated, 'no authored label on the Bar may be cut off').toEqual([]);
 
-  /*
-   * No vertical-clip guard, deliberately, and for the same reason the base and missions pages
-   * skip it: this is a scroller whose content is arbitrarily long, so the fold cuts the first
-   * roster card at every viewport exactly as an ordinary scrolling page cuts its last row. That
-   * is a different question from a *bounded* viewport ending mid-card, which is what the guard on
-   * character select exists for.
-   */
+  // The room itself, which is the page.
   await page.screenshot({ path: 'screenshots/bar.png', fullPage: false });
 
-  // ...and again at the bottom of the roster, which no viewport-sized screenshot can reach.
-  await page.getByText('Juno Petrosyan').scrollIntoViewIfNeeded();
+  /*
+   * Back onto the stool, and one step the other way.
+   *
+   * Two things are pinned here. The seat **resumes** where it was left rather than snapping back
+   * to the first drinker, which is what you want after ducking out to check the payroll; and the
+   * back arrow walks the roster in the opposite direction from the forward one.
+   *
+   * It used to scroll a name into view, because the roster was a column of cards. There is no
+   * column any more, so scrolling to a name waits for something that never happens: that is what
+   * this test spent two minutes doing before it failed.
+   */
+  await page.getByTestId('sit-down').click();
+  const resumed = (await page.getByTestId('recruit-name').textContent()) ?? '';
+  const at = bar.recruits.findIndex((recruit) => recruit.name === resumed);
+  expect(at, 'the seat reopened on somebody who is not in the room').toBeGreaterThanOrEqual(0);
+
+  await page.getByTestId('seat-back').click();
+  const before = bar.recruits[(at - 1 + bar.recruits.length) % bar.recruits.length];
+  await expect(page.getByTestId('recruit-name')).toHaveText(before?.name ?? '');
+  await settleFonts(page);
   await page.screenshot({ path: 'screenshots/bar-scrolled.png', fullPage: false });
 });
 

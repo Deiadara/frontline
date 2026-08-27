@@ -57,7 +57,7 @@ export type AssetClass = z.infer<typeof AssetClassSchema>;
  * make visible: the twelve building sites are positions on that painting, so its shape changing is
  * a layout change and not a detail.
  */
-export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '1672:941']);
+export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '1672:941', '1264:848']);
 export type AssetAspect = z.infer<typeof AssetAspectSchema>;
 
 /** ADR 0001 §6.1: the backends `scripts/gen-art.ts` knows how to drive. */
@@ -426,6 +426,20 @@ const DISTRICT_PLATE_DELIVERY = {
 } as const satisfies Partial<AssetSpec>;
 
 /**
+ * The Bar's room, at the size it was painted, and for the same reason as the district's ground.
+ *
+ * It is a *place with a seat in it*: the empty stool in the middle of the frame is where the Sit
+ * Down control is positioned, in fractions of this image. A crop moves the stool out from under the
+ * control, and the class's 2048 width would have rejected a 1264px master by name rather than
+ * cropping it.
+ */
+const BAR_PLATE_DELIVERY = {
+  width: 1264,
+  height: 848,
+  aspect: '1264:848',
+} as const satisfies Partial<AssetSpec>;
+
+/**
  * The keys allowed to differ from their class's §6 size, and what they must be instead.
  *
  * A table rather than a skip: an asset off its class size is still checked, just against a number
@@ -434,7 +448,7 @@ const DISTRICT_PLATE_DELIVERY = {
  */
 const SIZE_EXCEPTIONS: Readonly<
   Partial<Record<AssetKey, Pick<AssetSpec, 'width' | 'height' | 'aspect'>>>
-> = { 'plate-district': DISTRICT_PLATE_DELIVERY };
+> = { 'plate-district': DISTRICT_PLATE_DELIVERY, 'plate-bar': BAR_PLATE_DELIVERY };
 
 /** ART-BIBLE §6: "the fore plane must be ≥55% transparent or it smothers the map". */
 const FORE_PLANE_MIN_TRANSPARENCY = 0.55;
@@ -456,6 +470,7 @@ const plateDrafts = (
     // Appended rather than filed beside `plate-city`: the seed is the index, so inserting one in
     // the middle would re-roll every plate after it.
     ['plate-district', 'plate'],
+    ['plate-bar', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -471,6 +486,7 @@ const plateDrafts = (
     ...(key === 'plane-city-far' ? { minTransparency: FAR_PLANE_MIN_TRANSPARENCY } : {}),
     ...(key === 'plane-city-fore' ? { minTransparency: FORE_PLANE_MIN_TRANSPARENCY } : {}),
     ...(key === 'plate-district' ? DISTRICT_PLATE_DELIVERY : {}),
+    ...(key === 'plate-bar' ? BAR_PLATE_DELIVERY : {}),
   }),
 );
 

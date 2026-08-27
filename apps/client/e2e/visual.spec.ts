@@ -498,7 +498,7 @@ for (const size of VIEWPORTS) {
       // HUD, which only the screenshot caught (MOU-207).
       await installApi(page, lateGame);
       await page.goto('/game/bar');
-      await expect(page.getByTestId('bar-room')).toBeVisible();
+      await expect(page.getByTestId('sit-down')).toBeVisible();
       await settleFonts(page);
 
       /*
@@ -513,35 +513,33 @@ for (const size of VIEWPORTS) {
             .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
         );
 
-      // §H8: the slot counter is the one figure on this screen that has to stay legible at the
-      // narrowest viewport, and a full crew is what makes it widest. It is on the door to the crew
-      // now rather than on a panel heading, which is the only place it still appears unopened.
+      // §H8: the slot counter is the one figure the room itself carries, on the door to the crew.
       await expect(page.getByTestId('open-crew')).toBeInViewport({ ratio: 1 });
 
       const cutRoom = await clipped();
-      expect(cutRoom, `cut text on the Bar: ${cutRoom.join(' | ')}`).toEqual([]);
+      expect(cutRoom, `cut text in the Bar's room: ${cutRoom.join(' | ')}`).toEqual([]);
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/bar-${tag}.png` });
 
       /*
-       * The file in the middle, for the person with the longest name in the fixture.
+       * The dossier, for the person with the longest name in the fixture.
        *
-       * The room used to be a grid of ten cards below the fold, so this shot had to scroll to
-       * reach the last of them. One is shown at a time now, so what this asserts instead is that
-       * *choosing* somebody off the rail draws their sheet whole: the §B6 thirty-three attributes
-       * in four columns is the widest thing this screen ever renders.
+       * The §B6 thirty-three attributes beside an identity column is the widest thing this screen
+       * renders, and the sheet's four-column mode switches on a *viewport* media query: inside a
+       * modal that lays out four columns in the modal's width and cuts `Communication`. Which is
+       * exactly what it did, and why the dossier asks for three.
        */
-      const longest = page.getByTestId('bar-room').getByRole('button').last();
-      await longest.click();
+      await page.getByTestId('sit-down').click();
+      await expect(page.getByTestId('bar-file')).toBeVisible();
       await settleFonts(page);
       const cutFile = await clipped();
-      expect(cutFile, `cut text on a recruit's file: ${cutFile.join(' | ')}`).toEqual([]);
+      expect(cutFile, `cut text on a recruit's dossier: ${cutFile.join(' | ')}`).toEqual([]);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/bar-roster-${tag}.png` });
+      await page.keyboard.press('Escape');
 
-      /* The two screens behind the doors on the strip. Both were panels on this page, so neither
-         was ever shot on its own; a modal has its own width and its own scroller. */
+      /* The two screens behind the doors on the glass. */
       await page.getByTestId('open-payroll').click();
       await expect(page.getByTestId('payroll-book')).toBeVisible();
       await settleFonts(page);
@@ -559,61 +557,48 @@ for (const size of VIEWPORTS) {
     });
 
     /**
-     * The Bar is one screen, and the room is the only thing in it that moves.
+     * The Bar is a room with a seat in it, and the seat is the control.
      *
-     * It was a scrolling column of three panels, so the recruits a player came for started two
-     * screens down. The two things that are about the *crew* rather than the room are behind doors
-     * now, and what is left is a fixed frame with a rail in it.
-     *
-     * The order claim is the load-bearing one. "Nothing scrolls" nearly passes on its own, because
-     * the file pane has its own overflow and would quietly absorb what the page would have
-     * scrolled: the rail sitting beside the file rather than above it cannot be faked that way.
+     * The plate is a painting of a dive with one empty stool dead centre, and `Sit down` is drawn
+     * *on* that stool: its position is a fraction of the image, so the picture is sized to cover
+     * the frame at the plate's own aspect and the button lives inside that box. A percentage of the
+     * viewport instead would slide off the stool the moment somebody resized a window, which is
+     * exactly the failure this pins.
      */
-    test(`the bar holds its shape at ${tag}`, async ({ page }) => {
+    test(`the Bar's seat stays on the stool at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/bar');
-      await expect(page.getByTestId('bar-room')).toBeVisible();
+      const seat = page.getByTestId('sit-down');
+      await expect(seat).toBeVisible();
       await settleFonts(page);
 
-      const box = async (id: string) => {
-        const rect = await page.getByTestId(id).boundingBox();
-        if (!rect) throw new Error(`${id} has no box`);
-        return rect;
-      };
-      const room = await box('bar-room');
-      const file = await box('bar-file');
-      expect(file.x, 'the file belongs to the right of the room').toBeGreaterThan(
-        room.x + room.width - 1,
-      );
+      const room = await page.getByTestId('bar-room').boundingBox();
+      const button = await seat.boundingBox();
+      if (!room || !button) throw new Error('the room and the seat must both have boxes');
 
-      const scrolled = await page.evaluate(
-        () =>
-          document.documentElement.scrollHeight > document.documentElement.clientHeight + 1 ||
-          document.body.scrollHeight > document.body.clientHeight + 1,
-      );
-      expect(scrolled, 'the Bar itself scrolled').toBe(false);
+      // Horizontally centred, within a few percent: the stool is at 0.492 of the painting and the
+      // picture is centred on the frame, so the two agree wherever the frame is cropped.
+      const centre = (button.x + button.width / 2 - room.x) / room.width;
+      expect(centre, 'the seat drifted off the middle of the room').toBeGreaterThan(0.4);
+      expect(centre).toBeLessThan(0.6);
+      // And on the lower half of the picture, where the stools are, rather than up among the
+      // bottles: a plate that failed to load leaves the button at the top of an empty box.
+      const down = (button.y + button.height / 2 - room.y) / room.height;
+      expect(down, 'the seat is not down among the stools').toBeGreaterThan(0.45);
 
-      /*
-       * Clicking a name in the room draws that person in the middle, which is the whole
-       * interaction the rework exists for.
-       *
-       * Read off the row's own heading rather than the button's text: a button's `textContent` is
-       * everything inside it run together, so matching on it would compare `Emeric Voskuijlen` to
-       * `Emeric VoskuijlenRuthless1240/wk` and fail on a screen that is working.
-       */
-      // Named, not `getByRole('heading')`: the attribute sheet's four group titles are headings
-      // too, so the role selector resolves to five elements.
-      const heading = page.getByTestId('recruit-name');
-      const first = await heading.textContent();
-      const second = page.getByTestId('bar-room').getByRole('button').nth(1);
-      const name = (await second.locator('.font-stamp').first().textContent())?.trim() ?? '';
-      expect(name.length, 'the room should name people').toBeGreaterThan(2);
-      expect(name, 'the second name should not be the one already open').not.toBe(first?.trim());
+      await expect(seat).toBeInViewport({ ratio: 1 });
+      // The two readouts sit on the glass over the room rather than under the nav bar.
+      await expect(page.getByTestId('open-payroll')).toBeInViewport({ ratio: 1 });
+      await expect(page.getByTestId('info-note')).toBeInViewport({ ratio: 1 });
 
-      await second.click();
-      await expect(heading).toHaveText(name);
+      // And the note's card opens *over* the room rather than off the bottom of it. The chip
+      // stands on the floor of the frame, so a card that can only hang downward puts most of the
+      // rule below the fold, which is where this one was.
+      await page.getByTestId('info-note').hover();
+      const note = page.getByRole('tooltip').filter({ hasText: 'How the Bar works' });
+      await expect(note).toBeVisible();
+      await expect(note, 'the standing note opened off the screen').toBeInViewport({ ratio: 1 });
     });
-
     /*
      * MOU-166 §B9/§F2: the research page, in both of the states it has.
      *

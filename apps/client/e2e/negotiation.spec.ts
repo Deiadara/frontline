@@ -21,11 +21,31 @@ import {
 /** The recruit the Bar fixture leaves un-negotiated, so a conversation starts from nothing. */
 const RECRUIT = 'bar-1';
 
-async function openBar(page: Page): Promise<void> {
+/**
+ * Into the Bar, onto the stool, and along to the person these tests are about.
+ *
+ * The Bar is a room now rather than a list: the recruits are behind the Sit Down control on the
+ * empty seat, one at a time, with an arrow either side. So getting to somebody is two steps, and
+ * both belong in the helper rather than in seven copies.
+ *
+ * Stepping until the right card is on screen rather than stepping a fixed number of times: the
+ * roster's order is the fixture's business, and a test that hard-coded an index would break the
+ * day somebody added a ninth drinker.
+ */
+async function openBar(page: Page, recruitId: string = RECRUIT): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await installApi(page, adminGame);
   await page.goto('/game/bar');
   await settleFonts(page);
+  await page.getByTestId('sit-down').click();
+  await expect(page.getByTestId('bar-file')).toBeVisible();
+
+  const card = page.getByTestId(`recruit-${recruitId}`);
+  for (let step = 0; step < bar.recruits.length; step += 1) {
+    if ((await card.count()) > 0) return;
+    await page.getByTestId('seat-on').click();
+  }
+  throw new Error(`${recruitId} is not at the bar tonight`);
 }
 
 test.describe('haggling (§H7)', () => {
@@ -75,7 +95,7 @@ test.describe('haggling (§H7)', () => {
     // The window stops taking offers and turns into the signature.
     await expect(page.getByTestId('negotiation-say')).toHaveCount(0);
     await expect(page.getByTestId('negotiation-sign')).toBeVisible();
-    await expect(page.getByRole('dialog')).toContainText('Agreed at');
+    await expect(page.getByTestId('negotiation-window')).toContainText('Agreed at');
   });
 
   /**
@@ -120,7 +140,7 @@ test.describe('haggling (§H7)', () => {
     expect(hires[0]?.role).toBeTruthy();
 
     // ...and the window is gone, rather than sitting open over a deal that already closed.
-    await expect(page.getByRole('dialog')).toBeHidden();
+    await expect(page.getByTestId('negotiation-window')).toBeHidden();
   });
 
   /**
@@ -141,7 +161,7 @@ test.describe('haggling (§H7)', () => {
 
     // Close without signing: the card is now the only thing telling the player where they stand.
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).toBeHidden();
+    await expect(page.getByTestId('negotiation-window')).toBeHidden();
 
     const card = page.getByTestId(`recruit-${RECRUIT}`);
     await expect(card).toContainText('Signed at');
@@ -185,13 +205,13 @@ test.describe('haggling (§H7)', () => {
     );
 
     expect(insult, 'an insult must cost more patience than a near miss').toBeLessThan(nearMiss);
-    await expect(page.getByRole('dialog')).toContainText(/Insulted|Gone/);
+    await expect(page.getByTestId('negotiation-window')).toContainText(/Insulted|Gone/);
   });
 
   test('the window is legible and nothing in it is cut off', async ({ page }) => {
     await openBar(page);
     await page.getByTestId(`negotiate-${RECRUIT}`).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByTestId('negotiation-window')).toBeVisible();
     await expectNothingClippedVertically(page, '[role="dialog"]');
     await expectNoImagesClipped(page, '[role="dialog"]');
   });

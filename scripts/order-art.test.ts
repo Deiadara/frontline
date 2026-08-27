@@ -43,11 +43,14 @@ describe('sections', () => {
     // (1376×768, aspect 43:24), so it never needed that render and asking for one would be asking
     // the board to repaint a map twelve building sites are already positioned on.
     expect(wide!.specs.map((s) => s.key)).toEqual(['plate-city', 'splash-auth']);
-    // Opaque and croppable, but not at a size ChatGPT hands back: the unit roster, plus the one
-    // plate delivered off the §6 size table.
+    // Opaque and croppable, but not at a size ChatGPT hands back: the unit roster, plus the two
+    // plates delivered off the §6 size table. Both are places with things positioned on them, the
+    // district's building sites and the Bar's empty stool, so both ship at the size they were
+    // painted and neither belongs in the 16:9 group above.
     expect(roster!.specs.every((s) => !s.alpha && s.aspect !== '16:9')).toBe(true);
     expect(roster!.specs.map((s) => s.key).filter((key) => !key.startsWith('unit-'))).toEqual([
       'plate-district',
+      'plate-bar',
     ]);
     expect(alpha!.specs.every((s) => s.alpha)).toBe(true);
     expect(occluded!.specs.map((s) => s.key)).toEqual([...OCCLUDED_BACKDROP_KEYS]);

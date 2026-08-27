@@ -98,8 +98,15 @@ export function AttributeSheet({
   bars = true,
 }: {
   attributes: Attributes;
-  /** 4 only where the sheet has a full-width panel to itself. Anything narrower wants 2. */
-  columns?: 2 | 4;
+  /**
+   * How many groups sit side by side.
+   *
+   * 4 only where the sheet has a full-width *page* panel to itself: the switch is a viewport media
+   * query, so inside a modal it lays out four columns in whatever width the modal has, which cuts
+   * `Communication`. 3 is the modal size: eleven rows a column, and the label, bar and figure stay
+   * within a hand's width of each other. 2 is the default and safe anywhere.
+   */
+  columns?: 2 | 3 | 4;
   /**
    * Off where the sheet is a *thumbnail* rather than the thing being read.
    *
@@ -118,7 +125,11 @@ export function AttributeSheet({
         // columns is 24px more for the words than `gap-x-5`, and at ~120px a column that is the
         // difference between `Communication` and a cut label.
         bars ? 'gap-x-5 gap-y-3' : 'gap-x-3',
-        columns === 4 ? 'sm:grid-cols-2 [@media(min-width:1100px)]:grid-cols-4' : 'sm:grid-cols-2',
+        columns === 4
+          ? 'sm:grid-cols-2 [@media(min-width:1100px)]:grid-cols-4'
+          : columns === 3
+            ? 'sm:grid-cols-2 md:grid-cols-3'
+            : 'sm:grid-cols-2',
       )}
       data-testid="attribute-sheet"
     >
