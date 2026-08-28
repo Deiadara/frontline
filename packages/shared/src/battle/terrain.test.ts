@@ -118,15 +118,15 @@ describe('what each location fights like', () => {
 
 describe('what the ground does to a unit', () => {
   it('fires a sheet only where it says it fires', () => {
-    const tunnelRat = unit('muckrakers');
+    const tunnelRat = unit('ash_walkers');
     expect(contextBonusPercent(tunnelRat, ['underground']).percent).toBeGreaterThan(0);
     expect(contextBonusPercent(tunnelRat, ['open_ground']).percent).toBe(0);
   });
 
   it('sums stacked modifiers rather than multiplying them', () => {
-    // Muckrakers are `tunnel_rat` (25) and `night_operations` (20). Below street level and unlit,
-    // that is 45 percentage points and not 1.25 × 1.20.
-    const both = contextBonusPercent(unit('muckrakers'), ['underground', 'dark']);
+    // Cyber Dogs are `ambush` (25) and `night_operations` (20). In a street, in the dark, that is
+    // 45 percentage points and not 1.25 × 1.20.
+    const both = contextBonusPercent(unit('cyber_dogs'), ['urban', 'dark']);
     expect(both.percent).toBe(45);
     expect(both.reasons).toHaveLength(2);
   });
@@ -204,15 +204,19 @@ describe('the ground changes how the fight goes', () => {
             fortifyLevel: 0,
             at: NIGHT,
           }),
-          attacker: { name: 'A', army: { muckrakers: 30 }, defending: false },
-          defender: { name: 'D', army: { sparks: 24 }, defending: true },
+          attacker: { name: 'A', army: { ash_walkers: 22 }, defending: false },
+          defender: { name: 'D', army: { wardens: 22 }, defending: true },
         });
         left += survived(simulation.attacker);
       }
       return left / runs;
     };
-    // Muckrakers are a poor unit that is good below street level and on unlit ground, and a sewer
-    // junction is both. The same fight in a rail yard must cost them more.
+    // Ash Walkers are `tunnel_rat`, so they are worth more below street level than above it, and a
+    // sewer junction is below it. The same fight in a rail yard must cost them more.
+    //
+    // An even fight against Wardens rather than a rout of Sparks, and that matters: a roster that
+    // wins both grounds without losing anybody shows no difference between them, which is what
+    // this measured when the attacker was strong enough to walk it either way.
     expect(run('sewer_junction')).toBeGreaterThan(run('rail_yard') * 1.3);
   });
 

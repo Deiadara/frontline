@@ -34,21 +34,22 @@ describe('sections', () => {
     expect([...grouped].sort()).toEqual(ART_MANIFEST.map((s) => s.key).sort());
   });
 
-  it('puts the hero assets first, then the two 16:9 opaque assets, then roster, alpha, occluded', () => {
+  it('puts the hero assets first, then the 16:9 opaque asset, then roster, alpha, occluded', () => {
     const [hero, wide, roster, alpha, occluded] = groupIntoSections();
     expect(hero!.specs.map((s) => s.key)).toEqual(HERO_ASSETS.map((s) => s.key));
     // Named rather than derived: joining this set means asking the board for a 2048×1152
-    // render, which is the one size a plain ChatGPT download may not reach (§3 guidance).
-    // `plate-district` is deliberately absent. It is delivered at the size it was painted
-    // (1376×768, aspect 43:24), so it never needed that render and asking for one would be asking
-    // the board to repaint a map twelve building sites are already positioned on.
-    expect(wide!.specs.map((s) => s.key)).toEqual(['plate-city', 'splash-auth']);
-    // Opaque and croppable, but not at a size ChatGPT hands back: the unit roster, plus the two
-    // plates delivered off the §6 size table. Both are places with things positioned on them, the
-    // district's building sites and the Bar's empty stool, so both ship at the size they were
-    // painted and neither belongs in the 16:9 group above.
+    // render, which is the one size a plain ChatGPT download may not reach (§3 guidance). All
+    // three plates are deliberately absent, and for one reason: each is delivered at the size it
+    // was painted, so none of them needs that render and asking for one would be asking the board
+    // to repaint a picture things are already positioned on.
+    expect(wide!.specs.map((s) => s.key)).toEqual(['splash-auth']);
+    // Opaque and croppable, but not at a size ChatGPT hands back: the unit roster, plus the three
+    // plates delivered off the §6 size table. All three are places with things positioned on them,
+    // the city's district tags, the district's building sites and the Bar's empty stool, so all
+    // three ship at the size they were painted and none belongs in the 16:9 group above.
     expect(roster!.specs.every((s) => !s.alpha && s.aspect !== '16:9')).toBe(true);
     expect(roster!.specs.map((s) => s.key).filter((key) => !key.startsWith('unit-'))).toEqual([
+      'plate-city',
       'plate-district',
       'plate-bar',
     ]);

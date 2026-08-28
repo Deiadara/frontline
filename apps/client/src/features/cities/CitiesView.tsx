@@ -6,11 +6,11 @@ import { Panel } from '../../components/ui/Panel';
 import { Quote } from '../../components/ui/Quote';
 
 /**
- * The step back from the map: every city there is, which is one of them so far.
+ * The step back from the city: every city there is, which is one of them so far.
  *
- * Not a page. It used to be a door in the scenery switcher beside the city map, which made "the
- * world" and "the city you are standing in" two places a player navigates *between*, when they are
- * the same place at two zoom levels. It is a view of `/game` now: the map has a control that pulls
+ * Not a page. It used to be a door in the scenery switcher beside the city, which made "the world"
+ * and "the city you are standing in" two places a player navigates *between*, when they are the
+ * same place at two distances. It is a view of `/game` now: the painting has a control that pulls
  * the camera out to here, and the city on this screen puts it back. Nothing about the route
  * changes, so going out and back in is not a page load and does not lose the district you had
  * selected.
@@ -78,7 +78,7 @@ export function CitiesView({ onEnterCity }: { onEnterCity: () => void }) {
 
       <div>
         <Button variant="ghost" onClick={onEnterCity}>
-          Back to the map
+          Back to the city
         </Button>
       </div>
     </div>

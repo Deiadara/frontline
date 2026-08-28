@@ -29,6 +29,21 @@ import { cn } from '../../lib/cn';
 const GAP = 8;
 const EDGE = 10;
 
+/**
+ * The top of the floating ladder, and every rung of it in one place because they drifted apart.
+ *
+ * Four things portal or float over the whole app, and each one picked its own number in its own
+ * file: `Modal` 100, `HoverCard` 200, `Dropdown` 210, and this at 70. Seventy was right when the
+ * only thing over the page was the chrome (40) and the patina (50). It stopped being right the day
+ * a dialog went to 100: `App` says a name drawn over the HUD and a name drawn over a dialog are
+ * the same object, and at 70 the second one was painted underneath the dialog it was naming.
+ *
+ * A tip is the most ephemeral thing on the screen and the one a pointer is currently asking for,
+ * so it belongs at the top of the ladder rather than in the middle of it. Anything added later
+ * goes below this.
+ */
+const LAYER = 'z-[220]';
+
 interface Tip {
   text: string;
   anchor: DOMRect;
@@ -118,7 +133,8 @@ export function TooltipLayer() {
       className={cn(
         // The same dark glass the chrome is made of, so a name reads as part of the game rather
         // than as the operating system talking over it.
-        'pointer-events-none fixed z-[70] max-w-xs rounded-md px-2.5 py-1.5',
+        'pointer-events-none fixed max-w-xs rounded-md px-2.5 py-1.5',
+        LAYER,
         'border border-iris-300/25 bg-surface-950/95 shadow-panel backdrop-blur-sm',
         'font-display text-[11px] font-bold uppercase leading-tight tracking-[0.16em] text-ink-100',
         // Drawn transparent until it has been measured, so it cannot flash in the corner first.

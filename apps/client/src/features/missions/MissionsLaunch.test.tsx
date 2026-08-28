@@ -293,14 +293,31 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
     await waitFor(() => expect(launchBody().areaId).toBe('rustyard'));
   });
 
-  it('wraps round the boards in both directions', async () => {
+  /**
+   * The board stops at both ends rather than rolling round, the same as the Bar's roster.
+   *
+   * Both halves are asserted, because a stepper is two controls and a fix applied to one of them
+   * leaves the other wrapping: the disabled arrow has to be *dead*, and the live one still has to
+   * move. The text is checked after each press as well as the arrow's state, so a stepper that
+   * greyed out correctly and still changed the area would fail here.
+   */
+  it('stops at both ends of the boards rather than wrapping round', async () => {
     stubApi({ assignees: staffed });
     renderBoard();
     await screen.findByTestId('board-area');
 
+    expect(screen.getByTestId('board-left')).toBeDisabled();
     fireEvent.click(screen.getByTestId('board-left'));
-    expect(screen.getByTestId('board-area')).toHaveTextContent('The Rustyard');
+    expect(screen.getByTestId('board-area')).toHaveTextContent('Miscellaneous Missions');
+
     fireEvent.click(screen.getByTestId('board-right'));
+    expect(screen.getByTestId('board-area')).toHaveTextContent('The Rustyard');
+    expect(screen.getByTestId('board-right')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('board-right'));
+    expect(screen.getByTestId('board-area')).toHaveTextContent('The Rustyard');
+
+    expect(screen.getByTestId('board-left')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('board-left'));
     expect(screen.getByTestId('board-area')).toHaveTextContent('Miscellaneous Missions');
   });
 

@@ -118,7 +118,9 @@ describe('special units are almost immune to certain damage', () => {
 
   it('never lets a vulnerability run away either', () => {
     const floor = 1 - MIN_RESISTANCE / 100;
-    for (const attacker of ['netrunners', 'bell_ringers', 'wrecking_crew']) {
+    // One attacker per damage type that has a vulnerability to run away with: energy, sonic and
+    // explosive. It was the Wrecking Crew carrying explosive before that unit left the roster.
+    for (const attacker of ['netrunners', 'bell_ringers', 'demolishers']) {
       for (const defender of ['the_colossus', 'juggernauts', 'the_specter', 'ironsides']) {
         expect(
           damageTypeMultiplier(bare(attacker), bare(defender)),

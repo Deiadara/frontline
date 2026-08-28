@@ -75,39 +75,6 @@ async function shootEveryViewport(page: Page, step: string): Promise<void> {
   await page.waitForTimeout(400);
 }
 
-/** Click a district node on the Pixi canvas by its normalized map position. */
-async function clickDistrict(page: Page, position: { x: number; y: number }): Promise<void> {
-  const at = await districtPoint(page, position);
-  await page.mouse.click(at.x, at.y);
-}
-
-/**
- * Where a district actually sits on screen.
- *
- * `position` is a fraction of the map's **layout** width, not of the canvas: the canvas is
- * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
- * out into the frame less whatever chrome is covering it and publishes that inset as
- * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
- * the district it was aimed at, and the further right the district, the worse the miss.
- */
-async function districtPoint(
-  page: Page,
-  position: { x: number; y: number },
-): Promise<{ x: number; y: number }> {
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
-  const map = page.getByTestId('city-map');
-  const inset = async (name: string) =>
-    Number((await map.getAttribute(`data-safe-${name}`)) ?? '0');
-  const [right, top, bottom] = [await inset('right'), await inset('top'), await inset('bottom')];
-  const layoutWidth = Math.max(1, box.width - right);
-  const layoutHeight = Math.max(1, box.height - top - bottom);
-  return {
-    x: box.x + position.x * layoutWidth,
-    y: box.y + top + position.y * layoutHeight,
-  };
-}
-
 test('live: Nikos logs in, meets the AI rival and raids it against the real backend', async ({
   page,
 }) => {
@@ -159,10 +126,9 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(
     hud.getByRole('link', { name: new RegExp(`^${overseerName}, Overseer`) }),
   ).toBeVisible();
-  await expect(page.locator('canvas')).toBeVisible();
+  await expect(page.getByTestId('city-room')).toBeVisible();
   await expect(hud).toContainText(String(STARTING_RESOURCES.caps));
-  await page.waitForTimeout(800); // let Pixi paint the map before the screenshot
-  await shootEveryViewport(page, 'city-map');
+  await shootEveryViewport(page, 'city');
 
   // --- STEP 4: the hideout, and building in it against the real server (GDD §A1, §D3) ---
   await page.getByRole('link', { name: 'District', exact: true }).click();
@@ -215,24 +181,24 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
 
   // --- STEP 5: walk into the city and take a place off the looters (§A4) ---
   await page.getByRole('link', { name: 'City', exact: true }).click();
-  await expect(page.locator('canvas')).toBeVisible();
-  await page.waitForTimeout(800);
+  await expect(page.getByTestId('city-room')).toBeVisible();
 
   const scrapfields = findDistrict('rustyard');
-  if (!scrapfields) throw new Error('fixture error: the Rustyard is missing from the city map');
-  await clickDistrict(page, scrapfields.position);
+  if (!scrapfields) throw new Error('fixture error: the Rustyard is missing from the city');
+  await page.getByTestId(`district-tag-${scrapfields.id}`).click();
 
-  // Fog first: a district nobody has been to says nothing about what is inside it.
-  const panel = page.getByTestId('district-panel');
-  await expect(panel.getByRole('heading', { name: scrapfields.name })).toBeVisible();
-  await expect(panel.getByTestId('locations-held')).toHaveCount(0);
+  /*
+   * Fog first: a district nobody has been to says nothing about what is inside it.
+   *
+   * Both the fog and the scouts are read on the district's own screen now. They used to be in an
+   * intel panel floating on the city map, and the map went when the city became a painting: one
+   * click on a tag is the whole walk in, so there is no in-between screen left to say it on.
+   */
+  await expect(page.getByRole('heading', { name: scrapfields.name })).toBeVisible();
+  await expect(page.getByTestId('locations')).toHaveCount(0);
   await shootEveryViewport(page, 'city-fog');
 
-  await panel.getByRole('button', { name: 'Send scouts' }).click();
-  await expect(panel.getByTestId('locations-held')).toBeVisible();
-
-  await panel.getByRole('button', { name: 'Enter the district' }).click();
-  await expect(page.getByRole('heading', { name: scrapfields.name })).toBeVisible();
+  await page.getByRole('button', { name: 'Send scouts' }).click();
   await expect(page.getByTestId('locations')).toBeVisible();
   await shootEveryViewport(page, 'district-locations');
 

@@ -66,36 +66,33 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['unit-anodics', 'unit-anodics.webp', 145002],
   ['unit-sparks', 'unit-sparks.webp', 145003],
   ['unit-scrapers', 'unit-scrapers.webp', 145004],
-  ['unit-muckrakers', 'unit-muckrakers.webp', 145005],
-  ['unit-breakers', 'unit-breakers.webp', 145006],
-  ['unit-wardens', 'unit-wardens.webp', 145007],
-  ['unit-ghosts', 'unit-ghosts.webp', 145008],
-  ['unit-road-reavers', 'unit-road-reavers.webp', 145009],
-  ['unit-ironsides', 'unit-ironsides.webp', 145010],
-  ['unit-ash-walkers', 'unit-ash-walkers.webp', 145011],
-  ['unit-snipers', 'unit-snipers.webp', 145012],
-  ['unit-stitchers', 'unit-stitchers.webp', 145013],
-  ['unit-demolishers', 'unit-demolishers.webp', 145014],
-  ['unit-jammers', 'unit-jammers.webp', 145015],
-  ['unit-kite-crews', 'unit-kite-crews.webp', 145016],
-  ['unit-netrunners', 'unit-netrunners.webp', 145017],
-  ['unit-sleepers', 'unit-sleepers.webp', 145018],
-  ['unit-cyber-dogs', 'unit-cyber-dogs.webp', 145019],
-  ['unit-bell-ringers', 'unit-bell-ringers.webp', 145020],
-  ['unit-wrecking-crew', 'unit-wrecking-crew.webp', 145021],
-  ['unit-juggernauts', 'unit-juggernauts.webp', 145022],
-  ['unit-hollow-men', 'unit-hollow-men.webp', 145023],
-  ['unit-the-condemned', 'unit-the-condemned.webp', 145024],
-  ['unit-the-specter', 'unit-the-specter.webp', 145025],
-  ['unit-the-abomination', 'unit-the-abomination.webp', 145026],
-  ['unit-the-colossus', 'unit-the-colossus.webp', 145027],
-  ['unit-the-saint', 'unit-the-saint.webp', 145028],
-  ['unit-the-cartographer', 'unit-the-cartographer.webp', 145029],
-  ['unit-the-twins', 'unit-the-twins.webp', 145030],
-  // The support tier is last in the catalogue on purpose: a unit inserted anywhere else
-  // renumbers every seed after it. See the note at the head of `UNIT_CATALOG`.
-  ['unit-scavengers', 'unit-scavengers.webp', 145031],
-  ['unit-haulers', 'unit-haulers.webp', 145032],
+  ['unit-breakers', 'unit-breakers.webp', 145005],
+  ['unit-wardens', 'unit-wardens.webp', 145006],
+  ['unit-ghosts', 'unit-ghosts.webp', 145007],
+  ['unit-road-reavers', 'unit-road-reavers.webp', 145008],
+  ['unit-ironsides', 'unit-ironsides.webp', 145009],
+  ['unit-ash-walkers', 'unit-ash-walkers.webp', 145010],
+  ['unit-snipers', 'unit-snipers.webp', 145011],
+  ['unit-stitchers', 'unit-stitchers.webp', 145012],
+  ['unit-demolishers', 'unit-demolishers.webp', 145013],
+  ['unit-kite-crews', 'unit-kite-crews.webp', 145014],
+  ['unit-netrunners', 'unit-netrunners.webp', 145015],
+  ['unit-sleepers', 'unit-sleepers.webp', 145016],
+  ['unit-cyber-dogs', 'unit-cyber-dogs.webp', 145017],
+  ['unit-bell-ringers', 'unit-bell-ringers.webp', 145018],
+  ['unit-juggernauts', 'unit-juggernauts.webp', 145019],
+  ['unit-hollow-men', 'unit-hollow-men.webp', 145020],
+  ['unit-the-condemned', 'unit-the-condemned.webp', 145021],
+  ['unit-the-specter', 'unit-the-specter.webp', 145022],
+  ['unit-the-abomination', 'unit-the-abomination.webp', 145023],
+  ['unit-the-colossus', 'unit-the-colossus.webp', 145024],
+  ['unit-the-saint', 'unit-the-saint.webp', 145025],
+  ['unit-the-cartographer', 'unit-the-cartographer.webp', 145026],
+  ['unit-the-twins', 'unit-the-twins.webp', 145027],
+  ['unit-scavengers', 'unit-scavengers.webp', 145028],
+  ['unit-haulers', 'unit-haulers.webp', 145029],
+  ['unit-the-crimson-dancer', 'unit-the-crimson-dancer.webp', 145030],
+  ['unit-sluggers', 'unit-sluggers.webp', 145031],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -217,8 +214,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 126 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(126);
+  it('holds the 125 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(125);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -250,14 +247,18 @@ describe('ART_MANIFEST', () => {
    * widened rule.
    */
   const SIZE_EXCEPTIONS: Record<string, { width: number; height: number; aspect: string }> = {
+    // The city, at the size the board painted it. Load-bearing the same way the district plate is:
+    // the ten district tags on `/game` are positioned as fractions of this exact image, so a
+    // district slides off the roof it names if the delivery size changes under it.
+    'plate-city': { width: 3780, height: 1800, aspect: '21:10' },
     // The size the board painted it at. Written down independently of the manifest on purpose:
     // this is the one asset whose delivery size is *load-bearing*: twelve building outlines are
     // positions on this exact image, so a change to it has to be made in two places by somebody
     // who meant it, rather than in one and agreed with automatically.
-    'plate-district': { width: 1672, height: 941, aspect: '1672:941' },
+    'plate-district': { width: 3780, height: 1800, aspect: '21:10' },
     // And the Bar's room, for the same reason: the Sit Down control is positioned as a fraction of
     // this exact image, so the empty stool moves out from under it if the delivery size changes.
-    'plate-bar': { width: 1264, height: 848, aspect: '1264:848' },
+    'plate-bar': { width: 3780, height: 1800, aspect: '21:10' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {

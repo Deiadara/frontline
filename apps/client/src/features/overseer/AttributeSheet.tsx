@@ -31,7 +31,17 @@ const GROUP_LABELS: Record<AttributeGroup, string> = {
  * put side by side are drawn on the same axis: normalising per sheet would make a weak character's
  * best attribute look like an elite one.
  */
-function AttributeRow({ name, value, bar }: { name: AttributeName; value: number; bar: boolean }) {
+function AttributeRow({
+  name,
+  value,
+  bar,
+  roomy,
+}: {
+  name: AttributeName;
+  value: number;
+  bar: boolean;
+  roomy: boolean;
+}) {
   const band = ratingBand(value);
   const share = Math.max(0, Math.min(1, value / MAX_ATTRIBUTE));
   return (
@@ -40,11 +50,25 @@ function AttributeRow({ name, value, bar }: { name: AttributeName; value: number
     // fixed 24px column because it is only ever drawn where there is room for it; spending the
     // same here truncated `Communication` in a 122px column, which the layout gate reads as a cut
     // label and the board's bar forbids.
-    <li className={cn('flex items-center', bar ? 'gap-2' : 'gap-1')}>
+    <li
+      className={cn(
+        'flex items-center',
+        bar ? 'gap-2' : 'gap-1',
+        // Every other row on a wash of its own. Eleven rows of word-bar-number with nothing
+        // between them is a block of texture, and the eye loses its place crossing it; a tint
+        // that costs no height puts the line back under the finger.
+        roomy && 'rounded-[2px] px-1.5 py-1 odd:bg-ink-100/[0.045]',
+      )}
+    >
       {/* Named from the shared table, not title-cased here: two of the attributes are not what a
           naive capitalise produces, and a sheet spelled differently on two screens is the kind of
           thing nobody reports and everybody sees. */}
-      <span className="min-w-0 flex-1 truncate font-body text-[12px] leading-[1.15] text-ink-200">
+      <span
+        className={cn(
+          'min-w-0 flex-1 truncate font-body leading-[1.15] text-ink-200',
+          roomy ? 'text-[13.5px]' : 'text-[12px]',
+        )}
+      >
         {ATTRIBUTE_LABELS[name]}
       </span>
       {/* A fixed, short track rather than one that stretches to the column's width. Stretched, a
@@ -53,7 +77,10 @@ function AttributeRow({ name, value, bar }: { name: AttributeName; value: number
           the figure, so the bar and the number are one reading rather than two. */}
       {bar && (
         <span
-          className="relative h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-black/35"
+          className={cn(
+            'relative shrink-0 overflow-hidden rounded-full bg-black/35',
+            roomy ? 'h-2 w-14' : 'h-1.5 w-12',
+          )}
           aria-hidden
         >
           <span
@@ -64,8 +91,9 @@ function AttributeRow({ name, value, bar }: { name: AttributeName; value: number
       )}
       <span
         className={cn(
-          'shrink-0 text-right font-display text-[12px] font-bold leading-[1.15] tabular-nums',
-          bar && 'w-6',
+          'shrink-0 text-right font-display font-bold leading-[1.15] tabular-nums',
+          roomy ? 'text-[14px]' : 'text-[12px]',
+          bar && (roomy ? 'w-7' : 'w-6'),
           RATING_TEXT[band],
         )}
       >
@@ -96,6 +124,7 @@ export function AttributeSheet({
   attributes,
   columns = 2,
   bars = true,
+  roomy = false,
 }: {
   attributes: Attributes;
   /**
@@ -116,11 +145,23 @@ export function AttributeSheet({
    * choice there is the bar or a cut label, and a cut label is the one the board's bar forbids.
    */
   bars?: boolean;
+  /**
+   * The sheet **is** the screen, rather than one panel on it.
+   *
+   * Bigger type, each group inside its own frame, and a tint on alternate rows. The Bar's seat
+   * screen is what it exists for: a player reading one person's whole record to decide whether to
+   * spend the night's single signature on them. At 12px with no frames the four groups ran
+   * together into one field of thirty-four numbers, which is the shape you skim rather than read.
+   * Every other placement keeps the compact sheet, where the attributes are reference beside
+   * something else and the frames would be four boxes competing with the panel around them.
+   */
+  roomy?: boolean;
 }) {
   return (
     <div
       className={cn(
         'grid',
+        roomy && 'items-stretch',
         // The thumbnail keeps the geometry it shipped with, to the pixel: `gap-x-3` across four
         // columns is 24px more for the words than `gap-x-5`, and at ~120px a column that is the
         // difference between `Communication` and a cut label.
@@ -134,18 +175,35 @@ export function AttributeSheet({
       data-testid="attribute-sheet"
     >
       {ATTRIBUTE_GROUPS.map((group) => (
-        <section key={group} className="min-w-0">
+        <section
+          key={group}
+          className={cn(
+            'min-w-0',
+            // A frame each, all four the same height, so the row reads as four panels rather than
+            // as one grid that happens to have gaps in it. `items-stretch` on the grid does the
+            // equalising; without the frame there is nothing to see it on.
+            roomy &&
+              'edge-lit flex flex-col rounded-sm border border-surface-600/70 bg-black/20 p-2',
+          )}
+        >
           <h3
             className={cn(
               'truncate border-b border-surface-600/80 font-display font-bold uppercase tracking-[0.18em] text-brass-300',
-              bars ? 'mb-1.5 pb-1 text-[10px]' : 'mb-0.5 pb-0.5 text-[8px]',
+              bars ? 'mb-1.5 pb-1' : 'mb-0.5 pb-0.5 text-[8px]',
+              bars && (roomy ? 'text-[11px]' : 'text-[10px]'),
             )}
           >
             {GROUP_LABELS[group]}
           </h3>
-          <ul className={cn('flex flex-col', bars && 'gap-1')}>
+          <ul className={cn('flex flex-col', bars && !roomy && 'gap-1')}>
             {ATTRIBUTES_BY_GROUP[group].map((name) => (
-              <AttributeRow key={name} name={name} value={attributes[name]} bar={bars} />
+              <AttributeRow
+                key={name}
+                name={name}
+                value={attributes[name]}
+                bar={bars}
+                roomy={roomy}
+              />
             ))}
           </ul>
         </section>

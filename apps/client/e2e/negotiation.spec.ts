@@ -43,6 +43,8 @@ async function openBar(page: Page, recruitId: string = RECRUIT): Promise<void> {
   const card = page.getByTestId(`recruit-${recruitId}`);
   for (let step = 0; step < bar.recruits.length; step += 1) {
     if ((await card.count()) > 0) return;
+    // The roster stops at its far end rather than wrapping, so the walk stops with it.
+    if (await page.getByTestId('seat-on').isDisabled()) break;
     await page.getByTestId('seat-on').click();
   }
   throw new Error(`${recruitId} is not at the bar tonight`);
@@ -206,6 +208,36 @@ test.describe('haggling (§H7)', () => {
 
     expect(insult, 'an insult must cost more patience than a near miss').toBeLessThan(nearMiss);
     await expect(page.getByTestId('negotiation-window')).toContainText(/Insulted|Gone/);
+  });
+
+  /*
+   * The seat screen underneath goes deaf while this window is open.
+   *
+   * The Bar's arrows are also bound to Left and Right, on `window`, and the offer field is a
+   * number input where those keys move the caret. Both were live at once: typing an offer and
+   * nudging the caret paged the roster behind, so a player haggling with one person was reading
+   * somebody else's record while they did it, with the conversation still aimed at the first.
+   */
+  test('the arrows behind this window are deaf while it is open', async ({ page }) => {
+    await openBar(page);
+    const behind = await page.getByTestId('recruit-name').textContent();
+    await page.getByTestId(`negotiate-${RECRUIT}`).click();
+    await expect(page.getByTestId('negotiation-window')).toBeVisible();
+
+    const offer = page.getByLabel(/^Offer to /);
+    await offer.fill('120');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowRight');
+    await expect(
+      page.getByTestId('recruit-name'),
+      'a caret key in the offer field walked the roster behind the conversation',
+    ).toHaveText(behind ?? '');
+
+    // And they wake up again once the conversation is closed, or the screen is stuck.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('negotiation-window')).toHaveCount(0);
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('recruit-name')).not.toHaveText(behind ?? '');
   });
 
   test('the window is legible and nothing in it is cut off', async ({ page }) => {

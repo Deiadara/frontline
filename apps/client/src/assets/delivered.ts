@@ -4,11 +4,11 @@
  * A view names a *thing* (this overseer, this district), never a file. It gets pixels back only
  * when a delivery file for that thing exists in `assets/`; otherwise it gets `null` and paints its
  * own interim look. Dropping `portrait-overseer-1.webp` into `assets/` flips the portrait from
- * gradient to painted with no TypeScript edit: the same rule the Pixi planes already follow.
+ * gradient to painted with no TypeScript edit.
  *
- * The planes do not come through here, though: a plane's art is an `AssetKey` sitting on
- * `PARALLAX_PLANES`, not a domain id needing resolution, so `CityMap` reads `artLoader` directly.
- * Grepping this module finds every *domain-addressed* consumer of delivered art, not every consumer.
+ * Plates and planes do not come through here by *key*: their art is an `AssetKey` rather than a
+ * domain id needing resolution. Grepping this module finds every *domain-addressed* consumer of
+ * delivered art, not every consumer.
  */
 import { tryResolveAssetKey, type AssetRef, type BuildingKind } from '@frontline/shared';
 import type { Texture } from 'pixi.js';

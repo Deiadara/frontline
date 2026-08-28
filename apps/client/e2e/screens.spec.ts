@@ -1,7 +1,9 @@
 import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  adminGame,
   bar,
+  city,
   lateGame,
   me,
   meNoOverseer,
@@ -18,36 +20,10 @@ import {
   expectNothingClippedVertically,
   installApi,
   settleFonts,
+  walkBoards,
 } from './harness';
 
 test.use({ viewport: { width: 1280, height: 800 } });
-
-/**
- * Where a district actually sits on screen.
- *
- * `position` is a fraction of the map's **layout** width, not of the canvas: the canvas is
- * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
- * out into the frame less whatever chrome is covering it and publishes that inset as
- * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
- * the district it was aimed at, and the further right the district, the worse the miss.
- */
-async function districtPoint(
-  page: Page,
-  position: { x: number; y: number },
-): Promise<{ x: number; y: number }> {
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
-  const map = page.getByTestId('city-map');
-  const inset = async (name: string) =>
-    Number((await map.getAttribute(`data-safe-${name}`)) ?? '0');
-  const [right, top, bottom] = [await inset('right'), await inset('top'), await inset('bottom')];
-  const layoutWidth = Math.max(1, box.width - right);
-  const layoutHeight = Math.max(1, box.height - top - bottom);
-  return {
-    x: box.x + position.x * layoutWidth,
-    y: box.y + top + position.y * layoutHeight,
-  };
-}
 
 test('character select renders all presets', async ({ page }) => {
   await installApi(page, meNoOverseer);
@@ -174,16 +150,25 @@ test('assignee placement explains the empty state before any officer is hired', 
   await page.screenshot({ path: 'screenshots/assignees-empty.png', fullPage: false });
 });
 
-test('game shell renders the city map', async ({ page }) => {
+test('game shell renders the city, with a way into every district', async ({ page }) => {
   await installApi(page, me);
   await page.goto('/game');
 
   await expect(
     page.getByRole('link', { name: new RegExp(`^${overseer.name}, Overseer`) }),
   ).toBeVisible();
-  await expect(page.locator('canvas')).toBeVisible();
-  await page.waitForTimeout(700);
+  await expect(page.getByTestId('city-room')).toBeVisible();
 
+  // Derived from the city rather than listed: a district added to `CITY_DISTRICTS` with no mark on
+  // the painting is a place with no way in, and that is exactly the failure this catches.
+  for (const district of CITY_DISTRICTS) {
+    await expect(
+      page.getByTestId(`district-tag-${district.id}`),
+      `${district.name} has no tag on the painting`,
+    ).toBeVisible();
+  }
+
+  await settleFonts(page);
   await page.screenshot({ path: 'screenshots/game.png', fullPage: false });
 });
 
@@ -231,6 +216,9 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
         found = true;
         break;
       }
+      // The arrow goes dead at the end of the roster rather than wrapping, so the walk stops
+      // there too: clicking a disabled button would spend the timeout instead of the assertion.
+      if (await page.getByTestId('seat-on').isDisabled()) break;
       await page.getByTestId('seat-on').click();
     }
     expect(found, `nobody at the bar is refused with "${refusal}"`).toBe(true);
@@ -281,34 +269,163 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   const at = bar.recruits.findIndex((recruit) => recruit.name === resumed);
   expect(at, 'the seat reopened on somebody who is not in the room').toBeGreaterThanOrEqual(0);
 
+  expect(
+    at,
+    'the walk through the refusals should have left the seat past the first drinker',
+  ).toBeGreaterThan(0);
   await page.getByTestId('seat-back').click();
-  const before = bar.recruits[(at - 1 + bar.recruits.length) % bar.recruits.length];
-  await expect(page.getByTestId('recruit-name')).toHaveText(before?.name ?? '');
+  await expect(page.getByTestId('recruit-name')).toHaveText(bar.recruits[at - 1]?.name ?? '');
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/bar-scrolled.png', fullPage: false });
 });
 
-/** Clicks a district on the Pixi canvas the way a player does. */
-async function selectDistrict(page: Page, id: string): Promise<void> {
-  const district = CITY_DISTRICTS.find((d) => d.id === id);
-  if (!district) throw new Error(`missing ${id} district`);
-  await expect(page.locator('canvas')).toBeVisible();
-  await page.waitForTimeout(700);
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
-  const at = await districtPoint(page, district.position);
-  await page.mouse.click(at.x, at.y);
+/**
+ * The roster is a row of stools, not a carousel (MOU-172).
+ *
+ * Stepping used to wrap, so a player who had read to the last drinker and pressed on once more was
+ * put back in front of the first as though they had missed them, with nothing on screen saying the
+ * row had ended. Both arrows now go dead at their end, and they have to *look* dead: an arrow that
+ * silently does nothing is indistinguishable from one that is broken.
+ */
+test('the bar’s seat screen stops at both ends of the roster', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/bar');
+  await page.getByTestId('sit-down').click();
+  await expect(page.getByTestId('bar-file')).toBeVisible();
+
+  const first = bar.recruits[0]?.name ?? '';
+  const last = bar.recruits[bar.recruits.length - 1]?.name ?? '';
+
+  // It opens on the first drinker, so there is nobody behind them.
+  await expect(page.getByTestId('recruit-name')).toHaveText(first);
+  await expect(page.getByTestId('seat-back')).toBeDisabled();
+  await expect(page.getByTestId('seat-on')).toBeEnabled();
+
+  // The keyboard obeys the same stop as the arrow, since it is the same step.
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByTestId('recruit-name')).toHaveText(first);
+
+  for (let step = 0; step < bar.recruits.length - 1; step += 1) {
+    await page.getByTestId('seat-on').click();
+  }
+
+  await expect(page.getByTestId('recruit-name')).toHaveText(last);
+  await expect(page.getByTestId('seat-on')).toBeDisabled();
+  await expect(page.getByTestId('seat-back')).toBeEnabled();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByTestId('recruit-name')).toHaveText(last);
+});
+
+/**
+ * Every standing note opens where it can be read.
+ *
+ * `HoverCard` places its card below the chip by default and used to clamp only the horizontal
+ * axis, so a chip standing on the floor of a screen hung its card off the bottom of the window:
+ * the Bar's was reported that way, and the Training and Black Market notes sit in the same corner.
+ * The placement is shared, so it is measured across every screen that carries a note rather than
+ * on the one that was reported.
+ *
+ * Run at the shortest viewport in the matrix, which is where a downward card runs out of room
+ * first. The satchel's note only exists while the satchel is empty and this fixture's is not, so
+ * eight of the nine are reachable: the count is asserted, because a sweep that quietly found
+ * nothing would pass just as green as one that checked everything.
+ */
+test('a standing note opens fully on screen, on every screen that has one', async ({ page }) => {
+  const size = { width: 1280, height: 720 };
+  await page.setViewportSize(size);
+  await installApi(page, adminGame);
+
+  const routes = [
+    '/game/settings',
+    '/game/workshop',
+    '/game/market',
+    '/game/market/black',
+    '/game/bar',
+    '/game/overseer',
+    '/game/training',
+    '/game/admin',
+  ];
+
+  const offScreen: string[] = [];
+  let checked = 0;
+  for (const route of routes) {
+    await page.goto(route);
+    const chip = page.getByTestId('info-note').first();
+    await expect(chip, `${route} should carry a standing note`).toBeVisible();
+    await settleFonts(page);
+    await chip.hover();
+
+    const card = page.getByRole('tooltip').first();
+    await expect(card).toBeVisible();
+    const box = await card.boundingBox();
+    if (!box) throw new Error(`${route}: the note's card has no box`);
+    checked += 1;
+
+    const over = [
+      box.y < 0 ? `${Math.round(-box.y)}px off the top` : '',
+      box.y + box.height > size.height
+        ? `${Math.round(box.y + box.height - size.height)}px off the bottom`
+        : '',
+      box.x < 0 ? `${Math.round(-box.x)}px off the left` : '',
+      box.x + box.width > size.width
+        ? `${Math.round(box.x + box.width - size.width)}px off the right`
+        : '',
+    ].filter(Boolean);
+    if (over.length > 0) offScreen.push(`${route}: ${over.join(', ')}`);
+  }
+
+  expect(checked, 'the sweep must actually reach every note').toBe(routes.length);
+  expect(offScreen, `standing notes opened off screen: ${offScreen.join(' | ')}`).toEqual([]);
+});
+
+/**
+ * Walks into a district the way a player does: one click on its tag on the painting.
+ *
+ * It used to take two, on a Pixi canvas: click the district to select it, then `Enter the
+ * district` in the panel that appeared. The city is a painting with a tag over each district now
+ * and the tag is the door, so selecting and entering are the same gesture.
+ */
+async function enterDistrict(page: Page, id: string): Promise<void> {
+  if (!CITY_DISTRICTS.some((district) => district.id === id)) {
+    throw new Error(`missing ${id} district`);
+  }
+  await expect(page.getByTestId('city-room')).toBeVisible();
+  await page.getByTestId(`district-tag-${id}`).click();
 }
+
+/**
+ * Where each tag on the city goes, which is the whole of what this screen does.
+ *
+ * Nine of the ten lead to the district screen, which is for reading ground you do not hold: who is
+ * on it, what it would take. The tenth is your own, and there the thing you actually want is the
+ * hideout, so it leads there instead. That asymmetry is the one rule on this screen worth pinning,
+ * and it is invisible in a screenshot.
+ */
+test('the city leads to the district screen, except on your own ground', async ({ page }) => {
+  await installApi(page, me);
+  const home = city.homeDistrictId;
+  const away = CITY_DISTRICTS.find((district) => district.id !== home);
+  if (!away) throw new Error('fixture error: the city has only one district');
+
+  await page.goto('/game');
+  await expect(page.getByTestId('city-room')).toBeVisible();
+  await page.getByTestId(`district-tag-${home}`).click();
+  await expect(page).toHaveURL(/\/game\/base$/);
+  // The hideout, not a district screen dressed as one.
+  await expect(page.getByTestId('faction-plaque')).toBeVisible();
+
+  await page.goto('/game');
+  await expect(page.getByTestId('city-room')).toBeVisible();
+  await page.getByTestId(`district-tag-${away.id}`).click();
+  await expect(page).toHaveURL(new RegExp(`/game/city/${away.id}$`));
+  // And it is *that* district, not whichever one the route happens to answer with.
+  await expect(page.getByRole('heading', { name: away.name })).toBeVisible();
+});
 
 test('the district view shows what is inside a scouted district (§A4)', async ({ page }) => {
   await installApi(page, me);
   await page.goto('/game');
-  await selectDistrict(page, 'rustyard');
-
-  await page
-    .getByTestId('district-panel')
-    .getByRole('button', { name: 'Enter the district' })
-    .click();
+  await enterDistrict(page, 'rustyard');
   await expect(page.getByTestId('locations')).toBeVisible();
   // Ground this crew holds reads differently from ground it does not, and offers different moves.
   await expect(page.getByText('Yours').first()).toBeVisible();
@@ -521,7 +638,7 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
    * picker defaulting to somebody rather than to "nobody".
    */
   const dialog = page.getByRole('dialog');
-  for (let step = 0; step < 12; step += 1) {
+  const found = await walkBoards(page, async () => {
     const jobs = page.locator('[data-testid^="offer-"]');
     for (let index = 0; index < (await jobs.count()); index += 1) {
       await jobs
@@ -530,14 +647,14 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
         .click();
       await expect(dialog).toBeVisible();
       if (await dialog.getByTestId('send-leader').getByText('The Ghost of Sector Nine').count()) {
-        break;
+        return true;
       }
       await page.keyboard.press('Escape');
       await expect(dialog).toBeHidden();
     }
-    if (await dialog.isVisible()) break;
-    await page.getByTestId('board-right').click();
-  }
+    return false;
+  });
+  expect(found).toBe(true);
   await expect(dialog).toBeVisible();
 
   // §G3: the first officer leads until the player says otherwise, so a hard job is never offering

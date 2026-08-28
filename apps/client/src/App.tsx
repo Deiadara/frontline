@@ -13,7 +13,7 @@ import { DistrictView } from './features/city/DistrictView';
 import { BattlePage } from './features/battle/BattlePage';
 import { UnitsPage } from './features/units/UnitsPage';
 import { ActionsPage } from './features/actions/ActionsPage';
-import { MapView } from './features/game/MapView';
+import { CityView } from './features/game/CityView';
 import { MissionsPage } from './features/missions/MissionsPage';
 import { ResearchPage } from './features/research/ResearchPage';
 import { TrainingPage } from './features/overseer/TrainingPage';
@@ -95,7 +95,7 @@ export default function App() {
             </RequireAuth>
           }
         >
-          <Route index element={<MapView />} />
+          <Route index element={<CityView />} />
           <Route path="base" element={<BasePanel />} />
           <Route path="city/:districtId" element={<DistrictView />} />
           <Route path="actions" element={<ActionsPage />} />

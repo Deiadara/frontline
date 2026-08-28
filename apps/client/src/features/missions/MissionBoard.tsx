@@ -17,10 +17,10 @@ import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { HoverCard } from '../../components/ui/HoverCard';
-import { Icon } from '../../components/ui/Icon';
 import { InfoWindow } from '../../components/ui/InfoWindow';
 import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
+import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
 
 /**
@@ -31,6 +31,9 @@ import { cn } from '../../lib/cn';
  * about *where* a crew was going and gave a player nothing to choose between. Now the choice is
  * two decisions stacked: which district is worth working, and which of its three jobs is worth
  * taking, knowing that taking one closes the other two until that crew is home.
+ *
+ * The arrows are the game's one stepper (`StepArrow`), the same pair the Bar puts either side of a
+ * recruit, and they stop at the ends of the list for the reason written there.
  *
  * ## Nothing scrolls
  *
@@ -161,17 +164,33 @@ export function MissionBoard({
   // an empty board rather than the last one.
   const at = Math.min(index, areas.length - 1);
   const area = areas[at] as MissionArea;
-  const step = (delta: number) =>
-    setIndex((current) => {
-      const next = (Math.min(current, areas.length - 1) + delta + areas.length) % areas.length;
-      return next;
-    });
+
+  /*
+   * Where a press would land, and it is the *only* statement of the bounds on purpose.
+   *
+   * The board stops at the ends rather than rolling round, the same as the Bar's roster: an arrow
+   * that wraps never tells a player they have seen every area, so a board of four reads as a board
+   * of infinitely many and they keep pressing. The first version of that fix wrote the rule twice,
+   * once as a clamp here and once as a `disabled` expression on each arrow, and a test could not
+   * tell them apart: reintroducing the wrap left the arrows disabled, so nothing moved and the
+   * gate stayed green over a component that had gone back to wrapping. One function answers both
+   * questions now, so breaking it breaks something a test can see.
+   */
+  const boardAfter = (delta: number): number => Math.max(0, Math.min(areas.length - 1, at + delta));
+  const step = (delta: number) => setIndex(boardAfter(delta));
 
   return (
     <div className="flex flex-col" data-testid="mission-board">
       {/* Where you are, and the way out either side of it. */}
       <header className="flex items-center gap-3 border-b border-surface-700 px-4 py-3">
-        <ArrowButton direction="left" label="Previous area" onClick={() => step(-1)} />
+        <StepArrow
+          direction="back"
+          label="Previous area"
+          size="small"
+          testId="board-left"
+          disabled={boardAfter(-1) === at}
+          onStep={() => step(-1)}
+        />
         <div className="min-w-0 flex-1 text-center">
           <h3
             className="truncate font-display text-base font-bold uppercase tracking-[0.16em] text-brass-300"
@@ -183,7 +202,14 @@ export function MissionBoard({
             {area.blurb}
           </p>
         </div>
-        <ArrowButton direction="right" label="Next area" onClick={() => step(1)} />
+        <StepArrow
+          direction="on"
+          label="Next area"
+          size="small"
+          testId="board-right"
+          disabled={boardAfter(1) === at}
+          onStep={() => step(1)}
+        />
       </header>
 
       <div className="flex items-center justify-between gap-3 border-b border-surface-700 px-4 py-2">
@@ -239,32 +265,6 @@ export function MissionBoard({
         />
       )}
     </div>
-  );
-}
-
-function ArrowButton({
-  direction,
-  label,
-  onClick,
-}: {
-  direction: 'left' | 'right';
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      data-tip={label}
-      data-testid={`board-${direction}`}
-      className="edge-lit flex h-9 w-9 shrink-0 items-center justify-center rounded-sm border border-surface-600 bg-gradient-to-b from-surface-700 to-surface-800 text-ink-200 transition-all duration-150 hover:-translate-y-0.5 hover:border-brass-300/70 hover:text-brass-300"
-    >
-      <Icon
-        name="chevron-down"
-        className={cn('h-4 w-4', direction === 'left' ? 'rotate-90' : '-rotate-90')}
-      />
-    </button>
   );
 }
 

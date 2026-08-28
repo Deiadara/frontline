@@ -31,7 +31,7 @@ import { useServerClock } from '../missions/useServerClock';
  * Straight out of Grepolis, and it is the single thing that game does which this one was missing.
  * Every clock in Frontline lived on the page that started it: a build was only visible in the
  * district, a training batch only on the roster, a research project only in the Archive. So a
- * player looking at the city map had no idea anything was running at all, and the only way to find
+ * player looking at the city had no idea anything was running at all, and the only way to find
  * out whether the Quarters had finished was to go and look. A queue you cannot see is a queue you
  * forget to refill, and an idle district is the failure state of a builder.
  *

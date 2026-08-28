@@ -22,6 +22,7 @@ import {
   battle,
   battles,
   districtDetail,
+  districtDetailFor,
   unitsResponse,
   city,
   createOverseerResponse,
@@ -331,7 +332,9 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     ) {
       return json({ district: districtDetail, base: meResponse.base ?? baseDetail.base });
     }
-    if (pathname.includes('/api/city/')) return json(districtDetail);
+    if (pathname.includes('/api/city/')) {
+      return json(districtDetailFor(pathname.split('/').filter(Boolean).pop() ?? ''));
+    }
     /*
      * §A4: the road. `recall` answers with the list minus the column it was given, so a run can
      * assert the row actually left rather than that the button was clickable.
@@ -520,6 +523,50 @@ function hiredOfficer(recruit: BarRecruit, role: OfficerRole): Commander {
  */
 const MAX_PALE_SHARE = 0.25;
 
+/**
+ * A control drawn over the artwork is still lit, rather than dimmed by something painted on top.
+ *
+ * The failure this exists for is a shared component's z-index escaping into the page. `PlateRoom`
+ * draws a vignette over its picture at `z-10` so the tags on the painting can rise above it at
+ * `z-20`; the moment its own box stopped being a stacking context, that `z-10` was measured against
+ * the page instead, and the Bar's payroll readout and standing note, drawn *after* the room and
+ * with no z-index of their own, went under a black gradient. Both still worked. Both were unreadable.
+ *
+ * Measured on the brightest tenth of the control rather than its mean, because a plate on artwork
+ * is mostly dark by design and it is the *type* that has to survive: dimmed, the readout's brightest
+ * pixels fell from 151 to 75 and its label from 182 to 78.
+ */
+export async function expectControlNotDimmed(
+  page: Page,
+  testId: string,
+  floor = 110,
+): Promise<void> {
+  const shot = await page.getByTestId(testId).screenshot();
+  const brightest = await page.evaluate(async (b64: string) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
+    ctx.drawImage(img, 0, 0);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const lum: number[] = [];
+    for (let i = 0; i < data.length; i += 4) {
+      lum.push(0.2126 * (data[i] ?? 0) + 0.7152 * (data[i + 1] ?? 0) + 0.0722 * (data[i + 2] ?? 0));
+    }
+    lum.sort((a, b) => a - b);
+    return lum[Math.floor(lum.length * 0.99)] ?? 0;
+  }, shot.toString('base64'));
+
+  expect(
+    brightest,
+    `${testId} is dimmed: its brightest pixels reach ${brightest.toFixed(0)}, not ${floor}`,
+  ).toBeGreaterThan(floor);
+}
+
 export async function expectSheetNotWashedOut(
   page: Page,
   selector = 'main section',
@@ -549,4 +596,42 @@ export async function expectSheetNotWashedOut(
     pale,
     `${(pale * 100).toFixed(0)}% of the sheet is pale: a blend layer is washing the page out`,
   ).toBeLessThan(MAX_PALE_SHARE);
+}
+
+/**
+ * Walk the mission board across every area, running `look` on each.
+ *
+ * The board's arrows stop at the ends of the list rather than rolling round (see `StepArrow`), so
+ * the specs that used to press `board-right` a fixed dozen times and rely on the wrap to sweep
+ * every board would now click a disabled button and time out on the last one. This steps right
+ * while there is anywhere right to go, which visits each area exactly once whatever the day's
+ * scouting left open.
+ *
+ * `look` returning true stops the walk and is reported back, so a caller can say "find me the
+ * board with X on it" and know whether it found one.
+ */
+export async function walkBoards(page: Page, look: () => Promise<boolean>): Promise<boolean> {
+  // Rewound first, so two walks in one test both see every board. Wrapping used to make the
+  // starting point irrelevant; stopping at the ends means a walk that began on the last area
+  // would look at exactly one.
+  await stepBoardsTo(page, 'board-left');
+  return stepBoardsTo(page, 'board-right', look);
+}
+
+/** One direction, one area at a time, stopping when the arrow goes dead or `look` says stop. */
+async function stepBoardsTo(
+  page: Page,
+  arrow: 'board-left' | 'board-right',
+  look?: () => Promise<boolean>,
+): Promise<boolean> {
+  // Bounded, so a stepper bug that never disables cannot hang the suite instead of failing it.
+  for (let step = 0; step < 24; step += 1) {
+    if (look && (await look())) return true;
+    const onward = page.getByTestId(arrow);
+    if (await onward.isDisabled()) return false;
+    const showing = await page.getByTestId('board-area').textContent();
+    await onward.click();
+    await expect(page.getByTestId('board-area')).not.toHaveText(showing ?? '');
+  }
+  throw new Error('the mission board never ran out of areas to step to');
 }

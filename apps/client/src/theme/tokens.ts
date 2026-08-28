@@ -1,7 +1,7 @@
 /**
  * Cyberpunk design tokens: the single source for tailwind.config.ts and any
- * JS-side rendering (e.g. Pixi map colors). Keep tailwind.config.ts free of
- * literal colors; add tokens here instead.
+ * JS-side rendering (the procedural art in `render/`). Keep tailwind.config.ts
+ * free of literal colors; add tokens here instead.
  */
 
 export const palette = {

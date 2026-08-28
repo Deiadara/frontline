@@ -45,7 +45,15 @@ const spec = (key: string): AssetSpec => {
 
 const DISTRICT = spec('district-chrome-row');
 const PORTRAIT = spec('portrait-overseer-1');
-const PLATE = spec('plate-city');
+/**
+ * A plate the board has *not* delivered, so its source is still the §6 class render.
+ *
+ * It was `plate-city`, and that stopped being the right pick when the board painted the city:
+ * a delivered plate ships at the size it was painted, which is the one thing these two tests are
+ * not about. They are about a backend refusing a size it cannot make, and for that the fixture has
+ * to be an asset that is genuinely still waiting to be generated.
+ */
+const PLATE = spec('plane-city-sky');
 /** ART-BIBLE §6: a 1024×1024 asset that must ship with a real alpha channel. */
 const FRAME = spec('ui-frame-panel');
 /** The two shapes no backend renders directly: 512² alpha, and 16:9 alpha. */
@@ -237,16 +245,16 @@ describe('backend selection', () => {
   /**
    * Keys the board paints by hand, which no backend is ever asked for.
    *
-   * `plate-district` is the whole district screen and it arrived at the size it was painted,
-   * 1672×941. That is not a multiple of 16, and it cannot be made one: the twelve building outlines
-   * are positions on *this* image, so rounding the delivery would move all twelve at once, and no
-   * pure rescale of 1672:941 lands on sixteens in both axes. Exempting it costs nothing the bound
-   * was protecting: the bound exists so a *generated* source fails here rather than at spend time,
-   * and this one is never generated.
+   * All three room plates are board deliveries at 3780×1800, which is over FLUX.2's 2560 ceiling
+   * and would be rejected outright. That is fine, because none of them is ever generated: they are
+   * painted for these screens at the shape and resolution the screens need, and things are
+   * positioned on each one, the ten district tags on the city, the twelve building outlines on the
+   * district, the empty stool on the Bar. Exempting them costs nothing the bound was protecting:
+   * the bound exists so a *generated* source fails here rather than at spend time.
    *
    * A list rather than a skip on the whole test: anything else drifting out of bounds still fails.
    */
-  const HAND_PAINTED: readonly string[] = ['plate-district'];
+  const HAND_PAINTED: readonly string[] = ['plate-district', 'plate-city', 'plate-bar'];
 
   /**
    * `BACKEND_CAPABILITIES.fal.sizes` is `null`, "any size", but FLUX.2 [pro]'s published
@@ -659,7 +667,7 @@ describe('validateRun', () => {
   it('fails the run rather than let an unpinned asset rewrite a manifest resolution', () => {
     const unpinned: AssetSpec = { ...PLATE, backend: undefined };
     expect(validateRun([unpinned], OUT, { FRONTLINE_ART_BACKEND: 'openai' })).toContainEqual(
-      expect.stringContaining('plate-city: openai cannot render 2048×1152'),
+      expect.stringContaining('plane-city-sky: openai cannot render 2048×1152'),
     );
     expect(validateRun([unpinned], OUT, { FRONTLINE_ART_BACKEND: 'fal' })).toEqual([]);
   });
@@ -891,20 +899,22 @@ describe('main: live run', () => {
       );
       captureOutput();
 
-      const code = await main(['--out', dir, '--only', 'plate-city'], {
+      const code = await main(['--out', dir, '--only', 'plane-city-sky'], {
         FRONTLINE_ART_BACKEND: 'fal',
         FAL_KEY: 'k',
       });
 
       expect(code).toBe(0);
-      expect(new Uint8Array(await readFile(path.join(dir, 'plate-city.png')))).toEqual(PNG_BYTES);
+      expect(new Uint8Array(await readFile(path.join(dir, 'plane-city-sky.png')))).toEqual(
+        PNG_BYTES,
+      );
       const record: unknown = JSON.parse(
-        await readFile(path.join(dir, 'plate-city.provenance.json'), 'utf8'),
+        await readFile(path.join(dir, 'plane-city-sky.provenance.json'), 'utf8'),
       );
       expect(record).toMatchObject({
-        assetKey: 'plate-city',
-        masterFile: 'plate-city.png',
-        deliveryFile: 'plate-city.webp',
+        assetKey: 'plane-city-sky',
+        masterFile: 'plane-city-sky.png',
+        deliveryFile: 'plane-city-sky.webp',
         backend: 'fal',
         seed: PLATE.seed,
         styleRefsApplied: false,

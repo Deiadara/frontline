@@ -3,11 +3,12 @@
  *
  * Screenshots land in `screenshots/visual/<screen>-<w>x<h>.png` so a reviewer can eyeball the
  * whole matrix in one directory. The assertions catch the failures that are cheap to detect
- * mechanically: document overflow, unexpected scrollbars, a canvas that does not fill its
- * frame, so review time is spent on the ones that are not (composition, colour, legibility).
+ * mechanically: document overflow, unexpected scrollbars, a control that has slid off the picture
+ * it stands on, so review time is spent on the ones that are not (composition, colour, legibility).
  */
 import { expect, test, type Page } from '@playwright/test';
 import {
+  CITY_DISTRICTS,
   FACTION_NAME_MAX,
   MISSIONS_PER_AREA,
   RESOURCE_LABELS,
@@ -15,6 +16,7 @@ import {
 } from '@frontline/shared';
 import { activeResearch, lateGame, me, meNoOverseer, missionsResponse } from './fixtures';
 import {
+  expectControlNotDimmed,
   expectNothingClippedVertically,
   expectSheetNotWashedOut,
   installApi,
@@ -142,22 +144,6 @@ async function expectWholeCardRows(page: Page, fitsWholeRoster: boolean): Promis
   }
 }
 
-/** The map canvas must exactly fill its frame: a short canvas shows a dead band of page ground. */
-async function expectCanvasFillsFrame(page: Page): Promise<void> {
-  const canvas = page.locator('canvas');
-  await expect(canvas).toBeVisible();
-  const gap = await page.evaluate<{ w: number; h: number }>(() => {
-    const el = document.querySelector('canvas');
-    const frame = el?.parentElement;
-    if (!el || !frame) throw new Error('canvas has no frame');
-    const c = el.getBoundingClientRect();
-    const f = frame.getBoundingClientRect();
-    return { w: f.width - c.width, h: f.height - c.height };
-  });
-  expect(Math.abs(gap.w), `canvas is ${gap.w}px narrower than its frame`).toBeLessThanOrEqual(1);
-  expect(Math.abs(gap.h), `canvas is ${gap.h}px shorter than its frame`).toBeLessThanOrEqual(1);
-}
-
 for (const size of VIEWPORTS) {
   const tag = `${size.width}x${size.height}`;
 
@@ -195,16 +181,92 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/visual/overseer-${tag}.png` });
     });
 
-    test(`city map at ${tag}`, async ({ page }) => {
+    /*
+     * The city, and the ten ways into it.
+     *
+     * The painting is cover-cropped to fill the frame, which means a tag placed at a fraction of
+     * the *picture* can land outside the part of it that is on screen: at 1024x768 the frame is
+     * short enough that the top eighth of the painting is cut away, and the two tags up there went
+     * with it. `PlateRoom` clamps every mark into the visible window for exactly that reason, and
+     * this is what proves it, at every viewport and for every district rather than for the two
+     * that were reported.
+     */
+    test(`the city at ${tag}`, async ({ page }) => {
       await installApi(page, me);
       await page.goto('/game');
-      await expect(page.locator('canvas')).toBeVisible();
-      await page.waitForTimeout(900);
+      await expect(page.getByTestId('city-room')).toBeVisible();
+      await settleFonts(page);
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
-      await expectCanvasFillsFrame(page);
-      await page.screenshot({ path: `screenshots/visual/map-${tag}.png` });
+
+      /*
+       * The same picture on every screen, and that is the whole requirement.
+       *
+       * Cover-fitting showed a different slice of the painting for every window shape, so the city
+       * was one thing windowed, another full screen, and another again on a second monitor: a
+       * player could not learn where anything was. The plate is painted at 21:10 for this frame and
+       * is now drawn `whole`, which means two things that are checked exactly rather than loosely:
+       * the aspect it is drawn at is its own, and all of it is inside the frame.
+       *
+       * 3780x1800 is restated here rather than imported from the screen it is testing. That is the
+       * point of it: a test that reads the aspect out of `CityView` would agree with any value the
+       * component happened to hold, including a wrong one.
+       */
+      const TRUE_ASPECT = 3780 / 1800;
+      const measure = () =>
+        page.evaluate(() => {
+          const room = document.querySelector('[data-testid="city-room"]');
+          const images = [...(room?.querySelectorAll('img') ?? [])];
+          // The sharp painting is the last one: the blurred surround is drawn behind it.
+          const picture = images[images.length - 1]?.getBoundingClientRect();
+          const frame = room?.firstElementChild?.getBoundingClientRect();
+          if (!picture || !frame) throw new Error('the city has no painting in a frame');
+          return { pw: picture.width, ph: picture.height, fw: frame.width, fh: frame.height };
+        });
+
+      /*
+       * Polled, because the frame is still settling when the page first looks ready.
+       *
+       * `--nav-h` grows the moment the in-flight rail arrives, which is after the first paint, and
+       * the room's size is read back through a `ResizeObserver`, so there is a frame where the
+       * painting is sized against the taller frame it had a moment ago. Asserting once inside that
+       * window measures a page that is mid-update rather than the page.
+       *
+       * It still has teeth: a painting that were permanently distorted, or permanently larger than
+       * its frame, never reaches this state and the poll fails on the timeout.
+       */
+      await expect
+        .poll(
+          async () => {
+            const at = await measure();
+            return {
+              aspect: Number((at.pw / at.ph).toFixed(3)),
+              fits: at.pw <= at.fw + 1 && at.ph <= at.fh + 1,
+            };
+          },
+          { message: `the city's painting is distorted or overflowing its frame at ${tag}` },
+        )
+        .toEqual({ aspect: Number(TRUE_ASPECT.toFixed(3)), fits: true });
+
+      const offScreen: string[] = [];
+      for (const district of CITY_DISTRICTS) {
+        const tag$ = page.getByTestId(`district-tag-${district.id}`);
+        await expect(tag$, `${district.name} has no tag on the painting`).toBeVisible();
+        const box = await tag$.boundingBox();
+        if (!box) throw new Error(`${district.id} has no box`);
+        if (
+          box.y < 0 ||
+          box.x < 0 ||
+          box.y + box.height > size.height ||
+          box.x + box.width > size.width
+        ) {
+          offScreen.push(`${district.name} at [${Math.round(box.x)},${Math.round(box.y)}]`);
+        }
+      }
+      expect(offScreen, `district tags off screen: ${offScreen.join(' | ')}`).toEqual([]);
+
+      await page.screenshot({ path: `screenshots/visual/city-${tag}.png` });
     });
 
     /*
@@ -217,7 +279,7 @@ for (const size of VIEWPORTS) {
     test(`late-game HUD stays on screen at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game');
-      await expect(page.locator('canvas')).toBeVisible();
+      await expect(page.getByTestId('city-room')).toBeVisible();
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
@@ -516,6 +578,13 @@ for (const size of VIEWPORTS) {
       // §H8: the slot counter is the one figure the room itself carries, on the door to the crew.
       await expect(page.getByTestId('open-crew')).toBeInViewport({ ratio: 1 });
 
+      // And the three controls standing on the artwork are lit, not buried under something drawn
+      // over them. See `expectControlNotDimmed`: this is the one screen where a room's own vignette
+      // and a screen's own chrome overlap, so it is the one that catches the z-index escaping.
+      await expectControlNotDimmed(page, 'open-payroll');
+      await expectControlNotDimmed(page, 'open-crew');
+      await expectControlNotDimmed(page, 'info-note');
+
       const cutRoom = await clipped();
       expect(cutRoom, `cut text in the Bar's room: ${cutRoom.join(' | ')}`).toEqual([]);
       await expectNoDocumentOverflow(page);
@@ -525,10 +594,9 @@ for (const size of VIEWPORTS) {
       /*
        * The dossier, for the person with the longest name in the fixture.
        *
-       * The §B6 thirty-three attributes beside an identity column is the widest thing this screen
-       * renders, and the sheet's four-column mode switches on a *viewport* media query: inside a
-       * modal that lays out four columns in the modal's width and cuts `Communication`. Which is
-       * exactly what it did, and why the dossier asks for three.
+       * The §B6 thirty-three attributes under an identity band is the widest thing this screen
+       * renders, and the sheet's four-column mode switches on a *viewport* media query, so the
+       * window it opens in has to be wide enough that four groups still clear `Communication`.
        */
       await page.getByTestId('sit-down').click();
       await expect(page.getByTestId('bar-file')).toBeVisible();
@@ -536,6 +604,27 @@ for (const size of VIEWPORTS) {
       const cutFile = await clipped();
       expect(cutFile, `cut text on a recruit's dossier: ${cutFile.join(' | ')}`).toEqual([]);
       await expectNothingClippedHorizontally(page);
+
+      /*
+       * All four groups on one line, which is the shape the screen was rebuilt for: three across
+       * with the fourth underneath is an L, and an L reads as a layout that ran out of room.
+       *
+       * Counted by how many distinct tops the four headings have. Below the sheet's own breakpoint
+       * it falls to two columns and the card scrolls, and that is the no-cut-text rule winning
+       * over the shape rather than a regression: four groups need about 210px each.
+       */
+      const groupRows = await page.evaluate(
+        () =>
+          new Set(
+            [...document.querySelectorAll('[data-testid="attribute-sheet"] h3')].map((h) =>
+              Math.round(h.getBoundingClientRect().top),
+            ),
+          ).size,
+      );
+      expect(
+        groupRows,
+        `the attribute groups should be in ${size.width >= 1280 ? 'one row' : 'two rows'} at ${tag}`,
+      ).toBe(size.width >= 1280 ? 1 : 2);
       await page.screenshot({ path: `screenshots/visual/bar-roster-${tag}.png` });
       await page.keyboard.press('Escape');
 

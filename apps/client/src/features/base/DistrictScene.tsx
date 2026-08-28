@@ -139,13 +139,24 @@ export function fitted(room: MeasuredSize, band: MeasuredSize, bleed = true): CS
   // board's rule and the reason this is a squash rather than a scale: full bleed left and right,
   // never a slab of background down either side.
   const aspectHeight = room.width / DISTRICT_ASPECT;
-  const height = Math.max(
-    aspectHeight * (1 - MAX_SQUASH),
-    Math.min(aspectHeight, clear / BAND_SPAN),
+  /*
+   * Rounded once, here, and every other number derived from the rounded value.
+   *
+   * `bleedOffset` used to be handed the exact height while the picture was drawn at the rounded
+   * one, so the offset centred a band half a pixel taller or shorter than the band on screen. It
+   * was invisible against a 1.78 plate and showed up the moment the painting became 21:10, because
+   * the shorter the picture the more of it a half pixel is.
+   *
+   * **Floored, not rounded.** Rounding up draws the picture a hair taller than it was painted,
+   * which is a stretch, and the one thing this function must never do is stretch: the twelve
+   * building outlines are positions on the painting and a stretch slides all twelve at once.
+   */
+  const height = Math.floor(
+    Math.max(aspectHeight * (1 - MAX_SQUASH), Math.min(aspectHeight, clear / BAND_SPAN)),
   );
   return {
     width: Math.round(room.width),
-    height: Math.round(height),
+    height,
     marginTop: Math.round(bleedOffset(height, clear)),
   };
 }

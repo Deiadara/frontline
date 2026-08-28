@@ -212,7 +212,7 @@ describe('the opening strike', () => {
     // Ghosts and Sleepers are close on the sheet; Sleepers carry `ambush`, Ghosts also do.
     // Scrapers carry it too, so this compares an ambusher against a plain unit of similar cost.
     const withIt = run({ scrapers: 26 }, { sparks: 20 }, bareBattlefield()).attackerWins;
-    const withoutIt = run({ muckrakers: 26 }, { sparks: 20 }, bareBattlefield()).attackerWins;
+    const withoutIt = run({ anodics: 26 }, { sparks: 20 }, bareBattlefield()).attackerWins;
     expect(withIt).toBeGreaterThanOrEqual(withoutIt);
   });
 });
@@ -244,9 +244,9 @@ describe('regressions in the opening strike', () => {
         attacker: { name: 'A', army: attacking, defending: false },
         defender: { name: 'D', army: { sparks: 20 }, defending: true },
       }).openingStrike;
-    // Scrapers carry `ambush`; Muckrakers do not.
+    // Scrapers carry `ambush`; Anodics do not.
     expect(of({ scrapers: 20 })).toBeGreaterThan(0);
-    expect(of({ muckrakers: 20 })).toBe(0);
+    expect(of({ anodics: 20 })).toBe(0);
   });
 
   /**

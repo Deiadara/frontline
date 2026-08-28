@@ -395,6 +395,28 @@ export const districtDetail: DistrictDetailResponse = {
   }),
 };
 
+/**
+ * The same district screen, for whichever district was asked for.
+ *
+ * The route used to answer with the Rustyard whatever the id was, which was fine while the only
+ * way to a district was a two-step walk through the city map's intel panel: every test that cared
+ * about a *particular* district read it off the panel, and the panel came from the city payload.
+ * The panel went with the map, so those facts are read on the district's own screen now, and a
+ * fixture that hands back the wrong district makes that untestable. This keeps the Rustyard's
+ * worked-over shape and swaps in the district that was actually asked for.
+ */
+export function districtDetailFor(id: string): DistrictDetailResponse {
+  const district = CITY_DISTRICTS.find((entry) => entry.id === id);
+  if (!district || district.id === districtDetail.district.id) return districtDetail;
+  return {
+    ...districtDetail,
+    district,
+    // The Rustyard's own run bonus does not belong to anywhere else.
+    unified: null,
+    locations: [],
+  };
+}
+
 /** §A5: the roster as a crew four levels in sees it: some fielded, most still locked. */
 /** The two the crew has paid for. One of them is bolted to the Razors below. */
 const BUILT_UPGRADES = UNIT_UPGRADES.filter(

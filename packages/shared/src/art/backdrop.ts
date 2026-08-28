@@ -1,6 +1,10 @@
 /**
- * The **backdrop stack**: the full-frame 16:9 assets the district map paints behind and in front of
- * its nodes, ordered back to front.
+ * The **backdrop stack**: the full-frame 16:9 assets the city was to be painted from, back to front.
+ *
+ * Nothing renders this any more. It was the parallax stack behind the pan-and-zoom city map, and
+ * that map is gone: the city is `plate-city` drawn whole with DOM tags on it (`CityView`). What the
+ * module is still for is the order sheet, which is why it has not simply been deleted: it is what
+ * keeps `scripts/order-art.ts` from asking the board to paint a layer that could never be seen.
  *
  * It answers the one question the manifest alone cannot, *which of them can still be seen once
  * every file has been delivered*. Occlusion is a property of the stack, not of the asset:
@@ -9,16 +13,18 @@
  * file. Ordering a master for one of those is wasted work, which is why `scripts/order-art.ts`
  * files them apart from the sets the board is asked to draw.
  *
- * Today the occluded members are not dead: `plate-city` is still procedural, and while it is, they
- * carry the map's depth. See {@link isOccludedBackdropAsset}.
+ * `plate-city` has since landed as a real file, so the two members behind it are occluded and the
+ * order sheet files them under "nothing to draw". See {@link isOccludedBackdropAsset}.
  */
 import { ART_MANIFEST, type AssetKey, type AssetSpec } from './manifest.js';
 
 /**
- * Back to front. Mirrors the asset-bearing rows of `PARALLAX_PLANES`
- * (`apps/client/src/render/layers.ts`), which is what actually draws them: a client test pins the
- * two orders together, so a plane reordered there fails rather than silently changing who is
- * occluded here.
+ * Back to front.
+ *
+ * It used to mirror `PARALLAX_PLANES` in the client's `render/layers.ts`, with a client test
+ * holding the two orders together. That renderer and that test are both gone, so **this order is
+ * no longer cross-checked against anything that draws it**: `backdrop.test.ts` pins the sequence
+ * literally instead, which is what stops a silent reorder changing who counts as occluded.
  */
 export const BACKDROP_STACK: readonly AssetKey[] = [
   'plane-city-sky',

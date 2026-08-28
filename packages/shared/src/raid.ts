@@ -17,7 +17,7 @@ import { findUnit, type Army } from './units/index.js';
  * Two consequences, and they are different kinds of thing on purpose:
  *
  *   * **What leaves** is bounded by what the raiders can physically carry. That is what
- *     `lootCapacity` on the unit sheet is for, and it is why a stack of Muckrakers is worth
+ *     `lootCapacity` on the unit sheet is for, and it is why a stack of Road Reavers is worth
  *     bringing on a raid you intend to win and worth nothing on one you intend to fight.
  *   * **What stays broken** is disruption: the district's structures run at reduced effectiveness
  *     for a while. It costs the victim time rather than stock, which is the part they cannot buy

@@ -716,11 +716,6 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     pouches across the chest, goggles up on the brow. Light plate lashed to one shoulder with rope.
     Half-turned as if already leaving, warm ochre midtones against a cold rim.
   `),
-  muckrakers: block(`
-    A stooped figure in a slick waders-and-oilcloth rig, hood back, carrying a bulging drag-sack
-    roped shut at the neck and a short gaff. Chest-high tide line of grey silt dried on the rubber.
-    Pale #86e6a8 light from a lamp clipped at the hip, everything above it in shadow.
-  `),
   breakers: block(`
     A heavyset door-breacher braced behind a scuffed steel ram held two-handed across the body,
     forearms and shins plated in bolted scrap. Face guard hinged up to show a broken nose and a
@@ -767,11 +762,6 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     chest and a spool of det cord hooked at the hip. Ear defenders around the neck, hands blackened
     to the wrist. Amber #f59e0b light and a haze of masonry dust in the air around the shoulders.
   `),
-  jammers: block(`
-    An operator with a backpack transmitter and a folding directional antenna raised in one hand,
-    the other on a dial at the chest harness. Headset over one ear only. Faint #e11d8f indicator
-    lamps down the pack's spine are the only saturated colour in frame.
-  `),
   kite_crews: block(`
     A drone pilot crouched over a hinged control slate held at chest height, a rotor craft hovering
     just off the shoulder at the frame edge. Padded vest, cable running from slate to belt, eyes on
@@ -797,11 +787,6 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one arm and
     holding heavy ear defenders in the other. Four stacked horn drivers fill the frame behind the
     shoulder. Air distorts in a visible ring; the ground tone smears where it passes.
-  `),
-  wrecking_crew: block(`
-    A siege worker in a heavy harness with a wrecking chain over the shoulder and a spiked pry bar
-    grounded at the feet, hard hat scarred to bare metal. Behind the shoulder, the top of a jack
-    frame. Broad, planted, patient; warm bounce from a work lamp out of frame.
   `),
   juggernauts: block(`
     A fully augmented heavy assault trooper: a human silhouette only at the head, with the arms
@@ -853,5 +838,17 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     to back, so one face is toward the viewer and the other is turned away. Plate over a leather
     harness, long jointed hands hanging open, no weapon anywhere on it. Warm bulb light from two
     hanging lamps, drawings pinned on the wall behind.
+  `),
+  sluggers: block(`
+    A broad, heavyset fighter standing square in scavenged plate over a sleeveless work vest, both
+    hands across a short double-barrelled slug gun held low at the waist. Bracers to the elbow,
+    heavy boots, hair braided back off a scarred face. Calm rather than braced. Warm furnace light
+    from the right, cold fill on the plate.
+  `),
+  the_crimson_dancer: block(`
+    A dancer balanced on the point of a bladed prosthetic leg in a ruined ballroom, both legs and
+    both forearms jointed steel, a torn crimson coat thrown out by the turn. Chin up, arms carried
+    high and wide as if mid-figure rather than mid-fight. Deep red light from a broken window
+    behind, cold rim on the steel, thrown blades streaking past out of focus.
   `),
 };

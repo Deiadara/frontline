@@ -74,17 +74,24 @@ message}`; on `401` also clear the session (logout).
      labelled by its accessible name rather than a printed word: five resources, two meters and an
      identity have to share one line, and a second row costs the painting ~40px on every screen.
    - **Scenery switcher** (floating, along the bottom): City / District / Units / Missions / The
-     Bar / Research / Crew, plus Market as a disabled placeholder. Each entry is a _place_, with an
-     icon large enough to read as a destination and its label under it.
+     Bar / Research / Crew / Training / Market / Workshop / Satchel, with Settings pinned to the
+     right of the row and the Bench appearing only in an admin build. Each entry is a _place_, with
+     an icon large enough to read as a destination and its label under it. The row wraps rather
+     than shrinking, and the shell measures whatever height that comes to. Gated doors (§I3) still
+     draw and still link: they carry a padlock and the level that opens them.
    - **Backdrop**: one `SceneBackdrop` for the whole shell: the district plate, blurred and dimmed.
      The district and the city map paint over it completely; every document screen lets it show
      through, so the location never disappears between clicks.
-   - **City map**: Pixi, full-bleed. Render `CITY_DISTRICTS` at `position * canvasSize`; node colour
-     by whose ground it is, from the **chrome** palette (verdigris = yours, oxblood = hostile, brass
-     = unclaimed), name + difficulty on hover, clicking a node selects it. Other players' bases come
-     from `city.bases`.
-   - **Intel panel**: floats over the right of the map rather than taking a column out of it, so a
-     district under the panel can still be dragged out from beneath it.
+   - **The city**: the board's painted aerial (`plate-city`, 21:10), drawn whole inside the frame
+     by `PlateRoom` and never cropped or stretched, with one hand-drawn tag per district taped onto
+     the roof it names (`CityView`). It is not a map and not a canvas: the pan-and-zoom Pixi
+     version was a diagram of a place, and a player standing over a city does not read a diagram.
+     Tag positions are hand-placed fractions of the painting (`DISTRICT_MARKS`), so a tag stays on
+     its building at every window size; a district with no mark would have no way in, which
+     `CityView.test.tsx` refuses. Clicking a tag goes to `/game/city/:id`, except your own ground,
+     which goes to the district.
+   - **All cities**: the same place one step back, as state on this screen rather than a route of
+     its own (`CitiesView`), reached by a control on the painting.
 
    Both bars measure themselves (`ResizeObserver` → `--hud-h` / `--nav-h` on the shell root) and
    every screen clears them with those variables. A hard-coded `pt-24` is wrong at some viewport,
@@ -126,9 +133,10 @@ message}`; on `401` also clear the session (logout).
   artwork are still content that has to be fully on screen.
 - Images/portraits always `object-cover` inside a fixed aspect box (`aspect-[3/4]` for
   portraits): never intrinsic-size layout shifts.
-- The Pixi canvas mounts in a dedicated container `div` sized by a **ResizeObserver**; the
-  renderer resizes to the container (`app.renderer.resize(w, h)`), and the container has
-  `overflow-hidden` so the canvas can never overflow its panel. Destroy the Pixi app on unmount.
+- A full-bleed painting is fitted by arithmetic on the frame, never by `object-fit` alone: the
+  room is measured with a **ResizeObserver**, the picture is sized from its own aspect ratio, and
+  the leftover is filled with a blurred over-scaled copy of the same image (`PlateRoom`). `cover`
+  crops a building off the edge and `fill` stretches faces; both are visual bugs the gates catch.
 - Responsive down to **1024x768** with no overflow/overlap. The e2e layout gates run at five
   viewports and assert: no two plots or plates overlap, nothing is clipped by a scrolling edge, no
   image is drawn squeezed, and the document never scrolls horizontally.

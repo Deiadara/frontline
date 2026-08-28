@@ -50,14 +50,17 @@ export type AssetClass = z.infer<typeof AssetClassSchema>;
 /**
  * ART-BIBLE §6: aspect ratios are fixed; changing one is a layout change.
  *
- * `1672:941` (1.7768) is the district plate's, and it exists because the delivered painting is that
- * shape. The district scene reads its aspect from the plate rather than the other way round, so
- * cropping to reach 16:9 would buy nothing and cost a strip of the compound. It replaced `43:24`
- * when the board repainted the district, which is exactly the kind of change this enum is meant to
- * make visible: the twelve building sites are positions on that painting, so its shape changing is
- * a layout change and not a detail.
+ * `21:10` is the three room plates', and it is the shape of the screen rather than a taste: strip
+ * the standing bar and the scenery switcher off a browser window and what is left runs between 1.92
+ * and 2.54 wide-to-tall, so 2.1 sits in the middle of that and a painting at 2.1 fills an ordinary
+ * desktop frame whole. Before it, all three were painted at their own shapes and every one of them
+ * was either cropped, squashed or letterboxed to fit.
+ *
+ * That this enum has to change at all is the point of it. The twelve building sites are positions
+ * on the district painting, so its shape changing is a layout change and not a detail: every
+ * outline had to be re-traced against the new art, and the enum is where that gets noticed.
  */
-export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '1672:941', '1264:848']);
+export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '21:10']);
 export type AssetAspect = z.infer<typeof AssetAspectSchema>;
 
 /** ADR 0001 §6.1: the backends `scripts/gen-art.ts` knows how to drive. */
@@ -420,9 +423,9 @@ const OPAQUE_PLANE_SOURCE: AssetSource = { width: 2048, height: 1152, alpha: fal
  * here.
  */
 const DISTRICT_PLATE_DELIVERY = {
-  width: 1672,
-  height: 941,
-  aspect: '1672:941',
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
 } as const satisfies Partial<AssetSpec>;
 
 /**
@@ -434,9 +437,9 @@ const DISTRICT_PLATE_DELIVERY = {
  * cropping it.
  */
 const BAR_PLATE_DELIVERY = {
-  width: 1264,
-  height: 848,
-  aspect: '1264:848',
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
 } as const satisfies Partial<AssetSpec>;
 
 /**
@@ -446,9 +449,33 @@ const BAR_PLATE_DELIVERY = {
  * written down here. Adding a key is the deliberate act: a second asset drifting off the class
  * table without an entry still fails {@link validateAssetSpec}.
  */
+/**
+ * The city, as the board painted it: an aerial of the whole sprawl at night, which is the screen
+ * `/game` opens on.
+ *
+ * 21:10 rather than the class's 16:9, because that is the shape this screen actually has. Take the
+ * standing bar and the scenery switcher off a browser window and what is left runs between 1.92 and
+ * 2.54 wide-to-tall; 2.1 sits in the middle of that, so the painting fills an ordinary desktop frame
+ * with nothing cropped off it. The first delivery was 1.77 and was being stretched a tenth and
+ * cropped on every viewport in the matrix at once.
+ *
+ * 3780 wide because the picture is drawn at the frame's own width: that is sharp at 1x out to a
+ * 3780px window, and at 2x out to 1890px, which is a maximised browser on a 1920 retina screen.
+ * The old 1667 was being upscaled 1.9x there, which is what "the images look downgraded" was.
+ */
+const CITY_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
 const SIZE_EXCEPTIONS: Readonly<
   Partial<Record<AssetKey, Pick<AssetSpec, 'width' | 'height' | 'aspect'>>>
-> = { 'plate-district': DISTRICT_PLATE_DELIVERY, 'plate-bar': BAR_PLATE_DELIVERY };
+> = {
+  'plate-district': DISTRICT_PLATE_DELIVERY,
+  'plate-bar': BAR_PLATE_DELIVERY,
+  'plate-city': CITY_PLATE_DELIVERY,
+};
 
 /** ART-BIBLE §6: "the fore plane must be ≥55% transparent or it smothers the map". */
 const FORE_PLANE_MIN_TRANSPARENCY = 0.55;
@@ -487,6 +514,7 @@ const plateDrafts = (
     ...(key === 'plane-city-fore' ? { minTransparency: FORE_PLANE_MIN_TRANSPARENCY } : {}),
     ...(key === 'plate-district' ? DISTRICT_PLATE_DELIVERY : {}),
     ...(key === 'plate-bar' ? BAR_PLATE_DELIVERY : {}),
+    ...(key === 'plate-city' ? CITY_PLATE_DELIVERY : {}),
   }),
 );
 

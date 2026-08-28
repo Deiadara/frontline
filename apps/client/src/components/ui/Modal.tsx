@@ -20,8 +20,20 @@ interface ModalProps {
    * the element and the generated stylesheet's order silently picks the winner. That is the same
    * trap the coloured tags fell into, and it is why width is chosen from a list here.
    */
-  size?: 'default' | 'wide' | 'full';
+  size?: 'default' | 'wide' | 'full' | 'room';
   className?: string;
+  /**
+   * A key handler that fires **only while this dialog is the one on top**.
+   *
+   * Escape already worked this way; nothing else did. The Bar's seat screen registered its own
+   * arrow-key listener on `window`, so opening the negotiation over it left both live: moving the
+   * text caret in the offer field with Left and Right paged the roster underneath, and a player
+   * haggling with one person ended up looking at another one's record while they did it.
+   *
+   * Same stack, same rule, so a screen that opens another screen over itself cannot keep acting on
+   * keys aimed at the one in front.
+   */
+  onKey?: (event: KeyboardEvent) => void;
 }
 
 const WIDTH: Record<NonNullable<ModalProps['size']>, string> = {
@@ -31,6 +43,10 @@ const WIDTH: Record<NonNullable<ModalProps['size']>, string> = {
   wide: 'max-w-[52rem]',
   // A whole report: seven panels of readouts that want two columns at any real viewport.
   full: 'max-w-[72rem]',
+  // The screen takes the room, and there is a reason it has to: the Bar's seat screen puts all
+  // four attribute groups in one row with an arrow either side of the card, and four groups need
+  // about 210px each before `Communication` starts to truncate. 72rem does not have it.
+  room: 'max-w-[86rem]',
 };
 
 /**
@@ -47,6 +63,7 @@ export function Modal({
   labelledBy,
   size = 'default',
   className,
+  onKey,
   'data-testid': testId,
 }: ModalProps) {
   /*
@@ -71,15 +88,18 @@ export function Modal({
   }, [self]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // The last mounted dialog is the one on top, and the only one Escape is for.
+    const handle = (e: KeyboardEvent) => {
+      // The last mounted dialog is the one on top, and the only one any key is for.
       if (MODAL_STACK[MODAL_STACK.length - 1] !== self) return;
-      onClose();
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      onKey?.(e);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, [onClose, onKey, self]);
 
   return createPortal(
     <div

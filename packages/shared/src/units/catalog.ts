@@ -276,36 +276,6 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     }),
     modifiers: ['urban_bonus', 'ambush'],
   },
-  {
-    id: 'muckrakers',
-    name: 'Muckrakers',
-    tier: 'rabble',
-    blurb:
-      'Sewer crawlers who came up carrying. Poor in a fight, unmatched at leaving with things.',
-    trainedAt: 'gauntlet',
-    unique: false,
-    requires: [gauntlet(2)],
-    cost: { caps: 60, supplies: 20 },
-    trainSeconds: 60,
-    supply: 1,
-    stats: sheet({
-      speed: 35,
-      vitality: 45,
-      morale: 40,
-      armor: 8,
-      damageType: 'blade',
-      penetration: 4,
-      range: 5,
-      offense: 18,
-      evasion: 12,
-      stealth: 55,
-      lootCapacity: 110,
-      intimidation: 3,
-    }),
-    modifiers: ['tunnel_rat', 'night_operations'],
-    // Sewer work: they are used to standing in it and used to the smell of it.
-    affinities: { toxic: 6, wet: 6, dark: 4, open: -4 },
-  },
 
   // --------------------------------------------------------------- regulars
   {
@@ -568,34 +538,6 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     modifiers: ['breaching', 'armor_piercing'],
   },
   {
-    id: 'jammers',
-    name: 'Jammers',
-    tier: 'specialist',
-    blurb:
-      'Electronic warfare. The enemy is still out there. They just cannot hear each other any more.',
-    trainedAt: 'gauntlet',
-    unique: false,
-    requires: [gauntlet(8), structure('lab', 6)],
-    cost: { caps: 300, supplies: 45, highQualityMetal: 20 },
-    trainSeconds: 320,
-    supply: 2,
-    stats: sheet({
-      speed: 40,
-      vitality: 55,
-      morale: 60,
-      armor: 15,
-      damageType: 'energy',
-      penetration: 5,
-      range: 60,
-      offense: 25,
-      evasion: 18,
-      stealth: 45,
-      lootCapacity: 10,
-      intimidation: 15,
-    }),
-    modifiers: ['night_operations'],
-  },
-  {
     id: 'kite_crews',
     name: 'Kite Crews',
     tier: 'specialist',
@@ -742,33 +684,6 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     modifiers: ['terror'],
     // Sonic warfare: a loud room is their range extended, and a dead-quiet one exposes them.
     affinities: { noisy: 8, crammed: 5 },
-  },
-  {
-    id: 'wrecking_crew',
-    name: 'Wrecking Crew',
-    tier: 'specialist',
-    blurb: 'Siege work. Slow to arrive, and then the fortification stops being one.',
-    trainedAt: 'garage',
-    unique: false,
-    requires: [gauntlet(10), structure('garage', 8)],
-    cost: { caps: 420, supplies: 65, scrap: 220, oil: 120, highQualityMetal: 35 },
-    trainSeconds: 450,
-    supply: 4,
-    stats: sheet({
-      speed: 22,
-      vitality: 120,
-      morale: 60,
-      armor: 40,
-      damageType: 'explosive',
-      penetration: 15,
-      range: 35,
-      offense: 75,
-      evasion: 4,
-      stealth: 6,
-      lootCapacity: 40,
-      intimidation: 50,
-    }),
-    modifiers: ['breaching', 'armor_piercing'],
   },
 
   // ------------------------------------------------------------------ heavy
@@ -1017,13 +932,26 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     }),
     modifiers: ['urban_bonus', 'night_operations'],
   },
+  /**
+   * A specialist, sitting in the legendary block, and both halves of that are deliberate.
+   *
+   * The tier is what the game reads: `UNIT_TIERS` decides where it appears and `unitsInTier` who
+   * it is priced against. It came down a tier because a machine you can only ever own one of is a
+   * trophy, and this is meant to be the thing you put at the front of a line that has to hold,
+   * which is a job you want to be able to do twice. Coming down the ladder costs it `unique`:
+   * one-of-a-kind is what `legendary` *means* here, and `units.test.ts` holds the two together.
+   *
+   * The array position is untouched on purpose. A unit's art seed is its index in this array, so
+   * moving it into the specialist block above would renumber every unit after it for the sake of
+   * reading order in one file.
+   */
   {
     id: 'the_twins',
     name: 'The Twins',
-    tier: 'legendary',
+    tier: 'specialist',
     blurb: 'One body, two minds, and neither of them sleeps. Nothing has ever got behind it.',
     trainedAt: 'lab',
-    unique: true,
+    unique: false,
     /**
      * Built rather than hired, and built by somebody who should not have been allowed to.
      *
@@ -1033,24 +961,33 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * game with no weapon on its sheet, and a unit that survives everything has to cost something
      * on the map rather than only in the stockpile.
      */
-    requires: [structure('lab', 15), holds('mad_scientist_lair'), holds('gene_clinic')],
-    cost: { caps: 1800, supplies: 270, scrap: 700, oil: 300, highQualityMetal: 320 },
-    trainSeconds: 4200,
-    supply: 7,
+    requires: [structure('lab', 12), holds('mad_scientist_lair'), holds('gene_clinic')],
+    cost: { caps: 460, supplies: 75, scrap: 190, oil: 90, highQualityMetal: 70 },
+    trainSeconds: 520,
+    supply: 4,
+    /*
+     * Brought down the ladder with the tier, not carried down it.
+     *
+     * The sheet was legendary scale, 420 vitality behind 78 armour, against a specialist band that
+     * tops out at 80 and 25. Left alone it beat every other unit in the game at equal supply, which
+     * `balance.test.ts` is there to forbid: a roster is a web and this was the top of a ladder.
+     * What it keeps is the shape rather than the numbers, because the shape is the unit: heavy for
+     * its tier, slow, almost impossible to move, and carrying almost no way to hurt anyone.
+     */
     stats: sheet({
       speed: 30,
-      vitality: 420,
+      vitality: 100,
       morale: 100,
-      armor: 78,
+      armor: 32,
       damageType: 'blade',
-      resistances: { ballistic: 55, blade: 45, sonic: 60, energy: -25 },
+      resistances: { ballistic: 25, blade: 20, sonic: 30, energy: -25 },
       penetration: 18,
       range: 10,
-      offense: 70,
+      offense: 34,
       evasion: 5,
       stealth: 0,
       lootCapacity: 60,
-      intimidation: 88,
+      intimidation: 60,
     }),
     // Two heads facing opposite ways is the whole design: it cannot be flanked and it cannot be
     // startled, so it is the thing you put at the front of a line that has to hold.
@@ -1132,6 +1069,94 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 0,
     }),
     modifiers: [],
+  },
+
+  /**
+   * Appended, and it has to be: a unit's art seed is its index in this array, so a legendary filed
+   * up in the legendary block would renumber every unit between there and here.
+   *
+   * A duellist rather than a brawler, and the sheet says so: the highest offense and evasion on the
+   * roster against almost no armour and a body that a solid hit takes apart. Everything about it is
+   * the first exchange. `close_quarters` because the thing was made for a ballroom and fights like
+   * it, `terror` because people who have seen it work do not stay to see it twice.
+   */
+  {
+    id: 'the_crimson_dancer',
+    name: 'The Crimson Dancer',
+    tier: 'legendary',
+    blurb: 'Went into the Fight Pit a dancer and came out on blades. Still counts the beats.',
+    trainedAt: 'gauntlet',
+    unique: true,
+    /**
+     * Three clauses, as every legendary needs, and each one a different half of what it is: the
+     * Gauntlet at the top for the fighter, a Lab deep enough to have built the legs, and the Fight
+     * Pit, which is where it learned what they were for.
+     */
+    requires: [gauntlet(15), structure('lab', 12), holds('fight_pit')],
+    cost: { caps: 1400, supplies: 260, oil: 180, highQualityMetal: 200 },
+    trainSeconds: 3300,
+    supply: 6,
+    stats: sheet({
+      speed: 92,
+      vitality: 150,
+      morale: 95,
+      armor: 18,
+      damageType: 'blade',
+      // Blade limbs, so it goes through armour rather than around it, and it has nothing to
+      // answer an explosion with: the frame is a dancer's, and it is meant to be brittle.
+      resistances: { explosive: -35 },
+      penetration: 70,
+      range: 10,
+      offense: 98,
+      evasion: 88,
+      stealth: 45,
+      lootCapacity: 15,
+      intimidation: 85,
+    }),
+    modifiers: ['close_quarters', 'terror'],
+    // A hall with a floor to work on. Mud and a crowd both take the footing away.
+    affinities: { open: 6, crammed: -6, wet: -5 },
+  },
+
+  /**
+   * Appended for the same reason the Dancer is: a unit's art seed is its index in this array.
+   *
+   * The gap in the roster this fills is *reach on a body that can take a hit*. Everything tanky was
+   * melee, at 10 to 15, and everything with range was made of paper: a Sniper reaches 95 behind 45
+   * vitality and 8 armour. A slug gun is 30, which is further than anything can walk in the time it
+   * takes to fire twice and nowhere near far enough to sit at the back, so it holds a line and
+   * shoots off it. `dug_in` because that is the job, `armor_piercing` because a slug is what you
+   * load when the other side turned up in plate.
+   */
+  {
+    id: 'sluggers',
+    name: 'Sluggers',
+    tier: 'regular',
+    blurb: 'Scrap plate and a short slug gun. Stands where it is put and makes the room expensive.',
+    trainedAt: 'gauntlet',
+    unique: false,
+    requires: [gauntlet(6), structure('scrapyard', 4)],
+    cost: { caps: 210, supplies: 30, scrap: 110, highQualityMetal: 8 },
+    trainSeconds: 230,
+    supply: 2,
+    stats: sheet({
+      speed: 32,
+      vitality: 115,
+      morale: 70,
+      armor: 42,
+      damageType: 'ballistic',
+      penetration: 24,
+      range: 30,
+      offense: 52,
+      evasion: 8,
+      stealth: 10,
+      lootCapacity: 25,
+      intimidation: 35,
+    }),
+    modifiers: ['dug_in', 'armor_piercing'],
+    // A slug spreads. Ground that keeps the other side in front of you is worth more than ground
+    // that lets them come round.
+    affinities: { crammed: 5, open: -4 },
   },
 ];
 

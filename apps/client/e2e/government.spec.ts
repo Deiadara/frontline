@@ -6,7 +6,7 @@ import {
 } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import { lateGame, me, missionsResponse } from './fixtures';
-import { installApi, settleFonts } from './harness';
+import { installApi, settleFonts, walkBoards } from './harness';
 
 /**
  * W10 (GDD §A3): the Combine is on screen in two locations: the intel panel names who holds a
@@ -86,33 +86,6 @@ async function escaping(page: Page, container: string): Promise<string[]> {
   }, container);
 }
 
-/**
- * Where a district actually sits on screen.
- *
- * `position` is a fraction of the map's **layout** width, not of the canvas: the canvas is
- * full-bleed but the intel panel floats over its right-hand side, so `CityMap` lays the districts
- * out into the frame less whatever chrome is covering it and publishes that inset as
- * `data-safe-right`. Multiplying by the raw canvas width instead puts every click to the right of
- * the district it was aimed at, and the further right the district, the worse the miss.
- */
-async function districtPoint(
-  page: Page,
-  position: { x: number; y: number },
-): Promise<{ x: number; y: number }> {
-  const box = await page.locator('canvas').boundingBox();
-  if (!box) throw new Error('canvas has no bounding box');
-  const map = page.getByTestId('city-map');
-  const inset = async (name: string) =>
-    Number((await map.getAttribute(`data-safe-${name}`)) ?? '0');
-  const [right, top, bottom] = [await inset('right'), await inset('top'), await inset('bottom')];
-  const layoutWidth = Math.max(1, box.width - right);
-  const layoutHeight = Math.max(1, box.height - top - bottom);
-  return {
-    x: box.x + position.x * layoutWidth,
-    y: box.y + top + position.y * layoutHeight,
-  };
-}
-
 test.describe('the mission board badges the Combine (§A3, §D8)', () => {
   for (const { name, width, height } of WIDTHS) {
     test(`keeps both card tags inside the card at ${name}`, async ({ page }) => {
@@ -174,16 +147,14 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
      * about is not marked at all.
      */
     const withStance = async (label: string): Promise<void> => {
-      for (let step = 0; step < 12; step += 1) {
+      const found = await walkBoards(page, async () => {
         const badged = page.locator('[data-testid^="offer-"]').filter({ hasText: label }).first();
-        if ((await badged.count()) > 0) {
-          await badged.scrollIntoViewIfNeeded();
-          await expect(badged.getByText(label)).toBeInViewport();
-          return;
-        }
-        await page.getByTestId('board-right').click();
-      }
-      throw new Error(`no job labelled "${label}" on any board today`);
+        if ((await badged.count()) === 0) return false;
+        await badged.scrollIntoViewIfNeeded();
+        await expect(badged.getByText(label)).toBeInViewport();
+        return true;
+      });
+      if (!found) throw new Error(`no job labelled "${label}" on any board today`);
     };
 
     await withStance(MISSION_STANCE_SPECS.for_government.label);
@@ -213,12 +184,16 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
   if (!seat || !outpost || !street)
     throw new Error('fixture error: city map is missing a faction case');
 
-  /** Clicks a district on the Pixi canvas the way a player does. */
-  async function select(page: Page, position: { x: number; y: number }): Promise<void> {
-    await expect(page.locator('canvas')).toBeVisible();
-    await page.waitForTimeout(700);
-    const at = await districtPoint(page, position);
-    await page.mouse.click(at.x, at.y);
+  /**
+   * Walks into a district the way a player does: one click on its tag on the city painting.
+   *
+   * The §A3 readouts these tests are about used to be in an intel panel floating on the Pixi map.
+   * The city is a painting now and the panel went with the map, so the badge and the garrison line
+   * are read on the district's own screen, which is the one screen that is about this district.
+   */
+  async function select(page: Page, id: string): Promise<void> {
+    await expect(page.getByTestId('city-room')).toBeVisible();
+    await page.getByTestId(`district-tag-${id}`).click();
   }
 
   for (const { name, width, height } of WIDTHS) {
@@ -226,7 +201,7 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
       await page.setViewportSize({ width, height });
       await installApi(page, me);
       await page.goto('/game');
-      await select(page, seat.position);
+      await select(page, seat.id);
 
       await expect(page.getByRole('heading', { name: seat.name })).toBeVisible();
       // §A3: a seat of the Combine's power says so, and names what is standing on it.
@@ -248,12 +223,13 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
     await installApi(page, me);
     await page.goto('/game');
 
-    await select(page, outpost.position);
+    await select(page, outpost.id);
     await expect(page.getByText(new RegExp(garrisonOf(outpost)))).toBeInViewport();
     // An outpost is Combine ground but not a seat of its power: the two must read apart.
     await expect(page.getByText('Seat of power')).toHaveCount(0);
 
-    await select(page, street.position);
+    await page.goBack();
+    await select(page, street.id);
     await expect(page.getByRole('heading', { name: street.name })).toBeVisible();
     await expect(page.getByText(new RegExp(garrisonOf(street)))).toBeInViewport();
     await expect(page.getByText('Seat of power')).toHaveCount(0);

@@ -4,6 +4,7 @@ import {
   MAX_LOCATION_LEVEL,
   fortifyCost,
   fortifyBonusPercent,
+  garrisonOf,
   maxFortifyBonusPercent,
   quoteFortify,
   type Army,
@@ -126,7 +127,21 @@ export function DistrictView() {
             <Tag label={`Difficulty ${data.district.difficulty}`} />
             <Tag label={`${data.district.locations.length} locations`} />
             {data.unified && <Tag label={data.unified.title} tone="mine" />}
+            {/* §A3, and it is public: which ground the Combine keeps its power on is not something
+                a crew has to scout, it is the thing everybody in the city already knows. */}
+            {data.district.seatOfPower && <Tag label="Seat of power" tone="hostile" />}
           </div>
+          {/* Who is standing on it. Behind the fog, because that *is* scouting: a district nobody
+              has been to says nothing about who is holding it.
+
+              Both of these read off the district itself and used to live in the intel panel that
+              floated on the city map. The map is a painting now and the panel went with it, so
+              they moved to the one screen that is about this district. */}
+          {data.scouted && (
+            <p className="mt-2 font-body text-[12px] leading-relaxed text-ink-300">
+              Garrison: {garrisonOf(data.district)}.
+            </p>
+          )}
           {/* The sky, over every location below it. Rendered from the server's clock rather than
               the browser's, so a player whose machine is an hour out is not told the ground is
               something it is not. */}
@@ -555,12 +570,25 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Tag({ label, tone = 'plain' }: { label: string; tone?: 'plain' | 'mine' }) {
+function Tag({
+  label,
+  tone = 'plain',
+}: {
+  label: string;
+  // `hostile` is the Combine's, and it has to read apart from `mine` at a glance: the two tags can
+  // sit on the same row, and "this ground is yours" and "the state keeps its power here" are the
+  // furthest apart two facts on this screen.
+  tone?: 'plain' | 'mine' | 'hostile';
+}) {
   return (
     <span
       className={cn(
         'border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
-        tone === 'mine' ? 'border-brass-300/50 text-brass-300' : 'border-surface-600 text-ink-300',
+        tone === 'mine'
+          ? 'border-brass-300/50 text-brass-300'
+          : tone === 'hostile'
+            ? 'border-oxblood-500/60 text-oxblood-300'
+            : 'border-surface-600 text-ink-300',
       )}
     >
       {label}

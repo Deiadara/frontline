@@ -12,7 +12,7 @@ frontline/
 │   └── shared/          @frontline/shared: domain model (types + Zod), constants, battle engine
 ├── apps/
 │   ├── server/          @frontline/server: Fastify REST API + sqlite persistence
-│   └── client/          @frontline/client: React 18 + Vite + Tailwind + Pixi frontend
+│   └── client/          @frontline/client: React 18 + Vite + Tailwind frontend
 └── docs/                this file + the two implementation specs
 ```
 
@@ -99,9 +99,11 @@ why the client can render the same numbers the server enforces without a DTO for
   Migrations are plain ordered SQL files (`src/db/migrations/NNNN_*.sql`) applied by a tiny
   runner tracked in `schema_migrations`. Fallback if the native module ever breaks: Node 24's
   built-in `node:sqlite` (`DatabaseSync`) has a near-identical API.
-- **Pixi.js (v8)**: the city map is a pannable canvas with dozens of animated interactive nodes;
-  a WebGL scene graph beats DOM/SVG for that, and Pixi has the mildest API surface of the
-  candidates. Everything that is not the map is plain React + Tailwind.
+- **Pixi.js (v8)**: kept for the asset pipeline only. It was chosen for a pan-and-zoom WebGL city
+  map, and that map is gone: the city is a painted plate with DOM tags on it (`CityView`), so
+  **nothing mounts a Pixi `Application` any more**. What still uses the library is `assets/loader.ts`
+  (texture loading) and `render/procedural.ts` (the code-drawn fallback art). The whole UI is plain
+  React + Tailwind.
 - **Zod (v4)**: runtime validation + static types from one declaration; used on both sides of
   the wire.
 - **JWT (stateless)**: no session table; token carries `{sub: userId}`. Fine for this scale;

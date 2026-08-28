@@ -5,6 +5,13 @@
 - **Deciders:** CTO (author), CEO (backend-cost decision is a board gate)
 - **Supersedes:** nothing
 - **Amended:** 2026-08-13: §8.1 raises the zoom floor from 0.6 to 1.0
+- **Partly superseded:** 2026-08-29. The **city map** surface described here no longer exists. The
+  pan-and-zoom Pixi scene (`CityMap.tsx`, `render/viewport.ts`, `render/layers.ts`, `render/grade.ts`)
+  was removed in favour of the board's painted 21:10 plate with DOM district tags on it
+  (`features/game/CityView.tsx`, `PlateRoom.tsx`), so §5.1, §5.2 and §8.1 are history rather than
+  guidance and the file links in them are dead. Everything this ADR says about the **asset
+  pipeline** (the manifest, the `art-src/` to `assets/` encode, procedural fallback per key) is
+  still how the game works.
 - **Related:** [`docs/ART-BIBLE.md`](../ART-BIBLE.md), [`docs/ART-PROMPTS.md`](../ART-PROMPTS.md), MOU-114
 
 ---

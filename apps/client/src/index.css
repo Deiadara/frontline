@@ -114,6 +114,25 @@
   }
 
   /**
+   * A small tab of tape, stuck across the edge of something.
+   *
+   * The sibling of `.taped`, and it exists because `.taped` cannot do this job: that one is a wide
+   * strip on a pseudo-element at `z-index: 4`, which puts it *over* the panel's own content. On a
+   * big panel it lands on empty margin and reads as tape. On a label the size of a word it lands on
+   * the word, which is what it was doing on the city's district tags.
+   *
+   * So this is a real element the caller places, at the left or right edge, under the text. Two
+   * small tabs holding a tag down at its sides beat one big strip across its face.
+   */
+  .tape-tab {
+    background: rgb(240 173 76 / 0.2);
+    box-shadow:
+      inset 0 0 0 1px rgb(240 173 76 / 0.26),
+      0 2px 6px -2px rgb(8 6 12 / 0.7);
+    clip-path: polygon(6% 4%, 100% 0%, 94% 96%, 0% 100%);
+  }
+
+  /**
    * A scrap of paper, torn off and pinned up.
    *
    * The surface every hover note and every piece of prose in the game sits on. A rounded rectangle
@@ -217,6 +236,34 @@
     background-repeat: no-repeat;
     background-size: 100% 100%;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='4' preserveAspectRatio='none'%3E%3Cpath d='M1 2.6 C 40 1.4, 80 3.2, 120 2.1 S 200 1.2, 240 2.8 S 280 2, 299 2.4' fill='none' stroke='%23f0ad4c' stroke-opacity='0.5' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+  }
+
+  /**
+   * A short stroke hanging off a label, down to the thing it points at.
+   *
+   * The vertical partner to `.ink-rule`, and it exists for the same reason: a 1px column of colour
+   * between a tag and its mark is a leader line off a diagram, and this one is meant to look like
+   * somebody drew a stalk from a note down to a roof.
+   */
+  .ink-leader {
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='24' preserveAspectRatio='none'%3E%3Cpath d='M4.2 0.5 C 3.4 6, 4.8 11, 3.9 16 S 4.3 21, 4 23.5' fill='none' stroke='%23f0ad4c' stroke-opacity='0.65' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  }
+
+  /**
+   * The ruled line, closed into a ring, for a control that is a token rather than a bar.
+   *
+   * `border-radius: 50%` with a 2px border draws a perfect circle, and a perfect circle is the one
+   * shape on the screen that could only have come off a machine. This is the same displaced stroke
+   * `.scrap` is ruled with, gone round twice at slightly different radii, which is what a pen does
+   * when somebody circles something on paper. Drawn as a background so it costs no element and can
+   * sit under the token's own fill.
+   */
+  .ink-disc {
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Cfilter id='d'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.055' numOctaves='3' seed='23'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='2.6'/%3E%3C/filter%3E%3Cg filter='url(%23d)' fill='none' stroke='%23f0ad4c' stroke-linecap='round'%3E%3Ccircle cx='32' cy='32' r='28.5' stroke-opacity='0.62' stroke-width='2'/%3E%3Ccircle cx='32' cy='32' r='25.5' stroke-opacity='0.22' stroke-width='1.1'/%3E%3C/g%3E%3C/svg%3E");
   }
 
   /**

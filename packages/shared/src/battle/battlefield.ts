@@ -151,7 +151,7 @@ export function frontageFor(
  * From what tier of `Dark` a location counts as low-light ground.
  *
  * This is what is left of the day/night cycle, and it is a better version of it. The clock used to
- * decide: every fight after 21:00 UTC was a night fight, wherever it was, so a Muckraker was worth
+ * decide: every fight after 21:00 UTC was a night fight, wherever it was, so a Ghost was worth
  * 20% more in a floodlit yard at ten at night and nothing in a pitch-black sewer at noon. Darkness
  * is a property of the **ground** now, read off the location's own `dark` label, which the
  * catalogue has always carried: sewers, tunnels, cellars and the graveyard are dark all day, and a

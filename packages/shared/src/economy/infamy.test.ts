@@ -52,8 +52,12 @@ describe('what a kill is worth (§D7)', () => {
   });
 
   it('scales inside a tier by what a unit eats, so a big specialist is worth two small ones', () => {
-    // Wrecking Crew is supply 4 against the Snipers' 2: twice the bodies, twice the name.
-    expect(infamyForKill('wrecking_crew')).toBe(2 * infamyForKill('snipers'));
+    // Snipers are supply 2 against the Cyber Dogs' 1: twice the bodies, twice the name.
+    //
+    // A ratio rather than an equality, because the value is rounded to a whole point: the smaller
+    // unit's 12.5 rounds up to 13, so twice it is 26 against the bigger one's 25. What the rule
+    // says is that the name scales with what the unit ate, and it does.
+    expect(infamyForKill('snipers') / infamyForKill('cyber_dogs')).toBeCloseTo(2, 0);
   });
 
   it('never prices a fighting unit at nothing', () => {

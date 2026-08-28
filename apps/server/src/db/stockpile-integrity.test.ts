@@ -52,6 +52,7 @@ const PLANKS_MIGRATION = '0032_planks.sql';
  * repairs would test a chain no real database has ever walked.
  */
 const SUPPLIES_MIGRATION = '0037_supplies.sql';
+const RETIRED_UNITS_MIGRATION = '0038_retired_units.sql';
 
 /**
  * Rewinds one migration so it runs again.
@@ -334,6 +335,79 @@ describe('a fractional stockpile', () => {
  * without reading it first and the crew's supplies go to zero on a schema that has no default. So
  * the amount is asserted, not just the key.
  */
+/**
+ * A save that still names a unit the roster no longer has.
+ *
+ * This is the same class of failure as the `food` rename above and it presented the same way: the
+ * server would not start. `UnitIdSchema` is a key schema over the live catalogue, so an army
+ * holding a retired id fails `BaseSchema.parse` on the way *out of the database*, before any
+ * request is served. Three units left the roster and the crew that owned some could not log in.
+ *
+ * Both shapes are covered because both exist: an army is a map keyed by unit id, and the training
+ * queue is an array of orders that each name one. A sweep that only knew about maps left a crew
+ * mid-batch unable to load, which is the same bug one table along.
+ */
+describe('a save that still names a retired unit', () => {
+  it('drops it from the army, and the base loads again', () => {
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    db.prepare('UPDATE bases SET army_json = ? WHERE id = ?').run(
+      JSON.stringify({ razors: 4, muckrakers: 7, jammers: 2, wrecking_crew: 1 }),
+      id,
+    );
+    // Unmigrated, this is not a wrong answer, it is no answer: the row cannot be parsed at all.
+    expect(() => repos.bases.findById(id)).toThrow();
+
+    forget(db, RETIRED_UNITS_MIGRATION);
+    runMigrations(db);
+
+    expect(repos.bases.findById(id)?.army).toEqual({ razors: 4 });
+  });
+
+  it('drops a part-trained batch of one, since there is nothing left to hand over', () => {
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    db.prepare('UPDATE bases SET training_queue_json = ? WHERE id = ?').run(
+      JSON.stringify([
+        { id: 'o1', unitId: 'razors', count: 3, delivered: 1, startedAt: NOW, durationSeconds: 60 },
+        {
+          id: 'o2',
+          unitId: 'jammers',
+          count: 5,
+          delivered: 2,
+          startedAt: NOW,
+          durationSeconds: 90,
+        },
+      ]),
+      id,
+    );
+    expect(() => repos.bases.findById(id)).toThrow();
+
+    forget(db, RETIRED_UNITS_MIGRATION);
+    runMigrations(db);
+
+    const queue = repos.bases.findById(id)?.trainingQueue ?? [];
+    expect(queue.map((order) => order.unitId)).toEqual(['razors']);
+  });
+
+  it('sweeps the garrison a crew left standing on a location', () => {
+    const { db, repos } = openStack();
+    seed(repos);
+    db.prepare(
+      `INSERT INTO location_control (location_id, holder_kind, holder_base_id, level, garrison_json)
+       VALUES ('rustyard-scrap-press', 'faction', 'b', 1, ?)`,
+    ).run(JSON.stringify({ razors: 2, muckrakers: 9 }));
+
+    forget(db, RETIRED_UNITS_MIGRATION);
+    runMigrations(db);
+
+    const raw = db
+      .prepare(`SELECT garrison_json AS json FROM location_control WHERE location_id = ?`)
+      .get('rustyard-scrap-press') as { json: string };
+    expect(JSON.parse(raw.json)).toEqual({ razors: 2 });
+  });
+});
+
 describe('a save that still calls it food', () => {
   it('carries the amount across to supplies and leaves nothing behind', () => {
     const { db, repos } = openStack();

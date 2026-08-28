@@ -71,7 +71,7 @@ export const INFAMY_PER_TIER: Readonly<Record<UnitTier, number>> = {
  * quoted against.
  *
  * Scaling by supply rather than authoring a number per unit is what keeps this table honest as the
- * roster grows: a Wrecking Crew is two Snipers' worth of bodies and is worth two Snipers' worth of
+ * roster grows: The Twins are two Snipers' worth of bodies and are worth two Snipers' worth of
  * infamy without anybody remembering to say so. A unit added tomorrow is priced the day it is
  * written.
  */

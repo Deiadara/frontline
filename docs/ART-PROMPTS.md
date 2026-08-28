@@ -706,38 +706,39 @@ people. No group shots, no insignia the player has not earned, no text.
 Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
 `unit-road-reavers`).
 
-| Key                     | Unit             | Tier        | Seed     |
-| ----------------------- | ---------------- | ----------- | -------- |
-| `unit-razors`           | Razors           | Rabble      | `145001` |
-| `unit-sparks`           | Sparks           | Rabble      | `145002` |
-| `unit-scrapers`         | Scrapers         | Rabble      | `145003` |
-| `unit-muckrakers`       | Muckrakers       | Rabble      | `145004` |
-| `unit-breakers`         | Breakers         | Regulars    | `145005` |
-| `unit-wardens`          | Wardens          | Regulars    | `145006` |
-| `unit-ghosts`           | Ghosts           | Regulars    | `145007` |
-| `unit-road-reavers`     | Road Reavers     | Regulars    | `145008` |
-| `unit-ironsides`        | Ironsides        | Regulars    | `145009` |
-| `unit-ash-walkers`      | Ash Walkers      | Regulars    | `145010` |
-| `unit-snipers`          | Snipers          | Specialists | `145011` |
-| `unit-stitchers`        | Stitchers        | Specialists | `145012` |
-| `unit-demolishers`      | Demolishers      | Specialists | `145013` |
-| `unit-jammers`          | Jammers          | Specialists | `145014` |
-| `unit-kite-crews`       | Kite Crews       | Specialists | `145015` |
-| `unit-netrunners`       | Netrunners       | Specialists | `145016` |
-| `unit-sleepers`         | Sleepers         | Specialists | `145017` |
-| `unit-bell-ringers`     | Bell-Ringers     | Specialists | `145018` |
-| `unit-wrecking-crew`    | Wrecking Crew    | Specialists | `145019` |
-| `unit-juggernauts`      | Juggernauts      | Heavy       | `145020` |
-| `unit-hollow-men`       | Hollow Men       | Heavy       | `145021` |
-| `unit-the-condemned`    | The Condemned    | Heavy       | `145022` |
-| `unit-the-specter`      | The Specter      | Legendary   | `145023` |
-| `unit-the-abomination`  | The Abomination  | Legendary   | `145024` |
-| `unit-the-colossus`     | The Colossus     | Legendary   | `145025` |
-| `unit-the-saint`        | The Saint        | Legendary   | `145026` |
-| `unit-the-cartographer` | The Cartographer | Legendary   | `145029` |
-| `unit-the-twins`        | The Twins        | Legendary   | `145030` |
-| `unit-scavengers`       | Scavengers       | Support     | `145031` |
-| `unit-haulers`          | Haulers          | Support     | `145032` |
+| Key                       | Unit               | Tier        | Seed     |
+| ------------------------- | ------------------ | ----------- | -------- |
+| `unit-razors`             | Razors             | Rabble      | `145001` |
+| `unit-anodics`            | Anodics            | Rabble      | `145002` |
+| `unit-sparks`             | Sparks             | Rabble      | `145003` |
+| `unit-scrapers`           | Scrapers           | Rabble      | `145004` |
+| `unit-breakers`           | Breakers           | Regulars    | `145005` |
+| `unit-wardens`            | Wardens            | Regulars    | `145006` |
+| `unit-ghosts`             | Ghosts             | Regulars    | `145007` |
+| `unit-road-reavers`       | Road Reavers       | Regulars    | `145008` |
+| `unit-ironsides`          | Ironsides          | Regulars    | `145009` |
+| `unit-ash-walkers`        | Ash Walkers        | Regulars    | `145010` |
+| `unit-snipers`            | Snipers            | Specialists | `145011` |
+| `unit-stitchers`          | Stitchers          | Specialists | `145012` |
+| `unit-demolishers`        | Demolishers        | Specialists | `145013` |
+| `unit-kite-crews`         | Kite Crews         | Specialists | `145014` |
+| `unit-netrunners`         | Netrunners         | Specialists | `145015` |
+| `unit-sleepers`           | Sleepers           | Specialists | `145016` |
+| `unit-cyber-dogs`         | Cyber Dogs         | Specialists | `145017` |
+| `unit-bell-ringers`       | Bell-Ringers       | Specialists | `145018` |
+| `unit-juggernauts`        | Juggernauts        | Heavy       | `145019` |
+| `unit-hollow-men`         | Hollow Men         | Heavy       | `145020` |
+| `unit-the-condemned`      | The Condemned      | Heavy       | `145021` |
+| `unit-the-specter`        | The Specter        | Legendary   | `145022` |
+| `unit-the-abomination`    | The Abomination    | Legendary   | `145023` |
+| `unit-the-colossus`       | The Colossus       | Legendary   | `145024` |
+| `unit-the-saint`          | The Saint          | Legendary   | `145025` |
+| `unit-the-cartographer`   | The Cartographer   | Legendary   | `145026` |
+| `unit-the-twins`          | The Twins          | Specialists | `145027` |
+| `unit-scavengers`         | Scavengers         | Support     | `145028` |
+| `unit-haulers`            | Haulers            | Support     | `145029` |
+| `unit-the-crimson-dancer` | The Crimson Dancer | Legendary   | `145030` |
+| `unit-sluggers`           | Sluggers           | Regulars    | `145031` |
 
 ### 7.1 `unit-razors`
 
@@ -763,172 +764,166 @@ SUBJECT: A teenager holding a home-made electrical lance: a scaffold pole with a
 SUBJECT: A wiry scavenger in a patched canvas coat with a salvage hook over one shoulder and a strap of pouches across the chest, goggles up on the brow. Light plate lashed to one shoulder with rope. Half-turned as if already leaving, warm ochre midtones against a cold rim.
 ```
 
-### 7.5 `unit-muckrakers`
-
-```
-SUBJECT: A stooped figure in a slick waders-and-oilcloth rig, hood back, carrying a bulging drag-sack roped shut at the neck and a short gaff. Chest-high tide line of grey silt dried on the rubber. Pale #86e6a8 light from a lamp clipped at the hip, everything above it in shadow.
-```
-
-### 7.6 `unit-breakers`
+### 7.5 `unit-breakers`
 
 ```
 SUBJECT: A heavyset door-breacher braced behind a scuffed steel ram held two-handed across the body, forearms and shins plated in bolted scrap. Face guard hinged up to show a broken nose and a jaw set for the next one. Hard cold key across the ram face, warm bounce under the plates.
 ```
 
-### 7.7 `unit-wardens`
+### 7.6 `unit-wardens`
 
 ```
 SUBJECT: A defender behind a tall salvaged shield planted on the ground, one hand on its rim and a short spear upright in the other. Layered plate over a padded coat, everything scuffed at the front and clean at the back. Composed, unhurried, watching past the viewer.
 ```
 
-### 7.8 `unit-ghosts`
+### 7.7 `unit-ghosts`
 
 ```
 SUBJECT: A slight figure in a matte grey wrap suit with a soft hood and a scarf over the mouth, holding a suppressed carbine down along the leg. No hard edges and no shine anywhere on the fabric: the only speculars are the eyes and a thin #22d3ee line along the optic.
 ```
 
-### 7.9 `unit-road-reavers`
+### 7.8 `unit-road-reavers`
 
 ```
 SUBJECT: A rider in a studded leather cut over a fuel-stained undersuit, one arm through a scavenged fairing used as a shield, a length of chain looped at the belt. Riding goggles down, hair and scarf still moving. Warm #f59e0b headlamp glare from below and behind the shoulder.
 ```
 
-### 7.10 `unit-ironsides`
+### 7.9 `unit-ironsides`
 
 ```
 SUBJECT: A soldier encased front-on in overlapping salvaged plate, road sign, hull steel, a car door panel, strapped over a padded frame, with a slit visor and a short blade held close. Wide, immovable stance. Cold light rakes across the mismatched plates and finds a different colour in each.
 ```
 
-### 7.11 `unit-ash-walkers`
+### 7.10 `unit-ash-walkers`
 
 ```
 SUBJECT: A trooper in a taped chemical suit and full-face respirator with two round filter drums at the cheeks, one gloved hand steadying a hose that runs into the pack. Suit fabric bleached and stiffened by exposure. Lens glass takes a flat #12a2bd reflection and shows nothing behind it.
 ```
 
-### 7.12 `unit-snipers`
+### 7.11 `unit-snipers`
 
 ```
 SUBJECT: A marksman kneeling with a long bolt-action rifle across the raised knee, wrapped in a ghillie of shredded grey rag, hood down and hair flattened by it. Face bare and very still. One narrow cold highlight down the barrel; everything else sinks into the ground tone.
 ```
 
-### 7.13 `unit-stitchers`
+### 7.12 `unit-stitchers`
 
 ```
 SUBJECT: A field medic in a rolled-sleeve coat with a heavy satchel across the body and a strip of surgical tape on the forearm holding a spare line in place. Both hands busy: one clamping a dressing, one reaching. Warm #ffd166 light from a headband lamp turned down onto the work.
 ```
 
-### 7.14 `unit-demolishers`
+### 7.13 `unit-demolishers`
 
 ```
 SUBJECT: A sapper in a heavy apron over reinforced overalls, a bandolier of shaped charges across the chest and a spool of det cord hooked at the hip. Ear defenders around the neck, hands blackened to the wrist. Amber #f59e0b light and a haze of masonry dust in the air around the shoulders.
 ```
 
-### 7.15 `unit-jammers`
-
-```
-SUBJECT: An operator with a backpack transmitter and a folding directional antenna raised in one hand, the other on a dial at the chest harness. Headset over one ear only. Faint #e11d8f indicator lamps down the pack's spine are the only saturated colour in frame.
-```
-
-### 7.16 `unit-kite-crews`
+### 7.14 `unit-kite-crews`
 
 ```
 SUBJECT: A drone pilot crouched over a hinged control slate held at chest height, a rotor craft hovering just off the shoulder at the frame edge. Padded vest, cable running from slate to belt, eyes on the screen. Cold #22d3ee screen light fills the face from below.
 ```
 
-### 7.17 `unit-netrunners`
+### 7.15 `unit-netrunners`
 
 ```
 SUBJECT: A combat hacker with a deck strapped along the forearm and three fibre leads run from a dermal port behind the ear into a shoulder loom. Coat open over a mesh underlayer, one hand raised mid-gesture. Cyan #7ff0ff runs along the leads and reflects in a wet-looking eye.
 ```
 
-### 7.18 `unit-sleepers`
+### 7.16 `unit-sleepers`
 
 ```
 SUBJECT: An unremarkable person in ordinary work clothes, coveralls, a laminated pass on a lanyard, a canvas bag, standing squarely and looking directly at the viewer. No visible weapon. The only thing wrong is the stillness, and one hand already inside the bag.
 ```
 
-### 7.19 `unit-cyber-dogs`
+### 7.17 `unit-cyber-dogs`
 
 ```
 SUBJECT: Two lean working dogs in profile, one a half-step ahead. Cropped harnesses with a low-profile spine plate and a socketed collar; one animal's muzzle and jaw partly replaced with matte dark alloy. No visible weapons. Ears forward, weight on the front paws, mid-stride. Cold #22d3ee sensor glint at the collar sockets, warm #f59e0b ground bounce along the flanks.
 ```
 
-### 7.20 `unit-bell-ringers`
+### 7.18 `unit-bell-ringers`
 
 ```
 SUBJECT: A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one arm and holding heavy ear defenders in the other. Four stacked horn drivers fill the frame behind the shoulder. Air distorts in a visible ring; the ground tone smears where it passes.
 ```
 
-### 7.21 `unit-wrecking-crew`
-
-```
-SUBJECT: A siege worker in a heavy harness with a wrecking chain over the shoulder and a spiked pry bar grounded at the feet, hard hat scarred to bare metal. Behind the shoulder, the top of a jack frame. Broad, planted, patient; warm bounce from a work lamp out of frame.
-```
-
-### 7.22 `unit-juggernauts`
+### 7.19 `unit-juggernauts`
 
 ```
 SUBJECT: A fully augmented heavy assault trooper: a human silhouette only at the head, with the arms and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts. A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm #8a5209 leaks from the joint seams.
 ```
 
-### 7.23 `unit-hollow-men`
+### 7.20 `unit-hollow-men`
 
 ```
 SUBJECT: A shock trooper standing too straight in matte assault plate, faceplate open on an expression of complete calm, pupils blown wide. Surgical scarring in a neat arc above one temple. Blood on the gauntlets, none anywhere else. Even flat light, almost no shadow: nothing to read.
 ```
 
-### 7.24 `unit-the-condemned`
+### 7.21 `unit-the-condemned`
 
 ```
 SUBJECT: A convict fighter in a stripped prison coverall with the sleeves torn away, a welded collar at the throat and a heavy chain-wrapped blade held in both hands. Fresh brand on the shoulder, older scars beneath it. Head lifted, grinning; harsh cold key from directly above.
 ```
 
-### 7.25 `unit-the-specter`
+### 7.22 `unit-the-specter`
 
 ```
 SUBJECT: A figure caught mid-decloak: the outline is complete but the body is only present in patches, the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is solid is a matte infiltration suit and one long knife. No face resolves.
 ```
 
-### 7.26 `unit-the-abomination`
+### 7.23 `unit-the-abomination`
 
 ```
 SUBJECT: A failed experiment: a mass of grafted muscle and salvaged plate on a frame that no longer agrees on how many limbs it has, restraint bolts still through the shoulders and one trailing cable. Half a human face is set into the upper mass at the wrong angle. Sickly #86e6a8 fluid light from within the seams.
 ```
 
-### 7.27 `unit-the-colossus`
+### 7.24 `unit-the-colossus`
 
 ```
 SUBJECT: A walking fortress seen from the ground looking up, so only its lower hull, one tread-footed leg and the underside of a gun sponson fit the frame. Rivet lines the size of a person, hatch ladders, and a tiny crew figure on a walkway for scale. Cold sky behind, warm exhaust glow beneath.
 ```
 
-### 7.28 `unit-the-saint`
+### 7.25 `unit-the-saint`
 
 ```
 SUBJECT: An older fighter in a long weathered coat over plain plate, unarmed hands open at the sides, a sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely calm. The one portrait lit warmly from the front: amber #ffd166 across the face, cold #22d3ee only as a thin rim.
 ```
 
-### 7.29 `unit-the-cartographer`
+### 7.26 `unit-the-cartographer`
 
 ```
 SUBJECT: A traveller in a layered dust coat hung with rolled charts, a brass sighting compass on a thong and a chalk stub behind the ear, one hand flat on a map board marked over many times in different hands. Eyes on the viewer rather than the map. Warm lamp light on the paper, cold light on everything else.
 ```
 
-### 7.30 `unit-the-twins`
+### 7.27 `unit-the-twins`
 
 ```
 SUBJECT: A riveted automaton standing square in a workshop, one torso carrying two bald heads set back to back, so one face is toward the viewer and the other is turned away. Plate over a leather harness, long jointed hands hanging open, no weapon anywhere on it. Warm bulb light from two hanging lamps, drawings pinned on the wall behind.
 ```
 
-### 7.31 `unit-scavengers`
+### 7.28 `unit-scavengers`
 
 ```
 SUBJECT: A wiry salvager in a patched coat with a canvas satchel across the chest and a coil of copper wire over one shoulder. Fingerless gloves black to the second knuckle, a headlamp pushed up onto the forehead, a short pry bar hanging from the belt where a weapon would be on anybody else. Reading a wall rather than watching a door.
 ```
 
-### 7.32 `unit-haulers`
+### 7.29 `unit-haulers`
 
 ```
 SUBJECT: A broad-shouldered porter in a leather harness braced against the weight of a loaded barrow, the strap worn shiny across one shoulder. Boots wrapped against the wet, a folded tarpaulin lashed over the load, both hands on the shafts. Nothing on them that could be called a weapon.
+```
+
+### 7.30 `unit-the-crimson-dancer`
+
+```
+SUBJECT: A dancer balanced on the point of a bladed prosthetic leg in a ruined ballroom, both legs and both forearms jointed steel, a torn crimson coat thrown out by the turn. Chin up, arms carried high and wide as if mid-figure rather than mid-fight. Deep red light from a broken window behind, cold rim on the steel, thrown blades streaking past out of focus.
+```
+
+### 7.31 `unit-sluggers`
+
+```
+SUBJECT: A broad, heavyset fighter standing square in scavenged plate over a sleeveless work vest, both hands across a short double-barrelled slug gun held low at the waist. Bracers to the elbow, heavy boots, hair braided back off a scarred face. Calm rather than braced. Warm furnace light from the right, cold fill on the plate.
 ```
 
 ## 8. Consistency protocol

@@ -218,7 +218,8 @@ Those are the tests that catch a bug nobody thought to look for.
 
 ### Client
 
-✅ Auth, character select, city map (Pixi), district page, missions, Bar, research, assignees.
+✅ Auth, character select, the painted city and its district tags, district page, missions, Bar,
+research, assignees.
 ✅ Layout gates at five viewports: no overlap, no clipped text, no cut sprites, no document
 overflow. Positive controls for each gate.
 

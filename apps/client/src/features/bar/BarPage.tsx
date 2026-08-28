@@ -18,18 +18,18 @@ import {
   type OfficerRole,
   type TraitId,
 } from '@frontline/shared';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { Button } from '../../components/ui/Button';
 import { DescribedTag } from '../../components/ui/DescribedTag';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
-import { deliveredUrl } from '../../assets/delivered';
+import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
-import { useMeasuredSize, type MeasuredSize } from '../../lib/useMeasuredHeight';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { useBar, useHireRecruit, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote } from '../game/PageShell';
+import { OnArt, OnPlate, PlateRoom } from '../game/PlateRoom';
 import { NegotiationDialog } from './NegotiationDialog';
 
 /** Devotion reads in the player's own accent; a walkout reads as a warning. */
@@ -125,6 +125,18 @@ function Disposition({ ambition, moralCompass }: Pick<BarRecruit, 'ambition' | '
   );
 }
 
+/** A labelled block on the seat screen's identity band: the word above, the thing below. */
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="font-display text-[9.5px] font-bold uppercase tracking-[0.2em] text-ink-300">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
 /** A trait's whole mechanical effect, written out. `+8 stealth` is the rule; the name is flavour. */
 function traitDetail(trait: TraitId): string {
   return Object.entries(TRAIT_CATALOG[trait].bonus)
@@ -170,47 +182,22 @@ function coldFor(recruit: BarRecruit, now: Date): string | null {
  * decides, which is what §B8 asks for. The role picker is a hiring choice (§C2), not a hint.
  */
 /**
- * The stool in the middle of the painting, in fractions of it.
+ * Where `Sit down` stands, in fractions of the painting.
  *
- * The plate is a room with one empty seat in it, and the seat is the control: `Sit down` is drawn
- * over it rather than in a toolbar somewhere. Fractions of the *image*, not of the frame, which is
- * why the picture below is sized to cover and the button lives inside that box: a percentage of
- * the viewport would slide off the stool the moment somebody resized a window.
+ * **The gap between the counter and the seat, not the seat itself.** The empty stool is the thing
+ * the control is about, so covering it with the control is the one placement that cannot be right:
+ * a player looking for the free seat finds a plaque where it should be. The counter's underside is
+ * at 54% of the painting and the stool's cushion starts at 64%, so the plaque sits at 59% and the
+ * seat stays visible under it.
+ *
+ * Fractions of the *image*, not of the frame, which is why `PlateRoom` draws the picture whole and
+ * the button lives inside that box: a percentage of the viewport would slide off the stool the
+ * moment somebody resized a window.
  */
-const STOOL = { x: 0.492, y: 0.665 } as const;
+const STOOL = { x: 0.499, y: 0.59 } as const;
 
 /** The plate's own shape. Used to size the box the stool is positioned in. */
-const BAR_ASPECT = 1264 / 848;
-
-/**
- * The largest box of the plate's shape that still covers `room`, centred on it.
- *
- * Cover rather than contain: a letterboxed painting with bars down the sides reads as a screenshot
- * pasted on, and this one is meant to be the room you are standing in. The overflow is clipped by
- * the frame, and because the box keeps the plate's aspect exactly, the stool stays under the button
- * at every viewport.
- */
-function covering(room: MeasuredSize): { width: number; height: number } {
-  if (room.width <= 0 || room.height <= 0) return { width: 0, height: 0 };
-  const byWidth = { width: room.width, height: room.width / BAR_ASPECT };
-  return byWidth.height >= room.height
-    ? byWidth
-    : { width: room.height * BAR_ASPECT, height: room.height };
-}
-
-/** A control that floats on the painting: dark glass, a lit edge, and enough contrast to read. */
-function OnArt({ className, children }: { className?: string; children: ReactNode }) {
-  return (
-    <div
-      className={cn(
-        'glass-strong edge-lit rivets pointer-events-auto rounded-md border border-surface-500/70 shadow-panel',
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
-}
+const BAR_ASPECT = 3780 / 1800;
 
 export function BarPage() {
   const barQuery = useBar();
@@ -238,10 +225,6 @@ export function BarPage() {
   const [open, setOpen] = useState<'stool' | 'payroll' | 'crew' | null>(null);
   /** Which chair the stool screen is showing. An index, so the arrows are arithmetic. */
   const [seat, setSeat] = useState(0);
-
-  const [roomRef, room] = useMeasuredSize<HTMLDivElement>();
-  const plate = deliveredUrl({ type: 'plate', plate: 'bar' });
-  const picture = covering(room);
 
   const data = barQuery.data;
   const recruits = data?.recruits ?? [];
@@ -287,11 +270,17 @@ export function BarPage() {
   // is signed, and an index past the end would render nothing with no way back.
   const chair = recruits.length === 0 ? 0 : Math.min(seat, recruits.length - 1);
   const shown = recruits[chair];
+  /*
+   * Stops at both ends. It used to wrap, and wrapping is wrong for this screen: the roster is a
+   * row of people sitting along a bar, not a carousel, and a player who has read to the end of it
+   * and pressed on once more should be told they are at the end rather than be put back in front
+   * of the first person as though they had missed them. The arrows go dead there to say so.
+   */
   const step = (by: number) =>
     setSeat((current) => {
       if (recruits.length === 0) return 0;
       const from = Math.min(current, recruits.length - 1);
-      return (from + by + recruits.length) % recruits.length;
+      return Math.max(0, Math.min(recruits.length - 1, from + by));
     });
 
   return (
@@ -302,53 +291,16 @@ export function BarPage() {
        * The chrome floats over it: the painting runs under the standing bar and the nav, and the
        * three controls on it are positioned against the *painting* rather than against the sheet.
        */}
-      <div
-        ref={roomRef}
-        className="absolute inset-0 overflow-hidden bg-surface-950"
-        data-testid="bar-room"
-        style={{ paddingTop: 'var(--hud-h, 0px)', paddingBottom: 'var(--nav-h, 0px)' }}
-      >
-        <div className="relative h-full w-full overflow-hidden">
-          {/* Sized in pixels from a measurement rather than by CSS, for the reason the district
-              scene spells out: `aspect-ratio` plus a `max-height` clamps the height without giving
-              the width back, and the box quietly stops being the picture's shape. */}
-          <div
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-            style={{ width: picture.width, height: picture.height }}
-          >
-            {plate !== null && (
-              <img
-                src={plate}
-                alt=""
-                aria-hidden="true"
-                className="absolute inset-0 h-full w-full object-fill"
-              />
-            )}
-            {/* A little more dark at the edges than the plate paints, so the controls on it read
-                without a scrim over the middle of the room. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  'radial-gradient(ellipse 70% 60% at 50% 55%, transparent 35%, rgb(6 5 10 / 0.72) 100%)',
-              }}
-            />
-
-            {/* The seat. */}
-            <div
-              className="absolute -translate-x-1/2 -translate-y-1/2"
-              style={{ left: `${STOOL.x * 100}%`, top: `${STOOL.y * 100}%` }}
-            >
-              <SitDown
-                count={recruits.length}
-                disabled={barQuery.isLoading || recruits.length === 0}
-                onOpen={() => setOpen('stool')}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
+      <PlateRoom plate="bar" aspect={BAR_ASPECT} fit="whole" testId="bar-room">
+        {/* The seat. */}
+        <OnPlate at={STOOL}>
+          <SitDown
+            count={recruits.length}
+            disabled={barQuery.isLoading || recruits.length === 0}
+            onOpen={() => setOpen('stool')}
+          />
+        </OnPlate>
+      </PlateRoom>
 
       {/* The two standing readouts, on the glass over the room. */}
       {/* The same inset the room takes, or the two readouts sit under the nav: this layer is over
@@ -582,17 +534,24 @@ function StoolDialog({
   onNegotiate: (id: string) => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
+  // Through the window's own stack rather than a listener of its own, so the arrows go quiet while
+  // the negotiation is open on top of this screen. See `Modal`'s `onKey`.
+  const onArrow = useCallback(
+    (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft') onStep(-1);
       if (event.key === 'ArrowRight') onStep(1);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onStep]);
+    },
+    [onStep],
+  );
 
   return (
-    <Modal onClose={onClose} labelledBy="recruit-name" size="full" className="border-brass-300/30">
+    <Modal
+      onClose={onClose}
+      onKey={onArrow}
+      labelledBy="recruit-name"
+      size="room"
+      className="border-brass-300/30"
+    >
       <header className="flex shrink-0 items-center gap-3 border-b border-surface-600/60 px-5 py-3">
         <span
           aria-hidden
@@ -609,14 +568,45 @@ function StoolDialog({
             <span className="tabular-nums">{of}</span> at the bar
           </span>
         </span>
+        {/* The stools, as a row of marks: where along the bar this person is sitting, without
+            having to read the count to find out. */}
+        <span
+          aria-hidden
+          data-testid="seat-dots"
+          className="hidden items-center gap-1.5 pr-1 sm:flex"
+        >
+          {Array.from({ length: of }, (_, at) => (
+            <span
+              key={at}
+              className={cn(
+                'block rounded-full transition-colors duration-150',
+                at === seat ? 'h-2 w-2 bg-brass-300' : 'h-1.5 w-1.5 bg-surface-600',
+              )}
+            />
+          ))}
+        </span>
         <Button size="sm" variant="ghost" onClick={onClose}>
           Leave it
         </Button>
       </header>
 
-      <div className="relative flex min-h-0 items-stretch">
-        <Chair direction="back" onStep={() => onStep(-1)} />
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3" data-testid="bar-file">
+      {/*
+       * The arrows are outside the scroller, not in it.
+       *
+       * At 1024 the sheet is taller than the window and the card scrolls; arrows sitting inside
+       * that scroll went up the screen with it, so a player who read to the bottom of the record
+       * had no way left to reach the next person. The row owns the height, the card scrolls inside
+       * it, and the two tokens stay level with the middle of what is actually on screen.
+       */}
+      <div className="flex min-h-0 flex-1 gap-2 px-3 py-4 sm:gap-3 sm:px-4">
+        <StepArrow
+          direction="back"
+          label="The person before"
+          testId="seat-back"
+          disabled={seat === 0}
+          onStep={() => onStep(-1)}
+        />
+        <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="bar-file">
           <RecruitCard
             recruit={recruit}
             filledRoles={filledRoles}
@@ -629,34 +619,15 @@ function StoolDialog({
             onNegotiate={onNegotiate}
           />
         </div>
-        <Chair direction="on" onStep={() => onStep(1)} />
+        <StepArrow
+          direction="on"
+          label="The next person"
+          testId="seat-on"
+          disabled={seat >= of - 1}
+          onStep={() => onStep(1)}
+        />
       </div>
     </Modal>
-  );
-}
-
-/** One of the two arrows: a full-height strip rather than a small target floating in a corner. */
-function Chair({ direction, onStep }: { direction: 'back' | 'on'; onStep: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onStep}
-      aria-label={direction === 'back' ? 'The person before' : 'The next person'}
-      data-testid={direction === 'back' ? 'seat-back' : 'seat-on'}
-      className="group flex w-10 shrink-0 items-center justify-center text-ink-300 transition-colors hover:bg-brass-300/10 hover:text-brass-100"
-    >
-      <span
-        aria-hidden
-        className={cn(
-          'transition-transform duration-150 [&_svg]:h-6 [&_svg]:w-6',
-          direction === 'back'
-            ? 'rotate-90 group-hover:-translate-x-0.5'
-            : '-rotate-90 group-hover:translate-x-0.5',
-        )}
-      >
-        <Icon name="chevron-down" />
-      </span>
-    </button>
   );
 }
 
@@ -854,118 +825,134 @@ function RecruitCard({
 
   return (
     <article
-      className="card-paper rivets taped edge-lit grid min-w-0 gap-4 rounded-sm border border-brass-500/30 p-4 shadow-panel lg:grid-cols-[19rem_minmax(0,1fr)]"
+      className="card-paper rivets taped edge-lit flex min-w-0 flex-1 flex-col gap-4 rounded-sm border border-brass-500/30 p-4 shadow-panel sm:p-5"
       data-testid={`recruit-${recruit.id}`}
     >
-      {/* Who, and what they want. */}
-      <div className="flex min-w-0 flex-col gap-3">
-        <header className="flex min-w-0 flex-col gap-2">
-          <h3
-            className="min-w-0 break-words font-stamp text-[22px] leading-tight text-ink-100"
-            data-testid="recruit-name"
-          >
-            {recruit.name}
-          </h3>
-          <span aria-hidden className="ink-rule block w-full" />
-        </header>
+      {/*
+       * Who they are, across the top, and what they cost on the right of it.
+       *
+       * The card used to be a tall left column against the attribute sheet, which meant the three
+       * attribute groups sat in a block and the fourth dropped underneath: an L, and an L reads as
+       * a layout that ran out of room. Identity is a band now and the sheet is a full-width row of
+       * four, so the card is two rectangles and every group is the same width as every other.
+       */}
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="flex min-w-0 flex-col gap-3">
+          <header className="flex min-w-0 flex-col gap-1.5">
+            <h3
+              className="min-w-0 break-words font-stamp text-[26px] leading-tight text-ink-100"
+              data-testid="recruit-name"
+            >
+              {recruit.name}
+            </h3>
+            <span aria-hidden className="ink-rule block w-full" />
+          </header>
 
-        {/* The price, as a plate on the counter rather than a tag in a corner: it is the number
-            the whole conversation is about. */}
-        <div
-          className={cn(
-            'edge-lit flex items-center gap-3 rounded-md border px-3 py-2.5',
-            recruit.hired
-              ? 'border-bile-300/50'
-              : recruit.assessment.interested
-                ? 'border-brass-300/60'
-                : 'border-oxblood-500/50',
+          {/* Two rows of tags with nothing between them read as one row that wrapped. What each
+              row *is* costs a nine-pixel word and settles it. */}
+          <Field label="What they are after">
+            <Disposition ambition={recruit.ambition} moralCompass={recruit.moralCompass} />
+          </Field>
+
+          {recruit.traits.length > 0 && (
+            <Field label="What they carry">
+              <div className="flex min-w-0 flex-wrap gap-1.5">
+                {/* §B7: a flaw is a reason *not* to hire, so it must not read as another credential. */}
+                {recruit.traits.map((trait) => (
+                  <DescribedTag
+                    key={trait}
+                    label={TRAIT_CATALOG[trait].name}
+                    description={TRAIT_CATALOG[trait].description}
+                    detail={traitDetail(trait)}
+                    className={
+                      isFlaw(trait)
+                        ? 'border-oxblood-500 text-oxblood-300'
+                        : 'border-surface-600 text-ink-300'
+                    }
+                  />
+                ))}
+              </div>
+            </Field>
           )}
-        >
-          <span
-            aria-hidden
-            className="icon-plate flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-6 [&_svg]:w-6"
-          >
-            <Icon name={recruit.hired ? 'check' : 'caps'} />
-          </span>
-          <span className="flex min-w-0 flex-col leading-none">
-            <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
-              {recruit.hired
-                ? 'On your books'
-                : recruit.assessment.interested
-                  ? 'Opens at'
-                  : 'Not talking'}
-            </span>
-            {/* Only when there is a figure. The two other states are already named on the line
-                above, and a placeholder glyph under `Not talking` is a second way of saying the
-                same nothing. */}
-            {recruit.assessment.interested && !recruit.hired && (
-              <span className="mt-1.5 font-display text-[18px] font-bold tabular-nums text-brass-100">
-                {(asking ?? 0).toLocaleString()} / wk
-              </span>
-            )}
-          </span>
+
+          {(recruit.requirement.minNotoriety > 0 || recruit.requirement.minLevel > 1) && (
+            <div className="mt-auto flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
+              {recruit.requirement.minNotoriety > 0 && (
+                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
+                  Will sit down with a crew the street calls{' '}
+                  <span className="text-ink-100">
+                    {notorietyTier(recruit.requirement.minNotoriety)}
+                  </span>
+                </p>
+              )}
+              {recruit.requirement.minLevel > 1 && (
+                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
+                  And a crew that has reached{' '}
+                  <span className="text-ink-100">level {recruit.requirement.minLevel}</span>
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
-        <Disposition ambition={recruit.ambition} moralCompass={recruit.moralCompass} />
-
-        {recruit.traits.length > 0 && (
-          <div className="flex min-w-0 flex-wrap gap-1.5">
-            {/* §B7: a flaw is a reason *not* to hire, so it must not read as another credential. */}
-            {recruit.traits.map((trait) => (
-              <DescribedTag
-                key={trait}
-                label={TRAIT_CATALOG[trait].name}
-                description={TRAIT_CATALOG[trait].description}
-                detail={traitDetail(trait)}
-                className={
-                  isFlaw(trait)
-                    ? 'border-oxblood-500 text-oxblood-300'
-                    : 'border-surface-600 text-ink-300'
-                }
-              />
-            ))}
-          </div>
-        )}
-
-        {(recruit.requirement.minNotoriety > 0 || recruit.requirement.minLevel > 1) && (
-          <div className="flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
-            {recruit.requirement.minNotoriety > 0 && (
-              <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
-                Will sit down with a crew the street calls{' '}
-                <span className="text-ink-100">
-                  {notorietyTier(recruit.requirement.minNotoriety)}
+        {/* The price and the door, in one column on the right: the two things a click acts on. */}
+        <div className="flex min-w-0 flex-col gap-3">
+          <div
+            className={cn(
+              'edge-lit flex items-center gap-3 rounded-md border px-3 py-2.5',
+              recruit.hired
+                ? 'border-bile-300/50'
+                : recruit.assessment.interested
+                  ? 'border-brass-300/60'
+                  : 'border-oxblood-500/50',
+            )}
+          >
+            <span
+              aria-hidden
+              className="icon-plate flex h-11 w-11 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-6 [&_svg]:w-6"
+            >
+              <Icon name={recruit.hired ? 'check' : 'caps'} />
+            </span>
+            <span className="flex min-w-0 flex-col leading-none">
+              <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+                {recruit.hired
+                  ? 'On your books'
+                  : recruit.assessment.interested
+                    ? 'Opens at'
+                    : 'Not talking'}
+              </span>
+              {/* Only when there is a figure. The two other states are already named on the line
+                  above, and a placeholder glyph under `Not talking` is a second way of saying the
+                  same nothing. */}
+              {recruit.assessment.interested && !recruit.hired && (
+                <span className="mt-1.5 font-display text-[20px] font-bold tabular-nums text-brass-100">
+                  {(asking ?? 0).toLocaleString()} / wk
                 </span>
-              </p>
-            )}
-            {recruit.requirement.minLevel > 1 && (
-              <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
-                And a crew that has reached{' '}
-                <span className="text-ink-100">level {recruit.requirement.minLevel}</span>
-              </p>
-            )}
+              )}
+            </span>
           </div>
-        )}
 
-        {/* The door sits at the foot of this column, where a hand would be. */}
-        <div className="mt-auto min-w-0 pt-1">{door}</div>
+          <div className="mt-auto min-w-0">{door}</div>
+        </div>
       </div>
 
       {/* What they can do. */}
-      <div className="flex min-w-0 flex-col gap-2">
-        <span className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-brass-300">
-          What they can do
-        </span>
-        <span aria-hidden className="ink-rule block w-full" />
+      <div className="flex min-w-0 flex-col gap-2.5">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
+            What they can do
+          </span>
+          <span aria-hidden className="ink-rule block min-w-0 flex-1" />
+        </div>
         {/*
-         * Two columns, not four.
+         * Four across, each group in its own frame (§B4a).
          *
-         * `AttributeSheet`'s four-column mode switches on a *viewport* media query, so inside a
-         * modal it renders four columns in whatever width the modal actually has: 720px here,
-         * which is 165px a column and cuts `Communication` to `Communicati…`. Two columns give
-         * each label 350px and the sheet reads better for it; the panes it was written for still
-         * get four.
+         * Four is what `size="room"` on the window is for: the sheet needs about 210px a group
+         * before `Communication` truncates, and the arrow either side of the card takes 140 of
+         * them. Below the sheet's own breakpoint it falls to two, which is the no-cut-text rule
+         * winning over the shape.
          */}
-        <AttributeSheet attributes={recruit.attributes} columns={3} />
+        <AttributeSheet attributes={recruit.attributes} columns={4} roomy />
       </div>
     </article>
   );

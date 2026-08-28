@@ -47,7 +47,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
   {
     name: 'fast units running down shooters in the open',
     attacking: { road_reavers: 12 },
-    defending: { snipers: 14, jammers: 6 },
+    defending: { snipers: 14, kite_crews: 6 },
     ground: battlefieldFor({
       locationName: 'The Yard',
       kind: 'rail_yard',

@@ -26,10 +26,9 @@ export interface NavDestination {
   label: string;
   /** The word shown on hover and to assistive tech when the label alone is ambiguous. */
   title: string;
+  /** Absent when the destination is not built yet: the door is drawn, dimmed and unclickable. */
   to?: string;
   icon: IconName;
-  /** Present when the destination is not built yet. */
-  soon?: boolean;
   /**
    * §I3: the screen this door leads to, when a level opens it.
    *
@@ -43,17 +42,19 @@ export interface NavDestination {
 /**
  * The places, in the order a player walks them.
  *
- * Battles and Settings are deliberately **not** here. They live as icons in the standing bar
- * (`TopHud`), which is where Grepolis puts the same two, and for the same reason: neither is a
- * place in the world. One is a deadline you answer for and the other is a drawer of knobs, and both
- * are wanted from wherever you happen to be standing rather than walked to.
+ * Battles is deliberately **not** here: it lives as an icon in the standing bar (`TopHud`), which
+ * is where Grepolis puts it, and for the same reason. It is not a place in the world, it is a
+ * deadline you answer for, and it is wanted from wherever you happen to be standing.
  *
- * Neither is Cities. The wider world is the city map at a step back (`CitiesView`), reached by a
- * control on the map itself, because "all cities" and "this city" are one place at two distances
- * and walking between them lost the district you had selected every time.
+ * Settings is not in this list either, for the same reason, but it *is* drawn by this bar: pinned
+ * to the right of the row rather than standing in the walk of doors. See `SETTINGS` below.
+ *
+ * Neither is Cities. The wider world is the city at a step back (`CitiesView`), reached by a
+ * control on the painting itself, because "all cities" and "this city" are one place at two
+ * distances and walking between them lost the district you had selected every time.
  */
 export const DESTINATIONS: readonly NavDestination[] = [
-  { label: 'City', title: 'The city map', to: '/game', icon: 'city' },
+  { label: 'City', title: 'The city', to: '/game', icon: 'city' },
   // Not "Base". A crew holds a district, and the faction is who holds it: the two words the
   // player already uses for this screen. "Foothold" was a third name for the same place.
   { label: 'District', title: 'Your district', to: '/game/base', icon: 'district' },
@@ -215,7 +216,7 @@ function Destination({
   return (
     <NavLink
       to={destination.to}
-      // `end` only on the city map: it is the index route, so without it every child route would
+      // `end` only on the city: it is the index route, so without it every child route would
       // light the city up as well as itself.
       end={destination.to === '/game'}
       /*
@@ -254,7 +255,8 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Places"
-      // `flex-wrap`. Fourteen doors no longer fit one 1024px row, and without it the row does not
+      // `flex-wrap`. Thirteen doors (eleven places, Settings, and the Bench in an admin build) do
+      // not fit one 1024px row, and without it the row does not
       // spill: it *shrinks*, squeezing each door to 65px until "Workshop" wraps onto two lines
       // inside a target the pointer can barely tell from its neighbour. Wrapping puts the overflow
       // on a second row instead, which the shell absorbs for free because it measures this bar's
