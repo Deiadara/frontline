@@ -1012,8 +1012,17 @@ export const TrainingSubjectSchema = z.object({
   /** `OVERSEER_SUBJECT`, or the officer's id. */
   id: z.string().min(1),
   name: z.string().min(1),
+  /** What their chair is called, for the screen. */
   role: z.string().min(1),
-  /** The Overseer has a portrait; officers do not have one yet. */
+  /**
+   * ...and which chair it *is*, for anything that has to look it up.
+   *
+   * `null` for the Overseer, who is in no seat. Separate from `role` above because that one is a
+   * display label and this one is a key: the training sheet edges every skill by how much the
+   * chair cares (`ROLE_IMPORTANCE`), and a label cannot be looked up in a table.
+   */
+  officerRole: OfficerRoleSchema.nullable(),
+  /** Everybody has a portrait: the Overseer's preset, or one off the officer pool. */
   portraitId: z.string().nullable(),
   attributes: AttributesSchema,
   traits: TraitsSchema,

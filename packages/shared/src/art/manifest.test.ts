@@ -5,6 +5,7 @@ import { BUILDING_KINDS } from '../building/index.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS } from '../city/index.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS } from '../overseer.js';
 import { RESOURCE_KEYS } from '../resources.js';
+import { UNIT_CATALOG, UNIT_TIER_LABELS } from '../units/index.js';
 import {
   ART_MANIFEST,
   ASSET_CLASS_SPECS,
@@ -33,6 +34,39 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['portrait-overseer-2', 'portrait-overseer-2.webp', 110002],
   ['portrait-overseer-3', 'portrait-overseer-3.webp', 110003],
   ['portrait-overseer-4', 'portrait-overseer-4.webp', 110004],
+  ['officer-01', 'officer-01.webp', 115001],
+  ['officer-02', 'officer-02.webp', 115002],
+  ['officer-03', 'officer-03.webp', 115003],
+  ['officer-04', 'officer-04.webp', 115004],
+  ['officer-05', 'officer-05.webp', 115005],
+  ['officer-06', 'officer-06.webp', 115006],
+  ['officer-07', 'officer-07.webp', 115007],
+  ['officer-08', 'officer-08.webp', 115008],
+  ['officer-09', 'officer-09.webp', 115009],
+  ['officer-10', 'officer-10.webp', 115010],
+  ['officer-11', 'officer-11.webp', 115011],
+  ['officer-12', 'officer-12.webp', 115012],
+  ['officer-13', 'officer-13.webp', 115013],
+  ['officer-14', 'officer-14.webp', 115014],
+  ['officer-15', 'officer-15.webp', 115015],
+  ['officer-16', 'officer-16.webp', 115016],
+  ['officer-17', 'officer-17.webp', 115017],
+  ['officer-18', 'officer-18.webp', 115018],
+  ['officer-19', 'officer-19.webp', 115019],
+  ['officer-20', 'officer-20.webp', 115020],
+  ['officer-21', 'officer-21.webp', 115021],
+  ['officer-22', 'officer-22.webp', 115022],
+  ['officer-23', 'officer-23.webp', 115023],
+  ['officer-24', 'officer-24.webp', 115024],
+  ['officer-25', 'officer-25.webp', 115025],
+  ['officer-26', 'officer-26.webp', 115026],
+  ['officer-27', 'officer-27.webp', 115027],
+  ['officer-28', 'officer-28.webp', 115028],
+  ['officer-29', 'officer-29.webp', 115029],
+  ['officer-30', 'officer-30.webp', 115030],
+  ['officer-31', 'officer-31.webp', 115031],
+  ['officer-32', 'officer-32.webp', 115032],
+  ['officer-33', 'officer-33.webp', 115033],
   ['district-neon-docks', 'district-neon-docks.webp', 120001],
   ['district-ashen-terraces', 'district-ashen-terraces.webp', 120002],
   ['district-kettle-row', 'district-kettle-row.webp', 120003],
@@ -79,20 +113,20 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['unit-netrunners', 'unit-netrunners.webp', 145015],
   ['unit-sleepers', 'unit-sleepers.webp', 145016],
   ['unit-cyber-dogs', 'unit-cyber-dogs.webp', 145017],
-  ['unit-bell-ringers', 'unit-bell-ringers.webp', 145018],
-  ['unit-juggernauts', 'unit-juggernauts.webp', 145019],
-  ['unit-hollow-men', 'unit-hollow-men.webp', 145020],
-  ['unit-the-condemned', 'unit-the-condemned.webp', 145021],
-  ['unit-the-specter', 'unit-the-specter.webp', 145022],
-  ['unit-the-abomination', 'unit-the-abomination.webp', 145023],
-  ['unit-the-colossus', 'unit-the-colossus.webp', 145024],
-  ['unit-the-saint', 'unit-the-saint.webp', 145025],
-  ['unit-the-cartographer', 'unit-the-cartographer.webp', 145026],
-  ['unit-the-twins', 'unit-the-twins.webp', 145027],
-  ['unit-scavengers', 'unit-scavengers.webp', 145028],
-  ['unit-haulers', 'unit-haulers.webp', 145029],
-  ['unit-the-crimson-dancer', 'unit-the-crimson-dancer.webp', 145030],
-  ['unit-sluggers', 'unit-sluggers.webp', 145031],
+  ['unit-juggernauts', 'unit-juggernauts.webp', 145018],
+  ['unit-hollow-men', 'unit-hollow-men.webp', 145019],
+  ['unit-the-condemned', 'unit-the-condemned.webp', 145020],
+  ['unit-the-specter', 'unit-the-specter.webp', 145021],
+  ['unit-the-abomination', 'unit-the-abomination.webp', 145022],
+  ['unit-the-colossus', 'unit-the-colossus.webp', 145023],
+  ['unit-the-saint', 'unit-the-saint.webp', 145024],
+  ['unit-the-cartographer', 'unit-the-cartographer.webp', 145025],
+  ['unit-the-twins', 'unit-the-twins.webp', 145026],
+  ['unit-scavengers', 'unit-scavengers.webp', 145027],
+  ['unit-haulers', 'unit-haulers.webp', 145028],
+  ['unit-the-crimson-dancer', 'unit-the-crimson-dancer.webp', 145029],
+  ['unit-sluggers', 'unit-sluggers.webp', 145030],
+  ['unit-the-loose-end', 'unit-the-loose-end.webp', 145031],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -166,11 +200,20 @@ const PROMPT_DOC = readFileSync(
   'utf8',
 );
 
-/** §1-§5: a per-asset heading, then a fenced `SUBJECT:` block. */
-const FENCED_SUBJECT = /^### [\d.]+ `([a-z\d-]+)`[^\n]*\n+```\n(SUBJECT:[\s\S]*?)\n```/gm;
+/**
+ * §1-§5: a per-asset heading, then a fenced `SUBJECT:` block.
+ *
+ * The section number takes a letter (`1b.7`) as well as digits. The officer pool sits beside the
+ * overseer portraits rather than at the end of the document, because that is where a reader looks
+ * for a face, and a digits-only pattern skipped all thirty-three of them in silence: the doc had
+ * the subjects, the scan did not see them, and the only symptom was the count.
+ */
+const FENCED_SUBJECT = /^### [\da-z.]+ `([a-z\d-]+)`[^\n]*\n+```\n(SUBJECT:[\s\S]*?)\n```/gm;
 
 /** §6 instead tabulates the thirteen icons: ``| `icon-caps` | … | `SUBJECT: …` |``. */
 const TABLE_SUBJECT = /^\| `([a-z\d-]+)` *\|[^\n]*`(SUBJECT:[^`]*)`/gm;
+/** §7's index row: key, unit name, tier label, seed. */
+const UNIT_INDEX_ROW = /^\| `(unit-[a-z\d-]+)` *\| ([^|]+)\| ([^|]+)\| `(\d+)` *\|/gm;
 
 const collapse = (text: string): string => text.trim().replace(/\s+/g, ' ');
 
@@ -185,6 +228,7 @@ const documentedSubjects = new Map(
 /** Where each class's framing lives. Typed off `FRAMING`, so a new class cannot skip the check. */
 const FRAMING_SECTIONS: Readonly<Record<keyof typeof FRAMING, string>> = {
   portrait: '## 1. ',
+  officer: '## 1b. ',
   district: '## 2. ',
   plate: '## 3. ',
   building: '## 4. ',
@@ -214,8 +258,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 125 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(125);
+  it('holds the 158 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(158);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -258,7 +302,7 @@ describe('ART_MANIFEST', () => {
     'plate-district': { width: 3780, height: 1800, aspect: '21:10' },
     // And the Bar's room, for the same reason: the Sit Down control is positioned as a fraction of
     // this exact image, so the empty stool moves out from under it if the delivery size changes.
-    'plate-bar': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-bar': { width: 1926, height: 817, aspect: '2.36:1' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {
@@ -287,6 +331,8 @@ describe('ART_MANIFEST', () => {
       ),
     ).toEqual({
       portrait: 'webp90',
+      // A roster face at a couple of hundred pixels: 88 rather than 90, times thirty-three.
+      officer: 'webp88',
       district: 'webp90',
       plate: 'webp92',
       plane: 'webp90',
@@ -425,6 +471,32 @@ describe('ART_MANIFEST', () => {
 });
 
 describe('docs/ART-PROMPTS.md transcribes prompts.ts', () => {
+  /**
+   * §7's index table, checked against the roster it is an index *of*.
+   *
+   * Nothing checked it, and it drifted three ways at once without a single test going red: it still
+   * filed six units under a tier that no longer exists, still called two units by names they had
+   * been renamed from, and its whole seed column was off by one after a unit was removed from the
+   * middle of the catalogue. The subject sections below were covered and the table above them was
+   * not, which is the more dangerous half: a seed is what regenerates an asset.
+   */
+  it('indexes every unit with the name, tier and seed the code gives it', () => {
+    const documented = [...PROMPT_DOC.matchAll(UNIT_INDEX_ROW)].map((row) => ({
+      key: row[1],
+      name: row[2]?.trim(),
+      tier: row[3]?.trim(),
+      seed: Number(row[4]),
+    }));
+    const expected = ART_MANIFEST.filter((spec) => spec.class === 'unit').map((spec) => {
+      const unit = UNIT_CATALOG.find(
+        (candidate) => spec.key === `unit-${candidate.id.replaceAll('_', '-')}`,
+      );
+      if (!unit) throw new Error(`no unit behind ${spec.key}`);
+      return { key: spec.key, name: unit.name, tier: UNIT_TIER_LABELS[unit.tier], seed: spec.seed };
+    });
+    expect(documented).toEqual(expected);
+  });
+
   it('documents a subject for every manifest asset and no others', () => {
     expect([...documentedSubjects.keys()].sort()).toEqual(
       ART_MANIFEST.map((spec) => spec.key).sort(),

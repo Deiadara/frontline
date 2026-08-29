@@ -661,19 +661,45 @@ for (const size of VIEWPORTS) {
       await expect(seat).toBeVisible();
       await settleFonts(page);
 
-      const room = await page.getByTestId('bar-room').boundingBox();
+      /*
+       * Measured against the **picture**, not the frame it is centred in.
+       *
+       * The frame is the whole viewport less the chrome and the painting is letterboxed inside it,
+       * so a fraction of the frame is not a fraction of the painting and the two diverge by more
+       * at some window shapes than others. Every mark on this screen is authored as a fraction of
+       * the picture, so that is what a gate on those marks has to divide by.
+       */
+      const picture = await page.getByTestId('plate-picture').boundingBox();
       const button = await seat.boundingBox();
-      if (!room || !button) throw new Error('the room and the seat must both have boxes');
+      if (!picture || !button) throw new Error('the picture and the seat must both have boxes');
 
-      // Horizontally centred, within a few percent: the stool is at 0.492 of the painting and the
-      // picture is centred on the frame, so the two agree wherever the frame is cropped.
-      const centre = (button.x + button.width / 2 - room.x) / room.width;
-      expect(centre, 'the seat drifted off the middle of the room').toBeGreaterThan(0.4);
-      expect(centre).toBeLessThan(0.6);
-      // And on the lower half of the picture, where the stools are, rather than up among the
-      // bottles: a plate that failed to load leaves the button at the top of an empty box.
-      const down = (button.y + button.height / 2 - room.y) / room.height;
-      expect(down, 'the seat is not down among the stools').toBeGreaterThan(0.45);
+      // Horizontally on the stool: it stands at 0.502 of the painting, a shade right of centre.
+      const centre = (button.x + button.width / 2 - picture.x) / picture.width;
+      expect(centre, 'the seat drifted off the stool').toBeGreaterThan(0.46);
+      expect(centre).toBeLessThan(0.54);
+
+      /*
+       * And **clear of the cushion**, which is the whole point of the placement.
+       *
+       * The empty stool is the thing the control is about, so a plaque drawn over it is the one
+       * placement that cannot be right: a player looking for the free seat finds a button where it
+       * should be. The gate that stood here asked only that the button was somewhere on the lower
+       * half of the room, which every wrong placement in the room's history would also have passed.
+       *
+       * `CUSHION_TOP` is read off the delivered plate: on the 1926×817 room the stool's cushion
+       * starts at 64.3% of the painting's height. The plaque is a fixed pixel size, so how much of
+       * the painting it covers changes with the window: at 1024 it is 15% of the picture's height
+       * and at 1920 it is 8%. That is exactly why it hangs from its bottom edge, and why this
+       * checks the bottom edge rather than the middle.
+       */
+      const CUSHION_TOP = 0.643;
+      const bottom = (button.y + button.height - picture.y) / picture.height;
+      expect(bottom, 'the Sit down plaque is covering the empty stool').toBeLessThanOrEqual(
+        CUSHION_TOP,
+      );
+      // ...and still down among the stools rather than up among the bottles: a plate that failed
+      // to load leaves the button at the top of an empty box.
+      expect(bottom, 'the seat is not down among the stools').toBeGreaterThan(0.5);
 
       await expect(seat).toBeInViewport({ ratio: 1 });
       // The two readouts sit on the glass over the room rather than under the nav bar.

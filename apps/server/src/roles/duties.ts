@@ -24,6 +24,12 @@ import {
 /**
  * What each role actually puts to work (GDD §C2).
  *
+ * **Superseded as the effect table.** `crewSheet` reads `ROLE_IMPORTANCE` in `@frontline/shared`
+ * now, which grades every skill on four tiers instead of this table's in-or-out, and which is
+ * public because the officer sheet draws it as coloured borders. This is kept because the *hiring*
+ * side still reads it, and it stays here rather than being folded into the public table for the
+ * reason at the top of this file.
+ *
  * ## Why it exists
  *
  * A crew's rating in an attribute used to be the best rating anybody in the room had, regardless
@@ -64,14 +70,14 @@ export function roleUses(role: OfficerRole, attribute: AttributeName): boolean {
   return ROLE_DUTIES[role].includes(attribute);
 }
 
-/** One officer, ready for `crewSheet`: their sheet and the duties of the chair they are in. */
+/** One officer, ready for `crewSheet`: their sheet and the chair they are in. */
 export function seatedMember(attributes: Attributes, role: OfficerRole): CrewMember {
-  return { attributes, duties: ROLE_DUTIES[role] };
+  return { attributes, role };
 }
 
 /** The Overseer: no seat, no discount, everything they know available all the time. */
 export function overseerMember(attributes: Attributes): CrewMember {
-  return { attributes, duties: null };
+  return { attributes, role: null };
 }
 
 /** Guards at load that every seat has duties, so an added role cannot silently use nothing. */

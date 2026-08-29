@@ -14,9 +14,9 @@ import { cn } from '../../lib/cn';
 
 const TIER_TINTS: Record<UnitTier, string> = {
   // Dimmer than rabble, and deliberately: a porter is the one tier that is not a soldier at all.
-  support: 'from-surface-800/60 text-ink-100/8',
+  carrier: 'from-surface-800/60 text-ink-100/8',
   rabble: 'from-surface-700/60 text-ink-100/10',
-  regular: 'from-ferrite-700/50 text-ink-100/12',
+  wonder: 'from-ferrite-700/50 text-ink-100/12',
   specialist: 'from-hextech-500/25 text-ink-100/15',
   heavy: 'from-warning/20 text-ink-100/15',
   legendary: 'from-oxblood-300/25 text-ink-100/20',

@@ -4,7 +4,15 @@ import { winnerLossFraction } from './attrition.js';
 import { bareBattlefield } from './battlefield.js';
 import { effectiveStats } from './effects.js';
 import { noTerritoryEffects } from '../city/index.js';
-import { pursue, simulate, sidePower, type Simulation } from './engine.js';
+import {
+  allocate,
+  pursue,
+  simulate,
+  sidePower,
+  TAUNT_PULL,
+  type Simulation,
+  type Stack,
+} from './engine.js';
 
 /**
  * The engine's behaviour, measured rather than asserted about.
@@ -280,5 +288,85 @@ describe('regressions', () => {
         }
       }
     }
+  });
+});
+
+/**
+ * The taunt, tested where it actually lives.
+ *
+ * `matchup.test.ts` pins that the wall would be ignored on threat alone and that its sheet carries
+ * the flag. Neither of those is the rule: the rule is that `allocate` reads the flag and moves the
+ * fire, and the first version of these tests asserted only the two facts either side of it. Cutting
+ * the taunt out of `allocate` entirely left all 262 battle tests green, which is a gate that cannot
+ * fail over a mechanic that had stopped working.
+ */
+describe('a taunting stack takes the fire off the line behind it', () => {
+  const stackOf = (id: string, alive: number): Stack => {
+    const spec = findUnit(id);
+    if (!spec) throw new Error(`no unit ${id}`);
+    const effective = effectiveStats(
+      spec,
+      bareBattlefield(),
+      { defending: false, outnumbered: false },
+      noTerritoryEffects(),
+    );
+    return {
+      unit: spec,
+      effective,
+      alive,
+      pool: alive * effective.vitality,
+      morale: effective.morale,
+      brokeAt: null,
+      started: alive,
+      dealt: 0,
+    };
+  };
+  const shareOf = (split: { target: Stack; share: number }[], id: string): number =>
+    split.find((part) => part.target.unit.id === id)?.share ?? 0;
+
+  const shooter = stackOf('snipers', 10);
+
+  it('pulls the taunt share onto the wall and leaves the rest to be divided', () => {
+    const wall = stackOf('ironsides', 6);
+    const soft = stackOf('stitchers', 6);
+    const split = allocate(shooter, [wall, soft]);
+
+    expect(shareOf(split, 'ironsides')).toBeCloseTo(TAUNT_PULL, 10);
+    expect(shareOf(split, 'stitchers')).toBeCloseTo(1 - TAUNT_PULL, 10);
+    // Whatever the rule does, a stack fires all of its fire.
+    expect(split.reduce((sum, part) => sum + part.share, 0)).toBeCloseTo(1, 10);
+  });
+
+  /** The bit that makes it a taunt rather than a preference: it beats being the better target. */
+  it('holds the fire even when everything behind it is a softer target', () => {
+    const wall = stackOf('ironsides', 6);
+    const behind = [stackOf('stitchers', 6), stackOf('snipers', 6), stackOf('sparks', 10)];
+    const split = allocate(shooter, [wall, ...behind]);
+
+    expect(shareOf(split, 'ironsides')).toBeCloseTo(TAUNT_PULL, 10);
+    for (const soft of behind) {
+      expect(shareOf(split, soft.unit.id), soft.unit.id).toBeLessThan(TAUNT_PULL);
+    }
+  });
+
+  it('goes back to a plain threat split once the wall is down', () => {
+    const dead = { ...stackOf('ironsides', 6), alive: 0, pool: 0 };
+    const soft = stackOf('stitchers', 6);
+    const other = stackOf('sparks', 10);
+    const split = allocate(shooter, [dead, soft, other]);
+
+    expect(shareOf(split, 'ironsides')).toBe(0);
+    expect(shareOf(split, 'stitchers') + shareOf(split, 'sparks')).toBeCloseTo(1, 10);
+  });
+
+  it('changes nothing when there is no wall, and nothing when there is only a wall', () => {
+    const soft = stackOf('stitchers', 6);
+    const other = stackOf('sparks', 10);
+    const none = allocate(shooter, [soft, other]);
+    expect(none.reduce((sum, part) => sum + part.share, 0)).toBeCloseTo(1, 10);
+    expect(shareOf(none, 'stitchers')).toBeGreaterThan(0);
+
+    const only = allocate(shooter, [stackOf('ironsides', 6), stackOf('ironsides', 4)]);
+    expect(only.reduce((sum, part) => sum + part.share, 0)).toBeCloseTo(1, 10);
   });
 });

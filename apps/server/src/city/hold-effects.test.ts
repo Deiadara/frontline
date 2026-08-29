@@ -322,13 +322,26 @@ describe('the Watchtower', () => {
      *
      * `blurAgainst` is `max(0, theirResistance - myYield)`, so against a crew with no Deception the
      * count is already exact and no amount of Watchtower can sharpen it further: the test would
-     * pass for the wrong reason, or fail for one. Seated as Head Spy deliberately: that seat's
-     * duties include Deception, so the rating counts in full (§C2).
+     * pass for the wrong reason, or fail for one.
+     *
+     * Seated as Head Spy deliberately, and carrying **both** attributes that drive the channel.
+     * The seat rates Deception as essential rather than irreplaceable, so it pays three quarters
+     * (`IMPORTANCE_SHARE`), and one attribute at 90 no longer clears the reader's own yield: the
+     * count came back exact and the assertion below failed with `40 not to be 40`, which is this
+     * fixture being too weak rather than the Watchtower being broken. Cryptography drives the same
+     * channel and the seat rates it useful, so the pair together put a real blur on the count.
      */
     stack.app.repos.bases.updateCommanders(rivalId, [
-      createCommander('rival-spy', 'The Ghost', 'head_spy', { deception: 90 }, [], {
-        now: new Date().toISOString(),
-      }),
+      createCommander(
+        'rival-spy',
+        'The Ghost',
+        'head_spy',
+        { deception: 100, cryptography: 100 },
+        [],
+        {
+          now: new Date().toISOString(),
+        },
+      ),
     ]);
 
     const press = stack.app.repos.city.control('rustyard-press');
@@ -336,7 +349,11 @@ describe('the Watchtower', () => {
     stack.app.repos.city.put({
       ...press,
       holder: { kind: 'faction', baseId: rivalId },
-      garrison: { razors: 40 },
+      // 37 rather than a round 40, and that is load-bearing. `blurredCount` rounds to a grain of
+      // `1 + floor(blur / 8)`, and 40 lands back on 40 at grains 1, 2, 4, 5 and 8: a garrison of
+      // forty made this assertion pass or fail on whether the blur happened to hit one of the
+      // grains that move it, which is luck rather than a gate. 37 moves at every grain above 1.
+      garrison: { razors: 37 },
     });
 
     const count = async (): Promise<number> => {
@@ -364,7 +381,7 @@ describe('the Watchtower', () => {
     // The rival's deception blurs the count; the Watchtower is what cuts through it. Whichever way
     // this fixture's numbers land, holding it must *change* the reading: nothing is the bug.
     expect(sharp, 'the Watchtower changed nothing about what a scout sees').not.toBe(blurred);
-    expect(Math.abs(sharp - 40)).toBeLessThanOrEqual(Math.abs(blurred - 40));
+    expect(Math.abs(sharp - 37)).toBeLessThanOrEqual(Math.abs(blurred - 37));
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { UNIT_CATALOG, UNIT_TIERS, findUnit, unitsInTier } from '../units/index.js';
+import { UNIT_CATALOG, UNIT_TIERS, findUnit, unitsInTier, type UnitTier } from '../units/index.js';
 import {
   INFAMY_PER_TIER,
   NOTORIETY_TO_FIELD,
@@ -25,18 +25,31 @@ describe('what a kill is worth (§D7)', () => {
   });
 
   it('pays nothing at all for a porter: they are never in the line to be killed', () => {
-    for (const unit of unitsInTier('support')) expect(infamyForKill(unit), unit.id).toBe(0);
+    for (const unit of unitsInTier('carrier')) expect(infamyForKill(unit), unit.id).toBe(0);
   });
 
-  it('climbs strictly with tier, taking the cheapest member of each as the comparison', () => {
-    // Support aside: they are not a rung of the ladder, they are off it. Everything that can
-    // actually be killed in a battle line climbs.
-    const fighting = UNIT_TIERS.filter((tier) => tier !== 'support');
-    const cheapest = fighting.map((tier) =>
-      Math.min(...unitsInTier(tier).map((unit) => infamyForKill(unit))),
+  /**
+   * Climbs over the rungs of the ladder, which is not the same as climbing over the tiers.
+   *
+   * Carriers are off the ladder entirely: they are never in a line to be killed. Specialists and
+   * Wonders of Engineering share a rung (see `units.test.ts` for why), and the cheapest member of
+   * a shared rung is what has to clear the rung below: a Cyberhound eats one supply against a
+   * Netrunner's three, so the two tiers interleave by design.
+   */
+  it('climbs strictly with the rungs, taking the cheapest member of each as the comparison', () => {
+    const RUNGS: readonly (readonly UnitTier[])[] = [
+      ['rabble'],
+      ['specialist', 'wonder'],
+      ['heavy'],
+      ['legendary'],
+    ];
+    expect(RUNGS.flat().sort()).toEqual(UNIT_TIERS.filter((tier) => tier !== 'carrier').sort());
+
+    const cheapest = RUNGS.map((rung) =>
+      Math.min(...rung.flatMap((tier) => unitsInTier(tier)).map((unit) => infamyForKill(unit))),
     );
     for (let i = 1; i < cheapest.length; i += 1) {
-      expect(cheapest[i]!, fighting[i]).toBeGreaterThan(cheapest[i - 1]!);
+      expect(cheapest[i]!, RUNGS[i]!.join('/')).toBeGreaterThan(cheapest[i - 1]!);
     }
   });
 
@@ -52,7 +65,7 @@ describe('what a kill is worth (§D7)', () => {
   });
 
   it('scales inside a tier by what a unit eats, so a big specialist is worth two small ones', () => {
-    // Snipers are supply 2 against the Cyber Dogs' 1: twice the bodies, twice the name.
+    // Snipers are supply 2 against the Cyberhounds' 1: twice the bodies, twice the name.
     //
     // A ratio rather than an equality, because the value is rounded to a whole point: the smaller
     // unit's 12.5 rounds up to 13, so twice it is 26 against the bigger one's 25. What the rule
@@ -62,7 +75,7 @@ describe('what a kill is worth (§D7)', () => {
 
   it('never prices a fighting unit at nothing', () => {
     for (const unit of UNIT_CATALOG) {
-      if (unit.tier === 'support') continue;
+      if (unit.tier === 'carrier') continue;
       expect(infamyForKill(unit), unit.id).toBeGreaterThan(0);
     }
   });
@@ -117,9 +130,23 @@ describe('spending it', () => {
 });
 
 describe('what a name lets you field (§D7)', () => {
-  it('lets anybody put rabble and regulars on the street', () => {
+  /**
+   * Both halves, because the gate is no longer the tier alone (see `NOTORIETY_HEAVY_SUPPLY`).
+   *
+   * Breakers are in the Heavy tier and are still ungated: they are a Gauntlet 4 unit a crew trains
+   * in its first session, and a rank on the tier locked them behind a reputation nobody has yet.
+   */
+  it('lets anybody put rabble and the cheap end of the armour on the street', () => {
     expect(notorietyToField('razors')).toBe(0);
-    expect(notorietyToField('breakers')).toBe(0);
+    for (const id of ['breakers', 'wardens', 'sluggers', 'ironsides']) {
+      expect(notorietyToField(id), id).toBe(0);
+    }
+  });
+
+  it('still asks for a name before the genuinely heavy things in the same tier', () => {
+    for (const id of ['juggernauts', 'hollow_men']) {
+      expect(notorietyToField(id), id).toBe(NOTORIETY_TO_FIELD.heavy);
+    }
   });
 
   it('asks for a real name before the heaviest things will take a contract', () => {

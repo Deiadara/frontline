@@ -142,6 +142,251 @@ into #1b2233 haze with one warm #8a5209 inspection lamp.
 
 ---
 
+## 1b. Officer portraits
+
+### 1b.0 Framing
+
+```
+Head-and-shoulders portrait, three-quarter view, eyes on the upper-third line, the subject looking at or just past the viewer. Painted on a shallow, unreadable interior: the room is light and colour rather than architecture. Vertical 4:5 composition, face within the central seventy percent. One person, no insignia the player has not earned, no text. These are the people a crew hires, so they read as *people*: ordinary faces, worn clothes, an age range and a range of builds, and expressions that are doing something other than posing.
+```
+
+The pool an officer's face is drawn from (`OFFICER_PORTRAIT_IDS`). Which face a given officer
+wears is derived from their id, never stored: see `officerPortraitId`.
+
+| Key          | Seed     |
+| ------------ | -------- |
+| `officer-01` | `115001` |
+| `officer-02` | `115002` |
+| `officer-03` | `115003` |
+| `officer-04` | `115004` |
+| `officer-05` | `115005` |
+| `officer-06` | `115006` |
+| `officer-07` | `115007` |
+| `officer-08` | `115008` |
+| `officer-09` | `115009` |
+| `officer-10` | `115010` |
+| `officer-11` | `115011` |
+| `officer-12` | `115012` |
+| `officer-13` | `115013` |
+| `officer-14` | `115014` |
+| `officer-15` | `115015` |
+| `officer-16` | `115016` |
+| `officer-17` | `115017` |
+| `officer-18` | `115018` |
+| `officer-19` | `115019` |
+| `officer-20` | `115020` |
+| `officer-21` | `115021` |
+| `officer-22` | `115022` |
+| `officer-23` | `115023` |
+| `officer-24` | `115024` |
+| `officer-25` | `115025` |
+| `officer-26` | `115026` |
+| `officer-27` | `115027` |
+| `officer-28` | `115028` |
+| `officer-29` | `115029` |
+| `officer-30` | `115030` |
+| `officer-31` | `115031` |
+| `officer-32` | `115032` |
+| `officer-33` | `115033` |
+
+### 1b.1 `officer-01`
+
+```
+SUBJECT: A woman in her forties, dark hair cropped close, faint knowing smile, in a cramped office wall of clocks and paper behind her under violet light.
+```
+
+### 1b.2 `officer-02`
+
+```
+SUBJECT: A man in his forties with a heavy moustache and a worn leather coat, standing in a doorway with red sign-light on the wet street behind him.
+```
+
+### 1b.3 `officer-03`
+
+```
+SUBJECT: A young woman with a blunt black bob and a high-collared coat, unsmiling, cold blue harbour lights and moored hulls out of focus behind her.
+```
+
+### 1b.4 `officer-04`
+
+```
+SUBJECT: A heavy-set bald man in his sixties with a close grey beard, in a lamplit workshop with a brass fitting and a hanging cable behind his shoulder.
+```
+
+### 1b.5 `officer-05`
+
+```
+SUBJECT: A woman in her thirties with long locs pulled back, half smiling, teal and magenta signage smeared out of focus behind her.
+```
+
+### 1b.6 `officer-06`
+
+```
+SUBJECT: A young woman with a black fringed bob and a buttoned uniform collar, expression flat and unimpressed, deep blue night behind.
+```
+
+### 1b.7 `officer-07`
+
+```
+SUBJECT: A man in his fifties, grey-streaked curls and a short beard, laughing, backlit by the teal glow of a bar's bottle shelf.
+```
+
+### 1b.8 `officer-08`
+
+```
+SUBJECT: A wiry man standing small in a wide green-lit alley of stacked machinery, coat too big for him, the city crowding in over his head.
+```
+
+### 1b.9 `officer-09`
+
+```
+SUBJECT: A woman in her sixties, white hair cropped short, a heavy brown coat beaded with rain, standing on a street at dusk with figures behind her.
+```
+
+### 1b.10 `officer-10`
+
+```
+SUBJECT: A man in his forties, fair hair going grey, grinning, in a room whose walls are lit green by banks of screens.
+```
+
+### 1b.11 `officer-11`
+
+```
+SUBJECT: An older woman in spectacles bent over a desk of papers under a single lamp, glancing up, the room dark behind her.
+```
+
+### 1b.12 `officer-12`
+
+```
+SUBJECT: A woman with dark red hair pinned up and a scarred jaw, looking off frame, hard red light on one side of her face.
+```
+
+### 1b.13 `officer-13`
+
+```
+SUBJECT: A woman in her thirties with cropped platinum hair, smiling, a cyan console glow washing across her from below.
+```
+
+### 1b.14 `officer-14`
+
+```
+SUBJECT: A man in his fifties with a dark eyepatch and a heavy coat, seated beside an oil lamp in a violet-lit archive.
+```
+
+### 1b.15 `officer-15`
+
+```
+SUBJECT: A big man in his sixties, grey beard, head back mid-laugh, in front of a wall papered over many times with notices.
+```
+
+### 1b.16 `officer-16`
+
+```
+SUBJECT: A man in his sixties with swept grey hair and a long coat, expression closed, a grey harbour and a hailer horn behind him.
+```
+
+### 1b.17 `officer-17`
+
+```
+SUBJECT: A young man with dark curls and an eye-badged collar, half smiling, pink neon lettering out of focus over his shoulder.
+```
+
+### 1b.18 `officer-18`
+
+```
+SUBJECT: A bald man in his fifties in a dark coat with a green medical cross at the breast, standing square, a dim ward behind him.
+```
+
+### 1b.19 `officer-19`
+
+```
+SUBJECT: A woman in her sixties with a blonde bob and a severe set to her mouth, in a vaulted hall lit warm from one side.
+```
+
+### 1b.20 `officer-20`
+
+```
+SUBJECT: A young man with untidy brown hair and an open face, violet and pink city light behind him.
+```
+
+### 1b.21 `officer-21`
+
+```
+SUBJECT: A woman in her forties with dark hair pinned up and a badged uniform, standing before a wall of pigeonholes and ledgers.
+```
+
+### 1b.22 `officer-22`
+
+```
+SUBJECT: A heavy man in his fifties with a curled moustache, beaming, in a covered market of lanterns with a set of brass scales hanging beside him.
+```
+
+### 1b.23 `officer-23`
+
+```
+SUBJECT: A bald man in his forties with heavy stubble and a canvas jacket, teal water and lights behind him.
+```
+
+### 1b.24 `officer-24`
+
+```
+SUBJECT: A man in his sixties, white hair swept back, deep-set eyes, a great clock face and warm lamps behind him.
+```
+
+### 1b.25 `officer-25`
+
+```
+SUBJECT: A man in his thirties with dark curls and a tired, patient expression, green industrial light behind him.
+```
+
+### 1b.26 `officer-26`
+
+```
+SUBJECT: A man in his fifties with a greying beard and a worn coat, blue-lit shelving stacked behind him.
+```
+
+### 1b.27 `officer-27`
+
+```
+SUBJECT: A man in his thirties with a thin moustache and an open collar, faintly amused, hanging lanterns behind him.
+```
+
+### 1b.28 `officer-28`
+
+```
+SUBJECT: A man in his forties with a black beard and a red-lined coat, unsmiling, green light on the wall behind.
+```
+
+### 1b.29 `officer-29`
+
+```
+SUBJECT: An elegant man in his sixties, white hair and a trimmed moustache, high collar, violet gloom behind him.
+```
+
+### 1b.30 `officer-30`
+
+```
+SUBJECT: A man in his thirties with dark curls, grinning, a strapped work harness across his chest and teal lanterns behind him.
+```
+
+### 1b.31 `officer-31`
+
+```
+SUBJECT: A man in his fifties with a grey beard and a fur-collared coat, warm lamplight on one cheek.
+```
+
+### 1b.32 `officer-32`
+
+```
+SUBJECT: A thin man with round spectacles and a stained work apron, standing in a cluttered workshop.
+```
+
+### 1b.33 `officer-33`
+
+```
+SUBJECT: A woman in her forties with dark hair tied up and a scarf at her throat, an apron over her clothes, violet light behind her.
+```
+
 ## 2. District illustrations: 10 assets
 
 **Class framing** (append to each):
@@ -706,39 +951,39 @@ people. No group shots, no insignia the player has not earned, no text.
 Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
 `unit-road-reavers`).
 
-| Key                       | Unit               | Tier        | Seed     |
-| ------------------------- | ------------------ | ----------- | -------- |
-| `unit-razors`             | Razors             | Rabble      | `145001` |
-| `unit-anodics`            | Anodics            | Rabble      | `145002` |
-| `unit-sparks`             | Sparks             | Rabble      | `145003` |
-| `unit-scrapers`           | Scrapers           | Rabble      | `145004` |
-| `unit-breakers`           | Breakers           | Regulars    | `145005` |
-| `unit-wardens`            | Wardens            | Regulars    | `145006` |
-| `unit-ghosts`             | Ghosts             | Regulars    | `145007` |
-| `unit-road-reavers`       | Road Reavers       | Regulars    | `145008` |
-| `unit-ironsides`          | Ironsides          | Regulars    | `145009` |
-| `unit-ash-walkers`        | Ash Walkers        | Regulars    | `145010` |
-| `unit-snipers`            | Snipers            | Specialists | `145011` |
-| `unit-stitchers`          | Stitchers          | Specialists | `145012` |
-| `unit-demolishers`        | Demolishers        | Specialists | `145013` |
-| `unit-kite-crews`         | Kite Crews         | Specialists | `145014` |
-| `unit-netrunners`         | Netrunners         | Specialists | `145015` |
-| `unit-sleepers`           | Sleepers           | Specialists | `145016` |
-| `unit-cyber-dogs`         | Cyber Dogs         | Specialists | `145017` |
-| `unit-bell-ringers`       | Bell-Ringers       | Specialists | `145018` |
-| `unit-juggernauts`        | Juggernauts        | Heavy       | `145019` |
-| `unit-hollow-men`         | Hollow Men         | Heavy       | `145020` |
-| `unit-the-condemned`      | The Condemned      | Heavy       | `145021` |
-| `unit-the-specter`        | The Specter        | Legendary   | `145022` |
-| `unit-the-abomination`    | The Abomination    | Legendary   | `145023` |
-| `unit-the-colossus`       | The Colossus       | Legendary   | `145024` |
-| `unit-the-saint`          | The Saint          | Legendary   | `145025` |
-| `unit-the-cartographer`   | The Cartographer   | Legendary   | `145026` |
-| `unit-the-twins`          | The Twins          | Specialists | `145027` |
-| `unit-scavengers`         | Scavengers         | Support     | `145028` |
-| `unit-haulers`            | Haulers            | Support     | `145029` |
-| `unit-the-crimson-dancer` | The Crimson Dancer | Legendary   | `145030` |
-| `unit-sluggers`           | Sluggers           | Regulars    | `145031` |
+| Key                       | Unit               | Tier                   | Seed     |
+| ------------------------- | ------------------ | ---------------------- | -------- |
+| `unit-razors`             | Razors             | Rabble                 | `145001` |
+| `unit-anodics`            | Anodics            | Rabble                 | `145002` |
+| `unit-sparks`             | Sparks             | Rabble                 | `145003` |
+| `unit-scrapers`           | Scrapers           | Rabble                 | `145004` |
+| `unit-breakers`           | Breakers           | Heavy                  | `145005` |
+| `unit-wardens`            | Wardens            | Heavy                  | `145006` |
+| `unit-ghosts`             | Ghosts             | Specialists            | `145007` |
+| `unit-road-reavers`       | Road Reavers       | Wonders of Engineering | `145008` |
+| `unit-ironsides`          | Ironsides          | Heavy                  | `145009` |
+| `unit-ash-walkers`        | Ash Walkers        | Rabble                 | `145010` |
+| `unit-snipers`            | Snipers            | Specialists            | `145011` |
+| `unit-stitchers`          | Stitchers          | Specialists            | `145012` |
+| `unit-demolishers`        | Demolishers        | Specialists            | `145013` |
+| `unit-kite-crews`         | Kite Crews         | Wonders of Engineering | `145014` |
+| `unit-netrunners`         | Netrunners         | Specialists            | `145015` |
+| `unit-sleepers`           | Sleepers           | Specialists            | `145016` |
+| `unit-cyber-dogs`         | Cyberhounds        | Wonders of Engineering | `145017` |
+| `unit-juggernauts`        | Juggernauts        | Heavy                  | `145018` |
+| `unit-hollow-men`         | Hollow Men         | Heavy                  | `145019` |
+| `unit-the-condemned`      | The Condemned      | Rabble                 | `145020` |
+| `unit-the-specter`        | The Specter        | Legendary              | `145021` |
+| `unit-the-abomination`    | The Abomination    | Legendary              | `145022` |
+| `unit-the-colossus`       | The Colossus       | Legendary              | `145023` |
+| `unit-the-saint`          | The Saint          | Legendary              | `145024` |
+| `unit-the-cartographer`   | The Cartographer   | Legendary              | `145025` |
+| `unit-the-twins`          | Twins              | Wonders of Engineering | `145026` |
+| `unit-scavengers`         | Scavengers         | Carriers               | `145027` |
+| `unit-haulers`            | Haulers            | Carriers               | `145028` |
+| `unit-the-crimson-dancer` | The Crimson Dancer | Legendary              | `145029` |
+| `unit-sluggers`           | Sluggers           | Heavy                  | `145030` |
+| `unit-the-loose-end`      | The Loose End      | Legendary              | `145031` |
 
 ### 7.1 `unit-razors`
 
@@ -842,88 +1087,88 @@ SUBJECT: An unremarkable person in ordinary work clothes, coveralls, a laminated
 SUBJECT: Two lean working dogs in profile, one a half-step ahead. Cropped harnesses with a low-profile spine plate and a socketed collar; one animal's muzzle and jaw partly replaced with matte dark alloy. No visible weapons. Ears forward, weight on the front paws, mid-stride. Cold #22d3ee sensor glint at the collar sockets, warm #f59e0b ground bounce along the flanks.
 ```
 
-### 7.18 `unit-bell-ringers`
-
-```
-SUBJECT: A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one arm and holding heavy ear defenders in the other. Four stacked horn drivers fill the frame behind the shoulder. Air distorts in a visible ring; the ground tone smears where it passes.
-```
-
-### 7.19 `unit-juggernauts`
+### 7.18 `unit-juggernauts`
 
 ```
 SUBJECT: A fully augmented heavy assault trooper: a human silhouette only at the head, with the arms and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts. A small scarred face remains behind an open faceplate. Cold key finds machined edges; warm #8a5209 leaks from the joint seams.
 ```
 
-### 7.20 `unit-hollow-men`
+### 7.19 `unit-hollow-men`
 
 ```
 SUBJECT: A shock trooper standing too straight in matte assault plate, faceplate open on an expression of complete calm, pupils blown wide. Surgical scarring in a neat arc above one temple. Blood on the gauntlets, none anywhere else. Even flat light, almost no shadow: nothing to read.
 ```
 
-### 7.21 `unit-the-condemned`
+### 7.20 `unit-the-condemned`
 
 ```
 SUBJECT: A convict fighter in a stripped prison coverall with the sleeves torn away, a welded collar at the throat and a heavy chain-wrapped blade held in both hands. Fresh brand on the shoulder, older scars beneath it. Head lifted, grinning; harsh cold key from directly above.
 ```
 
-### 7.22 `unit-the-specter`
+### 7.21 `unit-the-specter`
 
 ```
 SUBJECT: A figure caught mid-decloak: the outline is complete but the body is only present in patches, the rest refracting the plaster ground behind it in smeared cyan #22d3ee bands. What is solid is a matte infiltration suit and one long knife. No face resolves.
 ```
 
-### 7.23 `unit-the-abomination`
+### 7.22 `unit-the-abomination`
 
 ```
 SUBJECT: A failed experiment: a mass of grafted muscle and salvaged plate on a frame that no longer agrees on how many limbs it has, restraint bolts still through the shoulders and one trailing cable. Half a human face is set into the upper mass at the wrong angle. Sickly #86e6a8 fluid light from within the seams.
 ```
 
-### 7.24 `unit-the-colossus`
+### 7.23 `unit-the-colossus`
 
 ```
 SUBJECT: A walking fortress seen from the ground looking up, so only its lower hull, one tread-footed leg and the underside of a gun sponson fit the frame. Rivet lines the size of a person, hatch ladders, and a tiny crew figure on a walkway for scale. Cold sky behind, warm exhaust glow beneath.
 ```
 
-### 7.25 `unit-the-saint`
+### 7.24 `unit-the-saint`
 
 ```
 SUBJECT: An older fighter in a long weathered coat over plain plate, unarmed hands open at the sides, a sheathed sword slung across the back. Grey cropped hair, deep-lined face, entirely calm. The one portrait lit warmly from the front: amber #ffd166 across the face, cold #22d3ee only as a thin rim.
 ```
 
-### 7.26 `unit-the-cartographer`
+### 7.25 `unit-the-cartographer`
 
 ```
 SUBJECT: A traveller in a layered dust coat hung with rolled charts, a brass sighting compass on a thong and a chalk stub behind the ear, one hand flat on a map board marked over many times in different hands. Eyes on the viewer rather than the map. Warm lamp light on the paper, cold light on everything else.
 ```
 
-### 7.27 `unit-the-twins`
+### 7.26 `unit-the-twins`
 
 ```
 SUBJECT: A riveted automaton standing square in a workshop, one torso carrying two bald heads set back to back, so one face is toward the viewer and the other is turned away. Plate over a leather harness, long jointed hands hanging open, no weapon anywhere on it. Warm bulb light from two hanging lamps, drawings pinned on the wall behind.
 ```
 
-### 7.28 `unit-scavengers`
+### 7.27 `unit-scavengers`
 
 ```
 SUBJECT: A wiry salvager in a patched coat with a canvas satchel across the chest and a coil of copper wire over one shoulder. Fingerless gloves black to the second knuckle, a headlamp pushed up onto the forehead, a short pry bar hanging from the belt where a weapon would be on anybody else. Reading a wall rather than watching a door.
 ```
 
-### 7.29 `unit-haulers`
+### 7.28 `unit-haulers`
 
 ```
 SUBJECT: A broad-shouldered porter in a leather harness braced against the weight of a loaded barrow, the strap worn shiny across one shoulder. Boots wrapped against the wet, a folded tarpaulin lashed over the load, both hands on the shafts. Nothing on them that could be called a weapon.
 ```
 
-### 7.30 `unit-the-crimson-dancer`
+### 7.29 `unit-the-crimson-dancer`
 
 ```
 SUBJECT: A dancer balanced on the point of a bladed prosthetic leg in a ruined ballroom, both legs and both forearms jointed steel, a torn crimson coat thrown out by the turn. Chin up, arms carried high and wide as if mid-figure rather than mid-fight. Deep red light from a broken window behind, cold rim on the steel, thrown blades streaking past out of focus.
 ```
 
-### 7.31 `unit-sluggers`
+### 7.30 `unit-sluggers`
 
 ```
 SUBJECT: A broad, heavyset fighter standing square in scavenged plate over a sleeveless work vest, both hands across a short double-barrelled slug gun held low at the waist. Bracers to the elbow, heavy boots, hair braided back off a scarred face. Calm rather than braced. Warm furnace light from the right, cold fill on the plate.
+```
+
+### 7.31 `unit-the-loose-end`
+
+```
+SUBJECT: A lean swordsman low in a turning crouch under a flooded overpass, black scale-plate wrapped up both forearms and one shoulder, ragged dark hair, a long segmented chain-blade swung out low and lit violet along its edge. Tracer rounds streak past above and behind, missing, one shooter half in silhouette firing from the far dark. Cold purple key from the blade, warm muzzle spark opposite, wet ground taking both.
 ```
 
 ## 8. Consistency protocol

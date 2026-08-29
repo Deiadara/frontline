@@ -58,10 +58,12 @@ export const STARTING_INFAMY = 0;
 export const INFAMY_PER_TIER: Readonly<Record<UnitTier, number>> = {
   // Nobody makes a name out of killing porters. Zero rather than a small number, because a
   // support unit is never in a battle line to be killed in the first place.
-  support: 0,
+  carrier: 0,
   rabble: 1,
-  regular: 5,
   specialist: 25,
+  // Above the specialists rather than beside them: a Cyberhound is a thing somebody *built*, and
+  // the crew that lost one is short a machine rather than short a person they can hire again.
+  wonder: 30,
   heavy: 60,
   legendary: 100,
 };
@@ -71,15 +73,15 @@ export const INFAMY_PER_TIER: Readonly<Record<UnitTier, number>> = {
  * quoted against.
  *
  * Scaling by supply rather than authoring a number per unit is what keeps this table honest as the
- * roster grows: The Twins are two Snipers' worth of bodies and are worth two Snipers' worth of
+ * roster grows: the Twins are two Snipers' worth of bodies and are worth two Snipers' worth of
  * infamy without anybody remembering to say so. A unit added tomorrow is priced the day it is
  * written.
  */
 export const TYPICAL_SUPPLY: Readonly<Record<UnitTier, number>> = {
-  support: 1,
+  carrier: 1,
   rabble: 1,
-  regular: 2,
   specialist: 2,
+  wonder: 2,
   heavy: 5,
   legendary: 8,
 };
@@ -186,19 +188,37 @@ export function spendInfamy(infamy: number, cost: number): number | null {
  * it is written. A unit that is not gated returns 0, and every call site can treat 0 as "anybody".
  */
 export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
-  support: 0,
+  carrier: 0,
   rabble: 0,
-  regular: 0,
   specialist: 0,
+  wonder: 0,
   /** `Ill-Reputed`. A heavy unit wants to hear the name before it turns up. */
   heavy: 2,
   /** `Marked`. A legend does not work for anybody the Combine has not opened a file on. */
   legendary: 5,
 };
 
+/**
+ * The supply a unit has to eat before the Heavy tier's rank gate applies to it.
+ *
+ * The gate is derived off the tier, and that stopped being sufficient when the line infantry moved
+ * into Heavy: the tier now runs from Breakers, which a crew trains off a Gauntlet 4 in its first
+ * session, up to Juggernauts. A flat rank on the tier locked three cheap early units behind a
+ * reputation nobody has yet, which is a progression wall where the reshuffle meant to put a shelf
+ * of armour.
+ *
+ * Supply is the right axis for what the gate was always asking: not "is it armoured" but "is it a
+ * big deal". Five is where Juggernauts and Hollow Men sit and Breakers, Wardens, Sluggers and
+ * Ironsides do not.
+ */
+export const NOTORIETY_HEAVY_SUPPLY = 5;
+
 export function notorietyToField(unit: UnitSpec | string): number {
   const spec = typeof unit === 'string' ? findUnit(unit) : unit;
-  return spec ? NOTORIETY_TO_FIELD[spec.tier] : 0;
+  if (!spec) return 0;
+  // See `NOTORIETY_HEAVY_SUPPLY`: armour alone is not what the gate is about.
+  if (spec.tier === 'heavy' && spec.supply < NOTORIETY_HEAVY_SUPPLY) return 0;
+  return NOTORIETY_TO_FIELD[spec.tier];
 }
 
 /**

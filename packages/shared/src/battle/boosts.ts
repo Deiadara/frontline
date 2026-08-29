@@ -83,9 +83,9 @@ export interface BattleBoostSpec {
 }
 
 const TIER_LABELS: Readonly<Record<UnitTier, string>> = {
-  support: 'porters',
+  carrier: 'porters',
   rabble: 'rabble',
-  regular: 'regulars',
+  wonder: 'engineered units',
   specialist: 'specialists',
   heavy: 'heavy units',
   legendary: 'legends',
@@ -138,7 +138,7 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
     name: 'Drilled All Week',
     description: 'Seven days of the same approach, walked until nobody has to be told twice.',
     cost: 420,
-    effect: { kind: 'tier', tier: 'regular', stat: 'offense', percent: 28 },
+    effect: { kind: 'tier', tier: 'wonder', stat: 'offense', percent: 28 },
     unlock: { kind: 'officer', role: 'instructor_of_the_young' },
   },
   {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { noTerritoryEffects } from '../city/index.js';
+import { noTerritoryEffects, type TerritoryEffects } from '../city/index.js';
 import { findUnit } from '../units/index.js';
 import { bareBattlefield } from './battlefield.js';
 import { effectiveStats } from './effects.js';
@@ -99,26 +99,47 @@ describe('a collapse spreads', () => {
 
 describe('intimidation decides fights, not just morale numbers', () => {
   /**
-   * End-to-end. Bell-Ringers do almost no damage (offense 32, and sonic against nothing that
-   * resists it) but carry 85 intimidation and the Terror sheet. Against a low-morale roster they
-   * must be worth bringing; that is the entire reason the unit exists.
+   * End-to-end, with **one** variable.
+   *
+   * This used to pit a terror unit against a plain one and assert the terror unit won more, which
+   * measured "is this unit stronger" at least as much as it measured terror, and it broke the day
+   * the cheap terror unit left the roster. Two further attempts were no better: win rate saturates
+   * (a heavy attacker takes 24 of 24 against both defences, so every gap reads as zero), and
+   * swapping the defending *unit* to change its nerve changes its toughness and its damage with it.
+   *
+   * So the defender is one army and the only thing that moves is its morale, through the territory
+   * bonus the engine already applies as a flat shift. A shaken enemy fights worse for everybody, so
+   * the bare gap proves nothing on its own: Breakers are the control at the same 30 supply, and
+   * what is asserted is that the unit carrying Terror gains *more* from the same collapse.
    */
-  it('makes a terror unit worth its supply against a fragile roster', () => {
-    const held = (defenders: Record<string, number>) => {
-      let wins = 0;
+  it('pays a terror unit more against a shaken line than a unit without it', () => {
+    const nerve = (flat: number): TerritoryEffects => ({
+      ...noTerritoryEffects(),
+      unitMoraleFlat: flat,
+    });
+    /** Share of the attacking force still standing at the end, averaged over the seeds. */
+    const survived = (army: Record<string, number>, flat: number) => {
+      let total = 0;
       for (let seed = 0; seed < 24; seed += 1) {
         const simulation = simulate({
           seed: `terror-${seed}`,
           battlefield: bareBattlefield(),
-          attacker: { name: 'A', army: defenders, defending: false },
-          defender: { name: 'D', army: { razors: 30 }, defending: true },
+          attacker: { name: 'A', army, defending: false },
+          defender: { name: 'D', army: { razors: 60 }, defending: true, territory: nerve(flat) },
         });
-        if (simulation.winner === 'attacker') wins += 1;
+        const alive = simulation.attacker.stacks.reduce((sum, stack) => sum + stack.alive, 0);
+        const sent = simulation.attacker.stacks.reduce((sum, stack) => sum + stack.started, 0);
+        total += sent === 0 ? 0 : alive / sent;
       }
-      return wins;
+      return total / 24;
     };
-    // Same supply either way: Bell-Ringers cost more each, so this is fewer bodies with the sheet.
-    expect(held({ bell_ringers: 12 })).toBeGreaterThan(held({ sparks: 12 }));
+    const gap = (army: Record<string, number>) => survived(army, -30) - survived(army, 40);
+
+    // Hollow Men carry Terror. Breakers do not, and 15 of them is the same 30 supply.
+    const terror = gap({ hollow_men: 6 });
+    const control = gap({ breakers: 15 });
+    expect(control, 'a shaken line should be easier for anybody').toBeGreaterThan(0.2);
+    expect(terror, 'Terror bought nothing against a collapse').toBeGreaterThan(control * 1.2);
   });
 });
 

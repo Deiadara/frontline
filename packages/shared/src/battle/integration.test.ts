@@ -58,7 +58,7 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
   },
   {
     name: 'terror against a fragile line',
-    attacking: { bell_ringers: 8, razors: 14 },
+    attacking: { hollow_men: 4, razors: 14 },
     defending: { sparks: 24 },
     ground: homeBattlefield('Kettle Row', DAY),
   },

@@ -202,7 +202,11 @@ export function PlateRoom({
         {/* Sized in pixels from a measurement rather than by CSS, for the reason the district
             scene spells out: `aspect-ratio` plus a `max-height` clamps the height without giving
             the width back, and the box quietly stops being the picture's shape. */}
+        {/* Named, because it is the box every mark on this screen is a fraction of. A gate that
+            wants to know whether a control landed on the thing it is drawn on has to measure
+            against the *picture*, not against the frame the picture is centred in. */}
         <div
+          data-testid="plate-picture"
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
           style={{ width: picture.width, height: picture.height }}
         >

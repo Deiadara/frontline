@@ -170,11 +170,35 @@ export interface Exchange {
  * Reductions multiply (`dodge`, `armor`, an unfavourable `type`) and bonuses were already summed
  * into `offense` and `target`. See `effects.ts` for why that split is load-bearing.
  *
- * Dodging is the one term that reads both sheets: evasion is what you do when you see it coming,
- * so an attacker who closed the distance faster than the defender could react gets part of it
- * back. Never all of it: a floor of {@link MIN_DODGE_KEPT} means speed cannot delete evasion.
+ * Dodging is a **chance to miss** rather than a damage discount, and it reads the defender's sheet
+ * alone: see {@link missChance}.
  */
-export const MIN_DODGE_KEPT = 0.35;
+
+/**
+ * Points of evasion per point of miss chance.
+ *
+ * Evasion halved is the chance a hit does not land: 60 evasion means three shots in ten go past.
+ * Two, because evasion is a 0..100 rating and a rating that *was* the miss chance would put the
+ * top of the scale at "never hit", which is not a unit, it is a wall. Halved, the most evasive
+ * sheet in the game still takes better than half of what is aimed at it.
+ *
+ * At stack scale this is applied as its expectation rather than rolled per shot, and that is the
+ * accurate version rather than a shortcut: a round is hundreds of bodies firing, `fireRound`
+ * settles the whole stack's output in one number, and the mean of hundreds of independent rolls is
+ * the miss rate to four figures. The variance a player actually feels is already in the fight, and
+ * it is seeded: `ROUND_LUCK` and `BATTLE_LUCK` are the dice, and they are drawn where a replay can
+ * reproduce them.
+ *
+ * It used to be a straight damage multiplier that speed could erode, on the theory that evasion is
+ * what you do when you see it coming. That coupled two axes for no gain a player could read: the
+ * sheet said 60 and what it was worth depended on who was shooting.
+ */
+export const EVASION_PER_MISS = 2;
+
+/** The chance one attack does not land, 0..1, from the defender's evasion alone. */
+export function missChance(evasion: number): number {
+  return clamp(evasion, 0, 100) / (EVASION_PER_MISS * 100);
+}
 
 export function exchange(
   attacker: Effective,
@@ -191,8 +215,7 @@ export function exchange(
   const armor = armorMultiplier(defender.armor, attacker.penetration + luck);
   const engagement = engagementMultiplier(attacker, defender);
 
-  const surprise = clamp(attacker.speed - defender.speed, 0, 100) / 100;
-  const dodge = 1 - (defender.evasion / 100) * Math.max(MIN_DODGE_KEPT, 1 - surprise);
+  const dodge = 1 - missChance(defender.evasion);
   const target = 1 + targetBonusPercent(attackerModifiers, defender, defenderMorale) / 100;
 
   return {

@@ -26,6 +26,7 @@ import {
   type WorkshopResponse,
   EFFECT_CHANNELS,
   OVERSEER_SUBJECT,
+  officerPortraitId,
   TRAINING_GAIN,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
@@ -1170,6 +1171,7 @@ export const trainingResponse: TrainingResponse = {
       id: OVERSEER_SUBJECT,
       name: overseer.name,
       role: 'Overseer',
+      officerRole: null,
       portraitId: overseer.portraitId,
       attributes: overseer.attributes,
       traits: overseer.traits,
@@ -1187,7 +1189,9 @@ export const trainingResponse: TrainingResponse = {
       id: 'officer-1',
       name: 'Ada Vasquez',
       role: 'Professor',
-      portraitId: null,
+      officerRole: 'professor',
+      // Off the pool, the way the server derives it: `officerPortraitId('officer-1')`.
+      portraitId: officerPortraitId('officer-1'),
       // A specialist, not a flat sheet: the profile's whole point is that one officer's good
       // number becomes the crew's, and a fixture at the recruitment mean shows none of that.
       attributes: makeAttributes(14, { intuition: 46, analysis: 38, diplomacy: 33, logic: 30 }),
@@ -1206,10 +1210,10 @@ export const trainingResponse: TrainingResponse = {
  * that needs a seated officer states the seat's duties itself.
  */
 const PROFESSOR_CREW = crewSheet([
-  { attributes: overseer.attributes, duties: null },
+  { attributes: overseer.attributes, role: null },
   {
     attributes: makeAttributes(14, { intuition: 46, analysis: 38, diplomacy: 33, logic: 30 }),
-    duties: ['intuition', 'diplomacy', 'improvisation', 'cryptography'],
+    role: 'professor',
   },
 ]);
 

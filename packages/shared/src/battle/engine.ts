@@ -49,9 +49,15 @@ export const MAX_ROUNDS = 12;
  * report reads follows from that, but it is also not a free dial. Too high and the loser is wiped
  * in one round before it fires back, which makes winning nearly free; too low and morale decides
  * the fight before casualties matter, which makes it a coin flip. Both failure modes were measured
- * on the way to 0.2, at which a 4:1 runs two rounds and a near-even fight runs six or seven.
+ * on the way to a 4:1 running two rounds and a near-even fight running six or seven.
+ *
+ * **It has to move whenever damage and hit points are rescaled against each other**, because a
+ * round removes `offense / vitality` of a pool and nothing else here reads either number in
+ * absolute terms. Damage went to a 0..700 scale and hit points to 0..1000, which is three times
+ * the damage per point of health the roster used to carry, so this is a third of the 0.2 it was
+ * tuned to. Same fights, same lengths, bigger figures on the sheet.
  */
-export const ROUND_DAMAGE_SCALE = 0.2;
+export const ROUND_DAMAGE_SCALE = 0.2 / 3;
 
 /**
  * How much massing bodies is worth beyond the bodies themselves: Lanchester's square law, weighted
@@ -280,26 +286,58 @@ function buildStacks(
 }
 
 /**
+ * The share of a stack's fire a taunting enemy pulls onto itself while it is standing.
+ *
+ * Not all of it, deliberately. "Attack them first" is the promise, and a floor of three quarters
+ * keeps it: the wall is what the enemy is dealing with, and the quarter that leaks past is forty
+ * people making their own decisions under fire, which is the same reason `allocate` splits at all.
+ * Total focus would make a single Ironside a wall of invulnerability for everything behind it, and
+ * a taunt that cannot be played around is not a tactic, it is a tax.
+ */
+export const TAUNT_PULL = 0.75;
+
+/**
  * How one stack splits its fire across the enemy's stacks.
  *
  * Weighted by {@link threatWeight}, so the counter system decides targeting rather than a rule
  * saying it should. Fire is *split* rather than focused on the single best target, because a stack
  * of forty is forty people making their own decisions: total focus would make every fight a
  * sequence of clean executions and would reward a single hard counter far past what it is worth.
+ *
+ * **A taunting stack breaks that split** (`UnitSpec.taunts`). It takes {@link TAUNT_PULL} of the
+ * incoming fire off the top and the rest of the enemy line divides what is left, which is what
+ * makes a shield wall a shield wall: threat weight is damage per point of enemy health, so a unit
+ * built to have no damage and a lot of health is otherwise the *least* attractive thing on the
+ * field and gets ignored while the people behind it are shot.
  */
-function allocate(attacker: Stack, enemies: readonly Stack[]): { target: Stack; share: number }[] {
+export function allocate(
+  attacker: Stack,
+  enemies: readonly Stack[],
+): { target: Stack; share: number }[] {
   const live = enemies.filter((enemy) => enemy.alive > 0 && enemy.pool > 0);
   if (live.length === 0) return [];
 
-  const weights = live.map((enemy) =>
-    Math.max(
-      0,
-      threatWeight(attacker.effective, attacker.unit.modifiers, enemy.effective, enemy.morale),
-    ),
-  );
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  if (total <= 0) return live.map((target) => ({ target, share: 1 / live.length }));
-  return live.map((target, index) => ({ target, share: weights[index]! / total }));
+  const weigh = (of: readonly Stack[]): number[] =>
+    of.map((enemy) =>
+      Math.max(
+        0,
+        threatWeight(attacker.effective, attacker.unit.modifiers, enemy.effective, enemy.morale),
+      ),
+    );
+  /** Threat weights, normalised to shares of `budget`. Falls back to an even split at zero. */
+  const spread = (of: readonly Stack[], budget: number): { target: Stack; share: number }[] => {
+    const weights = weigh(of);
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    if (total <= 0) return of.map((target) => ({ target, share: budget / of.length }));
+    return of.map((target, index) => ({ target, share: (budget * weights[index]!) / total }));
+  };
+
+  const taunting = live.filter((enemy) => enemy.unit.taunts === true);
+  // Nothing taunting, or *everything* taunting, is the same question as before: one split.
+  if (taunting.length === 0 || taunting.length === live.length) return spread(live, 1);
+
+  const behind = live.filter((enemy) => enemy.unit.taunts !== true);
+  return [...spread(taunting, TAUNT_PULL), ...spread(behind, 1 - TAUNT_PULL)];
 }
 
 /** Damage each stack on `side` deals this round, as a map from enemy stack index to damage. */

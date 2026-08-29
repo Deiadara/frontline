@@ -4,6 +4,7 @@ import {
   ATTRIBUTE_GROUPS,
   ATTRIBUTE_GROUP_LABELS,
   ATTRIBUTE_LABELS,
+  importanceOf,
   MAX_ATTRIBUTE,
   OVERSEER_SUBJECT,
   CHANNEL_LABELS,
@@ -27,7 +28,9 @@ import { useStartTraining, useTraining } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { InfoNote, PageShell } from '../game/PageShell';
+import { OfficerPortrait } from './OfficerPortrait';
 import { OverseerPortrait } from './OverseerPortrait';
+import { IMPORTANCE_EDGE } from '../../lib/importance';
 
 /**
  * The Training tab (§F2).
@@ -189,15 +192,19 @@ export function TrainingPage() {
                 is what lets an eleven-row column clear a 900-tall laptop without scrolling. */}
             <div className="card-paper washed rivets edge-lit relative flex shrink-0 items-start gap-3.5 overflow-hidden rounded-sm border border-brass-500/40 p-3 shadow-panel">
               <span className="w-14 shrink-0 sm:w-16">
-                {subject.portraitId === null ? (
-                  <span className="flex aspect-[3/4] w-full items-center justify-center rounded-sm border border-surface-600 bg-surface-900 font-stamp text-2xl text-ink-300">
-                    {subject.name.slice(0, 1)}
-                  </span>
-                ) : (
+                {/* The Overseer wears the portrait they chose; an officer wears one off the
+                    pool, at that pool's own 4:5 rather than the overseer frame's 3:4. */}
+                {subject.officerRole === null ? (
                   <OverseerPortrait
-                    portraitId={subject.portraitId}
+                    portraitId={subject.portraitId ?? ''}
                     archetype="enforcer"
                     showTag={false}
+                  />
+                ) : (
+                  <OfficerPortrait
+                    portraitId={subject.portraitId}
+                    name={subject.name}
+                    className="aspect-[4/5] w-full"
                   />
                 )}
               </span>
@@ -331,12 +338,18 @@ function SubjectRow({
       )}
     >
       <span className="w-11 shrink-0">
-        {subject.portraitId === null ? (
-          <span className="flex aspect-[3/4] w-full items-center justify-center rounded-sm border border-surface-600 bg-surface-900 font-display text-sm font-bold text-ink-300">
-            {subject.name.slice(0, 1)}
-          </span>
+        {subject.officerRole !== null ? (
+          <OfficerPortrait
+            portraitId={subject.portraitId}
+            name={subject.name}
+            className="aspect-[4/5] w-full"
+          />
         ) : (
-          <OverseerPortrait portraitId={subject.portraitId} archetype="enforcer" showTag={false} />
+          <OverseerPortrait
+            portraitId={subject.portraitId ?? ''}
+            archetype="enforcer"
+            showTag={false}
+          />
         )}
       </span>
       {/*
@@ -528,6 +541,8 @@ function DrillButton({
   // The one row worth marking rather than merely dimming: what they drilled last time is the only
   // blocker a player can plan around, and it is a fact about *this* person on *this* day.
   const rested = subject.lastAttribute === name;
+  // `null` for the Overseer, who is in no chair: no skill is more or less useful to them.
+  const importance = subject.officerRole === null ? null : importanceOf(subject.officerRole, name);
 
   return (
     <HoverCard
@@ -553,12 +568,17 @@ function DrillButton({
       data-testid={`drill-${name}`}
     >
       <span
+        data-importance={importance ?? undefined}
         className={cn(
           'relative flex w-full items-center justify-between gap-2 overflow-hidden rounded-sm border pb-[6px] pl-2 pr-1.5 pt-1',
           'transition-all duration-150',
           blocker === null
             ? 'border-surface-600 bg-surface-800/60 hover:-translate-y-px hover:border-brass-300/70 hover:bg-brass-300/10'
             : 'border-surface-700 bg-surface-900/60 opacity-55',
+          // The same gold, silver and blue the crew sheet draws, on the screen where a player is
+          // actually *deciding* what to drill. Knowing which skills the chair rewards is the whole
+          // input to that decision, and it was only shown on the screen where nothing is chosen.
+          importance !== null && cn('pl-2.5', IMPORTANCE_EDGE[importance]),
         )}
       >
         <span className="min-w-0 truncate font-body text-[13px] leading-tight text-ink-100">

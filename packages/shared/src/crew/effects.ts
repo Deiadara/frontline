@@ -1,10 +1,18 @@
 import {
   ATTRIBUTE_NAMES,
   ATTRIBUTE_LABELS,
+  MAX_ATTRIBUTE,
   type AttributeName,
   type Attributes,
 } from '../attributes.js';
 import { noTerritoryEffects, type TerritoryEffects } from '../city/locations.js';
+import type { OfficerRole } from '../roles.js';
+import {
+  IMPORTANCE_WEIGHT,
+  importanceOf,
+  officerScore,
+  type AttributeImportance,
+} from './importance.js';
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
 
 /**
@@ -367,6 +375,36 @@ export function contributionOf(rating: number): number {
 export const OFF_DUTY_SHARE = 0.35;
 
 /**
+ * What share of a rating a seat actually puts to work, by how much that seat cares about the skill.
+ *
+ * The four weights of `IMPORTANCE_WEIGHT` over the top of the ladder, so an irreplaceable skill is
+ * worth its whole rating and an insignificant one a quarter of it. This *is* the "these contribute
+ * more towards the bonuses" rule: it is applied per skill, before best-of, so an officer in the
+ * right chair beats a better officer in the wrong one.
+ */
+export const IMPORTANCE_SHARE: Readonly<Record<AttributeImportance, number>> = {
+  insignificant: IMPORTANCE_WEIGHT.insignificant / IMPORTANCE_WEIGHT.irreplaceable,
+  useful: IMPORTANCE_WEIGHT.useful / IMPORTANCE_WEIGHT.irreplaceable,
+  essential: IMPORTANCE_WEIGHT.essential / IMPORTANCE_WEIGHT.irreplaceable,
+  irreplaceable: 1,
+};
+
+/**
+ * How far the band bonuses may lift what an officer is worth.
+ *
+ * The score has two halves and they are cashed in two different places, which is the whole reason
+ * this is not double counting. The **base** half (rating times weight) is already spent, per skill,
+ * as {@link IMPORTANCE_SHARE} above: paying it again here would be charging the same points twice.
+ * The **bonus** half is the part nothing else expresses, and what it says is that a peak is worth
+ * more than its linear value, so it is spent as an uplift on everything that officer contributes.
+ *
+ * Capped, because the bonus table is steep by design: a sheet of 100s in a well-chosen chair scores
+ * several hundred bonus points, and an uncapped ratio would let one officer out-produce the rest of
+ * the crew put together.
+ */
+export const MAX_PEAK_UPLIFT = 0.6;
+
+/**
  * One person in the room, and which of their skills the seat they are in actually uses.
  *
  * `duties` is `null` for the Overseer, who is the player: they are not sitting in one of the
@@ -379,7 +417,13 @@ export const OFF_DUTY_SHARE = 0.35;
  */
 export interface CrewMember {
   attributes: Attributes;
-  duties: readonly AttributeName[] | null;
+  /**
+   * The chair they are in, or `null` for the Overseer.
+   *
+   * The Overseer is the player: they are not in one of the nineteen seats, so every skill they have
+   * counts in full and no band uplift is read off them.
+   */
+  role: OfficerRole | null;
 }
 
 /**
@@ -404,13 +448,42 @@ export interface CrewMember {
 export function crewSheet(crew: readonly CrewMember[]): Attributes {
   const best = Object.fromEntries(ATTRIBUTE_NAMES.map((name) => [name, 0])) as Attributes;
   for (const member of crew) {
+    const uplift = peakUplift(member);
     for (const name of ATTRIBUTE_NAMES) {
-      const onDuty = member.duties === null || member.duties.includes(name);
-      const rating = onDuty ? member.attributes[name] : member.attributes[name] * OFF_DUTY_SHARE;
+      const share = member.role === null ? 1 : IMPORTANCE_SHARE[importanceOf(member.role, name)];
+      /*
+       * Rounded and clamped, because this is an `Attributes` and that type is integers 0..100.
+       *
+       * Both halves are load-bearing and the rounding was a latent bug before any of this: the
+       * off-duty discount produced fractions too, and the only reason nothing ever broke is that
+       * the Overseer's own integer ratings usually won the best-of and hid them. `crewStanding`
+       * puts this sheet on the wire, `AttributesSchema` rejects a non-integer, and the client's
+       * query simply never resolves: the Overseer's own file sat on "Reading the file…" for ever
+       * with no error in the console to say why.
+       *
+       * The clamp is the ceiling: the peak uplift is absorbed for a skill already at 100 and does
+       * real work everywhere below it, which is almost the whole game, since the Bar's recruits
+       * top out around 40 and a fully drilled 100 is the end of a long project.
+       */
+      const rating = Math.round(Math.min(MAX_ATTRIBUTE, member.attributes[name] * share * uplift));
       if (rating > best[name]) best[name] = rating;
     }
   }
   return best;
+}
+
+/**
+ * What this officer's peaks are worth, as a multiplier on everything they contribute.
+ *
+ * See {@link MAX_PEAK_UPLIFT}: the band half of `officerScore` and nothing else, expressed against
+ * the base half so it reads as "how much more than linear is this person worth". The Overseer gets
+ * nothing, because they have no chair to be a good fit for.
+ */
+export function peakUplift(member: CrewMember): number {
+  if (member.role === null) return 1;
+  const { base, bonus } = officerScore(member.attributes, member.role);
+  if (base <= 0) return 1;
+  return 1 + Math.min(MAX_PEAK_UPLIFT, bonus / base);
 }
 
 /**

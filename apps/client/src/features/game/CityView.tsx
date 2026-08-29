@@ -1,4 +1,4 @@
-import { CITY_DISTRICTS, type District } from '@frontline/shared';
+import { CITY_DISTRICTS, plateAspect, type District } from '@frontline/shared';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMe } from '../../lib/queries';
@@ -21,7 +21,7 @@ import { OnPlate, PlateRoom, type OnPlateAt } from './PlateRoom';
  * 2.1 the painting fills an ordinary desktop frame with nothing cropped off it. The box the tags are
  * positioned in is the picture rather than the frame, so a tag stays on the roof it names.
  */
-const CITY_ASPECT = 3780 / 1800;
+const CITY_ASPECT = plateAspect('city');
 
 /**
  * Where each district stands on the painting, in fractions of it.
@@ -94,35 +94,47 @@ function DistrictTag({
         className="pointer-events-none absolute left-1/2 top-0 -z-10 h-24 w-44 -translate-x-1/2 -translate-y-1/3 rounded-[50%] bg-brass-300/30 opacity-0 blur-2xl transition-opacity duration-200 group-hover:opacity-100"
       />
 
-      {/* Taped at both edges rather than across the face. The shared `.taped` strip is a
-          pseudo-element above the panel's own content, which on a label the width of a word means
-          a piece of tape lying over the name. Two tabs, outside the scrap so its torn-edge clip
-          cannot cut them, and under the paper so they read as holding it up. */}
+      {/*
+       * Light card stock with the tape **over** it, which is the way round tape works.
+       *
+       * The tag was dark paper with two amber tabs tucked behind its edges, and on a painting of a
+       * city at night that is a smudge with a word in it and two bright wings sticking out. Light
+       * stock reads instantly against the dark, and a translucent strip laid across each top corner
+       * reads as something holding the label down, because it is on top of it.
+       */}
       <span className="relative flex items-center">
         <span
-          aria-hidden
-          className="tape-tab absolute -left-2 top-1/2 h-7 w-4 -translate-y-1/2 -rotate-[14deg]"
-        />
-        <span
-          aria-hidden
-          className="tape-tab absolute -right-2 top-1/2 h-7 w-4 -translate-y-1/2 rotate-[11deg]"
-        />
-        <span
           className={cn(
-            'scrap relative flex flex-col items-center gap-0.5 px-3.5 py-2 shadow-panel transition-colors duration-200',
-            mine ? 'text-brass-100' : 'text-ink-100 group-hover:text-brass-100',
+            'tag-paper relative flex flex-col items-center gap-0.5 px-4 py-2 transition-transform duration-200',
+            mine && 'ring-1 ring-inset ring-brass-500/50',
           )}
         >
-          <span className="whitespace-nowrap font-stamp text-[15px] leading-none">
+          <span
+            className={cn(
+              'whitespace-nowrap font-stamp text-[16px] leading-none',
+              // Ink on paper, not chrome text: the tag is a physical object on the picture.
+              mine ? 'text-oxblood-500' : 'text-[rgb(28_22_18)]',
+            )}
+          >
             {district.name}
           </span>
           {mine && (
-            <span className="flex items-center gap-1 font-display text-[9px] font-bold uppercase leading-none tracking-[0.2em] text-brass-300">
+            <span className="flex items-center gap-1 font-display text-[9px] font-bold uppercase leading-none tracking-[0.2em] text-oxblood-500">
               <Icon name="district" aria-hidden className="h-2.5 w-2.5" />
               Yours
             </span>
           )}
         </span>
+        {/* Over the paper, at `z-10`, and clear of the torn edge so the strip is not clipped by it.
+            Two different angles and lengths: a matched pair reads as printed rather than stuck. */}
+        <span
+          aria-hidden
+          className="tape-strip pointer-events-none absolute -left-1.5 -top-1.5 z-10 h-3.5 w-8 -rotate-[22deg]"
+        />
+        <span
+          aria-hidden
+          className="tape-strip pointer-events-none absolute -right-2 -top-1 z-10 h-3.5 w-7 rotate-[17deg]"
+        />
       </span>
 
       {/* The leader down to the roof it names, drawn rather than ruled. */}

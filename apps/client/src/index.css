@@ -114,6 +114,80 @@
   }
 
   /**
+   * A label of aged card stock, for a tag pinned to a night painting.
+   *
+   * Not `.scrap`, and the difference is the whole point. That surface is a *dark* paper, and it is
+   * right everywhere it is used: a hover card sits over the game's own dark chrome and has to
+   * belong to it. The city's district tags sit on a painting of a city at night, where a dark paper
+   * on a dark ground is a smudge with a word in it. This one is light stock with dark ink, so the
+   * tag reads as a thing somebody stuck on the picture rather than a hole cut in it.
+   */
+  .tag-paper {
+    position: relative;
+    color: rgb(30 24 20 / 0.94);
+    background:
+      linear-gradient(
+        152deg,
+        rgb(232 218 190 / 0.97),
+        rgb(214 198 168 / 0.97) 58%,
+        rgb(196 178 148 / 0.97)
+      ),
+      radial-gradient(circle at 22% 14%, rgb(255 250 235 / 0.5), transparent 62%);
+    box-shadow:
+      0 16px 34px -14px rgb(6 5 10 / 0.9),
+      0 1px 0 0 rgb(255 255 255 / 0.35) inset,
+      0 -1px 0 0 rgb(90 70 50 / 0.25) inset;
+    /* The same torn vertical edges the scrap has, so the two read as the same material family. */
+    clip-path: polygon(
+      1.1% 0%,
+      100% 0%,
+      98.9% 6%,
+      100% 14%,
+      99% 24%,
+      100% 34%,
+      98.9% 45%,
+      100% 56%,
+      99.1% 68%,
+      100% 80%,
+      98.8% 90%,
+      100% 100%,
+      0% 100%,
+      1% 88%,
+      0% 76%,
+      1.1% 64%,
+      0% 52%,
+      0.9% 40%,
+      0% 28%,
+      1% 16%
+    );
+  }
+
+  /**
+   * A strip of tape stuck **over** a label, rather than a tab tucked under it.
+   *
+   * Tape goes on top of the thing it is holding down: that is what tape is. The tabs this replaces
+   * sat behind the paper, which reads as two coloured wings sticking out of a label rather than as
+   * anything holding it, and it was worse on a dark tag where the wings were the brightest part.
+   *
+   * Translucent, so the paper's grain and the torn edge show through it, with a brighter line down
+   * each long side: the two things that stop a rectangle of amber reading as a rectangle of amber.
+   */
+  .tape-strip {
+    background: linear-gradient(
+      110deg,
+      rgb(246 228 178 / 0.34),
+      rgb(238 212 150 / 0.26) 45%,
+      rgb(228 198 132 / 0.34)
+    );
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 248 225 / 0.4),
+      inset 0 -1px 0 0 rgb(120 92 48 / 0.28),
+      0 2px 5px -2px rgb(8 6 12 / 0.55);
+    /* Torn ends, cut slightly differently at each so a pair never looks stamped. */
+    clip-path: polygon(0% 8%, 100% 0%, 96% 100%, 4% 92%);
+  }
+
+  /**
    * A small tab of tape, stuck across the edge of something.
    *
    * The sibling of `.taped`, and it exists because `.taped` cannot do this job: that one is a wide

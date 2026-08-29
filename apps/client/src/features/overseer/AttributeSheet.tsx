@@ -2,12 +2,17 @@ import {
   ATTRIBUTES_BY_GROUP,
   ATTRIBUTE_GROUPS,
   ATTRIBUTE_LABELS,
+  IMPORTANCE_LABELS,
   MAX_ATTRIBUTE,
+  importanceOf,
   type AttributeGroup,
+  type AttributeImportance,
   type AttributeName,
   type Attributes,
+  type OfficerRole,
 } from '@frontline/shared';
 import { cn } from '../../lib/cn';
+import { IMPORTANCE_EDGE } from '../../lib/importance';
 import { RATING_FILL, RATING_TEXT, ratingBand } from '../../lib/rating';
 
 const GROUP_LABELS: Record<AttributeGroup, string> = {
@@ -36,11 +41,14 @@ function AttributeRow({
   value,
   bar,
   roomy,
+  importance,
 }: {
   name: AttributeName;
   value: number;
   bar: boolean;
   roomy: boolean;
+  /** How much the chair this person sits in cares. `null` where there is no chair. */
+  importance: AttributeImportance | null;
 }) {
   const band = ratingBand(value);
   const share = Math.max(0, Math.min(1, value / MAX_ATTRIBUTE));
@@ -51,6 +59,9 @@ function AttributeRow({
     // same here truncated `Communication` in a 122px column, which the layout gate reads as a cut
     // label and the board's bar forbids.
     <li
+      data-testid={importance === null ? undefined : `attr-${name}`}
+      data-importance={importance ?? undefined}
+      title={importance === null ? undefined : IMPORTANCE_LABELS[importance]}
       className={cn(
         'flex items-center',
         bar ? 'gap-2' : 'gap-1',
@@ -58,6 +69,9 @@ function AttributeRow({
         // between them is a block of texture, and the eye loses its place crossing it; a tint
         // that costs no height puts the line back under the finger.
         roomy && 'rounded-[2px] px-1.5 py-1 odd:bg-ink-100/[0.045]',
+        // The edge is drawn even for `insignificant` (transparent), so every row in the column is
+        // inset by the same two pixels and the marked ones do not appear to jut out.
+        importance !== null && cn('pl-1.5', IMPORTANCE_EDGE[importance]),
       )}
     >
       {/* Named from the shared table, not title-cased here: two of the attributes are not what a
@@ -125,6 +139,7 @@ export function AttributeSheet({
   columns = 2,
   bars = true,
   roomy = false,
+  role = null,
 }: {
   attributes: Attributes;
   /**
@@ -156,6 +171,15 @@ export function AttributeSheet({
    * something else and the frames would be four boxes competing with the panel around them.
    */
   roomy?: boolean;
+  /**
+   * The chair this person is sitting in, when they are in one.
+   *
+   * Given, every row is edged by how much that chair cares about the skill; omitted, the sheet is
+   * drawn plain. Omitted is right for the Overseer, who is in no seat, and for a recruit at the Bar
+   * before anybody has decided what to hire them as: colouring a candidate's rows against a role
+   * they have not been offered would be answering the question the Bar is asking.
+   */
+  role?: OfficerRole | null;
 }) {
   return (
     <div
@@ -203,6 +227,7 @@ export function AttributeSheet({
                 value={attributes[name]}
                 bar={bars}
                 roomy={roomy}
+                importance={role === null ? null : importanceOf(role, name)}
               />
             ))}
           </ul>

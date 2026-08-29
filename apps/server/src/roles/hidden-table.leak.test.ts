@@ -133,11 +133,28 @@ function valueLeaksIn(root: unknown): string[] {
     .map(([trail]) => trail);
 }
 
+/**
+ * Role-keyed tables the board has decided are public, and the reason each one is.
+ *
+ * An allowlist rather than a relaxed rule: everything role-keyed still fails this scan by default,
+ * so the next table to go public has to be a decision somebody wrote down here rather than a thing
+ * that appeared. A path is matched exactly, so nesting a copy one level deeper does not inherit
+ * the exemption.
+ *
+ * `ROLE_IMPORTANCE` reverses §B8 for the *effect* half of the model, and only that half: which
+ * skills a seat puts to work is drawn on the officer sheet as gold, silver and blue borders,
+ * because a player who cannot see which skills a chair rewards cannot make the decision the chairs
+ * exist to offer. What a role wants **in a candidate at the Bar** is a different table, is still
+ * `ROLE_REQUIREMENTS`, and is still guarded by everything else in this file.
+ */
+const PUBLISHED_ROLE_TABLES = new Set(['shared.ROLE_IMPORTANCE']);
+
 /** Paths at which `root` exposes structured (non-label) data keyed by role id. */
 function roleKeyedLeaksIn(root: unknown): string[] {
   const roleIds = new Set<string>(OFFICER_ROLES);
   return reachableObjects(root)
-    .filter(([, value]) => {
+    .filter(([trail, value]) => {
+      if (PUBLISHED_ROLE_TABLES.has(trail)) return false;
       const keys = Object.keys(value);
       // Two role ids already make a table. Requiring all 19 (`keys.length >= roleIds.size`) let
       // any partial copy, 18 roles, or one nested a level down, through untouched.

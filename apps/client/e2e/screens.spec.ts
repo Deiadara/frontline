@@ -330,6 +330,59 @@ test('the bar’s seat screen stops at both ends of the roster', async ({ page }
  * eight of the nine are reachable: the count is asserted, because a sweep that quietly found
  * nothing would pass just as green as one that checked everything.
  */
+/**
+ * The gold, silver and blue edges, on **both** screens that draw them.
+ *
+ * They are one table (`lib/importance.ts`) read by two screens written a day apart, which is exactly
+ * how the second one ends up a shade off the first or quietly loses the marks altogether. Asserted
+ * as counts per tier rather than as "some row is marked": a rule that paints everything gold would
+ * pass the weaker version.
+ *
+ * The Instructor of the Young is the fixture's officer, and their chair rates one skill
+ * irreplaceable, two essential and three useful. That is the shape both screens have to show.
+ */
+test('an officer sheet edges every skill by what their chair wants, on crew and on training', async ({
+  page,
+}) => {
+  await installApi(page, lateGame);
+
+  const tally = async (): Promise<Record<string, number>> =>
+    page.evaluate(() => {
+      const out: Record<string, number> = {};
+      for (const row of document.querySelectorAll('[data-importance]')) {
+        const key = row.getAttribute('data-importance') ?? '?';
+        out[key] = (out[key] ?? 0) + 1;
+      }
+      return out;
+    });
+
+  await page.goto('/game/assignees');
+  await page.getByTestId('crew-slot-instructor_of_the_young').click();
+  await expect(page.getByTestId('crew-detail')).toBeVisible();
+  await settleFonts(page);
+  const crew = await tally();
+  expect(crew, 'the crew sheet lost its importance edges').toMatchObject({
+    irreplaceable: 1,
+    essential: 2,
+    useful: 3,
+  });
+
+  // ...and the same officer on the training tab, where the drilling decision is actually made.
+  await page.goto('/game/training');
+  await settleFonts(page);
+  await page.getByTestId('training-subjects').getByRole('button').nth(1).click();
+  await expect(page.getByTestId('training-sheet')).toBeVisible();
+  const training = await tally();
+  expect(training.irreplaceable, 'the training tab lost its importance edges').toBeGreaterThan(0);
+  expect(training.essential).toBeGreaterThan(0);
+  expect(training.useful).toBeGreaterThan(0);
+
+  // The Overseer sits in no chair, so their sheet is drawn plain rather than all-insignificant.
+  await page.getByTestId('training-subjects').getByRole('button').first().click();
+  await expect(page.getByTestId('training-sheet')).toBeVisible();
+  expect(await tally()).toEqual({});
+});
+
 test('a standing note opens fully on screen, on every screen that has one', async ({ page }) => {
   const size = { width: 1280, height: 720 };
   await page.setViewportSize(size);
@@ -466,7 +519,12 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
     page.getByTestId('unit-the-colossus').or(page.getByTestId('unit-the_colossus')),
   ).toBeVisible();
   // The Colossus is assembled standing up now, on the only crane in the city (§A4).
-  await expect(page.getByText(/hold a Construction Site/i)).toBeVisible();
+  //
+  // "Hold The", not "hold a": five of the location labels carry the article already, so the old
+  // template produced "hold a The Doghouse", and the fix is the definite article everywhere. The
+  // regex is anchored on the article for exactly that reason: a check for the place's name alone
+  // would pass over the bug this wording exists to fix.
+  await expect(page.getByText(/Hold The Construction Site/i)).toBeVisible();
 
   // The tier tabs carry `transition-colors`, and React flips the class a frame before the paint
   // catches up, so a screenshot taken the instant the cards change shows *Rabble* still lit over a

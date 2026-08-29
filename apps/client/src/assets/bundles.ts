@@ -7,7 +7,7 @@
  */
 import { ART_MANIFEST, type AssetKey, type AssetSpec } from '@frontline/shared';
 
-export const ASSET_BUNDLES = ['splash', 'overseer', 'city', 'base', 'units', 'ui'] as const;
+export const ASSET_BUNDLES = ['splash', 'overseer', 'crew', 'city', 'base', 'units', 'ui'] as const;
 export type AssetBundleName = (typeof ASSET_BUNDLES)[number];
 
 function iconBundle(key: AssetKey): AssetBundleName {
@@ -29,6 +29,11 @@ export function bundleFor(spec: AssetSpec): AssetBundleName {
       return 'splash';
     case 'portrait':
       return 'overseer';
+    // The officer pool is thirty-three faces and it belongs to the crew and training screens, not
+    // to character select: bundling it with the four overseer heroes would put 5MB of faces in
+    // front of a player who has not chosen a character yet.
+    case 'officer':
+      return 'crew';
     case 'district':
     case 'plate':
     case 'plane':

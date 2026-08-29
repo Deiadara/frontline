@@ -13,6 +13,7 @@ const spec = (key: string): AssetSpec => {
 const SPECS: Record<AssetBundleName, readonly AssetSpec[]> = {
   splash: [spec('splash-auth')],
   overseer: [spec('portrait-overseer-1')],
+  crew: [],
   city: [spec('plate-city'), spec('plane-city-sky')],
   base: [spec('building-nexus')],
   units: [spec('unit-razors')],

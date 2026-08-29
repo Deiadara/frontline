@@ -52,7 +52,16 @@ const PLANKS_MIGRATION = '0032_planks.sql';
  * repairs would test a chain no real database has ever walked.
  */
 const SUPPLIES_MIGRATION = '0037_supplies.sql';
-const RETIRED_UNITS_MIGRATION = '0038_retired_units.sql';
+/**
+ * Every migration that sweeps a retired unit out of a save, and there is a list because there is
+ * more than one: units leave the roster in ones and twos and each departure needs its own sweep.
+ * The tests below forget all of them and re-run, so a new sweep is covered by adding its filename
+ * and its ids rather than by writing the same three tests again.
+ */
+const RETIRED_UNITS_MIGRATIONS = ['0038_retired_units.sql', '0039_bell_ringers_retired.sql'];
+const forgetRetirements = (db: Parameters<typeof runMigrations>[0]): void => {
+  for (const file of RETIRED_UNITS_MIGRATIONS) forget(db, file);
+};
 
 /**
  * Rewinds one migration so it runs again.
@@ -341,7 +350,8 @@ describe('a fractional stockpile', () => {
  * This is the same class of failure as the `food` rename above and it presented the same way: the
  * server would not start. `UnitIdSchema` is a key schema over the live catalogue, so an army
  * holding a retired id fails `BaseSchema.parse` on the way *out of the database*, before any
- * request is served. Three units left the roster and the crew that owned some could not log in.
+ * request is served. It has now happened twice: three units left the roster in one change and the
+ * Bell-Ringers in another, and both times the crew that owned some could not log in.
  *
  * Both shapes are covered because both exist: an army is a map keyed by unit id, and the training
  * queue is an array of orders that each name one. A sweep that only knew about maps left a crew
@@ -352,13 +362,13 @@ describe('a save that still names a retired unit', () => {
     const { db, repos } = openStack();
     const id = seed(repos);
     db.prepare('UPDATE bases SET army_json = ? WHERE id = ?').run(
-      JSON.stringify({ razors: 4, muckrakers: 7, jammers: 2, wrecking_crew: 1 }),
+      JSON.stringify({ razors: 4, muckrakers: 7, jammers: 2, wrecking_crew: 1, bell_ringers: 3 }),
       id,
     );
     // Unmigrated, this is not a wrong answer, it is no answer: the row cannot be parsed at all.
     expect(() => repos.bases.findById(id)).toThrow();
 
-    forget(db, RETIRED_UNITS_MIGRATION);
+    forgetRetirements(db);
     runMigrations(db);
 
     expect(repos.bases.findById(id)?.army).toEqual({ razors: 4 });
@@ -378,12 +388,20 @@ describe('a save that still names a retired unit', () => {
           startedAt: NOW,
           durationSeconds: 90,
         },
+        {
+          id: 'o3',
+          unitId: 'bell_ringers',
+          count: 2,
+          delivered: 0,
+          startedAt: NOW,
+          durationSeconds: 90,
+        },
       ]),
       id,
     );
     expect(() => repos.bases.findById(id)).toThrow();
 
-    forget(db, RETIRED_UNITS_MIGRATION);
+    forgetRetirements(db);
     runMigrations(db);
 
     const queue = repos.bases.findById(id)?.trainingQueue ?? [];
@@ -396,9 +414,9 @@ describe('a save that still names a retired unit', () => {
     db.prepare(
       `INSERT INTO location_control (location_id, holder_kind, holder_base_id, level, garrison_json)
        VALUES ('rustyard-scrap-press', 'faction', 'b', 1, ?)`,
-    ).run(JSON.stringify({ razors: 2, muckrakers: 9 }));
+    ).run(JSON.stringify({ razors: 2, muckrakers: 9, bell_ringers: 4 }));
 
-    forget(db, RETIRED_UNITS_MIGRATION);
+    forgetRetirements(db);
     runMigrations(db);
 
     const raw = db

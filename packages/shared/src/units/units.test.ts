@@ -108,8 +108,10 @@ describe('the catalogue (§A5)', () => {
       for (const key of UNIT_STAT_KEYS) {
         const value = unit.stats[key];
         expect(value, `${unit.id}.${key}`).toBeGreaterThanOrEqual(0);
-        // Vitality is hit points and loot is kilograms; everything else is a 0..100 rating.
-        if (key !== 'vitality' && key !== 'lootCapacity') {
+        // Damage, hit points and loot are counts of a thing; everything else is a 0..100 rating.
+        // Read off `UNIT_FIGURE_KEYS` rather than listed here, so a stat that stops being a rating
+        // stops being checked as one in the same edit.
+        if (!(UNIT_FIGURE_KEYS as readonly string[]).includes(key)) {
           expect(value, `${unit.id}.${key}`).toBeLessThanOrEqual(100);
         }
       }
@@ -124,20 +126,41 @@ describe('the catalogue (§A5)', () => {
     }
   });
 
-  it('makes power, price and time all climb with the tier', () => {
-    const meanOf = (tier: UnitTier, pick: (unit: UnitSpec) => number) => {
-      const units = unitsInTier(tier);
+  /**
+   * The ladder climbs, and it climbs over **rungs** rather than over tiers.
+   *
+   * Carriers are beside the ladder rather than on it: a Hauler is slower to train than a Razor and
+   * carries three times as much, and neither fact says anything about where they stand in a battle
+   * line, because they are never in one.
+   *
+   * Specialists and Wonders of Engineering share a rung, and asserting otherwise would be asserting
+   * something untrue about the roster. A Wonder takes longer to build and eats about the same
+   * supply while hitting slightly softer: Cyberhounds are supply 1, Netrunners are 3, and the two
+   * tiers overlap on every axis. They are two *kinds* of middle unit, not a better and a worse one,
+   * and a test that forced one above the other would be answered by editing content until an
+   * arbitrary ordering came out.
+   */
+  it('makes power, price and time all climb with the rungs of the ladder', () => {
+    const meanOfRung = (rung: readonly UnitTier[], pick: (unit: UnitSpec) => number) => {
+      const units = rung.flatMap((tier) => unitsInTier(tier));
       return units.reduce((sum, unit) => sum + pick(unit), 0) / units.length;
     };
-    // Support is not the bottom rung of the fighting ladder, it is beside it: a Hauler is slower
-    // to train than a Razor and carries three times as much, and neither fact says anything about
-    // where they sit in a battle line, because they are never in one.
-    const fighting = UNIT_TIERS.filter((tier) => tier !== 'support');
-    const offense = fighting.map((tier) => meanOf(tier, (unit) => unit.stats.offense));
-    const time = fighting.map((tier) => meanOf(tier, (unit) => unit.trainSeconds));
-    const supply = fighting.map((tier) => meanOf(tier, (unit) => unit.supply));
+    const RUNGS: readonly (readonly UnitTier[])[] = [
+      ['rabble'],
+      ['specialist', 'wonder'],
+      ['heavy'],
+      ['legendary'],
+    ];
+    // Every fighting tier is on exactly one rung, so a tier added later fails here rather than
+    // being silently left out of the invariant.
+    expect(RUNGS.flat().sort()).toEqual(UNIT_TIERS.filter((tier) => tier !== 'carrier').sort());
 
-    for (const series of [offense, time, supply]) {
+    for (const pick of [
+      (unit: UnitSpec) => unit.stats.offense,
+      (unit: UnitSpec) => unit.trainSeconds,
+      (unit: UnitSpec) => unit.supply,
+    ]) {
+      const series = RUNGS.map((rung) => meanOfRung(rung, pick));
       expect([...series].sort((a, b) => a - b)).toEqual(series);
     }
   });
@@ -158,37 +181,39 @@ describe('the catalogue (§A5)', () => {
    * uncapped, so Slaved Optics put a Sniper on 109: a bar drawn past the end of its own track, and
    * a "share" of 1.09 inside the engine.
    *
-   * `lootCapacity` is the one exception and genuinely is a count: it is not on a bar and nothing
-   * divides it.
+   * The three exceptions are the open figures: damage, hit points and the bag are counts of a
+   * thing, none of them is drawn on a track, and nothing divides them by 100.
    */
   it('holds every rating inside 0..100, with the whole workshop bolted on', () => {
     const strongest = UPGRADE_LINES.map((line) => upgradesInLine(line).at(-1)?.id ?? '');
     for (const unit of UNIT_CATALOG) {
       const kitted = upgradedStats(unit.stats, strongest);
-      for (const key of UNIT_STAT_KEYS) {
-        if (key === 'lootCapacity') continue;
+      for (const key of UNIT_RATING_KEYS) {
         expect(kitted[key], `${unit.id}.${key}`).toBeGreaterThanOrEqual(0);
         expect(kitted[key], `${unit.id}.${key}`).toBeLessThanOrEqual(100);
       }
-      // And the exception is a real one rather than a stat nobody upgrades: the bag survives.
-      expect(kitted.lootCapacity, unit.id).toBeGreaterThanOrEqual(0);
+      // And the exceptions are real ones rather than stats nobody upgrades: a refit still moves
+      // all three, it just moves them on a scale with no ceiling to stay under.
+      for (const key of UNIT_FIGURE_KEYS) {
+        expect(kitted[key], `${unit.id}.${key}`).toBeGreaterThanOrEqual(0);
+      }
     }
   });
 
   it('marks the support tier as non-combat and nothing else', () => {
     for (const unit of UNIT_CATALOG) {
-      expect(isCombatUnit(unit), unit.id).toBe(unit.tier !== 'support');
-      expect(isSupportUnit(unit), unit.id).toBe(unit.tier === 'support');
+      expect(isCombatUnit(unit), unit.id).toBe(unit.tier !== 'carrier');
+      expect(isSupportUnit(unit), unit.id).toBe(unit.tier === 'carrier');
     }
-    expect(unitsInTier('support').length).toBeGreaterThan(0);
+    expect(unitsInTier('carrier').length).toBeGreaterThan(0);
   });
 
   it('gives the support tier the trade it exists for: a big bag on slow legs', () => {
     const average = (pick: (unit: UnitSpec) => number) => {
-      const fighters = UNIT_CATALOG.filter((unit) => unit.tier !== 'support');
+      const fighters = UNIT_CATALOG.filter((unit) => unit.tier !== 'carrier');
       return fighters.reduce((sum, unit) => sum + pick(unit), 0) / fighters.length;
     };
-    for (const porter of unitsInTier('support')) {
+    for (const porter of unitsInTier('carrier')) {
       expect(porter.stats.speed, porter.id).toBeLessThan(average((unit) => unit.stats.speed));
       expect(porter.trainedAt, porter.id).toBe('nexus');
     }
@@ -234,7 +259,7 @@ describe('unlocking them (§A5)', () => {
     expect(starters.length).toBeGreaterThan(0);
     // Razors and the porters the Nexus itself signs: the two things a crew with no barracks can
     // put on the street. Nothing that fights properly.
-    expect(starters.every((unit) => unit.tier === 'rabble' || unit.tier === 'support')).toBe(true);
+    expect(starters.every((unit) => unit.tier === 'rabble' || unit.tier === 'carrier')).toBe(true);
     expect(starters.length).toBeLessThan(UNIT_CATALOG.length / 3);
   });
 
@@ -678,12 +703,25 @@ describe('rating stats and open figures (§A5)', () => {
     expect(Math.max(...UNIT_CATALOG.map((unit) => unit.stats.vitality))).toBeGreaterThan(100);
   });
 
-  it('lets attack past the ceiling it used to have', () => {
-    // The cap was 100 and the catalogue already had a unit sitting on it. Parsing 140 is the
-    // assertion: the schema is what enforced the old ceiling.
+  /**
+   * Damage and hit points are counts, on whatever scale the roster needs, and the roster uses it.
+   *
+   * The pinned ceilings are the two the design is built around: 1000 hit points on the Colossus
+   * and 700 damage on the Loose End. They are asserted as *the maximum of the catalogue* rather
+   * than as one unit's sheet, so a new unit written above either has to be a decision somebody
+   * made here rather than a number that drifted in.
+   */
+  it('scales attack and hit points as counts, not as ratings out of 100', () => {
+    const topOffense = Math.max(...UNIT_CATALOG.map((unit) => unit.stats.offense));
+    const topVitality = Math.max(...UNIT_CATALOG.map((unit) => unit.stats.vitality));
+    expect(topOffense).toBe(700);
+    expect(topVitality).toBe(1000);
+    expect(findUnit('the_loose_end')?.stats.offense).toBe(topOffense);
+    expect(findUnit('the_colossus')?.stats.vitality).toBe(topVitality);
+
+    // The schema is what enforced the old 0..100 ceiling, so parsing past it is the assertion.
     const top = UNIT_CATALOG.reduce((a, b) => (a.stats.offense >= b.stats.offense ? a : b));
-    expect(top.stats.offense).toBe(100);
-    expect(() => UnitStatsSchema.parse({ ...top.stats, offense: 140 })).not.toThrow();
+    expect(() => UnitStatsSchema.parse({ ...top.stats, offense: 1400 })).not.toThrow();
     expect(() => UnitStatsSchema.parse({ ...top.stats, offense: -1 })).toThrow();
   });
 });

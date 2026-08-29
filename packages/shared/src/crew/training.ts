@@ -42,6 +42,25 @@ export const TRAINING_SECONDS = 3600;
 /** What a finished session is worth. */
 export const TRAINING_GAIN = 2;
 
+/**
+ * Where a session stops being worth two points and starts being worth one.
+ *
+ * The back half of a skill is meant to cost more than the front half. Flat gains made the last
+ * fifty points exactly as cheap as the first fifty, so the only question a player ever had was
+ * *which* skill to drill and never *whether* to keep drilling one they had already taken a long
+ * way. Halving above the midpoint is what makes the second half a decision: five hours a day is
+ * five hours whichever end of the scale it is spent at.
+ *
+ * It lines up with the band table in `crew/importance.ts`, and that is not a coincidence: 50 is
+ * where a skill starts paying real bonus points, so it is where the drilling gets harder.
+ */
+export const TRAINING_HALF_GAIN_FROM = 50;
+
+/** What one session is worth to a skill that is already at `current`. */
+export function trainingGainFor(current: number): number {
+  return current >= TRAINING_HALF_GAIN_FROM ? 1 : TRAINING_GAIN;
+}
+
 /** The subject id the Overseer trains under. Officers use their own id. */
 export const OVERSEER_SUBJECT = 'overseer';
 
@@ -164,10 +183,17 @@ export function beginTraining(
   };
 }
 
+/**
+ * One finished session, waiting to be written onto somebody's sheet.
+ *
+ * Deliberately carries **no amount**. What a session is worth depends on where the skill already
+ * is (see {@link trainingGainFor}), and this struct is produced by `settleTraining`, which reads
+ * the clock and not the sheet. An `amount` here would be a second, staler answer to a question
+ * `applyGain` is already the authority on, and the two would drift the first time the rule changed.
+ */
 export interface TrainingGain {
   subjectId: string;
   attribute: AttributeName;
-  amount: number;
 }
 
 /**
@@ -192,14 +218,19 @@ export function settleTraining(
     gains: done.map((session) => ({
       subjectId: session.subjectId,
       attribute: session.attribute,
-      amount: TRAINING_GAIN,
     })),
   };
 }
 
-/** A finished session, applied. Clamped, so a 99 gains one point and not three. */
+/**
+ * A finished session, applied. Clamped, so a 99 does not go past the ceiling.
+ *
+ * The **only** place a session's value is decided, and it is decided against the sheet in front of
+ * it: two points below the halfway mark and one at or above it.
+ */
 export function applyGain(sheet: Attributes, gain: TrainingGain): Attributes {
-  return { ...sheet, [gain.attribute]: clampAttribute(sheet[gain.attribute] + gain.amount) };
+  const current = sheet[gain.attribute];
+  return { ...sheet, [gain.attribute]: clampAttribute(current + trainingGainFor(current)) };
 }
 
 /**

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { findUnit, type UnitSpec } from '../units/index.js';
+import {
+  DAMAGE_TYPES,
+  findUnit,
+  UNIT_CATALOG,
+  type UnitSpec,
+  type UnitStats,
+} from '../units/index.js';
 import { bareBattlefield } from './battlefield.js';
 import { effectiveStats } from './effects.js';
 import { noTerritoryEffects } from '../city/index.js';
@@ -12,6 +18,7 @@ import {
   exchange,
   MAX_RESISTANCE,
   MIN_RESISTANCE,
+  missChance,
   SHAKEN_MORALE,
   threatWeight,
 } from './matchup.js';
@@ -38,6 +45,61 @@ const bare = (id: string) =>
     { defending: false, outnumbered: false },
     noTerritoryEffects(),
   );
+
+/**
+ * Evasion is a chance to miss, and it is half the rating.
+ *
+ * There was no coverage of this at all before it was rewritten, which is how a rule at the centre
+ * of the damage formula got replaced with all fifteen tests in this file still green. The rule is
+ * one line of arithmetic and a player plans around it, so it is pinned to the number rather than to
+ * a direction: "more evasion is better" would pass against evasion, against evasion squared, and
+ * against the multiplier this replaced.
+ */
+describe('evasion is a chance to miss', () => {
+  it('turns a rating into half its value as a miss chance', () => {
+    expect(missChance(60)).toBeCloseTo(0.3, 10);
+    expect(missChance(0)).toBe(0);
+    expect(missChance(100)).toBeCloseTo(0.5, 10);
+  });
+
+  it('refuses a rating outside the scale rather than producing a nonsense chance', () => {
+    expect(missChance(-20)).toBe(0);
+    expect(missChance(400)).toBeCloseTo(0.5, 10);
+  });
+
+  /** The formula, end to end: what an attack is worth is exactly what does not miss. */
+  it('takes exactly the missed share off the damage, and nothing more', () => {
+    const attacker = bare('razors');
+    const dodgy = { ...bare('razors'), evasion: 60 };
+    const still = { ...bare('razors'), evasion: 0 };
+
+    const hit = exchange(attacker, [], dodgy, 100);
+    const flat = exchange(attacker, [], still, 100);
+    expect(hit.parts.dodge).toBeCloseTo(0.7, 10);
+    expect(flat.parts.dodge).toBe(1);
+    expect(hit.perBody).toBeCloseTo(flat.perBody * 0.7, 6);
+  });
+
+  /**
+   * It reads the *defender's* sheet alone.
+   *
+   * The rule it replaced let a fast attacker erode evasion, so what a sheet's 60 was worth depended
+   * on who was shooting. Two attackers at opposite ends of the speed range have to see the same
+   * dodge now, or that coupling is back.
+   */
+  it('is worth the same against a sprinter and against a shield wall', () => {
+    const dodgy = { ...bare('razors'), evasion: 88 };
+    const quick = exchange({ ...bare('road_reavers'), speed: 100 }, [], dodgy, 100);
+    const slow = exchange({ ...bare('ironsides'), speed: 5 }, [], dodgy, 100);
+    expect(quick.parts.dodge).toBeCloseTo(slow.parts.dodge, 10);
+    expect(quick.parts.dodge).toBeCloseTo(1 - 0.44, 10);
+  });
+
+  it('leaves the most evasive sheet in the game taking better than half of what is aimed at it', () => {
+    const best = Math.max(...['the_loose_end', 'the_crimson_dancer'].map((id) => bare(id).evasion));
+    expect(1 - missChance(best)).toBeGreaterThan(0.5);
+  });
+});
 
 describe('range works against slow units', () => {
   /**
@@ -93,11 +155,38 @@ describe('fast units kill snipers easier', () => {
 });
 
 describe('special units are almost immune to certain damage', () => {
-  it('makes sonic nearly worthless against a unit that resists it', () => {
-    const bells = bare('bell_ringers');
-    expect(damageTypeMultiplier(bells, bare('hollow_men'))).toBeLessThan(0.25);
+  /**
+   * Built rather than borrowed from the roster, and deliberately.
+   *
+   * This is a test of the *rule*, and pointing it at whichever unit happens to carry the damage
+   * type today makes it a test of the roster instead: it was written against the Bell-Ringers and
+   * went red the day that unit left, even though nothing about resistances had changed.
+   */
+  const carrying = (type: UnitStats['damageType']) => ({ ...bare('razors'), damageType: type });
+
+  it('makes a damage type nearly worthless against a unit that resists it', () => {
+    // Ash Walkers are sealed against chlorine at 90, which is the strongest resistance a sheet in
+    // the catalogue actually carries.
+    expect(damageTypeMultiplier(carrying('chemical'), bare('ash_walkers'))).toBeLessThan(0.25);
     // ...and worth full price against something with no answer to it.
-    expect(damageTypeMultiplier(bells, bare('razors'))).toBe(1);
+    expect(damageTypeMultiplier(carrying('chemical'), bare('razors'))).toBe(1);
+  });
+
+  /**
+   * Every resistance on every sheet names a type something can still deal.
+   *
+   * A resistance against a type no unit carries is a lever the engine can never pull: it reads as
+   * design on the roster screen and does nothing in a fight. Four sheets resisted `sonic` for a
+   * change after the only unit that dealt it left the game.
+   */
+  it('leaves no sheet resisting a damage type nothing in the game deals', () => {
+    const dealt = new Set(UNIT_CATALOG.map((spec) => spec.stats.damageType));
+    expect([...dealt].sort()).toEqual([...DAMAGE_TYPES].sort());
+    for (const spec of UNIT_CATALOG) {
+      for (const type of Object.keys(spec.stats.resistances)) {
+        expect(dealt.has(type as UnitStats['damageType']), `${spec.id} resists ${type}`).toBe(true);
+      }
+    }
   });
 
   it('never lets a resistance reach immunity', () => {
@@ -118,13 +207,13 @@ describe('special units are almost immune to certain damage', () => {
 
   it('never lets a vulnerability run away either', () => {
     const floor = 1 - MIN_RESISTANCE / 100;
-    // One attacker per damage type that has a vulnerability to run away with: energy, sonic and
-    // explosive. It was the Wrecking Crew carrying explosive before that unit left the roster.
-    for (const attacker of ['netrunners', 'bell_ringers', 'demolishers']) {
+    // Every damage type in the game, so a vulnerability written on any sheet is covered rather
+    // than the three that happened to have a unit carrying them on the day this was written.
+    for (const type of DAMAGE_TYPES) {
       for (const defender of ['the_colossus', 'juggernauts', 'the_specter', 'ironsides']) {
         expect(
-          damageTypeMultiplier(bare(attacker), bare(defender)),
-          `${attacker}→${defender}`,
+          damageTypeMultiplier(carrying(type), bare(defender)),
+          `${type}→${defender}`,
         ).toBeLessThanOrEqual(floor);
       }
     }
@@ -190,12 +279,12 @@ describe('intimidation works on low morale', () => {
    * makes you hit harder, it is a stat that makes *the next thing* hit harder.
    */
   it('pays a terror unit more against a shaken target than a steady one', () => {
-    const bells = bare('bell_ringers');
-    const modifiers = unit('bell_ringers').modifiers;
+    const terror = bare('hollow_men');
+    const modifiers = unit('hollow_men').modifiers;
     const target = bare('razors');
 
-    const steady = exchange(bells, modifiers, target, 80).perBody;
-    const shaken = exchange(bells, modifiers, target, SHAKEN_MORALE - 10).perBody;
+    const steady = exchange(terror, modifiers, target, 80).perBody;
+    const shaken = exchange(terror, modifiers, target, SHAKEN_MORALE - 10).perBody;
     expect(shaken).toBeGreaterThan(steady * 1.3);
   });
 
@@ -207,5 +296,62 @@ describe('intimidation works on low morale', () => {
       exchange(snipers, modifiers, target, 90).perBody,
       6,
     );
+  });
+});
+
+/**
+ * The shield wall: a sheet built to be a bad target, and the rule that makes it a good one.
+ *
+ * Targeting is by damage per point of enemy health (`threatWeight`), so a unit designed with almost
+ * no damage and a great deal of health is the *least* attractive thing on the field. That is the
+ * whole problem `taunts` exists to answer, and it is why the first assertion here is the one that
+ * looks backwards: without the rule, the enemy walks past the wall and shoots what is behind it.
+ */
+describe('a wall is the least attractive target on the field', () => {
+  it('would be ignored on threat alone, which is why it taunts', () => {
+    const shooter = bare('snipers');
+    const wall = threatWeight(shooter, unit('snipers').modifiers, bare('ironsides'), 100);
+    const behind = threatWeight(shooter, unit('snipers').modifiers, bare('stitchers'), 100);
+    expect(wall).toBeLessThan(behind);
+    expect(unit('ironsides').taunts).toBe(true);
+  });
+
+  /** And it is the only one, so the engine's split has something to be a split *from*. */
+  it('is carried by exactly one sheet in the catalogue', () => {
+    const taunting = UNIT_CATALOG.filter((spec) => spec.taunts === true).map((spec) => spec.id);
+    expect(taunting).toEqual(['ironsides']);
+  });
+});
+
+/**
+ * `bulwark` has to reach toughness, not damage.
+ *
+ * Every modifier before it was an attack bonus, and pointing one at a sheet with 45 damage buys
+ * 31 points of a stat nobody fields the unit for. Both channels are asserted: that the defensive
+ * modifier moves hit points, and that an *offensive* one still does not, because a change that
+ * routed every modifier to toughness would pass a test that only checked the first half.
+ */
+describe('a defensive modifier makes a unit harder to kill, not harder to be hit by', () => {
+  const holding = (id: string, defending: boolean) =>
+    effectiveStats(
+      unit(id),
+      bareBattlefield(),
+      { defending, outnumbered: false },
+      noTerritoryEffects(),
+    );
+
+  it('pays the wall in hit points for holding ground', () => {
+    const dug = holding('ironsides', true);
+    const open = holding('ironsides', false);
+    expect(dug.vitality).toBeGreaterThan(open.vitality * 1.5);
+    expect(dug.reasons).toContain('Bulwark');
+  });
+
+  it('leaves an attack modifier on attack', () => {
+    // Sluggers carry `dug_in`, which is the same context and the ordinary channel.
+    const dug = holding('sluggers', true);
+    const open = holding('sluggers', false);
+    expect(dug.offense).toBeGreaterThan(open.offense);
+    expect(dug.vitality).toBe(open.vitality);
   });
 });

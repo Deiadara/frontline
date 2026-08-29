@@ -103,6 +103,14 @@ export const FRAMING = {
     filling the central seventy percent. Consistent implied light from upper-left across the whole
     set.
   `),
+  officer: block(`
+    Head-and-shoulders portrait, three-quarter view, eyes on the upper-third line, the subject
+    looking at or just past the viewer. Painted on a shallow, unreadable interior: the room is
+    light and colour rather than architecture. Vertical 4:5 composition, face within the central
+    seventy percent. One person, no insignia the player has not earned, no text. These are the
+    people a crew hires, so they read as *people*: ordinary faces, worn clothes, an age range and a
+    range of builds, and expressions that are doing something other than posing.
+  `),
   unit: block(`
     Half-length figure study of one representative fighter, three-quarter view, weight on the back
     foot, weapon or tool held rather than posed with. Vertical 3:4 composition, head in the upper
@@ -112,6 +120,148 @@ export const FRAMING = {
     people. No group shots, no insignia the player has not earned, no text.
   `),
 } as const;
+
+/**
+ * ART-PROMPTS §1b: the officer pool, keyed by `OFFICER_PORTRAIT_IDS`.
+ *
+ * Thirty-three faces the crew's officers are drawn from. Written as descriptions of paintings that
+ * already exist rather than as directions for ones that do not: the board delivered this whole set
+ * at once, and what these are for is the record of *which* painting each key is, so a re-encode or
+ * a re-order can be checked against something.
+ *
+ * One shared instruction runs under all of them (`FRAMING.officer`); each line here is only what
+ * makes that face different from the other thirty-two.
+ */
+export const OFFICER_SUBJECTS: Readonly<Record<string, string>> = {
+  '01': block(`
+    A woman in her forties, dark hair cropped close, faint knowing smile, in a cramped office wall
+    of clocks and paper behind her under violet light.
+  `),
+  '02': block(`
+    A man in his forties with a heavy moustache and a worn leather coat, standing in a doorway with
+    red sign-light on the wet street behind him.
+  `),
+  '03': block(`
+    A young woman with a blunt black bob and a high-collared coat, unsmiling, cold blue harbour
+    lights and moored hulls out of focus behind her.
+  `),
+  '04': block(`
+    A heavy-set bald man in his sixties with a close grey beard, in a lamplit workshop with a brass
+    fitting and a hanging cable behind his shoulder.
+  `),
+  '05': block(`
+    A woman in her thirties with long locs pulled back, half smiling, teal and magenta signage
+    smeared out of focus behind her.
+  `),
+  '06': block(`
+    A young woman with a black fringed bob and a buttoned uniform collar, expression flat and
+    unimpressed, deep blue night behind.
+  `),
+  '07': block(`
+    A man in his fifties, grey-streaked curls and a short beard, laughing, backlit by the teal glow
+    of a bar's bottle shelf.
+  `),
+  '08': block(`
+    A wiry man standing small in a wide green-lit alley of stacked machinery, coat too big for him,
+    the city crowding in over his head.
+  `),
+  '09': block(`
+    A woman in her sixties, white hair cropped short, a heavy brown coat beaded with rain, standing
+    on a street at dusk with figures behind her.
+  `),
+  '10': block(`
+    A man in his forties, fair hair going grey, grinning, in a room whose walls are lit green by
+    banks of screens.
+  `),
+  '11': block(`
+    An older woman in spectacles bent over a desk of papers under a single lamp, glancing up, the
+    room dark behind her.
+  `),
+  '12': block(`
+    A woman with dark red hair pinned up and a scarred jaw, looking off frame, hard red light on one
+    side of her face.
+  `),
+  '13': block(`
+    A woman in her thirties with cropped platinum hair, smiling, a cyan console glow washing across
+    her from below.
+  `),
+  '14': block(`
+    A man in his fifties with a dark eyepatch and a heavy coat, seated beside an oil lamp in a
+    violet-lit archive.
+  `),
+  '15': block(`
+    A big man in his sixties, grey beard, head back mid-laugh, in front of a wall papered over many
+    times with notices.
+  `),
+  '16': block(`
+    A man in his sixties with swept grey hair and a long coat, expression closed, a grey harbour and
+    a hailer horn behind him.
+  `),
+  '17': block(`
+    A young man with dark curls and an eye-badged collar, half smiling, pink neon lettering out of
+    focus over his shoulder.
+  `),
+  '18': block(`
+    A bald man in his fifties in a dark coat with a green medical cross at the breast, standing
+    square, a dim ward behind him.
+  `),
+  '19': block(`
+    A woman in her sixties with a blonde bob and a severe set to her mouth, in a vaulted hall lit
+    warm from one side.
+  `),
+  '20': block(`
+    A young man with untidy brown hair and an open face, violet and pink city light behind him.
+  `),
+  '21': block(`
+    A woman in her forties with dark hair pinned up and a badged uniform, standing before a wall of
+    pigeonholes and ledgers.
+  `),
+  '22': block(`
+    A heavy man in his fifties with a curled moustache, beaming, in a covered market of lanterns
+    with a set of brass scales hanging beside him.
+  `),
+  '23': block(`
+    A bald man in his forties with heavy stubble and a canvas jacket, teal water and lights behind
+    him.
+  `),
+  '24': block(`
+    A man in his sixties, white hair swept back, deep-set eyes, a great clock face and warm lamps
+    behind him.
+  `),
+  '25': block(`
+    A man in his thirties with dark curls and a tired, patient expression, green industrial light
+    behind him.
+  `),
+  '26': block(`
+    A man in his fifties with a greying beard and a worn coat, blue-lit shelving stacked behind him.
+  `),
+  '27': block(`
+    A man in his thirties with a thin moustache and an open collar, faintly amused, hanging lanterns
+    behind him.
+  `),
+  '28': block(`
+    A man in his forties with a black beard and a red-lined coat, unsmiling, green light on the wall
+    behind.
+  `),
+  '29': block(`
+    An elegant man in his sixties, white hair and a trimmed moustache, high collar, violet gloom
+    behind him.
+  `),
+  '30': block(`
+    A man in his thirties with dark curls, grinning, a strapped work harness across his chest and
+    teal lanterns behind him.
+  `),
+  '31': block(`
+    A man in his fifties with a grey beard and a fur-collared coat, warm lamplight on one cheek.
+  `),
+  '32': block(`
+    A thin man with round spectacles and a stained work apron, standing in a cluttered workshop.
+  `),
+  '33': block(`
+    A woman in her forties with dark hair tied up and a scarf at her throat, an apron over her
+    clothes, violet light behind her.
+  `),
+};
 
 /** ART-PROMPTS §1: keyed by `OverseerPreset.portraitId`. */
 export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
@@ -783,11 +933,6 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     dark alloy. No visible weapons. Ears forward, weight on the front paws, mid-stride. Cold
     #22d3ee sensor glint at the collar sockets, warm #f59e0b ground bounce along the flanks.
   `),
-  bell_ringers: block(`
-    A crew hand beside a truck-bed sonic array, gripping a stanchion of the frame with one arm and
-    holding heavy ear defenders in the other. Four stacked horn drivers fill the frame behind the
-    shoulder. Air distorts in a visible ring; the ground tone smears where it passes.
-  `),
   juggernauts: block(`
     A fully augmented heavy assault trooper: a human silhouette only at the head, with the arms
     and torso replaced by armoured actuator housings and the legs by reversed hydraulic struts.
@@ -850,5 +995,12 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     both forearms jointed steel, a torn crimson coat thrown out by the turn. Chin up, arms carried
     high and wide as if mid-figure rather than mid-fight. Deep red light from a broken window
     behind, cold rim on the steel, thrown blades streaking past out of focus.
+  `),
+  the_loose_end: block(`
+    A lean swordsman low in a turning crouch under a flooded overpass, black scale-plate wrapped
+    up both forearms and one shoulder, ragged dark hair, a long segmented chain-blade swung out
+    low and lit violet along its edge. Tracer rounds streak past above and behind, missing, one
+    shooter half in silhouette firing from the far dark. Cold purple key from the blade, warm
+    muzzle spark opposite, wet ground taking both.
   `),
 };

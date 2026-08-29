@@ -4,6 +4,7 @@ import {
   upgradedStats,
   type CombatContext,
   type FittedUpgrades,
+  type UnitModifierSpec,
   type UnitSpec,
   type UnitStats,
 } from '../units/index.js';
@@ -81,16 +82,22 @@ const clamp = (value: number, low: number, high: number): number =>
 export function contextBonusPercent(
   unit: UnitSpec,
   contexts: readonly CombatContext[],
-): { percent: number; reasons: string[] } {
+): { percent: number; toughness: number; reasons: string[] } {
   let percent = 0;
+  let toughness = 0;
   const reasons: string[] = [];
   for (const id of unit.modifiers) {
-    const modifier = UNIT_MODIFIERS[id];
+    // Annotated, because the table is declared `as const`: without it every entry narrows to its
+    // own literal shape and `affects` "does not exist" on the ones that leave it out.
+    const modifier: UnitModifierSpec = UNIT_MODIFIERS[id];
     if (!contexts.includes(modifier.context)) continue;
-    percent += modifier.percent;
+    // `affects` is optional and defaults to damage: every modifier written before a defensive
+    // sheet existed is an attack bonus and stays one.
+    if (modifier.affects === 'toughness') toughness += modifier.percent;
+    else percent += modifier.percent;
     reasons.push(modifier.label);
   }
-  return { percent, reasons };
+  return { percent, toughness, reasons };
 }
 
 /**
@@ -117,7 +124,7 @@ export function effectiveStats(
   if (side.defending) contexts.push('defending');
   if (side.outnumbered) contexts.push('outnumbered');
 
-  const { percent, reasons } = contextBonusPercent(unit, contexts);
+  const { percent, toughness, reasons } = contextBonusPercent(unit, contexts);
   const sheet = upgrades.length === 0 ? unit.stats : upgradedStats(unit.stats, upgrades);
 
   /*
@@ -142,7 +149,11 @@ export function effectiveStats(
   // in a fight. Capped, because a Gate at 20 produces 120 and a defender at +120% toughness on top
   // of fortification is a district nobody can raid.
   const held = side.defending ? battlefield.fortifyPercent + territory.defensePercent : 0;
-  const vitalityBonus = territory.unitVitalityPercent + Math.min(MAX_HELD_DEFENSE, held);
+  // The unit's own toughness modifiers are added *outside* the held-ground cap on purpose. That
+  // ceiling exists so no amount of building makes a district untakeable; a sheet that says it is
+  // hard to shift is a unit you can be sent to kill, and it is bought one body at a time.
+  const vitalityBonus =
+    territory.unitVitalityPercent + Math.min(MAX_HELD_DEFENSE, held) + toughness;
 
   return {
     offense: sheet.offense * (1 + offenseBonus / 100),

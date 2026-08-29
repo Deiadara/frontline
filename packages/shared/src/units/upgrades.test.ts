@@ -16,7 +16,7 @@ import {
   upgradesInLine,
 } from './upgrades.js';
 import { UNIT_CATALOG } from './catalog.js';
-import { UNIT_STAT_KEYS } from './stats.js';
+import { UNIT_RATING_KEYS, UNIT_STAT_KEYS } from './stats.js';
 
 const YES = () => true;
 const NO = () => false;
@@ -149,16 +149,29 @@ describe('what a refit does to a sheet', () => {
     expect(upgradedStats(razors.stats, [armour.id]).speed).toBeLessThan(razors.stats.speed);
   });
 
-  it('keeps the bounded stats inside their range', () => {
-    const maxed = { ...razors.stats, vitality: 99, armor: 99, speed: 1 };
+  /**
+   * The ceiling is for ratings, and only for ratings.
+   *
+   * Both halves are asserted, because the interesting failure is the *second* one: this used to cap
+   * everything except `lootCapacity`, and once damage and hit points became counts rather than
+   * ratings that cap became a shredder. A Razor on 160 damage came out of the cheapest refit in the
+   * game on 100, and every sheet converged on 100 the moment anything was slotted onto it. A test
+   * that only checked the ceiling would have called that a pass.
+   */
+  it('caps the ratings and lets the open figures climb past 100', () => {
+    const maxed = { ...razors.stats, vitality: 99, armor: 99, speed: 1, offense: 99 };
     const all = upgradedStats(
       maxed,
       UNIT_UPGRADES.map((spec) => spec.id),
     );
-    for (const key of UNIT_STAT_KEYS) {
+    for (const key of UNIT_RATING_KEYS) {
       expect(all[key], key).toBeGreaterThanOrEqual(0);
-      if (key !== 'lootCapacity' && key !== 'range') expect(all[key], key).toBeLessThanOrEqual(100);
+      expect(all[key], key).toBeLessThanOrEqual(100);
     }
+    // Damage and hit points took the whole workshop and kept it: no ceiling, and the refit is
+    // still worth what it says on it.
+    expect(all.vitality).toBe(99 + 10 + 17 + 27);
+    expect(all.offense).toBe(99 + 20 + 30 + 60);
   });
 
   it('ignores an upgrade id it does not recognise rather than throwing', () => {

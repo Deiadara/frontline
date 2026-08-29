@@ -4,6 +4,7 @@ import {
   MAX_ASSIGNEES_PER_OFFICER,
   OFFICER_ROLES,
   OFFICER_ROLE_LABELS,
+  officerPortraitId,
   TRAIT_CATALOG,
   isFlaw,
   type AlignmentBand,
@@ -22,6 +23,8 @@ import { DescribedTag } from '../../components/ui/DescribedTag';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { InfoWindow } from '../../components/ui/InfoWindow';
+import { InfoNote } from '../game/PageShell';
+import { OfficerPortrait } from '../overseer/OfficerPortrait';
 import { cn } from '../../lib/cn';
 import {
   useAssignees,
@@ -110,22 +113,20 @@ function Slot({ role, officer, cap, open, onToggle }: SlotProps) {
 
   const body = (
     <>
-      {/* The face column, at the roster card's proportions so the two screens read as one game.
-          Empty on purpose rather than absent: a face-shaped hole says art is coming. */}
-      <span
-        className={cn(
-          'relative flex w-[4.5rem] shrink-0 items-center justify-center overflow-hidden border-r',
-          filled
-            ? 'icon-tile border-surface-700 text-brass-100'
-            : 'border-surface-700/70 bg-surface-950/60 text-ink-400',
-        )}
-      >
-        {filled ? (
-          <span className="font-display text-3xl font-bold">{officer.name.slice(0, 1)}</span>
-        ) : (
+      {/* The face, at the pool's own 4:5, filling the column's full height: a roster of people
+          should be a roster of faces. A vacancy keeps the column and shows the empty chair, so the
+          grid is one shape whether a seat is filled or not. */}
+      {filled ? (
+        <OfficerPortrait
+          portraitId={officerPortraitId(officer.officerId)}
+          name={officer.name}
+          className="h-full w-[6.5rem] rounded-none border-0 border-r border-surface-700"
+        />
+      ) : (
+        <span className="relative flex h-full w-[6.5rem] shrink-0 items-center justify-center overflow-hidden border-r border-surface-700/70 bg-surface-950/60 text-ink-400">
           <Icon name="crew" className="h-8 w-8" />
-        )}
-      </span>
+        </span>
+      )}
 
       <span className="flex min-w-0 flex-1 flex-col gap-1.5 p-3 text-left">
         <span className="block truncate font-display text-[12px] font-bold uppercase tracking-[0.12em] text-brass-300">
@@ -286,13 +287,13 @@ function OfficerDetail({
 
         <div className="grid min-h-0 flex-1 gap-4 p-5 md:grid-cols-[13rem_minmax(0,1fr)]">
           <div className="flex flex-col gap-3">
-            {/* The frame the officer's portrait will land in. Empty on purpose rather than absent:
-                a face-shaped hole reads as "art is coming", and a missing block reads as a bug. */}
-            <div className="painted washed rivets edge-lit flex aspect-[3/4] w-full items-center justify-center rounded-sm border-2 border-surface-600/80">
-              <span className="font-display text-5xl font-bold text-ink-500">
-                {officer.name.slice(0, 1)}
-              </span>
-            </div>
+            {/* The face, at the pool's own 4:5. This was a placeholder shaped like the art that
+                had not arrived yet; it has. */}
+            <OfficerPortrait
+              portraitId={officerPortraitId(officer.officerId)}
+              name={officer.name}
+              className="painted rivets edge-lit aspect-[4/5] w-full border-2 border-surface-600/80"
+            />
 
             {officer.traits.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
@@ -323,11 +324,16 @@ function OfficerDetail({
 
           <div className="flex min-w-0 flex-col gap-4">
             <section>
-              <h3 className="mb-1.5 font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
-                What they can do
-              </h3>
+              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                <h3 className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
+                  What they can do
+                </h3>
+                <WhatTheEdgesMean />
+              </div>
               <div className="rounded-sm border border-surface-600/70 bg-surface-900/50 p-3">
-                <AttributeSheet attributes={officer.attributes} />
+                {/* Edged against the chair they are actually in: the same person reads differently
+                    in a different seat, which is the decision this screen exists to offer. */}
+                <AttributeSheet attributes={officer.attributes} role={officer.role} />
               </div>
             </section>
 
@@ -499,7 +505,7 @@ function Layout({ data }: { data: AssigneesResponse }) {
 
       {/* No panel around it. Nineteen cards inside a bordered box is a box with a border you have
           to look past; the cards are the surface, and the page they sit on already scrolls. */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="crew-books">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="crew-books">
         {OFFICER_ROLES.map((role) => {
           const officer = data.officers.find((candidate) => candidate.role === role);
           return (
@@ -554,6 +560,57 @@ function Figure({
         </span>
       </span>
     </HoverCard>
+  );
+}
+
+/**
+ * What the coloured edges on a sheet mean, folded behind one chip.
+ *
+ * The rule is only useful at the moment somebody is reading a sheet, so it lives beside the sheet
+ * rather than at the top of the screen. It says what the colours are and what they buy, and stops
+ * there: the actual arithmetic is the game's, not the player's, and a screen that printed the
+ * formula would turn a judgement about a person into a sum.
+ */
+function WhatTheEdgesMean() {
+  return (
+    <InfoNote label="What the colours mean">
+      <p>
+        Every seat puts some skills to work harder than others, and the edge of each row says which.
+        A skill a chair leans on is worth more from the person sitting in it, so the same officer is
+        worth a different amount in a different seat.
+      </p>
+      <ul className="mt-2 flex flex-col gap-1.5">
+        <li className="flex items-center gap-2">
+          <span aria-hidden className="h-4 w-1 shrink-0 rounded-full bg-iris-300" />
+          <span>
+            <strong>Irreplaceable</strong> · the one skill the job is really for. Never more than
+            one.
+          </span>
+        </li>
+        <li className="flex items-center gap-2">
+          <span aria-hidden className="h-4 w-1 shrink-0 rounded-full bg-brass-300" />
+          <span>
+            <strong>Essential</strong> · the work does not go well without it.
+          </span>
+        </li>
+        <li className="flex items-center gap-2">
+          <span aria-hidden className="h-4 w-1 shrink-0 rounded-full bg-ferrite-200/70" />
+          <span>
+            <strong>Useful</strong> · it comes up, and it helps.
+          </span>
+        </li>
+        <li className="flex items-center gap-2">
+          <span aria-hidden className="h-4 w-1 shrink-0 rounded-full bg-surface-600" />
+          <span>
+            <strong>Unmarked</strong> · the chair has no particular use for it.
+          </span>
+        </li>
+      </ul>
+      <p className="mt-2">
+        A high skill is worth more than the same points spread thin, and it is worth most where the
+        chair cares most. Drills past the halfway mark come one point at a time rather than two.
+      </p>
+    </InfoNote>
   );
 }
 

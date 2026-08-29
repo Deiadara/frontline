@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ItemCost } from '../items/inventory.js';
 import type { ItemId } from '../items/catalog.js';
 import type { PartialResources } from '../resources.js';
-import { UNIT_STAT_KEYS, type UnitStats } from './stats.js';
+import { UNIT_FIGURE_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
 
 /**
  * What the workshop does to a roster (GDD §A5, workshop extension).
@@ -80,7 +80,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 1,
     name: 'Scrap Plate',
     description: 'Road sign and truck panel, cut to shape and strapped on. Ugly, and it works.',
-    effect: { vitality: 6, armor: 3, speed: -2 },
+    effect: { vitality: 10, armor: 3, speed: -2 },
     cost: { scrap: 900, caps: 400 },
     parts: {},
     requiresGauntletLevel: 2,
@@ -91,7 +91,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 2,
     name: 'Composite Weave',
     description: 'Layered ceramic in a woven backing. Half the weight for twice the stopping.',
-    effect: { vitality: 10, armor: 7, speed: -1 },
+    effect: { vitality: 17, armor: 7, speed: -1 },
     cost: { scrap: 2600, highQualityMetal: 180, caps: 1400 },
     parts: { ceramic_plate: 4 },
     requiresGauntletLevel: 6,
@@ -102,7 +102,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 3,
     name: 'Hardshell Rig',
     description: 'A full carapace with its own cooling. You hear them coming.',
-    effect: { vitality: 16, armor: 12, intimidation: 5, speed: -3 },
+    effect: { vitality: 27, armor: 12, intimidation: 5, speed: -3 },
     cost: { scrap: 6400, highQualityMetal: 620, caps: 4200 },
     parts: { ceramic_plate: 8, coolant_cell: 2 },
     requiresGauntletLevel: 12,
@@ -115,7 +115,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 1,
     name: 'Machined Barrels',
     description: 'Bored true instead of bored out. Everything lands where it was pointed.',
-    effect: { penetration: 5, offense: 4 },
+    effect: { penetration: 5, offense: 20 },
     cost: { scrap: 1000, caps: 500 },
     parts: { scrap_servo: 2 },
     requiresGauntletLevel: 3,
@@ -126,7 +126,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 2,
     name: 'Match Loads',
     description: 'Powder measured by somebody who cared. The difference is at distance.',
-    effect: { penetration: 9, offense: 6, range: 8 },
+    effect: { penetration: 9, offense: 30, range: 8 },
     cost: { scrap: 3000, highQualityMetal: 220, caps: 1800 },
     parts: { optic_cluster: 3 },
     requiresGauntletLevel: 8,
@@ -137,7 +137,7 @@ const SPECS: readonly UpgradeSpec[] = [
     tier: 3,
     name: 'Slaved Optics',
     description: 'The sight talks to the trigger. Nobody has to be a good shot any more.',
-    effect: { penetration: 14, offense: 12, range: 14 },
+    effect: { penetration: 14, offense: 60, range: 14 },
     cost: { scrap: 7200, highQualityMetal: 780, caps: 5200 },
     parts: { targeting_core: 2, optic_cluster: 4 },
     requiresGauntletLevel: 14,
@@ -258,17 +258,22 @@ export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStat
       const delta = spec.effect[key];
       if (delta === undefined) continue;
       /*
-       * `lootCapacity` is the one genuinely unbounded stat: it counts slots, and nothing
-       * downstream divides it by a hundred. Everything else is a 0..100 rating, and floors at 0.
+       * The ceiling applies to **ratings only**, and which stats those are is read off
+       * `UNIT_FIGURE_KEYS` rather than listed here.
        *
-       * `range` used to be excluded here too, and that was wrong. Both of its readers treat it as
-       * a rating: `matchup.ts` clamps `range - speed` into 0..100, and `rangedShare` divides it by
+       * It used to name `lootCapacity` as the single exception, and that quietly became wrong the
+       * day damage and hit points stopped being ratings: a Razor on 160 damage fitted with Machined
+       * Barrels came out on 100, so the workshop's cheapest refit *halved* the unit it was bolted
+       * to, and every sheet in the game converged on 100 the moment anything was slotted onto it.
+       *
+       * `range` is not an exception and must not become one. Both of its readers treat it as a
+       * rating: `matchup.ts` clamps `range - speed` into 0..100, and `rangedShare` divides it by
        * 100 to produce a share it documents as 0..1. Slaved Optics put a Sniper on 109, which drew
        * a bar past the end of its own track on the roster and handed the engine a share of 1.09.
        */
       const raw = next[key] + delta;
-      const capped = key === 'lootCapacity' ? raw : Math.min(100, raw);
-      next[key] = Math.max(0, Math.round(capped));
+      const rating = !(UNIT_FIGURE_KEYS as readonly string[]).includes(key);
+      next[key] = Math.max(0, Math.round(rating ? Math.min(100, raw) : raw));
     }
   }
   return next;

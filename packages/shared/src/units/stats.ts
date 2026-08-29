@@ -13,14 +13,15 @@ import { z } from 'zod';
  * these numbers shows up as a change to a matchup.
  */
 
-export const DAMAGE_TYPES = [
-  'ballistic',
-  'blade',
-  'explosive',
-  'energy',
-  'chemical',
-  'sonic',
-] as const;
+/**
+ * What a unit hits with, and the axis resistances are written against.
+ *
+ * `sonic` was here and is gone with the Bell-Ringers, who were the only sheet that carried it. It
+ * outlived them by one change as an enum member nothing could produce, with four units still
+ * resisting a damage type no attacker in the game could deal: a lever the design was paying
+ * attention to and the engine could never reach.
+ */
+export const DAMAGE_TYPES = ['ballistic', 'blade', 'explosive', 'energy', 'chemical'] as const;
 export const DamageTypeSchema = z.enum(DAMAGE_TYPES);
 export type DamageType = z.infer<typeof DamageTypeSchema>;
 
@@ -30,7 +31,6 @@ export const DAMAGE_TYPE_LABELS: Record<DamageType, string> = {
   explosive: 'Explosive',
   energy: 'Energy',
   chemical: 'Chemical',
-  sonic: 'Sonic',
 };
 
 /**
@@ -71,6 +71,15 @@ export interface UnitModifierSpec {
   context: CombatContext;
   /** Percentage points on this unit's effectiveness while the context holds. */
   percent: number;
+  /**
+   * Which half of "effectiveness" the points land on. Defaults to `offense`.
+   *
+   * Every modifier used to be an attack bonus, which quietly made the whole table unusable for a
+   * unit whose job is not damage: a shield wall with 60 damage and a +60% bonus for holding ground
+   * gains 36 points of a stat nobody sends it for. A defensive sheet needs to be *harder to kill*
+   * while the context holds, which is a different number in a different place, so it says which.
+   */
+  affects?: 'offense' | 'toughness';
 }
 
 /**
@@ -142,6 +151,14 @@ export const UNIT_MODIFIERS = {
     description: 'Worth twice as much behind something as in front of it.',
     context: 'defending',
     percent: 30,
+  },
+  bulwark: {
+    label: 'Bulwark',
+    description: 'Holding ground is the whole job. Getting through takes time nobody has.',
+    context: 'defending',
+    percent: 70,
+    // Toughness rather than damage: this is on the sheet that has almost no damage to raise.
+    affects: 'toughness',
   },
   ambush: {
     label: 'Ambush',

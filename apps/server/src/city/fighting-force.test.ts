@@ -157,7 +157,7 @@ describe('§A5: every door that puts units on ground refuses the support tier', 
    * asks, so a tier added tomorrow is refused everywhere the day it is written.
    */
   it('refuses any force with a porter in it, and passes one without', () => {
-    for (const porter of UNIT_CATALOG.filter((unit) => unit.tier === 'support')) {
+    for (const porter of UNIT_CATALOG.filter((unit) => unit.tier === 'carrier')) {
       expect(isFightingForce({ [porter.id]: 1 }), porter.id).toBe(false);
       expect(isFightingForce({ razors: 10, [porter.id]: 1 }), porter.id).toBe(false);
       // Zero of them is not a porter in the line: a change map carrying an untouched key must not

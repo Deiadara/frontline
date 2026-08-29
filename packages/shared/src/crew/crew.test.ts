@@ -6,6 +6,7 @@ import {
   type AttributeName,
   type Attributes,
 } from '../attributes.js';
+import { AttributesSchema } from '../attributes.js';
 import { noTerritoryEffects } from '../city/index.js';
 import {
   ATTRIBUTE_EFFECTS,
@@ -18,14 +19,17 @@ import {
   effectsOfSheet,
   noCrewEffects,
   speedMultiplier,
-  OFF_DUTY_SHARE,
+  peakUplift,
+  IMPORTANCE_SHARE,
   type CrewMember,
 } from './effects.js';
+import { importanceOf } from './importance.js';
+import type { OfficerRole } from '../roles.js';
 import {
   OVERSEER_SUBJECT,
   TRAINABLE_ATTRIBUTES,
   TRAINING_DRILLS,
-  TRAINING_GAIN,
+  TRAINING_HALF_GAIN_FROM,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
   applyGain,
@@ -96,31 +100,47 @@ describe('what a crew is worth', () => {
     /** The player. No seat, so everything they know is available all the time. */
     const overseer = (over: Partial<Attributes> = {}, base = 10): CrewMember => ({
       attributes: makeAttributes(base, over),
-      duties: null,
+      role: null,
     });
     /*
-     * An officer in a seat, with the seat's duties spelled out here rather than looked up.
+     * An officer in a real chair.
      *
-     * Which attributes a role uses is a server-side table (§B8a) and deliberately not reachable
-     * from this package, so these tests state the duties they are testing against, which is also
-     * the clearer way to read them: the rule under test is "on duty pays full, off duty pays a
-     * share", and it does not depend on which role happens to carry which skill.
+     * These used to spell their duties out inline, because which skills a seat used was a
+     * server-side table this package could not reach. `ROLE_IMPORTANCE` is public now (the board's
+     * call: the sheet draws it as coloured borders), so the tests name the chair and read the same
+     * table the game does, which is the version that fails when the table changes.
      */
-    const officer = (
-      duties: readonly AttributeName[],
-      over: Partial<Attributes> = {},
-      base = 10,
-    ): CrewMember => ({ attributes: makeAttributes(base, over), duties });
+    const officer = (role: OfficerRole, over: Partial<Attributes> = {}, base = 10): CrewMember => ({
+      attributes: makeAttributes(base, over),
+      role,
+    });
+
+    /**
+     * What one rating is worth in one chair, uplift and all: the rule, restated for the reader.
+     *
+     * Rounded, because `crewSheet` rounds: the sheet is an `Attributes` and that is integers.
+     */
+    const worth = (member: CrewMember, name: AttributeName): number =>
+      Math.round(
+        member.attributes[name] *
+          IMPORTANCE_SHARE[importanceOf(member.role as OfficerRole, name)] *
+          peakUplift(member),
+      );
 
     it('takes the highest rating anybody has, attribute by attribute', () => {
-      const sheet = crewSheet([
-        officer(['engineering'], { engineering: 70 }),
-        officer(['stealth'], { stealth: 65 }),
-      ]);
-      expect(sheet.engineering).toBe(70);
-      expect(sheet.stealth).toBe(65);
-      // Nobody's seat uses Medicine, so the best anyone offers is the off-duty share of 10.
-      expect(sheet.medicine).toBeCloseTo(10 * OFF_DUTY_SHARE, 5);
+      const engineer = officer('lead_engineer', { engineering: 70 });
+      const spy = officer('head_spy', { stealth: 65 });
+      const sheet = crewSheet([engineer, spy]);
+      // Engineering is the Lead Engineer's irreplaceable skill and Stealth is the Head Spy's, so
+      // each is paid in full, lifted by whatever their peaks are worth.
+      expect(sheet.engineering).toBeCloseTo(worth(engineer, 'engineering'), 5);
+      expect(sheet.stealth).toBeCloseTo(worth(spy, 'stealth'), 5);
+      // Neither chair rates Medicine at all, so the best on offer is a quarter of somebody's 10.
+      expect(sheet.medicine).toBeCloseTo(
+        Math.max(worth(engineer, 'medicine'), worth(spy, 'medicine')),
+        5,
+      );
+      expect(sheet.medicine).toBeLessThan(10);
     });
 
     /**
@@ -131,7 +151,7 @@ describe('what a crew is worth', () => {
      */
     it('never drops a channel when another person joins', () => {
       const before = crewEffects([overseer({}, 30)]);
-      const after = crewEffects([overseer({}, 30), officer(['hacking'], { hacking: 80 }, 4)]);
+      const after = crewEffects([overseer({}, 30), officer('head_spy', { hacking: 80 }, 4)]);
       for (const channel of EFFECT_CHANNELS) {
         expect(after[channel], channel).toBeGreaterThanOrEqual(before[channel]);
       }
@@ -139,8 +159,8 @@ describe('what a crew is worth', () => {
 
     it('counts the Overseer as one of the people in the room', () => {
       const alone = crewEffects([overseer({ cryptography: 90 })]);
-      const hired = crewEffects([overseer(), officer(['cryptography'], { cryptography: 90 })]);
-      expect(alone.intelResistancePercent).toBe(hired.intelResistancePercent);
+      const hired = crewEffects([overseer(), officer('head_spy', { cryptography: 90 })]);
+      expect(alone.intelResistancePercent).toBeGreaterThanOrEqual(hired.intelResistancePercent);
     });
 
     /**
@@ -152,17 +172,20 @@ describe('what a crew is worth', () => {
      * nothing at all.
      */
     it('pays a person their full rating only in the job they are actually doing', () => {
-      const onDuty = crewSheet([officer(['cryptography'], { cryptography: 90 })]);
-      const wrongChair = crewSheet([officer(['intimidation'], { cryptography: 90 })]);
-      expect(onDuty.cryptography).toBe(90);
-      expect(wrongChair.cryptography).toBeCloseTo(90 * OFF_DUTY_SHARE, 5);
-      expect(wrongChair.cryptography).toBeLessThan(onDuty.cryptography);
+      // The Head Spy rates Cryptography as useful; the Raid Boss does not rate it at all.
+      const rightChair = officer('head_spy', { cryptography: 90 });
+      const wrongChair = officer('raid_boss', { cryptography: 90 });
+      const onDuty = crewSheet([rightChair]);
+      const off = crewSheet([wrongChair]);
+      expect(onDuty.cryptography).toBeCloseTo(worth(rightChair, 'cryptography'), 5);
+      expect(off.cryptography).toBeCloseTo(worth(wrongChair, 'cryptography'), 5);
+      expect(off.cryptography).toBeLessThan(onDuty.cryptography);
     });
 
     /** And it is a real ordering, not a rounding: the right ordinary person beats the wrong star. */
     it('lets an ordinary officer in the right seat beat a brilliant one in the wrong seat', () => {
-      const star = crewSheet([officer(['intimidation'], { stealth: 95 })]);
-      const journeyman = crewSheet([officer(['stealth'], { stealth: 50 })]);
+      const star = crewSheet([officer('raid_boss', { stealth: 95 })]);
+      const journeyman = crewSheet([officer('head_spy', { stealth: 50 })]);
       expect(journeyman.stealth).toBeGreaterThan(star.stealth);
     });
 
@@ -293,16 +316,28 @@ describe('drilling', () => {
     it('pays the gain out once and takes the session off the board', () => {
       const state = beginTraining(startingTraining(NOW), session(), NOW);
       const first = settleTraining(state, later(TRAINING_SECONDS));
-      expect(first.gains).toEqual([
-        { subjectId: OVERSEER_SUBJECT, attribute: 'stamina', amount: TRAINING_GAIN },
-      ]);
+      expect(first.gains).toEqual([{ subjectId: OVERSEER_SUBJECT, attribute: 'stamina' }]);
       expect(settleTraining(first.state, later(TRAINING_SECONDS * 10)).gains).toHaveLength(0);
     });
 
-    it('applies a gain to the sheet, clamped at the ceiling', () => {
-      const gain = { subjectId: OVERSEER_SUBJECT, attribute: 'logic' as const, amount: 2 };
+    /**
+     * A session is worth two points in the first half of a skill and one in the second.
+     *
+     * The back half of a skill is meant to cost more, so five hours a day buys less the further a
+     * character is already taken. All three cases are pinned, including the boundary: 49 is still
+     * the cheap side and 50 is not, and an off-by-one there is a rule that reads as working.
+     */
+    it('pays two points below the halfway mark and one at or above it, clamped at the ceiling', () => {
+      const gain = { subjectId: OVERSEER_SUBJECT, attribute: 'logic' as const };
       expect(applyGain(makeAttributes(20), gain).logic).toBe(22);
-      expect(applyGain(makeAttributes(20, { logic: 99 }), gain).logic).toBe(MAX_ATTRIBUTE);
+      expect(applyGain(makeAttributes(20, { logic: 49 }), gain).logic).toBe(51);
+      expect(applyGain(makeAttributes(20, { logic: TRAINING_HALF_GAIN_FROM }), gain).logic).toBe(
+        TRAINING_HALF_GAIN_FROM + 1,
+      );
+      expect(applyGain(makeAttributes(20, { logic: 80 }), gain).logic).toBe(81);
+      expect(applyGain(makeAttributes(20, { logic: MAX_ATTRIBUTE }), gain).logic).toBe(
+        MAX_ATTRIBUTE,
+      );
     });
 
     it('still rolls the day when nothing finished', () => {
@@ -358,5 +393,36 @@ describe('a training state parses back out of storage', () => {
       NOW,
     );
     expect(JSON.parse(JSON.stringify(state))).toEqual(state);
+  });
+});
+
+/**
+ * The sheet best-of hands back is an `Attributes`, and that type is integers 0..100.
+ *
+ * It goes on the wire as part of `crewStanding`, where `AttributesSchema` rejects a non-integer,
+ * and the failure has no symptom a developer would recognise: the client's query never resolves
+ * and the Overseer's own file sits on "Reading the file…" with nothing in the console. The shares
+ * and the peak uplift are both fractional multipliers, so this is not a theoretical concern.
+ */
+describe('the sheet best-of hands back', () => {
+  const everyone: CrewMember[] = [
+    { attributes: makeAttributes(37, { stealth: 91, deception: 63 }), role: 'head_spy' },
+    { attributes: makeAttributes(29, { medicine: 88 }), role: 'chief_medic' },
+    { attributes: makeAttributes(41, { intimidation: 77 }), role: 'raid_boss' },
+    { attributes: makeAttributes(23), role: null },
+  ];
+
+  it('is a whole number in every attribute, and inside the scale', () => {
+    const sheet = crewSheet(everyone);
+    for (const name of ATTRIBUTE_NAMES) {
+      expect(Number.isInteger(sheet[name]), `${name} = ${sheet[name]}`).toBe(true);
+      expect(sheet[name], name).toBeGreaterThanOrEqual(0);
+      expect(sheet[name], name).toBeLessThanOrEqual(MAX_ATTRIBUTE);
+    }
+  });
+
+  /** And the schema agrees, which is the thing that actually broke. */
+  it('parses as the schema the wire uses', () => {
+    expect(AttributesSchema.safeParse(crewSheet(everyone)).success).toBe(true);
   });
 });

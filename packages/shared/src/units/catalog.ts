@@ -18,11 +18,22 @@ import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js'
  * campaign, not a shopping list.
  */
 
+/**
+ * The tiers, in the order a roster reads them: cheapest and least specialised first.
+ *
+ * `regular` is gone rather than empty. It had become the tier a unit went in when nobody had
+ * decided what it was, which is the opposite of what a tier is for: every one of these now answers
+ * "what kind of thing is this", and a unit that does not obviously belong to one of them is a unit
+ * whose design is not finished.
+ *
+ * `carrier` was `support`, renamed for the same reason: "support" describes a role in a fight and
+ * these two are never in one. They carry.
+ */
 export const UNIT_TIERS = [
-  'support',
+  'carrier',
   'rabble',
-  'regular',
   'specialist',
+  'wonder',
   'heavy',
   'legendary',
 ] as const;
@@ -30,10 +41,10 @@ export const UnitTierSchema = z.enum(UNIT_TIERS);
 export type UnitTier = z.infer<typeof UnitTierSchema>;
 
 export const UNIT_TIER_LABELS: Record<UnitTier, string> = {
-  support: 'Support',
+  carrier: 'Carriers',
   rabble: 'Rabble',
-  regular: 'Regulars',
   specialist: 'Specialists',
+  wonder: 'Wonders of Engineering',
   heavy: 'Heavy',
   legendary: 'Legendary',
 };
@@ -70,6 +81,20 @@ export interface UnitSpec {
    * unit written before the tier existed was a fighter.
    */
   combat?: boolean;
+  /**
+   * Whether the enemy has to deal with this stack before anything behind it (§A5).
+   *
+   * A targeting rule, not a stat, which is why it is a flag here rather than a row in
+   * `UNIT_MODIFIERS`: every entry in that table is percentage points on a number, and this one
+   * changes *who gets shot at*. The engine reads it in `battle/engine.ts`.
+   *
+   * What it buys is a sheet that is worth fielding while being bad at the thing the engine scores
+   * units on. Targeting picks by damage-per-point-of-enemy-health, so a wall with no damage and a
+   * lot of health is the least attractive target on the field: without this, a shield line is
+   * walked past and the people behind it are shot instead, which is the exact opposite of what a
+   * shield line is.
+   */
+  taunts?: boolean;
   requires: readonly UnitRequirement[];
   cost: PartialResources;
   trainSeconds: number;
@@ -102,14 +127,14 @@ export interface UnitSpec {
 /** The middle of the road. Every unit below states only what makes it different from this. */
 const BASE_STATS: UnitStats = {
   speed: 40,
-  vitality: 60,
+  vitality: 100,
   morale: 50,
   armor: 10,
   damageType: 'ballistic',
   resistances: {},
   penetration: 5,
   range: 30,
-  offense: 35,
+  offense: 175,
   evasion: 10,
   stealth: 20,
   lootCapacity: 20,
@@ -157,13 +182,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 1,
     stats: sheet({
       speed: 55,
-      vitality: 45,
+      vitality: 75,
       morale: 40,
       armor: 5,
       damageType: 'blade',
       penetration: 8,
       range: 5,
-      offense: 32,
+      offense: 160,
       evasion: 15,
       stealth: 30,
       lootCapacity: 25,
@@ -196,13 +221,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 1,
     stats: sheet({
       speed: 46,
-      vitality: 88,
+      vitality: 145,
       morale: 66,
       armor: 16,
       damageType: 'blade',
       penetration: 10,
       range: 12,
-      offense: 40,
+      offense: 200,
       evasion: 8,
       stealth: 8,
       lootCapacity: 18,
@@ -236,12 +261,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 1,
     stats: sheet({
       speed: 45,
-      vitality: 30,
+      vitality: 50,
       morale: 30,
       armor: 3,
       penetration: 18,
       range: 45,
-      offense: 48,
+      offense: 240,
       evasion: 8,
       stealth: 15,
       lootCapacity: 15,
@@ -262,13 +287,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 1,
     stats: sheet({
       speed: 70,
-      vitality: 40,
+      vitality: 65,
       morale: 45,
       armor: 6,
       damageType: 'blade',
       penetration: 10,
       range: 10,
-      offense: 28,
+      offense: 140,
       evasion: 25,
       stealth: 40,
       lootCapacity: 60,
@@ -281,7 +306,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'breakers',
     name: 'Breakers',
-    tier: 'regular',
+    tier: 'heavy',
     blurb: 'Door-kicking close-quarters specialists. Whatever is behind it, they go through it.',
     trainedAt: 'gauntlet',
     unique: false,
@@ -291,13 +316,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 45,
-      vitality: 90,
+      vitality: 150,
       morale: 60,
       armor: 30,
       damageType: 'explosive',
       penetration: 12,
       range: 15,
-      offense: 55,
+      offense: 275,
       evasion: 8,
       stealth: 10,
       lootCapacity: 30,
@@ -308,7 +333,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'wardens',
     name: 'Wardens',
-    tier: 'regular',
+    tier: 'heavy',
     blurb: 'Defensive specialists. Considerably better at holding a location than at taking one.',
     trainedAt: 'gauntlet',
     unique: false,
@@ -318,13 +343,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 30,
-      vitality: 110,
+      vitality: 185,
       morale: 70,
       armor: 45,
       resistances: { blade: 25, explosive: -20 },
       penetration: 6,
       range: 40,
-      offense: 38,
+      offense: 190,
       evasion: 5,
       stealth: 8,
       lootCapacity: 20,
@@ -335,7 +360,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'ghosts',
     name: 'Ghosts',
-    tier: 'regular',
+    tier: 'specialist',
     blurb: 'Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job.',
     trainedAt: 'gauntlet',
     unique: false,
@@ -345,13 +370,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 60,
-      vitality: 55,
+      vitality: 90,
       morale: 55,
       armor: 10,
       damageType: 'blade',
       penetration: 25,
       range: 15,
-      offense: 42,
+      offense: 210,
       evasion: 35,
       stealth: 85,
       lootCapacity: 25,
@@ -363,7 +388,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'road_reavers',
     name: 'Road Reavers',
-    tier: 'regular',
+    tier: 'wonder',
     blurb: 'Motorcycle raiders. Fast, loud, aggressive, and halfway home with your fuel.',
     trainedAt: 'garage',
     unique: false,
@@ -373,12 +398,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 92,
-      vitality: 70,
+      vitality: 115,
       morale: 55,
       armor: 18,
       penetration: 14,
       range: 35,
-      offense: 50,
+      offense: 250,
       evasion: 30,
       stealth: 10,
       lootCapacity: 70,
@@ -388,40 +413,61 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     // Motorcycles. Wet, snow and a corridor are all the same answer.
     affinities: { wet: -6, snowy: -7, crammed: -7, open: 6 },
   },
+  /**
+   * The wall, and the only unit in the game that is not trying to win the fight.
+   *
+   * Its damage is the lowest of anything that fights at all: 45 against a Razor's 160, which is
+   * roughly one Razor's worth of harm from three bodies. Everything it has is on the other side of
+   * the ledger, 520 hit points and 70 points of plate, and `bulwark` adds seventy percent of that
+   * again while it is holding ground. It cannot take a location. It can make one cost more than it
+   * is worth.
+   *
+   * `taunts` is what makes any of that matter, and without it the sheet is worthless rather than
+   * defensive. Targeting is by damage per point of enemy health (`threatWeight`), so a unit built
+   * with no damage and a great deal of health is the *least* attractive target on the field: the
+   * enemy would walk past the shield wall and shoot the Snipers behind it, which is precisely the
+   * arrangement a shield wall exists to prevent.
+   */
   {
     id: 'ironsides',
     name: 'Ironsides',
-    tier: 'regular',
-    blurb: 'A shield wall of salvaged plate. Slow, immovable, and very hard to be rid of.',
+    tier: 'heavy',
+    blurb: 'A shield wall of salvaged plate. It will not beat you. It will not move, either.',
     trainedAt: 'gauntlet',
     unique: false,
+    taunts: true,
     requires: [gauntlet(6), structure('scrapyard', 5)],
     cost: { caps: 200, supplies: 30, scrap: 140, highQualityMetal: 10 },
     trainSeconds: 240,
     supply: 3,
     stats: sheet({
       speed: 25,
-      vitality: 140,
-      morale: 75,
-      armor: 60,
+      vitality: 520,
+      morale: 85,
+      armor: 70,
       damageType: 'blade',
-      resistances: { ballistic: 30, blade: 30, explosive: -30 },
+      resistances: { ballistic: 35, blade: 35, explosive: -30 },
       penetration: 5,
       range: 10,
-      offense: 40,
+      offense: 45,
       evasion: 3,
       stealth: 5,
       lootCapacity: 25,
-      intimidation: 40,
+      // Deliberately unimpressive, and it is the number that makes the sheet *bad at attacking*.
+      // Measured, not guessed: at 40 a stack of these took every equal-supply fight it started,
+      // because this engine settles a stalemate by who breaks first and a wall never breaks. It
+      // was winning by outlasting rather than by killing, which is the opposite of the brief. At
+      // 25 the same stack loses the fights it starts and holds the ones it is given.
+      intimidation: 25,
     }),
-    modifiers: ['dug_in', 'close_quarters'],
+    modifiers: ['bulwark', 'dug_in'],
     // Salvaged plate, worn all day. The cold is somebody else's problem.
     affinities: { cold: 5, hot: -5, snowy: -4 },
   },
   {
     id: 'ash_walkers',
     name: 'Ash Walkers',
-    tier: 'regular',
+    tier: 'rabble',
     blurb: 'Chem-suited troops who go where the air is wrong and come back out of it.',
     trainedAt: 'gauntlet',
     unique: false,
@@ -431,14 +477,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 38,
-      vitality: 85,
+      vitality: 140,
       morale: 65,
       armor: 35,
       damageType: 'chemical',
       resistances: { chemical: 90, blade: -25 },
       penetration: 8,
       range: 25,
-      offense: 45,
+      offense: 225,
       evasion: 8,
       stealth: 15,
       lootCapacity: 30,
@@ -465,12 +511,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 35,
-      vitality: 45,
+      vitality: 75,
       morale: 60,
       armor: 8,
       penetration: 60,
       range: 95,
-      offense: 70,
+      offense: 350,
       evasion: 12,
       stealth: 60,
       lootCapacity: 10,
@@ -493,13 +539,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 40,
-      vitality: 60,
+      vitality: 100,
       morale: 70,
       armor: 12,
       damageType: 'blade',
       penetration: 2,
       range: 10,
-      offense: 12,
+      offense: 60,
       evasion: 15,
       stealth: 25,
       lootCapacity: 20,
@@ -523,13 +569,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 3,
     stats: sheet({
       speed: 30,
-      vitality: 80,
+      vitality: 135,
       morale: 55,
       armor: 25,
       damageType: 'explosive',
       penetration: 20,
       range: 40,
-      offense: 65,
+      offense: 325,
       evasion: 6,
       stealth: 10,
       lootCapacity: 25,
@@ -540,7 +586,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'kite_crews',
     name: 'Kite Crews',
-    tier: 'specialist',
+    tier: 'wonder',
     blurb: 'Drone operators working off rooftops. They see the fight before anybody is in it.',
     trainedAt: 'gauntlet',
     unique: false,
@@ -550,13 +596,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 55,
-      vitality: 50,
+      vitality: 85,
       morale: 55,
       armor: 10,
       damageType: 'energy',
       penetration: 12,
       range: 75,
-      offense: 38,
+      offense: 190,
       evasion: 22,
       stealth: 50,
       lootCapacity: 12,
@@ -579,13 +625,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 3,
     stats: sheet({
       speed: 42,
-      vitality: 50,
+      vitality: 85,
       morale: 65,
       armor: 12,
       damageType: 'energy',
       penetration: 35,
       range: 55,
-      offense: 55,
+      offense: 275,
       evasion: 20,
       stealth: 55,
       lootCapacity: 10,
@@ -608,13 +654,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 45,
-      vitality: 50,
+      vitality: 85,
       morale: 75,
       armor: 10,
       damageType: 'blade',
       penetration: 45,
       range: 10,
-      offense: 50,
+      offense: 250,
       evasion: 25,
       stealth: 95,
       lootCapacity: 15,
@@ -624,8 +670,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   },
   {
     id: 'cyber_dogs',
-    name: 'Cyber Dogs',
-    tier: 'specialist',
+    name: 'Cyberhounds',
+    tier: 'wonder',
     blurb:
       'Augmented working dogs off the kennels under the flyover. They find what is hiding and they do not need to see it to do it.',
     trainedAt: 'infirmary',
@@ -636,13 +682,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 1,
     stats: sheet({
       speed: 92,
-      vitality: 55,
+      vitality: 90,
       morale: 72,
       armor: 8,
       damageType: 'blade',
       penetration: 30,
       range: 4,
-      offense: 58,
+      offense: 290,
       evasion: 38,
       stealth: 55,
       lootCapacity: 0,
@@ -657,37 +703,6 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     affinities: { dark: 7, foggy: 9, noisy: -7, eerie: -4 },
   },
   {
-    id: 'bell_ringers',
-    name: 'Bell-Ringers',
-    tier: 'specialist',
-    blurb: 'Sonic warfare on a flatbed. They do not kill people so much as end their afternoon.',
-    trainedAt: 'gauntlet',
-    unique: false,
-    requires: [gauntlet(10), holds('broadcast_tower')],
-    cost: { caps: 380, supplies: 55, scrap: 60, highQualityMetal: 25 },
-    trainSeconds: 400,
-    supply: 3,
-    stats: sheet({
-      speed: 35,
-      vitality: 65,
-      morale: 70,
-      armor: 18,
-      damageType: 'sonic',
-      penetration: 8,
-      range: 50,
-      offense: 32,
-      evasion: 10,
-      stealth: 12,
-      lootCapacity: 15,
-      intimidation: 85,
-    }),
-    modifiers: ['terror'],
-    // Sonic warfare: a loud room is their range extended, and a dead-quiet one exposes them.
-    affinities: { noisy: 8, crammed: 5 },
-  },
-
-  // ------------------------------------------------------------------ heavy
-  {
     id: 'juggernauts',
     name: 'Juggernauts',
     tier: 'heavy',
@@ -701,13 +716,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 6,
     stats: sheet({
       speed: 30,
-      vitality: 260,
+      vitality: 435,
       morale: 85,
       armor: 78,
       resistances: { ballistic: 40, blade: 50, energy: -35 },
       penetration: 18,
       range: 45,
-      offense: 85,
+      offense: 425,
       evasion: 2,
       stealth: 2,
       lootCapacity: 50,
@@ -728,14 +743,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 5,
     stats: sheet({
       speed: 55,
-      vitality: 150,
+      vitality: 250,
       morale: 100,
       armor: 45,
       damageType: 'blade',
-      resistances: { sonic: 80, energy: -45 },
+      resistances: { energy: -45 },
       penetration: 30,
       range: 15,
-      offense: 78,
+      offense: 390,
       evasion: 12,
       stealth: 20,
       lootCapacity: 30,
@@ -748,7 +763,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'the_condemned',
     name: 'The Condemned',
-    tier: 'heavy',
+    tier: 'rabble',
     blurb: 'Death row, handed one last chance and a blade. Nothing left to threaten them with.',
     trainedAt: 'gauntlet',
     unique: false,
@@ -758,13 +773,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 3,
     stats: sheet({
       speed: 48,
-      vitality: 95,
+      vitality: 160,
       morale: 100,
       armor: 15,
       damageType: 'blade',
       penetration: 35,
       range: 10,
-      offense: 68,
+      offense: 340,
       evasion: 10,
       stealth: 15,
       lootCapacity: 25,
@@ -790,21 +805,27 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 8,
     stats: sheet({
       speed: 75,
-      vitality: 180,
+      vitality: 300,
       morale: 90,
       armor: 35,
       damageType: 'energy',
       penetration: 80,
       range: 40,
-      offense: 95,
+      offense: 475,
       evasion: 60,
       stealth: 100,
       lootCapacity: 20,
       intimidation: 80,
-      // A full-spectrum cloak defeats eyes. It does nothing at all about ears.
-      resistances: { sonic: -40 },
     }),
     modifiers: ['ambush', 'night_operations'],
+    /*
+     * A full-spectrum cloak defeats eyes. It does nothing at all about ears, and that is what the
+     * `noisy` affinity is: this sheet used to say the same thing twice, once here and once as a
+     * vulnerability to sonic damage, which stopped meaning anything when the only unit that dealt
+     * sonic left the roster. **The Specter now carries no resistances at all**, which makes it the
+     * one legendary with no written weakness. Worth an answer eventually; it is not a regression,
+     * because nothing has been able to exploit the old one since the Bell-Ringers went.
+     */
     affinities: { dark: 10, eerie: 8, noisy: -8 },
   },
   {
@@ -820,14 +841,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 10,
     stats: sheet({
       speed: 45,
-      vitality: 420,
+      vitality: 700,
       morale: 100,
       armor: 55,
       damageType: 'chemical',
-      resistances: { chemical: 100, ballistic: 30, sonic: -30 },
+      resistances: { chemical: 100, ballistic: 30 },
       penetration: 50,
       range: 15,
-      offense: 100,
+      offense: 500,
       evasion: 5,
       stealth: 0,
       lootCapacity: 0,
@@ -860,14 +881,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 12,
     stats: sheet({
       speed: 18,
-      vitality: 600,
+      vitality: 1000,
       morale: 95,
       armor: 95,
       damageType: 'explosive',
       resistances: { ballistic: 70, blade: 80, explosive: 40, energy: -30 },
       penetration: 25,
       range: 60,
-      offense: 98,
+      offense: 490,
       evasion: 0,
       stealth: 0,
       lootCapacity: 120,
@@ -892,13 +913,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 6,
     stats: sheet({
       speed: 50,
-      vitality: 160,
+      vitality: 265,
       morale: 100,
       armor: 30,
       damageType: 'blade',
       penetration: 20,
       range: 20,
-      offense: 55,
+      offense: 275,
       evasion: 25,
       stealth: 20,
       lootCapacity: 20,
@@ -919,12 +940,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 5,
     stats: sheet({
       speed: 88,
-      vitality: 120,
+      vitality: 200,
       morale: 90,
       armor: 20,
       penetration: 15,
       range: 35,
-      offense: 45,
+      offense: 225,
       evasion: 40,
       stealth: 70,
       lootCapacity: 40,
@@ -947,8 +968,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
    */
   {
     id: 'the_twins',
-    name: 'The Twins',
-    tier: 'specialist',
+    name: 'Twins',
+    tier: 'wonder',
     blurb: 'One body, two minds, and neither of them sleeps. Nothing has ever got behind it.',
     trainedAt: 'lab',
     unique: false,
@@ -976,14 +997,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     stats: sheet({
       speed: 30,
-      vitality: 100,
+      vitality: 165,
       morale: 100,
       armor: 32,
       damageType: 'blade',
-      resistances: { ballistic: 25, blade: 20, sonic: 30, energy: -25 },
+      resistances: { ballistic: 25, blade: 20, energy: -25 },
       penetration: 18,
       range: 10,
-      offense: 34,
+      offense: 170,
       evasion: 5,
       stealth: 0,
       lootCapacity: 60,
@@ -1012,7 +1033,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'scavengers',
     name: 'Scavengers',
-    tier: 'support',
+    tier: 'carrier',
     blurb:
       'They know which floors still hold weight and which pipes still have copper in them. Hand them a bag and point at a building.',
     trainedAt: 'nexus',
@@ -1026,14 +1047,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       // A little under average on the road, which is the trade: the biggest bag in the game on
       // the slowest legs that still count as quick.
       speed: 34,
-      vitality: 35,
+      vitality: 60,
       morale: 45,
       armor: 0,
       penetration: 0,
       range: 0,
       // Not zero, because a zero would divide badly in more than one place downstream, and not
       // meaningful either: `combat: false` is what actually keeps them out of a fight.
-      offense: 1,
+      offense: 5,
       evasion: 20,
       stealth: 45,
       // Ten slots, which is the board's figure. Twice a Razor's and half again a Scraper's.
@@ -1045,7 +1066,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'haulers',
     name: 'Haulers',
-    tier: 'support',
+    tier: 'carrier',
     blurb:
       'Barrow, harness and a back that has done this for twenty years. Slow, patient, and they never come home light.',
     trainedAt: 'nexus',
@@ -1057,12 +1078,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 26,
-      vitality: 45,
+      vitality: 75,
       morale: 50,
       armor: 2,
       penetration: 0,
       range: 0,
-      offense: 1,
+      offense: 5,
       evasion: 8,
       stealth: 25,
       lootCapacity: 30,
@@ -1098,7 +1119,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 6,
     stats: sheet({
       speed: 92,
-      vitality: 150,
+      vitality: 250,
       morale: 95,
       armor: 18,
       damageType: 'blade',
@@ -1107,7 +1128,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       resistances: { explosive: -35 },
       penetration: 70,
       range: 10,
-      offense: 98,
+      offense: 490,
       evasion: 88,
       stealth: 45,
       lootCapacity: 15,
@@ -1131,7 +1152,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'sluggers',
     name: 'Sluggers',
-    tier: 'regular',
+    tier: 'heavy',
     blurb: 'Scrap plate and a short slug gun. Stands where it is put and makes the room expensive.',
     trainedAt: 'gauntlet',
     unique: false,
@@ -1141,13 +1162,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 32,
-      vitality: 115,
+      vitality: 190,
       morale: 70,
       armor: 42,
       damageType: 'ballistic',
       penetration: 24,
       range: 30,
-      offense: 52,
+      offense: 260,
       evasion: 8,
       stealth: 10,
       lootCapacity: 25,
@@ -1157,6 +1178,56 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     // A slug spreads. Ground that keeps the other side in front of you is worth more than ground
     // that lets them come round.
     affinities: { crammed: 5, open: -4 },
+  },
+
+  /**
+   * Appended, like the two above it: a unit's art seed is its index in this array.
+   *
+   * The top of the damage scale, and the sheet is built so that being the top of it is survivable
+   * for everyone else. 700 is two thirds again what the Abomination hits for, on 200 hit points and
+   * 8 points of plate: anything that lands on this connects, and one Colossus round is most of it.
+   * What it trades that for is not being *there* when the shot arrives, which is what 92 evasion
+   * buys under the miss rule (`battle/matchup.ts`): forty-six attacks in a hundred go past.
+   *
+   * That makes it the one unit whose worth depends on what is shooting at it rather than on how
+   * much of it there is, which is the point of a legendary. A wall of Wardens plinks off it all
+   * day; one lucky Demolisher round ends it.
+   */
+  {
+    id: 'the_loose_end',
+    name: 'The Loose End',
+    tier: 'legendary',
+    blurb: 'Walked out of a contract nobody walks out of. The chain-blade was the severance.',
+    trainedAt: 'gauntlet',
+    unique: true,
+    /**
+     * A Gauntlet at the top, a Garage that can keep a powered blade fed, and a rail yard, which is
+     * where somebody who has to keep moving ends up and where the contract finally lapsed.
+     */
+    requires: [gauntlet(16), structure('garage', 12), holds('rail_yard')],
+    cost: { caps: 1600, supplies: 240, oil: 220, highQualityMetal: 260 },
+    trainSeconds: 3600,
+    supply: 7,
+    stats: sheet({
+      speed: 95,
+      vitality: 200,
+      morale: 90,
+      armor: 8,
+      damageType: 'blade',
+      // A powered edge answers plate and nothing answers a blast: there is no armour to hide in
+      // and the whole sheet is built on not being hit.
+      resistances: { explosive: -40, ballistic: 15 },
+      penetration: 85,
+      range: 15,
+      offense: 700,
+      evasion: 92,
+      stealth: 60,
+      lootCapacity: 20,
+      intimidation: 80,
+    }),
+    modifiers: ['close_quarters', 'ambush'],
+    // Room to move is the whole sheet. Shoulder to shoulder, evasion is worth nothing.
+    affinities: { open: 8, crammed: -10 },
   },
 ];
 

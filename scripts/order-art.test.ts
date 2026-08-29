@@ -48,11 +48,13 @@ describe('sections', () => {
     // the city's district tags, the district's building sites and the Bar's empty stool, so all
     // three ship at the size they were painted and none belongs in the 16:9 group above.
     expect(roster!.specs.every((s) => !s.alpha && s.aspect !== '16:9')).toBe(true);
-    expect(roster!.specs.map((s) => s.key).filter((key) => !key.startsWith('unit-'))).toEqual([
-      'plate-city',
-      'plate-district',
-      'plate-bar',
-    ]);
+    expect(
+      roster!.specs
+        .map((s) => s.key)
+        .filter((key) => !key.startsWith('unit-') && !key.startsWith('officer-')),
+    ).toEqual(['plate-city', 'plate-district', 'plate-bar']);
+    // The officer pool is opaque and croppable and lands here too, all thirty-three of it.
+    expect(roster!.specs.filter((s) => s.class === 'officer')).toHaveLength(33);
     expect(alpha!.specs.every((s) => s.alpha)).toBe(true);
     expect(occluded!.specs.map((s) => s.key)).toEqual([...OCCLUDED_BACKDROP_KEYS]);
     expect(groupIntoSections().reduce((total, { specs }) => total + specs.length, 0)).toBe(

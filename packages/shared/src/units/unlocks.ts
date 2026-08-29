@@ -63,8 +63,26 @@ export function describeRequirement(need: UnitRequirement): string {
     case 'modification':
       return findModification(need.modificationId)?.name ?? need.modificationId;
     case 'location':
-      return `hold a ${LOCATION_CATALOG[need.locationKind].label}`;
+      return `Hold ${theLocation(need.locationKind)}`;
   }
+}
+
+/**
+ * A location, with its article, for a sentence that names one.
+ *
+ * Always **The**, never "a", and that is a decision about what these places are rather than a
+ * grammar preference. Five of the labels carry the article already ("The Doghouse", "The Bone
+ * Market") and the rest do not, so a template that prepended one produced "hold a The Doghouse".
+ * Prepending nothing would have produced "hold Doghouse".
+ *
+ * "The" for all of them, including the kinds a city has several of: a clause that says *hold a*
+ * Mad Scientist's Lair reads as a shopping list, and what a crew is actually being told is to go
+ * and take **the** one on the map in front of them. The definite article is the one that says a
+ * place rather than a category.
+ */
+export function theLocation(kind: LocationKind): string {
+  const label = LOCATION_CATALOG[kind].label;
+  return /^The /.test(label) ? label : `The ${label}`;
 }
 
 /** The location kinds a crew holds, from its control rows: the other half of {@link UnlockContext}. */

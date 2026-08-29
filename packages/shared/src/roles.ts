@@ -62,6 +62,35 @@ export const OFFICER_ROLE_LABELS: Record<OfficerRole, string> = {
  * C4: reskilling (§G4) is the Professor's job. W4 (assignees) gates the reassign-everyone
  * process on *this* constant rather than hardcoding its own role check.
  */
+/**
+ * The faces an officer can have (§C).
+ *
+ * A **pool**, not a portrait per role: the art is thirty-three people, and a Head Spy is a job
+ * rather than a face. Which one a given officer wears is derived from their id rather than stored
+ * (see `officerPortraitId`), so every officer already on a save has a face the moment the pool
+ * lands, with no migration and no column.
+ */
+export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 33 }, (_, index) =>
+  String(index + 1).padStart(2, '0'),
+);
+
+/**
+ * Which face this officer wears, derived from their id.
+ *
+ * Deterministic and stable: the same officer is the same person every time the screen is drawn,
+ * across sessions and across devices, without a byte of storage. An FNV-1a hash rather than a
+ * character sum, because ids are UUIDs and a sum over those clusters hard: half the pool went
+ * unused and two officers on the same roster routinely shared a face.
+ */
+export function officerPortraitId(commanderId: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < commanderId.length; index += 1) {
+    hash ^= commanderId.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return OFFICER_PORTRAIT_IDS[hash % OFFICER_PORTRAIT_IDS.length] as string;
+}
+
 export const RESKILLING_ROLE: OfficerRole = 'professor';
 
 /**

@@ -15,6 +15,7 @@ import {
   type DistrictKind,
 } from '../city/index.js';
 import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS, type OverseerArchetype } from '../overseer.js';
+import { OFFICER_PORTRAIT_IDS } from '../roles.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { UNIT_CATALOG, UNIT_IDS } from '../units/index.js';
 import {
@@ -24,6 +25,7 @@ import {
   LOCATION_ICON_SUBJECTS,
   DISTRICT_SUBJECTS,
   FRAMING,
+  OFFICER_SUBJECTS,
   PLATE_SUBJECTS,
   PORTRAIT_SUBJECTS,
   RESOURCE_ICON_SUBJECTS,
@@ -34,6 +36,7 @@ import {
 /** ART-BIBLE §7: the `class` segment of every filename. */
 export const ASSET_CLASSES = [
   'portrait',
+  'officer',
   'district',
   'plate',
   'plane',
@@ -56,11 +59,15 @@ export type AssetClass = z.infer<typeof AssetClassSchema>;
  * desktop frame whole. Before it, all three were painted at their own shapes and every one of them
  * was either cropped, squashed or letterboxed to fit.
  *
+ * `2.36:1` is the Bar's, and it is the exception that proves the rule: the board delivered that
+ * room at its own shape rather than at 21:10, so it is carried at that shape rather than cropped
+ * or stretched to join the other two. The label is the master's own ratio, not a chosen one.
+ *
  * That this enum has to change at all is the point of it. The twelve building sites are positions
  * on the district painting, so its shape changing is a layout change and not a detail: every
  * outline had to be re-traced against the new art, and the enum is where that gets noticed.
  */
-export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '21:10']);
+export const AssetAspectSchema = z.enum(['3:4', '1:1', '16:9', '21:10', '2.36:1', '4:5']);
 export type AssetAspect = z.infer<typeof AssetAspectSchema>;
 
 /** ADR 0001 §6.1: the backends `scripts/gen-art.ts` knows how to drive. */
@@ -233,6 +240,23 @@ export interface AssetClassSpec {
 /** ART-BIBLE §6: source resolution, aspect, delivery format and default transparency per class. */
 export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
   portrait: { width: 1024, height: 1536, aspect: '3:4', ext: 'webp', quality: 90, alpha: false },
+  /*
+   * The officer pool: the faces of the people a crew hires (§C).
+   *
+   * A class of its own rather than more `portrait` keys, because the two are different objects.
+   * An overseer portrait is one of four hero images a player picks from and sees at full size; an
+   * officer portrait is one of thirty-three drawn from a pool, and it appears on a roster card at
+   * a couple of hundred pixels. 4:5 rather than the overseer's taller frame is the shape the board
+   * delivered.
+   *
+   * 960×1200 is the largest size satisfying three constraints at once, and it took all three to
+   * find it: every master in the drop must supply a 4:5 crop at least this big without upscaling
+   * (the smallest gives 1023×1279, and two of the thirty-three are a different shape from the
+   * rest); the ratio must be exactly 4:5; and both sides must divide by 16, which is what FLUX
+   * accepts and what `1023` did not. Only multiples of 64×80 satisfy the last two, so 960×1200 is
+   * the largest one under the first.
+   */
+  officer: { width: 960, height: 1200, aspect: '4:5', ext: 'webp', quality: 88, alpha: false },
   district: { width: 1024, height: 1024, aspect: '1:1', ext: 'webp', quality: 90, alpha: false },
   plate: { width: 2048, height: 1152, aspect: '16:9', ext: 'webp', quality: 92, alpha: false },
   // Sky is opaque, far/fore carry alpha: the manifest overrides per plane.
@@ -293,6 +317,7 @@ const UNREFERENCED_KEYS: readonly AssetKey[] = [
 /** ART-PROMPTS §0.3: `<class-base> + index`, so any asset can be regenerated without a log. */
 const SEED_BASE = {
   portrait: 110000,
+  officer: 115000,
   district: 120000,
   plate: 130000,
   building: 140000,
@@ -380,6 +405,28 @@ function subjectFor(table: Readonly<Record<string, string>>, id: string, label: 
   return subject;
 }
 
+/**
+ * The officer pool (§C): thirty-three faces, all one class, all one framing.
+ *
+ * Ordered by `OFFICER_PORTRAIT_IDS`, which is also what `officerPortraitId` indexes into, so a face
+ * added to the end of the pool cannot renumber the seeds of the ones before it.
+ */
+const officerDrafts = OFFICER_PORTRAIT_IDS.map((portraitId, index) =>
+  draft({
+    key: `officer-${portraitId}`,
+    class: 'officer',
+    seed: SEED_BASE.officer + index + 1,
+    prompt: {
+      subject: subjectFor(OFFICER_SUBJECTS, portraitId, 'officer portrait'),
+      framing: FRAMING.officer,
+    },
+    // Not `openai`: gpt-image-1 renders exactly three sizes and 960×1200 is not one of them.
+    // These arrived as a board delivery anyway, so what this records is which backend *could*
+    // have produced them, and only FLUX takes an arbitrary size.
+    backend: 'fal',
+  }),
+);
+
 const portraitDrafts = OVERSEER_PRESETS.map((preset, index) =>
   draft({
     key: `portrait-${preset.portraitId}`,
@@ -435,11 +482,18 @@ const DISTRICT_PLATE_DELIVERY = {
  * Down control is positioned, in fractions of this image. A crop moves the stool out from under the
  * control, and the class's 2048 width would have rejected a 1264px master by name rather than
  * cropping it.
+ *
+ * 1926×817 is the delivered master's own size, and it is **deliberately not** the 3780×1800 the
+ * other two rooms are on. Written down here rather than upscaled to match them, because the
+ * encoder's whole job is refusing to invent detail: naming a bigger delivery would produce a
+ * bigger file carrying exactly this much picture. What it costs is sharpness above a 1926px
+ * frame, which is a maximised window on a 1080p screen. A re-export at 3780×1604, the same shape,
+ * would put this room back on the other two's footing.
  */
 const BAR_PLATE_DELIVERY = {
-  width: 3780,
-  height: 1800,
-  aspect: '21:10',
+  width: 1926,
+  height: 817,
+  aspect: '2.36:1',
 } as const satisfies Partial<AssetSpec>;
 
 /**
@@ -586,6 +640,7 @@ const iconDrafts = [
 /** Every asset the MVP needs, in ART-PROMPTS §1-§7 order. */
 export const ART_MANIFEST: readonly AssetSpec[] = [
   ...portraitDrafts,
+  ...officerDrafts,
   ...districtDrafts,
   ...plateDrafts,
   ...buildingDrafts,
@@ -607,9 +662,26 @@ export function findAssetSpec(key: AssetKey): AssetSpec | undefined {
   return ASSET_BY_KEY.get(key);
 }
 
+/**
+ * A room plate's shape, `width / height`, from the one place its size is written down.
+ *
+ * The screens that paint a plate full-bleed position their controls in fractions of the *painting*,
+ * so each of them needs the painting's aspect to size the box those fractions are measured in. They
+ * used to carry it as a literal (`3780 / 1800`) beside the marks, which made a plate re-delivered
+ * at a new shape a two-file change with no gate on the second file: the picture would be drawn
+ * correctly and every control on it would slide off whatever it was standing on, by an amount that
+ * varies with the window.
+ */
+export function plateAspect(plate: string): number {
+  const spec = findAssetSpec(`plate-${plate}`);
+  if (spec === undefined) throw new Error(`No plate named "${plate}" in the art manifest`);
+  return spec.width / spec.height;
+}
+
 /** A domain object addressed by art. Keeps callers out of the business of building keys. */
 export type AssetRef =
   | { type: 'portrait'; portraitId: string }
+  | { type: 'officer'; portraitId: string }
   | { type: 'district'; districtId: string }
   | { type: 'building'; building: BuildingKind }
   | { type: 'unit'; unitId: string }
@@ -622,6 +694,8 @@ function assetKeyFor(ref: AssetRef): AssetKey {
   switch (ref.type) {
     case 'portrait':
       return `portrait-${ref.portraitId}`;
+    case 'officer':
+      return `officer-${ref.portraitId}`;
     case 'district':
       return `district-${ref.districtId}`;
     case 'building':
@@ -693,6 +767,8 @@ export function subjectResolvesToDomainId(assetClass: AssetClass, subject: strin
   switch (assetClass) {
     case 'portrait':
       return OVERSEER_PRESETS.some((preset) => preset.portraitId === subject);
+    case 'officer':
+      return OFFICER_PORTRAIT_IDS.includes(subject);
     case 'district':
       return CITY_DISTRICTS.some((district) => district.id === subject);
     case 'building':

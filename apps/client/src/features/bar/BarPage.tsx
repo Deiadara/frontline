@@ -9,6 +9,7 @@ import {
   TRAIT_CATALOG,
   isFlaw,
   notorietyTier,
+  plateAspect,
   type AlignmentBand,
   type AttributeName,
   type BarOfficer,
@@ -186,18 +187,32 @@ function coldFor(recruit: BarRecruit, now: Date): string | null {
  *
  * **The gap between the counter and the seat, not the seat itself.** The empty stool is the thing
  * the control is about, so covering it with the control is the one placement that cannot be right:
- * a player looking for the free seat finds a plaque where it should be. The counter's underside is
- * at 54% of the painting and the stool's cushion starts at 64%, so the plaque sits at 59% and the
- * seat stays visible under it.
+ * a player looking for the free seat finds a plaque where it should be.
+ *
+ * Measured off the delivered plate rather than guessed. On the current 1926×817 room the counter's
+ * underside runs at 55.7% of the painting's height and the stool's cushion starts at 64.3%, and the
+ * stool stands at 50.2% across rather than dead centre.
+ *
+ * Anchored by its **bottom edge** at the top of the cushion, not centred in the gap between the
+ * two. Centring only keeps the seat clear while the plaque is shorter than the gap, so it is a
+ * placement that silently starts covering the thing it is about the day somebody adds a line to
+ * the button. Hung from the cushion, the plaque grows upward onto the blank panel under the
+ * counter, which has nothing on it to cover.
  *
  * Fractions of the *image*, not of the frame, which is why `PlateRoom` draws the picture whole and
  * the button lives inside that box: a percentage of the viewport would slide off the stool the
  * moment somebody resized a window.
  */
-const STOOL = { x: 0.499, y: 0.59 } as const;
+const STOOL = { x: 0.502, y: 0.638 } as const;
 
-/** The plate's own shape. Used to size the box the stool is positioned in. */
-const BAR_ASPECT = 3780 / 1800;
+/**
+ * The plate's own shape. Used to size the box the stool is positioned in.
+ *
+ * Read off `plate-bar`'s delivery in the manifest rather than restated, because these two numbers
+ * disagreeing is not a visual bug with a symptom: the painting is drawn at one shape and the stool
+ * is placed at another, so the plaque slides off the seat by an amount that depends on the window.
+ */
+const BAR_ASPECT = plateAspect('bar');
 
 export function BarPage() {
   const barQuery = useBar();
@@ -292,8 +307,9 @@ export function BarPage() {
        * three controls on it are positioned against the *painting* rather than against the sheet.
        */}
       <PlateRoom plate="bar" aspect={BAR_ASPECT} fit="whole" testId="bar-room">
-        {/* The seat. */}
-        <OnPlate at={STOOL}>
+        {/* The seat. `anchor="bottom"` is what makes the placement above mean anything: it hangs
+            the plaque *from* the top of the cushion rather than centring it on that line. */}
+        <OnPlate at={STOOL} anchor="bottom">
           <SitDown
             count={recruits.length}
             disabled={barQuery.isLoading || recruits.length === 0}

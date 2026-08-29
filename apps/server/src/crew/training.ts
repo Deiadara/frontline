@@ -5,6 +5,7 @@ import {
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
   applyGain,
+  officerPortraitId,
   rollDay,
   sessionFor,
   settleTraining,
@@ -100,6 +101,8 @@ export function projectTraining(
       id: OVERSEER_SUBJECT,
       name: overseer.name,
       role: 'Overseer',
+      // No chair, so no skill is more or less useful than another: the sheet draws plain.
+      officerRole: null,
       portraitId: overseer.portraitId,
       attributes: overseer.attributes,
       traits: overseer.traits,
@@ -113,7 +116,10 @@ export function projectTraining(
       id: officer.id,
       name: officer.name,
       role: OFFICER_ROLE_LABELS[officer.role],
-      portraitId: null,
+      officerRole: officer.role,
+      // Derived rather than stored: see `officerPortraitId`. Every officer already on a save has
+      // a face the moment the pool lands, with no migration and no column.
+      portraitId: officerPortraitId(officer.id),
       attributes: officer.attributes,
       traits: officer.traits,
       session: sessionFor(state, officer.id) ?? null,

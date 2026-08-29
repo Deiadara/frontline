@@ -124,7 +124,7 @@ describe('what the ground does to a unit', () => {
   });
 
   it('sums stacked modifiers rather than multiplying them', () => {
-    // Cyber Dogs are `ambush` (25) and `night_operations` (20). In a street, in the dark, that is
+    // Cyberhounds are `ambush` (25) and `night_operations` (20). In a street, in the dark, that is
     // 45 percentage points and not 1.25 × 1.20.
     const both = contextBonusPercent(unit('cyber_dogs'), ['urban', 'dark']);
     expect(both.percent).toBe(45);
