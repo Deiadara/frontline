@@ -188,6 +188,16 @@ wears is derived from their id, never stored: see `officerPortraitId`.
 | `officer-31` | `115031` |
 | `officer-32` | `115032` |
 | `officer-33` | `115033` |
+| `officer-34` | `115034` |
+| `officer-35` | `115035` |
+| `officer-36` | `115036` |
+| `officer-37` | `115037` |
+| `officer-38` | `115038` |
+| `officer-39` | `115039` |
+| `officer-40` | `115040` |
+| `officer-41` | `115041` |
+| `officer-42` | `115042` |
+| `officer-43` | `115043` |
 
 ### 1b.1 `officer-01`
 
@@ -387,7 +397,67 @@ SUBJECT: A thin man with round spectacles and a stained work apron, standing in 
 SUBJECT: A woman in her forties with dark hair tied up and a scarf at her throat, an apron over her clothes, violet light behind her.
 ```
 
-## 2. District illustrations: 10 assets
+### 1b.34 `officer-34`
+
+```
+SUBJECT: A woman in her forties with dark curly hair pinned back, looking off to one side, in a lamplit logistics office: a wall of routing charts, a hanging bulb, a pressure gauge, rank bars on the shoulder of a dark coat.
+```
+
+### 1b.35 `officer-35`
+
+```
+SUBJECT: A man with a close-cropped grey beard in a heavy supply-issue coat, standing among stacked crates under a single warm lamp, cold green light off a ledger screen behind him.
+```
+
+### 1b.36 `officer-36`
+
+```
+SUBJECT: A younger woman with dark hair and a headset collar, half-lit by the amber glow of a radio set, patch cables and a valve rack out of focus behind her shoulder.
+```
+
+### 1b.37 `officer-37`
+
+```
+SUBJECT: A woman in her fifties with a black bob and a high-collared burgundy coat over a white shirt, unsmiling, a wall of card-index drawers and a green banker's lamp behind her.
+```
+
+### 1b.38 `officer-38`
+
+```
+SUBJECT: A man in his forties in shirtsleeves and a canvas apron, sleeves rolled, a drawing board and a theodolite behind him under a work lamp.
+```
+
+### 1b.39 `officer-39`
+
+```
+SUBJECT: A broad man in his fifties with a shaved head and a quartermaster's tabard, standing at a issue counter with tallies chalked on the board behind him.
+```
+
+### 1b.40 `officer-40`
+
+```
+SUBJECT: A woman in her thirties in a medical coat with the collar turned up, a trolley of instruments and a curtained bay behind her in cold clinical light.
+```
+
+### 1b.41 `officer-41`
+
+```
+SUBJECT: An older man with wire spectacles and a cardigan under a coat, standing between two tall shelves of bound records, dust in the lamp beam.
+```
+
+### 1b.42 `officer-42`
+
+```
+SUBJECT: A man in his forties in a checkpoint greatcoat with a whistle on a cord, a striped barrier and a guard hut light behind him in the rain.
+```
+
+### 1b.43 `officer-43`
+
+```
+SUBJECT: A woman in her thirties with her hair covered, a clipboard held against her chest, a queue of figures and a chain-link fence out of focus behind her.
+```
+
+## 2. District illustrations: 12 assets
 
 **Class framing** (append to each):
 
@@ -402,18 +472,20 @@ percent toward #3d4761 and loses fifteen percent contrast.
 
 Ids match `District.id` in `@frontline/shared`.
 
-| Key                          | District             | Kind        | Seed     |
-| ---------------------------- | -------------------- | ----------- | -------- |
-| `district-neon-docks`        | Neon Docks           | residential | `120001` |
-| `district-ashen-terraces`    | Ashen Terraces       | residential | `120002` |
-| `district-kettle-row`        | Kettle Row           | residential | `120003` |
-| `district-rustyard`          | The Rustyard         | contested   | `120004` |
-| `district-chrome-row`        | Chrome Row           | contested   | `120005` |
-| `district-undergrid`         | The Undergrid        | contested   | `120006` |
-| `district-datavault-sigma`   | Datavault Sigma      | contested   | `120007` |
-| `district-glasshouse-fields` | Glasshouse Fields    | contested   | `120008` |
-| `district-blacksite-7`       | Blacksite 7          | contested   | `120009` |
-| `district-combine-spire`     | Spire of the Combine | contested   | `120010` |
+| Key                          | District          | Kind        | Seed     |
+| ---------------------------- | ----------------- | ----------- | -------- |
+| `district-neon-docks`        | Neon Docks        | contested   | `120001` |
+| `district-ashen-terraces`    | Player District   | residential | `120002` |
+| `district-kettle-row`        | Player District   | residential | `120003` |
+| `district-rustyard`          | Steelbelt         | contested   | `120004` |
+| `district-chrome-row`        | Chrome Row        | contested   | `120005` |
+| `district-undergrid`         | The Undergrid     | contested   | `120006` |
+| `district-datavault-sigma`   | The Annexes       | contested   | `120007` |
+| `district-glasshouse-fields` | Glasshouse Fields | contested   | `120008` |
+| `district-blacksite-7`       | Blacksite         | contested   | `120009` |
+| `district-combine-spire`     | CCS               | contested   | `120010` |
+| `district-upper-roofs`       | Player District   | residential | `120011` |
+| `district-south-quay`        | Player District   | residential | `120012` |
 
 ### 2.1 `district-neon-docks`: residential, difficulty 1
 
@@ -516,6 +588,26 @@ legible. Buttressed, ribbed, cathedral-like, deliberately intimidating. Magenta 
 light bleeding down the ribs; the summit catches an ambient dawn that never reaches the streets.
 Skybridges radiate outward and end in nothing. Seen from below and far away. The most beautiful
 and the most hostile image in the set.
+```
+
+### 2.11 `district-upper-roofs`: residential, difficulty 2
+
+```
+SUBJECT: A shanty of stacked rooftops above a slab retaining wall, dwellings built on top of
+dwellings and lashed to the parapet with cable. Bolted-on ladders and plank walkways instead of
+stairs, each landing lit by one amber #f59e0b bulb on a hooked flex. Water butts, aerials, a goat.
+Inhabited and improvised rather than derelict: the wall below is the Combine's and everything above
+the coping is not. Two figures on a walkway, one hauling a bucket up on a rope.
+```
+
+### 2.12 `district-south-quay`: residential, difficulty 1
+
+```
+SUBJECT: The tail end of a covered market where the awnings stop and a canal cut comes back up to
+meet the street. Stalls converted into homes, tarpaulins over the gaps, one row of shutters still
+painted with a trader's name nobody uses. Standing water reflecting hanging bulbs in warm #f59e0b
+and a single cold cyan #22d3ee sign further down. Damp, cheap and out of the way, with the noise of
+the market audible one arch away. Three figures under an awning, out of the rain.
 ```
 
 ---

@@ -5,6 +5,7 @@ import {
   queueCompletesAt,
   splitDueQueue,
   repairedDistrict,
+  xpForClock,
   type Base,
   type Building,
   type BuildQueueEntry,
@@ -173,8 +174,17 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
   // R7), and two builds landing on one read is two awards that may cross two thresholds.
   let carried = settled;
   const awards: PlayerXpAward[] = [];
-  for (const _entry of due) {
-    const { base: progressed, award } = awardPlayerXp(repos, carried, 'buildingConstructed');
+  for (const entry of due) {
+    // §I1: priced off the clock this order was actually placed under, not off a flat table entry.
+    // `durationSeconds` is frozen at order time (see `BuildQueueEntrySchema`), so raising the Nexus
+    // mid-build cannot re-price the XP any more than it can re-time the build.
+    const { base: progressed, award } = awardPlayerXp(
+      repos,
+      carried,
+      'buildingConstructed',
+      0,
+      xpForClock('buildingConstructed', entry.durationSeconds),
+    );
     carried = progressed;
     awards.push(award);
   }

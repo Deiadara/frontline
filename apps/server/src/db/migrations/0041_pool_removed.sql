@@ -1,0 +1,13 @@
+-- The assignee pool is gone, and so is the column it lived in.
+--
+-- It was a second staffing economy on top of the officers: a fungible body count granted by player
+-- level, placed under an officer for a percentage off a mission's clock and onto its odds. The
+-- officers *are* the crew; the pool was a currency the player never chose to earn and could only
+-- spend in one place, and the screen it lived on spent most of its space on arithmetic about it.
+--
+-- `assignees_json` held only the placement map (officer id -> count). Nothing else read it, and
+-- the pool size was never stored at all: it was a pure function of `Base.level`. So there is
+-- nothing to migrate anywhere, only a column to stop writing.
+--
+-- SQLite has supported DROP COLUMN since 3.35; better-sqlite3 ships well past that.
+ALTER TABLE bases DROP COLUMN assignees_json;

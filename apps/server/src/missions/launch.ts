@@ -36,11 +36,11 @@ import type { StoredMission } from '../db/repos/missions.js';
  * Two modifiers land at exactly this point, and only this point:
  *
  *   * **§F5**: the Overseer's Speed and Stealth move the odds on a run that risks people.
- *   * **§G5/§G7**: the crew's assignee bonus cuts the duration *and* lifts the odds.
+ *   * **§G6**: a run with nobody leading it takes longer and is likelier to come home empty.
  *
  * They **compose**, in that order: §F5 says what the player's own character is worth to this run,
  * and §G7 then scales what the crew behind them is worth. Both are frozen onto the row with
- * everything else, so training the Overseer or moving assignees mid-flight cannot re-roll, retime
+ * everything else, so training the Overseer or moving officers mid-flight cannot re-roll, retime
  * or re-price a crew that has already left the gate. An absent Overseer or absent crew leaves the
  * template's authored value untouched rather than penalising it.
  *
@@ -81,6 +81,13 @@ export function launchMission(args: {
    * road: a shorter way across the city is shorter in both directions and while you are there.
    */
   missionSpeedPercent?: number;
+  /**
+   * §E: what the crew's own people add to the run's pay (`TerritoryEffects.missionSpoilsPercent`).
+   *
+   * A plain number for the same reason as the speed above: this module prices a run and has no
+   * business knowing what a crew or a perk is.
+   */
+  missionSpoilsPercent?: number;
   /** Which board it came off (`missions.areas.ts`). The area is locked until this crew is home. */
   areaId: string;
   /** §A5: the units going. They leave `base.army` in the same transaction that writes this row. */
@@ -96,6 +103,7 @@ export function launchMission(args: {
     officer,
     admin = false,
     missionSpeedPercent = 0,
+    missionSpoilsPercent = 0,
     areaId,
     force,
     seed = randomInt(0, 2 ** 32),
@@ -129,7 +137,10 @@ export function launchMission(args: {
       templateId: template.id,
       areaId,
       // Both frozen here, with the clock and the odds, so a crew already out keeps its terms.
-      payPercent: areaPayPercent(areaId) + levelPayPercent(base.level),
+      // The crew's own cut on top of the area's premium and the player's level: `missionSpoilsPercent`
+      // is the perk channel for officers who negotiate the contracts (`crew/perks.ts`). Frozen here
+      // with everything else, so hiring a better fixer does not retroactively repay a run already out.
+      payPercent: areaPayPercent(areaId) + levelPayPercent(base.level) + missionSpoilsPercent,
       xp: missionXp(template, timings.totalMinutes, base.level),
       force,
       startedAt: now.toISOString(),

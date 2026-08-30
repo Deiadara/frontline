@@ -42,6 +42,7 @@ import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
 import { structureBonus } from './bonus';
 import { formatDuration } from './format';
+import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
 
 /**
  * One plot's dialog: what stands there, what the next level costs and takes, what it does, and the
@@ -387,8 +388,6 @@ function PayrollBook({ base }: { base: Base }) {
     buildingLevel(base.buildings, CENTRAL_BUILDING),
     payrollBonusPercent(base.buildings),
   );
-  const pct = ledger.capacity > 0 ? Math.min(100, (ledger.committed / ledger.capacity) * 100) : 0;
-  const affordable = base.resources.caps >= ledger.nextStepCost;
 
   return (
     <div className="flex flex-col gap-2.5" data-testid="nexus-payroll">
@@ -404,34 +403,20 @@ function PayrollBook({ base }: { base: Base }) {
           </span>
         </Stat>
       </dl>
-      <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950">
-        <span
-          className={cn('block h-full rounded-sm', pct >= 100 ? 'bg-oxblood-300' : 'bg-brass-300')}
-          style={{ width: `${pct}%` }}
-        />
-      </span>
-      <div className="flex flex-wrap items-center gap-2.5 border-t border-surface-700 pt-2.5">
-        <Button
-          size="sm"
-          disabled={!affordable || raise.isPending}
-          onClick={() => raise.mutate({})}
-          data-testid="nexus-increase-payroll"
-        >
-          {raise.isPending ? 'Raising…' : `Increase payroll · +${ledger.stepSize}`}
-        </Button>
-        <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-          {ledger.nextStepCost.toLocaleString()} caps, once
-        </span>
-      </div>
+      <PayrollMeter ledger={ledger} />
+      <RaisePayroll
+        ledger={ledger}
+        caps={base.resources.caps}
+        onRaise={() => raise.mutate({})}
+        pending={raise.isPending}
+        error={raise.error?.message ?? null}
+        testId="nexus-increase-payroll"
+        className="pt-2.5"
+      />
       <p className="font-body text-[12px] leading-snug text-ink-300">
         A step is permanent and the next one costs more. Nothing is deducted week to week: an
         officer holds a slice of the book for as long as they are on the books.
       </p>
-      {raise.error !== null && (
-        <p role="alert" className="font-body text-[12px] text-oxblood-300">
-          {raise.error.message}
-        </p>
-      )}
     </div>
   );
 }

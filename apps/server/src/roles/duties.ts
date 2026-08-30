@@ -70,14 +70,18 @@ export function roleUses(role: OfficerRole, attribute: AttributeName): boolean {
   return ROLE_DUTIES[role].includes(attribute);
 }
 
-/** One officer, ready for `crewSheet`: their sheet and the chair they are in. */
-export function seatedMember(attributes: Attributes, role: OfficerRole): CrewMember {
-  return { attributes, role };
+/** One officer, ready for `crewSheet`: their sheet, their chair and what they bring. */
+export function seatedMember(
+  attributes: Attributes,
+  role: OfficerRole,
+  perks: readonly string[],
+): CrewMember {
+  return { attributes, role, perks };
 }
 
 /** The Overseer: no seat, no discount, everything they know available all the time. */
-export function overseerMember(attributes: Attributes): CrewMember {
-  return { attributes, role: null };
+export function overseerMember(attributes: Attributes, perks: readonly string[]): CrewMember {
+  return { attributes, role: null, perks };
 }
 
 /** Guards at load that every seat has duties, so an added role cannot silently use nothing. */

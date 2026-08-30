@@ -68,7 +68,7 @@ export const DESTINATIONS: readonly NavDestination[] = [
     icon: 'research',
     area: 'research',
   },
-  { label: 'Crew', title: 'Assignees', to: '/game/assignees', icon: 'crew' },
+  { label: 'Crew', title: 'Crew', to: '/game/crew', icon: 'crew' },
   {
     label: 'Training',
     title: 'Drills and reading',

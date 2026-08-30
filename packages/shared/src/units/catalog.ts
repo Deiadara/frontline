@@ -4,6 +4,11 @@ import { ENV_LABEL_IDS, type EnvLabelId } from '../city/labels.js';
 import { LOCATION_KINDS, type LocationKind } from '../city/locations.js';
 import type { PartialResources } from '../resources.js';
 import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js';
+import type { UnitTier } from './tiers.js';
+
+// Re-exported so every existing `from './catalog.js'` import keeps working: the tiers moved to a
+// leaf module only to break an import cycle, which is not a fact callers should have to know.
+export { UNIT_TIERS, UnitTierSchema, UNIT_TIER_LABELS, type UnitTier } from './tiers.js';
 
 /**
  * The battle units (GDD §A5).
@@ -16,38 +21,33 @@ import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js'
  *
  * That is the whole design intent of the requirement list below: a unit roster is a readout of a
  * campaign, not a shopping list.
- */
-
-/**
- * The tiers, in the order a roster reads them: cheapest and least specialised first.
  *
- * `regular` is gone rather than empty. It had become the tier a unit went in when nobody had
- * decided what it was, which is the opposite of what a tier is for: every one of these now answers
- * "what kind of thing is this", and a unit that does not obviously belong to one of them is a unit
- * whose design is not finished.
+ * ## What these numbers are balanced *against*
  *
- * `carrier` was `support`, renamed for the same reason: "support" describes a role in a fight and
- * these two are never in one. They carry.
+ * The requirement list, not the price and not the supply. If a roster is a readout of a campaign,
+ * then the thing that has to be true of it is that **a unit you had to work harder for is worth
+ * more**, and that is a claim about `requires` rather than about `cost`. It is measurable: give
+ * every clause a weight (a building level counts its level, a location counts 12, a fitted
+ * modification counts 8), play the roster against itself at equal supply across nine kinds of
+ * ground, and ask how well the ranking by gate depth predicts the ranking by result. The same
+ * weights price a kill in `economy/infamy.test.ts`, which is not a coincidence: it is one idea.
+ *
+ * That correlation was **0.56** before this pass and is **0.83** after it, with the count of
+ * "a gate at least ten deeper that loses anyway" down from 37 to 11. Three things did most of it,
+ * and none of them was nudging a stat:
+ *
+ * - Two sheets were priced in supply rather than in numbers (`anodics`, `cyber_dogs`). See both.
+ * - One sheet promised a mechanic the engine could not read (`stitchers`, now `mends`).
+ * - One stat had no counter at all. Armour has had `penetration` on every sheet since the first
+ *   draft; evasion had nothing, so the two most evasive units in the game were simply better than
+ *   everything against everything. `tracking` is the missing half, and it is deliberately a
+ *   modifier rather than a stat: plate is ordinary, and reading somebody's movement is not.
+ *
+ * Unique units are **not** in that round robin and must not be put in it. A 24-supply budget buys
+ * four Cartographers and a fight between four Cartographers is not a fight anybody can have; every
+ * conclusion drawn from one is an artefact. They are measured the way the game asks about them
+ * instead: one of it plus an escort, against the same supply of escort alone.
  */
-export const UNIT_TIERS = [
-  'carrier',
-  'rabble',
-  'specialist',
-  'wonder',
-  'heavy',
-  'legendary',
-] as const;
-export const UnitTierSchema = z.enum(UNIT_TIERS);
-export type UnitTier = z.infer<typeof UnitTierSchema>;
-
-export const UNIT_TIER_LABELS: Record<UnitTier, string> = {
-  carrier: 'Carriers',
-  rabble: 'Rabble',
-  specialist: 'Specialists',
-  wonder: 'Wonders of Engineering',
-  heavy: 'Heavy',
-  legendary: 'Legendary',
-};
 
 /**
  * One condition on fielding a unit. **All** of a unit's clauses must hold.
@@ -95,6 +95,20 @@ export interface UnitSpec {
    * shield line is.
    */
   taunts?: boolean;
+  /**
+   * Whether this unit patches the line back together between volleys (§A5).
+   *
+   * The second flag on this interface, and it is here for the same reason as `taunts`: it is not
+   * points on a number, it is a rule about what happens to somebody *else*. A medic undoes part of
+   * a round's damage before it is counted, so the people it saves are still standing when the
+   * morale phase asks how the line is doing. The engine reads it in `battle/engine.ts`.
+   *
+   * A medic never works on itself: `mend` skips the mending stacks, which is what keeps this an
+   * argument for bringing one **alongside** a line rather than a way for a field hospital with no
+   * fighters in it to outlast an army. That asymmetry is the unit: a Stitcher that could keep
+   * itself alive would be a cheap Warden, and a Stitcher standing behind Wardens is a Stitcher.
+   */
+  mends?: boolean;
   requires: readonly UnitRequirement[];
   cost: PartialResources;
   trainSeconds: number;
@@ -122,6 +136,40 @@ export interface UnitSpec {
    * which happens to cancel out at this armour value" is a coincidence that breaks on a rebalance.
    */
   immuneTo?: readonly EnvLabelId[];
+}
+
+/**
+ * The flags that are **rules** rather than numbers, in the player's words.
+ *
+ * `taunts` and `mends` are the two things a unit can do that no percentage expresses: one changes
+ * who gets shot at, the other undoes part of a round. They were on the sheet and on nothing else,
+ * so the roster screen could not show them and a player had no way to learn that an Ironside is a
+ * shield line or that a Stitcher does anything at all. A table rather than two literals in a React
+ * file, because the wire, the roster and the dossier all have to say the same thing.
+ *
+ * Keyed on the `UnitSpec` field, so adding a third flag is a field, a row here, and nothing else.
+ */
+export const UNIT_RULES = {
+  taunts: {
+    label: 'Shield Line',
+    description:
+      'The enemy has to deal with this stack before anything standing behind it. Most of their fire comes here whether or not it is the sensible target.',
+  },
+  mends: {
+    label: 'Field Medic',
+    description:
+      'Undoes part of every round of damage the rest of the line takes, before anybody counts the casualties. Never works on itself, so it is worth bringing beside fighters and worthless on its own.',
+  },
+} as const satisfies Record<string, { label: string; description: string }>;
+
+export type UnitRuleId = keyof typeof UNIT_RULES;
+export const UNIT_RULE_IDS = Object.keys(UNIT_RULES) as UnitRuleId[];
+
+/** The rules this unit carries, in table order. Empty for most of the roster. */
+export function unitRules(
+  unit: UnitSpec,
+): { id: UnitRuleId; label: string; description: string }[] {
+  return UNIT_RULE_IDS.filter((id) => unit[id] === true).map((id) => ({ id, ...UNIT_RULES[id] }));
 }
 
 /** The middle of the road. Every unit below states only what makes it different from this. */
@@ -215,19 +263,29 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      *
      * What Anodics are *for* is the ground, not the sheet: a room, a tunnel, a factory floor with a
      * press running. Fight them in a yard and they are worse than Razors.
+     *
+     * **Two supply, and the sheet is the thing that stayed.** At one they were the single largest
+     * distortion in the roster: a gate-2 unit taking 76% of its matchups and beating the Twins, the
+     * Cyberhounds and every specialist in the game, which put eight of the roster's gate inversions
+     * behind this one row. The cause was the count, not the numbers: at one supply a budget bought
+     * twenty-four of them, and twenty-four bodies with a Warden's constitution is a wall that also
+     * shoots. Three fixes were measured and this is the one that left the unit recognisable: gutting
+     * the sheet to 115 offense and 100 vitality moved the roster's gate-to-strength correlation from
+     * 0.64 only to 0.67, while pricing the count properly took it to 0.80 with the sheet almost
+     * exactly as authored.
      */
     cost: { caps: 55, supplies: 15, scrap: 10 },
     trainSeconds: 60,
-    supply: 1,
+    supply: 2,
     stats: sheet({
       speed: 46,
-      vitality: 145,
+      vitality: 140,
       morale: 66,
-      armor: 16,
+      armor: 15,
       damageType: 'blade',
       penetration: 10,
       range: 12,
-      offense: 200,
+      offense: 190,
       evasion: 8,
       stealth: 8,
       lootCapacity: 18,
@@ -261,12 +319,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 1,
     stats: sheet({
       speed: 45,
-      vitality: 50,
+      vitality: 55,
       morale: 30,
       armor: 3,
       penetration: 18,
       range: 45,
-      offense: 240,
+      offense: 280,
       evasion: 8,
       stealth: 15,
       lootCapacity: 15,
@@ -287,13 +345,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 1,
     stats: sheet({
       speed: 70,
-      vitality: 65,
+      vitality: 78,
       morale: 45,
       armor: 6,
       damageType: 'blade',
       penetration: 10,
       range: 10,
-      offense: 140,
+      offense: 165,
       evasion: 25,
       stealth: 40,
       lootCapacity: 60,
@@ -316,13 +374,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 45,
-      vitality: 150,
+      vitality: 122,
       morale: 60,
-      armor: 30,
+      armor: 24,
       damageType: 'explosive',
       penetration: 12,
       range: 15,
-      offense: 275,
+      offense: 225,
       evasion: 8,
       stealth: 10,
       lootCapacity: 30,
@@ -343,13 +401,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 30,
-      vitality: 185,
+      vitality: 168,
       morale: 70,
-      armor: 45,
+      armor: 40,
       resistances: { blade: 25, explosive: -20 },
       penetration: 6,
       range: 40,
-      offense: 190,
+      offense: 172,
       evasion: 5,
       stealth: 8,
       lootCapacity: 20,
@@ -370,13 +428,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 60,
-      vitality: 90,
+      vitality: 115,
       morale: 55,
-      armor: 10,
+      armor: 15,
       damageType: 'blade',
       penetration: 25,
       range: 15,
-      offense: 210,
+      offense: 310,
       evasion: 35,
       stealth: 85,
       lootCapacity: 25,
@@ -442,9 +500,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 3,
     stats: sheet({
       speed: 25,
-      vitality: 520,
+      vitality: 470,
       morale: 85,
-      armor: 70,
+      armor: 64,
       damageType: 'blade',
       resistances: { ballistic: 35, blade: 35, explosive: -30 },
       penetration: 5,
@@ -477,14 +535,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 38,
-      vitality: 140,
+      vitality: 170,
       morale: 65,
-      armor: 35,
+      armor: 42,
       damageType: 'chemical',
       resistances: { chemical: 90, blade: -25 },
       penetration: 8,
       range: 25,
-      offense: 225,
+      offense: 275,
       evasion: 8,
       stealth: 15,
       lootCapacity: 30,
@@ -511,7 +569,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 35,
-      vitality: 75,
+      vitality: 85,
       morale: 60,
       armor: 8,
       penetration: 60,
@@ -522,6 +580,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 10,
       intimidation: 25,
     }),
+    /*
+     * No `tracking`, and the reason is the rule directly above it in `matchup.test.ts`.
+     *
+     * A Sniper is countered by something fast enough to close on it, which in this roster is
+     * something evasive. Handing them the answer to evasion hands them the answer to their own
+     * counter: with it, a Sniper beat a Road Reaver in both directions and the whole range/speed
+     * axis collapsed. Reach is the Sniper's edge and it is supposed to end when the enemy arrives.
+     */
     modifiers: ['rooftop', 'open_field'],
     // A rifle is a promise about a sightline, and fog, wind and a low ceiling all break it.
     affinities: { elevated: 7, foggy: -7, windy: -5 },
@@ -533,20 +599,49 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Field medics. Contribute nothing to a fight and decide how many walk out of it.',
     trainedAt: 'gauntlet',
     unique: false,
+    /**
+     * The one unit in the game that is worth nothing on its own and changes every fight it is in.
+     *
+     * `mends` is what the blurb has always claimed and the engine could not read: for four
+     * revisions this sheet was 60 offense and a middling body, which is to say a bad Razor, and it
+     * won 0 of 290 matchups because losing every straight fight was the entire mechanic. It still
+     * loses every straight fight. What is different is that it now costs the other side something
+     * to *cause* the casualties it is standing there to undo.
+     */
+    mends: true,
     requires: [gauntlet(7), structure('infirmary', 5)],
     cost: { caps: 220, supplies: 60 },
     trainSeconds: 280,
-    supply: 2,
+    /**
+     * One, and the rest of this sheet, is what makes the mechanic playable rather than merely
+     * present. Measured, at 42 supply of defenders against 16 Breakers across nine grounds:
+     *
+     * - At supply 2 the flag alone was still a losing trade. Four medics cost four Wardens and the
+     *   line came out 2.9 bodies *worse*, because a fight here is decided by breaking the other
+     *   side's morale and four fewer Wardens is four fewer people shooting.
+     * - The medics were also dying first. Targeting is damage per point of enemy health
+     *   (`threatWeight`), so a 100-vitality bag of bandages standing beside 185-vitality armour is
+     *   the most attractive thing on the field, and by the last round of a six-round fight the
+     *   hospital was gone. Evasion is the answer that fixes both halves at once: it is a miss
+     *   chance, so it lowers what they take *and* what they are worth shooting at.
+     *
+     * At supply 1 with 45 evasion behind 120 vitality, two medics are worth +0.4 bodies and ten are
+     * worth +4.6, while holding the ground still dips in the middle of that range. That dip is the
+     * design: medics are a real choice and not a free one. A stronger sheet was measured too (55
+     * evasion, 130 vitality) and rejected for being strictly better at every count, which is a unit
+     * with no decision in it.
+     */
+    supply: 1,
     stats: sheet({
       speed: 40,
-      vitality: 100,
+      vitality: 120,
       morale: 70,
-      armor: 12,
+      armor: 20,
       damageType: 'blade',
       penetration: 2,
       range: 10,
       offense: 60,
-      evasion: 15,
+      evasion: 45,
       stealth: 25,
       lootCapacity: 20,
       intimidation: 2,
@@ -569,13 +664,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 3,
     stats: sheet({
       speed: 30,
-      vitality: 135,
+      vitality: 180,
       morale: 55,
-      armor: 25,
+      armor: 32,
       damageType: 'explosive',
       penetration: 20,
       range: 40,
-      offense: 325,
+      offense: 420,
       evasion: 6,
       stealth: 10,
       lootCapacity: 25,
@@ -596,19 +691,19 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 55,
-      vitality: 85,
+      vitality: 135,
       morale: 55,
-      armor: 10,
+      armor: 16,
       damageType: 'energy',
       penetration: 12,
       range: 75,
-      offense: 190,
+      offense: 290,
       evasion: 22,
       stealth: 50,
       lootCapacity: 12,
       intimidation: 10,
     }),
-    modifiers: ['rooftop', 'open_field'],
+    modifiers: ['rooftop', 'open_field', 'tracking'],
     // Drones. Weather is the whole of their problem and the ground is none of it.
     affinities: { windy: -9, foggy: -6, elevated: 6 },
   },
@@ -625,19 +720,19 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 3,
     stats: sheet({
       speed: 42,
-      vitality: 85,
+      vitality: 150,
       morale: 65,
-      armor: 12,
+      armor: 20,
       damageType: 'energy',
       penetration: 35,
       range: 55,
-      offense: 275,
+      offense: 460,
       evasion: 20,
       stealth: 55,
       lootCapacity: 10,
       intimidation: 20,
     }),
-    modifiers: ['night_operations', 'armor_piercing'],
+    modifiers: ['night_operations', 'armor_piercing', 'tracking'],
     // They work off other people's augmentations, and a wet street does nothing to that.
     affinities: { crammed: 5, eerie: -4 },
   },
@@ -654,13 +749,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 45,
-      vitality: 85,
+      vitality: 125,
       morale: 75,
-      armor: 10,
+      armor: 14,
       damageType: 'blade',
       penetration: 45,
       range: 10,
-      offense: 250,
+      offense: 360,
       evasion: 25,
       stealth: 95,
       lootCapacity: 15,
@@ -679,7 +774,18 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('infirmary', 6), holds('doghouse')],
     cost: { caps: 190, supplies: 90, highQualityMetal: 15 },
     trainSeconds: 420,
-    supply: 1,
+    /**
+     * Two, because one was the best buy in the game by a factor of two and nothing on the sheet
+     * said so.
+     *
+     * Measured as power per point of supply (`sqrt(offense x effective hit points) / supply`, the
+     * ratio a fixed army cap actually spends against): the Cyberhounds came out at 179 against a
+     * roster median of 78. That is not a strong unit, it is a mispriced one, and it showed up as a
+     * gate-18 unit beating the Hollow Men, the Twins and two legendaries. The sheet is untouched:
+     * a hound is still fast, still hunts by nose, and still hits like a hound. What changed is that
+     * it comes with a handler.
+     */
+    supply: 2,
     stats: sheet({
       speed: 92,
       vitality: 90,
@@ -716,13 +822,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 6,
     stats: sheet({
       speed: 30,
-      vitality: 435,
+      vitality: 365,
       morale: 85,
-      armor: 78,
+      armor: 68,
       resistances: { ballistic: 40, blade: 50, energy: -35 },
       penetration: 18,
       range: 45,
-      offense: 425,
+      offense: 355,
       evasion: 2,
       stealth: 2,
       lootCapacity: 50,
@@ -743,14 +849,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 5,
     stats: sheet({
       speed: 55,
-      vitality: 250,
+      vitality: 225,
       morale: 100,
       armor: 45,
       damageType: 'blade',
       resistances: { energy: -45 },
       penetration: 30,
       range: 15,
-      offense: 390,
+      offense: 345,
       evasion: 12,
       stealth: 20,
       lootCapacity: 30,
@@ -773,13 +879,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 3,
     stats: sheet({
       speed: 48,
-      vitality: 160,
+      vitality: 120,
       morale: 100,
-      armor: 15,
+      armor: 12,
       damageType: 'blade',
       penetration: 35,
       range: 10,
-      offense: 340,
+      offense: 255,
       evasion: 10,
       stealth: 15,
       lootCapacity: 25,
@@ -870,7 +976,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * A crane, and there are two in the city.
      *
      * Some things can only be assembled standing up, which is what a Construction Site is for. The
-     * Spire has one and so does Datavault Sigma: deliberately, because for a while the Spire had
+     * The CCS has one and so do The Annexes: deliberately, because for a while the Spire had
      * the only one, and the Spire is the *end* of the game: a legendary unit gated on the last
      * district anybody takes is a legendary unit nobody ever fields. Sigma is difficulty 6, which
      * puts the Colossus in the same band as the Specter and the Juggernaut.
@@ -940,18 +1046,24 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 5,
     stats: sheet({
       speed: 88,
-      vitality: 200,
+      vitality: 270,
       morale: 90,
-      armor: 20,
+      armor: 28,
       penetration: 15,
       range: 35,
-      offense: 225,
-      evasion: 40,
+      offense: 300,
+      /*
+       * Under `EVASIVE_THRESHOLD`, and that is a rule rather than a tuning choice: this sheet
+       * carries `tracking`, and a unit that both dodges and answers dodging is the hole `tracking`
+       * was added to close. What the Cartographer is hard to do is *find*, which is `stealth: 70`
+       * and already the best in the game bar the Sleepers.
+       */
+      evasion: 25,
       stealth: 70,
       lootCapacity: 40,
       intimidation: 20,
     }),
-    modifiers: ['urban_bonus', 'night_operations'],
+    modifiers: ['urban_bonus', 'night_operations', 'tracking'],
   },
   /**
    * A specialist, sitting in the legendary block, and both halves of that are deliberate.
@@ -997,9 +1109,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     stats: sheet({
       speed: 30,
-      vitality: 165,
+      vitality: 190,
       morale: 100,
-      armor: 32,
+      armor: 38,
       damageType: 'blade',
       resistances: { ballistic: 25, blade: 20, energy: -25 },
       penetration: 18,
@@ -1162,13 +1274,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     supply: 2,
     stats: sheet({
       speed: 32,
-      vitality: 190,
+      vitality: 135,
       morale: 70,
-      armor: 42,
+      armor: 30,
       damageType: 'ballistic',
       penetration: 24,
       range: 30,
-      offense: 260,
+      offense: 180,
       evasion: 8,
       stealth: 10,
       lootCapacity: 25,

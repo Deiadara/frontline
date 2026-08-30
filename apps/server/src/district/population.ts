@@ -12,11 +12,11 @@ import { mergeArmies } from '../battle/forces.js';
 import { garrisonedUnits } from '../units/roster.js';
 
 /**
- * Who the district is housing (GDD §A1 the Quarters, §G the assignee pool, §H the officers, §A5
+ * Who the district is housing (GDD §A1 the Quarters, §H the officers, §A5
  * the army).
  *
  * One definition of "used", read by every gate that enforces it: hiring an officer, placing an
- * assignee, and ordering a unit. Separate counts would drift, and the failure would be silent: a
+ * an officer, and ordering a unit. Separate counts would drift, and the failure would be silent: a
  * district that let you hire past its beds and then refused to place anybody reads as a bug rather
  * than as a rule.
  *
@@ -35,9 +35,6 @@ import { garrisonedUnits } from '../units/roster.js';
  * crew *feeds*, not what is standing in the yard, so a column on the road and a muster on the
  * ground are both in it.
  *
- * Unplaced assignees are deliberately not counted. §G2 hands them over on a level-up whether or not
- * there is anywhere to put them, so counting them would let a level-up retroactively overfill a
- * district the player had built correctly.
  */
 export interface DistrictPopulation extends PopulationDraw {
   capacity: number;

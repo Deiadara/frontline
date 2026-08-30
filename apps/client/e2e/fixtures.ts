@@ -46,7 +46,11 @@ import {
   weatherAt,
   weatherLabels,
   UNIT_CATALOG,
+  BOT_DISTRICT_ID,
+  STARTER_DISTRICT_ID,
   UNIT_MODIFIERS,
+  battlefieldFor,
+  unitRules,
   districtPopulationCapacity,
   noTerritoryEffects,
   populationDraw,
@@ -76,7 +80,6 @@ import {
   type UnitsResponse,
   MODIFICATIONS,
   addResources,
-  alignedAttributes,
   MAX_PAIRINGS,
   MAX_ROLE_FACTS,
   makePairing,
@@ -85,30 +88,21 @@ import {
   RESEARCH_MINUTES,
   researchCompletesAt,
   roleFullyResearched,
-  alignmentBand,
-  alignmentBonusAttributes,
-  alignmentSkillBonus,
   CITY_DISTRICTS,
   createCommander,
   findMissionTemplate,
   makeAttributes,
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
-  assigneeBonusPercent,
-  MAX_ASSIGNEES_PER_OFFICER,
-  assigneeCapPerOfficer,
-  assigneePool,
-  startingAssignees,
   startingEconomy,
   startingProgression,
   startingResearch,
   templateTimings,
-  threatensToLeave,
   type AuthResponse,
   type BarOfficer,
   type BarRecruit,
-  type AssigneeOfficer,
-  type AssigneesResponse,
+  type CrewOfficer,
+  type CrewResponse,
   type ActionsResponse,
   type BarResponse,
   type Base,
@@ -155,21 +149,20 @@ export const overseer: Overseer = {
   portraitId: preset.portraitId,
   bio: preset.bio,
   attributes: preset.attributes,
-  traits: preset.traits,
+  perks: preset.perks,
 };
 
 export const base: Base = {
   id: 'base-1',
   ownerId: 'user-1',
   name: 'The Ninth Street Crew',
-  districtId: 'neon-docks',
+  districtId: STARTER_DISTRICT_ID,
   level: 1,
   isBot: false,
   resources: STARTING_RESOURCES,
   economy: startingEconomy(NOW),
   progression: startingProgression(),
   research: startingResearch(),
-  assignees: startingAssignees(),
   buildings: [
     { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
     { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0, fortification: 0 },
@@ -302,12 +295,21 @@ export const adminGame: MeResponse = { ...lateGame, admin: true };
 /** Named rather than positional, so reordering the map cannot silently reveal the fog case. */
 const UNSCOUTED = new Set(['chrome-row', 'glasshouse-fields']);
 
+/*
+ * The city, with somebody living on two of the four plots.
+ *
+ * The crew is on `STARTER_DISTRICT_ID` and the seeded rival on `BOT_DISTRICT_ID`, read off the
+ * constants rather than typed: the Docks were home until they were opened up as contested ground,
+ * and a fixture that still housed a crew there would be exercising a state migration `0040` exists
+ * to remove. The two occupied plots are also what makes the map's naming testable, since a
+ * residential tag prints the crew's name and an empty one prints `Player District`.
+ */
 export const city: CityResponse = {
-  homeDistrictId: 'neon-docks',
+  homeDistrictId: STARTER_DISTRICT_ID,
   serverNow: NOW,
   districts: CITY_DISTRICTS.map((district, index) => {
     const scouted = !UNSCOUTED.has(district.id);
-    const isHome = district.id === 'neon-docks';
+    const isHome = district.id === STARTER_DISTRICT_ID;
     return {
       district,
       scouted: scouted || isHome,
@@ -318,21 +320,21 @@ export const city: CityResponse = {
           ? { mine: index === 3 ? 1 : 0, total: district.locations.length }
           : null,
       base:
-        district.id === 'neon-docks'
+        district.id === STARTER_DISTRICT_ID
           ? {
               id: base.id,
               ownerId: user.id,
               name: base.name,
-              districtId: 'neon-docks',
+              districtId: STARTER_DISTRICT_ID,
               level: 1,
               isBot: false,
             }
-          : district.id === 'ashen-terraces'
+          : district.id === BOT_DISTRICT_ID
             ? {
                 id: 'base-vex',
                 ownerId: 'user-vex',
                 name: 'Vex Holdings',
-                districtId: 'ashen-terraces',
+                districtId: BOT_DISTRICT_ID,
                 level: 4,
                 isBot: true,
               }
@@ -506,6 +508,7 @@ export const unitsResponse: UnitsResponse = {
         description: UNIT_MODIFIERS[id].description,
         when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
       })),
+      rules: unitRules(unit),
       // §A4: the same fold the server does: only the labels the sheet does not already say.
       affinities: ENV_LABEL_IDS.flatMap((id) => {
         const immune = unit.immuneTo?.includes(id) ?? false;
@@ -564,9 +567,7 @@ function barRecruit(id: string, name: string, overrides: Partial<BarRecruit> = {
     id,
     name,
     attributes: makeAttributes(18, { stealth: 34, logic: 31, hacking: 29, medicine: 9 }),
-    traits: ['gutter_born'],
-    ambition: 'notoriety',
-    moralCompass: 'ruthless',
+    perks: ['skim_route', 'quiet_boots'],
     requirement: { minNotoriety: 0, minLevel: 1 },
     assessment: { meetsNotoriety: true, meetsLevel: true, interested: true, blockers: [] },
     askingWage: 48,
@@ -580,30 +581,21 @@ function barOfficer(
   id: string,
   name: string,
   role: BarOfficer['commander']['role'],
-  alignment: number,
   weeklyWage: number,
   overrides: Partial<BarOfficer['commander']> = {},
 ): BarOfficer {
   const commander: Commander = {
-    ...createCommander(id, name, role, { stealth: 41, logic: 37, hacking: 33 }, ['gutter_born'], {
-      ambition: 'revenge',
-      moralCompass: 'ruthless',
-      now: NOW,
-    }),
-    alignment,
+    ...createCommander(
+      id,
+      name,
+      role,
+      { stealth: 41, logic: 37, hacking: 33 },
+      ['skim_route'],
+      weeklyWage,
+    ),
     ...overrides,
   };
-  return {
-    commander,
-    effectiveAttributes: alignedAttributes(commander.attributes, alignment),
-    band: alignmentBand(alignment),
-    threateningToLeave: threatensToLeave(alignment),
-    skillBonus: alignmentSkillBonus(alignment),
-    bonusAttributes:
-      alignmentSkillBonus(alignment) > 0 ? alignmentBonusAttributes(commander.attributes) : [],
-    weeklyWage,
-    dismissalFee: weeklyWage * DISMISSAL_WEEKS,
-  };
+  return { commander, weeklyWage, dismissalFee: weeklyWage * DISMISSAL_WEEKS };
 }
 
 export const bar: BarResponse = {
@@ -611,7 +603,7 @@ export const bar: BarResponse = {
   serverNow: NOW,
   recruits: [
     barRecruit('bar-1', 'Dorotea "The Undergrid Ghost"'),
-    barRecruit('bar-2', 'Emeric Voskuijlen', { askingWage: 1240, traits: [] }),
+    barRecruit('bar-2', 'Emeric Voskuijlen', { askingWage: 1240, perks: [] }),
     barRecruit('bar-3', 'Kestrel Salvatierra', {
       requirement: { minNotoriety: 3, minLevel: 1 },
       assessment: {
@@ -623,8 +615,6 @@ export const bar: BarResponse = {
       askingWage: null,
     }),
     barRecruit('bar-4', 'Rashid Okonkwo', {
-      ambition: 'knowledge',
-      moralCompass: 'idealist',
       assessment: {
         meetsNotoriety: false,
         meetsLevel: false,
@@ -644,17 +634,16 @@ export const bar: BarResponse = {
       },
     }),
     barRecruit('bar-5', 'Ilse Abara', { hired: true, askingWage: 96 }),
-    barRecruit('bar-6', 'Juno Petrosyan', { askingWage: 61, traits: ['silver_tongue'] }),
+    barRecruit('bar-6', 'Juno Petrosyan', { askingWage: 61, perks: ['haggler'] }),
     // §B7: a flaw on the card, so the layout guards cover the state a player must be able to read.
-    barRecruit('bar-7', 'Casimir Adeyemi-Lindqvist', { askingWage: 74, traits: ['marked_face'] }),
+    barRecruit('bar-7', 'Casimir Adeyemi-Lindqvist', { askingWage: 74, perks: ['haggler'] }),
   ],
   officers: [
-    barOfficer('off-1', 'The Ghost of Sector Nine', 'head_spy', 100, 1240, {
-      level: 9,
-      unspentPoints: 4,
+    barOfficer('off-1', 'The Ghost of Sector Nine', 'head_spy', 1240, {
+      perks: ['wire_tap', 'street_ears', 'counter_signals'],
     }),
-    barOfficer('off-2', 'Odile Marchetti', 'finance_officer', 52, 340),
-    barOfficer('off-3', 'Bruno Lindqvist', 'raid_boss', 8, 88, { level: 3 }),
+    barOfficer('off-2', 'Odile Marchetti', 'finance_officer', 340),
+    barOfficer('off-3', 'Bruno Lindqvist', 'raid_boss', 88, { perks: [] }),
   ],
   slotsUsed: 3,
   slotsTotal: 13,
@@ -1076,82 +1065,71 @@ export function settlingResearch(now: Date = new Date()): {
 }
 
 /**
- * The §G screen (GDD §G).
+ * One officer on the crew screen.
  *
- * The per-officer numbers are *derived* with the shared §G7/§G3 helpers rather than hand-typed.
- * That is right for a layout fixture: what these specs assert is geometry, and the arithmetic
- * itself is pinned by hard-coded percentages in `packages/shared/src/assignees/assignees.test.ts`.
- * Typing them again here would only risk a fixture that disagrees with the server and a screenshot
- * of a screen nobody is served.
+ * A real sheet rather than a flat one: the window draws the whole thing, so a fixture of identical
+ * numbers would screenshot a page with no shape in it.
  */
-function assigneeOfficer(
+function crewOfficer(
   officerId: string,
   name: string,
-  role: AssigneeOfficer['role'],
-  assignees: number,
-  level: number,
-): AssigneeOfficer {
-  const cap = assigneeCapPerOfficer(level);
+  role: CrewOfficer['role'],
+  perks: readonly string[],
+  weeklyWage: number,
+): CrewOfficer {
   return {
     officerId,
     name,
     role,
-    assignees,
-    bonusPercent: assigneeBonusPercent(assignees),
-    nextBonusPercent: assignees < cap ? assigneeBonusPercent(assignees + 1) : null,
-    // A real sheet, because the crew screen opens a card on it now. Shaped rather than flat, so
-    // the screenshot shows the tier colours the page actually uses.
     attributes: makeAttributes(15, { leadership: 32, composure: 27, empathy: 24, hacking: 8 }),
-    traits: ['unbreakable'],
-    alignment: 62,
-    alignmentBand: 'settled',
-    level: 2,
+    perks: [...perks],
+    weeklyWage,
   };
 }
 
-function assigneesAt(
+/**
+ * Nought, one and three perks, cycled across the roster.
+ *
+ * The footer under the picture is a fixed height so a chair with three keywords lines up with one
+ * that has none, and a fixture where everybody carried exactly one would screenshot the single
+ * case that cannot fail. Three is the ceiling (`MAX_OFFICER_PERKS`) and the row that has to wrap.
+ */
+const PERK_SPREAD: readonly (readonly string[])[] = [
+  ['wire_tap', 'street_ears', 'counter_signals'],
+  ['haggler'],
+  [],
+];
+
+function crewAt(
   level: number,
-  placed: readonly [string, string, AssigneeOfficer['role'], number][],
-): AssigneesResponse {
-  const officers = placed.map(([id, name, role, count]) =>
-    assigneeOfficer(id, name, role, count, level),
+  hired: readonly [string, string, CrewOfficer['role']][],
+): CrewResponse {
+  const officers = hired.map(([id, name, role], index) =>
+    crewOfficer(id, name, role, PERK_SPREAD[index % PERK_SPREAD.length] ?? [], 40 + index * 37),
   );
-  const total = officers.reduce((sum, officer) => sum + officer.assignees, 0);
   return {
     level,
-    pool: assigneePool(level),
-    placed: total,
-    unplaced: assigneePool(level) - total,
-    capPerOfficer: assigneeCapPerOfficer(level),
     housing: {
-      used: officers.length + total,
+      used: officers.length,
       capacity: districtPopulationCapacity(base.buildings, noTerritoryEffects()),
     },
-    maxBonusPercent: assigneeBonusPercent(assigneeCapPerOfficer(level)),
-    canReskill: officers.some((officer) => officer.role === 'professor'),
     officers,
   };
 }
 
-/** A level-1 crew: nobody hired, so nobody to assign anyone to. The empty state. */
-export const assigneesStart: AssigneesResponse = assigneesAt(1, []);
+/** A level-1 crew: nobody hired. The empty state, which is nineteen vacant chairs. */
+export const crewStart: CrewResponse = crewAt(1, []);
 
 /**
  * The widest this screen ever gets, and the state every layout guard has to survive.
  *
- * Level 48 is where §G3a's `floor(level / 2)` finally reaches the end of the extended §G7 table, so
- * the cap is 24, the most pips a row can ever draw, and one officer sits at it, showing the 75%
- * ceiling and the `at cap` label. The others cover a decimal bonus (14.5%) and the longest officer
- * name and role label on the board, which is what actually threatens the column.
- *
- * This tracks the table: extending `ASSIGNEE_BONUS_PERCENT` again moves the widest row, so the
- * level here must move with it (`2 * MAX_ASSIGNEES_PER_OFFICER`) or the guard stops covering the
- * case it claims to.
+ * The longest officer name and the longest role label on the board, which is what actually
+ * threatens the column, plus enough hires that the grid wraps.
  */
-export const assigneesFat: AssigneesResponse = assigneesAt(2 * MAX_ASSIGNEES_PER_OFFICER, [
-  ['off-1', 'The Ghost of Sector Nine', 'instructor_of_the_young', MAX_ASSIGNEES_PER_OFFICER],
-  ['off-2', 'Wilhelmina Okonkwo-Restrepo', 'head_of_research', 3],
-  ['off-3', 'Vela', 'professor', 7],
+export const crewFat: CrewResponse = crewAt(48, [
+  ['off-1', 'The Ghost of Sector Nine', 'instructor_of_the_young'],
+  ['off-2', 'Wilhelmina Okonkwo-Restrepo', 'head_of_research'],
+  ['off-3', 'Vela', 'professor'],
 ]);
 
 /**
@@ -1174,7 +1152,7 @@ export const trainingResponse: TrainingResponse = {
       officerRole: null,
       portraitId: overseer.portraitId,
       attributes: overseer.attributes,
-      traits: overseer.traits,
+      perks: overseer.perks,
       session: {
         id: 'drill-1',
         subjectId: OVERSEER_SUBJECT,
@@ -1195,7 +1173,7 @@ export const trainingResponse: TrainingResponse = {
       // A specialist, not a flat sheet: the profile's whole point is that one officer's good
       // number becomes the crew's, and a fixture at the recruitment mean shows none of that.
       attributes: makeAttributes(14, { intuition: 46, analysis: 38, diplomacy: 33, logic: 30 }),
-      traits: ['war_scholar'],
+      perks: ['war_college'],
       session: null,
       lastAttribute: 'intuition',
     },
@@ -1210,10 +1188,11 @@ export const trainingResponse: TrainingResponse = {
  * that needs a seated officer states the seat's duties itself.
  */
 const PROFESSOR_CREW = crewSheet([
-  { attributes: overseer.attributes, role: null },
+  { attributes: overseer.attributes, role: null, perks: [] },
   {
     attributes: makeAttributes(14, { intuition: 46, analysis: 38, diplomacy: 33, logic: 30 }),
     role: 'professor',
+    perks: [],
   },
 ]);
 
@@ -1566,7 +1545,17 @@ const comingBattle = (
     seed: `${id}-seed`,
   },
   targetName,
-  districtName: 'The Rustyard',
+  districtName: 'Steelbelt',
+  // Real ground, through the same builder the server uses: a fixture that sent bare open field
+  // would make the deployment screen's forecast right in the fixture and wrong in the game.
+  battlefield: battlefieldFor({
+    locationName: targetName,
+    kind: 'scrap_press',
+    fortifyDifficulty: 'medium',
+    fortifyLevel: 0,
+    at: new Date(scheduledFor),
+    weather: 'normal',
+  }),
   role,
   side: role,
   deploymentOpen: true,

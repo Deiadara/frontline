@@ -1,13 +1,10 @@
 import { z } from 'zod';
-import { MAX_ASSIGNEES_PER_OFFICER, MissionDifficultySchema } from './assignees/index.js';
+import { MissionDifficultySchema } from './delegation/index.js';
 import { MissionStanceSchema } from './factions.js';
-import { ATTRIBUTE_NAMES, AttributeNameSchema, AttributesSchema } from './attributes.js';
+import { AttributeNameSchema, AttributesSchema } from './attributes.js';
 import {
-  ALIGNMENT_BANDS,
-  AmbitionSchema,
   JOIN_BLOCKERS,
   JoinRequirementSchema,
-  MoralCompassSchema,
   NegotiationSchema,
   StandoffSchema,
 } from './bar/index.js';
@@ -54,7 +51,7 @@ import {
 } from './research/index.js';
 import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
 import { OfficerRoleSchema } from './roles.js';
-import { TraitsSchema } from './traits.js';
+import { PerksSchema } from './crew/perks.js';
 import { UserSchema } from './user.js';
 
 /**
@@ -341,6 +338,15 @@ export const UnitOptionSchema = z.object({
   stats: UnitStatsSchema,
   modifiers: z.array(z.object({ label: z.string(), description: z.string(), when: z.string() })),
   /**
+   * The flags that are rules rather than percentages (`units/catalog.ts` `UNIT_RULES`).
+   *
+   * Separate from `modifiers` because they are a different kind of thing and the roster draws them
+   * differently: a modifier is "+25% somewhere", a rule is "the enemy has to shoot this first".
+   * They were on the unit sheet and on no screen at all, so a player could field an Ironside
+   * without ever learning that it is a shield line.
+   */
+  rules: z.array(z.object({ id: z.string(), label: z.string(), description: z.string() })),
+  /**
    * §A4: the ground this unit is unusually good or bad in.
    *
    * Only the labels where it differs from what its own sheet would predict: the Juggernaut's
@@ -595,8 +601,8 @@ export const LaunchMissionRequestSchema = z.object({
   /** §A5: the units going. A battle job needs at least one of them able to fight. */
   force: ArmySchema,
   /**
-   * §G6: the officer leading the run. Optional: an *easy* mission can go out on a delegation of
-   * assignees alone, slower and with worse odds. A hard one without an officer is refused.
+   * §G6: the officer leading the run. Optional: an *easy* mission can go out with nobody leading
+   * it, slower and with worse odds. A hard one without an officer is refused.
    */
   officerId: IdSchema.optional(),
 });
@@ -627,10 +633,8 @@ export const BarRecruitSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
   attributes: AttributesSchema,
-  traits: TraitsSchema,
-  /** §H4: what they want and how far they will go for it. */
-  ambition: AmbitionSchema,
-  moralCompass: MoralCompassSchema,
+  /** §B7: nought to three perks, the bonuses this person would bring to the whole crew. */
+  perks: PerksSchema,
   /** §H3: what the crew has to be before they will consider signing. */
   requirement: JoinRequirementSchema,
   /** §H3 judged against *this* crew, so the client never re-derives the gate. */
@@ -654,17 +658,16 @@ export const BarRecruitSchema = z.object({
 });
 export type BarRecruit = z.infer<typeof BarRecruitSchema>;
 
-/** A held officer as the Bar shows them: their sheet, their §H5 standing and their §H6 level. */
+/**
+ * A held officer as the Bar shows them: their sheet, and what they cost.
+ *
+ * The §H5 standing and the §H6 level used to be here too: a band, a threat to leave, and the
+ * attribute points their mood was currently worth. All of it is gone with those mechanics. An
+ * officer's sheet is now the sheet they were hired with, so there is no "effective" version of it
+ * to send and nothing about them changes between reads except the wage the book is charged.
+ */
 export const BarOfficerSchema = z.object({
   commander: CommanderSchema,
-  /** §H5: the sheet as it performs, with the alignment bonus folded in. */
-  effectiveAttributes: AttributesSchema,
-  band: z.enum(ALIGNMENT_BANDS),
-  /** §H5: "too low → they threaten to leave". */
-  threateningToLeave: z.boolean(),
-  /** §H5: attribute points the alignment bonus is currently worth, and where they land. */
-  skillBonus: z.number().int().nonnegative(),
-  bonusAttributes: z.array(z.enum(ATTRIBUTE_NAMES)),
   /** §H7: the agreed weekly fee, read back out of the payroll book. */
   weeklyWage: z.number().nonnegative(),
   /** What releasing them costs in caps, right now: `DISMISSAL_WEEKS` of the fee above. */
@@ -790,18 +793,6 @@ export const IncreasePayrollResponseSchema = z.object({
 });
 export type IncreasePayrollResponse = z.infer<typeof IncreasePayrollResponseSchema>;
 
-/** §H6: spend one of the level-up points the player was given to assign by hand. */
-export const AssignPointRequestSchema = z.object({
-  officerId: IdSchema,
-  attribute: z.enum(ATTRIBUTE_NAMES),
-});
-export type AssignPointRequest = z.infer<typeof AssignPointRequestSchema>;
-
-export const AssignPointResponseSchema = z.object({
-  officer: CommanderSchema,
-});
-export type AssignPointResponse = z.infer<typeof AssignPointResponseSchema>;
-
 // --- research and discovery (GDD §B9, §F2-§F5) ---
 
 /**
@@ -910,18 +901,13 @@ export const StartResearchResponseSchema = z.object({
   resources: ResourcesSchema,
 });
 export type StartResearchResponse = z.infer<typeof StartResearchResponseSchema>;
-// --- assignees (GDD §G) ---
+// --- the crew (GDD §G) ---
 
 /** One officer on the §G screen: who stands under them, and what §G7 pays for it. */
-export const AssigneeOfficerSchema = z.object({
+export const CrewOfficerSchema = z.object({
   officerId: IdSchema,
   name: z.string(),
   role: OfficerRoleSchema,
-  assignees: z.number().int().nonnegative(),
-  /** §G7: the bonus this many assignees give, applied to both time and power. */
-  bonusPercent: z.number().nonnegative(),
-  /** What one more would pay, or null when this officer is at the §G3 cap. */
-  nextBonusPercent: z.number().nonnegative().nullable(),
   /**
    * Who this person actually is (§B6, §B7, §H6).
    *
@@ -932,36 +918,29 @@ export const AssigneeOfficerSchema = z.object({
    * alternative is nineteen round trips to open nineteen cards.
    */
   attributes: AttributesSchema,
-  traits: TraitsSchema,
-  /** §H5: how much they still agree with the crew, and what that reads as. */
-  alignment: z.number(),
-  alignmentBand: z.enum(ALIGNMENT_BANDS),
-  /** §H6: their own level, which is not the player's. */
-  level: z.number().int().positive(),
+  /** §B7: the nought-to-three bonuses they bring, which is what the card leads with. */
+  perks: PerksSchema,
+  /**
+   * §H7: the weekly fee agreed when they signed, in caps.
+   *
+   * On the crew payload rather than only on the Bar's, because "what am I paying this person" is a
+   * question about somebody already on the books, and the screen that lists the books is where it
+   * gets asked.
+   */
+  weeklyWage: z.number().int().nonnegative(),
 });
-export type AssigneeOfficer = z.infer<typeof AssigneeOfficerSchema>;
+export type CrewOfficer = z.infer<typeof CrewOfficerSchema>;
 
 /**
- * The whole assignee layer in one call (GDD §G).
+ * The crew in one call (GDD §G): who is in which chair, and everything about them.
  *
- * Every number here is derived server-side from `Base.level` and the stored placement map: the
- * client renders them and never recomputes them, so the §G8 pool formula and the §G7 table have
- * exactly one home.
+ * It used to be the assignee layer, and most of it was pool arithmetic: a level-granted body count,
+ * how much of it was placed, what one more body under an officer would pay. All of that is gone.
+ * What is left is the part a player was ever actually looking at, which is the people.
  */
-export const AssigneesResponseSchema = z.object({
+export const CrewResponseSchema = z.object({
   /** `Base.level` (INTERFACES R1): echoed so the page can explain where the cap came from. */
   level: z.number().int().min(1),
-  /** §G8: the whole pool at this level. */
-  pool: z.number().int().nonnegative(),
-  placed: z.number().int().nonnegative(),
-  /** §G2: what a level-up handed over that the player has not placed yet. */
-  unplaced: z.number().int().nonnegative(),
-  /** §G3/§G3a, capped at the §G7 table's twelve rows. */
-  capPerOfficer: z.number().int().min(1).max(MAX_ASSIGNEES_PER_OFFICER),
-  /** The best §G7 bonus reachable at this level, not always 50%, because the cap bites first. */
-  maxBonusPercent: z.number().nonnegative(),
-  /** §C4/§G4: whether a Professor is on the books to run reskilling. */
-  canReskill: z.boolean(),
   /**
    * §A1: the Quarters' ceiling and what is standing under it, officers included.
    *
@@ -972,31 +951,15 @@ export const AssigneesResponseSchema = z.object({
     used: z.number().int().nonnegative(),
     capacity: z.number().int().nonnegative(),
   }),
-  officers: z.array(AssigneeOfficerSchema),
+  officers: z.array(CrewOfficerSchema),
 });
-export type AssigneesResponse = z.infer<typeof AssigneesResponseSchema>;
+export type CrewResponse = z.infer<typeof CrewResponseSchema>;
 
-/** §G2: place some of the unplaced pool under one officer. Placement only ever adds. */
-export const PlaceAssigneesRequestSchema = z.object({
-  officerId: IdSchema,
-  count: z.number().int().min(1).max(MAX_ASSIGNEES_PER_OFFICER),
+/** The one write answers with the refreshed screen, so the client never re-derives state. */
+export const CrewMutationResponseSchema = z.object({
+  crew: CrewResponseSchema,
 });
-export type PlaceAssigneesRequest = z.infer<typeof PlaceAssigneesRequestSchema>;
-
-/**
- * §G4: reskilling reassigns *every* assignee at once, so the request is the whole new map rather
- * than a move. An officer left out of it ends with nobody.
- */
-export const ReskillRequestSchema = z.object({
-  placements: z.record(IdSchema, z.number().int().nonnegative()),
-});
-export type ReskillRequest = z.infer<typeof ReskillRequestSchema>;
-
-/** Both writes answer with the same refreshed screen, so the client never re-derives state. */
-export const AssigneesMutationResponseSchema = z.object({
-  assignees: AssigneesResponseSchema,
-});
-export type AssigneesMutationResponse = z.infer<typeof AssigneesMutationResponseSchema>;
+export type CrewMutationResponse = z.infer<typeof CrewMutationResponseSchema>;
 
 // --- training (§F2) ---
 
@@ -1025,7 +988,7 @@ export const TrainingSubjectSchema = z.object({
   /** Everybody has a portrait: the Overseer's preset, or one off the officer pool. */
   portraitId: z.string().nullable(),
   attributes: AttributesSchema,
-  traits: TraitsSchema,
+  perks: PerksSchema,
   /** What they are doing right now, if anything. */
   session: TrainingSessionSchema.nullable(),
   /** What they did last, which is the one thing they may not do next. */

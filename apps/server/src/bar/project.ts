@@ -1,10 +1,5 @@
 import {
-  alignedAttributes,
   dismissalFee,
-  alignmentBand,
-  alignmentBonusAttributes,
-  alignmentSkillBonus,
-  threatensToLeave,
   type BarOfficer,
   type BarRecruit,
   type Base,
@@ -34,9 +29,7 @@ export function projectRecruit(
     id: recruit.id,
     name: recruit.name,
     attributes: recruit.attributes,
-    traits: recruit.traits,
-    ambition: recruit.ambition,
-    moralCompass: recruit.moralCompass,
+    perks: recruit.perks,
     requirement: recruit.requirement,
     assessment,
     // §H7 prices a fee only "if the character is interested". There is no number to show someone
@@ -47,18 +40,8 @@ export function projectRecruit(
   };
 }
 
-/** One held officer with their §H5 standing spelled out. */
+/** One held officer: who they are, and what the book pays them. */
 export function projectOfficer(base: Base, officer: Commander): BarOfficer {
-  const skillBonus = alignmentSkillBonus(officer.alignment);
   const fee = base.economy.payroll.commitments[officer.id] ?? 0;
-  return {
-    commander: officer,
-    effectiveAttributes: alignedAttributes(officer.attributes, officer.alignment),
-    band: alignmentBand(officer.alignment),
-    threateningToLeave: threatensToLeave(officer.alignment),
-    skillBonus,
-    bonusAttributes: skillBonus > 0 ? alignmentBonusAttributes(officer.attributes) : [],
-    weeklyWage: fee,
-    dismissalFee: dismissalFee(fee),
-  };
+  return { commander: officer, weeklyWage: fee, dismissalFee: dismissalFee(fee) };
 }

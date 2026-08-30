@@ -1,8 +1,6 @@
 import { adminCaps, adminWaives } from '../admin/mode.js';
 import { randomUUID } from 'node:crypto';
 import {
-  ALIGNMENT_START,
-  CHARACTER_LEVEL_MIN,
   askingWage,
   assessJoin,
   barHiresPerDay,
@@ -105,12 +103,22 @@ export function wageAskedOf(
   return askingWage(recruit.attributes, standoff?.walkouts ?? 0, discountPercent);
 }
 
-/** The crew's payroll book as every gate in this file reads it. */
-export function ledgerFor(base: Base): PayrollLedger {
+/**
+ * The crew's payroll book as every gate in this file reads it.
+ *
+ * `stepDiscountPercent` is the perk channel for officers who make widening the book cheaper, and
+ * it has to be threaded through rather than defaulted at the screen: `nextStepCost` on this ledger
+ * is the price the Bar *prints*, and `POST /bar/payroll` charges the same function. A default here
+ * with the discount applied only at the charge would put a different number on the screen from the
+ * one that comes out of the stockpile, which is the worst kind of pricing bug because it looks
+ * like a refund.
+ */
+export function ledgerFor(base: Base, stepDiscountPercent = 0): PayrollLedger {
   return payrollLedger(
     base.economy.payroll,
     buildingLevel(base.buildings, 'nexus'),
     payrollBonusPercent(base.buildings),
+    stepDiscountPercent,
   );
 }
 
@@ -148,7 +156,7 @@ function refusalFor(
   // level 40 (§I3), read off the same function the Bar screen quotes.
   if (hiresToday >= barHiresPerDay(base.level)) return 'daily_limit';
   // §A1: an officer needs a bed like anyone else. Counted against the whole district population,
-  // assignees and soldiers included, because the Quarters do not care what somebody's job title is.
+  // soldiers included, because the Quarters do not care what somebody's job title is.
   if (spare < 1) return 'no_housing';
 
   if (blockers.includes('notoriety')) return 'requirement';
@@ -213,19 +221,11 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
     name: recruit.name,
     role,
     attributes: recruit.attributes,
-    traits: recruit.traits,
-    ambition: recruit.ambition,
-    moralCompass: recruit.moralCompass,
-    // §H5. They have an opinion of the deal they just signed, but none yet of the work. The drift
-    // from neutral towards that opinion starts now: see `contractStance`.
-    alignment: ALIGNMENT_START,
-    alignmentUpdatedAt: now.toISOString(),
-    // What they were asking when they signed. The gap between this and what they settled for is
-    // what §H5 drifts on for the rest of their tenure.
-    askingWage: asking,
-    level: CHARACTER_LEVEL_MIN,
-    xpIntoLevel: 0,
-    unspentPoints: 0,
+    // §B7: the perks come with the person, exactly as the card at the Bar advertised them.
+    perks: recruit.perks,
+    // §H7: the wage that was actually agreed, which is what the payroll book is charged and what
+    // the crew card prints. It is the whole of the ongoing relationship now.
+    weeklyWage: wage,
   };
 
   const hired: Base = {

@@ -7,7 +7,7 @@ const useMissions = vi.hoisted(() => vi.fn());
 const launchMutate = vi.hoisted(() => vi.fn());
 vi.mock('../../lib/queries', () => ({
   useMissions,
-  useAssignees: () => ({ data: undefined }),
+  useCrew: () => ({ data: undefined }),
   useLaunchMission: () => ({ mutate: launchMutate, isPending: false, variables: undefined }),
 }));
 

@@ -1,23 +1,20 @@
 import {
-  AssignPointRequestSchema,
   HireRecruitRequestSchema,
   NegotiateRequestSchema,
   barHiresPerDay,
   negotiate,
   negotiationLine,
+  negotiationVoice,
   openNegotiation,
   IncreasePayrollRequestSchema,
   ReleaseOfficerRequestSchema,
   inStandoff,
   payrollStepCost,
   playerLevelGrants,
-  spendCharacterPoint,
   standoffAfterWalkout,
   standoffRemainingMs,
-  type AssignPointResponse,
   type Base,
   type BarResponse,
-  type Commander,
   type HireRecruitResponse,
   type IncreasePayrollResponse,
   type NegotiateResponse,
@@ -32,7 +29,6 @@ import {
   wageAskedOf,
   type HireRefusal,
 } from '../bar/hire.js';
-import { settleOfficerAlignment } from '../bar/officers.js';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
 import { barSeatsFor, barDay, barRoster, findBarRecruit, seatOf } from '../bar/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
@@ -57,12 +53,14 @@ function requireOwnBase(app: FastifyInstance, ownerId: string): Base {
 }
 
 /**
- * Settle everything the Bar reads off before reading it: wages and upkeep first (§H7/§D1), then
- * the §H5 drift, because an officer paid off the books this instant is still on them.
+ * Settle everything the Bar reads off before reading it: wages and upkeep (§H7/§D1).
+ *
+ * There used to be a second step here for the §H5 alignment drift. Officers do not drift any more:
+ * nothing about somebody on the books changes between reads except the wage the payroll book is
+ * charged, which is what `settleBase` already does.
  */
 function settledBase(app: FastifyInstance, ownerId: string, now: Date): Base {
-  const own = requireOwnBase(app, ownerId);
-  return settleOfficerAlignment(app.repos, settleBase(app.repos, own, now).base, now);
+  return settleBase(app.repos, requireOwnBase(app, ownerId), now).base;
 }
 
 /**
@@ -127,7 +125,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       notoriety: base.economy.notoriety,
       level: base.level,
       caps: base.resources.caps,
-      payroll: ledgerFor(base),
+      payroll: ledgerFor(base, crewEffectsFor(app.repos, base).payrollStepDiscountPercent),
       filledRoles: base.commanders.map((officer) => officer.role),
       hiresLeftToday: Math.max(
         0,
@@ -181,7 +179,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const asking = wageAskedOf(recruit, standoff);
     const current =
       app.repos.bar.negotiation(request.currentUser.id, day, recruitId) ??
-      openNegotiation(asking, recruit.ambition, recruit.moralCompass);
+      openNegotiation(asking, recruit.attributes);
     if (current.closed) {
       throw new AppError('NEGOTIATION_CLOSED', 'That conversation is over');
     }
@@ -190,8 +188,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       negotiation: current,
       offer: offerWage,
       asking,
-      ambition: recruit.ambition,
-      moralCompass: recruit.moralCompass,
+      attributes: recruit.attributes,
     });
     app.repos.bar.saveNegotiation(
       request.currentUser.id,
@@ -213,7 +210,11 @@ export function registerBarRoutes(app: FastifyInstance): void {
 
     return {
       negotiation: turn.negotiation,
-      line: negotiationLine(recruit.moralCompass, turn.negotiation.mood, turn.negotiation.rounds),
+      line: negotiationLine(
+        negotiationVoice(recruit.id),
+        turn.negotiation.mood,
+        turn.negotiation.rounds,
+      ),
       accepted: turn.accepted,
       walkedAway: turn.walkedAway,
     };
@@ -313,7 +314,11 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const now = new Date();
     const base = settledBase(app, request.currentUser.id, now);
 
-    const cost = payrollStepCost(base.economy.payroll.purchasedSteps);
+    // §B7: officers who make widening the book cheaper (`payrollStepDiscountPercent`).
+    const cost = payrollStepCost(
+      base.economy.payroll.purchasedSteps,
+      crewEffectsFor(app.repos, base).payrollStepDiscountPercent,
+    );
     if (cost > base.resources.caps && !app.config.admin) {
       throw new AppError('INSUFFICIENT_CAPS', 'You cannot cover that');
     }
@@ -335,30 +340,10 @@ export function registerBarRoutes(app: FastifyInstance): void {
       return { ...base, resources, economy };
     })();
 
-    return { spent: cost, resources: raised.resources, payroll: ledgerFor(raised) };
+    return {
+      spent: cost,
+      resources: raised.resources,
+      payroll: ledgerFor(raised, crewEffectsFor(app.repos, raised).payrollStepDiscountPercent),
+    };
   });
-
-  /** §H6/§H6a: the 2 points per level the player assigns by hand. */
-  app.post(
-    '/bar/assign-point',
-    { preHandler: app.authenticate },
-    (request): AssignPointResponse => {
-      const { officerId, attribute } = parseBody(AssignPointRequestSchema, request.body);
-      const now = new Date();
-      const base = settledBase(app, request.currentUser.id, now);
-
-      const officer = base.commanders.find((held) => held.id === officerId);
-      if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
-
-      const spent = spendCharacterPoint(officer, attribute);
-      if (!spent) throw new AppError('NO_POINTS', 'They have no points waiting to be assigned');
-
-      const updated: Commander = { ...officer, ...spent };
-      app.repos.bases.updateCommanders(
-        base.id,
-        base.commanders.map((held) => (held.id === officerId ? updated : held)),
-      );
-      return { officer: updated };
-    },
-  );
 }

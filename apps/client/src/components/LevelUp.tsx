@@ -8,7 +8,7 @@ import type { LevelUp } from '@frontline/shared';
  * sends the field only when a level was actually gained, so its presence is the whole trigger.
  *
  * The three figures are the §I2 grants at the new level, which is what the level is worth: more
- * assignees in the pool (§G8), more of them under one officer (§G3), more recruit slots (§H8).
+ * more recruit slots (§H8).
  *
  * §I3 unlocks are announced *above* the grants and in the hand face, because they are the only part
  * of a level-up a player would otherwise have to discover by accident: the grants are numbers that
@@ -51,8 +51,6 @@ export function LevelUpBanner({ levelUp }: { levelUp: LevelUp }) {
       {/* Capped: the banner spans the page on the missions screen, and an uncapped row would fling
           the figure a thousand pixels from the label it belongs to. */}
       <dl className="mt-2.5 flex max-w-sm flex-col divide-y divide-warning/15 border-t border-warning/15">
-        <GrantRow label="Assignee pool" value={grants.assigneePool} />
-        <GrantRow label="Assignees / officer" value={grants.assigneeCapPerOfficer} />
         <GrantRow label="Recruit slots" value={grants.recruitSlots} />
       </dl>
     </section>

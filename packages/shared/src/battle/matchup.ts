@@ -62,6 +62,15 @@ export const SHAKEN_MORALE = 40;
 /** At or above this armour a target counts as armoured, and `vs_armor` sheets switch on. */
 export const ARMORED_THRESHOLD = 25;
 
+/**
+ * At or above this evasion a target counts as evasive, and `vs_evasive` sheets switch on.
+ *
+ * Set where a miss chance stops being noise and starts being a plan: {@link EVASION_PER_MISS} puts
+ * 30 evasion at fifteen shots in a hundred going past, which is roughly the point a player notices
+ * that something is not dying at the rate the sheets said it would.
+ */
+export const EVASIVE_THRESHOLD = 30;
+
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(high, Math.max(low, value));
 
@@ -132,6 +141,9 @@ export function engagementMultiplier(attacker: Effective, defender: Effective): 
  * `vs_low_morale` is the mechanical half of intimidation: a Terror unit is worth nothing against a
  * steady enemy and a third again as much against one already coming apart. Morale is therefore
  * read live, per round, rather than frozen with the rest of the sheet.
+ *
+ * `vs_evasive` is the counter to the one stat that had none. See `EVASIVE_THRESHOLD` and the
+ * `tracking` entry in `UNIT_MODIFIERS`.
  */
 export function targetBonusPercent(
   modifiers: readonly UnitModifierId[],
@@ -142,6 +154,9 @@ export function targetBonusPercent(
   for (const id of modifiers) {
     const modifier = UNIT_MODIFIERS[id];
     if (modifier.context === 'vs_armor' && defender.armor >= ARMORED_THRESHOLD) {
+      percent += modifier.percent;
+    }
+    if (modifier.context === 'vs_evasive' && defender.evasion >= EVASIVE_THRESHOLD) {
       percent += modifier.percent;
     }
     if (modifier.context === 'vs_low_morale' && defenderMorale < SHAKEN_MORALE) {

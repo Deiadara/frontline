@@ -1,4 +1,9 @@
-import { MissionSchema, type Mission, type PartialResources } from '@frontline/shared';
+import {
+  MissionSchema,
+  withoutRetiredUnits,
+  type Mission,
+  type PartialResources,
+} from '@frontline/shared';
 import { readJson } from '../json.js';
 import type { AppDatabase } from '../index.js';
 
@@ -62,7 +67,7 @@ function rowToStored(row: MissionRow): StoredMission {
       areaId: row.area_id,
       payPercent: row.pay_percent,
       xp: row.xp,
-      force: readJson(row.force_json),
+      force: withoutRetiredUnits(readJson(row.force_json)),
       startedAt: row.started_at,
       recalledAt: row.recalled_at,
       travelMinutes: row.travel_minutes,

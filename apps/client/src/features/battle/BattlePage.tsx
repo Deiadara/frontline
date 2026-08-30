@@ -6,8 +6,10 @@ import {
   type BattlesResponse,
   type StructureDefence,
   type Resources,
+  estimatedForce,
+  forecast,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
@@ -355,6 +357,8 @@ function BattleDetail({
 
         <Forces view={view} />
 
+        <Odds view={view} />
+
         {view.side !== null && (
           <div className="flex flex-wrap items-center gap-3 border-t border-surface-700 p-4">
             <Button
@@ -399,6 +403,80 @@ function Figure({ label, value, note }: { label: string; value: string; note?: s
  * body count. A player deciding whether to buy a boost for the heavy end of their force has to be
  * able to see whether they *sent* the heavy end of their force.
  */
+/**
+ * How this looks, before it happens.
+ *
+ * Sixty runs of **the engine that will actually settle it**, on **the ground it will settle on**,
+ * against what the crew can make out of the other side. `battle/forecast.ts` has existed and been
+ * tested for a long time and reached no screen where there is an enemy: it was wired only into the
+ * garrison picker, which never has one. So the one number a player most needs before committing
+ * people to a fight was computed, correct and invisible.
+ *
+ * The ground is the point. Combat width alone swings identical forces from a certain win to a
+ * certain loss, and until `BattleView` carried the battlefield there was no honest way to show
+ * this: a forecast run on bare open field is a confident answer about a different fight.
+ *
+ * Nothing is shown when the crew cannot count the enemy. That is the §A4 rule and it is not a
+ * limitation to work around: an estimate built on no intelligence is worse than no estimate, and
+ * the line says so rather than printing a number nobody should trust.
+ */
+function Odds({ view }: { view: BattleView }) {
+  const facing = view.enemySize;
+  const defending = view.role === 'defender';
+  // Keyed off the plan rather than the object: `view` is rebuilt on every poll, so depending on the
+  // army's identity would re-run sixty simulations a second and the number would never hold still
+  // long enough to read. Sixty runs is cheap once and not cheap every render.
+  const plan = JSON.stringify([view.muster?.army ?? {}, facing, view.battlefield, defending]);
+  const read = useMemo(() => {
+    const [sending, size, ground, holding] = JSON.parse(plan) as [
+      Record<string, number>,
+      number | null,
+      BattleView['battlefield'],
+      boolean,
+    ];
+    const bodies = Object.values(sending).reduce((total, count) => total + count, 0);
+    if (size === null || bodies === 0) return null;
+    return forecast({
+      seed: plan,
+      battlefield: ground,
+      attacker: { name: 'you', army: sending, defending: holding },
+      defender: { name: 'them', army: estimatedForce(size), defending: !holding },
+    });
+  }, [plan]);
+
+  if (view.side === null) return null;
+
+  return (
+    <div className="border-t border-surface-700 p-4" data-testid="battle-odds">
+      <p className="font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">
+        How it looks
+      </p>
+      {read === null ? (
+        <p
+          className="mt-1 font-body text-[12px] leading-relaxed text-ink-300"
+          data-testid="odds-none"
+        >
+          {facing === null
+            ? 'Nobody has counted what is waiting. You will find out when you get there.'
+            : 'Put people on the ground and this will tell you how it looks.'}
+        </p>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+          <span className="font-display text-lg font-bold tabular-nums text-brass-300">
+            {Math.round(read.winChance * 100)}%
+          </span>
+          <span className="font-body text-[12px] text-ink-200">
+            you take it, in {read.runs} runs of the real thing
+          </span>
+          <span className="font-body text-[12px] text-ink-300">
+            about {Math.round(read.attackerSurvival * 100)}% of yours walk out
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Forces({ view }: { view: BattleView }) {
   const muster = view.muster;
   if (!muster) return null;

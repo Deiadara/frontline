@@ -132,7 +132,17 @@ export function ForcePicker({
           <Row label="Can carry" value={`${capacity} kg`} />
         </dl>
 
-        <Odds force={force} facingSize={facingSize} battlefield={battlefield} />
+        {/*
+         * Only when the caller actually asked about a fight.
+         *
+         * `Odds` renders "nobody has counted what is on this ground" for an absent `facingSize`,
+         * which is the right sentence when a player is looking at ground nobody has scouted and a
+         * nonsense one on the garrison dialog, where the ground is *yours* and there is no enemy to
+         * count. It was the nonsense one every time: garrisoning is this picker's only caller.
+         */}
+        {facingSize !== undefined && (
+          <Odds force={force} facingSize={facingSize} battlefield={battlefield} />
+        )}
 
         {error !== null && error !== undefined && (
           <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">

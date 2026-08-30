@@ -1,5 +1,6 @@
 import { FACTION_NAME_MAX, type Base } from '@frontline/shared';
 import { useState } from 'react';
+import { ApiRequestError } from '../lib/api';
 import { useRenameFaction } from '../lib/queries';
 import { Button } from './ui/Button';
 import { cn } from './../lib/cn';
@@ -110,7 +111,7 @@ export function FactionPlaque({ base }: { base: Base }) {
 
   return (
     <form
-      className="pointer-events-auto flex shrink-0 items-center gap-2"
+      className="pointer-events-auto relative flex shrink-0 items-center gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         const name = draft.trim();
@@ -118,6 +119,25 @@ export function FactionPlaque({ base }: { base: Base }) {
         rename.mutate({ name }, { onSuccess: () => setDraft(null) });
       }}
     >
+      {/*
+       * Why it was refused, and it has to be said somewhere.
+       *
+       * A crew name has to be unique in the city and may not be one of the plot numbers the map
+       * draws, so this form has a failing path now. Without a message the button simply did
+       * nothing and the field stayed open, which reads as a broken save rather than a taken name.
+       *
+       * Absolutely positioned so a refusal does not resize the HUD the plaque sits in: the whole
+       * standing bar would jump the moment somebody picked a name that was gone.
+       */}
+      {rename.error !== null && (
+        <p
+          role="alert"
+          data-testid="faction-name-error"
+          className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap rounded-sm border border-oxblood-500/60 bg-surface-950/95 px-2 py-1 font-body text-[12px] leading-none text-oxblood-300"
+        >
+          {rename.error instanceof ApiRequestError ? rename.error.message : 'That did not save'}
+        </p>
+      )}
       <label className="sr-only" htmlFor="faction-name">
         Faction name
       </label>
@@ -126,7 +146,10 @@ export function FactionPlaque({ base }: { base: Base }) {
         value={draft}
         autoFocus
         maxLength={FACTION_NAME_MAX}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          rename.reset();
+          setDraft(event.target.value);
+        }}
         className="min-w-0 border border-brass-500/60 bg-surface-950 px-3 py-1.5 font-display text-base tracking-[0.1em] text-ink-100 focus-visible:border-brass-300 focus-visible:outline-none"
       />
       <Button size="sm" type="submit" disabled={rename.isPending || draft.trim().length < 2}>

@@ -2,13 +2,13 @@ import {
   BLACK_MARKET_REFUSAL_TEXT,
   GAME_TIMEZONE,
   TakeBlackMarketRequestSchema,
-  type Base,
   type BlackMarketMutationResponse,
   type BlackMarketResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { projectBlackMarket, takeFromBlackMarket } from '../blackmarket/shelf.js';
 import { AppError, parseBody } from '../errors.js';
+import { ownBase } from './own-base.js';
 
 /**
  * The back room (black-market extension).
@@ -26,12 +26,6 @@ import { AppError, parseBody } from '../errors.js';
  * wall clock and the wall clock is theirs. A player who has not changed it is on Athens time, which
  * is the house clock and the default.
  */
-
-function ownBase(app: FastifyInstance, ownerId: string): Base {
-  const base = app.repos.bases.findByOwnerId(ownerId);
-  if (!base) throw new AppError('NO_BASE', 'You do not have a base yet');
-  return base;
-}
 
 export function registerBlackMarketRoutes(app: FastifyInstance): void {
   app.get('/black-market', { preHandler: app.authenticate }, (request): BlackMarketResponse => {

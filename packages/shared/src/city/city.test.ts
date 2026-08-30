@@ -6,6 +6,10 @@ import {
   CITY_LOCATIONS,
   CONTESTED_DISTRICTS,
   RESIDENTIAL_DISTRICTS,
+  districtDisplayName,
+  sameFactionName,
+  isReservedFactionName,
+  BOT_DISTRICT_ID,
   STARTER_DISTRICT_ID,
   UNIFIED_BONUSES,
   findDistrict,
@@ -90,8 +94,8 @@ function world(
 }
 
 describe('the map (§A4)', () => {
-  it('is ten districts: somewhere to live, and rather more to fight over', () => {
-    expect(CITY_DISTRICTS).toHaveLength(10);
+  it('is twelve districts: somewhere to live, and rather more to fight over', () => {
+    expect(CITY_DISTRICTS).toHaveLength(12);
     expect(RESIDENTIAL_DISTRICTS.length).toBeGreaterThanOrEqual(2);
     expect(CONTESTED_DISTRICTS.length).toBeGreaterThan(RESIDENTIAL_DISTRICTS.length);
     expect(RESIDENTIAL_DISTRICTS.length + CONTESTED_DISTRICTS.length).toBe(CITY_DISTRICTS.length);
@@ -580,5 +584,119 @@ describe("the city's geography", () => {
       expect(district.position.y, district.id).toBeGreaterThanOrEqual(0.06);
       expect(district.position.y, district.id).toBeLessThanOrEqual(0.94);
     }
+  });
+});
+
+/**
+ * What a district is called, which for four of the twelve is not a fact about the district.
+ *
+ * A residential district is a plot, not a place with a history. It used to carry an authored name
+ * anyway (the Terraces, the Row) and the map printed it whoever was standing there. What a plot is
+ * called now depends on **who is looking**: yours carries your crew's name, live, and everybody
+ * else's is a number. Both the map and the district screen read this one function so they cannot
+ * disagree about what a place is called.
+ */
+describe('a plot is called after you, or numbered', () => {
+  const residential = CITY_DISTRICTS.filter((district) => district.kind === 'residential');
+  const contested = CITY_DISTRICTS.filter((district) => district.kind === 'contested');
+  const mine = residential[1]!;
+
+  it('has plots and ground to tell apart, so none of this is vacuous', () => {
+    expect(residential.length).toBeGreaterThan(3);
+    expect(contested.length).toBeGreaterThan(1);
+  });
+
+  it('calls your own plot after your crew, and follows a rename', () => {
+    const viewer = { ownDistrictId: mine.id, ownName: 'EterosEgw' };
+    expect(districtDisplayName(mine, viewer)).toBe('EterosEgw');
+    expect(districtDisplayName(mine, { ...viewer, ownName: 'Something Else' })).toBe(
+      'Something Else',
+    );
+  });
+
+  /** The numbering runs from one with no gap in it, whichever plot happens to be yours. */
+  it('numbers everybody else I, II, III, in order and without gaps', () => {
+    for (const home of residential) {
+      const viewer = { ownDistrictId: home.id, ownName: 'EterosEgw' };
+      const others = residential.filter((district) => district.id !== home.id);
+      expect(
+        others.map((district) => districtDisplayName(district, viewer)),
+        `viewed from ${home.id}`,
+      ).toEqual(['Player District I', 'Player District II', 'Player District III']);
+    }
+  });
+
+  /**
+   * The point of numbering rather than naming: a stranger's crew name is not published to the
+   * whole city just because they live somewhere.
+   */
+  it('never prints another crew’s name on their plot', () => {
+    const viewer = { ownDistrictId: mine.id, ownName: 'EterosEgw' };
+    for (const district of residential) {
+      if (district.id === mine.id) continue;
+      expect(districtDisplayName(district, viewer)).toMatch(/^Player District /);
+    }
+  });
+
+  it('falls back to the plot’s own name when nobody is looking', () => {
+    for (const district of residential) {
+      expect(districtDisplayName(district), district.id).toMatch(/^Player District/);
+    }
+  });
+
+  /**
+   * The comparison has to collapse whitespace the way the *renderer* does, not the way `trim`
+   * does.
+   *
+   * HTML collapses runs of whitespace when it lays text out, so `The  Ninth  Street  Crew` paints
+   * exactly the pixels `The Ninth Street Crew` paints. A rule that only trimmed the ends called
+   * them two names, let the second crew register, and put two identical tags on one map: which is
+   * the whole thing `sameFactionName` exists to stop, arriving through the middle of the string
+   * instead of the ends.
+   */
+  it('treats names that paint the same pixels as one name', () => {
+    const same = [
+      'The Ninth Street Crew',
+      'the ninth street crew',
+      'THE NINTH STREET CREW',
+      '  The Ninth Street Crew  ',
+      'The  Ninth  Street  Crew',
+      'The\tNinth\nStreet   Crew',
+    ];
+    for (const name of same) {
+      expect(sameFactionName('The Ninth Street Crew', name), name).toBe(true);
+    }
+    expect(sameFactionName('The Ninth Street Crew', 'The Tenth Street Crew')).toBe(false);
+    expect(sameFactionName('Vex', 'Vexx')).toBe(false);
+  });
+
+  /** The reserved plot numbers are dodged through the same gap, so they close through it too. */
+  it('reserves the plot numbers however they are spaced', () => {
+    for (const name of ['Player District II', 'player  district  ii', ' PLAYER DISTRICT II ']) {
+      expect(isReservedFactionName(name), name).toBe(true);
+    }
+    // I..X are reserved as headroom for plots not drawn yet, so the first free one is XI.
+    expect(isReservedFactionName('Player District XI')).toBe(false);
+    expect(isReservedFactionName('The Ninth Street Crew')).toBe(false);
+  });
+
+  /** Contested ground has a name of its own and a crew never gets to overwrite it. */
+  it('never lets a crew rename ground that is only being held', () => {
+    const viewer = { ownDistrictId: 'rustyard', ownName: 'EterosEgw' };
+    for (const district of contested) {
+      expect(districtDisplayName(district, viewer), district.id).toBe(district.name);
+    }
+  });
+
+  /**
+   * The starter has to be a plot, and the Docks stopped being one. This is the pairing that
+   * migration `0040` exists for: a crew left in a contested district owns ground that can be taken.
+   */
+  it('settles crews on a plot and leaves the Docks to be taken', () => {
+    expect(findDistrict(STARTER_DISTRICT_ID)?.kind).toBe('residential');
+    expect(findDistrict(BOT_DISTRICT_ID)?.kind).toBe('residential');
+    expect(STARTER_DISTRICT_ID).not.toBe(BOT_DISTRICT_ID);
+    expect(findDistrict('neon-docks')?.kind).toBe('contested');
+    expect(findDistrict('neon-docks')?.locations.length).toBeGreaterThan(0);
   });
 });

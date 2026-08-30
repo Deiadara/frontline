@@ -1,8 +1,7 @@
 import {
-  AMBITION_SPECS,
-  MORAL_COMPASS_SPECS,
   OFFICER_ROLE_LABELS,
   negotiationLine,
+  negotiationVoice,
   openNegotiation,
   type BarRecruit,
   type Negotiation,
@@ -13,6 +12,7 @@ import { useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Modal } from '../../components/ui/Modal';
+import { NumberField } from '../../components/ui/NumberField';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
 import { useNegotiate } from '../../lib/queries';
@@ -121,21 +121,25 @@ export function NegotiationDialog({
   // opening position is a pure function of the asking price and §H4, so the client can draw it
   // exactly as the server would create it. A hand-rolled placeholder got this wrong in the obvious
   // way: patience of zero, which drew an empty meter next to somebody who had not said a word.
-  const opening = standing ?? openNegotiation(asking, recruit.ambition, recruit.moralCompass);
+  const opening = standing ?? openNegotiation(asking, recruit.attributes);
 
   const [state, setState] = useState<Negotiation>(opening);
   // Opened on what they are *asking*, never on what they would settle for. Prefilling the
   // reservation value would hand the player the one number the whole negotiation is about finding.
-  const [offer, setOffer] = useState<string>(String(opening.standing));
+  const [offer, setOffer] = useState<number>(opening.standing);
   // Seeded with the character's opening line so the window is never a blank room. It is not part
   // of the server's state: an opening line is a pure function of who they are.
   const [said, setSaid] = useState<Exchange[]>(() => [
-    { offer: null, said: negotiationLine(recruit.moralCompass, 'opening', 0), mood: 'opening' },
+    {
+      offer: null,
+      said: negotiationLine(negotiationVoice(recruit.id), 'opening', 0),
+      mood: 'opening',
+    },
   ]);
   const [role, setRole] = useState<OfficerRole>(() => openRoles[0] ?? 'head_spy');
   const scroller = useRef<HTMLDivElement>(null);
 
-  const proposed = Math.max(0, Math.trunc(Number(offer) || 0));
+  const proposed = Math.max(0, Math.trunc(offer));
   const affordable = proposed <= payrollLeft;
   const tone = MOOD_TONE[state.mood];
   const patienceLeft = state.closed && state.mood === 'walked' ? 0 : state.patience;
@@ -179,7 +183,7 @@ export function NegotiationDialog({
       <header className="flex shrink-0 items-start justify-between gap-4 border-b border-surface-600/60 px-5 py-4">
         <div className="min-w-0">
           <p className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300">
-            {MORAL_COMPASS_SPECS[recruit.moralCompass].label} · terms
+            Terms
           </p>
           <h2
             id="negotiation-title"
@@ -209,19 +213,22 @@ export function NegotiationDialog({
           already shows, gathered where the decision is actually being made. */}
       <dl className="flex shrink-0 flex-wrap gap-x-6 gap-y-1 border-b border-surface-700 px-5 py-2.5">
         <div className="flex items-baseline gap-2">
+          {/* What used to be "Wants" and "How far they go": two personality tags that shaped the
+              haggle from behind a label. The temper is read off the sheet now, so the two numbers
+              that decide how this goes can simply be named. */}
           <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-            Wants
+            Holds out
           </dt>
           <dd className="font-stamp text-[14px] leading-none text-ink-100">
-            {AMBITION_SPECS[recruit.ambition].label}
+            {recruit.attributes.composure} composure
           </dd>
         </div>
         <div className="flex items-baseline gap-2">
           <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-            How far they go
+            Gives ground
           </dt>
           <dd className="font-stamp text-[14px] leading-none text-ink-100">
-            {MORAL_COMPASS_SPECS[recruit.moralCompass].label}
+            {recruit.attributes.negotiation} negotiation
           </dd>
         </div>
         <div className="flex items-baseline gap-2">
@@ -350,15 +357,29 @@ export function NegotiationDialog({
                 <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
                   Your offer, caps a week
                 </span>
-                <input
-                  aria-label={`Offer to ${recruit.name}`}
-                  type="number"
-                  min={0}
-                  inputMode="numeric"
+                {/*
+                 * The game's own field, not the browser's. This was the last player-facing
+                 * `type="number"` in the interface: everywhere else a count is entered, the panel
+                 * draws its own steppers in brass, and the Bar was showing a pair of grey system
+                 * chevrons on painted tin. Ten caps a step, because a wage is haggled in tens and a
+                 * stepper that moves a forty-cap offer by one is a stepper nobody presses.
+                 */}
+                <NumberField
+                  label={`Offer to ${recruit.name}`}
                   value={offer}
-                  onChange={(event) => setOffer(event.target.value)}
+                  onChange={setOffer}
+                  min={0}
+                  /*
+                   * Deliberately **above** what the crew can afford. Clamping at `payrollLeft` would
+                   * make the "that does not fit on the book" line below unreachable, which is the
+                   * one thing on this screen that tells a player why a signing they can see is
+                   * refused. The field lets you overshoot; the panel tells you that you did.
+                   */
+                  max={Math.max(payrollLeft, asking) * 2}
+                  step={10}
                   onKeyDown={(event) => event.key === 'Enter' && send()}
-                  className="w-full min-w-0 rounded-sm border border-surface-600 bg-surface-950 px-3 py-2 font-stamp text-[16px] tabular-nums text-ink-100"
+                  className="w-full min-w-0"
+                  data-testid="negotiation-offer"
                 />
               </label>
               <Button

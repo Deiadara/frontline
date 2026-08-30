@@ -1,7 +1,7 @@
 import {
   CITY_DISTRICTS,
   STARTING_RESOURCES,
-  startingAssignees,
+  STARTER_DISTRICT_ID,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -9,6 +9,8 @@ import {
   type DistrictDetailResponse,
   type SkirmishEngine,
   startingTraining,
+  BOT_DISTRICT_ID,
+  BUILDING_KINDS,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -262,7 +264,9 @@ describe('POST /api/overseer', () => {
     expect(body.overseer.archetype).toBe('netrunner');
     expect(body.user.overseerId).toBeTruthy();
     expect(body.base.ownerId).toBe(userId);
-    expect(body.base.districtId).toBe('neon-docks');
+    // The constant, not the id it currently holds: which plot new crews get is a design decision
+    // that has moved once and will again, and this test is about the route honouring it.
+    expect(body.base.districtId).toBe(STARTER_DISTRICT_ID);
     expect(body.base.level).toBe(1);
     expect(body.base.resources).toEqual(STARTING_RESOURCES);
     expect(body.base.buildings.map((b) => b.kind)).toEqual(['nexus', 'generator']);
@@ -411,7 +415,6 @@ describe('GET /api/city', () => {
       economy: startingEconomy(new Date().toISOString()),
       progression: startingProgression(),
       research: startingResearch(),
-      assignees: startingAssignees(),
       buildings: [
         { id: 'r-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0, fortification: 0 },
         { id: 'r-gate', kind: 'gate', level: 3, modifications: [], damage: 0, fortification: 0 },
@@ -456,7 +459,10 @@ describe('GET /api/city', () => {
 
     // And none of what they know comes with it.
     const wire = JSON.stringify(seen);
-    for (const secret of ['resources', 'research', 'facts', 'assignees', 'army']) {
+    // `officers` rather than the `assignees` that used to be here: that key was deleted with the
+    // pool, so the guard was checking for a field that could no longer appear under any bug while
+    // the roster that replaced it went unchecked. A neighbour's officers are hidden info too.
+    for (const secret of ['resources', 'research', 'facts', 'officers', 'army']) {
       expect(wire, secret).not.toContain(`"${secret}"`);
     }
   });
@@ -535,5 +541,151 @@ describe('routing', () => {
     const res = await app.inject({ method: 'GET', url: '/api/nope' });
     expect(res.statusCode).toBe(404);
     expect(errorCode(res)).toBe('NOT_FOUND');
+  });
+});
+
+/**
+ * An empty plot is still a district.
+ *
+ * Every residential district is the same ground; three of the four have nobody on them, and the
+ * screen for one used to be a single sentence saying so, which is a hole where every other plot
+ * has a place. It draws that ground at level 1 instead, which is also exactly what a crew settling
+ * there would start from.
+ */
+describe('a plot nobody lives on draws itself at level 1', () => {
+  it('serves a full district at level 1, and no crew', async () => {
+    const { app } = await makeApp();
+    const mine = await register(app, 'nikos');
+    await chooseOverseer(app, mine.token);
+
+    // A plot that is not this crew's own and that nobody has been seeded into.
+    const empty = CITY_DISTRICTS.find(
+      (district) =>
+        district.kind === 'residential' &&
+        district.id !== STARTER_DISTRICT_ID &&
+        district.id !== BOT_DISTRICT_ID,
+    );
+    expect(empty, 'the city has an unoccupied plot to look at').toBeDefined();
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/city/scout',
+      headers: auth(mine.token),
+      payload: { districtId: empty!.id },
+    });
+    const seen = (
+      await app.inject({ method: 'GET', url: `/api/city/${empty!.id}`, headers: auth(mine.token) })
+    ).json<DistrictDetailResponse>();
+
+    expect(seen.base, 'nobody lives there').toBeNull();
+    expect(seen.residentBuildings.length).toBe(BUILDING_KINDS.length);
+    for (const building of seen.residentBuildings) expect(building.level).toBe(1);
+    // Stable between reads: the scene positions outlines by id, so a fresh id every poll would
+    // make the drawing jump.
+    const again = (
+      await app.inject({ method: 'GET', url: `/api/city/${empty!.id}`, headers: auth(mine.token) })
+    ).json<DistrictDetailResponse>();
+    expect(again.residentBuildings.map((b) => b.id)).toEqual(
+      seen.residentBuildings.map((b) => b.id),
+    );
+  });
+});
+
+/**
+ * One crew, one name, per city.
+ *
+ * A crew's name is the only thing that identifies it anywhere a player meets one: the tag on the
+ * map, both sides of a battle report, a listing on the board. Two crews sharing one does not read
+ * as a clash, it reads as the same crew being in two places, and there is no second field a reader
+ * could fall back on.
+ */
+describe('crew names are unique in a city', () => {
+  it('refuses a name another crew is already using, whatever the casing', async () => {
+    const { app } = await makeApp();
+    const mine = await register(app, 'nikos');
+    await chooseOverseer(app, mine.token);
+    const theirs = await register(app, 'rival');
+    await chooseOverseer(app, theirs.token, 'netrunner');
+
+    const claimed = await app.inject({
+      method: 'POST',
+      url: '/api/base/faction',
+      headers: auth(mine.token),
+      payload: { name: 'EterosEgw' },
+    });
+    expect(claimed.statusCode).toBe(200);
+
+    for (const name of ['EterosEgw', 'eterosegw', '  ETEROSEGW  ']) {
+      const clash = await app.inject({
+        method: 'POST',
+        url: '/api/base/faction',
+        headers: auth(theirs.token),
+        payload: { name },
+      });
+      expect(clash.statusCode, name).toBe(409);
+      expect(errorCode(clash), name).toBe('FACTION_NAME_TAKEN');
+    }
+  });
+
+  /** Re-saving your own name unchanged is not a collision, or the field could never be left alone. */
+  it('lets a crew keep the name it already has', async () => {
+    const { app } = await makeApp();
+    const mine = await register(app, 'nikos');
+    await chooseOverseer(app, mine.token);
+    for (let i = 0; i < 2; i += 1) {
+      const saved = await app.inject({
+        method: 'POST',
+        url: '/api/base/faction',
+        headers: auth(mine.token),
+        payload: { name: 'EterosEgw' },
+      });
+      expect(saved.statusCode).toBe(200);
+    }
+  });
+
+  /** A crew called `Player District II` is indistinguishable from the plot the map draws. */
+  it('refuses the names the map has reserved for the plots', async () => {
+    const { app } = await makeApp();
+    const mine = await register(app, 'nikos');
+    await chooseOverseer(app, mine.token);
+    for (const name of ['Player District', 'Player District II', 'player district iii']) {
+      const refused = await app.inject({
+        method: 'POST',
+        url: '/api/base/faction',
+        headers: auth(mine.token),
+        payload: { name },
+      });
+      expect(refused.statusCode, name).toBe(409);
+      expect(errorCode(refused), name).toBe('FACTION_NAME_TAKEN');
+    }
+  });
+
+  /**
+   * Registration must never fail on a name the player did not choose: the note on
+   * `defaultFactionName` calls that an unrecoverable account. It disambiguates instead.
+   */
+  it('gives a new crew a free name rather than refusing to create it', async () => {
+    const { app } = await makeApp();
+    const first = await register(app, 'nikos');
+    await chooseOverseer(app, first.token);
+    const taken = await app.inject({
+      method: 'POST',
+      url: '/api/base/faction',
+      headers: auth(first.token),
+      payload: { name: "rival's Crew" },
+    });
+    expect(taken.statusCode).toBe(200);
+
+    const second = await register(app, 'rival');
+    await chooseOverseer(app, second.token, 'netrunner');
+    const me = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: auth(second.token),
+    });
+    expect(me.statusCode).toBe(200);
+    const name = me.json<{ base: { name: string } }>().base.name;
+    expect(name).not.toBe("rival's Crew");
+    expect(name.length).toBeGreaterThan(0);
   });
 });

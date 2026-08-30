@@ -6,13 +6,14 @@ import {
   STARTING_RESOURCES,
   findOverseerPreset,
   startingEconomy,
-  startingAssignees,
   startingProgression,
   startingResearch,
   type Base,
   type CreateOverseerResponse,
-  type Overseer,
   startingTraining,
+  overseerFromPreset,
+  isReservedFactionName,
+  sameFactionName,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { applyUnlockedSandbox } from '../seed/sandbox.js';
@@ -27,6 +28,35 @@ import { AppError, parseBody } from '../errors.js';
  */
 function defaultFactionName(username: string): string {
   return `${username}'s Crew`.slice(0, FACTION_NAME_MAX);
+}
+
+/**
+ * The first name in this city nobody else is using, starting from what the username suggests.
+ *
+ * Usernames are unique, so the derived name almost always is too. Almost: `FACTION_NAME_MAX`
+ * truncates, so two long usernames sharing a prefix derive the same crew name, and any player may
+ * simply have *renamed* themselves to the name a later registration is about to derive.
+ *
+ * It disambiguates rather than refusing, deliberately. The note on `defaultFactionName` above is
+ * the reason: a registration that succeeds and then cannot create a base is an unrecoverable
+ * account, and a collision on a name the player never chose is not something to hand them as an
+ * error. They can rename to whatever they like the moment they are in.
+ */
+function freeFactionName(app: FastifyInstance, username: string): string {
+  const taken = app.repos.bases.listSummaries();
+  const isFree = (candidate: string): boolean =>
+    !isReservedFactionName(candidate) &&
+    !taken.some((summary) => sameFactionName(summary.name, candidate));
+
+  const wanted = defaultFactionName(username);
+  if (isFree(wanted)) return wanted;
+  for (let n = 2; n < 1000; n += 1) {
+    const suffix = ` ${n}`;
+    const candidate = `${wanted.slice(0, FACTION_NAME_MAX - suffix.length)}${suffix}`;
+    if (isFree(candidate)) return candidate;
+  }
+  // A thousand crews with one name is not a state this game reaches; the id keeps them apart.
+  return `${wanted.slice(0, FACTION_NAME_MAX - 9)} ${randomUUID().slice(0, 8)}`;
 }
 
 export function registerOverseerRoutes(app: FastifyInstance): void {
@@ -46,22 +76,14 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
       }
 
       const now = new Date().toISOString();
-      const overseer: Overseer = {
-        id: randomUUID(),
-        name: preset.name,
-        archetype: preset.archetype,
-        portraitId: preset.portraitId,
-        bio: preset.bio,
-        attributes: preset.attributes,
-        traits: preset.traits,
-      };
+      const overseer = overseerFromPreset(preset, randomUUID());
       const base: Base = {
         id: randomUUID(),
         ownerId: user.id,
         // §A1: a faction has a name from the first second, because the HUD shows one from the
         // first second. This is a placeholder the player is expected to replace, not a decision
         // made for them: `POST /base/faction` is on the district page.
-        name: defaultFactionName(user.username),
+        name: freeFactionName(app, user.username),
         districtId: STARTER_DISTRICT_ID,
         level: 1,
         isBot: false,
@@ -69,7 +91,6 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         economy: startingEconomy(now),
         progression: startingProgression(),
         research: startingResearch(),
-        assignees: startingAssignees(),
         /**
          * What a new district starts standing (§A1).
          *
@@ -98,10 +119,10 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         ],
         buildQueue: [],
         /**
-         * §A5: enough Razors to walk into the Rustyard on day one and win.
+         * §A5: enough Razors to walk into Steelbelt on day one and win.
          *
          * An empty army plus a Gauntlet they have not built yet is a first session with no move,
-         * and so, it turned out, was four: NPC places are garrisoned now, the Rustyard's easiest
+         * and so, it turned out, was four: NPC places are garrisoned now, Steelbelt's easiest
          * holds four, and a defender at parity wins every time. Measured: eight takes it, four
          * loses forty out of forty. The number has to be the one that makes the opening move
          * *available*, not the one that sounds modest.

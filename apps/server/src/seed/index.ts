@@ -3,12 +3,13 @@ import {
   BOT_DISTRICT_ID,
   findOverseerPreset,
   startingEconomy,
-  startingAssignees,
   startingProgression,
   startingResearch,
   type Base,
-  type Overseer,
   startingTraining,
+  overseerFromPreset,
+  isReservedFactionName,
+  sameFactionName,
 } from '@frontline/shared';
 import bcrypt from 'bcryptjs';
 import Database from 'better-sqlite3';
@@ -96,6 +97,26 @@ async function seedDevPlayer(db: AppDatabase, repos: Repositories): Promise<bool
 }
 
 /**
+ * `wanted`, or the first numbered variation of it nobody in this city is using.
+ *
+ * Shares the rule with `routes/base.ts` through `sameFactionName` and `isReservedFactionName`
+ * rather than re-deriving it: what counts as "the same name" is a decision, and two copies of it
+ * would be two decisions.
+ */
+function freeName(repos: Repositories, wanted: string): string {
+  const taken = repos.bases.listSummaries();
+  const isFree = (candidate: string): boolean =>
+    !isReservedFactionName(candidate) &&
+    !taken.some((summary) => sameFactionName(summary.name, candidate));
+  if (isFree(wanted)) return wanted;
+  for (let n = 2; n < 1000; n += 1) {
+    const candidate = `${wanted} ${n}`;
+    if (isFree(candidate)) return candidate;
+  }
+  return `${wanted} ${randomUUID().slice(0, 8)}`;
+}
+
+/**
  * Puts the rival's base in `BOT_DISTRICT_ID` if it is not there, minting whatever part of
  * the rival is missing. Keyed on the base rather than the user, so deleting the base row
  * restores the rival on the next boot instead of leaving the district empty forever.
@@ -121,15 +142,7 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
       repos.users.insert({ id: userId, username: MVP_BOT.username, passwordHash, createdAt: now });
     }
     if (!existing?.overseerId) {
-      const overseer: Overseer = {
-        id: randomUUID(),
-        name: preset.name,
-        archetype: preset.archetype,
-        portraitId: preset.portraitId,
-        bio: preset.bio,
-        attributes: preset.attributes,
-        traits: preset.traits,
-      };
+      const overseer = overseerFromPreset(preset, randomUUID());
       repos.overseers.insert({ overseer, userId, presetId: preset.presetId, createdAt: now });
       repos.users.setOverseerId(userId, overseer.id);
     }
@@ -137,7 +150,15 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
     const base: Base = {
       id: randomUUID(),
       ownerId: userId,
-      name: MVP_BOT.baseName,
+      /*
+       * Through the same collision check every other crew goes through.
+       *
+       * This is the third door that creates a crew, after registration and the rename route, and a
+       * rule enforced at two of three doors is not a rule. In practice the seeder runs on a fresh
+       * database before any player exists and takes its authored name unchanged; what this stops is
+       * the one ordering where it does not.
+       */
+      name: freeName(repos, MVP_BOT.baseName),
       districtId: BOT_DISTRICT_ID,
       level: MVP_BOT.level,
       isBot: true,
@@ -145,7 +166,6 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
       economy: startingEconomy(now),
       progression: startingProgression(),
       research: startingResearch(),
-      assignees: startingAssignees(),
       buildings: MVP_BOT.buildings,
       buildQueue: [],
       army: MVP_BOT.army,

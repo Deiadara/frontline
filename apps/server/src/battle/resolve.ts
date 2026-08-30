@@ -45,6 +45,7 @@ import {
   type BattleBoost,
   type CrewEffects,
   findUnit,
+  districtDisplayName,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
 import { recallOvertaken } from './movement.js';
@@ -145,10 +146,16 @@ function assemble(
  * first. Passing the settle clock meant that fight was decided in tomorrow's weather and in
  * daylight: a player who picked a foggy night for their Ghosts got a clear morning, and *which*
  * morning depended on when somebody else loaded a screen.
+ *
+ * Exported because `battle/view.ts` sends this ground to the client so the deployment screen can
+ * forecast the fight on it. One function rather than two: a forecast computed on a *different*
+ * battlefield from the one that will decide the fight is the exact failure `battle/forecast.ts`
+ * exists to avoid, and a second copy here would drift the first time the weather rule moved.
  */
-function battlefieldOf(
+export function battlefieldOf(
   battle: ScheduledBattle,
-  district: District,
+  /** Only the name is used, for the home-district fallback. Narrowed so callers need no District. */
+  districtName: string,
   fortification: number,
 ): Battlefield {
   const at = new Date(battle.scheduledFor);
@@ -164,7 +171,7 @@ function battlefieldOf(
       });
     }
   }
-  return homeBattlefield(district.name, at);
+  return homeBattlefield(districtName, at);
 }
 
 interface TrapResult {
@@ -396,7 +403,21 @@ function resolveOne(
   const name = targetName(battle.target, resident);
   // Read once and shared: the engine fights on it and the report is stamped with it, so a card can
   // never describe ground the fight did not happen on.
-  const ground = battlefieldOf(battle, district, fortification);
+  /*
+   * The ground's name, as the crew who lives on it would give it.
+   *
+   * The one place the resident *is* the right viewer: a report about a raid on somebody's home
+   * should say whose home it was, and both crews in that fight already know. The map is the screen
+   * that numbers plots instead, because there the reader is a stranger to nine of them.
+   */
+  const ground = battlefieldOf(
+    battle,
+    districtDisplayName(district, {
+      ownDistrictId: district.id,
+      ownName: resident?.name ?? null,
+    }),
+    fortification,
+  );
   const outcome: SkirmishOutcome = engine.resolve({
     seed: battle.seed,
     battleId: battle.id,

@@ -78,41 +78,42 @@ test('character select renders all presets', async ({ page }) => {
 });
 
 /**
- * The §G placement screen, at the widest state it can reach (level 24: a twelve-pip cap, the 50%
- * ceiling, a decimal bonus and the longest name/role pair on the board).
+ * The crew chart (GDD §C1, §C2).
  *
- * The screen is a chart of the nineteen positions now rather than a list of the people in them, so
- * the §G7 numbers live on a slot until it is opened and in the character's own card after. Both
- * halves are checked: a chart that shows the right figures and hides the controls is the failure
- * this rework could most easily have shipped.
+ * Nineteen chairs, filled or empty, each drawn as a card whose top two thirds is the officer's
+ * portrait. What this pins is that the chart shows *people*: a face at a size worth painting, the
+ * four attribute peaks under it, and what they carry. It used to pin a row of pips and a §G7
+ * percentage on every card, and both went with the assignee pool.
  */
-test('assignee placement renders at the §G7 ceiling without clipping', async ({ page }) => {
+test('the crew chart draws every chair, and a face on the filled ones', async ({ page }) => {
   await installApi(page, lateGame);
-  await page.goto('/game/assignees');
+  await page.goto('/game/crew');
 
   // The crew screen opens on a quotation rather than its own name: the scenery switcher already
   // carries the word, lit, at the bottom of the frame. What identifies the screen is its content.
   await expect(page.getByTestId('crew-books')).toBeVisible();
-  // §G7's last row and a decimal bonus rendered without a stray `.0`, both on their slots.
-  await expect(page.getByText('24 / 24 · 75%')).toBeVisible();
-  await expect(page.getByText('3 / 24 · 14.5%')).toBeVisible();
-  // §C4: a Professor is on the books, so reskilling is offered rather than explained away.
-  await expect(page.getByRole('button', { name: 'Reskill' })).toBeEnabled();
 
   // Every position is drawn, filled or not: the point of the chart is that a player can see the
   // holes as well as the people.
-  await expect(page.locator('[data-testid^="crew-slot-"]')).toHaveCount(OFFICER_ROLES.length);
+  await expect(page.locator('[data-testid^="seat-"]')).toHaveCount(OFFICER_ROLES.length);
   await expect(page.getByText('Vacant').first()).toBeVisible();
 
-  // Opening a slot is what shows the sheet, the pips and the one control on the screen.
-  await page.getByTestId('crew-slot-instructor_of_the_young').click();
+  // A filled chair carries the person rather than a body count: their face, their name, and what
+  // they bring. The portrait is the card, so its absence is the failure this screen could most
+  // easily have shipped.
+  const seat = page.getByTestId('seat-instructor_of_the_young');
+  await expect(seat.locator('img, svg').first()).toBeVisible();
+  await expect(seat.getByText('The Ghost of Sector Nine')).toBeVisible();
+  // §B7: the keyword line is what the card leads with under the picture. The four group averages
+  // that used to sit here were the same narrow band on all nineteen cards.
+  await expect(seat.getByText('Wire Tap')).toBeVisible();
+
+  // Opening a chair shows the whole sheet, what they cost, and the way to the training floor.
+  await seat.click();
   const card = page.getByTestId('crew-detail');
   await expect(card).toBeVisible();
-  // The window says "24 / 24 · 75%" now rather than the row's "24 assigned"; the figures are what
-  // the assertion is about, not the sentence they sit in.
-  await expect(card.getByText('24 / 24', { exact: false })).toBeVisible();
-  await expect(card.getByRole('button', { name: 'At cap' })).toBeDisabled();
-  // The sheet is the reason the card exists, so it has to actually be in it.
+  await expect(card.getByText('On the books')).toBeVisible();
+  await expect(card.getByRole('link', { name: 'Training' })).toBeVisible();
   await expect(card.getByText('Cryptography')).toBeVisible();
 
   await settleFonts(page);
@@ -123,31 +124,26 @@ test('assignee placement renders at the §G7 ceiling without clipping', async ({
       .filter((el) => el.scrollWidth > el.clientWidth + 1)
       .map((el) => el.textContent?.slice(0, 40) ?? ''),
   );
-  expect(overflowing, 'officer names and §G7 figures must not overflow their column').toEqual([]);
-  // No vertical clipping gate: nineteen slots are taller than the sheet, so the last visible row
-  // is always half-cut by the fold. That is what a scroller does: the same reason the roster and
-  // the research page gate on overflow and horizontal clipping instead.
+  expect(overflowing, 'officer names must not overflow their column').toEqual([]);
+  // No vertical clipping gate: nineteen cards are taller than the sheet, so the last visible row
+  // is always half-cut by the fold. That is what a scroller does.
 
-  await page.screenshot({ path: 'screenshots/assignees.png', fullPage: false });
+  await page.screenshot({ path: 'screenshots/crew.png', fullPage: false });
 
   // And it closes again, which is the half of a drill-down that is easy to forget to build.
   await card.getByRole('button', { name: 'Close' }).click();
   await expect(card).toHaveCount(0);
 });
 
-test('assignee placement explains the empty state before any officer is hired', async ({
-  page,
-}) => {
+test('the crew chart explains itself before anybody is hired', async ({ page }) => {
   await installApi(page, me);
-  await page.goto('/game/assignees');
+  await page.goto('/game/crew');
 
   await expect(page.getByText('Nineteen positions, nobody in any of them yet')).toBeVisible();
-  // §G8: the pool is already 2 at level 1, so the page must not read as "you have nothing".
-  await expect(page.getByText('Unplaced')).toBeVisible();
   // Every position still drawn, all of them vacant: the chart is the explanation.
   await expect(page.getByText('Vacant')).toHaveCount(OFFICER_ROLES.length);
   await settleFonts(page);
-  await page.screenshot({ path: 'screenshots/assignees-empty.png', fullPage: false });
+  await page.screenshot({ path: 'screenshots/crew-empty.png', fullPage: false });
 });
 
 test('game shell renders the city, with a way into every district', async ({ page }) => {
@@ -225,12 +221,13 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   }
   await page.keyboard.press('Escape');
 
-  /* §H5's two ends, both of which live with the crew rather than with the room: a walkout warning
-     and an earned skill bonus. Behind the crew door now. */
+  /* Who is already on the books, and what each of them brings. This used to check §H5's two ends,
+     a walkout warning and an earned skill bonus; that mechanic is gone and what a player needs from
+     this list is now the keyword line and the wage. Behind the crew door either way. */
   await page.getByTestId('open-crew').click();
   await expect(page.getByText('The Ghost of Sector Nine')).toBeVisible();
-  await expect(page.getByText('Says they are done unless something changes.')).toBeVisible();
-  await expect(page.getByText(/^Stealth \+5$/)).toBeVisible();
+  await expect(page.getByText('Wire Tap')).toBeVisible();
+  await expect(page.getByText('caps/wk').first()).toBeVisible();
   await page.keyboard.press('Escape');
 
   // §H7: the book is the constraint every offer on this screen answers to, one click away.
@@ -356,8 +353,8 @@ test('an officer sheet edges every skill by what their chair wants, on crew and 
       return out;
     });
 
-  await page.goto('/game/assignees');
-  await page.getByTestId('crew-slot-instructor_of_the_young').click();
+  await page.goto('/game/crew');
+  await page.getByTestId('seat-instructor_of_the_young').click();
   await expect(page.getByTestId('crew-detail')).toBeVisible();
   await settleFonts(page);
   const crew = await tally();
@@ -473,6 +470,27 @@ test('the city leads to the district screen, except on your own ground', async (
   await expect(page).toHaveURL(new RegExp(`/game/city/${away.id}$`));
   // And it is *that* district, not whichever one the route happens to answer with.
   await expect(page.getByRole('heading', { name: away.name })).toBeVisible();
+});
+
+/**
+ * A district whose name is initials says what they stand for, on the screen with room to say it.
+ *
+ * The city map draws `name` because a tag on a painting has room for three letters. `CCS` alone is
+ * not a place a player can learn, so the district screen carries `formalName` under the heading.
+ * Both halves are asserted: the sector shows it, and a district that has no formal name does not
+ * grow an empty line where one would be.
+ */
+test('a district named in initials spells itself out on its own screen', async ({ page }) => {
+  await installApi(page, lateGame);
+
+  await page.goto('/game/city/combine-spire');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('CCS');
+  await expect(page.getByTestId('district-formal-name')).toHaveText('Civic Command Sector');
+
+  // Steelbelt is not an abbreviation, so it carries no second line at all.
+  await page.goto('/game/city/rustyard');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Steelbelt');
+  await expect(page.getByTestId('district-formal-name')).toHaveCount(0);
 });
 
 test('the district view shows what is inside a scouted district (§A4)', async ({ page }) => {

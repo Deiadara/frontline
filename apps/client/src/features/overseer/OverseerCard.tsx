@@ -1,4 +1,4 @@
-import { TRAIT_CATALOG, type OverseerPreset } from '@frontline/shared';
+import { findPerk, type OverseerPreset } from '@frontline/shared';
 import { cn } from '../../lib/cn';
 import { AttributeRadar } from './AttributeRadar';
 import { AttributeSheet } from './AttributeSheet';
@@ -43,15 +43,20 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
             {preset.bio}
           </p>
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {preset.traits.map((traitId) => (
-              <span
-                key={traitId}
-                data-tip={TRAIT_CATALOG[traitId].description}
-                className="border border-warning/40 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.15em] text-warning"
-              >
-                {TRAIT_CATALOG[traitId].name}
-              </span>
-            ))}
+            {preset.perks
+              .map((id) => findPerk(id))
+              .map(
+                (perk) =>
+                  perk && (
+                    <span
+                      key={perk.id}
+                      data-tip={perk.description}
+                      className="border border-warning/40 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.15em] text-warning"
+                    >
+                      {perk.name}
+                    </span>
+                  ),
+              )}
           </div>
         </div>
         <div className="h-32 w-32 shrink-0 self-start">

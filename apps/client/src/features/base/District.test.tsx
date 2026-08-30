@@ -4,7 +4,6 @@ import {
   buildingBuildSeconds,
   buildingCost,
   playerLevelGrants,
-  startingAssignees,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -45,7 +44,6 @@ const base: Base = {
   economy: startingEconomy(NOW),
   progression: startingProgression(),
   research: startingResearch(),
-  assignees: startingAssignees(),
   buildings: [
     { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
     {

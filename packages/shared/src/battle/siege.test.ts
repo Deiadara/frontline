@@ -32,7 +32,7 @@ import {
   observedForceSize,
 } from './intel.js';
 import { catchChance, perimeterFights, perimeterToll, ringCoverage } from './perimeter.js';
-import { mulberry32, seedFrom } from './rng.js';
+import { mulberry32, seedFrom } from '../rng.js';
 import {
   BATTLE_SLOT_MINUTES,
   MAX_DECLARE_LEAD_HOURS,

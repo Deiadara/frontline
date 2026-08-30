@@ -1,4 +1,4 @@
-import { MovementSchema, type Movement } from '@frontline/shared';
+import { withoutRetiredUnits, MovementSchema, type Movement } from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
 
 /**
@@ -34,8 +34,8 @@ function rowToMovement(row: MovementRow): Movement {
     side: row.side,
     fromDistrictId: row.from_district_id,
     toDistrictId: row.to_district_id,
-    army: readJson(row.army_json),
-    perimeter: readJson(row.perimeter_json),
+    army: withoutRetiredUnits(readJson(row.army_json)),
+    perimeter: withoutRetiredUnits(readJson(row.perimeter_json)),
     departedAt: row.departed_at,
     arrivesAt: row.arrives_at,
   });

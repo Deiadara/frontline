@@ -3,7 +3,8 @@ import {
   AttributesSchema,
   MAX_RECRUITMENT_ATTRIBUTE,
   OFFICER_ROLES,
-  TRAIT_IDS,
+  MAX_OFFICER_PERKS,
+  findPerk,
   type AttributeName,
   type OfficerRole,
 } from '@frontline/shared';
@@ -43,7 +44,7 @@ describe('generateCharacter', () => {
   it('always produces a complete, valid sheet', () => {
     for (const character of SAMPLE) {
       expect(() => AttributesSchema.parse(character.attributes)).not.toThrow();
-      for (const trait of character.traits) expect(TRAIT_IDS).toContain(trait);
+      for (const id of character.perks) expect(findPerk(id), id).toBeDefined();
     }
   });
 
@@ -87,11 +88,30 @@ describe('generateCharacter', () => {
     expect(mean(lowRatings)).toBeGreaterThan(1.5); // measured 2.26
   });
 
-  // B7: *some* characters carry a trait, not none, and not all of them.
-  it('gives a minority of characters a trait', () => {
-    const withTrait = SAMPLE.filter((character) => character.traits.length > 0).length;
-    expect(withTrait / SAMPLE_SIZE).toBeGreaterThan(0.2);
-    expect(withTrait / SAMPLE_SIZE).toBeLessThan(0.5);
+  /*
+   * B7: the shape of the perk roll, which is the balance of the whole perk book.
+   *
+   * A perk is a permanent crew-wide bonus and there are nineteen chairs, so the weighting has to
+   * keep three-perk recruits rare: common ones would turn a full roster into a stack of
+   * multipliers rather than a set of choices. Just over half the Bar carries at least one, so the
+   * keyword line is worth reading without being the only thing on the card.
+   */
+  it('gives most recruits nought or one perk, and three to almost nobody', () => {
+    const counts = SAMPLE.map((character) => character.perks.length);
+    for (const count of counts) expect(count).toBeLessThanOrEqual(MAX_OFFICER_PERKS);
+
+    const share = (n: number) => counts.filter((count) => count === n).length / SAMPLE_SIZE;
+    expect(share(0), 'nobody comes empty-handed').toBeGreaterThan(0.3);
+    expect(share(0), 'the perk book barely pays out').toBeLessThan(0.6);
+    expect(share(3), 'three-perk recruits are meant to be a find').toBeLessThan(0.1);
+    expect(counts.filter((count) => count > 0).length / SAMPLE_SIZE).toBeGreaterThan(0.4);
+  });
+
+  /** Carrying the same bonus twice reads as a bug rather than as luck. */
+  it('never rolls the same perk onto one recruit twice', () => {
+    for (const character of SAMPLE) {
+      expect(new Set(character.perks).size).toBe(character.perks.length);
+    }
   });
 });
 

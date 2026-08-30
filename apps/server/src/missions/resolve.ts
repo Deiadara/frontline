@@ -20,7 +20,6 @@ import {
   rollSalvage,
 } from '@frontline/shared';
 import { mergeArmies } from '../battle/forces.js';
-import { awardCharacterXp } from '../characters/award.js';
 import { createRng } from '../characters/rng.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { StoredMission } from '../db/repos/missions.js';
@@ -211,19 +210,9 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     return awarded.award;
   });
 
-  // INTERFACES R2: §H6 pays the *officer* who led each run, for the time it kept them engaged.
-  // Priced off the clock frozen on the row, like the rewards above, so a retune cannot re-pay a
-  // character for a run that has already happened. Folded in one call because two runs led by the
-  // same officer are one sheet, and paying them separately would drop a level between the two.
-  progressed = awardCharacterXp(
-    repos,
-    progressed,
-    settlements.map((s) => ({
-      officerId: s.mission.officerId,
-      minutesEngaged: missionTimings(s.mission).totalMinutes,
-    })),
-  );
-
+  // §H6 used to pay the officer who led each run their own character XP here. Officers have no
+  // level any more (see `commander.ts`): a run pays the crew, and who led it decides how well it
+  // went rather than what it does to them.
   return {
     base: progressed,
     resolved: settlements.map((s) => s.mission),

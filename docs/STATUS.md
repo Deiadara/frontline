@@ -63,11 +63,16 @@ payday.
 
 ### Characters
 
-✅ 34 attributes in four groups, 0..100 (§B1-B6). 18 traits, boons and flaws (§B7).
+✅ 34 attributes in four groups, 0..100 (§B1-B6). 108 perks (§B7): crew-wide bonuses, nought to
+three an officer, summed across the roster. They replaced traits, which moved the carrier's own
+attributes and so told a player nothing the sheet did not already say.
 ✅ 19 officer roles; the requirement table is server-side only, with a leak test over the real
 response body (§B8a).
-✅ The Bar (§H): shared daily roster, §H3/§H4 gates, §H7 wage negotiation, §H5 alignment drift,
-§H6 character levels.
+✅ The Bar (§H): shared daily roster, §H3 gates, §H7 wage negotiation. The haggle reads patience and
+concession off the recruit's own Composure and Negotiation, both printed on the card.
+❌ §H4 dispositions, §H5 alignment drift and §H6 character levels are **cut** (see GDD §H4-H6
+superseded). An officer is their sheet, their perks and their wage; nothing about them changes
+behind the player's back.
 ✅ **Shared shop** (§H2b): hiring removes that recruit for _every_ player and a replacement takes
 the seat; one hire per player per UTC day. The seat's generation is in the recruit id, so a stale
 tab cannot sign the replacement by accident.
@@ -199,7 +204,7 @@ army row.
 **Every NPC place was undefended.** `startingControl` seeded `garrison: {}`, so the whole city map
 could be taken by one Razor for free: found by trying to write a test that needed somebody to fight
 and discovering there was never anybody there. Places are now garrisoned off the district's
-difficulty and the place's `baseDefense` (the Rustyard holds 3-8, the Combine Spire 17), the Combine
+difficulty and the place's `baseDefense` (Steelbelt holds 3-8, the Combine Spire 17), the Combine
 fields regulars where looters field rabble, and a new crew is issued eight Razors rather than four
 because four cannot take the easiest place in the game: measured, 0 wins in 40.
 

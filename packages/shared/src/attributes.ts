@@ -207,3 +207,23 @@ export function makeAttributes(base: number, overrides: Partial<Attributes> = {}
 
 /** Neutral sheet at the recruitment mean, useful as a factory default. */
 export const DEFAULT_ATTRIBUTES: Attributes = makeAttributes(15);
+
+/**
+ * The `count` attributes this sheet is strongest at, ties broken by canonical attribute order.
+ *
+ * One function because it is one rule, and both callers state it in the same words. §H5 lands the
+ * alignment bonus on them and §H6a auto-allocates level points along them; the two had a private
+ * copy each, identical but for the number they sliced, which is the shape a rule takes just before
+ * one of the two gets a tie-break "fixed" and the other does not.
+ *
+ * The tie-break is what makes it worth sharing at all: without a stable second key the set is
+ * whatever the engine's sort happened to do, and a character's bonus would move between reads.
+ */
+export function strongestAttributes(attributes: Attributes, count: number): AttributeName[] {
+  return [...ATTRIBUTE_NAMES]
+    .sort(
+      (a, b) =>
+        attributes[b] - attributes[a] || ATTRIBUTE_NAMES.indexOf(a) - ATTRIBUTE_NAMES.indexOf(b),
+    )
+    .slice(0, Math.max(0, count));
+}

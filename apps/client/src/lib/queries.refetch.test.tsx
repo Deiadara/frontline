@@ -1,4 +1,4 @@
-import { playerLevelGrants } from '@frontline/shared';
+import { playerLevelGrants, type CrewResponse } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -7,7 +7,7 @@ import type * as ApiModule from './api';
 
 const launchMission = vi.hoisted(() => vi.fn());
 const getMe = vi.hoisted(() => vi.fn());
-const getAssignees = vi.hoisted(() => vi.fn());
+const getCrew = vi.hoisted(() => vi.fn());
 const deployToBattle = vi.hoisted(() => vi.fn());
 const getActions = vi.hoisted(() => vi.fn());
 const getBattles = vi.hoisted(() => vi.fn());
@@ -15,18 +15,30 @@ vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
   getMe,
-  getAssignees,
+  getCrew,
   deployToBattle,
   getActions,
   getBattles,
 }));
 
 const { ApiRequestError } = await import('./api');
-const { useActions, useAssignees, useDeployToBattle, useLaunchMission, useMe } =
+const { useActions, useCrew, useDeployToBattle, useLaunchMission, useMe } =
   await import('./queries');
 const { useSession } = await import('../store/session');
 
 const LEVELLED = { level: 4, levelsGained: 1, grants: playerLevelGrants(4), unlocks: [] };
+
+/**
+ * Typed as `CrewResponse` on purpose. This mock stood for a year returning `{ assignees, unplaced }`
+ * long after that shape was deleted, and every assertion here still passed, because they all count
+ * calls rather than read the payload. A mock that cannot be wrong about the contract is a mock that
+ * will be wrong about it eventually, so the annotation is the check.
+ */
+const EMPTY_CREW: CrewResponse = {
+  level: 1,
+  housing: { used: 0, capacity: 16 },
+  officers: [],
+};
 
 /**
  * The app's own query defaults, copied from `main.tsx`. They are the reason this file exists: a
@@ -40,7 +52,7 @@ function mountedScreen() {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   );
-  return renderHook(() => ({ launch: useLaunchMission(), me: useMe(), roster: useAssignees() }), {
+  return renderHook(() => ({ launch: useLaunchMission(), me: useMe(), roster: useCrew() }), {
     wrapper,
   });
 }
@@ -48,7 +60,7 @@ function mountedScreen() {
 beforeEach(() => {
   launchMission.mockReset();
   getMe.mockReset().mockResolvedValue({ user: null, base: null });
-  getAssignees.mockReset().mockResolvedValue({ assignees: [], unplaced: 0 });
+  getCrew.mockReset().mockResolvedValue(EMPTY_CREW);
   deployToBattle.mockReset();
   getActions.mockReset().mockResolvedValue({ movements: [], missions: [] });
   getBattles.mockReset().mockResolvedValue({ coming: [], reports: [] });
@@ -71,7 +83,7 @@ describe('a refused launch that had already settled the board', () => {
     );
     const { result } = mountedScreen();
     await waitFor(() => expect(getMe).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(getAssignees).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getCrew).toHaveBeenCalledTimes(1));
 
     result.current.launch.mutate({
       templateId: 'convoy-ambush',
@@ -81,7 +93,7 @@ describe('a refused launch that had already settled the board', () => {
     await waitFor(() => expect(result.current.launch.isError).toBe(true));
 
     await waitFor(() => expect(getMe).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(getAssignees).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getCrew).toHaveBeenCalledTimes(2));
   });
 });
 

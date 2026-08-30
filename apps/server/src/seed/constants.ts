@@ -28,10 +28,10 @@ interface BotBlueprint {
   overseerPresetId: string;
   level: number;
   /*
-   * The rival's stat sheet. These three fields are staged input for the real battle
-   * engine: none of them is read by the placeholder engine, which pays out the target
-   * district's `rewards` and never touches the defender. Raiding the rival therefore does
-   * not (yet) move a single credit out of this stockpile.
+   * The rival's stat sheet, and the real battle engine reads all three. A raid that gets through
+   * loots this stockpile for real: `resolve.ts` bounds the haul by what the attacking force can
+   * physically carry and then spends it out of the defender's resources. So these numbers are a
+   * balance decision about what a successful raid is worth, not decoration.
    */
   resources: Resources;
   /** Defensive structures plus the economy that pays for them. */

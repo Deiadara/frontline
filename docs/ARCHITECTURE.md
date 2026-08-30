@@ -38,10 +38,10 @@ or client-facing type.
 | ----------------------- | ------------------------------------------------------------------------------------ |
 | `primitives.ts`         | `IdSchema`, `IsoDateTimeSchema`, `UsernameSchema`                                    |
 | `attributes.ts`         | `ATTRIBUTE_NAMES` (34, four groups), `Attributes` (0..100), `attributeTier`          |
-| `traits.ts`             | `TRAIT_IDS`, `TRAIT_CATALOG`, `applyTraitBonuses`                                    |
 | `roles.ts`              | `OFFICER_ROLES` (19) + labels; the requirement weights stay server-side (GDD §B8)    |
 | `overseer.ts`           | `Overseer`, archetypes, `OVERSEER_PRESETS` (4), `findOverseerPreset`                 |
-| `commander.ts`          | Staff roles (head_doctor/battle_analyst/accountant/head_spy), factory                |
+| `commander.ts`          | An officer: their sheet, their 0..3 perks and the wage they signed for               |
+| `crew/perks.ts`         | `PERK_CATALOG` (100+ crew-wide bonuses), `applyPerkBonus`, 0..3 an officer           |
 | `resources.ts`          | `Resources` {caps,supplies,oil,scrap,highQualityMetal}, `STARTING_RESOURCES`         |
 | `building/`             | The district: 13 kinds, costs, power, production, standing, queue, 65 modifications  |
 | `base.ts`               | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)      |
@@ -49,8 +49,8 @@ or client-facing type.
 | `units/`                | 27 battle units, their sheets, multi-clause unlocks, training and the army cap       |
 | `raid.ts`               | Loot capacity in kg, what a raid takes, and the disruption it leaves                 |
 | `economy/`              | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                            |
-| `bar/`                  | §H dispositions, wage negotiation, alignment, character levels                       |
-| `assignees/`            | §G pool, placement, the §G7 bonus table                                              |
+| `bar/`                  | §H join gates, wage negotiation, the haggle                                          |
+| `delegation/`           | §G6 terms for a run that goes out with nobody leading it                             |
 | `research/`             | §B9/§F2 projects, discovered facts, effects                                          |
 | `progression/`          | §I player levels, grants, the (empty) §I3 unlock catalogue                           |
 | `user.ts`               | Client-facing `User` (no password material)                                          |

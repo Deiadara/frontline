@@ -1,130 +1,37 @@
 import {
   type PayrollLedger,
-  ALIGNMENT_BAND_LABELS,
-  AMBITION_SPECS,
-  ATTRIBUTE_LABELS,
-  MORAL_COMPASS_SPECS,
   OFFICER_ROLE_LABELS,
   OFFICER_ROLES,
-  TRAIT_CATALOG,
-  isFlaw,
   notorietyTier,
+  officerPortraitId,
   plateAspect,
-  type AlignmentBand,
-  type AttributeName,
   type BarOfficer,
   type BarRecruit,
   type JoinBlocker,
   type Negotiation,
   type OfficerRole,
-  type TraitId,
 } from '@frontline/shared';
 import { useCallback, useState, type ReactNode } from 'react';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { Button } from '../../components/ui/Button';
-import { DescribedTag } from '../../components/ui/DescribedTag';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
+import { Dropdown } from '../../components/ui/Dropdown';
+import { OfficerPortrait } from '../overseer/OfficerPortrait';
 import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
-import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { useBar, useHireRecruit, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote } from '../game/PageShell';
 import { OnArt, OnPlate, PlateRoom } from '../game/PlateRoom';
 import { NegotiationDialog } from './NegotiationDialog';
+import { PerkTags } from '../../components/PerkTags';
+import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
 
 /** Devotion reads in the player's own accent; a walkout reads as a warning. */
-const BAND_STYLE: Record<AlignmentBand, string> = {
-  leaving: 'border-oxblood-500/50 text-oxblood-300',
-  unsettled: 'border-surface-600 text-ink-200',
-  settled: 'border-brass-300/50 text-brass-300',
-  devoted: 'border-bile-300/50 text-bile-300',
-};
-
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
   notoriety: 'Your name is not big enough',
   level: 'Wants a crew that has been doing this longer',
 };
-
-/**
- * `className` carries the *whole* colour, border included, and replaces the neutral default rather
- * than layering over it.
- *
- * `cn` is `clsx`: it concatenates classes and does not resolve Tailwind conflicts, so a base
- * `text-ink-300` and a caller's `text-oxblood-300` both land on the element and the generated
- * stylesheet's order silently picks the winner, which was the base. Every coloured tag on this
- * page was rendering steel because of it. Keeping the base to layout only makes the override the
- * only colour in play, so what a caller asks for is what renders.
- */
-const TAG_NEUTRAL = 'border-surface-600 text-ink-300';
-
-function Tag({ label, className = TAG_NEUTRAL }: { label: string; className?: string }) {
-  return (
-    <span
-      className={cn(
-        'inline-flex shrink-0 items-center border px-2 py-1 font-display text-[10px] uppercase tracking-[0.18em]',
-        className,
-      )}
-    >
-      {label}
-    </span>
-  );
-}
-
-/**
- * §H5: the meter itself, so "too low" and "high" are visible rather than inferred.
- *
- * On the same four bands every other 0-100 rating in the game is read on (`lib/rating.ts`) rather
- * than on the three §H5 bands. Those are still here and still mean what they meant: the *word*
- * beside the meter is `Devoted` or `Threatening to walk`, and that is a domain rule about what
- * happens next. Colouring the bar by it as well spent the one channel a player has already learned
- * to read as "how big is this number" on a fact the tag was already carrying.
- */
-function AlignmentMeter({ value }: { value: number }) {
-  const rating = Math.round(value);
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <span className="paint-track h-2 min-w-0 flex-1 overflow-hidden rounded-sm">
-        <span
-          className={cn('paint-fill block h-full', RATING_FILL[ratingBand(rating)])}
-          style={{ width: `${ratingPercent(rating)}%` }}
-        />
-      </span>
-      <span
-        className={cn(
-          'shrink-0 font-display text-[12px] font-bold tabular-nums',
-          RATING_TEXT[ratingBand(rating)],
-        )}
-      >
-        {rating}
-      </span>
-    </div>
-  );
-}
-
-/**
- * What a character wants and how far they will go for it (§H4).
- *
- * Both words decide whether this person will sign at all, read against the crew's own reputation
- * word, so the card says which reputations each one is drawn to and which put it off. That is the
- * whole rule, and it is the difference between a player choosing a reputation and a player finding
- * out afterwards that nobody good will talk to them.
- */
-function Disposition({ ambition, moralCompass }: Pick<BarRecruit, 'ambition' | 'moralCompass'>) {
-  return (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
-      <DescribedTag
-        label={AMBITION_SPECS[ambition].label}
-        description={AMBITION_SPECS[ambition].description}
-        className="border-hextech-100/40 text-hextech-100"
-      />
-      <DescribedTag
-        label={MORAL_COMPASS_SPECS[moralCompass].label}
-        description={MORAL_COMPASS_SPECS[moralCompass].description}
-      />
-    </div>
-  );
-}
 
 /** A labelled block on the seat screen's identity band: the word above, the thing below. */
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -139,15 +46,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** A trait's whole mechanical effect, written out. `+8 stealth` is the rule; the name is flavour. */
-function traitDetail(trait: TraitId): string {
-  return Object.entries(TRAIT_CATALOG[trait].bonus)
-    .map(
-      ([name, amount]) =>
-        `${amount > 0 ? '+' : ''}${amount} ${ATTRIBUTE_LABELS[name as AttributeName]}`,
-    )
-    .join(' · ');
-}
-
 interface RecruitCardProps {
   recruit: BarRecruit;
   filledRoles: readonly OfficerRole[];
@@ -163,6 +61,15 @@ interface RecruitCardProps {
   negotiation: Negotiation | undefined;
   /** The server's clock, so a standoff counts down against the same one that enforces it. */
   now: Date;
+  /**
+   * §C2: which chair to read this person's sheet against, if the player has picked one.
+   *
+   * Lives on the seat screen rather than on the card, so it survives stepping to the next person:
+   * the question a player is asking is "who here fits the Head Spy's chair", and having to
+   * re-choose the chair for every candidate is the screen answering a different question.
+   */
+  highlightRole: OfficerRole | null;
+  onHighlightRole: (role: OfficerRole | null) => void;
   onNegotiate: (recruitId: string) => void;
 }
 
@@ -550,6 +457,15 @@ function StoolDialog({
   onNegotiate: (id: string) => void;
   onClose: () => void;
 }) {
+  /**
+   * Which chair the sheet is being read against, held here rather than on the card.
+   *
+   * The player's question is "who at this bar fits the Head Spy's chair", so the chair survives
+   * stepping to the next person. Held on the card it would reset every time an arrow was pressed,
+   * which turns one question into nineteen.
+   */
+  const [highlightRole, setHighlightRole] = useState<OfficerRole | null>(null);
+
   // Through the window's own stack rather than a listener of its own, so the arrows go quiet while
   // the negotiation is open on top of this screen. See `Modal`'s `onKey`.
   const onArrow = useCallback(
@@ -632,6 +548,8 @@ function StoolDialog({
             full={full}
             negotiation={negotiation}
             now={now}
+            highlightRole={highlightRole}
+            onHighlightRole={setHighlightRole}
             onNegotiate={onNegotiate}
           />
         </div>
@@ -748,6 +666,55 @@ function CrewDialog({
  * it out. Giving the sheet the wide side and the identity the narrow one fixes the arithmetic and
  * reads better besides.
  */
+/**
+ * "Highlight important attributes for role": read this sheet against a chair.
+ *
+ * The four tiers are a property of the *seat*, and at the Bar nobody is in one yet, so a candidate's
+ * sheet has nothing to be edged against until the player says which job they are shopping for. This
+ * is that. Pick a chair and the gold, silver and blue appear on the rows that chair leans on, so
+ * "are they any good" becomes "are they any good *at this*", which is the question the Bar is
+ * actually asking.
+ *
+ * Only the open chairs are offered: highlighting against a seat that is already filled would be
+ * answering a question the player cannot act on tonight.
+ */
+function RoleHighlight({
+  role,
+  open,
+  onChange,
+}: {
+  role: OfficerRole | null;
+  open: readonly OfficerRole[];
+  onChange: (role: OfficerRole | null) => void;
+}) {
+  if (open.length === 0) return null;
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      {/* `value` is a plain string on the way in: `null` is "no chair chosen", which is not one of
+          the options, and the picker already draws its placeholder for a value it does not know. */}
+      <Dropdown<OfficerRole>
+        value={(role ?? '') as OfficerRole}
+        options={open.map((one) => ({ value: one, label: OFFICER_ROLE_LABELS[one] }))}
+        onChange={onChange}
+        label="Highlight important attributes for role"
+        placeholder="Highlight important attributes for role"
+        data-testid="highlight-role"
+        className="min-w-[16rem]"
+      />
+      {role !== null && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onChange(null)}
+          data-testid="clear-highlight"
+        >
+          Clear
+        </Button>
+      )}
+    </span>
+  );
+}
+
 function RecruitCard({
   recruit,
   filledRoles,
@@ -757,6 +724,8 @@ function RecruitCard({
   agreed,
   negotiation,
   now,
+  highlightRole,
+  onHighlightRole,
   onNegotiate,
 }: RecruitCardProps) {
   const open = OFFICER_ROLES.filter((role) => !filledRoles.includes(role));
@@ -852,47 +821,108 @@ function RecruitCard({
        * a layout that ran out of room. Identity is a band now and the sheet is a full-width row of
        * four, so the card is two rectangles and every group is the same width as every other.
        */}
-      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="flex min-w-0 flex-col gap-3">
-          <header className="flex min-w-0 flex-col gap-1.5">
-            <h3
-              className="min-w-0 break-words font-stamp text-[26px] leading-tight text-ink-100"
-              data-testid="recruit-name"
-            >
-              {recruit.name}
-            </h3>
-            <span aria-hidden className="ink-rule block w-full" />
-          </header>
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
+        {/*
+         * The dossier column: their name, their face, and what they want, in that order.
+         *
+         * Name on top, the painting under it, everything else under that: what they want, what
+         * they carry, what they cost, and the door. The face used to be a 96px thumbnail tucked
+         * beside the heading, which is a stamp on a form; this screen asks one question about one
+         * person, so the person is the column. Board's layout.
+         */}
+        <div className="flex min-w-0 flex-col gap-2.5">
+          {/*
+           * The nameplate, above the picture and the width of it.
+           *
+           * Smaller type than the old heading and it has to be: a name reading across a whole card
+           * can be 26px, and the same name over a 240px portrait cannot. It wraps rather than
+           * truncating, because a recruit whose name is cut in half on the one screen that is
+           * about them is worse than a plate that is three lines tall.
+           */}
+          <h3
+            className="min-w-0 break-words border-b border-brass-500/30 pb-1.5 font-stamp text-[19px] leading-tight text-ink-100"
+            data-testid="recruit-name"
+          >
+            {recruit.name}
+          </h3>
 
-          {/* Two rows of tags with nothing between them read as one row that wrapped. What each
-              row *is* costs a nine-pixel word and settles it. */}
-          <Field label="What they are after">
-            <Disposition ambition={recruit.ambition} moralCompass={recruit.moralCompass} />
+          {/*
+           * The portrait, mounted rather than floated.
+           *
+           * A ring of the card's own brass with a dark mount inside it, so the picture reads as
+           * something set into the card instead of an image dropped on top of one. Full column
+           * width at 4:5, which is about two and a half times what it was.
+           */}
+          <div className="edge-lit rounded-sm border-2 border-brass-500/45 bg-surface-950 p-1 shadow-panel">
+            <OfficerPortrait
+              portraitId={officerPortraitId(recruit.id)}
+              name={recruit.name}
+              className="w-full rounded-[2px] border border-surface-950/80"
+              style={{ aspectRatio: '4 / 5' }}
+            />
+          </div>
+
+          {/*
+           * What they bring, under their face.
+           *
+           * This slot held "What they are after": an ambition and a moral compass, two personality
+           * tags that told a player something true about the character and nothing at all about
+           * what hiring them would do. The perks are the opposite, and they are the reason to read
+           * this card rather than the one beside it.
+           */}
+          <Field label="What they bring">
+            {recruit.perks.length > 0 ? (
+              <PerkTags perks={recruit.perks} tone="panel" />
+            ) : (
+              <p className="font-body text-[12px] italic leading-snug text-ink-400">
+                Nothing but the sheet. Some of the best of them are.
+              </p>
+            )}
           </Field>
 
-          {recruit.traits.length > 0 && (
-            <Field label="What they carry">
-              <div className="flex min-w-0 flex-wrap gap-1.5">
-                {/* §B7: a flaw is a reason *not* to hire, so it must not read as another credential. */}
-                {recruit.traits.map((trait) => (
-                  <DescribedTag
-                    key={trait}
-                    label={TRAIT_CATALOG[trait].name}
-                    description={TRAIT_CATALOG[trait].description}
-                    detail={traitDetail(trait)}
-                    className={
-                      isFlaw(trait)
-                        ? 'border-oxblood-500 text-oxblood-300'
-                        : 'border-surface-600 text-ink-300'
-                    }
-                  />
-                ))}
-              </div>
-            </Field>
-          )}
+          {/* The price and the door, stacked under the dossier: they are one decision and they
+              belong with the person they are about, not across the card from them. */}
+          <div className="flex min-w-0 flex-col gap-3">
+            <div
+              className={cn(
+                'edge-lit flex items-center gap-3 rounded-md border px-3 py-2.5',
+                recruit.hired
+                  ? 'border-bile-300/50'
+                  : recruit.assessment.interested
+                    ? 'border-brass-300/60'
+                    : 'border-oxblood-500/50',
+              )}
+            >
+              <span
+                aria-hidden
+                className="icon-plate flex h-11 w-11 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-6 [&_svg]:w-6"
+              >
+                <Icon name={recruit.hired ? 'check' : 'caps'} />
+              </span>
+              <span className="flex min-w-0 flex-col leading-none">
+                <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+                  {recruit.hired
+                    ? 'On your books'
+                    : recruit.assessment.interested
+                      ? 'Opens at'
+                      : 'Not talking'}
+                </span>
+                {/* Only when there is a figure. The two other states are already named on the line
+                    above, and a placeholder glyph under `Not talking` is a second way of saying the
+                    same nothing. */}
+                {recruit.assessment.interested && !recruit.hired && (
+                  <span className="mt-1.5 font-display text-[20px] font-bold tabular-nums text-brass-100">
+                    {(asking ?? 0).toLocaleString()} / wk
+                  </span>
+                )}
+              </span>
+            </div>
+
+            <div className="min-w-0">{door}</div>
+          </div>
 
           {(recruit.requirement.minNotoriety > 0 || recruit.requirement.minLevel > 1) && (
-            <div className="mt-auto flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
+            <div className="flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
               {recruit.requirement.minNotoriety > 0 && (
                 <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
                   Will sit down with a crew the street calls{' '}
@@ -911,70 +941,31 @@ function RecruitCard({
           )}
         </div>
 
-        {/* The price and the door, in one column on the right: the two things a click acts on. */}
-        <div className="flex min-w-0 flex-col gap-3">
-          <div
-            className={cn(
-              'edge-lit flex items-center gap-3 rounded-md border px-3 py-2.5',
-              recruit.hired
-                ? 'border-bile-300/50'
-                : recruit.assessment.interested
-                  ? 'border-brass-300/60'
-                  : 'border-oxblood-500/50',
-            )}
-          >
-            <span
-              aria-hidden
-              className="icon-plate flex h-11 w-11 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-6 [&_svg]:w-6"
-            >
-              <Icon name={recruit.hired ? 'check' : 'caps'} />
-            </span>
-            <span className="flex min-w-0 flex-col leading-none">
-              <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
-                {recruit.hired
-                  ? 'On your books'
-                  : recruit.assessment.interested
-                    ? 'Opens at'
-                    : 'Not talking'}
-              </span>
-              {/* Only when there is a figure. The two other states are already named on the line
-                  above, and a placeholder glyph under `Not talking` is a second way of saying the
-                  same nothing. */}
-              {recruit.assessment.interested && !recruit.hired && (
-                <span className="mt-1.5 font-display text-[20px] font-bold tabular-nums text-brass-100">
-                  {(asking ?? 0).toLocaleString()} / wk
-                </span>
-              )}
-            </span>
-          </div>
-
-          <div className="mt-auto min-w-0">{door}</div>
-        </div>
-      </div>
-
-      {/* What they can do. */}
-      <div className="flex min-w-0 flex-col gap-2.5">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
-            What they can do
-          </span>
-          <span aria-hidden className="ink-rule block min-w-0 flex-1" />
-        </div>
         {/*
-         * Four across, each group in its own frame (§B4a).
+         * What they can do, beside the dossier rather than under the whole card.
          *
-         * Four is what `size="room"` on the window is for: the sheet needs about 210px a group
-         * before `Communication` truncates, and the arrow either side of the card takes 140 of
-         * them. Below the sheet's own breakpoint it falls to two, which is the no-cut-text rule
-         * winning over the shape.
+         * **Two groups across, not four**, and that is what makes it fit here: the sheet needs
+         * about 210px a group before `Communication` truncates, four of them do not fit next to a
+         * portrait, and a 2x2 gives each group half of a column that is already most of the card.
+         * It also comes out about as tall as the dossier beside it, so the card is a rectangle
+         * with nothing empty in it rather than a tall left column against a short right one.
          */}
-        <AttributeSheet attributes={recruit.attributes} columns={4} roomy />
+        <div className="flex min-w-0 flex-col gap-2.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
+              What they can do
+            </span>
+            <span aria-hidden className="ink-rule block min-w-0 flex-1" />
+            <RoleHighlight role={highlightRole} open={open} onChange={onHighlightRole} />
+          </div>
+          <AttributeSheet attributes={recruit.attributes} columns={2} roomy role={highlightRole} />
+        </div>
       </div>
     </article>
   );
 }
 
-/** One officer on the books, with their §H5 standing and §H6 level. */
+/** One officer on the books: what they bring, and what they cost. */
 function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
   const { commander } = officer;
   const release = useReleaseOfficer();
@@ -995,43 +986,18 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
           <span className="min-w-0 break-words font-stamp text-[15px] leading-tight text-ink-100">
             {commander.name}
           </span>
-          <Tag label={ALIGNMENT_BAND_LABELS[officer.band]} className={BAND_STYLE[officer.band]} />
         </div>
         <div className="flex min-w-0 items-center justify-between gap-3">
           <span className="min-w-0 truncate font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-            {OFFICER_ROLE_LABELS[commander.role]} · Lv {commander.level}
+            {OFFICER_ROLE_LABELS[commander.role]}
           </span>
           <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
             <span className="tabular-nums text-ink-200">{officer.weeklyWage}</span> caps/wk
           </span>
         </div>
-        <AlignmentMeter value={commander.alignment} />
-        {/* What they are worth on a job, as chips rather than a comma-separated sentence: it is
-            three attributes and a figure, which is a set of facts and not a paragraph. */}
-        {officer.skillBonus > 0 && (
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {officer.bonusAttributes.map((name) => (
-              <span
-                key={name}
-                className="rounded-sm border border-bile-300/50 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.12em] text-bile-300"
-              >
-                {/* Named off the shared table: `bonusAttributes` carries field names, and two of
-                    them do not title-case to their real spelling. */}
-                {ATTRIBUTE_LABELS[name]} <span className="tabular-nums">+{officer.skillBonus}</span>
-              </span>
-            ))}
-          </div>
-        )}
-        {officer.threateningToLeave && (
-          <p className="min-w-0 break-words text-[12px] leading-relaxed text-oxblood-300">
-            Says they are done unless something changes.
-          </p>
-        )}
-        {commander.unspentPoints > 0 && (
-          <p className="min-w-0 break-words font-display text-[10px] uppercase tracking-[0.14em] text-brass-300">
-            {commander.unspentPoints} point{commander.unspentPoints === 1 ? '' : 's'} to assign
-          </p>
-        )}
+        {/* What they bring to the crew. This row used to carry an alignment meter and a line of
+            attribute chips the officer's mood was currently worth; both went with §H5. */}
+        <PerkTags perks={commander.perks} tone="panel" side="top" />
         {/*
          * §H7: letting somebody go, behind a confirmation.
          *
@@ -1092,9 +1058,6 @@ function PayrollPanel({ ledger, caps }: { ledger: PayrollLedger | null; caps: nu
   const raise = useIncreasePayroll();
   if (!ledger) return <EmptyRow text="Counting it up…" />;
 
-  const pct = ledger.capacity > 0 ? Math.min(100, (ledger.committed / ledger.capacity) * 100) : 0;
-  const affordable = caps >= ledger.nextStepCost;
-
   return (
     <div className="flex flex-col gap-3 p-4" data-testid="payroll-book">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1109,12 +1072,7 @@ function PayrollPanel({ ledger, caps }: { ledger: PayrollLedger | null; caps: nu
           </span>
         </span>
       </div>
-      <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950">
-        <span
-          className={cn('block h-full rounded-sm', pct >= 100 ? 'bg-oxblood-300' : 'bg-brass-300')}
-          style={{ width: `${pct}%` }}
-        />
-      </span>
+      <PayrollMeter ledger={ledger} />
       <p className="font-body text-[13px] leading-relaxed text-ink-200">
         <span className="font-semibold tabular-nums text-ink-100">
           {ledger.available.toLocaleString()}
@@ -1122,29 +1080,15 @@ function PayrollPanel({ ledger, caps }: { ledger: PayrollLedger | null; caps: nu
         left to promise. An officer takes a slice of this for as long as they are on the books, and
         nothing is deducted from the stockpile week to week.
       </p>
-      <div className="flex flex-wrap items-center gap-2.5 border-t border-surface-700 pt-3">
-        <Button
-          size="sm"
-          disabled={!affordable || raise.isPending}
-          onClick={() => raise.mutate({})}
-          data-testid="increase-payroll"
-        >
-          {raise.isPending ? 'Raising…' : `Increase payroll · +${ledger.stepSize}`}
-        </Button>
-        <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-          {ledger.nextStepCost.toLocaleString()} caps, once
-        </span>
-      </div>
-      {!affordable && (
-        <p className="font-body text-[12px] leading-snug text-oxblood-300">
-          {(ledger.nextStepCost - caps).toLocaleString()} caps short of the next step.
-        </p>
-      )}
-      {raise.error !== null && (
-        <p role="alert" className="font-body text-[12px] text-oxblood-300">
-          {raise.error.message}
-        </p>
-      )}
+      <RaisePayroll
+        ledger={ledger}
+        caps={caps}
+        onRaise={() => raise.mutate({})}
+        pending={raise.isPending}
+        error={raise.error?.message ?? null}
+        testId="increase-payroll"
+        showShortfall
+      />
     </div>
   );
 }

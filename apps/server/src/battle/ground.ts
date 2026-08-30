@@ -12,6 +12,7 @@ import {
   type DistrictStanding,
   type LocationControl,
   type LocationHolder,
+  districtDisplayName,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -81,8 +82,19 @@ export function targetName(target: BattleTarget, resident?: Base): string {
   switch (target.kind) {
     case 'location':
       return findLocation(target.locationId)?.name ?? 'somewhere';
-    case 'gate':
-      return `the gate at ${findDistrict(target.districtId)?.name ?? 'somewhere'}`;
+    case 'gate': {
+      // Gates only stand on contested ground, so this reads the authored name in practice; it goes
+      // through the same helper anyway so the two screens can never disagree about a district.
+      const district = findDistrict(target.districtId);
+      return `the gate at ${
+        district
+          ? districtDisplayName(district, {
+              ownDistrictId: district.id,
+              ownName: resident?.name ?? null,
+            })
+          : 'somewhere'
+      }`;
+    }
     case 'building': {
       const building = resident?.buildings.find((candidate) => candidate.id === target.buildingId);
       return building ? BUILDING_CATALOG[building.kind].name : 'a structure';

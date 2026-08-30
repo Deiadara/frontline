@@ -6,6 +6,7 @@ import {
   addToArmy,
   alreadyHolds,
   canAfford,
+  findUnit,
   heldPlaceKindsOf,
   isHeldBy,
   isUnitUnlocked,
@@ -16,6 +17,7 @@ import {
   trainingRefund,
   trainingSeconds,
   trainingStartsAt,
+  xpForClock,
   type Army,
   type Base,
   type PartialResources,
@@ -72,9 +74,13 @@ export interface TrainingSettlement {
 /**
  * Units that have finished training join the army at home.
  *
- * §I1 pays per *batch*, not per body. Paying per unit would make the cheapest rabble the fastest
- * way to level and turn the roster into an XP faucet; paying per order prices the wait rather than
- * the headcount, which is the thing the player actually spent.
+ * §I1 pays per *body*, at a rate priced off what that body takes to train.
+ *
+ * The two halves answer each other. Per body, because a batch hands its units over one at a time
+ * and paying on whichever read caught the last one would make the reward depend on how often the
+ * page was open. Priced off the unit's own clock, because per-body at a flat rate is what would
+ * make the cheapest rabble the fastest way to level: a Razor is 45 seconds and a Colossus is an
+ * hour and a half, and the curve is what stops the faucet without going back to per-order.
  */
 export function settleTraining(repos: Repositories, base: Base, now: Date): TrainingSettlement {
   const { delivered, pending } = splitDueTraining(base.trainingQueue, now);
@@ -97,8 +103,13 @@ export function settleTraining(repos: Repositories, base: Base, now: Date): Trai
   let carried = settled;
   const awards: PlayerXpAward[] = [];
   for (const batch of delivered) {
+    // Priced off what one body of *this* unit takes on the bench, on the shared curve: a Razor is
+    // 45 seconds and a Colossus is an hour and a half, and a flat table entry paid the same for
+    // both. The catalogue's figure rather than the order's frozen one, deliberately: a workshop
+    // discount should make the batch arrive sooner, not be worth less to have trained.
+    const perUnit = xpForClock('unitTrained', findUnit(batch.unitId)?.trainSeconds ?? 0);
     for (let i = 0; i < batch.count; i += 1) {
-      const { base: progressed, award } = awardPlayerXp(repos, carried, 'unitTrained');
+      const { base: progressed, award } = awardPlayerXp(repos, carried, 'unitTrained', 0, perUnit);
       carried = progressed;
       awards.push(award);
     }

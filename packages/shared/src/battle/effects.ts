@@ -103,10 +103,10 @@ export function contextBonusPercent(
 /**
  * Everything that is true about a unit before the enemy is considered.
  *
- * `vs_armor`, `vs_low_morale` and `vs_structure` are **not** resolved here even though they are
- * `CombatContext`s: the first two depend on who the unit is shooting at, so they belong to the
- * matchup and are applied per exchange (`matchup.ts`). `vs_structure` does live here, because the
- * fortification is a property of the ground and does not change with the target.
+ * `vs_armor`, `vs_evasive`, `vs_low_morale` and `vs_structure` are **not** resolved here even
+ * though they are `CombatContext`s: the first three depend on who the unit is shooting at, so they
+ * belong to the matchup and are applied per exchange (`matchup.ts`). `vs_structure` does live here,
+ * because the fortification is a property of the ground and does not change with the target.
  *
  * `upgrades` is the workshop's refit (`units/upgrades.ts`), folded onto the sheet *first* so every
  * percentage below multiplies the upgraded figure rather than the catalogue one. It was the one
@@ -139,7 +139,17 @@ export function effectiveStats(
    * hall at four in the morning, and `1.25 × 1.26 × 1.04` is not something anybody adds up.
    */
   const ground = labelVerdict(sheet, unit, battlefield.labels);
-  const offenseBonus = percent + ground.percent + territory.unitOffensePercent;
+
+  /*
+   * What a bonus scoped to *this unit's tier* is worth (`unit_tier` in `city/locations.ts`).
+   *
+   * Read off `unit.tier` rather than the sheet, because a refit does not change what kind of thing
+   * a unit is. Summed into the same totals as everything else, for the reason at the top of this
+   * file: a player has to be able to add the reasons up.
+   */
+  const tier = territory.unitTierPercent[unit.tier] ?? {};
+  const offenseBonus =
+    percent + ground.percent + territory.unitOffensePercent + (tier.offense ?? 0);
 
   // Everything the holder built buys *toughness*, not damage: a wall does not make a rifle shoot
   // harder. This is the one place percentages land on vitality rather than on offense.
@@ -153,12 +163,24 @@ export function effectiveStats(
   // ceiling exists so no amount of building makes a district untakeable; a sheet that says it is
   // hard to shift is a unit you can be sent to kill, and it is bought one body at a time.
   const vitalityBonus =
-    territory.unitVitalityPercent + Math.min(MAX_HELD_DEFENSE, held) + toughness;
+    territory.unitVitalityPercent +
+    (tier.vitality ?? 0) +
+    Math.min(MAX_HELD_DEFENSE, held) +
+    toughness;
 
   return {
     offense: sheet.offense * (1 + offenseBonus / 100),
     vitality: sheet.vitality * (1 + vitalityBonus / 100),
-    armor: clamp(sheet.armor + (side.defending ? battlefield.baseDefense : 0), 0, 100),
+    // Armour is points on a 0..100 rating, not a multiplier: see `unitArmorPercent`. Still clamped,
+    // so no stack of bonuses produces a body nothing can hurt.
+    armor: clamp(
+      sheet.armor +
+        (side.defending ? battlefield.baseDefense : 0) +
+        territory.unitArmorPercent +
+        (tier.armor ?? 0),
+      0,
+      100,
+    ),
     speed: sheet.speed * (1 + territory.unitSpeedPercent / 100),
     range: sheet.range,
     evasion: sheet.evasion,

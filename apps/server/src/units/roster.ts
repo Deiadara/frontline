@@ -3,6 +3,7 @@ import {
   COMBAT_CONTEXT_LABELS,
   UNIT_CATALOG,
   UNIT_MODIFIERS,
+  unitRules,
   addToArmy,
   describeRequirement,
   isHeldBy,
@@ -111,6 +112,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       description: UNIT_MODIFIERS[id].description,
       when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
     })),
+    rules: unitRules(unit),
     affinities: groundAffinities(unit),
     cost: unit.cost,
     trainSeconds: unit.trainSeconds,
@@ -137,12 +139,12 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
      * subtracts the bench before it decides, and the difference was Max proposing a batch the route
      * then refused.
      *
-     * `cap` is what is left for soldiers once the officers and the placed assignees have taken
+     * `cap` is what is left for soldiers once the officers have taken
      * theirs, so the two subtract to `districtPopulation`'s own `spare` and nothing has to agree by
      * coincidence.
      */
     supplyUsed: population.army + population.training,
-    supplyCap: population.capacity - population.officers - population.assignees,
+    supplyCap: population.capacity - population.officers,
     queue: base.trainingQueue,
     resources: base.resources,
     trainingCostReduction: effects.trainingCostPercent,

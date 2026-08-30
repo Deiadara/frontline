@@ -98,6 +98,22 @@ const TIER_LABELS: Readonly<Record<UnitTier, string>> = {
  * hundred points, a real assault a good deal more, so the open boosts are one fight's earnings and
  * the specialist ones are several. Nothing here is cheap enough to buy without thinking, which is
  * the whole design of a sink.
+ *
+ * ## The rate, and why it has to be about the same for all of them
+ *
+ * `boostBundle` folds every boost down to one whole-force percentage, so the only thing that
+ * separates two of them at the point of use is **how many points of force percentage you get for
+ * the infamy**. Two boosts at different rates are not two decisions, they are a right answer and a
+ * trap, and the shop's own doc promises the opposite: a narrow boost buys "a bigger percentage for
+ * the same money", which is a claim about the rate being flat.
+ *
+ * It was not. Measured against a force built to make each one land at full coverage, the shop ran
+ * from 6.5 infamy per point (Paid In Advance) to 44 (They Came For This): a factor of seven between
+ * the best buy and the worst, with no gate or flavour explaining it. The band is 13 to 28 now, and
+ * the spread inside it is the honest part: a boost you can only use on one unique body is worth
+ * less per point than one that lands on everything you own, because it is harder to cover.
+ *
+ * `boosts.test.ts` holds the band. A new boost is priced into it first and flavoured second.
  */
 export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
   {
@@ -129,7 +145,7 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
     name: 'Paid In Advance',
     description:
       'The cheap end of the roster, paid before the fight instead of after it. They notice.',
-    cost: 260,
+    cost: 620,
     effect: { kind: 'tier', tier: 'rabble', stat: 'offense', percent: 40 },
     unlock: { kind: 'officer', role: 'finance_officer' },
   },
@@ -169,15 +185,15 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
     id: 'boost_they_came_for_this',
     name: 'They Came For This',
     description: 'The one on your roster the city tells stories about, told the story is tonight.',
-    cost: 1100,
-    effect: { kind: 'tier', tier: 'legendary', stat: 'offense', percent: 25 },
+    cost: 780,
+    effect: { kind: 'tier', tier: 'legendary', stat: 'offense', percent: 45 },
     unlock: { kind: 'officer', role: 'raid_boss' },
   },
   {
     id: 'boost_the_colossus_walks',
     name: 'The Colossus Walks',
     description: 'Fuel nobody should be able to get, poured into the biggest thing in the city.',
-    cost: 1400,
+    cost: 1150,
     effect: { kind: 'unit', unitId: 'the_colossus', stat: 'offense', percent: 50 },
     unlock: { kind: 'tech', techId: 'tech_demolition_doctrine' },
   },

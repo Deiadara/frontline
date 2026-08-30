@@ -8,6 +8,8 @@ import {
   describeBoostEffect,
   describeBoostUnlock,
   findBattleBoost,
+  type BattleBoostSpec,
+  type BoostEffect,
 } from './boosts.js';
 import { findTech } from '../research/tech.js';
 import { infamyForKill } from '../economy/infamy.js';
@@ -142,5 +144,52 @@ describe('what the engine is handed', () => {
     const dearest = Math.max(...BATTLE_BOOSTS.map((spec) => spec.cost));
     expect(cheapest).toBeGreaterThan(20 * infamyForKill('razors'));
     expect(dearest).toBeLessThan(20 * infamyForKill('the_colossus'));
+  });
+});
+
+/**
+ * The shop's rate, which is the only thing separating one boost from another at the point of use.
+ *
+ * `boostBundle` folds every effect down to one whole-force percentage, so a player choosing between
+ * two boosts is choosing between two rates. When those rates differ by a factor of seven, as they
+ * did (6.5 infamy per point against 44), the shop is a right answer and nine traps.
+ */
+describe('every boost is sold at about the same rate', () => {
+  /** Infamy per point of whole-force percentage, at the coverage the boost is built for. */
+  const ratePerPoint = (spec: BattleBoostSpec): number => spec.cost / spec.effect.percent;
+
+  const LOW = 12;
+  const HIGH = 30;
+
+  it('prices the whole shop inside one band', () => {
+    for (const spec of BATTLE_BOOSTS) {
+      expect(
+        ratePerPoint(spec),
+        `${spec.id} at ${ratePerPoint(spec).toFixed(1)}/point`,
+      ).toBeGreaterThanOrEqual(LOW);
+      expect(
+        ratePerPoint(spec),
+        `${spec.id} at ${ratePerPoint(spec).toFixed(1)}/point`,
+      ).toBeLessThanOrEqual(HIGH);
+    }
+  });
+
+  it('has enough spread of effect sizes for that band to mean something', () => {
+    const percents = BATTLE_BOOSTS.map((spec) => spec.effect.percent);
+    expect(Math.max(...percents) / Math.min(...percents)).toBeGreaterThan(3);
+  });
+
+  /**
+   * The one spread inside the band that is deliberate: a boost you can only land on part of a force
+   * is worth less per point than one that lands on all of it, because covering it costs you the
+   * shape of your roster.
+   */
+  it('sells the boosts that cover everything at the keenest rate', () => {
+    const meanRate = (kind: BoostEffect['kind']) => {
+      const of = BATTLE_BOOSTS.filter((spec) => spec.effect.kind === kind);
+      return of.reduce((total, spec) => total + ratePerPoint(spec), 0) / of.length;
+    };
+    expect(meanRate('force')).toBeLessThan(meanRate('tier'));
+    expect(meanRate('tier')).toBeLessThan(meanRate('unit'));
   });
 });

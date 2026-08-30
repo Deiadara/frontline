@@ -111,11 +111,23 @@ export function payrollCapacity(
   return Math.round(base * (1 + Math.max(0, bonusPercent) / 100));
 }
 
-/** What the next `PAYROLL_STEP` costs, given how many have already been bought. */
-export function payrollStepCost(purchasedSteps: number): number {
+/**
+ * What the next `PAYROLL_STEP` costs, given how many have already been bought.
+ *
+ * `discountPercent` is `payrollStepDiscountPercent` off `CrewEffects`: the perk channel for
+ * officers who make widening the book cheaper. Passed in as a plain number so this module never
+ * has to know what a crew is, the same way `payrollCapacity` takes its bonus.
+ */
+export function payrollStepCost(purchasedSteps: number, discountPercent = 0): number {
   const bought = Math.max(0, Math.trunc(purchasedSteps));
-  return Math.round(PAYROLL_STEP_BASE_COST * PAYROLL_STEP_GROWTH ** bought);
+  const full = PAYROLL_STEP_BASE_COST * PAYROLL_STEP_GROWTH ** bought;
+  const off = Math.min(MAX_PAYROLL_STEP_DISCOUNT, Math.max(0, discountPercent));
+  // At least one cap, so no stack of perks makes widening the book free.
+  return Math.max(1, Math.round(full * (1 - off / 100)));
 }
+
+/** However many ledger clerks a crew hires, the next step still costs something. */
+export const MAX_PAYROLL_STEP_DISCOUNT = 60;
 
 /** Caps per week already promised to officers. */
 export function committedPayroll(commitments: PayrollState['commitments']): number {
@@ -144,6 +156,7 @@ export function payrollLedger(
   payroll: PayrollState,
   nexusLevel: number,
   bonusPercent = 0,
+  stepDiscountPercent = 0,
 ): PayrollLedger {
   const capacity = payrollCapacity(nexusLevel, payroll.purchasedSteps, bonusPercent);
   const committed = committedPayroll(payroll.commitments);
@@ -155,7 +168,7 @@ export function payrollLedger(
     // the two figures above it.
     available: Math.max(0, capacity - committed),
     purchasedSteps: payroll.purchasedSteps,
-    nextStepCost: payrollStepCost(payroll.purchasedSteps),
+    nextStepCost: payrollStepCost(payroll.purchasedSteps, stepDiscountPercent),
     stepSize: PAYROLL_STEP,
   };
 }

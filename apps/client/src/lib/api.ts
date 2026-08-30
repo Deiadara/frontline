@@ -9,9 +9,8 @@ import {
   type LayTrapRequest,
   type BuyBattleBoostRequest,
   type RecallColumnRequest,
-  AssigneesMutationResponseSchema,
-  AssigneesResponseSchema,
-  AssignPointResponseSchema,
+  CrewResponseSchema,
+  CrewMutationResponseSchema,
   AuthResponseSchema,
   BarResponseSchema,
   BaseDetailResponseSchema,
@@ -41,9 +40,6 @@ import {
   WorkshopResponseSchema,
   WorkshopMutationResponseSchema,
   StartResearchResponseSchema,
-  type AssignPointRequest,
-  type PlaceAssigneesRequest,
-  type ReskillRequest,
   type FortifyRequest,
   type UpgradeLocationRequest,
   type GarrisonRequest,
@@ -233,9 +229,6 @@ export const hireRecruit = (body: HireRecruitRequest) =>
 export const negotiateWithRecruit = (body: NegotiateRequest) =>
   apiFetch('/bar/negotiate', NegotiateResponseSchema, jsonBody(body));
 
-export const assignPoint = (body: AssignPointRequest) =>
-  apiFetch('/bar/assign-point', AssignPointResponseSchema, jsonBody(body));
-
 export const getResearch = () => apiFetch('/research', ResearchResponseSchema);
 
 export const startResearch = (body: StartResearchRequest) =>
@@ -243,7 +236,7 @@ export const startResearch = (body: StartResearchRequest) =>
 export const startTech = (body: StartTechRequest) =>
   apiFetch('/research/tech', ResearchResponseSchema, jsonBody(body));
 
-export const getAssignees = () => apiFetch('/assignees', AssigneesResponseSchema);
+export const getCrew = () => apiFetch('/crew', CrewResponseSchema);
 
 export const getTraining = () => apiFetch('/training', TrainingResponseSchema);
 
@@ -313,10 +306,4 @@ export const recallMission = (body: RecallMissionRequest) =>
   apiFetch('/missions/recall', MissionsResponseSchema, jsonBody(body));
 
 export const reassignOfficer = (body: ReassignOfficerRequest) =>
-  apiFetch('/assignees/reassign', AssigneesMutationResponseSchema, jsonBody(body));
-
-export const placeAssignees = (body: PlaceAssigneesRequest) =>
-  apiFetch('/assignees/place', AssigneesMutationResponseSchema, jsonBody(body));
-
-export const reskillAssignees = (body: ReskillRequest) =>
-  apiFetch('/assignees/reskill', AssigneesMutationResponseSchema, jsonBody(body));
+  apiFetch('/crew/reassign', CrewMutationResponseSchema, jsonBody(body));

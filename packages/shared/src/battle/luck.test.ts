@@ -14,7 +14,7 @@ import {
   luckyFleeChance,
 } from './luck.js';
 import { exchange, armorMultiplier } from './matchup.js';
-import { mulberry32 } from './rng.js';
+import { mulberry32 } from '../rng.js';
 import { fleeChance } from './rout.js';
 
 /**

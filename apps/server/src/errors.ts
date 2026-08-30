@@ -8,6 +8,7 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'USERNAME_TAKEN'
+  | 'FACTION_NAME_TAKEN'
   | 'INVALID_CREDENTIALS'
   | 'OVERSEER_ALREADY_CHOSEN'
   | 'UNKNOWN_PRESET'
@@ -19,7 +20,6 @@ export type ErrorCode =
   | 'NO_RECRUIT_SLOTS'
   | 'ROLE_TAKEN'
   | 'INSUFFICIENT_CAPS'
-  | 'NO_POINTS'
   | 'NEGOTIATION_CLOSED'
   | 'NO_PAYROLL'
   | 'AREA_LOCKED'
@@ -28,10 +28,6 @@ export type ErrorCode =
   | 'NO_RESEARCH_LEAD'
   | 'RESEARCH_OPTION_LOCKED'
   | 'RESEARCH_EXHAUSTED'
-  // assignees (GDD §G)
-  | 'NO_ASSIGNEES'
-  | 'ASSIGNEES_AT_CAP'
-  | 'NO_PROFESSOR'
   | 'TRAINING_REFUSED'
   | 'MARKET_REFUSED'
   | 'BLACK_MARKET_REFUSED'
@@ -68,6 +64,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   USERNAME_TAKEN: 409,
+  FACTION_NAME_TAKEN: 409,
   INVALID_CREDENTIALS: 401,
   OVERSEER_ALREADY_CHOSEN: 409,
   UNKNOWN_PRESET: 400,
@@ -84,7 +81,6 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   RECRUIT_UNAVAILABLE: 409,
   NO_RECRUIT_SLOTS: 409,
   INSUFFICIENT_CAPS: 409,
-  NO_POINTS: 409,
   NEGOTIATION_CLOSED: 409,
   // 403 rather than 404: the screen exists, this crew is not senior enough to be in it, and the
   // message says which level opens it. A 404 would teach a player that the feature is not built.
@@ -93,9 +89,6 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   NO_RESEARCH_LEAD: 409,
   RESEARCH_OPTION_LOCKED: 409,
   RESEARCH_EXHAUSTED: 409,
-  NO_ASSIGNEES: 409,
-  ASSIGNEES_AT_CAP: 409,
-  NO_PROFESSOR: 409,
   MISSION_NEEDS_OFFICER: 409,
   INSUFFICIENT_RESOURCES: 409,
   STRUCTURE_AT_MAX_LEVEL: 409,

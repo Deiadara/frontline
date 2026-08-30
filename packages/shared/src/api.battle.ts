@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BattleAnalysisSchema } from './battle/analysis.js';
+import { BattlefieldSchema } from './battle/battlefield.js';
 import { BattleSideSchema, BattleTargetSchema, ScheduledBattleSchema } from './battle/scheduled.js';
 import { BaseSchema } from './base.js';
 import { LevelUpSchema } from './api.js';
@@ -90,6 +91,21 @@ export const BattleViewSchema = z.object({
   enemyIntel: z.string(),
   /** Who the caller is up against, in the words the map uses. */
   opponentName: z.string(),
+  /**
+   * The ground the fight will happen on, so the client can forecast it honestly.
+   *
+   * Without this the client could still run `battle/forecast.ts`, and it would run it on
+   * `bareBattlefield()`: open ground, full frontage, no context bonuses, nothing dug in. That is
+   * not a slightly worse estimate, it is a confident one about a different fight. Combat width
+   * alone swings identical forces from a certain win to a certain loss (twenty Razors take the
+   * Fence Camp every time and lose at the Long Ladle every time, against the same five defenders,
+   * because one has a frontage of 21 and the other of 9), and a forecast that cannot see it is
+   * exactly the lie `forecast.ts` was written to avoid.
+   *
+   * Sent for everybody, attacker and defender alike: the ground is not a secret. What the enemy
+   * has on it is, and that is `enemySize` and `enemyIntel`.
+   */
+  battlefield: BattlefieldSchema,
   /** §D7: every boost this crew could put on this fight. Empty for a bystander. */
   boosts: z.array(BattleBoostOptionSchema),
   /** The one already bought for this fight, or null. One per battle, and it is not refundable. */
@@ -170,7 +186,7 @@ export type DistrictGateView = z.infer<typeof DistrictGateViewSchema>;
  * One column on the road, as the Actions screen shows it (§A4).
  *
  * Named places rather than ids, because the screen is a list a player reads rather than a table it
- * joins: "The Rustyard to Datavault Sigma" is the sentence, and the client should not have to look
+ * joins: "Steelbelt to The Annexes" is the sentence, and the client should not have to look
  * two districts up to write it.
  */
 export const MovementViewSchema = z.object({

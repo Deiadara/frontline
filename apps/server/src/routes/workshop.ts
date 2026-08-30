@@ -28,6 +28,7 @@ import type { FastifyInstance } from 'fastify';
 import { holdsBlueprint, holdsParts } from '../market/board.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
+import { ownBase } from './own-base.js';
 
 /**
  * The workshop and the yard (workshop extension).
@@ -41,12 +42,6 @@ import { AppError, parseBody } from '../errors.js';
  * same upgrade twice is meaningless, and a second motorcycle is a second motorcycle. Where a built
  * upgrade then goes is the roster's business (`units/loadout.ts`): three brackets per unit.
  */
-
-function ownBase(app: FastifyInstance, ownerId: string): Base {
-  const base = app.repos.bases.findByOwnerId(ownerId);
-  if (!base) throw new AppError('NO_BASE', 'You do not have a base yet');
-  return base;
-}
 
 /** The player-facing sentence for every gate. The client never writes one of its own. */
 const UPGRADE_TEXT: Record<UpgradeRefusal, (name: string) => string> = {

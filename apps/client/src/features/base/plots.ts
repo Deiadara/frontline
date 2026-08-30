@@ -191,20 +191,27 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
   ]),
   // The glass-fronted workshop with `MAKING COOL STUFF` painted over its door: the only lit
   // shopfront in the compound and the only one with a sign.
-  site('lab', [
-    [43, 0],
-    [48, 0.5],
-    [52, 7],
-    [52.5, 13],
-    [49, 17],
-    [44, 16.5],
-    [40, 11],
-    [40, 4],
-  ]),
-  // Nudged up and left, as it was on the old plate and for the same reason: the label plate hangs
-  // below its outline's ground line, which on this painting is exactly where `WE WANT APPLES!` is
-  // written across the wall. It read `WE WANT [greenhouse] ES!`. Lifted onto the glass, where the
-  // grow lights are bright enough behind a dark plate to leave both legible.
+  // Carried down a little off the glass. Board's nudge: the plate sat on the shopfront's own
+  // lettering, and the sign under it reads better than the sign over it.
+  site(
+    'lab',
+    [
+      [43, 0],
+      [48, 0.5],
+      [52, 7],
+      [52.5, 13],
+      [49, 17],
+      [44, 16.5],
+      [40, 11],
+      [40, 4],
+    ],
+    { y: 2.4 },
+  ),
+  // Carried down and well to the left, off the glass and onto the dark walkway beside it. Board's
+  // placement, read off an annotated screenshot. The plate used to sit up on the grow lights, which
+  // kept it clear of the `WE WANT APPLES!` graffiti but put a dark label over the brightest thing
+  // in the district; on the wall below-left it has an unlit ground to sit on and the glass stays
+  // whole. The outline is untouched, so the pointer target is still the greenhouse itself.
   site(
     'greenhouse',
     [
@@ -216,7 +223,11 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
       [85, 34],
       [77.5, 28],
     ],
-    { x: -4, y: -7 },
+    // Board's nudge: a little up and right of where it sat, and no further. The ceiling on both
+    // is the `WE WANT APPLES!` graffiti above it, which is the one piece of hand-lettering in the
+    // district and must not be covered; the plate now sits just under its baseline on the unlit
+    // wall, which is as close as it goes.
+    { x: -6.2, y: -0.6 },
   ),
   site('apothecary', [
     [44, 29.5],
@@ -227,16 +238,22 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
     [43.5, 41],
     [42.5, 35],
   ]),
-  site('gauntlet', [
-    [22, 33],
-    [28, 32],
-    [32, 37],
-    [33, 43],
-    [29, 47],
-    [23, 46],
-    [19, 41],
-    [19, 36],
-  ]),
+  // Carried down and right, off the roof and onto the open ground in front of the doors. Board's
+  // placement: the outline's own ground line puts it among the shanty roofs behind it.
+  site(
+    'gauntlet',
+    [
+      [22, 33],
+      [28, 32],
+      [32, 37],
+      [33, 43],
+      [29, 47],
+      [23, 46],
+      [19, 41],
+      [19, 36],
+    ],
+    { x: 3, y: 12.7 },
+  ),
   site('nexus', [
     [62, 22],
     [67, 23],
@@ -268,17 +285,24 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
     [65, 59],
   ]),
   // A riveted drum with a domed cap: nine points because a cylinder traced with four is a crate.
-  site('cistern', [
-    [12, 60],
-    [14, 61.5],
-    [15, 64],
-    [14.8, 68],
-    [12.8, 71.5],
-    [10.6, 71.5],
-    [9.6, 68],
-    [9.5, 64],
-    [10.5, 61.5],
-  ]),
+  // Lifted well up the plate, onto the riveted tank itself. Board's placement: the ground line of
+  // this outline is the yard in front of the tank, and a plate hung there reads as labelling the
+  // fence rather than the cistern.
+  site(
+    'cistern',
+    [
+      [12, 60],
+      [14, 61.5],
+      [15, 64],
+      [14.8, 68],
+      [12.8, 71.5],
+      [10.6, 71.5],
+      [9.6, 68],
+      [9.5, 64],
+      [10.5, 61.5],
+    ],
+    { x: -1.3, y: -18.3 },
+  ),
   site('scrapyard', [
     [12, 72],
     [18, 70.5],
@@ -293,12 +317,18 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
   // The only outline here with four corners, and honestly so: the wall is a straight run of
   // timber seen side-on, so the shape it makes is a parallelogram, and adding vertices to it
   // would be decoration rather than tracing.
-  site('gate', [
-    [37, 70],
-    [49, 75],
-    [49, 84],
-    [37, 79],
-  ]),
+  // Slid left onto the gate itself. Board's placement: the outline is wide and its centroid lands
+  // out on the boardwalk, which is a plate labelling the planking beside the gate.
+  site(
+    'gate',
+    [
+      [37, 70],
+      [49, 75],
+      [49, 84],
+      [37, 79],
+    ],
+    { x: -7.7, y: 1 },
+  ),
   site('infirmary', [
     [82, 72],
     [88, 70],

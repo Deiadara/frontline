@@ -11,6 +11,7 @@ import {
   TRAINING_MAX_BATCH,
   findUnit,
   maxTrainable,
+  splitDueTraining,
   trainingBatchProgress,
   trainingCancelWindowMs,
   trainingCancellable,
@@ -20,7 +21,7 @@ import {
   type UnitOption,
   type UnitTier,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { HoverCard } from '../../components/ui/HoverCard';
@@ -52,6 +53,32 @@ export function UnitsPage() {
   const [tier, setTier] = useState<UnitTier>('rabble');
 
   const data = query.data;
+
+  /*
+   * What the bench *is* right now, not what it was at the last poll.
+   *
+   * `data.queue` is a snapshot, and the roster only re-reads every `DISTRICT_POLL_MS`, so in
+   * between a finished order sat on the bench at `1/1  0s` with a full bar while the next one
+   * counted down beneath it. Two orders looked like they were running at once, which is the one
+   * thing the queue is meant to say cannot happen.
+   *
+   * `splitDueTraining` is the function the *server* settles with, so deriving the display from it
+   * means the bench shows exactly what the next read is going to leave, and a batch that is
+   * part-way through shows its real delivered count instead of a stale one. Same rule in both
+   * places, one implementation, which is why it cannot drift.
+   */
+  const bench = data ? splitDueTraining(data.queue, now).pending : [];
+  const settled = data !== undefined && bench.length < data.queue.length;
+
+  /*
+   * Somebody walked off the bench since the last read, so their unit is not in the army yet.
+   * Re-read now rather than waiting out the poll: without this the roster's count is the one
+   * number on screen that is visibly behind, for up to a full interval.
+   */
+  useEffect(() => {
+    if (settled) void query.refetch();
+  }, [settled, query]);
+
   if (!data) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
@@ -122,11 +149,11 @@ export function UnitsPage() {
         <header className="flex items-baseline gap-3">
           <h2 className="font-stamp text-[17px] leading-none text-brass-100">On the bench</h2>
           <span className="font-display text-[12px] uppercase tracking-[0.16em] tabular-nums text-ink-300">
-            {data.queue.length} / {MAX_TRAINING_QUEUE}
+            {bench.length} / {MAX_TRAINING_QUEUE}
           </span>
         </header>
 
-        {data.queue.length === 0 ? (
+        {bench.length === 0 ? (
           <p className="font-body text-[13px] leading-snug text-ink-300">
             Nobody on the bench. Pick somebody from the roster.
           </p>
@@ -135,7 +162,7 @@ export function UnitsPage() {
             className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3"
             data-testid="training-queue"
           >
-            {data.queue.map((order, index) => (
+            {bench.map((order, index) => (
               <BenchRow
                 key={order.id}
                 order={order}
@@ -160,6 +187,11 @@ export function UnitsPage() {
               key={option}
               type="button"
               onClick={() => setTier(option)}
+              // The one control on this page a test could not reach: every card, mark row and
+              // action box carries a handle and the tier tabs did not, so a check that wanted to
+              // look at the Heavy roster had to match the label text through its uppercase CSS.
+              data-testid={`tier-${option}`}
+              aria-pressed={option === tier}
               className={cn(
                 'border px-3 py-1.5 font-display text-[11px] uppercase tracking-[0.18em] transition-colors',
                 option === tier
@@ -619,17 +651,28 @@ function StatLabel({ statKey }: { statKey: StatKey }) {
 }
 
 function Marks({ unit }: { unit: UnitOption }) {
-  const modifiers = unit.modifiers.slice(0, MARKS_SHOWN);
-  const room = MARKS_SHOWN - modifiers.length;
+  // Rules first, then modifiers, then ground. A shield line is the most important thing anybody
+  // can know about a unit and it must not be the mark that gets counted into the `+N`.
+  const rules = unit.rules.slice(0, MARKS_SHOWN);
+  const modifiers = unit.modifiers.slice(0, MARKS_SHOWN - rules.length);
+  const room = MARKS_SHOWN - rules.length - modifiers.length;
   const affinities = unit.affinities.slice(0, room);
   const hidden =
-    unit.modifiers.length - modifiers.length + (unit.affinities.length - affinities.length);
+    unit.rules.length -
+    rules.length +
+    (unit.modifiers.length - modifiers.length) +
+    (unit.affinities.length - affinities.length);
 
   return (
     <ul
       className="flex h-6 flex-nowrap items-center gap-1 whitespace-nowrap"
       data-testid={`marks-${unit.id}`}
     >
+      {rules.map((rule) => (
+        <li key={rule.id} className="min-w-0">
+          <RuleTag rule={rule} unit={unit.name} />
+        </li>
+      ))}
       {modifiers.map((modifier) => (
         <li key={modifier.label} className="min-w-0">
           <ModifierTag modifier={modifier} unit={unit.name} />
@@ -718,6 +761,25 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
         </WindowSection>
       )}
 
+      {unit.rules.length > 0 && (
+        <WindowSection label="How they fight">
+          {/* Above "What they do", because a rule outranks a percentage: whether the enemy has to
+              shoot this stack first is the first thing anybody needs to know about it. */}
+          <ul className="flex flex-col gap-2">
+            {unit.rules.map((rule) => (
+              <li key={rule.id}>
+                <span className="block font-display text-[11px] font-bold uppercase leading-snug tracking-[0.14em] text-brass-100">
+                  {rule.label}
+                </span>
+                <span className="block font-body text-[13px] leading-snug text-ink-100">
+                  {rule.description}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </WindowSection>
+      )}
+
       {unit.modifiers.length > 0 && (
         <WindowSection label="What they do">
           {/* Label over sentence, not label *inside* sentence. Run together on one paragraph the
@@ -775,6 +837,39 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
  * Same hover contract as everything else: `HoverCard` at `size="window"`, with the frame drawn by
  * `InfoWindow` rather than by the card.
  */
+/**
+ * A rule, which is not a modifier and must not look like one.
+ *
+ * `taunts` and `mends` change what *happens* rather than what a number is, and a player who reads
+ * `SHIELD LINE` in the same verdigris chip as `CLOSE QUARTERS` will file it as another +25%. Brass,
+ * which is the chrome the interface already uses for "this is a mechanism", and always first in the
+ * row: a rule outranks a percentage when there is only room for two marks.
+ */
+function RuleTag({ rule, unit }: { rule: UnitOption['rules'][number]; unit: string }) {
+  return (
+    <HoverCard
+      label={rule.label}
+      size="window"
+      card={
+        <InfoWindow
+          eyebrow={unit}
+          title={rule.label}
+          tone="brass"
+          icon={<Icon name="spark" className="h-full w-full text-surface-950" />}
+        >
+          <WindowSection label="What it does">
+            <p className="font-body text-[14px] leading-relaxed text-ink-100">{rule.description}</p>
+          </WindowSection>
+        </InfoWindow>
+      }
+    >
+      <span className="flex h-5 items-center whitespace-nowrap rounded-sm border border-brass-300/70 bg-brass-300/20 px-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-brass-100">
+        {rule.label}
+      </span>
+    </HoverCard>
+  );
+}
+
 function ModifierTag({
   modifier,
   unit,

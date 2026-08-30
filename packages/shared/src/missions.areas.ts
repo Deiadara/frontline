@@ -8,6 +8,7 @@ import {
 import { PLAYER_XP_AWARDS } from './progression/state.js';
 import { MILESTONE_THIRD_CREW, isPlayerUnlockActive } from './progression/unlocks.js';
 import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from './resources.js';
+import { seedFrom } from './rng.js';
 import { findUnit, isCombatUnit, type Army } from './units/index.js';
 
 /**
@@ -23,7 +24,7 @@ import { findUnit, isCombatUnit, type Army } from './units/index.js';
  * rather than a queue. Across the whole city a crew can only have {@link BASE_CONCURRENT_MISSIONS}
  * running at once, in different areas, and the only thing that lifts that is a milestone.
  *
- * The three on offer are a pure function of the area, so two players looking at the Rustyard see
+ * The three on offer are a pure function of the area, so two players looking at Steelbelt see
  * the same three jobs and a player can plan around them. What differs is what they pay: a job in a
  * hard district is worth more than the same job in an easy one, which is what makes the map worth
  * pushing into.
@@ -48,16 +49,6 @@ export function concurrentMissionSlots(level: number): number {
   return BASE_CONCURRENT_MISSIONS + (isPlayerUnlockActive(MILESTONE_THIRD_CREW, level) ? 1 : 0);
 }
 
-/** FNV-1a: any stable string to int would do, so long as it depends on nothing but its argument. */
-function seedFrom(text: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
 /**
  * The three jobs an area offers, and the mix they come in.
  *
@@ -68,8 +59,8 @@ function seedFrom(text: string): number {
  *
  * Deterministic in the area **and the UTC day**: the pick walks each kind's own pool from a seeded
  * start in a seeded stride, so the three are stable for the whole day and two players looking at
- * the Rustyard see the same three, and the board turns over at midnight. The turnover is what
- * keeps a pool larger than the city's thirty-three slots from being dead content: a job that is
+ * Steelbelt see the same three, and the board turns over at midnight. The turnover is what
+ * keeps a pool larger than the city's fifty-nine slots from being dead content: a job that is
  * on nobody's board today is on somebody's within the fortnight.
  *
  * `misc` gets the same treatment rather than a hand-picked list; what makes it different is that

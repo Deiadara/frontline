@@ -23,6 +23,7 @@ import {
   IMPORTANCE_SHARE,
   type CrewMember,
 } from './effects.js';
+import { findPerk } from './perks.js';
 import { importanceOf } from './importance.js';
 import type { OfficerRole } from '../roles.js';
 import {
@@ -101,6 +102,7 @@ describe('what a crew is worth', () => {
     const overseer = (over: Partial<Attributes> = {}, base = 10): CrewMember => ({
       attributes: makeAttributes(base, over),
       role: null,
+      perks: [],
     });
     /*
      * An officer in a real chair.
@@ -113,6 +115,7 @@ describe('what a crew is worth', () => {
     const officer = (role: OfficerRole, over: Partial<Attributes> = {}, base = 10): CrewMember => ({
       attributes: makeAttributes(base, over),
       role,
+      perks: [],
     });
 
     /**
@@ -219,6 +222,80 @@ describe('what a crew is worth', () => {
     expect(speedMultiplier(-500)).toBe(0.25);
     expect(speedMultiplier(0)).toBe(1);
     expect(speedMultiplier(20)).toBeCloseTo(1.2);
+  });
+});
+
+/**
+ * Perks (§B7): what an officer brings, as opposed to what they are rated at.
+ *
+ * The two halves of `crewEffects` compose differently on purpose, and that is the whole design of
+ * the hiring layer. An attribute is **best-of**: one specialist is enough, so a second cryptographer
+ * adds nothing and the interesting question is "who is your best X". A perk **sums**: it is a thing
+ * a person brought with them, so two officers who each know a foundry manager know two of them, and
+ * filling nineteen chairs is worth the wage bill.
+ *
+ * Getting that backwards in either direction breaks something real. Best-of perks would make the
+ * roster a search for one good hire and the other eighteen chairs decoration; summed attributes
+ * would make hiring anybody strictly better and turn the sheet into a headcount.
+ */
+describe('what an officer brings (§B7)', () => {
+  const plain = (perks: string[] = []): CrewMember => ({
+    attributes: makeAttributes(10),
+    role: null,
+    perks,
+  });
+
+  it('lands a perk on the channel it names', () => {
+    const withPerk = crewEffects([plain(['drill_sergeant'])]);
+    const without = crewEffects([plain()]);
+    const perk = findPerk('drill_sergeant');
+    expect(perk?.bonus).toEqual({ kind: 'unit_offense', percent: 4 });
+    expect(withPerk.unitOffensePercent - without.unitOffensePercent).toBe(4);
+  });
+
+  it('adds up across the roster rather than taking the best of them', () => {
+    const one = crewEffects([plain(['drill_sergeant'])]);
+    const three = crewEffects([
+      plain(['drill_sergeant']),
+      plain(['drill_sergeant']),
+      plain(['drill_sergeant']),
+    ]);
+    const base = crewEffects([plain()]).unitOffensePercent;
+    expect(one.unitOffensePercent - base).toBe(4);
+    expect(
+      three.unitOffensePercent - base,
+      'perks are what a person brought, so three of them are three',
+    ).toBe(12);
+  });
+
+  it('reaches the crew-only channels no location can grant', () => {
+    const clerk = crewEffects([plain(['payroll_clerk'])]);
+    expect(clerk.wageDiscountPercent).toBeGreaterThan(crewEffects([plain()]).wageDiscountPercent);
+    const ledger = crewEffects([plain(['ledger_hand'])]);
+    expect(ledger.payrollStepDiscountPercent).toBe(5);
+  });
+
+  it('scopes a tier-scoped bonus to that tier and no other', () => {
+    const effects = crewEffects([plain(['ironmonger'])]);
+    expect(effects.unitTierPercent.heavy?.armor).toBe(3);
+    expect(effects.unitTierPercent.rabble?.armor).toBeUndefined();
+    // And the global armour channel is untouched: a tier bonus is not a quiet global one.
+    expect(effects.unitArmorPercent).toBe(0);
+  });
+
+  it('ignores an id the catalogue no longer carries instead of throwing', () => {
+    expect(() => crewEffects([plain(['a_perk_that_was_retired'])])).not.toThrow();
+    expect(crewEffects([plain(['a_perk_that_was_retired'])])).toEqual(crewEffects([plain()]));
+  });
+
+  it('leaves the attribute half of the sheet alone', () => {
+    // The hazard the trait system had: a keyword that moved the carrier's own attributes made a
+    // stored sheet ambiguous about whether the bonus was already in it. A perk cannot, because it
+    // never touches the sheet at all.
+    const sheet = makeAttributes(10);
+    expect(crewSheet([{ attributes: sheet, role: null, perks: ['hard_trainer'] }])).toEqual(
+      crewSheet([{ attributes: sheet, role: null, perks: [] }]),
+    );
   });
 });
 
@@ -406,10 +483,10 @@ describe('a training state parses back out of storage', () => {
  */
 describe('the sheet best-of hands back', () => {
   const everyone: CrewMember[] = [
-    { attributes: makeAttributes(37, { stealth: 91, deception: 63 }), role: 'head_spy' },
-    { attributes: makeAttributes(29, { medicine: 88 }), role: 'chief_medic' },
-    { attributes: makeAttributes(41, { intimidation: 77 }), role: 'raid_boss' },
-    { attributes: makeAttributes(23), role: null },
+    { attributes: makeAttributes(37, { stealth: 91, deception: 63 }), role: 'head_spy', perks: [] },
+    { attributes: makeAttributes(29, { medicine: 88 }), role: 'chief_medic', perks: [] },
+    { attributes: makeAttributes(41, { intimidation: 77 }), role: 'raid_boss', perks: [] },
+    { attributes: makeAttributes(23), role: null, perks: [] },
   ];
 
   it('is a whole number in every attribute, and inside the scale', () => {

@@ -119,10 +119,10 @@ describe('what an upgrade costs and what it is', () => {
 });
 
 describe('the city as a board', () => {
-  it('is three districts a crew can live in and seven to fight over', () => {
-    expect(RESIDENTIAL_DISTRICTS).toHaveLength(3);
-    expect(CONTESTED_DISTRICTS).toHaveLength(7);
-    expect(CITY_DISTRICTS).toHaveLength(10);
+  it('is four districts a crew can live in and eight to fight over', () => {
+    expect(RESIDENTIAL_DISTRICTS).toHaveLength(4);
+    expect(CONTESTED_DISTRICTS).toHaveLength(8);
+    expect(CITY_DISTRICTS).toHaveLength(12);
   });
 
   it('puts between five and eight locations in every contested district', () => {

@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { ATTRIBUTE_GROUPS, type AttributeGroup } from '../attributes.js';
 import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from '../resources.js';
+import {
+  UNIT_TIER_LABELS,
+  UNIT_TIER_STAT_LABELS,
+  type UnitTier,
+  type UnitTierStat,
+} from '../units/tiers.js';
 import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
 
 /**
@@ -109,6 +115,16 @@ export type HoldBonus =
   | { kind: 'training_cost'; percent: number }
   | { kind: 'unit_offense'; percent: number }
   | { kind: 'unit_vitality'; percent: number }
+  | { kind: 'unit_armor'; percent: number }
+  /**
+   * The same three unit stats, but only for one tier of unit.
+   *
+   * A tier-scoped bonus is a different *kind* of decision from a flat one: `+4% offense` makes
+   * whatever you already field a little better, while `+8% armour on Heavy` is a reason to field
+   * Heavies. It is scoped rather than global so the strong version can be worth more than the
+   * weak one without being strictly better than it.
+   */
+  | { kind: 'unit_tier'; tier: UnitTier; stat: UnitTierStat; percent: number }
   | { kind: 'unit_morale'; flat: number }
   | { kind: 'unit_speed'; percent: number }
   | { kind: 'unit_stealth'; percent: number }
@@ -123,6 +139,7 @@ export type HoldBonus =
   | { kind: 'resource_yield'; resource: ResourceKey; percent: number }
   /** Every crew that is out comes home sooner (§E). */
   | { kind: 'mission_speed'; percent: number }
+  | { kind: 'mission_spoils'; percent: number }
   /** Off every price the traders quote. */
   | { kind: 'market_discount'; percent: number }
   /** Off what the black market charges in infamy. */
@@ -1022,6 +1039,16 @@ export interface TerritoryEffects {
   trainingCostPercent: number;
   unitOffensePercent: number;
   unitVitalityPercent: number;
+  /**
+   * Added to every unit's armour rating, in points of the 0..100 scale rather than a multiplier.
+   *
+   * Armour is the one defensive stat that had no channel at all: the map and the crew could buy
+   * vitality and offense and nothing could buy the number that decides how much of a hit gets
+   * through. Flat because armour is a rating and a percentage of a rating of 8 is nothing.
+   */
+  unitArmorPercent: number;
+  /** Per tier, the three unit stats a bonus can be scoped to. See the `unit_tier` bonus. */
+  unitTierPercent: Partial<Record<UnitTier, Partial<Record<UnitTierStat, number>>>>;
   unitMoraleFlat: number;
   unitSpeedPercent: number;
   unitStealthPercent: number;
@@ -1036,6 +1063,8 @@ export interface TerritoryEffects {
   resourceYieldPercent: PartialResources;
   /** §E: every crew that is out is home sooner. */
   missionSpeedPercent: number;
+  /** §E: added to a run's pay premium at launch, so every job on the board is worth more. */
+  missionSpoilsPercent: number;
   marketDiscountPercent: number;
   blackMarketDiscountPercent: number;
   refitDiscountPercent: number;
@@ -1077,6 +1106,8 @@ export function noTerritoryEffects(): TerritoryEffects {
     trainingCostPercent: 0,
     unitOffensePercent: 0,
     unitVitalityPercent: 0,
+    unitArmorPercent: 0,
+    unitTierPercent: {},
     unitMoraleFlat: 0,
     unitSpeedPercent: 0,
     unitStealthPercent: 0,
@@ -1087,6 +1118,7 @@ export function noTerritoryEffects(): TerritoryEffects {
     infamyGainPercent: 0,
     resourceYieldPercent: {},
     missionSpeedPercent: 0,
+    missionSpoilsPercent: 0,
     marketDiscountPercent: 0,
     blackMarketDiscountPercent: 0,
     refitDiscountPercent: 0,
@@ -1133,6 +1165,17 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
     case 'unit_vitality':
       into.unitVitalityPercent += bonus.percent;
       return into;
+    case 'unit_armor':
+      into.unitArmorPercent += bonus.percent;
+      return into;
+    case 'unit_tier': {
+      const tier = into.unitTierPercent[bonus.tier] ?? {};
+      into.unitTierPercent = {
+        ...into.unitTierPercent,
+        [bonus.tier]: { ...tier, [bonus.stat]: (tier[bonus.stat] ?? 0) + bonus.percent },
+      };
+      return into;
+    }
     case 'unit_morale':
       into.unitMoraleFlat += bonus.flat;
       return into;
@@ -1165,6 +1208,9 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
       return into;
     case 'mission_speed':
       into.missionSpeedPercent += bonus.percent;
+      return into;
+    case 'mission_spoils':
+      into.missionSpoilsPercent += bonus.percent;
       return into;
     case 'market_discount':
       into.marketDiscountPercent += bonus.percent;
@@ -1276,6 +1322,12 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `${bonus.percent}% of losses refunded`;
     case 'intel':
       return `+${bonus.percent}% intel`;
+    case 'mission_spoils':
+      return `+${bonus.percent}% mission pay`;
+    case 'unit_armor':
+      return `+${bonus.percent} unit armour`;
+    case 'unit_tier':
+      return `+${bonus.percent}% ${UNIT_TIER_LABELS[bonus.tier]} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
     case 'officer_group':
       return `+${bonus.flat} to officer ${GROUP_LABELS[bonus.group]} skills`;
     case 'population':

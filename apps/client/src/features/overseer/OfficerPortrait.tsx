@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { deliveredUrl } from '../../assets/delivered';
 import { cn } from '../../lib/cn';
 
@@ -18,12 +19,15 @@ export function OfficerPortrait({
   portraitId,
   name,
   className,
+  style,
 }: {
   /** From `officerPortraitId(officer.id)`. Null while a caller has not resolved one. */
   portraitId: string | null;
   /** For the fallback letter and the accessible name. */
   name: string;
   className?: string;
+  /** For a caller that needs an aspect the utility classes cannot express. */
+  style?: CSSProperties;
 }) {
   const painted = portraitId === null ? null : deliveredUrl({ type: 'officer', portraitId });
   return (
@@ -32,6 +36,7 @@ export function OfficerPortrait({
         'relative shrink-0 overflow-hidden rounded-sm border border-surface-600/70 bg-surface-900',
         className,
       )}
+      style={style}
     >
       {painted ? (
         <img

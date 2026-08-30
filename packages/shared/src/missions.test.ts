@@ -20,11 +20,14 @@ import {
   missionRemainingMs,
   missionRewards,
   missionTimings,
+  RESOURCE_CAP_VALUE,
+  RESOURCE_KEYS,
   rewardScale,
   templateTimings,
   type Mission,
   type MissionStance,
   type MissionTemplate,
+  type PartialResources,
   type ResourceKey,
 } from './index.js';
 
@@ -269,5 +272,84 @@ describe('duration formatting', () => {
     expect(formatCountdown(299_000)).toBe('04:59');
     expect(formatCountdown(3_600_000)).toBe('1:00:00');
     expect(formatCountdown(3_899_000)).toBe('1:04:59');
+  });
+});
+
+/**
+ * The board's prices, checked as the rule rather than as a list of numbers.
+ *
+ * `MissionTemplateSchema.spoils` states it: which resources is authored per job, what the bundle is
+ * *worth* is not. Every bundle is priced on expected value at the baseline, so §E5's curve is the
+ * only thing left moving the hourly rate. The failure this catches is the one that was there: raw
+ * bundles varying 9.4x, correlated with length, multiplying with the curve and inverting it.
+ */
+describe('the board is priced on one rule (§E5)', () => {
+  const capsValue = (bundle: PartialResources): number =>
+    RESOURCE_KEYS.reduce((total, key) => total + (bundle[key] ?? 0) * RESOURCE_CAP_VALUE[key], 0);
+
+  /** The stance premium, and the only spread on the board that is authored on purpose. */
+  const STANCE_PREMIUM: Record<string, number> = {
+    against_government: 1.15,
+    unaligned: 1,
+    for_government: 0.85,
+  };
+  const BASELINE_VALUE = 143;
+  /** Generous: this is a floor under a 9.4x drift, not a tuning target. */
+  const TOLERANCE = 0.2;
+
+  const expectedValue = (template: MissionTemplate): number =>
+    capsValue(template.spoils) * template.successChance;
+
+  it('prices every bundle on expected value, with the stance premium and nothing else', () => {
+    for (const template of MISSION_TEMPLATES) {
+      const want = BASELINE_VALUE * STANCE_PREMIUM[template.stance]!;
+      expect(expectedValue(template) / want, `${template.id}`).toBeGreaterThan(1 - TOLERANCE);
+      expect(expectedValue(template) / want, `${template.id}`).toBeLessThan(1 + TOLERANCE);
+    }
+  });
+
+  it('pays work against the Combine better than work for it', () => {
+    const meanFor = (stance: string) => {
+      const of = MISSION_TEMPLATES.filter((template) => template.stance === stance);
+      return of.reduce((total, template) => total + expectedValue(template), 0) / of.length;
+    };
+    expect(meanFor('against_government')).toBeGreaterThan(meanFor('unaligned'));
+    expect(meanFor('unaligned')).toBeGreaterThan(meanFor('for_government'));
+  });
+
+  /**
+   * The consequence, and the thing a player actually reads off the board: a short run is the better
+   * hourly rate and a long one pays more in total. Checked within a kind, because the battle premium
+   * is a deliberate step between the two curves rather than a point on one.
+   */
+  it('makes a short run the better rate and a long run the bigger payout', () => {
+    for (const kind of ['standard', 'battle'] as const) {
+      const byLength = MISSION_TEMPLATES.filter((template) => template.kind === kind)
+        .map((template) => {
+          const minutes = templateTimings(template).totalMinutes;
+          const paid = capsValue(missionRewards(template)) * template.successChance;
+          return { id: template.id, minutes, paid, rate: paid / (minutes / 60) };
+        })
+        .sort((a, b) => a.minutes - b.minutes);
+
+      expect(byLength.length, kind).toBeGreaterThan(4);
+      const shortest = byLength[0]!;
+      const longest = byLength.at(-1)!;
+      expect(shortest.rate, `${kind}: ${shortest.id} vs ${longest.id}`).toBeGreaterThan(
+        longest.rate,
+      );
+      expect(longest.paid, `${kind}: ${longest.id} vs ${shortest.id}`).toBeGreaterThan(
+        shortest.paid,
+      );
+    }
+  });
+
+  /** And the spread it produces, which is what "readable board" means as a number. */
+  it('keeps the whole board inside one order of magnitude on hourly rate', () => {
+    const rates = MISSION_TEMPLATES.map((template) => {
+      const minutes = templateTimings(template).totalMinutes;
+      return (capsValue(missionRewards(template)) * template.successChance) / (minutes / 60);
+    });
+    expect(Math.max(...rates) / Math.min(...rates)).toBeLessThan(6);
   });
 });

@@ -9,7 +9,6 @@ import {
   NOTORIETY_TO_FIELD,
   FORTIFY_MAX_LEVEL,
   STARTING_RESOURCES,
-  startingAssignees,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -215,7 +214,6 @@ function plantRival(stack: Stack, fortification: number): string {
     economy: startingEconomy(now),
     progression: startingProgression(),
     research: startingResearch(),
-    assignees: startingAssignees(),
     buildings: [
       {
         id: 'rival-nexus',

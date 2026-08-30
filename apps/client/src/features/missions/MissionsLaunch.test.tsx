@@ -1,11 +1,10 @@
 import {
   MISSION_STANCE_SPECS,
   MISC_AREA_ID,
-  assigneeBonusPercent,
   missionOffers,
   playerLevelGrants,
   templateTimings,
-  type AssigneesResponse,
+  type CrewResponse,
   type LaunchMissionRequest,
   type LaunchMissionResponse,
   type MissionArea,
@@ -71,41 +70,26 @@ const board: MissionsResponse = {
   serverNow: NOW,
 };
 
-const officer = (officerId: string, name: string, assignees: number) => ({
+const officer = (officerId: string, name: string) => ({
   officerId,
   name,
   role: 'raid_boss' as const,
-  assignees,
-  bonusPercent: assigneeBonusPercent(assignees),
-  nextBonusPercent: assigneeBonusPercent(assignees + 1),
   attributes: makeAttributes(15),
-  traits: [],
-  alignment: 50,
-  alignmentBand: 'settled' as const,
-  level: 1,
+  perks: [],
+  weeklyWage: 40,
 });
 
 /** §G: a roster with people on the books, so a hard run has somebody to lead it. */
-const staffed: AssigneesResponse = {
+const staffed: CrewResponse = {
   level: 6,
-  pool: 8,
-  placed: 4,
-  unplaced: 4,
-  capPerOfficer: 3,
-  maxBonusPercent: assigneeBonusPercent(3),
-  canReskill: false,
   housing: { used: 0, capacity: 8 },
-  officers: [officer('off-1', 'Reza Malik', 3), officer('off-2', 'Odile Marchetti', 1)],
+  officers: [officer('off-1', 'Reza Malik'), officer('off-2', 'Odile Marchetti')],
 };
 
 /** The starting state: a base with no officers at all (§H: you hire them at the Bar). */
-const unstaffed: AssigneesResponse = {
+const unstaffed: CrewResponse = {
   ...staffed,
   level: 1,
-  pool: 2,
-  placed: 0,
-  unplaced: 2,
-  capPerOfficer: 1,
   officers: [],
 };
 
@@ -164,14 +148,14 @@ const REFUSED_AFTER_LEVELLING = {
 };
 
 interface Stubbed {
-  assignees: AssigneesResponse;
+  crew: CrewResponse;
   /** How `POST /missions` answers. Defaults to accepting the launch. */
   launch?: { ok: boolean; status: number; body: unknown };
   /** Hold the roster back this long, so the board renders before the officers arrive. */
   rosterDelayMs?: number;
 }
 
-function stubApi({ assignees, launch, rosterDelayMs = 0 }: Stubbed): void {
+function stubApi({ crew, launch, rosterDelayMs = 0 }: Stubbed): void {
   const reply = (body: unknown, { ok = true, status = 200, delay = 0 } = {}) =>
     new Promise<Response>((resolve) =>
       setTimeout(
@@ -182,7 +166,7 @@ function stubApi({ assignees, launch, rosterDelayMs = 0 }: Stubbed): void {
     );
 
   fetchMock.mockImplementation((path: string, init?: RequestInit) => {
-    if (path.endsWith('/assignees')) return reply(assignees, { delay: rosterDelayMs });
+    if (path.endsWith('/crew')) return reply(crew, { delay: rosterDelayMs });
     if (path.endsWith('/missions') && init?.method === 'POST') {
       return launch
         ? reply(launch.body, { ok: launch.ok, status: launch.status })
@@ -252,7 +236,7 @@ afterEach(() => {
 
 describe('what a launch puts on the wire (§E, §G6)', () => {
   it('names the board, the crew and the leader', async () => {
-    stubApi({ assignees: staffed });
+    stubApi({ crew: staffed });
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -277,7 +261,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
    * one the player arrowed to, or the pay premium on screen belongs to somewhere else.
    */
   it('sends to the area the player arrowed to, not the one it opened on', async () => {
-    stubApi({ assignees: staffed });
+    stubApi({ crew: staffed });
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -302,7 +286,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
    * greyed out correctly and still changed the area would fail here.
    */
   it('stops at both ends of the boards rather than wrapping round', async () => {
-    stubApi({ assignees: staffed });
+    stubApi({ crew: staffed });
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -322,7 +306,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
   });
 
   it('will not send a crew that is nobody at all', async () => {
-    stubApi({ assignees: staffed });
+    stubApi({ crew: staffed });
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -335,7 +319,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
    * is refused in the window rather than on the wire, so the player is told before they commit.
    */
   it('refuses a battle job crewed entirely by porters', async () => {
-    stubApi({ assignees: staffed });
+    stubApi({ crew: staffed });
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -353,7 +337,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
   });
 
   it('says a hard job cannot go out with nobody on the books', async () => {
-    stubApi({ assignees: unstaffed });
+    stubApi({ crew: unstaffed });
     renderBoard();
 
     const hard = MISC.offers.find((offer) => offer.difficulty === 'hard');
@@ -375,7 +359,7 @@ describe('a refused launch', () => {
   };
 
   it('tells the player why instead of returning the board to normal', async () => {
-    stubApi({ assignees: staffed, launch: NEEDS_OFFICER });
+    stubApi({ crew: staffed, launch: NEEDS_OFFICER });
     renderBoard();
     await screen.findByTestId('board-area');
     await sendAnything();
@@ -386,7 +370,7 @@ describe('a refused launch', () => {
   });
 
   it('says nothing while every launch is succeeding', async () => {
-    stubApi({ assignees: staffed });
+    stubApi({ crew: staffed });
     renderBoard();
 
     await screen.findByTestId('board-area');
@@ -399,7 +383,7 @@ describe('a refused launch', () => {
    * that will ever carry that level-up: dropping it here loses the moment outright.
    */
   it('still announces a level-up the refused launch had already banked', async () => {
-    stubApi({ assignees: staffed, launch: REFUSED_AFTER_LEVELLING });
+    stubApi({ crew: staffed, launch: REFUSED_AFTER_LEVELLING });
     renderBoard();
     await screen.findByTestId('board-area');
     await sendAnything();
@@ -410,7 +394,7 @@ describe('a refused launch', () => {
   });
 
   it('shows no level-up banner when the refusal banked nothing', async () => {
-    stubApi({ assignees: staffed, launch: NEEDS_OFFICER });
+    stubApi({ crew: staffed, launch: NEEDS_OFFICER });
     renderBoard();
     await screen.findByTestId('board-area');
     await sendAnything();
@@ -422,7 +406,7 @@ describe('a refused launch', () => {
 
 describe('the board says which way a job points at the Combine (§A3, §D8)', () => {
   it('badges a job that points at the state, and says what the word means', async () => {
-    stubApi({ assignees: staffed });
+    stubApi({ crew: staffed });
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -440,7 +424,7 @@ describe('the board says which way a job points at the Combine (§A3, §D8)', ()
   });
 
   it('leaves unaligned work unbadged rather than labelling every card', async () => {
-    stubApi({ assignees: staffed });
+    stubApi({ crew: staffed });
     renderBoard();
     await screen.findByTestId('board-area');
 

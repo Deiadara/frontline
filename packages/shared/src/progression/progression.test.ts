@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { PLAYER_LEVEL_MIN, applyPlayerXp, playerXpToNextLevel } from './curve.js';
+import { EFFORT_BASELINE_MINUTES, MIN_EFFORT_SHARE, effortScale } from './effort.js';
+import { rewardScale } from '../missions.js';
 import { playerLevelGrants } from './grants.js';
 import {
   PLAYER_XP_AWARDS,
   ProgressionStateSchema,
   resolvePlayerXpAward,
   startingProgression,
+  xpForClock,
   type PlayerXpSource,
 } from './state.js';
 import {
@@ -87,18 +90,7 @@ describe('the level curve (§I2)', () => {
   });
 });
 
-describe('level-up grants (§I2 → §G8, §G3, §H8)', () => {
-  it('grants the assignee pool §G8 spells out: 2 at level 1, +1 a level, +1 every 5th', () => {
-    expect([1, 2, 3, 4, 5, 6, 10].map((l) => playerLevelGrants(l).assigneePool)).toEqual([
-      2, 3, 4, 5, 7, 8, 13,
-    ]);
-  });
-
-  it('caps assignees per officer at §G3a: 1 at the start, 2 from level 4', () => {
-    const caps = [1, 2, 3, 4, 5, 6].map((l) => playerLevelGrants(l).assigneeCapPerOfficer);
-    expect(caps).toEqual([1, 1, 1, 2, 2, 3]);
-  });
-
+describe('level-up grants (§I2 → §H8)', () => {
   it('grants recruit slots per §H8: 2 at the start, +1 per level', () => {
     expect([1, 2, 5, 10].map((l) => playerLevelGrants(l).recruitSlots)).toEqual([2, 3, 6, 11]);
   });
@@ -107,8 +99,6 @@ describe('level-up grants (§I2 → §G8, §G3, §H8)', () => {
     for (let level = PLAYER_LEVEL_MIN; level < 60; level += 1) {
       const here = playerLevelGrants(level);
       const next = playerLevelGrants(level + 1);
-      expect(next.assigneePool).toBeGreaterThanOrEqual(here.assigneePool);
-      expect(next.assigneeCapPerOfficer).toBeGreaterThanOrEqual(here.assigneeCapPerOfficer);
       expect(next.recruitSlots).toBeGreaterThanOrEqual(here.recruitSlots);
     }
   });
@@ -209,12 +199,7 @@ describe('XP awards (§I1)', () => {
       progression: { xpIntoLevel: 100 },
       xpToNextLevel: 1000,
     });
-    // The level-4 step is exactly where §G3's per-officer cap becomes 2.
-    expect(award.grants).toEqual({
-      assigneePool: 5,
-      assigneeCapPerOfficer: 2,
-      recruitSlots: 5,
-    });
+    expect(award.grants).toEqual({ recruitSlots: 5 });
   });
 
   it('reports the grants unchanged when the award did not level anyone up', () => {
@@ -233,5 +218,64 @@ describe('XP awards (§I1)', () => {
     const award = resolvePlayerXpAward({ level: 1, xpIntoLevel: 380 }, 'questCompleted', catalogue);
     expect(award.level).toBe(3);
     expect(award.unlocks.map((u) => u.id)).toEqual(['a', 'b']);
+  });
+});
+
+/**
+ * Every clock pays on the same curve (§I1, §E5).
+ *
+ * The rule `PLAYER_XP_AWARDS` states, and did not keep: the table is a set of **anchors**, priced
+ * "by how long the thing takes". Only missions read theirs that way. A fifty-five-second first
+ * Gauntlet and a nine-hour level 20 both paid a flat 60; a Razor off the bench in 45 seconds and a
+ * Colossus after ninety minutes both paid 20.
+ */
+describe('anything with a clock on it is priced off that clock (§I1)', () => {
+  it('pays more for a longer job, on every source', () => {
+    for (const source of Object.keys(PLAYER_XP_AWARDS) as PlayerXpSource[]) {
+      const short = xpForClock(source, 60);
+      const long = xpForClock(source, 9 * 3600);
+      expect(long, source).toBeGreaterThan(short * 4);
+    }
+  });
+
+  it('pays the anchor exactly for a job of the baseline length', () => {
+    for (const source of Object.keys(PLAYER_XP_AWARDS) as PlayerXpSource[]) {
+      expect(xpForClock(source, EFFORT_BASELINE_MINUTES * 60), source).toBe(
+        PLAYER_XP_AWARDS[source],
+      );
+    }
+  });
+
+  /**
+   * The floor, and why it is not zero. The curve prices a twenty-second build at 3% of its anchor,
+   * which is a progress bar that does not visibly move for a whole first session. A quarter is what
+   * keeps the opening, which is a great many very short builds, worth playing.
+   */
+  it('never pays less than the floor, however trivial the clock', () => {
+    for (const seconds of [0, 1, 20, 60]) {
+      expect(xpForClock('buildingConstructed', seconds)).toBe(
+        Math.round(PLAYER_XP_AWARDS.buildingConstructed * MIN_EFFORT_SHARE),
+      );
+    }
+  });
+
+  it('grows sub-linearly, so a long job is the bigger payout and the worse rate', () => {
+    const shortMinutes = 15;
+    const longMinutes = 15 * 20;
+    const short = xpForClock('missionCompleted', shortMinutes * 60);
+    const long = xpForClock('missionCompleted', longMinutes * 60);
+    expect(long).toBeGreaterThan(short);
+    expect(long / short).toBeLessThan(longMinutes / shortMinutes);
+    expect(long / longMinutes).toBeLessThan(short / shortMinutes);
+  });
+
+  /**
+   * One curve, not two. `missions.ts` used to declare its own copy of the exponent and the
+   * baseline, which is how the two drifted apart in the first place.
+   */
+  it('is the same curve the mission board pays on', () => {
+    for (const minutes of [1, 15, 30, 120, 1440]) {
+      expect(rewardScale(minutes, 'standard')).toBeCloseTo(effortScale(minutes), 10);
+    }
   });
 });

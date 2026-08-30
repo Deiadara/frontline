@@ -44,6 +44,18 @@ export const DistrictSchema = z.object({
    * earns.
    */
   nickname: z.string().min(1).nullable(),
+  /**
+   * What an abbreviated `name` stands for, spelled out.
+   *
+   * Only for the districts whose real name is initials. The map draws `name` because a tag on a
+   * painting has room for three letters and not for three words, and the district screen draws
+   * this, because that is the screen with room to say what the letters mean. Null everywhere else,
+   * which is almost everywhere: a formal name that merely repeats `name` is noise on both screens.
+   *
+   * Deliberately not `nickname`. That field is what the street calls a place, and this is the
+   * opposite of that: it is what the Directorate calls it on the paperwork.
+   */
+  formalName: z.string().min(1).nullable().default(null),
   kind: DistrictKindSchema,
   /** Whose ground this nominally is (§A3), before anybody starts taking it off them. */
   faction: FactionSchema,
@@ -64,11 +76,144 @@ export const DistrictSchema = z.object({
 });
 export type District = z.infer<typeof DistrictSchema>;
 
-/** District new crews are settled into. */
-export const STARTER_DISTRICT_ID = 'neon-docks';
+/**
+ * What a residential district is called when nobody lives there.
+ *
+ * Every one of them shares it, and that is the point: these are *plots*, not places with
+ * histories. A crew moving in is what gives one a name, and the name it gets is the crew's own
+ * (see {@link districtDisplayName}). The Docks were the last of them to carry an authored name and
+ * that name went with them when they became ground worth fighting over.
+ */
+export const UNCLAIMED_DISTRICT_NAME = 'Player District';
 
-/** District held by the seeded AI rival. */
-export const BOT_DISTRICT_ID = 'ashen-terraces';
+/** Roman numerals for the plots, one per residential district the map can show besides your own. */
+const PLOT_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'] as const;
+
+/**
+ * What the other plots are called: `Player District I`, `II`, `III`, in catalogue order.
+ *
+ * **Numbered rather than named after whoever lives there**, and that is the design rather than a
+ * shortcut. Only one crew on this map is *you*; the rest are other people's homes and the map's job
+ * is to say "somebody plays there", not to publish their crew name to every player in the city. A
+ * board of four different crew names also made the four plots look like four different kinds of
+ * place, when the whole point of them is that they are the same kind of place.
+ *
+ * Viewer-relative, so the numbering always runs from one with no gap in it: your own plot is not in
+ * the sequence, so a player whose home is the second of four sees I, II and III rather than I, III
+ * and IV. `districtDisplayName` is the only caller and `city.test.ts` pins that the three are
+ * distinct.
+ */
+export function plotName(index: number): string {
+  return `${UNCLAIMED_DISTRICT_NAME} ${PLOT_NUMERALS[index] ?? String(index + 1)}`;
+}
+
+/**
+ * Every residential district except `ownDistrictId`, in catalogue order: the plots to number.
+ *
+ * Exported because the numbering has to be the same on the map, on the district screen and in a
+ * test, and re-deriving "which plots are not mine, in what order" at three call sites is how the
+ * three come to disagree.
+ */
+export function otherPlots(ownDistrictId: string): readonly District[] {
+  return CITY_DISTRICTS.filter(
+    (district) => district.kind === 'residential' && district.id !== ownDistrictId,
+  );
+}
+
+/**
+ * What to call a district on a screen.
+ *
+ * One function because it is one rule, and every screen that names a district has to say the same
+ * thing. Contested ground always answers with its authored name. Residential ground answers with
+ * **your crew's name on your own plot** and with a number on everybody else's: see {@link plotName}
+ * for why the other three are not named after their residents.
+ *
+ * Nothing is stored. Rename the crew and the map says so on the next read, which is what makes the
+ * tag a fact about the world rather than a copy of one.
+ */
+export function districtDisplayName(
+  district: District,
+  viewer: { ownDistrictId?: string | null; ownName?: string | null } = {},
+): string {
+  if (district.kind !== 'residential') return district.name;
+  if (
+    viewer.ownDistrictId !== undefined &&
+    viewer.ownDistrictId !== null &&
+    district.id === viewer.ownDistrictId
+  ) {
+    return viewer.ownName !== undefined && viewer.ownName !== null && viewer.ownName.length > 0
+      ? viewer.ownName
+      : district.name;
+  }
+  const index = otherPlots(viewer.ownDistrictId ?? '').findIndex(
+    (other) => other.id === district.id,
+  );
+  return index >= 0 ? plotName(index) : district.name;
+}
+
+/**
+ * A crew name reduced to what a reader can actually tell apart.
+ *
+ * Case, surrounding space **and runs of space inside the name** all collapse. The inner run is the
+ * one that is easy to miss and the one that actually bit: HTML collapses consecutive whitespace
+ * when it lays text out, so `The  Ninth  Street  Crew` and `The Ninth Street Crew` paint the same
+ * pixels on the same tag while comparing as two different strings. A rule that only trimmed the
+ * ends let the second crew through and put two identical tags on the map.
+ */
+function factionNameKey(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
+/**
+ * Whether two crew names are the same name, for the purpose of telling them apart in a city.
+ *
+ * Case and space are not a difference anybody can see on a painted tag, so `eterosegw`,
+ * `EterosEgw`, `  EterosEgw ` and `Eteros  Egw` are one name here. Two crews in the same city
+ * sharing one is not a cosmetic problem: the map, every battle report and every trade listing name
+ * a crew by that string and nothing else, so a duplicate makes two different people
+ * indistinguishable everywhere they appear.
+ */
+export function sameFactionName(a: string, b: string): boolean {
+  return factionNameKey(a) === factionNameKey(b);
+}
+
+/**
+ * Whether a crew may call itself this, ignoring who else is in the city.
+ *
+ * The plot numbers are reserved. A crew called `Player District II` would be indistinguishable from
+ * the plot the map draws under that name, which is the same confusion `sameFactionName` exists to
+ * prevent, arriving from the other direction.
+ */
+export function isReservedFactionName(name: string): boolean {
+  const wanted = factionNameKey(name);
+  if (wanted === factionNameKey(UNCLAIMED_DISTRICT_NAME)) return true;
+  return PLOT_NUMERALS.some(
+    (numeral) => wanted === factionNameKey(`${UNCLAIMED_DISTRICT_NAME} ${numeral}`),
+  );
+}
+
+/**
+ * District new crews are settled into.
+ *
+ * The Docks used to be it, and stopped being it when they were opened up as contested ground: a
+ * starter home has to be somewhere nobody can take, and the Docks are now the first thing a new
+ * crew is expected to go and take. Migration `0040` rehouses the crews who were already living
+ * there.
+ *
+ * Which plot is not arbitrary. `city.test.ts` asks that the Spire be half again as far from home as
+ * downtown is, so a starter sitting level with Chrome Row fails it: from the Terraces the two are
+ * 46 and 48 minutes, which is not a city with a far side. From the Row, low and left, they are 18
+ * and 61.
+ */
+export const STARTER_DISTRICT_ID = 'kettle-row';
+
+/**
+ * District held by the seeded AI rival. Never the starter, or the rival is the player's landlord.
+ *
+ * The Terraces used to be it and are now where migration `0040` rehoused the crews who were living
+ * in the Docks, so the rival moved to one of the two plots opened at the same time.
+ */
+export const BOT_DISTRICT_ID = 'upper-roofs';
 
 /** What holding every location in a district is worth on top of the locations themselves. */
 export interface UnifiedBonus {
@@ -81,13 +226,25 @@ export interface UnifiedBonus {
  * The §A4 unified bonus per contested district.
  *
  * Each is deliberately something *other* than what its own locations give, so a district is worth
- * completing rather than worth farming the best location in: the Scrapfields are full of scrap, and
+ * completing rather than worth farming the best location in: the Belt is full of scrap, and
  * finishing them buys cheaper troops instead of yet more scrap. `city.test.ts` enforces that:
  * a unified bonus whose effect kind already appears inside its own district fails the suite.
  */
 export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
+  'neon-docks': {
+    title: 'The Whole Waterfront',
+    /*
+     * Everything in this city that was not made here came over this quay, and a crew that holds
+     * all of it is buying at the price the boat charged rather than the price the street does.
+     *
+     * Deliberately not another resource line: the Docks already pay caps at the Tideline and
+     * supplies at the Pumphouse and the Galley, and a unified bonus that paid a third of the same
+     * would make finishing the district indistinguishable from farming its best hold.
+     */
+    bonus: { kind: 'market_discount', percent: 12 },
+  },
   rustyard: {
-    title: 'Run of the Scrapfields',
+    title: 'Run of the Belt',
     bonus: { kind: 'training_cost', percent: 10 },
   },
   'chrome-row': {
@@ -150,35 +307,63 @@ function locationsIn(
  * they were in the world from where they were on it.
  *
  * It is a **climb** now. The water and the crews are at the bottom: the Docks, Kettle Row and the
- * Rustyard, the three cheapest locations in the game, and the Directorate is at the top, with the
+ * Steelbelt, the three cheapest locations in the game, and the Directorate is at the top, with the
  * Combine Spire looking down the middle of the frame from the highest point on it. Difficulty rises
  * with height almost monotonically, so "further up" and "harder" are the same direction, and a
  * player who has taken the low ground can see what the next rung is without opening anything.
  *
  * Faction reads left-to-right within that: independent ground on the flanks, the Directorate's
- * holdings up the centre and the right, which is why the Blacksite and the Datavault bracket the
+ * holdings up the centre and the right, which is why the Blacksite and the Annexes bracket the
  * approach to the Spire. `city.test.ts` pins the gradient and the spacing so a future district
  * cannot be dropped in on top of another one.
  */
 export const CITY_DISTRICTS: readonly District[] = [
-  // --- residential: crews live here, and nobody takes these ---
+  /*
+   * **Order is the art seed.** `art/manifest.ts` seeds `district-*` off each entry's index here, so
+   * moving one renumbers the seed of every district after it and silently re-rolls art that may
+   * already have been made. The list is therefore in the order it was first authored, and the two
+   * districts added later are appended at the end rather than filed with their own kind. Read the
+   * map by `kind`, never by position.
+   */
   {
+    /*
+     * The Docks, opened up.
+     *
+     * They were the starter home and they are the starter *target* now: difficulty 1, seven easy
+     * holds, and close enough to everywhere that a crew's first campaign is a real one rather than
+     * a walk. A waterfront the Combine stopped patrolling is exactly the ground a new crew should
+     * be able to take off the people squatting it, and a district with nothing in it was the one
+     * piece of the map that could never be played.
+     */
     id: 'neon-docks',
     name: 'Neon Docks',
     nickname: 'the Docks',
-    kind: 'residential',
+    formalName: null,
+    kind: 'contested',
     faction: 'independent',
     seatOfPower: false,
     position: { x: 0.15, y: 0.9 },
     difficulty: 1,
     blurb:
       'Container stacks and a waterfront the Combine stopped patrolling years ago. Cheap ground, and far enough from the spire that nobody important looks at it.',
-    locations: [],
+    locations: locationsIn('neon-docks', [
+      ['tideline', 'The Tideline Market', 'market', 'easy'],
+      ['pumphouse', 'Dockside Pumphouse', 'water_works', 'easy'],
+      // Under the quay and out past the boom: the reason anything the Combine bans is cheap here.
+      ['runners', "Runners' Tunnel", 'smugglers_tunnel', 'medium'],
+      ['galley', 'The Wet Galley', 'soup_kitchen', 'easy'],
+      // People have been living on the moored barges longer than anybody has been calling it a slum.
+      ['barges', 'The Moored Barges', 'refugee_camp', 'easy'],
+      // A gantry crane with a cabin at the top of it. Whoever is up there sees the whole waterfront.
+      ['cranegate', 'Crane Gate', 'watchtower', 'medium'],
+      ['chandler', 'The Chandlery', 'pawn_shop', 'easy'],
+    ]),
   },
   {
     id: 'ashen-terraces',
-    name: 'Ashen Terraces',
+    name: UNCLAIMED_DISTRICT_NAME,
     nickname: null,
+    formalName: null,
     kind: 'residential',
     faction: 'independent',
     seatOfPower: false,
@@ -190,8 +375,9 @@ export const CITY_DISTRICTS: readonly District[] = [
   },
   {
     id: 'kettle-row',
-    name: 'Kettle Row',
+    name: UNCLAIMED_DISTRICT_NAME,
     nickname: null,
+    formalName: null,
     kind: 'residential',
     faction: 'independent',
     seatOfPower: false,
@@ -202,24 +388,37 @@ export const CITY_DISTRICTS: readonly District[] = [
     locations: [],
   },
 
-  // --- contested: this is what there is to fight over ---
   {
     id: 'rustyard',
-    name: 'The Rustyard',
-    nickname: 'the Scrapfields',
+    /*
+     * The Steelbelt, and it used to be the Rustyard.
+     *
+     * A field of sorted wreckage became a belt of works that are still *running*: presses on shift,
+     * furnaces lit, a pump row that sells to the hauliers. Same seven locations and the same seven
+     * kinds, because a kind is a mechanical fact rather than a name: `doghouse` here is the only
+     * one in the city and it is what unlocks the Cyberhounds, so renaming the ground could not be
+     * allowed to move it. The **id** is unchanged for the same class of reason one level down:
+     * every location id and every saved control row is keyed on it.
+     */
+    name: 'Steelbelt',
+    nickname: 'the Belt',
+    formalName: null,
     kind: 'contested',
     faction: 'independent',
     seatOfPower: false,
     position: { x: 0.63, y: 0.83 },
     difficulty: 2,
     blurb:
-      'Square kilometres of sorted wreckage, worked by whoever got there first. The looters here are disorganised, which is the only reason anybody starts a war on this ground.',
+      'Rolling mills, press houses and a furnace row that has not gone cold in thirty years. Nobody owns the Belt outright: the crews that work it hold their own gates, and none of them holds enough of it to stop anybody else walking in.',
     locations: locationsIn('rustyard', [
-      ['press', 'Kessler Press', 'scrap_press', 'easy'],
-      ['bonefield', 'The Bonefield', 'war_machine_graveyard', 'hard'],
-      ['pawn', 'Ninth Street Pawn', 'pawn_shop', 'easy'],
-      ['ramp', 'The Ramp', 'skate_ground', 'easy'],
-      ['pumps', 'Carrion Row Pumps', 'gas_station', 'easy'],
+      ['press', 'No. 4 Press House', 'scrap_press', 'easy'],
+      ['bonefield', "The Breaker's Yard", 'war_machine_graveyard', 'hard'],
+      ['pawn', 'Toolhouse Pawn', 'pawn_shop', 'easy'],
+      // A drained slag pit the shift kids ride. Industrial ground put to a use nobody planned.
+      ['ramp', 'The Slag Bowl', 'skate_ground', 'easy'],
+      ['pumps', 'Furnace Row Pumps', 'gas_station', 'easy'],
+      // Named, not renamed: the *kind* is the only `doghouse` in the city and it is what puts
+      // Cyberhounds on the roster. See `units/catalog.ts`.
       ['kennels', 'The Doghouse', 'doghouse', 'medium'],
       ['bones', 'The Bone Market', 'bone_market', 'easy'],
     ]),
@@ -228,6 +427,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     id: 'chrome-row',
     name: 'Chrome Row',
     nickname: 'the Old City Center',
+    formalName: null,
     kind: 'contested',
     faction: 'independent',
     seatOfPower: false,
@@ -250,6 +450,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     id: 'undergrid',
     name: 'The Undergrid',
     nickname: 'the Power Spine',
+    formalName: null,
     kind: 'contested',
     faction: 'government',
     seatOfPower: false,
@@ -269,8 +470,9 @@ export const CITY_DISTRICTS: readonly District[] = [
   },
   {
     id: 'datavault-sigma',
-    name: 'Datavault Sigma',
+    name: 'The Annexes',
     nickname: 'the Tech District',
+    formalName: null,
     kind: 'contested',
     faction: 'government',
     seatOfPower: false,
@@ -279,8 +481,8 @@ export const CITY_DISTRICTS: readonly District[] = [
     blurb:
       'Faculty buildings the Combine never closed, because it was easier to move in. Everything worth knowing in this city is written down somewhere in here.',
     locations: locationsIn('datavault-sigma', [
-      ['faculty', 'Sigma Faculty', 'university', 'medium'],
-      ['uplink', 'Uplink Sigma', 'satellite_uplink', 'hard'],
+      ['faculty', 'The Faculty Annexe', 'university', 'medium'],
+      ['uplink', 'Annexe Uplink', 'satellite_uplink', 'hard'],
       ['ward', 'The Quiet Ward', 'gene_clinic', 'hard'],
       ['coldrow', 'Cold Row', 'foundry', 'medium'],
       ['orrery', 'The Orrery', 'planetarium', 'medium'],
@@ -294,6 +496,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     id: 'glasshouse-fields',
     name: 'Glasshouse Fields',
     nickname: 'the Green Belt',
+    formalName: null,
     kind: 'contested',
     faction: 'government',
     seatOfPower: false,
@@ -314,8 +517,9 @@ export const CITY_DISTRICTS: readonly District[] = [
   },
   {
     id: 'blacksite-7',
-    name: 'Blacksite 7',
+    name: 'Blacksite',
     nickname: 'the Military District',
+    formalName: null,
     kind: 'contested',
     faction: 'government',
     seatOfPower: true,
@@ -336,7 +540,8 @@ export const CITY_DISTRICTS: readonly District[] = [
   },
   {
     id: 'combine-spire',
-    name: 'Spire of the Combine',
+    name: 'CCS',
+    formalName: 'Civic Command Sector',
     nickname: 'the Spire',
     kind: 'contested',
     faction: 'government',
@@ -346,15 +551,46 @@ export const CITY_DISTRICTS: readonly District[] = [
     blurb:
       'The surface spire the government rules from, and the household guard that has never been tested. Taking this is not a raid. It is the end of something.',
     locations: locationsIn('combine-spire', [
-      ['uplink', 'Spire Uplink', 'satellite_uplink', 'hard'],
+      ['uplink', 'Command Uplink', 'satellite_uplink', 'hard'],
       ['armory', 'Directorate Armory', 'armory', 'hard'],
       ['household', 'The Household Barricade', 'barricade', 'hard'],
-      ['broadcast', 'Spire Broadcast', 'broadcast_station', 'hard'],
+      ['broadcast', 'Command Broadcast', 'broadcast_station', 'hard'],
       ['ascension', 'The Ascension Clinic', 'gene_clinic', 'hard'],
       ['scaffold', 'The Unfinished Wing', 'construction_site', 'hard'],
       ['martyrs', 'The Martyrs’ Ground', 'graveyard', 'medium'],
       ['statue', 'Statue of the Revolutionist', 'revolutionist_statue', 'medium'],
     ]),
+  },
+  {
+    // The roofs above the slab wall, north-west of frame: high ground with the wall between it and
+    // everything the Combine cares about, which is why anybody was allowed to build there.
+    id: 'upper-roofs',
+    name: UNCLAIMED_DISTRICT_NAME,
+    nickname: null,
+    formalName: null,
+    kind: 'residential',
+    faction: 'independent',
+    seatOfPower: false,
+    position: { x: 0.91, y: 0.79 },
+    difficulty: 2,
+    blurb:
+      'Roofs stacked on roofs above the wall, reached by ladders somebody bolted on in the dark. Nothing official has been up here in years and the view is the whole northern approach.',
+    locations: [],
+  },
+  {
+    // Down at the far end of the market, where the awnings stop and the water starts again.
+    id: 'south-quay',
+    name: UNCLAIMED_DISTRICT_NAME,
+    nickname: null,
+    formalName: null,
+    kind: 'residential',
+    faction: 'independent',
+    seatOfPower: false,
+    position: { x: 0.78, y: 0.93 },
+    difficulty: 1,
+    blurb:
+      'The tail of the market where the stalls give out and the cut comes back up to meet the street. Damp, cheap, and out of everybody else\u2019s way.',
+    locations: [],
   },
 ];
 

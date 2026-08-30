@@ -186,7 +186,7 @@ export function territoryEffectsFor(
  *
  * Every location used to start with `garrison: {}`: held on paper by the Combine or the looters, and
  * defended by nobody at all. So every location on the map could be taken by one Razor, for free, and
- * the entire city layer was a formality. The fiction had said so all along: "the Rustyard being
+ * the entire city layer was a formality. The fiction had said so all along: "Steelbelt being
  * full of looters is what gives a new crew something to fight that will lose."
  *
  * Derived, not authored: the size comes off the district's own difficulty and the location's
@@ -199,7 +199,7 @@ export function territoryEffectsFor(
  */
 // Tuned against the opening move, not in the abstract: a new crew fields four Razors and can train
 // more for nothing, so the easiest location in the city has to be takeable by a first-session force
-// that has made a little effort. At 1.2/0.9 the Rustyard's press holds four and the Combine's hard
+// that has made a little effort. At 1.2/0.9 Steelbelt's press holds four and the Combine's hard
 // ground holds fifteen, which is the spread the difficulty numbers were written for.
 export const GARRISON_PER_DIFFICULTY = 1.2;
 export const GARRISON_PER_BASE_DEFENSE = 0.9;

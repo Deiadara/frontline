@@ -6,7 +6,7 @@ import {
   missionCarry,
   requiresOfficer,
   type Army,
-  type AssigneeOfficer,
+  type CrewOfficer,
   type MissionArea,
   type MissionKind,
   type MissionOffer,
@@ -117,7 +117,7 @@ function Keyword({
 export type Roster =
   | { status: 'loading' }
   | { status: 'error' }
-  | { status: 'ready'; officers: readonly AssigneeOfficer[] };
+  | { status: 'ready'; officers: readonly CrewOfficer[] };
 
 export interface MissionBoardProps {
   areas: readonly MissionArea[];
@@ -563,7 +563,7 @@ function SendDialog({
                   : [{ value: '', label: 'Nobody: send them alone' }]),
                 ...officers.map((officer) => ({
                   value: officer.officerId,
-                  label: `${officer.name} · ${officer.assignees} with them`,
+                  label: officer.name,
                 })),
               ]}
               data-testid="send-leader"

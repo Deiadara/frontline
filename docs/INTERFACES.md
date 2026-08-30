@@ -14,7 +14,7 @@ build; this file says _who owns which symbol_ so two workstreams never define th
 
 | Symbol / file                                                          | Owner          | Consumers                |
 | ---------------------------------------------------------------------- | -------------- | ------------------------ |
-| `packages/shared/src/attributes.ts`, `traits.ts`, `roles.ts`           | W1             | W3-W7                    |
+| `packages/shared/src/attributes.ts`, `crew/perks.ts`, `roles.ts`       | W1             | W3-W7                    |
 | `apps/server/src/roles/requirements.ts` (hidden, server-only)          | W1             | W5, W7 (read-only)       |
 | `packages/shared/src/resources.ts`: `ResourcesSchema`, `RESOURCE_KEYS` | W2             | everyone                 |
 | Morale / infamy / reputation counters                                  | W2             | W3, W5, W10              |
@@ -23,7 +23,6 @@ build; this file says _who owns which symbol_ so two workstreams never define th
 | Player XP tally, level curve, level-up grant (§I1-I2)                  | W6             | W3, W4, W5, W8           |
 | Mission definitions, travel/duration bands, resolution (§E)            | W3             | W4, W6                   |
 | `Building.level`, per-structure level                                  | W8             | ,                        |
-| `Commander.level`: the **character** level (§H6)                       | W5             | W4                       |
 | Resource icon **keys** (`icon-<resourceKey>`)                          | W2             | W9                       |
 | Resource icon **prompt copy** (ART-PROMPTS §6.1)                       | W9             | :                        |
 | `packages/shared/src/index.ts` (barrel)                                | shared, see §3 | ,                        |
@@ -39,29 +38,21 @@ The standing pin on MOU-164/MOU-165 is unchanged and correct: the **player's** p
 per owner (`bases.ts` `findByOwnerId`), so base level _is_ player level. It drives the assignee pool
 (§G8), the per-officer assignee cap (§G3) and recruit slots (§H8).
 
-That pin also says "do not introduce a second progression counter". Read literally it forbids
-something §H6 requires, so it is narrowed here:
+That pin also says "do not introduce a second progression counter". It now binds without any
+narrowing at all, because the thing it had to be narrowed _for_ is gone:
 
-- §H6/H6a gives **each held character** its own level, granting 5 attribute points per level (2
-  player-assigned, 3 auto-allocated along affinities). That is **not** player progression and is
-  **not** a second tally of it. It is a per-character counter, one per `Commander`.
-- **W5 owns `Commander.level`** and the §H6 grant, matching the delivery map (H1-H8 → W5). W6 does
-  not define it; W4 reads it.
-- The "no second counter" rule still binds absolutely for _player_ progression: nothing anywhere may
-  shadow, mirror, or recompute `Base.level`.
-- Neither workstream may add a bare top-level `level` export to `@frontline/shared`. The package
-  re-exports with `export *`, so prefix new symbols (`PLAYER_LEVEL_*`, `CHARACTER_LEVEL_*`).
+- §H6 character levels are **cut** (GDD §H4-H6 superseded). There is no `Commander.level`, no
+  character XP and no per-character counter of any kind. `Base.level` is the only level in the game.
+- The rule binds absolutely: nothing anywhere may shadow, mirror, or recompute `Base.level`.
+- No workstream may add a bare top-level `level` export to `@frontline/shared`. The package
+  re-exports with `export *`, so prefix new symbols (`PLAYER_LEVEL_*`).
 
-### R2: character XP has no source in the GDD
+### R2: character XP is cut
 
-§I1 enumerates XP sources for the **player** only. §H6 says characters "evolve slowly" but never says
-what drives it. Reading, pending a board correction (same status as §H6a):
-
-> A character earns XP from the missions and internal processes **they are assigned to** (§E, §G6):
-> the only per-character activity the GDD defines.
-
-W5 implements against this reading and keeps the source behind one function so a board correction is
-a one-line change.
+§I1 enumerates XP sources for the **player** only. §H6 said characters "evolve slowly" but never said
+what drove it, and this section used to carry a reading of that gap. The mechanic is gone: officers
+earn nothing and level nowhere. A mission or an internal process pays the crew, and who led it
+decides how well it went rather than what it does to them.
 
 ### R3: resource keys vs. resource art
 

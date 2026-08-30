@@ -1,4 +1,5 @@
 import {
+  withoutRetiredUnits,
   CITY_LOCATIONS,
   LocationControlSchema,
   findDistrict,
@@ -40,7 +41,7 @@ function rowToControl(row: ControlRow): LocationControl {
     upgradingUntil: row.upgrading_until,
     fortification: row.fortification,
     fortifyingUntil: row.fortifying_until,
-    garrison: readJson(row.garrison_json),
+    garrison: withoutRetiredUnits(readJson(row.garrison_json)),
   });
 }
 

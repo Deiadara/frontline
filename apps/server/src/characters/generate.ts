@@ -2,12 +2,10 @@ import {
   ATTRIBUTE_NAMES,
   MAX_RECRUITMENT_ATTRIBUTE,
   OFFICER_ROLES,
-  TRAIT_IDS,
-  applyTraitBonuses,
+  PERK_IDS,
   type AttributeName,
   type Attributes,
   type OfficerRole,
-  type TraitId,
 } from '@frontline/shared';
 import { attributeWeightsOf } from '../roles/requirements.js';
 import { createRng, gaussian, randomInt, sample, weightedSample, type Rng } from './rng.js';
@@ -92,12 +90,20 @@ const WEAKNESS_FLOOR = 4;
 const MIN_WEAKNESSES = 1;
 const MAX_WEAKNESSES = 3;
 
-/** Chance a generated character carries a trait (B7: *some* characters have one). */
-const TRAIT_CHANCE = 0.35;
+/**
+ * How many perks a recruit rolls (§B7): nought to three, weighted towards the low end.
+ *
+ * The weights are the whole balance of the perk book. Three-perk recruits have to be rare, because
+ * a perk is a permanent crew-wide bonus and nineteen chairs is a lot of them; making them common
+ * would turn a full roster into a stack of multipliers rather than a set of choices. A little over
+ * half of the Bar carries at least one, so the keyword line on a card is worth reading without
+ * being the only thing on it.
+ */
+const PERK_COUNT_WEIGHTS = [45, 35, 15, 5] as const;
 
 export interface GeneratedCharacter {
   attributes: Attributes;
-  traits: TraitId[];
+  perks: string[];
 }
 
 /**
@@ -171,10 +177,26 @@ function rollAttributes(rng: Rng, affinity: OfficerRole, calibre = 0): Attribute
   return sheet;
 }
 
-function rollTraits(rng: Rng): TraitId[] {
-  if (rng() >= TRAIT_CHANCE) return [];
-  const trait = TRAIT_IDS[randomInt(rng, 0, TRAIT_IDS.length - 1)];
-  return trait ? [trait] : [];
+/** How many perks this one gets, drawn against {@link PERK_COUNT_WEIGHTS}. */
+function rollPerkCount(rng: Rng): number {
+  const total = PERK_COUNT_WEIGHTS.reduce((sum, weight) => sum + weight, 0);
+  let roll = rng() * total;
+  for (const [count, weight] of PERK_COUNT_WEIGHTS.entries()) {
+    roll -= weight;
+    if (roll < 0) return count;
+  }
+  return 0;
+}
+
+/** Distinct perks, because carrying the same bonus twice reads as a bug rather than as luck. */
+function rollPerks(rng: Rng): string[] {
+  const wanted = rollPerkCount(rng);
+  const picked: string[] = [];
+  for (let attempt = 0; picked.length < wanted && attempt < PERK_IDS.length * 2; attempt += 1) {
+    const id = PERK_IDS[randomInt(rng, 0, PERK_IDS.length - 1)];
+    if (id !== undefined && !picked.includes(id)) picked.push(id);
+  }
+  return picked;
 }
 
 /** Roll one recruitable character, keeping the affinity. Same seed, same character. */
@@ -184,22 +206,23 @@ export function rollRecruit(seed: number, calibre = 0): ShapedRoll {
   if (!affinity) throw new Error('no officer roles to draw an affinity from');
 
   const rolled = rollAttributes(rng, affinity, calibre);
-  const traits = rollTraits(rng);
+  const perks = rollPerks(rng);
 
-  // A trait's bonus lands on top of the roll but still cannot break the recruitment ceiling.
-  const boosted = applyTraitBonuses(rolled, traits);
+  // Still clamped to the recruitment ceiling. A perk cannot breach it the way a trait could,
+  // because a perk does not touch this person's own sheet at all, but the clamp is the guarantee
+  // the rest of the game reads §B2a off and it stays where the roll happens.
   const attributes = Object.fromEntries(
     ATTRIBUTE_NAMES.map((name: AttributeName) => [
       name,
-      Math.min(MAX_RECRUITMENT_ATTRIBUTE, boosted[name]),
+      Math.min(MAX_RECRUITMENT_ATTRIBUTE, rolled[name]),
     ]),
   ) as Attributes;
 
-  return { attributes, traits, affinity };
+  return { attributes, perks, affinity };
 }
 
 /** Roll one recruitable character. Same seed and calibre, same character. */
 export function generateCharacter(seed: number, calibre = 0): GeneratedCharacter {
-  const { attributes, traits } = rollRecruit(seed, calibre);
-  return { attributes, traits };
+  const { attributes, perks } = rollRecruit(seed, calibre);
+  return { attributes, perks };
 }

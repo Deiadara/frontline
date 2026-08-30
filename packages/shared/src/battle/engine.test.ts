@@ -1,18 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { findUnit, type Army } from '../units/index.js';
+import { findUnit, isCombatUnit, UNIT_CATALOG, UNIT_MODIFIERS, type Army } from '../units/index.js';
 import { winnerLossFraction } from './attrition.js';
 import { bareBattlefield } from './battlefield.js';
 import { effectiveStats } from './effects.js';
 import { noTerritoryEffects } from '../city/index.js';
+import { EVASIVE_THRESHOLD, exchange, targetBonusPercent } from './matchup.js';
 import {
   allocate,
+  MAX_MEND_SHARE,
+  mendShare,
   pursue,
   simulate,
   sidePower,
   TAUNT_PULL,
+  type SideState,
   type Simulation,
   type Stack,
 } from './engine.js';
+
+/** A side built the way the engine builds one, for the rules that read a whole side at once. */
+const mendSide = (army: Army): SideState =>
+  simulate({
+    seed: 'mend-side',
+    battlefield: bareBattlefield(),
+    attacker: { name: 'A', army, defending: false },
+    defender: { name: 'D', army: { razors: 1 }, defending: true },
+  }).attacker;
 
 /**
  * The engine's behaviour, measured rather than asserted about.
@@ -368,5 +381,218 @@ describe('a taunting stack takes the fire off the line behind it', () => {
 
     const only = allocate(shooter, [stackOf('ironsides', 6), stackOf('ironsides', 4)]);
     expect(only.reduce((sum, part) => sum + part.share, 0)).toBeCloseTo(1, 10);
+  });
+});
+
+/**
+ * The porters are never in the line, on **either** side.
+ *
+ * `combat: false` is a hard rule, and it was enforced only where a force is *chosen*: three server
+ * doors refuse to send a porter to a fight. A defender chooses nothing, so a raided crew defended
+ * with whatever stood in its district, and 25 Breakers against 20 Razors, 40 Scavengers and 30
+ * Haulers killed 24 Scavengers and 23 Haulers. Every one of the 2,524 tests in this repo passed
+ * over that, which is why the rule now lives in `buildStacks` where there is no door to forget.
+ */
+describe('who is actually in the line', () => {
+  const fight = (attacking: Army, defending: Army) =>
+    simulate({
+      seed: 'porters',
+      battlefield: bareBattlefield(),
+      attacker: { name: 'A', army: attacking, defending: false },
+      defender: { name: 'D', army: defending, defending: true },
+    });
+
+  const porters = UNIT_CATALOG.filter((unit) => !isCombatUnit(unit)).map((unit) => unit.id);
+
+  it('has porters to test with, so this is not vacuous', () => {
+    expect(porters.length).toBeGreaterThan(0);
+  });
+
+  it('leaves a defending crew’s porters out of the ranks entirely', () => {
+    const army: Army = { razors: 20, ...Object.fromEntries(porters.map((id) => [id, 30])) };
+    const battle = fight({ breakers: 25 }, army);
+    const named = battle.defender.stacks.map((stack) => stack.unit.id);
+    for (const id of porters) expect(named, id).not.toContain(id);
+    expect(named).toContain('razors');
+  });
+
+  it('leaves an attacking crew’s porters out too, wherever the force came from', () => {
+    const army: Army = { razors: 20, ...Object.fromEntries(porters.map((id) => [id, 30])) };
+    const battle = fight(army, { breakers: 25 });
+    for (const id of porters) {
+      expect(
+        battle.attacker.stacks.map((stack) => stack.unit.id),
+        id,
+      ).not.toContain(id);
+    }
+  });
+
+  /** And the consequence that matters: they cannot be killed in a fight they were never in. */
+  it('never counts a porter as a casualty', () => {
+    const army: Army = { razors: 20, ...Object.fromEntries(porters.map((id) => [id, 30])) };
+    const battle = fight({ breakers: 40 }, army);
+    for (const stack of [...battle.attacker.stacks, ...battle.defender.stacks]) {
+      expect(isCombatUnit(stack.unit), stack.unit.id).toBe(true);
+    }
+  });
+
+  /**
+   * A force of nothing but porters has no line at all, which is the rule read correctly rather
+   * than a special case: there is nobody there to fight, so the other side walks in. It used to
+   * *win*: forty Scavengers took a location off five Razors.
+   */
+  it('gives a porters-only force no line, whichever side it is on', () => {
+    const only: Army = Object.fromEntries(porters.map((id) => [id, 40]));
+    expect(fight(only, { razors: 5 }).defender.stacks.length).toBeGreaterThan(0);
+    expect(fight(only, { razors: 5 }).attacker.stacks).toHaveLength(0);
+    expect(fight({ razors: 5 }, only).defender.stacks).toHaveLength(0);
+  });
+});
+
+/**
+ * The medics (`UnitSpec.mends`), and the four rules that make them a unit rather than a discount.
+ *
+ * Every one of these is written the way the mechanic was found to be wrong the first time. The
+ * first draft undid a flat number of hit points per medic per round, and the {@link MAX_MEND_SHARE}
+ * ceiling bound before that number ever did: sweeping it from 55 to 800 moved not one figure in the
+ * trial table, so two medics and twelve medics did exactly the same thing. The cover model is what
+ * replaced it, and `scales with how many medics came` is the test that would have caught it.
+ */
+describe('medics undo part of a round before anybody counts it', () => {
+  const medics = UNIT_CATALOG.filter((unit) => unit.mends === true);
+  const line = UNIT_CATALOG.filter(
+    (unit) => isCombatUnit(unit) && unit.mends !== true && unit.taunts !== true,
+  );
+
+  it('has a mending unit and a line to put behind it, so none of this is vacuous', () => {
+    expect(medics.length).toBeGreaterThan(0);
+    expect(line.length).toBeGreaterThan(0);
+  });
+
+  const defenderPool = (attacking: Army, defending: Army, seed: string): number =>
+    fight(attacking, defending, seed).defender.stacks.reduce((total, s) => total + s.pool, 0);
+
+  /**
+   * The positive control: the same line, the same enemy, the same seed, medics or not.
+   *
+   * The line is held *constant* rather than traded against the medics, because this test is about
+   * whether the mechanic reaches the damage at all. Whether it is worth its supply is a different
+   * question and a different measurement (see the Stitchers sheet).
+   */
+  it('leaves a line holding more than it would have without them', () => {
+    const without = defenderPool({ breakers: 16 }, { wardens: 20 }, 'mend-a');
+    const with8 = defenderPool({ breakers: 16 }, { wardens: 20, stitchers: 8 }, 'mend-a');
+    expect(with8).toBeGreaterThan(without);
+  });
+
+  it('scales with how many medics came, rather than flipping on at the first one', () => {
+    const at = (count: number) =>
+      defenderPool(
+        { breakers: 16 },
+        { wardens: 20, ...(count ? { stitchers: count } : {}) },
+        'mend-b',
+      );
+    const series = [0, 4, 8, 16].map(at);
+    expect([...series].sort((a, b) => a - b)).toEqual(series);
+    // ...and the ends are far enough apart that the ordering above is not four ties.
+    expect(series.at(-1)!).toBeGreaterThan(series[0]! * 1.1);
+  });
+
+  it('never lets a hospital cancel a whole round, however many of them there are', () => {
+    for (const side of [
+      mendSide({ wardens: 4, stitchers: 400 }),
+      mendSide({ wardens: 1, stitchers: 1 }),
+    ]) {
+      expect(mendShare(side)).toBeLessThanOrEqual(MAX_MEND_SHARE);
+    }
+  });
+
+  /**
+   * The rule that keeps a field hospital from being a cheap Warden: medics do not mend medics.
+   *
+   * Without it, a force of nothing but Stitchers is a force that takes 45% less damage than
+   * anybody, which is the opposite of a unit whose blurb is "contribute nothing to a fight".
+   */
+  it('gives a force of nothing but medics no mending at all', () => {
+    expect(mendShare(mendSide({ stitchers: 40 }))).toBe(0);
+    expect(mendShare(mendSide({ wardens: 40 }))).toBe(0);
+    expect(mendShare(mendSide({ wardens: 40, stitchers: 10 }))).toBeGreaterThan(0);
+  });
+
+  /** A broken hospital is people running, not people working. */
+  it('stops mending once the medics have broken', () => {
+    const side = mendSide({ wardens: 20, stitchers: 10 });
+    const before = mendShare(side);
+    for (const stack of side.stacks) if (stack.unit.mends === true) stack.brokeAt = 3;
+    expect(before).toBeGreaterThan(0);
+    expect(mendShare(side)).toBe(0);
+  });
+});
+
+/**
+ * `tracking`, the counter that evasion did not have.
+ *
+ * Armour has been answered by `penetration` on every sheet since the first draft. Evasion was a
+ * flat miss chance with nothing on either side of it, so the two most evasive units in the roster
+ * were better than everything against everything: the Crimson Dancer took 90% of her matchups with
+ * a spread of 23 points across opponents, which is what an uncounterable stat looks like in a table.
+ */
+describe('a tracking sheet answers an evasive one', () => {
+  const trackers = UNIT_CATALOG.filter((unit) => unit.modifiers.includes('tracking'));
+  const evasive = UNIT_CATALOG.filter(
+    (unit) => isCombatUnit(unit) && unit.stats.evasion >= EVASIVE_THRESHOLD,
+  );
+  const steady = UNIT_CATALOG.filter(
+    (unit) => isCombatUnit(unit) && unit.stats.evasion < EVASIVE_THRESHOLD,
+  );
+
+  it('has trackers, and both kinds of target to point them at', () => {
+    expect(trackers.length).toBeGreaterThan(0);
+    expect(evasive.length).toBeGreaterThan(0);
+    expect(steady.length).toBeGreaterThan(0);
+  });
+
+  it('pays a tracker against something that dodges, and nothing against something that does not', () => {
+    for (const tracker of trackers) {
+      for (const target of evasive) {
+        expect(
+          targetBonusPercent(tracker.modifiers, bare(target), target.stats.morale),
+          `${tracker.id} vs ${target.id}`,
+        ).toBeGreaterThanOrEqual(UNIT_MODIFIERS.tracking.percent);
+      }
+      for (const target of steady) {
+        const withArmorBonus = targetBonusPercent(tracker.modifiers, bare(target), 100);
+        const withoutTracking = targetBonusPercent(
+          tracker.modifiers.filter((id) => id !== 'tracking'),
+          bare(target),
+          100,
+        );
+        expect(withArmorBonus, `${tracker.id} vs ${target.id}`).toBe(withoutTracking);
+      }
+    }
+  });
+
+  /** And the consequence, stated as damage rather than as a percentage on a table. */
+  it('makes a tracker hit an evasive target harder than the same sheet without it', () => {
+    const tracker = trackers[0]!;
+    const target = evasive.find((unit) => unit.stats.evasion >= 60) ?? evasive[0]!;
+    const withIt = exchange(bare(tracker), tracker.modifiers, bare(target), target.stats.morale);
+    const withoutIt = exchange(
+      bare(tracker),
+      tracker.modifiers.filter((id) => id !== 'tracking'),
+      bare(target),
+      target.stats.morale,
+    );
+    expect(withIt.perBody).toBeGreaterThan(withoutIt.perBody);
+  });
+
+  /**
+   * Nobody may carry it *and* be the thing it answers. A sheet that dodges and reads dodging is a
+   * sheet with no counter, which is the hole this modifier was added to close.
+   */
+  it('is never on a sheet that is itself evasive', () => {
+    for (const tracker of trackers) {
+      expect(tracker.stats.evasion, tracker.id).toBeLessThan(EVASIVE_THRESHOLD);
+    }
   });
 });

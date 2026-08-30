@@ -67,6 +67,16 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['officer-31', 'officer-31.webp', 115031],
   ['officer-32', 'officer-32.webp', 115032],
   ['officer-33', 'officer-33.webp', 115033],
+  ['officer-34', 'officer-34.webp', 115034],
+  ['officer-35', 'officer-35.webp', 115035],
+  ['officer-36', 'officer-36.webp', 115036],
+  ['officer-37', 'officer-37.webp', 115037],
+  ['officer-38', 'officer-38.webp', 115038],
+  ['officer-39', 'officer-39.webp', 115039],
+  ['officer-40', 'officer-40.webp', 115040],
+  ['officer-41', 'officer-41.webp', 115041],
+  ['officer-42', 'officer-42.webp', 115042],
+  ['officer-43', 'officer-43.webp', 115043],
   ['district-neon-docks', 'district-neon-docks.webp', 120001],
   ['district-ashen-terraces', 'district-ashen-terraces.webp', 120002],
   ['district-kettle-row', 'district-kettle-row.webp', 120003],
@@ -77,6 +87,8 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['district-glasshouse-fields', 'district-glasshouse-fields.webp', 120008],
   ['district-blacksite-7', 'district-blacksite-7.webp', 120009],
   ['district-combine-spire', 'district-combine-spire.webp', 120010],
+  ['district-upper-roofs', 'district-upper-roofs.webp', 120011],
+  ['district-south-quay', 'district-south-quay.webp', 120012],
   ['plate-city', 'plate-city.webp', 130001],
   ['plane-city-sky', 'plane-city-sky.webp', 130002],
   ['plane-city-far', 'plane-city-far.webp', 130003],
@@ -205,7 +217,7 @@ const PROMPT_DOC = readFileSync(
  *
  * The section number takes a letter (`1b.7`) as well as digits. The officer pool sits beside the
  * overseer portraits rather than at the end of the document, because that is where a reader looks
- * for a face, and a digits-only pattern skipped all thirty-three of them in silence: the doc had
+ * for a face, and a digits-only pattern skipped all forty-three of them in silence: the doc had
  * the subjects, the scan did not see them, and the only symptom was the count.
  */
 const FENCED_SUBJECT = /^### [\da-z.]+ `([a-z\d-]+)`[^\n]*\n+```\n(SUBJECT:[\s\S]*?)\n```/gm;
@@ -258,8 +270,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 158 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(158);
+  it('holds the 170 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(170);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -331,7 +343,7 @@ describe('ART_MANIFEST', () => {
       ),
     ).toEqual({
       portrait: 'webp90',
-      // A roster face at a couple of hundred pixels: 88 rather than 90, times thirty-three.
+      // A roster face at a couple of hundred pixels: 88 rather than 90, times forty-three.
       officer: 'webp88',
       district: 'webp90',
       plate: 'webp92',

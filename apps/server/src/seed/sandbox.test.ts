@@ -3,7 +3,6 @@ import {
   BUILDING_MAX_LEVEL,
   UNIT_IDS,
   isBuildingUnlocked,
-  startingAssignees,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -54,7 +53,6 @@ function seedFreshPlayer(repos: Repositories, username = 'Nikos'): Base {
     economy: startingEconomy(NOW),
     progression: startingProgression(),
     research: startingResearch(),
-    assignees: startingAssignees(),
     buildings: [
       { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
     ],

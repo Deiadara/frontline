@@ -18,7 +18,6 @@ import {
   startingEconomy,
   startingProgression,
   startingResearch,
-  startingAssignees,
   startingTraining,
   type Base,
   type TrainingResponse,
@@ -302,7 +301,11 @@ describe("the Overseer's own page", () => {
 describe('an attribute changes an outcome', () => {
   const HOUR = '2026-08-16T12:00:00.000Z';
 
-  function seed(repos: Repositories, sheet: Record<string, number>): Base {
+  function seed(
+    repos: Repositories,
+    sheet: Record<string, number>,
+    perks: readonly string[] = [],
+  ): Base {
     repos.users.insert({ id: 'u', username: 'crew', passwordHash: 'x', createdAt: HOUR });
     const base: Base = {
       id: 'b',
@@ -315,7 +318,6 @@ describe('an attribute changes an outcome', () => {
       economy: startingEconomy(HOUR),
       progression: startingProgression(),
       research: startingResearch(),
-      assignees: startingAssignees(),
       buildings: [
         { id: 'n', kind: 'nexus', level: 3, modifications: [], damage: 0, fortification: 0 },
       ],
@@ -327,12 +329,47 @@ describe('an attribute changes an outcome', () => {
       fittedUpgrades: [],
       unitLoadouts: {},
       fleet: {},
-      commanders: [createCommander('o1', 'Spec', 'head_spy', makeAttributes(0, sheet))],
+      commanders: [createCommander('o1', 'Spec', 'head_spy', makeAttributes(0, sheet), perks)],
       createdAt: HOUR,
     };
     repos.bases.insert(base);
     return base;
   }
+
+  /**
+   * §B7: a perk on an officer reaches the game, through the same path an attribute does.
+   *
+   * This is a *server* test rather than another one in `crew/effects.ts`, and the reason is the
+   * bug it was written for. The shared fold was correct and its unit tests passed; what was broken
+   * was the wiring, because `crewSheetsFor` built every `CrewMember` from an officer's attributes
+   * and role and simply never read their perks. The whole hundred-perk book applied to nobody, and
+   * it compiled, because the field was optional at the time. It is required now, so that exact
+   * mistake is a build error, and this pins the end-to-end path as well.
+   */
+  it('carries an officer perk from the roster through to the numbers the game runs on', () => {
+    const plain = openStack();
+    const helped = openStack();
+    const plainBase = seed(plain, {});
+    // `site_foreman` is +6% build speed, a channel with nothing else feeding it here.
+    const helpedBase = seed(helped, {}, ['site_foreman']);
+
+    const flat = queueBuild(plain, {
+      base: plainBase,
+      structure: 'quarters',
+      id: 'q1',
+      now: new Date(HOUR),
+    });
+    const quick = queueBuild(helped, {
+      base: helpedBase,
+      structure: 'quarters',
+      id: 'q2',
+      now: new Date(HOUR),
+    });
+    if (flat.kind !== 'queued' || quick.kind !== 'queued') throw new Error('both should queue');
+    expect(quick.entry.durationSeconds, 'the perk book applies to nobody').toBeLessThan(
+      flat.entry.durationSeconds,
+    );
+  });
 
   it('takes time off a build for Organization and Dexterity', () => {
     const plain = openStack();

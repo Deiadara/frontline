@@ -3,7 +3,7 @@ import { COMBAT_CONTEXT_LABELS, type UnitModifierId } from '../units/index.js';
 import type { Battlefield } from './battlefield.js';
 import { engagementMultiplier, exchange } from './matchup.js';
 import { moraleState, MORALE_STATE_LABELS } from './morale.js';
-import type { Simulation, SideState, Stack } from './engine.js';
+import { mendShare, type Simulation, type SideState, type Stack } from './engine.js';
 
 /**
  * Turning a simulation into something a player reads (GDD §A5).
@@ -26,7 +26,22 @@ export const FINDING_VISIBILITIES = ['shared', 'own', 'implied'] as const;
 export const FindingVisibilitySchema = z.enum(FINDING_VISIBILITIES);
 export type FindingVisibility = z.infer<typeof FindingVisibilitySchema>;
 
-export const FINDING_KINDS = ['ground', 'engagement', 'resistance', 'morale'] as const;
+export const FINDING_KINDS = [
+  'ground',
+  'engagement',
+  'resistance',
+  'morale',
+  /**
+   * What somebody who never fired a shot did.
+   *
+   * The report could see damage, ground and nerve, and nothing else, so the one mechanic whose
+   * whole point is "how many walk out of it" was invisible in the one place it is measured: a
+   * player whose Stitchers saved forty bodies read a casualty list and concluded the medics did
+   * nothing. A finding is what turns a support unit from an act of faith into a thing you can see
+   * working.
+   */
+  'support',
+] as const;
 export const FindingKindSchema = z.enum(FINDING_KINDS);
 export type FindingKind = z.infer<typeof FindingKindSchema>;
 
@@ -157,6 +172,34 @@ function groundFindings(battlefield: Battlefield): BattleFinding[] {
   ];
 }
 
+/**
+ * What the field hospital was worth, stated as bodies rather than as a percentage.
+ *
+ * `own`, not `shared`: how well the other side's medics did is not something you can see from
+ * across a street, and telling the attacker would hand them the counter for free.
+ */
+function supportFindings(simulation: Simulation, side: SideState): BattleFinding[] {
+  const share = mendShare(side);
+  if (share <= 0) return [];
+
+  const medics = side.stacks.filter((stack) => stack.unit.mends === true);
+  if (medics.length === 0) return [];
+  const name = medics[0]!.unit.name;
+  const standing = medics.reduce((total, stack) => total + stack.alive, 0);
+
+  return [
+    {
+      side: sideOf(simulation, side),
+      kind: 'support',
+      visibility: 'own',
+      text:
+        standing === 0
+          ? `The ${name} were overrun before the line needed them.`
+          : `The ${name} kept working: roughly ${Math.round(share * 100)}% of what came at the line never counted.`,
+    },
+  ];
+}
+
 function moraleFindings(simulation: Simulation, side: SideState): BattleFinding[] {
   const broken = side.stacks.filter((stack) => stack.brokeAt !== null);
   if (broken.length === 0) return [];
@@ -180,6 +223,8 @@ export function findingsFor(simulation: Simulation): BattleFinding[] {
     ...engagementFindings(simulation, simulation.defender, simulation.attacker),
     ...resistanceFindings(simulation, simulation.attacker, simulation.defender),
     ...resistanceFindings(simulation, simulation.defender, simulation.attacker),
+    ...supportFindings(simulation, simulation.attacker),
+    ...supportFindings(simulation, simulation.defender),
     ...moraleFindings(simulation, simulation.attacker),
     ...moraleFindings(simulation, simulation.defender),
   ];

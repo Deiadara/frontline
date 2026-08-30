@@ -7,7 +7,6 @@ import {
   OFFICER_ROLES,
   createCommander,
   startingEconomy,
-  startingAssignees,
   startingProgression,
   startingResearch,
   type Attributes,
@@ -259,7 +258,6 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     economy: { ...startingEconomy(NOW.toISOString()), infamy: 70 },
     progression: startingProgression(),
     research: startingResearch(),
-    assignees: startingAssignees(),
     buildings: [],
     buildQueue: [],
     army: {},
@@ -270,16 +268,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     unitLoadouts: {},
     fleet: {},
     commanders: [
-      createCommander(
-        'held-1',
-        'Held Officer',
-        'chief_medic',
-        { medicine: 34, composure: 30 },
-        [],
-        {
-          now: NOW.toISOString(),
-        },
-      ),
+      createCommander('held-1', 'Held Officer', 'chief_medic', { medicine: 34, composure: 30 }, []),
     ],
     createdAt: NOW.toISOString(),
   };

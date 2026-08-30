@@ -1,4 +1,4 @@
-import { CITY_DISTRICTS, plateAspect, type District } from '@frontline/shared';
+import { CITY_DISTRICTS, districtDisplayName, plateAspect, type District } from '@frontline/shared';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMe } from '../../lib/queries';
@@ -28,31 +28,48 @@ const CITY_ASPECT = plateAspect('city');
  *
  * Hand-placed against real features rather than derived from the districts' own map coordinates:
  * those were laid out for a generated diagram, and this is a painting somebody made, so the
- * Rustyard belongs on the smokestacks, the Docks on the moored barges and the Spire on the one
+ * Steelbelt belongs on the smokestacks, the Docks on the moored barges and the Spire on the one
  * cathedral. A district with no mark here would simply not be on the screen, so `CityView.test.tsx`
  * pins that the table covers every district in the city.
  */
 const DISTRICT_MARKS: Readonly<Record<string, OnPlateAt>> = {
-  // The chimney stacks and their smoke, top left: the industry the Scrapfields are cut out of.
-  rustyard: { x: 0.245, y: 0.155 },
-  // The one cathedral in the city, and the tallest thing in the painting.
-  'combine-spire': { x: 0.85, y: 0.13 },
+  // The mill roofs and their smoke, mid-left: the industry the Belt is named for.
+  // Lifted clear of the parapet below it: the tag's lower edge was sitting exactly on the wall's
+  // coping, which reads as a label stuck to the wall rather than one lying on the roofs it names.
+  rustyard: { x: 0.387, y: 0.346 },
+  // Off the cathedral itself and down to its left, at the foot of the tower rather than across it.
+  // Board's placement: the Command Sector's tag belongs beside the building, not over it.
+  'combine-spire': { x: 0.772, y: 0.345 },
   // The terraced sprawl climbing the right-hand slope.
   'ashen-terraces': { x: 0.655, y: 0.215 },
-  // Packed roofs out on the far right edge.
-  'kettle-row': { x: 0.915, y: 0.35 },
+  // Packed roofs out on the far right, and carried down the slope from where it used to sit.
+  //
+  // A residential tag prints the *crew's* name (`districtDisplayName`), and a crew name is three or
+  // four times the width of "Kettle Row": at the old mark it ran left across the cathedral's foot
+  // and shouldered the CCS tag. Lower down the terraces it has the width it needs.
+  // ...and carried up again when the Undergrid came off its ledge, so the two do not close up.
+  'kettle-row': { x: 0.905, y: 0.43 },
   // The water, the cranes and the moored barges down the left.
-  'neon-docks': { x: 0.105, y: 0.55 },
-  // The graffitied slab walls across the middle, the only fortifications in frame.
-  'blacksite-7': { x: 0.575, y: 0.49 },
-  // The densest neon in the painting, up on the right-hand roofs.
-  'datavault-sigma': { x: 0.735, y: 0.3 },
-  // The lit crossroads under the walls, where the power runs in.
-  undergrid: { x: 0.415, y: 0.55 },
+  'neon-docks': { x: 0.157, y: 0.56 },
+  // The far end of the graffitied slab wall: the hardest ground in frame.
+  'blacksite-7': { x: 0.843, y: 0.722 },
+  // The terraced blocks behind the wall, where the faculty annexes back onto the street.
+  // Above the slab's coping rather than on it: the tag was overlapping the top course of the wall,
+  // which reads as a label stuck to the concrete instead of one lying on the blocks it names.
+  'datavault-sigma': { x: 0.637, y: 0.435 },
+  // The wall's own service run, right of frame, where the power comes up out of the ground.
+  // Up off the coping for the same reason as the Belt: on the wall, not on the ledge.
+  undergrid: { x: 0.874, y: 0.546 },
   // The market: rows of coloured awnings across the bottom.
-  'chrome-row': { x: 0.55, y: 0.78 },
-  // The lamplit plaza and its fountain, bottom left, with the walkers standing off it.
-  'glasshouse-fields': { x: 0.34, y: 0.86 },
+  'chrome-row': { x: 0.555, y: 0.81 },
+  // The glasshouse roofs above the wall, left of the terraces. Board's nudge: a little further up
+  // the slope, off the busiest band of roofs and onto the quieter ones behind them.
+  'glasshouse-fields': { x: 0.546, y: 0.3 },
+  // The two plots opened up alongside the Docks. Board's placements, read off an annotated
+  // screenshot: the roofs high on the left and clear of the slab wall's coping, and the quay down
+  // at the tail of the market where the awnings give out.
+  'upper-roofs': { x: 0.284, y: 0.233 },
+  'south-quay': { x: 0.787, y: 0.9 },
 };
 
 /** Every district on the painting has to have a mark, or it is a place with no way in. */
@@ -65,16 +82,20 @@ export function districtsWithoutAMark(): readonly string[] {
 /**
  * One district's tag: a scrap of paper taped to the painting over the place it names.
  *
- * The leader and the ring under it are the point. A label floating above a city is a caption; a
- * label with a line down to a ring drawn *on* a roof is somebody pointing at that roof, and the
- * difference is whether a player reads the tag as being about the picture or about the screen.
+ * It used to hang a drawn leader and a ring under itself, on the argument that a label with a line
+ * down to a roof is somebody *pointing* at that roof. Twelve of them made the painting look pinned
+ * to a corkboard, and the tape already says the tag is a physical thing lying on the picture. The
+ * tag sits on the place it names now and nothing dangles off it.
  */
 function DistrictTag({
   district,
+  label,
   mine,
   onOpen,
 }: {
   district: District;
+  /** What to print: a crew's name on residential ground, the district's own name otherwise. */
+  label: string;
   /** This crew's own ground, which is the one tag that leads somewhere different. */
   mine: boolean;
   onOpen: () => void;
@@ -91,7 +112,7 @@ function DistrictTag({
           the painting they are standing on. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-0 -z-10 h-24 w-44 -translate-x-1/2 -translate-y-1/3 rounded-[50%] bg-brass-300/30 opacity-0 blur-2xl transition-opacity duration-200 group-hover:opacity-100"
+        className="pointer-events-none absolute left-1/2 top-0 -z-10 h-20 w-36 -translate-x-1/2 -translate-y-1/3 rounded-[50%] bg-brass-300/30 opacity-0 blur-2xl transition-opacity duration-200 group-hover:opacity-100"
       />
 
       {/*
@@ -105,22 +126,32 @@ function DistrictTag({
       <span className="relative flex items-center">
         <span
           className={cn(
-            'tag-paper relative flex flex-col items-center gap-0.5 px-4 py-2 transition-transform duration-200',
+            'tag-paper relative flex flex-col items-center gap-0.5 px-3 py-1.5 transition-transform duration-200',
             mine && 'ring-1 ring-inset ring-brass-500/50',
           )}
         >
           <span
             className={cn(
-              'whitespace-nowrap font-stamp text-[16px] leading-none',
+              /*
+               * Wraps, with a ceiling on how wide it may get.
+               *
+               * It was `whitespace-nowrap`, which is right for a district name somebody authored
+               * and wrong for a *crew* name, which the player types: a tag on the far-right plot
+               * carrying a maximum-length name ran 222px wide and off the edge of a 1024 viewport.
+               * A ceiling and two lines is what a scrap of paper does; truncating would break the
+               * one rule this interface does not bend, and moving the mark only hides it until
+               * somebody picks a longer name.
+               */
+              'max-w-[10rem] text-balance break-words text-center font-stamp text-[13px] leading-tight',
               // Ink on paper, not chrome text: the tag is a physical object on the picture.
               mine ? 'text-oxblood-500' : 'text-[rgb(28_22_18)]',
             )}
           >
-            {district.name}
+            {label}
           </span>
           {mine && (
-            <span className="flex items-center gap-1 font-display text-[9px] font-bold uppercase leading-none tracking-[0.2em] text-oxblood-500">
-              <Icon name="district" aria-hidden className="h-2.5 w-2.5" />
+            <span className="flex items-center gap-1 font-display text-[8px] font-bold uppercase leading-none tracking-[0.18em] text-oxblood-500">
+              <Icon name="district" aria-hidden className="h-2 w-2" />
               Yours
             </span>
           )}
@@ -129,26 +160,13 @@ function DistrictTag({
             Two different angles and lengths: a matched pair reads as printed rather than stuck. */}
         <span
           aria-hidden
-          className="tape-strip pointer-events-none absolute -left-1.5 -top-1.5 z-10 h-3.5 w-8 -rotate-[22deg]"
+          className="tape-strip pointer-events-none absolute -left-1 -top-1 z-10 h-3 w-6 -rotate-[22deg]"
         />
         <span
           aria-hidden
-          className="tape-strip pointer-events-none absolute -right-2 -top-1 z-10 h-3.5 w-7 rotate-[17deg]"
+          className="tape-strip pointer-events-none absolute -right-1.5 -top-1 z-10 h-3 w-6 rotate-[17deg]"
         />
       </span>
-
-      {/* The leader down to the roof it names, drawn rather than ruled. */}
-      <span
-        aria-hidden
-        className="ink-leader h-4 w-2 opacity-70 transition-opacity duration-200 group-hover:opacity-100"
-      />
-      <span
-        aria-hidden
-        className={cn(
-          'ink-disc h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-125',
-          mine && 'scale-125',
-        )}
-      />
     </button>
   );
 }
@@ -195,6 +213,16 @@ export function CityView() {
             <OnPlate key={district.id} at={at} anchor="bottom">
               <DistrictTag
                 district={district}
+                /*
+                 * Your own plot is called after your crew, live off the base rather than off a
+                 * stored copy, so renaming the crew renames the tag on the next poll. The other
+                 * three are numbered: see `plotName` for why they are not named after the people
+                 * living on them.
+                 */
+                label={districtDisplayName(district, {
+                  ownDistrictId: myBase.districtId,
+                  ownName: myBase.name,
+                })}
                 mine={mine}
                 /*
                  * Your own ground is the one tag that does not lead to the district screen. That

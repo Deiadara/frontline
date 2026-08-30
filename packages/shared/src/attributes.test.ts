@@ -17,7 +17,7 @@ import {
   HIRING_INSIGHT_ROLES,
   RESKILLING_ROLE,
 } from './roles.js';
-import { TRAIT_CATALOG, TRAIT_IDS, applyTraitBonuses, findTrait } from './traits.js';
+import { PERK_CATALOG, PERK_CATEGORIES, findPerk } from './crew/perks.js';
 
 describe('the attribute set', () => {
   // B3/B5: wide enough that all 19 roles have their own field. The server-side requirement
@@ -67,25 +67,31 @@ describe('AttributesSchema', () => {
   });
 });
 
-describe('TRAIT_CATALOG', () => {
-  it('is keyed by id and only grants known attributes', () => {
-    for (const id of TRAIT_IDS) {
-      const trait = TRAIT_CATALOG[id];
-      expect(trait.id).toBe(id);
-      expect(trait.name.length).toBeGreaterThan(0);
-      expect(Object.keys(trait.bonus).length).toBeGreaterThan(0);
-      for (const name of Object.keys(trait.bonus)) {
-        expect(ATTRIBUTE_NAMES).toContain(name);
-      }
+describe('PERK_CATALOG', () => {
+  it('is a hundred-odd distinct perks, each with a name, a line and a category', () => {
+    expect(PERK_CATALOG.length).toBeGreaterThanOrEqual(100);
+    const ids = PERK_CATALOG.map((entry) => entry.id);
+    // The ids are what a save stores, so a duplicate is two different perks sharing a slot: the
+    // second would silently win the `Map` lookup and the first would never apply again.
+    expect(new Set(ids).size, 'duplicate perk id').toBe(ids.length);
+    for (const entry of PERK_CATALOG) {
+      expect(entry.name.length, entry.id).toBeGreaterThan(0);
+      expect(entry.description.length, entry.id).toBeGreaterThan(0);
+      expect(PERK_CATEGORIES, entry.id).toContain(entry.category);
     }
-    expect(findTrait('not_a_trait')).toBeUndefined();
   });
 
-  it('applies bonuses on top of the sheet without leaving the scale', () => {
-    const boosted = applyTraitBonuses(makeAttributes(20), ['field_surgeon']);
-    expect(boosted.medicine).toBe(30);
-    expect(boosted.hacking).toBe(20);
-    expect(applyTraitBonuses(makeAttributes(100), ['field_surgeon']).medicine).toBe(100);
+  it('grants something on every entry, and nothing on an id it does not carry', () => {
+    for (const entry of PERK_CATALOG) {
+      // Every bonus is a discriminated union member with one numeric payload. A perk whose
+      // magnitude is zero is a keyword that reads as a bonus and does nothing.
+      const magnitude = Object.entries(entry.bonus)
+        .filter(([key]) => key !== 'kind')
+        .map(([, value]) => value)
+        .find((value) => typeof value === 'number');
+      expect(magnitude, `${entry.id} grants nothing`).toBeGreaterThan(0);
+    }
+    expect(findPerk('not_a_perk')).toBeUndefined();
   });
 });
 
@@ -126,26 +132,29 @@ describe('OVERSEER_PRESETS', () => {
         ATTRIBUTE_NAMES.length;
       expect(mean).toBeGreaterThanOrEqual(15);
       expect(mean).toBeLessThanOrEqual(20);
-      for (const trait of preset.traits) {
-        expect(TRAIT_IDS).toContain(trait);
+      for (const id of preset.perks) {
+        expect(findPerk(id), `${preset.presetId} carries an unknown perk ${id}`).toBeDefined();
       }
     }
   });
 
-  // Pins the one meaning `attributes` has: the *effective* sheet, trait bonuses already in it.
-  // The presets are the standing proof: the fixer's negotiation is 35 and silver_tongue grants
-  // +8, so reading these as pre-trait would put them at 43, past the §B2a ceiling of 40. Nothing
-  // may apply a preset's bonuses a second time, and this fails if someone tries.
-  it('stores sheets with trait bonuses already applied', () => {
-    const breached = OVERSEER_PRESETS.filter((preset) =>
-      ATTRIBUTE_NAMES.some(
-        (name) =>
-          applyTraitBonuses(preset.attributes, preset.traits)[name] > MAX_RECRUITMENT_ATTRIBUTE,
-      ),
-    );
-    expect(
-      breached.map((preset) => preset.presetId),
-      'applying a preset trait again breaks §B2a: sheets are post-trait, not raw',
-    ).toContain('fixer');
+  /*
+   * The hazard this replaces is worth recording, because the fix was structural rather than a
+   * test.
+   *
+   * A trait moved the character's *own* attributes, so a stored sheet was ambiguous: pre-trait or
+   * post-trait, and applying the bonuses a second time pushed the fixer's Negotiation past the
+   * §B2a ceiling. A whole test existed to pin which of the two a preset held. A perk cannot create
+   * that question, because it never touches the sheet of the person carrying it: it goes into the
+   * crew's effects. So the invariant now is the simpler one, that a sheet is just a sheet.
+   */
+  it('stores sheets that are already inside the recruitment ceiling, perks or not', () => {
+    for (const preset of OVERSEER_PRESETS) {
+      for (const name of ATTRIBUTE_NAMES) {
+        expect(preset.attributes[name], `${preset.presetId}.${name}`).toBeLessThanOrEqual(
+          MAX_RECRUITMENT_ATTRIBUTE,
+        );
+      }
+    }
   });
 });

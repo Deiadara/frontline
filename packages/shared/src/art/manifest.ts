@@ -245,13 +245,13 @@ export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
    *
    * A class of its own rather than more `portrait` keys, because the two are different objects.
    * An overseer portrait is one of four hero images a player picks from and sees at full size; an
-   * officer portrait is one of thirty-three drawn from a pool, and it appears on a roster card at
+   * officer portrait is one of forty-three drawn from a pool, and it appears on a roster card at
    * a couple of hundred pixels. 4:5 rather than the overseer's taller frame is the shape the board
    * delivered.
    *
    * 960×1200 is the largest size satisfying three constraints at once, and it took all three to
    * find it: every master in the drop must supply a 4:5 crop at least this big without upscaling
-   * (the smallest gives 1023×1279, and two of the thirty-three are a different shape from the
+   * (the smallest gives 1023×1278, and one of the forty-three is a different shape from the
    * rest); the ratio must be exactly 4:5; and both sides must divide by 16, which is what FLUX
    * accepts and what `1023` did not. Only multiples of 64×80 satisfy the last two, so 960×1200 is
    * the largest one under the first.
@@ -406,7 +406,7 @@ function subjectFor(table: Readonly<Record<string, string>>, id: string, label: 
 }
 
 /**
- * The officer pool (§C): thirty-three faces, all one class, all one framing.
+ * The officer pool (§C): forty-three faces, all one class, all one framing.
  *
  * Ordered by `OFFICER_PORTRAIT_IDS`, which is also what `officerPortraitId` indexes into, so a face
  * added to the end of the pool cannot renumber the seeds of the ones before it.

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ATTRIBUTE_NAMES,
   MAX_ATTRIBUTE,
+  MAX_RECRUITMENT_ATTRIBUTE,
   makeAttributes,
-  type AttributeName,
+  type Attributes,
 } from '../attributes.js';
 import {
   INSULT_FRACTION,
@@ -13,42 +13,12 @@ import {
   negotiate,
   negotiationLine,
   negotiationTemper,
+  negotiationVoice,
+  NEGOTIATION_VOICES,
   openNegotiation,
   type Negotiation,
 } from './negotiation.js';
-import {
-  ALIGNMENT_BONUS_ATTRIBUTES,
-  ALIGNMENT_BONUS_THRESHOLD,
-  ALIGNMENT_LEAVE_THRESHOLD,
-  ALIGNMENT_MAX,
-  ALIGNMENT_MIN,
-  ALIGNMENT_START,
-  AMBITIONS,
-  MORAL_COMPASSES,
-  STANCE_MAX,
-  STANCE_MIN,
-  alignedAttributes,
-  alignmentBand,
-  alignmentBonusAttributes,
-  alignmentSkillBonus,
-  alignmentTarget,
-  contractStance,
-  settleAlignment,
-  threatensToLeave,
-  type Ambition,
-  type MoralCompass,
-} from './disposition.js';
 import { assessJoin } from './join.js';
-import {
-  CHARACTER_LEVEL_AUTO_POINTS,
-  CHARACTER_LEVEL_MIN,
-  CHARACTER_LEVEL_PLAYER_POINTS,
-  CHARACTER_LEVEL_POINTS,
-  applyCharacterXp,
-  autoAllocatedAttributes,
-  characterXpToNextLevel,
-  spendCharacterPoint,
-} from './level.js';
 import {
   RECRUIT_BASE_WAGE,
   WAGE_RESERVATION_FRACTION,
@@ -82,188 +52,6 @@ describe('§H3, who will talk to you', () => {
 
   it('lets an open door through for a crew with nothing at all', () => {
     expect(assessJoin({ minNotoriety: 0, minLevel: 1 }, crew(0, 1)).interested).toBe(true);
-  });
-});
-
-describe('§H5: the alignment meter', () => {
-  it('threatens to leave at the low threshold and not one point above it', () => {
-    expect(threatensToLeave(ALIGNMENT_LEAVE_THRESHOLD)).toBe(true);
-    expect(alignmentBand(ALIGNMENT_LEAVE_THRESHOLD)).toBe('leaving');
-    expect(threatensToLeave(ALIGNMENT_LEAVE_THRESHOLD + 1)).toBe(false);
-    expect(alignmentBand(ALIGNMENT_LEAVE_THRESHOLD + 1)).toBe('unsettled');
-    expect(threatensToLeave(ALIGNMENT_START)).toBe(false);
-  });
-
-  it('pays no bonus below the threshold and a growing one above it', () => {
-    expect(alignmentSkillBonus(ALIGNMENT_BONUS_THRESHOLD - 1)).toBe(0);
-    expect(alignmentSkillBonus(ALIGNMENT_BONUS_THRESHOLD)).toBe(0);
-    expect(alignmentSkillBonus(90)).toBe(3);
-    expect(alignmentSkillBonus(ALIGNMENT_MAX)).toBe(5);
-  });
-
-  it('lands the bonus on the few attributes they are already best at, and nowhere else', () => {
-    const attributes = makeAttributes(20, { stealth: 38, logic: 34, hacking: 30, medicine: 8 });
-    const best = alignmentBonusAttributes(attributes);
-    expect(best).toEqual(['stealth', 'logic', 'hacking']);
-    expect(best).toHaveLength(ALIGNMENT_BONUS_ATTRIBUTES);
-
-    const boosted = alignedAttributes(attributes, ALIGNMENT_MAX);
-    expect(boosted.stealth).toBe(43);
-    expect(boosted.logic).toBe(39);
-    expect(boosted.hacking).toBe(35);
-    // "Some skills", not the sheet: everything else is untouched.
-    const untouched = ATTRIBUTE_NAMES.filter((name) => !best.includes(name));
-    for (const name of untouched) expect(boosted[name]).toBe(attributes[name]);
-  });
-
-  it('leaves the sheet alone below the bonus threshold, and never mutates the input', () => {
-    const attributes = makeAttributes(20, { stealth: 38 });
-    const before = { ...attributes };
-    expect(alignedAttributes(attributes, ALIGNMENT_LEAVE_THRESHOLD)).toEqual(attributes);
-    alignedAttributes(attributes, ALIGNMENT_MAX);
-    expect(attributes).toEqual(before);
-  });
-
-  it('holds the 0..100 ceiling for an already-elite sheet', () => {
-    const attributes = makeAttributes(10, { stealth: MAX_ATTRIBUTE });
-    expect(alignedAttributes(attributes, ALIGNMENT_MAX).stealth).toBe(MAX_ATTRIBUTE);
-  });
-
-  it('drifts towards what the officer made of their contract, and stops there', () => {
-    for (const stance of [STANCE_MIN, -1, 0, 1, STANCE_MAX]) {
-      const target = alignmentTarget(stance);
-      let alignment = ALIGNMENT_START;
-      // 90 days is thirty half-lives: whatever is left is below the meter's own rounding.
-      for (let day = 0; day < 90; day += 1) {
-        alignment = settleAlignment(alignment, target, 24 * 60 * 60 * 1000);
-      }
-      expect(alignment, `stance ${stance}`).toBeCloseTo(target, 4);
-      expect(alignment, `stance ${stance}`).toBeGreaterThanOrEqual(ALIGNMENT_MIN);
-      expect(alignment, `stance ${stance}`).toBeLessThanOrEqual(ALIGNMENT_MAX);
-    }
-  });
-
-  it('does not move on a zero-length or backwards step', () => {
-    expect(settleAlignment(40, 90, 0)).toBe(40);
-    expect(settleAlignment(40, 90, -5000)).toBe(40);
-  });
-
-  /**
-   * The one number that decides an officer's opinion of the crew: what fraction of their asking
-   * price they actually signed for. Their asking price is `+2`, nine tenths of it is neutral, and
-   * their reservation, which is the lowest they would ever take, is `-2`.
-   */
-  it('reads a contract at the asking price as the best it can be, and the floor as the worst', () => {
-    expect(contractStance(100, 100)).toBe(STANCE_MAX);
-    expect(contractStance(90, 100)).toBe(0);
-    expect(contractStance(80, 100)).toBe(STANCE_MIN);
-    expect(contractStance(120, 100)).toBe(STANCE_MAX);
-    expect(contractStance(10, 0)).toBe(0);
-  });
-
-  it('is monotone: every cap squeezed at the table costs goodwill', () => {
-    const readings = [80, 85, 90, 95, 100].map((fee) => contractStance(fee, 100));
-    expect(readings).toEqual([...readings].sort((a, b) => a - b));
-  });
-});
-
-describe('§H6/§H6a: the character level', () => {
-  const sheet = makeAttributes(18, { stealth: 34, logic: 30, hacking: 28, medicine: 9 });
-  const fresh = {
-    level: CHARACTER_LEVEL_MIN,
-    xpIntoLevel: 0,
-    unspentPoints: 0,
-    attributes: sheet,
-  };
-
-  it('splits the grant 2 by hand and 3 along affinity, totalling 5 (§H6a)', () => {
-    expect(CHARACTER_LEVEL_PLAYER_POINTS + CHARACTER_LEVEL_AUTO_POINTS).toBe(
-      CHARACTER_LEVEL_POINTS,
-    );
-
-    const advanced = applyCharacterXp(fresh, characterXpToNextLevel(CHARACTER_LEVEL_MIN));
-    expect(advanced.levelsGained).toBe(1);
-    expect(advanced.level).toBe(CHARACTER_LEVEL_MIN + 1);
-    expect(advanced.unspentPoints).toBe(CHARACTER_LEVEL_PLAYER_POINTS);
-
-    const spent = ATTRIBUTE_NAMES.reduce(
-      (total, name) => total + advanced.attributes[name] - sheet[name],
-      0,
-    );
-    expect(spent, 'auto-allocation spends exactly the non-player share').toBe(
-      CHARACTER_LEVEL_AUTO_POINTS,
-    );
-  });
-
-  it('auto-allocates along the strengths already on the sheet (§H6a)', () => {
-    expect(autoAllocatedAttributes(sheet)).toEqual(['stealth', 'logic', 'hacking']);
-    const advanced = applyCharacterXp(fresh, characterXpToNextLevel(CHARACTER_LEVEL_MIN));
-    expect(advanced.attributes.stealth).toBe(35);
-    expect(advanced.attributes.logic).toBe(31);
-    expect(advanced.attributes.hacking).toBe(29);
-    expect(advanced.attributes.medicine).toBe(9);
-  });
-
-  it('banks a level it did not reach, and carries the remainder', () => {
-    const threshold = characterXpToNextLevel(CHARACTER_LEVEL_MIN);
-    const short = applyCharacterXp(fresh, threshold - 1);
-    expect(short.levelsGained).toBe(0);
-    expect(short.level).toBe(CHARACTER_LEVEL_MIN);
-    expect(short.xpIntoLevel).toBe(threshold - 1);
-    expect(short.attributes).toEqual(sheet);
-
-    expect(applyCharacterXp(short, 1).level).toBe(CHARACTER_LEVEL_MIN + 1);
-    expect(applyCharacterXp(short, 5).xpIntoLevel).toBe(4);
-  });
-
-  it('pays every level a single large award crossed', () => {
-    const twoLevels =
-      characterXpToNextLevel(CHARACTER_LEVEL_MIN) + characterXpToNextLevel(CHARACTER_LEVEL_MIN + 1);
-    const advanced = applyCharacterXp(fresh, twoLevels);
-    expect(advanced.levelsGained).toBe(2);
-    expect(advanced.unspentPoints).toBe(2 * CHARACTER_LEVEL_PLAYER_POINTS);
-    expect(advanced.xpIntoLevel).toBe(0);
-  });
-
-  it('is worth the same split across awards as in one lump', () => {
-    const total = 3 * characterXpToNextLevel(CHARACTER_LEVEL_MIN);
-    const lump = applyCharacterXp(fresh, total);
-    let split = fresh as ReturnType<typeof applyCharacterXp>;
-    for (let i = 0; i < total; i += 37) split = applyCharacterXp(split, Math.min(37, total - i));
-    expect(split.level).toBe(lump.level);
-    expect(split.xpIntoLevel).toBe(lump.xpIntoLevel);
-    expect(split.unspentPoints).toBe(lump.unspentPoints);
-  });
-
-  it('ignores a negative award rather than clawing progress back', () => {
-    expect(applyCharacterXp({ ...fresh, xpIntoLevel: 50 }, -1000).xpIntoLevel).toBe(50);
-  });
-
-  it('spends a banked point, and refuses when there are none', () => {
-    const banked = { ...fresh, unspentPoints: 2 };
-    const spent = spendCharacterPoint(banked, 'medicine');
-    expect(spent?.unspentPoints).toBe(1);
-    expect(spent?.attributes.medicine).toBe(10);
-    expect(banked.attributes.medicine, 'the input sheet is not mutated').toBe(9);
-    expect(spendCharacterPoint(fresh, 'medicine')).toBeNull();
-  });
-
-  it('holds the attribute ceiling when a point is spent at the top of the scale', () => {
-    const maxed = {
-      ...fresh,
-      unspentPoints: 1,
-      attributes: makeAttributes(18, { medicine: MAX_ATTRIBUTE }),
-    };
-    expect(spendCharacterPoint(maxed, 'medicine')?.attributes.medicine).toBe(MAX_ATTRIBUTE);
-  });
-
-  it('costs strictly more at every level: "characters evolve slowly" (§H6)', () => {
-    for (let level = CHARACTER_LEVEL_MIN; level < 20; level++) {
-      expect(characterXpToNextLevel(level + 1)).toBeGreaterThan(characterXpToNextLevel(level));
-    }
-    expect(characterXpToNextLevel(0), 'a malformed level clamps rather than throwing').toBe(
-      characterXpToNextLevel(CHARACTER_LEVEL_MIN),
-    );
   });
 });
 
@@ -308,13 +96,6 @@ describe('the shared package keeps no role-shaped data', () => {
     const second = makeAttributes(18, { medicine: 38, diplomacy: 30 });
     expect(askingWage(first, 0)).toBe(askingWage(second, 0));
   });
-
-  it('auto-allocates by rating, not by role', () => {
-    const swap = (a: AttributeName, b: AttributeName) =>
-      autoAllocatedAttributes(makeAttributes(18, { [a]: 38, [b]: 30 }));
-    expect(swap('stealth', 'logic')).toEqual(['stealth', 'logic', ATTRIBUTE_NAMES[0]]);
-    expect(swap('medicine', 'diplomacy')).toEqual(['medicine', 'diplomacy', ATTRIBUTE_NAMES[0]]);
-  });
 });
 
 /**
@@ -329,22 +110,28 @@ describe('haggling with somebody who has an opinion about you (§H7)', () => {
   const ASKING = 100;
   const FLOOR = reservationWage(ASKING); // 80
 
-  const open = (ambition: Ambition = 'wealth', compass: MoralCompass = 'pragmatist') =>
-    openNegotiation(ASKING, ambition, compass);
+  /* A middling sheet: neither a pushover nor a professional. */
+  const SHEET = makeAttributes(20);
+  /* Holds the line, and does this for a living: the hardest sit-down the model produces. */
+  const HARD = {
+    ...makeAttributes(20),
+    composure: MAX_RECRUITMENT_ATTRIBUTE,
+    negotiation: MAX_RECRUITMENT_ATTRIBUTE,
+  };
+  /* Rattles, and has never haggled before. */
+  const SOFT = { ...makeAttributes(20), composure: 0, negotiation: 0 };
 
-  const say = (
-    negotiation: Negotiation,
-    offer: number,
-    ambition: Ambition = 'wealth',
-    moralCompass: MoralCompass = 'pragmatist',
-  ) => negotiate({ negotiation, offer, asking: ASKING, ambition, moralCompass });
+  const open = (attributes: Attributes = SHEET) => openNegotiation(ASKING, attributes);
+
+  const say = (negotiation: Negotiation, offer: number, attributes: Attributes = SHEET) =>
+    negotiate({ negotiation, offer, asking: ASKING, attributes });
 
   it('opens at the asking price with the whole of their patience', () => {
     const started = open();
     expect(started.standing).toBe(ASKING);
     expect(started.rounds).toBe(0);
     expect(started.closed).toBe(false);
-    expect(started.patience).toBe(negotiationTemper('wealth', 'pragmatist').patience);
+    expect(started.patience).toBe(negotiationTemper(SHEET).patience);
   });
 
   it('takes an offer at the reservation value, and not one cap under it', () => {
@@ -399,10 +186,10 @@ describe('haggling with somebody who has an opinion about you (§H7)', () => {
   });
 
   it('walks away when patience runs out, and stays gone', () => {
-    let state = open('notoriety', 'ruthless');
+    let state = open(SOFT);
     let walked = false;
     for (let round = 0; round < 20 && !walked; round++) {
-      const turn = say(state, 1, 'notoriety', 'ruthless');
+      const turn = say(state, 1, SOFT);
       state = turn.negotiation;
       walked = turn.walkedAway;
     }
@@ -411,31 +198,43 @@ describe('haggling with somebody who has an opinion about you (§H7)', () => {
     expect(state.mood).toBe('walked');
 
     // And a further offer changes nothing at all, however good it is.
-    const after = say(state, ASKING * 10, 'notoriety', 'ruthless');
+    const after = say(state, ASKING * 10, HARD);
     expect(after.accepted).toBe(false);
     expect(after.negotiation).toEqual(state);
   });
 
-  it('gives the impatient less room than the patient: the personality is the point', () => {
-    const grinder = negotiationTemper('wealth', 'pragmatist');
-    const shortFuse = negotiationTemper('notoriety', 'ruthless');
-    expect(grinder.patience).toBeGreaterThan(shortFuse.patience);
-    // Somebody here to belong is embarrassed to be haggling and gives ground to end it.
-    expect(negotiationTemper('belonging', 'idealist').concession).toBeGreaterThan(
-      negotiationTemper('wealth', 'opportunist').concession,
-    );
+  /*
+   * The temper is read off the sheet now, and this is the property that makes that worth doing:
+   * the card the player is looking at *predicts the haggle*. Composure is how long they sit there;
+   * Negotiation is how little they give up. Both are printed before you decide to sit down.
+   */
+  it('makes a composed professional a harder sit-down than somebody who rattles', () => {
+    expect(negotiationTemper(HARD).patience).toBeGreaterThan(negotiationTemper(SOFT).patience);
+    expect(negotiationTemper(SOFT).concession).toBeGreaterThan(negotiationTemper(HARD).concession);
   });
 
-  it('keeps every temper inside the bounds the model promises', () => {
-    for (const ambition of AMBITIONS) {
-      for (const compass of MORAL_COMPASSES) {
-        const temper = negotiationTemper(ambition, compass);
+  it('keeps every temper inside the bounds the model promises, across the whole scale', () => {
+    for (let composure = 0; composure <= MAX_ATTRIBUTE; composure += 1) {
+      for (const negotiation of [0, MAX_RECRUITMENT_ATTRIBUTE, MAX_ATTRIBUTE]) {
+        const temper = negotiationTemper({ ...makeAttributes(20), composure, negotiation });
         expect(temper.patience).toBeGreaterThanOrEqual(MIN_PATIENCE);
         expect(temper.patience).toBeLessThanOrEqual(MAX_PATIENCE);
         expect(temper.concession).toBeGreaterThan(0);
         expect(temper.concession).toBeLessThanOrEqual(0.7);
       }
     }
+  });
+
+  /** Four written voices, and a recruit always sounds like the same one. */
+  it('gives a recruit one voice and keeps them in it', () => {
+    for (const id of ['recruit-1', 'recruit-2', 'someone-else']) {
+      expect(negotiationVoice(id)).toBe(negotiationVoice(id));
+      expect(NEGOTIATION_VOICES).toContain(negotiationVoice(id));
+    }
+    const voices = new Set(
+      Array.from({ length: 200 }, (_, index) => negotiationVoice(`recruit-${index}`)),
+    );
+    expect(voices.size, 'every recruit sounds the same').toBeGreaterThan(1);
   });
 
   it('agrees on exactly the number the hire gate would accept', () => {
@@ -448,7 +247,7 @@ describe('haggling with somebody who has an opinion about you (§H7)', () => {
   });
 
   it('says something in character, and says the same thing twice', () => {
-    const turn = say(open('wealth', 'ruthless'), 10, 'wealth', 'ruthless');
+    const turn = say(open(), 10);
     const line = negotiationLine('ruthless', turn.negotiation.mood, turn.negotiation.rounds);
     expect(line.length).toBeGreaterThan(0);
     expect(negotiationLine('ruthless', turn.negotiation.mood, turn.negotiation.rounds)).toBe(line);
@@ -459,7 +258,7 @@ describe('haggling with somebody who has an opinion about you (§H7)', () => {
   });
 
   it('has a line for every mood a conversation can actually reach', () => {
-    for (const compass of MORAL_COMPASSES) {
+    for (const compass of NEGOTIATION_VOICES) {
       for (const mood of NEGOTIATION_MOODS) {
         expect(negotiationLine(compass, mood, 0).length).toBeGreaterThan(0);
         expect(negotiationLine(compass, mood, 7).length).toBeGreaterThan(0);

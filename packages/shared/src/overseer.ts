@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AttributesSchema, makeAttributes } from './attributes.js';
 import { IdSchema } from './primitives.js';
-import { TraitsSchema } from './traits.js';
+import { PerksSchema } from './crew/perks.js';
 
 export const OVERSEER_ARCHETYPES = ['enforcer', 'netrunner', 'fixer', 'technocrat'] as const;
 export const OverseerArchetypeSchema = z.enum(OVERSEER_ARCHETYPES);
@@ -21,7 +21,8 @@ export const OverseerSchema = z.object({
   portraitId: z.string().min(1),
   bio: z.string(),
   attributes: AttributesSchema,
-  traits: TraitsSchema,
+  /** §B7, defaulted so a row written before the perk book still parses. */
+  perks: PerksSchema.default([]),
 });
 export type Overseer = z.infer<typeof OverseerSchema>;
 
@@ -33,7 +34,7 @@ export const OverseerPresetSchema = z.object({
   portraitId: z.string().min(1),
   bio: z.string(),
   attributes: AttributesSchema,
-  traits: TraitsSchema,
+  perks: PerksSchema,
 });
 export type OverseerPreset = z.infer<typeof OverseerPresetSchema>;
 
@@ -62,7 +63,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
       cybernetics: 8,
       intuition: 9,
     }),
-    traits: ['unbreakable'],
+    perks: ['reputation'],
   },
   {
     presetId: 'netrunner',
@@ -79,7 +80,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
       strength: 7,
       intimidation: 9,
     }),
-    traits: ['wired_reflexes'],
+    perks: ['wire_tap'],
   },
   {
     presetId: 'fixer',
@@ -96,7 +97,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
       medicine: 9,
       stamina: 10,
     }),
-    traits: ['silver_tongue'],
+    perks: ['haggler'],
   },
   {
     presetId: 'technocrat',
@@ -114,9 +115,33 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
       stealth: 9,
       deception: 10,
     }),
-    traits: ['scrap_whisperer'],
+    perks: ['sorted_heap'],
   },
 ];
+
+/**
+ * A fresh Overseer from a preset.
+ *
+ * The seven-field copy this replaces existed twice, in `routes/overseer.ts` and `seed/index.ts`,
+ * and the two are meant to produce the same person: the bot the seeder stands up is a player who
+ * happens not to be one. Two literals is one edit away from a preset field that reaches the real
+ * character-select screen and not the seeded rival, which is the kind of divergence nothing tests
+ * because both sides still typecheck.
+ *
+ * The id comes in rather than being generated here, so this stays a pure function of its inputs
+ * and the caller keeps whatever id policy it already has.
+ */
+export function overseerFromPreset(preset: OverseerPreset, id: string): Overseer {
+  return {
+    id,
+    name: preset.name,
+    archetype: preset.archetype,
+    portraitId: preset.portraitId,
+    bio: preset.bio,
+    attributes: preset.attributes,
+    perks: preset.perks,
+  };
+}
 
 export function findOverseerPreset(presetId: string): OverseerPreset | undefined {
   return OVERSEER_PRESETS.find((preset) => preset.presetId === presetId);

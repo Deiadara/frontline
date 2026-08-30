@@ -1,9 +1,4 @@
-import {
-  ATTRIBUTE_LABELS,
-  ATTRIBUTE_NAMES,
-  OVERSEER_PRESETS,
-  TRAIT_CATALOG,
-} from '@frontline/shared';
+import { ATTRIBUTE_LABELS, ATTRIBUTE_NAMES, OVERSEER_PRESETS, findPerk } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -47,11 +42,13 @@ describe('CharacterSelectScreen', () => {
 
   // B7: traits are public. They are half of what a player has to guess fit from, since the
   // requirement table itself is hidden (B8).
-  it('names each preset trait', () => {
+  it('names each preset perk', () => {
     renderScreen();
     for (const preset of OVERSEER_PRESETS) {
-      for (const traitId of preset.traits) {
-        expect(screen.getByText(TRAIT_CATALOG[traitId].name)).toBeInTheDocument();
+      for (const id of preset.perks) {
+        const perk = findPerk(id);
+        expect(perk, `${preset.presetId} carries an unknown perk ${id}`).toBeDefined();
+        if (perk) expect(screen.getByText(perk.name)).toBeInTheDocument();
       }
     }
   });

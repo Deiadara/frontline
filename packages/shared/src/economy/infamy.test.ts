@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { UNIT_CATALOG, UNIT_TIERS, findUnit, unitsInTier, type UnitTier } from '../units/index.js';
+import {
+  UNIT_CATALOG,
+  UNIT_TIERS,
+  findUnit,
+  isCombatUnit,
+  unitsInTier,
+  type UnitSpec,
+  type UnitTier,
+} from '../units/index.js';
 import {
   INFAMY_PER_TIER,
   NOTORIETY_TO_FIELD,
@@ -33,7 +41,7 @@ describe('what a kill is worth (§D7)', () => {
    *
    * Carriers are off the ladder entirely: they are never in a line to be killed. Specialists and
    * Wonders of Engineering share a rung (see `units.test.ts` for why), and the cheapest member of
-   * a shared rung is what has to clear the rung below: a Cyberhound eats one supply against a
+   * a shared rung is what has to clear the rung below: a Stitcher eats one supply against a
    * Netrunner's three, so the two tiers interleave by design.
    */
   it('climbs strictly with the rungs, taking the cheapest member of each as the comparison', () => {
@@ -64,13 +72,45 @@ describe('what a kill is worth (§D7)', () => {
     expect(infamyForKill('the_colossus')).toBeGreaterThan(150 * infamyForKill('razors'));
   });
 
+  /**
+   * Stated as the rule rather than as one pair, because the pair moved underneath it.
+   *
+   * It used to pin Snipers against Cyberhounds at 2:1, which held only while the hounds were supply
+   * 1. They are supply 2 now (see the sheet for why) and the assertion went from "the rule holds"
+   * to "these two happen to be equal", which is a test that passes for a reason nobody wrote down.
+   * Every pair inside a tier is checked instead, so the next repricing is caught wherever it lands.
+   *
+   * Whole points, so the comparison carries a rounding tolerance: the cheapest specialist's 12.5
+   * rounds up to 13 and twice that is 26 against a supply-4 unit's 25.
+   *
+   * `INFAMY_UNIT_VALUES` is excluded, and that is not a loophole: it is the documented escape hatch
+   * for the handful of units whose tier and price genuinely disagree, and comparing one of those
+   * against the derived rule would only ever re-derive that it was overridden.
+   */
+  const derived = (unit: UnitSpec) => INFAMY_UNIT_VALUES[unit.id] === undefined;
+
   it('scales inside a tier by what a unit eats, so a big specialist is worth two small ones', () => {
-    // Snipers are supply 2 against the Cyberhounds' 1: twice the bodies, twice the name.
-    //
-    // A ratio rather than an equality, because the value is rounded to a whole point: the smaller
-    // unit's 12.5 rounds up to 13, so twice it is 26 against the bigger one's 25. What the rule
-    // says is that the name scales with what the unit ate, and it does.
-    expect(infamyForKill('snipers') / infamyForKill('cyber_dogs')).toBeCloseTo(2, 0);
+    for (const tier of UNIT_TIERS) {
+      if (tier === 'carrier') continue;
+      const inTier = unitsInTier(tier).filter(derived);
+      for (const small of inTier) {
+        for (const big of inTier) {
+          if (big.supply <= small.supply) continue;
+          const expected = (infamyForKill(small) * big.supply) / small.supply;
+          expect(infamyForKill(big), `${big.id} against ${small.id}`).toBeCloseTo(expected, -0.5);
+        }
+      }
+    }
+  });
+
+  it('has pairs to compare in more than one tier, so the rule above is not vacuous', () => {
+    const compared = UNIT_TIERS.filter((tier) => tier !== 'carrier').flatMap((tier) => {
+      const supplies = unitsInTier(tier)
+        .filter(derived)
+        .map((unit) => unit.supply);
+      return new Set(supplies).size > 1 ? [tier] : [];
+    });
+    expect(compared.length).toBeGreaterThan(1);
   });
 
   it('never prices a fighting unit at nothing', () => {
@@ -179,5 +219,62 @@ describe('what a name lets you field (§D7)', () => {
     const kills = Math.ceil(spent / infamyForKill(abomination));
     expect(kills).toBeGreaterThan(20);
     expect(kills).toBeLessThanOrEqual(400);
+  });
+});
+
+/**
+ * A unit that is much harder to field is never worth a fraction of one that is easy.
+ *
+ * Not a tuning rule: it is the floor under one. Kill value is derived from **tier**, and a tier is
+ * also the flavour grouping on the roster screen. Those two jobs agreed until the tiers were
+ * regrouped by what a unit *is* rather than by what it costs, and then The Condemned, which needs a
+ * Gauntlet 12 and a Fight Pit taken off somebody, was worth 3 against a Warden's 24 off a Gauntlet
+ * 4. Eight times less for a far deeper gate, and nothing said a word.
+ *
+ * The bar is deliberately loose. Half is not a tuning target, it is the point past which the
+ * economy is telling a player something false about what is worth killing, so ordinary spread
+ * between neighbouring units stays free and an inversion of this size cannot land quietly.
+ * `INFAMY_UNIT_VALUES` is the escape hatch when a unit's tier and its price genuinely disagree.
+ */
+describe('what a kill is worth tracks what it took to field', () => {
+  /** How much campaign a unit costs: building levels, plus a flat weight for the harder clauses. */
+  const gateDepth = (unit: UnitSpec): number =>
+    unit.requires.reduce(
+      (total, need) =>
+        total +
+        (need.kind === 'building'
+          ? need.level
+          : need.kind === 'location'
+            ? LOCATION_WEIGHT
+            : FITTED_WEIGHT),
+      0,
+    );
+  /** Holding ground is a campaign; a fitted modification is a research project. */
+  const LOCATION_WEIGHT = 12;
+  const FITTED_WEIGHT = 8;
+  /** Far enough apart that the two are not neighbours being split by rounding. */
+  const MUCH_DEEPER = 8;
+  const FLOOR = 0.5;
+
+  const fighters = UNIT_CATALOG.filter((unit) => isCombatUnit(unit));
+
+  it('has a spread of gate depths to compare, so this is not vacuous', () => {
+    const depths = fighters.map(gateDepth);
+    expect(Math.max(...depths) - Math.min(...depths)).toBeGreaterThan(MUCH_DEEPER * 2);
+  });
+
+  it('never prices a much deeper unit below half an easier one', () => {
+    const upside: string[] = [];
+    for (const deep of fighters) {
+      for (const easy of fighters) {
+        if (gateDepth(deep) < gateDepth(easy) + MUCH_DEEPER) continue;
+        if (infamyForKill(deep) >= infamyForKill(easy) * FLOOR) continue;
+        upside.push(
+          `${deep.name} (gate ${gateDepth(deep)}, worth ${infamyForKill(deep)}) against ` +
+            `${easy.name} (gate ${gateDepth(easy)}, worth ${infamyForKill(easy)})`,
+        );
+      }
+    }
+    expect(upside).toEqual([]);
   });
 });

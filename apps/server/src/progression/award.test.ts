@@ -3,7 +3,6 @@ import {
   STARTING_RESOURCES,
   playerXpToNextLevel,
   startingEconomy,
-  startingAssignees,
   startingProgression,
   startingResearch,
   findPlayerUnlock,
@@ -49,7 +48,6 @@ function seedBase(db: AppDatabase, repos: Repositories, level: number): Base {
     economy: startingEconomy(NOW),
     progression: startingProgression(),
     research: startingResearch(),
-    assignees: startingAssignees(),
     buildings: [],
     buildQueue: [],
     army: {},
@@ -109,7 +107,7 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
 
     expect(award.level).toBe(4);
     // Level 4 is where §G3's per-officer cap turns over from 1 to 2.
-    expect(award.grants).toEqual({ assigneePool: 5, assigneeCapPerOfficer: 2, recruitSlots: 5 });
+    expect(award.grants).toEqual({ recruitSlots: 5 });
     // Level 4 opens nothing: the catalogue's doors are at 3, 5, 7 and 10. Pinned as empty rather
     // than left unasserted: an award that announced a door it had not opened is the bug this field
     // makes possible, and it would look exactly like a passing test.

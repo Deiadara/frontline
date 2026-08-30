@@ -28,6 +28,8 @@ import {
   upgradeNote,
   weatherAt,
   weatherLabels,
+  BUILDING_KINDS,
+  type Building,
 } from '@frontline/shared';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { upgradeSeconds } from './upgrade.js';
@@ -182,7 +184,25 @@ export function projectCity(repos: Repositories, base: Base, now: Date): CityRes
 }
 
 /** One location as its holder's opponent sees it, or, for a location you hold, in full. */
-export function projectLocation(
+export /**
+ * A plot as it stands before anybody builds on it: every structure at level 1.
+ *
+ * Not persisted and never written: it is what the *scene* needs to draw a district, for a plot that
+ * has no crew on it. Ids are derived from the district and the kind so the same plot draws the same
+ * way on every read, which the scene needs to keep its outlines stable between polls.
+ */
+function unbuiltDistrict(districtId: string): Building[] {
+  return BUILDING_KINDS.map((kind) => ({
+    id: `${districtId}-${kind}`,
+    kind,
+    level: 1,
+    modifications: [] as string[],
+    damage: 0,
+    fortification: 0,
+  }));
+}
+
+function projectLocation(
   location: (typeof CITY_LOCATIONS)[number],
   control: LocationControl,
   context: CityContext,
@@ -254,10 +274,23 @@ export function projectDistrict(
   const resident = repos.bases
     .listSummaries()
     .find((summary) => summary.districtId === district.id);
-  // What is standing on their ground. Read behind the fog like everything else: you cannot describe
-  // a street you have never walked down.
-  const residentBuildings =
-    scouted && resident ? (repos.bases.findById(resident.id)?.buildings ?? []) : [];
+  /*
+   * What is standing on their ground. Read behind the fog like everything else: you cannot describe
+   * a street you have never walked down.
+   *
+   * A plot **nobody has moved into** draws a district at level 1 rather than nothing at all. The
+   * screen for another crew's home is the district scene, and an empty plot used to render as one
+   * sentence saying nobody was there: a hole where every other plot has a place. Every plot is the
+   * same ground, so an unoccupied one is honestly drawn as that ground before anybody built on it,
+   * which is also exactly what a crew moving in would start from.
+   */
+  const residentBuildings = !scouted
+    ? []
+    : resident
+      ? (repos.bases.findById(resident.id)?.buildings ?? [])
+      : district.kind === 'residential'
+        ? unbuiltDistrict(district.id)
+        : [];
 
   return {
     district,

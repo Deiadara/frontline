@@ -45,6 +45,7 @@ export const COMBAT_CONTEXTS = [
   'underground',
   'vs_structure',
   'vs_armor',
+  'vs_evasive',
   'vs_low_morale',
   'outnumbered',
   'defending',
@@ -60,6 +61,7 @@ export const COMBAT_CONTEXT_LABELS: Record<CombatContext, string> = {
   underground: 'below street level',
   vs_structure: 'against fortifications',
   vs_armor: 'against armour',
+  vs_evasive: 'against something that will not hold still',
   vs_low_morale: 'against a shaken enemy',
   outnumbered: 'when outnumbered',
   defending: 'when holding ground',
@@ -133,6 +135,25 @@ export const UNIT_MODIFIERS = {
     description: 'Ammunition or edge designed for the plate it will meet.',
     context: 'vs_armor',
     percent: 30,
+  },
+  /**
+   * The other half of a pair that was missing one.
+   *
+   * Armour had a counter on every sheet in the game (`penetration`) and evasion had none at all,
+   * which is not a small asymmetry: evasion is a flat miss chance nothing could erode, so the two
+   * most evasive sheets in the roster were simply better than everything against everything.
+   * Measured before this existed: the Crimson Dancer took 90% of her matchups with a spread of 23
+   * points across opponents, which is what "uncounterable" looks like in a table.
+   *
+   * Deliberately a modifier rather than a stat. Penetration is on every sheet because plate is
+   * ordinary; tracking something that does not want to be hit is a speciality, and it should be a
+   * reason to bring a *particular* unit rather than a number everybody carries a little of.
+   */
+  tracking: {
+    label: 'Tracking',
+    description: 'Reads the movement, not the target. Ducking does not help.',
+    context: 'vs_evasive',
+    percent: 45,
   },
   terror: {
     label: 'Terror',

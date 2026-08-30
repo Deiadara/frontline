@@ -178,7 +178,7 @@ export function storageCapacityFor(
 export const HOUSING_BASE = 16;
 export const HOUSING_PER_QUARTERS_LEVEL = 10;
 
-/** How many people this district can house: officers, assignees and soldiers alike (§A1, §G, §H8). */
+/** How many people this district can house: officers and soldiers alike (§A1, §G, §H8). */
 export function populationCapacity(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
   const beds = HOUSING_BASE + buildingLevel(buildings, 'quarters') * HOUSING_PER_QUARTERS_LEVEL;

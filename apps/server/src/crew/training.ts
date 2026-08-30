@@ -5,7 +5,7 @@ import {
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
   applyGain,
-  officerPortraitId,
+  officerPortraits,
   rollDay,
   sessionFor,
   settleTraining,
@@ -95,6 +95,9 @@ export function projectTraining(
 ): TrainingResponse {
   const state = rollDay(base.training, now);
   const subjects: TrainingSubject[] = [];
+  // Faces for the whole roster at once: per-officer hashing puts the same face on two of them on
+  // 39% of rosters, which is the birthday problem rather than an unlucky save.
+  const faces = officerPortraits(base.commanders.map((officer) => officer.id));
 
   if (overseer) {
     subjects.push({
@@ -105,7 +108,7 @@ export function projectTraining(
       officerRole: null,
       portraitId: overseer.portraitId,
       attributes: overseer.attributes,
-      traits: overseer.traits,
+      perks: overseer.perks,
       session: sessionFor(state, OVERSEER_SUBJECT) ?? null,
       lastAttribute: state.last[OVERSEER_SUBJECT] ?? null,
     });
@@ -117,11 +120,11 @@ export function projectTraining(
       name: officer.name,
       role: OFFICER_ROLE_LABELS[officer.role],
       officerRole: officer.role,
-      // Derived rather than stored: see `officerPortraitId`. Every officer already on a save has
-      // a face the moment the pool lands, with no migration and no column.
-      portraitId: officerPortraitId(officer.id),
+      // Derived rather than stored: see `officerPortraits`. Every officer already on a save has a
+      // face the moment the pool lands, with no migration and no column.
+      portraitId: faces.get(officer.id) ?? null,
       attributes: officer.attributes,
-      traits: officer.traits,
+      perks: officer.perks,
       session: sessionFor(state, officer.id) ?? null,
       lastAttribute: state.last[officer.id] ?? null,
     });

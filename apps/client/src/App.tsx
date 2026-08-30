@@ -6,7 +6,7 @@ import { TooltipLayer } from './components/ui/TooltipLayer';
 import { AuthScreen } from './screens/AuthScreen';
 import { CharacterSelectScreen } from './screens/CharacterSelectScreen';
 import { GameScreen } from './screens/GameScreen';
-import { AssigneesPage } from './features/assignees/AssigneesPage';
+import { CrewPage } from './features/crew/CrewPage';
 import { BarPage } from './features/bar/BarPage';
 import { BasePanel } from './features/base/BasePanel';
 import { DistrictView } from './features/city/DistrictView';
@@ -120,7 +120,7 @@ export default function App() {
               </RequireLevel>
             }
           />
-          <Route path="assignees" element={<AssigneesPage />} />
+          <Route path="crew" element={<CrewPage />} />
           <Route
             path="training"
             element={

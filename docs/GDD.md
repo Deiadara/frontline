@@ -146,15 +146,28 @@ Conventions used below:
   - **H2a [CEO]** Therefore it is generated deterministically from the UTC date: one global roster, no
     per-player rolls.
 - **H3 [BOARD]** Each character has **requirements to join you**, e.g. "at least this much infamy".
-- **H4 [BOARD]** Your group's **reputation label** (§D8) affects whether someone is willing to join,
-  judged against **that character's ambitions and moral compass**: every character has both.
-- **H5 [BOARD]** Each character you hold has an **alignment meter**: how much they agree or disagree with
-  what your group does. **Too low → they threaten to leave. High → they get bonuses to some skills.**
-- **H6 [BOARD]** Characters **evolve slowly**: each can **level up**, and on level-up you get **5 skill
-  points to add**: _"2 separate points you can individually assign"_.
-  - **H6a [CEO]** Read as: 5 points total per level, of which **2 are player-assigned** and 3 are
-    auto-allocated along the character's affinities. Flagged to the board; cheap to flip if the intended
-    reading was different.
+- **H4 [BOARD, CUT]** ~~Your group's **reputation label** (§D8) affects whether someone is willing to
+  join, judged against **that character's ambitions and moral compass**: every character has both.~~
+- **H5 [BOARD, CUT]** ~~Each character you hold has an **alignment meter**: how much they agree or
+  disagree with what your group does. **Too low → they threaten to leave. High → they get bonuses to
+  some skills.**~~
+- **H6 [BOARD, CUT]** ~~Characters **evolve slowly**: each can **level up**, and on level-up you get
+  **5 skill points to add**.~~
+- **H4-H6 superseded [BOARD]** All three are removed. They were one idea between them, that a hire is a
+  _relationship you maintain_: a personality to judge against, a mood that drifted while you were not
+  looking, and a second progression track to spend points on. Keeping nineteen people happy and nineteen
+  people levelled ran beside the city, the army and the research tree, and none of it was a decision
+  anybody made on purpose.
+  - **H4a [BOARD]** A character is now **their sheet and their perks**, both visible at the Bar before a
+    cap is committed, and neither changes behind the player's back. The only ongoing cost is the wage.
+  - **H4b [BOARD]** **Perks** (§B7): a book of a hundred-odd discrete bonuses to the _crew's_ numbers,
+    not the carrier's own: `+6% build speed`, `+3 armour on Heavy units`, `-5% to widen the payroll`.
+    Each officer rolls **nought to three**, weighted so three is rare. They **sum** across the roster,
+    which is what makes filling all nineteen chairs worth the wage bill.
+  - **H4c [CEO]** How hard somebody is to haggle with is read off the sheet the player can already see:
+    **Composure** is their patience and **Negotiation** is how little ground they give. That replaces
+    the two hidden personality tags §H4 used, and it is strictly more legible: both numbers are printed
+    on the card while the player decides whether to sit down.
 - **H7 [BOARD]** Recruitment involves **negotiating a salary** if the character is interested. Salary is
   in **caps**, paid **once a week on the real-world clock**. The **first payment happens at recruitment**
   and covers **however much of the week is left**.
@@ -164,8 +177,8 @@ Conventions used below:
 
 - **I1 [BOARD]** XP comes from **missions**, **building things**, **quests**, and **fighting other
   players**.
-- **I2 [BOARD]** Levelling up grants the bonuses above (assignee pool §G8, per-officer cap §G3, recruit
-  slots §H8) **and unlocks new things**.
+- **I2 [BOARD]** Levelling up grants the bonuses above (recruit slots §H8) **and unlocks new things**.
+  The assignee pool (§G8) and the per-officer cap (§G3) it also used to grant are both cut.
 - **I3 [BOARD]** The set of unlocks beyond the above is **[TODO-LATER]**: the board will file it
   separately. Build the unlock hook, not a catalogue of unlocks.
 

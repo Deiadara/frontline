@@ -18,6 +18,7 @@ import { projectTraining, settleTrainingFor } from '../crew/training.js';
 import { crewSheetsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { ownBase } from './own-base.js';
 
 /**
  * §A4: how many extra sessions the crew's ground buys them today (the Gym).
@@ -36,12 +37,6 @@ function extraSessionsFor(app: FastifyInstance, base: Base): number {
  * already on the sheet, not a finished bar that pays out on the next click, and settling on read
  * is what makes "come back tomorrow" work without a scheduler.
  */
-
-function ownBase(app: FastifyInstance, ownerId: string): Base {
-  const base = app.repos.bases.findByOwnerId(ownerId);
-  if (!base) throw new AppError('NO_BASE', 'You do not have a base yet');
-  return base;
-}
 
 export function registerTrainingRoutes(app: FastifyInstance): void {
   app.get('/training', { preHandler: app.authenticate }, (request): TrainingResponse => {

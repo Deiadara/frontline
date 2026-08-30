@@ -199,7 +199,9 @@ describe('seedMvpWorld', () => {
     expect(base).toBeDefined();
     expect(base?.isBot).toBe(true);
     expect(base?.name).toBe(MVP_BOT.baseName);
-    expect(base?.districtId).toBe('ashen-terraces');
+    // Read off the constant rather than typed: the rival's plot has moved once already, and a
+    // literal here only ever re-states what `seedMvpWorld` was given.
+    expect(base?.districtId).toBe(BOT_DISTRICT_ID);
     expect(base?.buildings.map((b) => b.kind)).toEqual(
       expect.arrayContaining(['gate', 'gauntlet', 'nexus']),
     );

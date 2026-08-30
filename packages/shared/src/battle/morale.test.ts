@@ -14,7 +14,7 @@ import {
   type MoraleShock,
 } from './morale.js';
 import { fleeChance, pursuitSpeed, routSurvivors } from './rout.js';
-import { mulberry32 } from './rng.js';
+import { mulberry32 } from '../rng.js';
 
 /**
  * Morale, and who gets away.

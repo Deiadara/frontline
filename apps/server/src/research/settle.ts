@@ -4,15 +4,15 @@ import {
   isResearchDue,
   factionXpFromLeadership,
   recordFacts,
+  xpForClock,
   type ActiveResearch,
   type Base,
   type DiscoveredFact,
   type Overseer,
   type PlayerXpAward,
 } from '@frontline/shared';
-import { awardCharacterXp } from '../characters/award.js';
 import type { Repositories } from '../db/repos/index.js';
-import { MODIFICATION_ROLE, fitModification } from '../district/modifications.js';
+import { fitModification } from '../district/modifications.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { nextPairing, nextRoleFact } from './discover.js';
 
@@ -66,20 +66,6 @@ function investigationYield(base: Base, active: ActiveResearch): DiscoveredFact[
 }
 
 /**
- * The officer this project kept busy, or `null` when it kept nobody busy.
- *
- * An investigation names its lead on the row. Modification work does not: §C4 makes it the Lead
- * Engineer's job and the server reads whoever holds the post *now*, which is also the honest
- * answer: if the engineer who started it left, the one who finished it is the one who earned it.
- * A training project develops the Overseer, who carries no character level, so it pays nobody.
- */
-function leadOf(base: Base, active: ActiveResearch): string | null {
-  if (active.project.kind === 'investigation') return active.project.leadOfficerId;
-  if (active.project.kind !== 'modification') return null;
-  return base.commanders.find((officer) => officer.role === MODIFICATION_ROLE)?.id ?? null;
-}
-
-/**
  * Applies the project that just landed and persists it.
  *
  * Writes are ordered so that clearing `active` happens in the same state update as banking the
@@ -124,15 +110,9 @@ export function settleResearch(
   if (trained !== overseer) repos.overseers.updateAttributes(trained.id, trained.attributes);
 
   // §G6/§H6: an investigation is the "internal process" half of INTERFACES R2: a named officer is
-  // assigned to it and it runs on a clock, which is everything the reading needs. The lead is paid
-  // for the time it kept them on it, exactly as a mission officer is.
-  //
-  // Deliberately *after* `investigationYield`: the sheet that decided what this project turned up
-  // is the one the officer had while doing the work, not the one this project's own XP just bought
-  // them. A training project has no lead and pays nobody.
-  const paid = awardCharacterXp(repos, settled, [
-    { officerId: leadOf(settled, active), minutesEngaged: active.durationMinutes },
-  ]);
+  // The lead used to be paid character XP here for the time the project kept them on it. Officers
+  // have no level any more (see `commander.ts`), so a project pays the player and nobody else.
+  const paid = settled;
 
   // §I1, and the player. A project is the longest single commitment in the game, so it is the one
   // clock that has to be worth waiting out on its own. Last, after the officer's own XP, for the
@@ -144,6 +124,9 @@ export function settleResearch(
     paid,
     'researchCompleted',
     factionXpFromLeadership(overseer.attributes),
+    // Off the project's own clock, on the same curve the mission board pays: "the longest single
+    // commitment in the game" was paying a flat 150 whether it ran two minutes or twelve hours.
+    xpForClock('researchCompleted', active.durationMinutes * 60),
   );
 
   return {

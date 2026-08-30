@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { useAdmin, useAdminKnobs } from '../../lib/queries';
@@ -94,19 +95,25 @@ function StructureKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
             <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
               Which
             </span>
-            <select
+            {/*
+             * The painted picker, not the browser's. This was the last `<select>` left in the
+             * codebase: the bench is not a player screen, but it is a screen somebody looks at the
+             * artwork through, and a white operating-system menu dropped over it is the exact
+             * complaint `Dropdown` was written to answer.
+             */}
+            <Dropdown
+              label="Which structure to set"
               value={structure}
-              onChange={(event) => setStructure(event.target.value as BuildingKind | 'all')}
+              onChange={setStructure}
+              options={[
+                { value: 'all' as const, label: 'Every structure' },
+                ...BUILDING_KINDS.map((kind) => ({
+                  value: kind,
+                  label: BUILDING_CATALOG[kind].name,
+                })),
+              ]}
               data-testid="admin-structure"
-              className="rounded-sm border border-surface-600 bg-surface-950 px-3 py-2 text-[13px] text-ink-100"
-            >
-              <option value="all">Every structure</option>
-              {BUILDING_KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {BUILDING_CATALOG[kind].name}
-                </option>
-              ))}
-            </select>
+            />
           </label>
 
           <label className="flex flex-col gap-1.5">

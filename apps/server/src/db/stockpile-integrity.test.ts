@@ -1,8 +1,8 @@
 import {
   BUILDING_KINDS,
+  createCommander,
   BUILDING_MAX_LEVEL,
   STARTING_RESOURCES,
-  startingAssignees,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -101,7 +101,6 @@ function seed(repos: Repositories): string {
     economy: startingEconomy(NOW),
     progression: startingProgression(),
     research: startingResearch(),
-    assignees: startingAssignees(),
     buildings: [],
     buildQueue: [],
     army: {},
@@ -350,8 +349,14 @@ describe('a fractional stockpile', () => {
  * This is the same class of failure as the `food` rename above and it presented the same way: the
  * server would not start. `UnitIdSchema` is a key schema over the live catalogue, so an army
  * holding a retired id fails `BaseSchema.parse` on the way *out of the database*, before any
- * request is served. It has now happened twice: three units left the roster in one change and the
+ * request is served. It happened twice: three units left the roster in one change and the
  * Bell-Ringers in another, and both times the crew that owned some could not log in.
+ *
+ * There are two defences now and they do different jobs. The **loader** drops content it does not
+ * recognise (`withoutRetiredUnits` and its siblings in `repos/bases.ts`), so a save is never
+ * unopenable, including one restored from a backup older than any migration. These **migrations**
+ * clean the stored rows, so the database does not carry ghosts for ever. The tests below check the
+ * migration; that the loader survives without it is asserted inside each one.
  *
  * Both shapes are covered because both exist: an army is a map keyed by unit id, and the training
  * queue is an array of orders that each name one. A sweep that only knew about maps left a crew
@@ -365,8 +370,16 @@ describe('a save that still names a retired unit', () => {
       JSON.stringify({ razors: 4, muckrakers: 7, jammers: 2, wrecking_crew: 1, bell_ringers: 3 }),
       id,
     );
-    // Unmigrated, this is not a wrong answer, it is no answer: the row cannot be parsed at all.
-    expect(() => repos.bases.findById(id)).toThrow();
+    /*
+     * Unmigrated, the row **still loads**, and the retired units are simply not in the army.
+     *
+     * This used to assert the opposite: that the read threw and the account was unopenable until
+     * the migration ran. That was the bug written down as the spec. The loader salvages now
+     * (`withoutRetiredUnits`), because a migration is one-shot and a backup restored from before
+     * it, or the next removal nobody writes one for, would put the account straight back in the
+     * ground. The migration below is still what tidies the stored row.
+     */
+    expect(repos.bases.findById(id)?.army).toEqual({ razors: 4 });
 
     forgetRetirements(db);
     runMigrations(db);
@@ -399,7 +412,10 @@ describe('a save that still names a retired unit', () => {
       ]),
       id,
     );
-    expect(() => repos.bases.findById(id)).toThrow();
+    // Loads unmigrated too, with the retired order already filtered out of the queue.
+    expect((repos.bases.findById(id)?.trainingQueue ?? []).map((order) => order.unitId)).toEqual([
+      'razors',
+    ]);
 
     forgetRetirements(db);
     runMigrations(db);
@@ -508,5 +524,93 @@ describe('a stockpile older than one of its resources', () => {
       id,
     );
     expect(() => repos.bases.findById(id)).toThrow();
+  });
+});
+
+/**
+ * A save can always be opened, whatever content has since left the game.
+ *
+ * The one that has actually cost us: `UnitIdSchema` and its siblings are **key** schemas over the
+ * live catalogues, so a row naming a retired id does not come back with a bad field, it does not
+ * come back at all, and on the server that is the account refusing to load rather than a request
+ * returning an error. Measured before this existed: of the ten columns that store a content id,
+ * six refused the row outright and only four degraded.
+ *
+ * Two halves are asserted here and both matter. **History is repaired**: a retired unit, chair,
+ * structure, refit or trait is dropped and everything else survives. **Corruption is not**: a
+ * negative count or a string where a number belongs is still an error, because that is damage
+ * rather than history and quietly repairing it would hide a real fault.
+ */
+describe('a save naming content the game no longer has', () => {
+  const load = (column: string, value: unknown) => {
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    db.prepare(`UPDATE bases SET ${column} = ? WHERE id = ?`).run(JSON.stringify(value), id);
+    return repos.bases.findById(id);
+  };
+
+  it('drops a retired unit from the army and keeps the rest', () => {
+    expect(load('army_json', { razors: 4, gone_unit: 7 })?.army).toEqual({ razors: 4 });
+  });
+
+  it('drops a training order for a unit that no longer exists', () => {
+    const order = (unitId: string, orderId: string) => ({
+      id: orderId,
+      unitId,
+      count: 2,
+      delivered: 0,
+      startedAt: NOW,
+      durationSeconds: 60,
+    });
+    const queue = load('training_queue_json', [order('razors', 'a'), order('gone_unit', 'b')]);
+    expect((queue?.trainingQueue ?? []).map((one) => one.unitId)).toEqual(['razors']);
+  });
+
+  it('drops a structure of a kind that no longer exists', () => {
+    const buildings = load('buildings_json', [
+      { id: 'x', kind: 'gone_building', level: 3, modifications: [], damage: 0, fortification: 0 },
+      { id: 'y', kind: 'nexus', level: 3, modifications: [], damage: 0, fortification: 0 },
+    ])?.buildings;
+    expect(buildings?.map((one) => one.kind)).toEqual(['nexus']);
+  });
+
+  it('drops a refit that no longer exists and keeps the structure', () => {
+    const buildings = load('buildings_json', [
+      {
+        id: 'y',
+        kind: 'nexus',
+        level: 3,
+        modifications: ['gone_mod'],
+        damage: 0,
+        fortification: 0,
+      },
+    ])?.buildings;
+    expect(buildings).toHaveLength(1);
+    expect(buildings?.[0]?.modifications).toEqual([]);
+  });
+
+  it('drops an officer whose chair no longer exists, and a perk that does not', () => {
+    const officer = createCommander('c1', 'A Name', 'head_spy');
+    const gone = { ...officer, id: 'c2', role: 'gone_role' };
+    const withGhostRole = load('commanders_json', [officer, gone])?.commanders;
+    expect(withGhostRole?.map((one) => one.id)).toEqual(['c1']);
+
+    const withGhostPerk = load('commanders_json', [{ ...officer, perks: ['gone_perk'] }]);
+    expect(withGhostPerk?.commanders).toHaveLength(1);
+    expect(withGhostPerk?.commanders[0]?.perks).toEqual([]);
+  });
+
+  /** The other half. Damage is not history, and repairing it silently would hide a real fault. */
+  it.each([
+    ['a negative count', 'army_json', { razors: -3 }],
+    ['a count that is not a number', 'army_json', { razors: 'lots' }],
+    ['a null army', 'army_json', null],
+    [
+      'a level that is not a number',
+      'buildings_json',
+      [{ id: 'y', kind: 'nexus', level: 'six', modifications: [], damage: 0, fortification: 0 }],
+    ],
+  ])('still refuses %s', (_label, column, value) => {
+    expect(() => load(column, value)).toThrow();
   });
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { effortScaleSeconds } from './effort.js';
 import { applyPlayerXp, playerXpToNextLevel, type PlayerLevelProgress } from './curve.js';
 import { playerLevelGrants, type PlayerLevelGrants } from './grants.js';
 import { playerUnlocksBetween, type PlayerLevelUnlock } from './unlocks.js';
@@ -62,6 +63,23 @@ export const PLAYER_XP_AWARDS = {
 } as const;
 
 export type PlayerXpSource = keyof typeof PLAYER_XP_AWARDS;
+
+/**
+ * What one finished clock is worth: the source's anchor, moved by how long the thing actually took.
+ *
+ * The table above is a set of **anchors**, not a set of values, and until this existed only missions
+ * read theirs that way. Everything else paid its anchor flat, which meant a fifty-five-second first
+ * Gauntlet and a nine-hour level 20 both paid 60, a two-minute research project and a twelve-hour
+ * one both paid 150, and the module note's own rule ("priced against `missionCompleted` by how long
+ * the thing takes") was true of exactly one source.
+ *
+ * `effortScale` is the same sub-linear curve the mission board pays on, floor included, so the
+ * relationship a player learns on one screen holds on the others: longer is worth more in total and
+ * less per hour.
+ */
+export function xpForClock(source: PlayerXpSource, seconds: number): number {
+  return Math.max(1, Math.round(PLAYER_XP_AWARDS[source] * effortScaleSeconds(seconds)));
+}
 
 /** The outcome of one XP award: the new position on the curve, plus what a level-up handed over. */
 export interface PlayerXpAward {

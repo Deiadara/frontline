@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
 import { MILESTONE_BROKERS_RESPECT, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
+import { seedFrom } from '../rng.js';
 
 /**
  * The market's two traders (GDD §D, market extension).
@@ -37,22 +38,15 @@ export const BARTER_RATE = 0.5;
 /** How many lines the Runner carries on a given day. */
 export const VENDOR_STOCK_SIZE = 6;
 
-/**
- * FNV-1a over the seed string, then an LCG.
+/*
+ * The hash is `../rng.js` now, not a private copy.
  *
- * The same shape the Bar's roster uses, kept here rather than imported because that one lives on
- * the server and the market has to be derivable on both sides: the client draws the day's hours
- * without asking, and the server checks them without trusting.
+ * It used to be duplicated here with a note explaining that the Bar's version "lives on the server
+ * and the market has to be derivable on both sides". That was the right observation and the wrong
+ * conclusion: a hash both sides need belongs in the shared package, which is where it is. Four
+ * copies of FNV-1a existed by the time anybody counted (two spelled with shifts and two with
+ * `Math.imul`, which are the same function and were checked to be, over 200,000 strings).
  */
-function seedFrom(text: string): number {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < text.length; index++) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
 function rngFrom(seed: string): () => number {
   let state = seedFrom(seed) || 1;
   return () => {

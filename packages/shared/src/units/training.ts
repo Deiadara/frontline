@@ -17,6 +17,32 @@ import { UNIT_CATALOG, UnitIdSchema, findUnit, type UnitSpec } from './catalog.j
 
 /** An army: how many of each unit a crew has *at home*. Garrisons are counted separately. */
 export const ArmySchema = z.record(UnitIdSchema, z.number().int().nonnegative());
+
+/**
+ * An army with the units that no longer exist taken out of it.
+ *
+ * `UnitIdSchema` is a *key* schema over the live catalogue, which means an army naming a retired
+ * unit does not fail validation with a bad field, it fails to parse at all. Every place that reads
+ * a stored army therefore has the same fault line under it: retire a unit and the read throws,
+ * which on the server is the row refusing to load rather than a request returning an error. That
+ * has happened twice.
+ *
+ * A migration fixes the rows that exist when it runs and nothing else: not a backup restored from
+ * before it, not a stale process writing an older shape, and not the next removal nobody writes one
+ * for. So the *readers* are made forgiving and the migrations stay as the tidy path.
+ *
+ * Strictly a filter on unknown keys. A negative count, a null, a string where a number belongs are
+ * all still errors, because those are corruption rather than history, and the schema judges them
+ * exactly as it did before.
+ */
+export function withoutRetiredUnits(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      ([unitId]) => findUnit(unitId) !== undefined,
+    ),
+  );
+}
 export type Army = z.infer<typeof ArmySchema>;
 
 export const MAX_TRAINING_QUEUE = 5;
@@ -75,8 +101,8 @@ export type TrainingQueue = z.infer<typeof TrainingQueueSchema>;
  * What an army costs against the district's population (§A1). A Colossus is not one soldier.
  *
  * There is no separate army ceiling any more. The Gauntlet used to run one and the Quarters ran a
- * second for officers and assignees, so a crew could fill both without either knowing, and "how
- * many people work here" had two answers. Everything comes out of one pool now: see
+ * second for the officers, so a crew could fill both without either knowing, and "how many people
+ * work here" had two answers. Everything comes out of one pool now: see
  * `building/population.ts` for what fills it and why supply is the right cost per body.
  */
 export function supplyUsed(army: Army): number {

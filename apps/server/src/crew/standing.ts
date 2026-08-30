@@ -108,10 +108,10 @@ export function crewSheetsFor(repos: Repositories, base: Base): CrewMember[] {
     repos.city.controls(),
   ).officerGroupFlat;
   const officers: CrewMember[] = base.commanders.map((officer) =>
-    seatedMember(liftedByGround(officer.attributes, byGroup), officer.role),
+    seatedMember(liftedByGround(officer.attributes, byGroup), officer.role, officer.perks),
   );
   const owner = repos.users.findById(base.ownerId);
   const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
   // The Overseer is the player, not an employee: no seat, and no discount anywhere.
-  return overseer ? [overseerMember(overseer.attributes), ...officers] : officers;
+  return overseer ? [overseerMember(overseer.attributes, overseer.perks), ...officers] : officers;
 }

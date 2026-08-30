@@ -1,4 +1,3 @@
-import { placedAssignees, type AssigneeState } from '../assignees/index.js';
 import type { TerritoryEffects } from '../city/locations.js';
 import {
   findUnit,
@@ -13,14 +12,14 @@ import { populationCapacity, type Building } from './index.js';
  * Population (GDD §A1, §A4): the one pool everybody in the district draws on.
  *
  * There used to be two ceilings and they did not know about each other. The Quarters housed
- * officers and assignees; the Gauntlet supplied an army; and a crew could fill both to the brim
+ * the officers; the Gauntlet supplied an army; and a crew could fill both to the brim
  * without either noticing, so "how big is this crew" had two answers and neither was the whole
  * truth. A district that is three quarters barracks should not also have room for nineteen
  * officers, and the version with two counters could not say so.
  *
  * One pool now. The Quarters raise it, the Cistern raises it, and captured ground raises it,
  * because people who work for you have to sleep somewhere and the ground you hold is where the
- * somewhere is. Officers, placed assignees and every body in the army all come out of it.
+ * somewhere is. Officers and every body in the army all come out of it.
  *
  * ## Why units cost their supply rather than their headcount
  *
@@ -51,8 +50,6 @@ export function districtPopulationCapacity(
 export interface PopulationDraw {
   /** Officers on the books. Every one needs a bed (§H8). */
   officers: number;
-  /** §G2 assignees actually placed. Unplaced ones are not housed and never were. */
-  assignees: number;
   /** Supply of everything standing on the roster, garrisons on held ground included. */
   army: number;
   /** Supply of everything on the bench, counted at order time so a batch cannot overfill on landing. */
@@ -69,17 +66,15 @@ export interface PopulationDraw {
  */
 export function populationDraw(input: {
   commanders: readonly { readonly id: string }[];
-  assignees: AssigneeState;
   army: Army;
   trainingQueue: TrainingQueue;
   /** Units standing on captured ground. Still this crew's people, and still eating. */
   garrison?: Army;
 }): PopulationDraw {
   const officers = input.commanders.length;
-  const assignees = placedAssignees(input.assignees);
   const army = supplyUsed(input.army) + (input.garrison ? supplyUsed(input.garrison) : 0);
   const training = supplyQueued(input.trainingQueue);
-  return { officers, assignees, army, training, total: officers + assignees + army + training };
+  return { officers, army, training, total: officers + army + training };
 }
 
 /** What one of these costs against the pool. The roster's own supply figure, and nothing new. */

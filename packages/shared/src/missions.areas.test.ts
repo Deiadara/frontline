@@ -93,7 +93,7 @@ describe('finding a board a job is on', () => {
    * Every job in the catalogue reaches a board inside a fortnight, or it is content nobody can
    * ever take.
    *
-   * The pool is larger than the city's thirty-three slots on purpose, so this cannot be true on
+   * The pool is larger than the city's fifty-nine slots on purpose, so this cannot be true on
    * any one day; the daily turnover is what makes it true over time, and this is the check that
    * says the walk actually circulates rather than favouring the same third of the list.
    */
@@ -107,6 +107,37 @@ describe('finding a board a job is on', () => {
     }
     for (const template of MISSION_TEMPLATES) {
       expect(seen.has(template.id), template.id).toBe(true);
+    }
+  });
+
+  /**
+   * Every day has an easy job and a hard job somewhere in the city.
+   *
+   * Not a content nicety: it is the property the server's test fixtures stand on. Those tests used
+   * to name a template outright, and because the boards turn over daily a named id is a fixture
+   * with a hidden expiry date. Measured over these two years, `scrap-run` is on no board on 19% of
+   * days, `convoy-ambush` 15% and `deep-expedition` 24%, so the suite was red about one day in
+   * four for a reason nobody had changed. They ask the board for a job of the kind they need now,
+   * and this is the check that the board can always answer.
+   *
+   * It is also a player-facing rule in its own right. A day whose whole city offered only fights
+   * would be a day a crew with no army could not play, and one offering only errands would be a
+   * day an army had nothing to do.
+   */
+  it('always has an easy job and a hard job open somewhere, on every day of two years', () => {
+    const start = Date.UTC(2026, 0, 1);
+    for (let index = 0; index < 730; index += 1) {
+      const day = missionBoardDay(new Date(start + index * 86_400_000));
+      const open = AREAS.flatMap((areaId) => missionOffers(areaId, day));
+      expect(open.length, day).toBeGreaterThan(0);
+      expect(
+        open.some((template) => template.difficulty === 'easy'),
+        `no easy job anywhere on ${day}`,
+      ).toBe(true);
+      expect(
+        open.some((template) => template.difficulty === 'hard'),
+        `no hard job anywhere on ${day}`,
+      ).toBe(true);
     }
   });
 

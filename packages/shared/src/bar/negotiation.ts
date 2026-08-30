@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { IsoDateTimeSchema } from '../primitives.js';
-import { MORAL_COMPASSES, type Ambition, type MoralCompass } from './disposition.js';
+import { MAX_RECRUITMENT_ATTRIBUTE, type Attributes } from '../attributes.js';
+import { seedFrom } from '../rng.js';
 import { reservationWage } from './wage.js';
 
 /**
@@ -43,42 +44,43 @@ export interface NegotiationTemper {
   concession: number;
 }
 
-/**
- * What each ambition is worth in patience.
- *
- * Somebody here for the money will sit and grind; somebody here because they want to belong to
- * something is embarrassed to be haggling at all and gives ground to end it.
- */
-const AMBITION_TEMPER: Readonly<Record<Ambition, NegotiationTemper>> = {
-  wealth: { patience: 6, concession: 0.2 },
-  power: { patience: 4, concession: 0.28 },
-  revenge: { patience: 3, concession: 0.4 },
-  justice: { patience: 4, concession: 0.45 },
-  knowledge: { patience: 5, concession: 0.35 },
-  belonging: { patience: 5, concession: 0.5 },
-  notoriety: { patience: 3, concession: 0.3 },
-};
-
-/** And what the moral compass does to it. A pragmatist negotiates; a ruthless one does not. */
-const COMPASS_TEMPER: Readonly<Record<MoralCompass, { patience: number; concession: number }>> = {
-  idealist: { patience: 1, concession: 0.05 },
-  pragmatist: { patience: 2, concession: 0.1 },
-  opportunist: { patience: 1, concession: -0.05 },
-  ruthless: { patience: -1, concession: -0.1 },
-};
-
 export const MIN_PATIENCE = 2;
 export const MAX_PATIENCE = 8;
 
-export function negotiationTemper(
-  ambition: Ambition,
-  moralCompass: MoralCompass,
-): NegotiationTemper {
-  const base = AMBITION_TEMPER[ambition];
-  const shift = COMPASS_TEMPER[moralCompass];
+/** The easiest and hardest anybody concedes, whatever their sheet says. */
+export const MIN_CONCESSION = 0.18;
+export const MAX_CONCESSION = 0.6;
+
+/**
+ * How hard this person is to haggle with, read off the sheet the player can already see.
+ *
+ * It used to be read off `ambition` and `moralCompass`: two hidden personality tags that existed
+ * only to feed this function and a line of flavour text. Those are gone, and the replacement is
+ * strictly better for the player, because both inputs are printed on the card they are looking at
+ * while they decide whether to sit down.
+ *
+ *   * **Composure** is patience. Holding a line under pressure is the whole of what this measures,
+ *     and a haggle is pressure.
+ *   * **Negotiation** is how little ground they give. Somebody who does this for a living does not
+ *     move far when you push, which is the same skill your side of the table is using.
+ *
+ * So a recruit with a Negotiation of 40 is a genuinely hard sit-down, and a player who reads the
+ * card knows that before spending a single exchange finding out.
+ */
+export function negotiationTemper(attributes: Attributes): NegotiationTemper {
+  /*
+   * Scaled against the **recruitment** ceiling rather than the 0..100 one, and the difference is
+   * the whole model rather than a detail. A rolled recruit tops out at `MAX_RECRUITMENT_ATTRIBUTE`,
+   * so dividing by 100 put every single person the Bar produces in the bottom four-tenths of the
+   * range: everybody sat at minimum patience and walked out of every negotiation. Against the range
+   * they are actually drawn from, a middling recruit is middling and a specialist is genuinely hard.
+   */
+  const share = (value: number) => Math.min(1, Math.max(0, value / MAX_RECRUITMENT_ATTRIBUTE));
   return {
-    patience: Math.min(MAX_PATIENCE, Math.max(MIN_PATIENCE, base.patience + shift.patience)),
-    concession: Math.min(0.7, Math.max(0.1, base.concession + shift.concession)),
+    patience: Math.round(
+      MIN_PATIENCE + (MAX_PATIENCE - MIN_PATIENCE) * share(attributes.composure),
+    ),
+    concession: MAX_CONCESSION - (MAX_CONCESSION - MIN_CONCESSION) * share(attributes.negotiation),
   };
 }
 
@@ -90,6 +92,24 @@ export const INSULT_PATIENCE_COST = 2;
 export const STONEWALL_PATIENCE_COST = 1;
 /** How much of the gap a non-improving offer still buys. Enough to notice, not enough to work. */
 export const STALE_CONCESSION_SHARE = 0.25;
+
+/**
+ * The four ways somebody haggles.
+ *
+ * These were the four `moralCompass` values, and the writing is theirs. What changed is that they
+ * are no longer a *stored personality*: a recruit is not "an idealist" any more, they simply
+ * bargain like one, and which of the four they sound like is derived from their id by
+ * {@link negotiationVoice}. That keeps a hundred lines of written dialogue and every recruit's
+ * consistent voice, without a field on the sheet whose only job was to pick between them.
+ */
+export const NEGOTIATION_VOICES = ['idealist', 'pragmatist', 'opportunist', 'ruthless'] as const;
+export const NegotiationVoiceSchema = z.enum(NEGOTIATION_VOICES);
+export type NegotiationVoice = z.infer<typeof NegotiationVoiceSchema>;
+
+/** Which of the four this person sounds like. Stable for a given recruit, and free to store. */
+export function negotiationVoice(recruitId: string): NegotiationVoice {
+  return NEGOTIATION_VOICES[seedFrom(recruitId) % NEGOTIATION_VOICES.length] as NegotiationVoice;
+}
 
 export const NEGOTIATION_MOODS = [
   'opening',
@@ -129,14 +149,10 @@ export const NegotiationSchema = z.object({
 export type Negotiation = z.infer<typeof NegotiationSchema>;
 
 /** The opening position: what they asked for, and everything they have in them. */
-export function openNegotiation(
-  asking: number,
-  ambition: Ambition,
-  moralCompass: MoralCompass,
-): Negotiation {
+export function openNegotiation(asking: number, attributes: Attributes): Negotiation {
   return {
     rounds: 0,
-    patience: negotiationTemper(ambition, moralCompass).patience,
+    patience: negotiationTemper(attributes).patience,
     standing: Math.max(1, Math.round(asking)),
     lastOffer: null,
     mood: 'opening',
@@ -158,8 +174,8 @@ export interface NegotiationInput {
   offer: number;
   /** Their opening price against *this* crew: the floor is derived from it. */
   asking: number;
-  ambition: Ambition;
-  moralCompass: MoralCompass;
+  /** Their sheet: `composure` is their patience and `negotiation` is how little they concede. */
+  attributes: Attributes;
 }
 
 /**
@@ -174,8 +190,7 @@ export function negotiate({
   negotiation,
   offer,
   asking,
-  ambition,
-  moralCompass,
+  attributes,
 }: NegotiationInput): NegotiationTurn {
   if (negotiation.closed) {
     return { negotiation, accepted: false, walkedAway: negotiation.patience === 0 };
@@ -229,7 +244,7 @@ export function negotiate({
   // They come down. Improving on your last offer buys the full concession; repeating yourself buys
   // a quarter of it, which is enough that a stubborn player is not simply stuck and little enough
   // that stubbornness is a bad plan.
-  const { concession } = negotiationTemper(ambition, moralCompass);
+  const { concession } = negotiationTemper(attributes);
   const share = improved ? concession : concession * STALE_CONCESSION_SHARE;
   const standing = Math.max(
     floor,
@@ -266,115 +281,116 @@ export function negotiate({
  * Written as speech and not as UI copy. "Not enough" is a validation message; "I have got people
  * asking after me, and they are not opening there" is a person.
  */
-const LINES: Readonly<Record<MoralCompass, Readonly<Record<NegotiationMood, readonly string[]>>>> =
-  {
-    idealist: {
-      opening: [
-        'I would rather talk about the work, but the work does not feed anybody. Say a number.',
-        'I am not going to pretend this part does not matter. What are you offering?',
-      ],
-      considering: [
-        'That is not nothing. It is not enough either, and I think you know that.',
-        'I have turned down more than that from people I liked less. Try again.',
-      ],
-      close: [
-        'We are nearly there, and I would like to stop doing this. One more step.',
-        'Close enough that I am embarrassed to still be arguing. Nearly.',
-      ],
-      insulted: [
-        'You are not negotiating. You are seeing what I will put up with.',
-        'I came here because of what people say you stand for. That number says something else.',
-      ],
-      stonewalled: [
-        'You have said that already. I heard it the first time.',
-        'The number has not changed and neither have I.',
-      ],
-      agreed: [
-        'Then we are agreed. I will not ask you for more.',
-        'Good. Now tell me what the work is.',
-      ],
-      overpaid: [
-        'That is more than I asked for. I will not pretend I did not notice.',
-        'You did not have to do that. I will remember that you did.',
-      ],
-      walked: [
-        'No. I would rather be poor somewhere honest.',
-        'I am going to go before one of us says something we cannot take back.',
-      ],
-    },
-    pragmatist: {
-      opening: [
-        'Let us get the money out of the way. What is the number?',
-        'I have a figure in mind. Say yours and we will see how far apart we are.',
-      ],
-      considering: [
-        'That is a start. It is not a finish.',
-        'I can see where you are going. You have not got there yet.',
-      ],
-      close: [
-        'We are inside spitting distance. Do not make me haggle over one week.',
-        'That is nearly the number. Nearly.',
-      ],
-      insulted: [
-        'You have wasted one of us’s time and it was not mine.',
-        'I will assume you misheard the figure rather than that you meant that.',
-      ],
-      stonewalled: [
-        'Same number. Same answer.',
-        'If you have nothing new to say, we are just sitting here.',
-      ],
-      agreed: ['Done. Where do you want me.', 'Agreed. I will not bring it up again.'],
-      overpaid: [
-        'That is over the odds and I am not going to argue you down.',
-        'Generous. I will take it before you think about it.',
-      ],
-      walked: [
-        'We are too far apart and neither of us is moving. I am out.',
-        'This is not going to close. Good luck.',
-      ],
-    },
-    opportunist: {
-      opening: [
-        'Everybody in here has a price. Mine is a bit higher than you were hoping.',
-        'Go on then. Impress me.',
-      ],
-      considering: [
-        'I have got people asking after me, and they are not opening there.',
-        'You can do better. I have watched you do better.',
-      ],
-      close: ['One more move and I stop looking at the door.', 'Nearly. And I do mean nearly.'],
-      insulted: [
-        'That is not an offer, that is a test. I do not sit tests.',
-        'I have been underpaid before. I have never been underpaid that creatively.',
-      ],
-      stonewalled: ['Still that? All right. Still no.', 'Repeating it does not make it bigger.'],
-      agreed: ['Now you are talking. I am yours.', 'Signed. You will get your money’s worth.'],
-      overpaid: [
-        'You are paying over. I am not going to be the one to mention it. Oh.',
-        'That is more than I would have taken and you will never know how much more.',
-      ],
-      walked: [
-        'There is a better table in here and I am going to go sit at it.',
-        'I am done. Somebody else will pay it.',
-      ],
-    },
-    ruthless: {
-      opening: ['Number.', 'Say it once and say it properly.'],
-      considering: ['No.', 'Not for that.'],
-      close: [
-        'Nearly. Do not make me say it twice.',
-        'One more and I will stop being polite about it.',
-      ],
-      insulted: [
-        'Say that again and see what happens.',
-        'I have hurt people for less than that and got paid for it.',
-      ],
-      stonewalled: ['You already said that.', 'I do not repeat myself either.'],
-      agreed: ['Fine.', 'Done. Point me at somebody.'],
-      overpaid: ['You did not have to. Noted.', 'More than I asked. Keep doing that.'],
-      walked: ['We are finished.', 'No. And do not send anybody after me about it.'],
-    },
-  };
+const LINES: Readonly<
+  Record<NegotiationVoice, Readonly<Record<NegotiationMood, readonly string[]>>>
+> = {
+  idealist: {
+    opening: [
+      'I would rather talk about the work, but the work does not feed anybody. Say a number.',
+      'I am not going to pretend this part does not matter. What are you offering?',
+    ],
+    considering: [
+      'That is not nothing. It is not enough either, and I think you know that.',
+      'I have turned down more than that from people I liked less. Try again.',
+    ],
+    close: [
+      'We are nearly there, and I would like to stop doing this. One more step.',
+      'Close enough that I am embarrassed to still be arguing. Nearly.',
+    ],
+    insulted: [
+      'You are not negotiating. You are seeing what I will put up with.',
+      'I came here because of what people say you stand for. That number says something else.',
+    ],
+    stonewalled: [
+      'You have said that already. I heard it the first time.',
+      'The number has not changed and neither have I.',
+    ],
+    agreed: [
+      'Then we are agreed. I will not ask you for more.',
+      'Good. Now tell me what the work is.',
+    ],
+    overpaid: [
+      'That is more than I asked for. I will not pretend I did not notice.',
+      'You did not have to do that. I will remember that you did.',
+    ],
+    walked: [
+      'No. I would rather be poor somewhere honest.',
+      'I am going to go before one of us says something we cannot take back.',
+    ],
+  },
+  pragmatist: {
+    opening: [
+      'Let us get the money out of the way. What is the number?',
+      'I have a figure in mind. Say yours and we will see how far apart we are.',
+    ],
+    considering: [
+      'That is a start. It is not a finish.',
+      'I can see where you are going. You have not got there yet.',
+    ],
+    close: [
+      'We are inside spitting distance. Do not make me haggle over one week.',
+      'That is nearly the number. Nearly.',
+    ],
+    insulted: [
+      'You have wasted one of us’s time and it was not mine.',
+      'I will assume you misheard the figure rather than that you meant that.',
+    ],
+    stonewalled: [
+      'Same number. Same answer.',
+      'If you have nothing new to say, we are just sitting here.',
+    ],
+    agreed: ['Done. Where do you want me.', 'Agreed. I will not bring it up again.'],
+    overpaid: [
+      'That is over the odds and I am not going to argue you down.',
+      'Generous. I will take it before you think about it.',
+    ],
+    walked: [
+      'We are too far apart and neither of us is moving. I am out.',
+      'This is not going to close. Good luck.',
+    ],
+  },
+  opportunist: {
+    opening: [
+      'Everybody in here has a price. Mine is a bit higher than you were hoping.',
+      'Go on then. Impress me.',
+    ],
+    considering: [
+      'I have got people asking after me, and they are not opening there.',
+      'You can do better. I have watched you do better.',
+    ],
+    close: ['One more move and I stop looking at the door.', 'Nearly. And I do mean nearly.'],
+    insulted: [
+      'That is not an offer, that is a test. I do not sit tests.',
+      'I have been underpaid before. I have never been underpaid that creatively.',
+    ],
+    stonewalled: ['Still that? All right. Still no.', 'Repeating it does not make it bigger.'],
+    agreed: ['Now you are talking. I am yours.', 'Signed. You will get your money’s worth.'],
+    overpaid: [
+      'You are paying over. I am not going to be the one to mention it. Oh.',
+      'That is more than I would have taken and you will never know how much more.',
+    ],
+    walked: [
+      'There is a better table in here and I am going to go sit at it.',
+      'I am done. Somebody else will pay it.',
+    ],
+  },
+  ruthless: {
+    opening: ['Number.', 'Say it once and say it properly.'],
+    considering: ['No.', 'Not for that.'],
+    close: [
+      'Nearly. Do not make me say it twice.',
+      'One more and I will stop being polite about it.',
+    ],
+    insulted: [
+      'Say that again and see what happens.',
+      'I have hurt people for less than that and got paid for it.',
+    ],
+    stonewalled: ['You already said that.', 'I do not repeat myself either.'],
+    agreed: ['Fine.', 'Done. Point me at somebody.'],
+    overpaid: ['You did not have to. Noted.', 'More than I asked. Keep doing that.'],
+    walked: ['We are finished.', 'No. And do not send anybody after me about it.'],
+  },
+};
 
 /**
  * The line for this turn.
@@ -385,21 +401,21 @@ const LINES: Readonly<Record<MoralCompass, Readonly<Record<NegotiationMood, read
  * worse than a slightly wrong voice.
  */
 export function negotiationLine(
-  moralCompass: MoralCompass,
+  voiceKey: NegotiationVoice,
   mood: NegotiationMood,
   round: number,
 ): string {
-  const voice = LINES[moralCompass] ?? LINES.pragmatist;
+  const voice = LINES[voiceKey] ?? LINES.pragmatist;
   const bank = voice[mood];
   const line = bank[Math.abs(Math.trunc(round)) % bank.length];
   return line ?? '…';
 }
 
-/** Guards the voice table against a compass being added and going silent. */
-for (const compass of MORAL_COMPASSES) {
+/** Guards the voice table against a voice being added and going silent. */
+for (const voice of NEGOTIATION_VOICES) {
   for (const mood of NEGOTIATION_MOODS) {
-    if ((LINES[compass][mood]?.length ?? 0) === 0) {
-      throw new Error(`no ${mood} line for a ${compass}`);
+    if ((LINES[voice][mood]?.length ?? 0) === 0) {
+      throw new Error(`no ${mood} line for a ${voice}`);
     }
   }
 }

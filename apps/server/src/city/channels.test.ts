@@ -1,4 +1,8 @@
 import {
+  PERK_CATALOG,
+  applyPerkBonus,
+  noCrewEffects,
+  type CrewEffects,
   CITY_LOCATIONS,
   LOCATION_CATALOG,
   LOCATION_KINDS,
@@ -75,15 +79,40 @@ describe('every channel a location pays into', () => {
     expect(pushed.size).toBeGreaterThanOrEqual(20);
   });
 
-  it('actually lands on the effects a crew holding the city would have', () => {
-    const effects = holdingEverything();
+  /**
+   * The real rule is that no channel is dead, and the map is no longer the only thing that can
+   * feed one.
+   *
+   * The perk book (`crew/perks.ts`) pushes channels a location cannot: armour, tier-scoped unit
+   * bonuses and mission pay have no plot of ground that grants them. Checking only the map would
+   * therefore have forced those three to be given to some location whether or not that made sense,
+   * which is the tail wagging the dog. What matters is that a channel has *a* source, so both are
+   * folded and the assertion below is unchanged: nothing may be left at zero.
+   *
+   * This is the stronger version of the guard, not a relaxation. It now also covers the perk
+   * catalogue, so a perk kind authored and never wired into `applyPerkBonus` shows up here too.
+   */
+  it('actually lands on the effects a crew holding the city, with every perk, would have', () => {
+    const effects: CrewEffects = { ...noCrewEffects(), ...holdingEverything() };
+    for (const perk of PERK_CATALOG) applyPerkBonus(effects, perk.bonus);
+
     const dead: string[] = [];
     for (const channel of CHANNELS) {
       const value = effects[channel];
       const moved = typeof value === 'number' ? value !== 0 : Object.keys(value ?? {}).length > 0;
       if (!moved) dead.push(channel);
     }
-    expect(dead, 'channels no location in the city pays into').toEqual([]);
+    expect(dead, 'channels nothing in the game pays into').toEqual([]);
+  });
+
+  /** And the crew-only half of the struct, which no location can reach at all. */
+  it('leaves no crew-only channel that the perk book never pays into', () => {
+    const effects = noCrewEffects();
+    for (const perk of PERK_CATALOG) applyPerkBonus(effects, perk.bonus);
+
+    const crewOnly = Object.keys(noCrewEffects()).filter((key) => !CHANNELS.includes(key as never));
+    const dead = crewOnly.filter((key) => effects[key as keyof CrewEffects] === 0);
+    expect(dead, 'crew-only channels no perk pays into').toEqual([]);
   });
 
   it('scales with the level a location has been worked up to', () => {

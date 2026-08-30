@@ -33,7 +33,7 @@ const district = (id: string): District => {
 describe('CITY_DISTRICTS', () => {
   it('is a valid map with a starter district', () => {
     expect(() => z.array(DistrictSchema).min(10).parse(CITY_DISTRICTS)).not.toThrow();
-    expect(CITY_DISTRICTS).toHaveLength(10);
+    expect(CITY_DISTRICTS).toHaveLength(12);
     expect(findDistrict(STARTER_DISTRICT_ID)?.kind).toBe('residential');
   });
 

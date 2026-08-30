@@ -2,7 +2,6 @@ import {
   MISC_AREA_ID,
   OFFICER_ROLES,
   CROSS_REFERENCE_IMPROVISATION,
-  characterXpForActivity,
   EXTRA_FACT_COMMUNICATION,
   MAX_ATTRIBUTE,
   MAX_PAIRINGS,
@@ -23,7 +22,6 @@ import {
   researchCompletesAt,
   roleFactsIn,
   startingEconomy,
-  startingAssignees,
   startingProgression,
   startingResearch,
   unlocksCrossReference,
@@ -61,7 +59,7 @@ function makeOverseer(overrides: Partial<Overseer> = {}): Overseer {
     portraitId: PRESET.portraitId,
     bio: PRESET.bio,
     attributes: PRESET.attributes,
-    traits: PRESET.traits,
+    perks: PRESET.perks,
     ...overrides,
   };
 }
@@ -84,9 +82,7 @@ const INVESTIGATION_MINUTES = 43;
 
 /** A Professor whose sheet is set exactly where the §F3/§F4 gates are being probed. */
 function professor(id: string, improvisation: number, communication: number): Commander {
-  return createCommander(id, 'Ada Vasquez', 'professor', { improvisation, communication }, [], {
-    now: NOW.toISOString(),
-  });
+  return createCommander(id, 'Ada Vasquez', 'professor', { improvisation, communication });
 }
 
 function makeBase(overrides: Partial<Base> = {}): Base {
@@ -107,7 +103,6 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     },
     economy: startingEconomy(NOW.toISOString()),
     progression: startingProgression(),
-    assignees: startingAssignees(),
     research: startingResearch(),
     buildings: [],
     buildQueue: [],
@@ -246,9 +241,7 @@ describe('starting a project (§B9, §F2, §F4)', () => {
 
   it('§B9/§C4: only a Professor or Head of Research can lead an investigation', () => {
     const { repos } = fakeRepos();
-    const wrongRole = createCommander('spy-1', 'Nyx', 'head_spy', {}, [], {
-      now: NOW.toISOString(),
-    });
+    const wrongRole = createCommander('spy-1', 'Nyx', 'head_spy');
     const withSpy = makeBase({ commanders: [wrongRole] });
     expect(
       startResearch(repos, {
@@ -776,92 +769,38 @@ describe('GET /research and POST /research', () => {
 });
 
 /**
- * INTERFACES §2 R2 / §G6: the "internal processes" half of where character XP comes from.
+ * The third clock, and the third call site.
  *
- * An investigation names a lead officer and runs on a clock, which is the whole of the reading.
- * A training project has neither: it develops the *Overseer*, who is not a `Commander` and carries
- * no level of their own.
+ * `PLAYER_XP_AWARDS` calls research "the longest single commitment in the game", and it paid a flat
+ * 150 whether the project ran forty-five minutes or three hours. Asserted as the ratio between two
+ * kinds rather than as a figure, because the settlement also adds the lead's charisma on top and
+ * that is a different rule this test has no business pinning.
  */
-describe('character XP from an internal process (§G6, §H6)', () => {
-  const lead = professor('prof-1', 10, 10);
+describe('a project pays XP off its own clock (§I1)', () => {
+  const lead = professor('prof-xp', 10, 10);
   const overseer = makeOverseer();
-  const investigate: ResearchProject = {
-    kind: 'investigation',
-    role: 'head_spy',
-    leadOfficerId: lead.id,
-    crossReference: false,
+
+  const xpFor = (project: ResearchProject) => {
+    const settled = runToCompletion(makeBase({ commanders: [lead] }), overseer, project);
+    expect(settled.awards).toHaveLength(1);
+    return settled.awards[0]!.xpGained;
   };
 
-  it('pays the lead officer for the minutes the project kept them on it', () => {
-    const { repos, written } = fakeRepos();
-    const base = makeBase({ commanders: [lead] });
-    const started = startResearch(repos, {
-      base,
-      overseer,
-      project: investigate,
-      id: 'r-1',
-      now: NOW,
+  it('pays a three-hour modification more than a forty-five-minute investigation', () => {
+    const quick = xpFor({
+      kind: 'investigation',
+      role: 'head_spy',
+      leadOfficerId: lead.id,
+      crossReference: false,
     });
-    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
+    const long = xpFor({ kind: 'training', attribute: 'logic' });
 
-    const settled = settleResearch(
-      repos,
-      started.base,
-      overseer,
-      new Date(NOW.getTime() + RESEARCH_MINUTES.investigation * MINUTE_MS),
+    expect(RESEARCH_MINUTES.training).toBeGreaterThan(RESEARCH_MINUTES.investigation);
+    expect(long).toBeGreaterThan(quick);
+    // The curve, not a step: twice the clock is roughly 2^0.8 of the pay.
+    expect(long / quick).toBeCloseTo(
+      (RESEARCH_MINUTES.training / RESEARCH_MINUTES.investigation) ** 0.8,
+      1,
     );
-
-    const paid = settled.base.commanders.find((c) => c.id === lead.id);
-    expect(paid?.xpIntoLevel).toBe(characterXpForActivity(INVESTIGATION_MINUTES));
-    // And it was persisted, not just applied to the copy handed back.
-    expect(written.commanders?.find((c) => c.id === lead.id)?.xpIntoLevel).toBe(paid?.xpIntoLevel);
-  });
-
-  it('pays nobody for a training project: the Overseer is not a character on the books', () => {
-    const { repos, written } = fakeRepos();
-    const trainable = makeOverseer();
-    const base = makeBase({ commanders: [lead] });
-    const training: ResearchProject = { kind: 'training', attribute: 'improvisation' };
-    const started = startResearch(repos, {
-      base,
-      overseer: trainable,
-      project: training,
-      id: 'r-2',
-      now: NOW,
-    });
-    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
-
-    const settled = settleResearch(
-      repos,
-      started.base,
-      trainable,
-      new Date(NOW.getTime() + RESEARCH_MINUTES.training * MINUTE_MS),
-    );
-
-    expect(settled.base.commanders.find((c) => c.id === lead.id)?.xpIntoLevel).toBe(0);
-    expect(written.commanders).toBeUndefined();
-  });
-
-  it('settles normally when the lead was fired before the result landed', () => {
-    const { repos } = fakeRepos();
-    const base = makeBase({ commanders: [lead] });
-    const started = startResearch(repos, {
-      base,
-      overseer,
-      project: investigate,
-      id: 'r-3',
-      now: NOW,
-    });
-    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
-
-    const settled = settleResearch(
-      repos,
-      { ...started.base, commanders: [] },
-      overseer,
-      new Date(NOW.getTime() + RESEARCH_MINUTES.investigation * MINUTE_MS),
-    );
-
-    expect(settled.discovered.length).toBeGreaterThan(0);
-    expect(settled.base.commanders).toEqual([]);
   });
 });

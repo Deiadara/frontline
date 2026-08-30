@@ -25,7 +25,7 @@ const overseer: Overseer = {
   portraitId: preset.portraitId,
   bio: preset.bio,
   attributes: preset.attributes,
-  traits: preset.traits,
+  perks: preset.perks,
 };
 
 const economy: EconomyState = startingEconomy('2026-08-13T09:30:00.000Z');

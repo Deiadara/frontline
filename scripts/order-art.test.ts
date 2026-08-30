@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  OFFICER_PORTRAIT_IDS,
   ART_MANIFEST,
   HERO_ASSETS,
   NEGATIVE,
@@ -53,8 +54,11 @@ describe('sections', () => {
         .map((s) => s.key)
         .filter((key) => !key.startsWith('unit-') && !key.startsWith('officer-')),
     ).toEqual(['plate-city', 'plate-district', 'plate-bar']);
-    // The officer pool is opaque and croppable and lands here too, all thirty-three of it.
-    expect(roster!.specs.filter((s) => s.class === 'officer')).toHaveLength(33);
+    // The officer pool is opaque and croppable and lands here too, all forty-three of it. Read
+    // off the pool rather than typed: the board added ten faces once and will again.
+    expect(roster!.specs.filter((s) => s.class === 'officer')).toHaveLength(
+      OFFICER_PORTRAIT_IDS.length,
+    );
     expect(alpha!.specs.every((s) => s.alpha)).toBe(true);
     expect(occluded!.specs.map((s) => s.key)).toEqual([...OCCLUDED_BACKDROP_KEYS]);
     expect(groupIntoSections().reduce((total, { specs }) => total + specs.length, 0)).toBe(

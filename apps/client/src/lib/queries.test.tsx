@@ -42,7 +42,7 @@ function harness<T>(hook: () => T) {
 const BOTH = [JSON.stringify(queryKeys.missions), JSON.stringify(queryKeys.me)];
 
 /** Both halves a crossed level moves: the HUD's resources, and the §G layer derived from the level. */
-const LEVEL_SENSITIVE = [JSON.stringify(queryKeys.me), JSON.stringify(queryKeys.assignees)];
+const LEVEL_SENSITIVE = [JSON.stringify(queryKeys.me), JSON.stringify(queryKeys.crew)];
 
 beforeEach(() => {
   launchMission.mockReset();
@@ -106,7 +106,7 @@ describe('a refused launch that had already settled the board', () => {
 /**
  * MOU-381: a level-up invalidates the §G layer exactly as surely as it invalidates the HUD.
  *
- * `projectAssignees` (`apps/server/src/assignees/roster.ts`) derives the whole payload from nothing
+ * `projectCrew` (`apps/server/src/crew/roster.ts`) derives the whole payload from nothing
  * but `base.level`: the pool (§G8), the per-officer cap (§G3) and the bonus curve (§G7). Nothing on
  * the client said so. The board announces "Assignee pool 8" off the settling response, and for the
  * rest of the 30s `staleTime` the cached roster keeps answering with the level before it, so the
@@ -122,7 +122,7 @@ describe('a level-up refreshes the §G layer it moved', () => {
     const { result, invalidated } = harness(useMissions);
 
     await waitFor(() => expect(result.current.data).toBeDefined());
-    await waitFor(() => expect(invalidated()).toContain(JSON.stringify(queryKeys.assignees)));
+    await waitFor(() => expect(invalidated()).toContain(JSON.stringify(queryKeys.crew)));
   });
 
   /**
@@ -140,7 +140,7 @@ describe('a level-up refreshes the §G layer it moved', () => {
     result.current.mutate({ templateId: 'convoy-ambush', areaId: 'misc', force: { razors: 1 } });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(invalidated()).toContain(JSON.stringify(queryKeys.assignees));
+    expect(invalidated()).toContain(JSON.stringify(queryKeys.crew));
   });
 
   /*

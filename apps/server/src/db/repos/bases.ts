@@ -1,10 +1,15 @@
 import {
+  BUILDING_CATALOG,
+  OFFICER_ROLES,
   RESOURCE_KEYS,
+  isPerkId,
   UNIT_IDS,
+  findUnit,
+  withoutRetiredUnits,
+  findModification,
   BaseSchema,
   defaultLoadout,
   BaseSummarySchema,
-  type AssigneeState,
   type Base,
   type BaseSummary,
   type Building,
@@ -35,7 +40,6 @@ interface BaseRow {
   economy_json: string;
   progression_json: string;
   research_json: string;
-  assignees_json: string;
   buildings_json: string;
   build_queue_json: string;
   army_json: string;
@@ -97,7 +101,6 @@ export interface BasesRepo {
    */
   updateProgression(baseId: string, level: number, progression: ProgressionState): void;
   /** Where the fungible pool is standing (GDD §G). Placements only: the pool size is derived. */
-  updateAssignees(baseId: string, assignees: AssigneeState): void;
   /**
    * The officers on the books (GDD §H). Recruitment, the §H5 alignment drift and the §H6
    * level-ups all rewrite the whole list, since it is one JSON column rather than a table.
@@ -154,6 +157,105 @@ function storedResources(raw: unknown): unknown {
   return filled;
 }
 
+/**
+ * Content that no longer exists, dropped rather than allowed to brick the account.
+ *
+ * ## Why this is here rather than in a migration
+ *
+ * The same three reasons `storedResources` gives, one content change along. Twice now a unit has
+ * left the roster and the server has refused to *boot*: `UnitIdSchema` is a key schema over the
+ * live catalogue, so an army holding a retired id fails `BaseSchema.parse` on the way **out of the
+ * database**, before any request is served. Both times the fix was a migration, and a migration is
+ * one-shot: a backup restored from before it, a stale process writing an older shape, or simply the
+ * next removal somebody forgets to write one for, and the account is dead again.
+ *
+ * Measured rather than assumed: of the ten columns that store a content id, **six** refused the row
+ * outright (army, training queue, building kind, building modification, officer role, officer
+ * trait) and only three degraded. That asymmetry was an accident of which schemas happened to use a
+ * key schema, not a decision.
+ *
+ * ## What it will and will not do
+ *
+ * Only **unknown ids** are dropped, and nothing else is touched: a negative count, a null, a string
+ * where a number belongs are all still real errors, and the schema judges them exactly as before.
+ * Losing a retired unit is the correct outcome, because the unit does not exist; losing the account
+ * is not. The migrations stay: they are the tidy path, and they keep the database honest. This is
+ * the floor under them.
+ */
+const KNOWN_ROLES = new Set<string>(OFFICER_ROLES);
+
+/** Training orders for units that still exist. A part-trained batch of a retired unit is gone. */
+function knownTrainingQueue(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return (raw as unknown[]).filter((order) => {
+    if (!isRow(order)) return true;
+    const unitId = order.unitId;
+    return typeof unitId !== 'string' || findUnit(unitId) !== undefined;
+  });
+}
+
+/**
+ * One stored row, before the schema has judged it: an object with fields of unknown type.
+ *
+ * Typed rather than `any` so the salvage below reads a field, decides on it and puts the row back
+ * without the compiler losing track of what it is holding. Everything it does not name is carried
+ * through untouched, which is the point: this drops ids, it does not reshape rows.
+ */
+type StoredRow = Readonly<Record<string, unknown>>;
+
+/** Whether this is an object the salvage can look inside. Anything else is left for the schema. */
+function isRow(value: unknown): value is StoredRow {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Structures of a kind that still exists, each carrying only modifications that still exist. */
+function knownBuildings(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return (raw as unknown[])
+    .filter((building) => {
+      if (!isRow(building)) return true;
+      const kind = building.kind;
+      return typeof kind !== 'string' || kind in BUILDING_CATALOG;
+    })
+    .map((building): unknown => {
+      if (!isRow(building)) return building;
+      const mods = building.modifications;
+      if (!Array.isArray(mods)) return building;
+      return {
+        ...building,
+        modifications: (mods as unknown[]).filter(
+          (id) => typeof id !== 'string' || findModification(id) !== undefined,
+        ),
+      };
+    });
+}
+
+/**
+ * Officers whose chair still exists, each carrying only traits that still exist.
+ *
+ * Dropping a whole officer is the harshest repair here and it is still the right one: a role that
+ * no longer exists is a seat nobody can sit in, and the alternative is an account that cannot be
+ * opened. A retired *perk* costs the officer nothing but the perk.
+ */
+function knownCommanders(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return (raw as unknown[])
+    .filter((officer) => {
+      if (!isRow(officer)) return true;
+      const role = officer.role;
+      return typeof role !== 'string' || KNOWN_ROLES.has(role);
+    })
+    .map((officer): unknown => {
+      if (!isRow(officer)) return officer;
+      const perks = officer.perks;
+      if (!Array.isArray(perks)) return officer;
+      return {
+        ...officer,
+        perks: (perks as unknown[]).filter((id) => typeof id !== 'string' || isPerkId(id)),
+      };
+    });
+}
+
 function rowToBase(row: BaseRow): Base {
   return BaseSchema.parse({
     id: row.id,
@@ -166,12 +268,11 @@ function rowToBase(row: BaseRow): Base {
     economy: readJson(row.economy_json),
     progression: readJson(row.progression_json),
     research: readJson(row.research_json),
-    assignees: readJson(row.assignees_json),
-    buildings: readJson(row.buildings_json),
+    buildings: knownBuildings(readJson(row.buildings_json)),
     buildQueue: readJson(row.build_queue_json),
-    army: readJson(row.army_json),
-    trainingQueue: readJson(row.training_queue_json),
-    commanders: readJson(row.commanders_json),
+    army: withoutRetiredUnits(readJson(row.army_json)),
+    trainingQueue: knownTrainingQueue(readJson(row.training_queue_json)),
+    commanders: knownCommanders(readJson(row.commanders_json)),
     // Left to the schema's own default when the column is empty, rather than defaulted here: a
     // district written before the Training tab existed still opens, with today's allowance.
     training: row.training_json === null ? undefined : readJson(row.training_json),
@@ -252,12 +353,12 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const insertStmt = db.prepare(
     `INSERT INTO bases
        (id, owner_id, name, district_id, level, is_bot,
-        resources_json, economy_json, progression_json, research_json, assignees_json,
+        resources_json, economy_json, progression_json, research_json,
         buildings_json, build_queue_json, army_json, training_queue_json,
         commanders_json, training_json, inventory_json, fitted_upgrades_json,
         unit_loadouts_json, fleet_json,
         created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
@@ -270,7 +371,6 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const updateProgressionStmt = db.prepare(
     'UPDATE bases SET level = ?, progression_json = ? WHERE id = ?',
   );
-  const updateAssigneesStmt = db.prepare('UPDATE bases SET assignees_json = ? WHERE id = ?');
   const updateCommandersStmt = db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?');
   // Officers and the training board move together whenever a session finishes on an officer, so
   // they are written in one statement: two updates would let a crash land the gain without the
@@ -308,7 +408,6 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.economy),
         JSON.stringify(base.progression),
         JSON.stringify(base.research),
-        JSON.stringify(base.assignees),
         JSON.stringify(base.buildings),
         JSON.stringify(base.buildQueue),
         JSON.stringify(base.army),
@@ -369,9 +468,6 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateProgression(baseId, level, progression) {
       updateProgressionStmt.run(level, JSON.stringify(progression), baseId);
-    },
-    updateAssignees(baseId, assignees) {
-      updateAssigneesStmt.run(JSON.stringify(assignees), baseId);
     },
     updateCommanders(baseId, commanders) {
       updateCommandersStmt.run(JSON.stringify(commanders), baseId);

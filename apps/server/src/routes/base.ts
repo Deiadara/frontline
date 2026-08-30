@@ -13,6 +13,8 @@ import {
   nextQueuedLevel,
   type ItemId,
   describeBuildingRequirement,
+  isReservedFactionName,
+  sameFactionName,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { nexusGate, queueBuild, type BuildRefusal } from '../district/build.js';
@@ -96,9 +98,41 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
 
+    /*
+     * One crew, one name, per city.
+     *
+     * The name is the *only* thing that identifies a crew anywhere a player meets one: the tag on
+     * the map, the two sides of a battle report, a listing on the trading board. Two crews sharing
+     * one does not look like a clash, it looks like the same crew being in two places, and there is
+     * no second field a reader could fall back on. Checked here rather than in the schema because
+     * it is a fact about the city rather than about the string.
+     */
+    factionNameMustBeFree(app, name, owned.id);
+
     app.repos.bases.updateName(owned.id, name);
     return { base: { ...settleBase(app.repos, owned, new Date()).base, name } };
   });
+}
+
+/**
+ * Refuses a crew name somebody else in the city is already using, or one the map has reserved.
+ *
+ * `exceptBaseId` is the crew doing the renaming: a crew re-saving its own name unchanged is not a
+ * collision, and refusing that would make the field impossible to leave alone.
+ */
+function factionNameMustBeFree(app: FastifyInstance, name: string, exceptBaseId: string): void {
+  if (isReservedFactionName(name)) {
+    throw new AppError(
+      'FACTION_NAME_TAKEN',
+      `The city already calls a district "${name.trim()}". Pick something else.`,
+    );
+  }
+  const clash = app.repos.bases
+    .listSummaries()
+    .find((summary) => summary.id !== exceptBaseId && sameFactionName(summary.name, name));
+  if (clash) {
+    throw new AppError('FACTION_NAME_TAKEN', `Another crew in this city is already called that.`);
+  }
 }
 
 /** What to tell the player, with the numbers that make the advice actionable. */

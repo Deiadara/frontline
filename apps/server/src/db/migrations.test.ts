@@ -304,3 +304,90 @@ describe('0015: renaming the attribute sheet', () => {
     expect(officer?.attributes.cryptography).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The migration chain itself, rather than any one migration's effect.
+ *
+ * These are the properties the runner quietly depends on. It sorts filenames and keys
+ * `schema_migrations` on the full name, so a chain that satisfies all of this applies each file
+ * exactly once, in one order, on a cold database and on a live one alike.
+ */
+describe('the migration chain', () => {
+  const DIR = path.join(fileURLToPath(new URL('.', import.meta.url)), 'migrations');
+  const files = readdirSync(DIR)
+    .filter((file) => file.endsWith('.sql'))
+    .sort();
+
+  it('has a chain to check, so none of this is vacuous', () => {
+    expect(files.length).toBeGreaterThan(20);
+  });
+
+  /**
+   * Two migrations sharing a number is a live hazard, and there is exactly one pair.
+   *
+   * `0003_attribute_model.sql` and `0003_economy.sql` both exist, and today they are harmless: the
+   * runner sorts on the *whole* filename, so their order is fixed, and the tracking table keys on
+   * the whole name, so each applies once. What is not safe is a **third** one. A new `0003_aaa.sql`
+   * would sort ahead of both on a cold database and be applied after both on a live one, which is
+   * two different schemas from one chain, and the kind of thing that is found in production.
+   *
+   * The pair is grandfathered by name rather than renamed: `schema_migrations` keys on the filename,
+   * so renaming an applied migration makes every existing database run it a second time.
+   */
+  it('gives every new migration a number of its own', () => {
+    const GRANDFATHERED = ['0003_attribute_model.sql', '0003_economy.sql'];
+    const byNumber = new Map<string, string[]>();
+    for (const file of files) {
+      const number = file.slice(0, 4);
+      byNumber.set(number, [...(byNumber.get(number) ?? []), file]);
+    }
+    const shared = [...byNumber.values()]
+      .filter((group) => group.length > 1)
+      .filter((group) => group.join() !== GRANDFATHERED.join());
+    expect(
+      shared,
+      'two migrations with one number apply in a different order on a fresh database',
+    ).toEqual([]);
+  });
+
+  it('names every migration `NNNN_something.sql`', () => {
+    expect(files.filter((file) => !/^\d{4}_[a-z0-9_]+\.sql$/.test(file))).toEqual([]);
+  });
+
+  it('applies the whole chain to a cold database, and re-running changes nothing', () => {
+    const db = openDatabase(':memory:');
+    try {
+      const first = runMigrations(db);
+      expect(first).toHaveLength(files.length);
+      expect(runMigrations(db), 'a second run must apply nothing').toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  /** Two independent cold runs must land on the same schema, or the chain is order-dependent. */
+  it('reaches one schema however many times it is run', () => {
+    const shapeOf = (db: ReturnType<typeof openDatabase>): string =>
+      (
+        db
+          .prepare(
+            "SELECT name, sql FROM sqlite_master WHERE type IN ('table','index') ORDER BY name",
+          )
+          .all() as { name: string; sql: string | null }[]
+      )
+        .map((row) => `${row.name}:${(row.sql ?? '').replace(/\s+/g, ' ')}`)
+        .join('\n');
+
+    const one = openDatabase(':memory:');
+    const two = openDatabase(':memory:');
+    try {
+      runMigrations(one);
+      runMigrations(two);
+      runMigrations(two);
+      expect(shapeOf(one)).toBe(shapeOf(two));
+    } finally {
+      one.close();
+      two.close();
+    }
+  });
+});

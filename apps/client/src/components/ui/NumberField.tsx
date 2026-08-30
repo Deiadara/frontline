@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, type KeyboardEventHandler } from 'react';
 import { Icon } from './Icon';
 import { cn } from '../../lib/cn';
 
@@ -21,9 +21,16 @@ export interface NumberFieldProps {
   onChange: (value: number) => void;
   min?: number;
   max?: number;
+  /**
+   * How much a stepper moves the value. One for a count of soldiers; more where the field holds a
+   * figure in caps and a single point is below what anybody would haggle over.
+   */
+  step?: number;
   /** What the field is called, for anyone who cannot see the thing it sits next to. */
   label: string;
   disabled?: boolean;
+  /** For a field whose panel treats Enter as "submit". Passed through to the input. */
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>;
   className?: string;
   'data-testid'?: string;
 }
@@ -33,8 +40,10 @@ export function NumberField({
   onChange,
   min = 1,
   max = 99,
+  step: by = 1,
   label,
   disabled = false,
+  onKeyDown,
   className,
   'data-testid': testId,
 }: NumberFieldProps) {
@@ -42,7 +51,7 @@ export function NumberField({
   const clamp = (next: number): number =>
     Math.min(max, Math.max(min, Number.isFinite(next) ? Math.trunc(next) : min));
 
-  const step = (by: number) => () => onChange(clamp(value + by));
+  const step = (delta: number) => () => onChange(clamp(value + delta));
 
   return (
     <span
@@ -54,9 +63,9 @@ export function NumberField({
     >
       <Step
         direction="down"
-        onClick={step(-1)}
+        onClick={step(-by)}
         disabled={disabled || value <= min}
-        label={`One fewer ${label}`}
+        label={by === 1 ? `One fewer ${label}` : `${by} fewer ${label}`}
       />
       <label className="sr-only" htmlFor={id}>
         {label}
@@ -70,6 +79,7 @@ export function NumberField({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(clamp(Number(event.target.value)))}
+        onKeyDown={onKeyDown}
         data-testid={testId}
         // `appearance-none` is the whole point: it takes the browser's own spinners out, and the
         // two `::-webkit-*` rules in `index.css` take them out of Chromium, which ignores it.
@@ -77,9 +87,9 @@ export function NumberField({
       />
       <Step
         direction="up"
-        onClick={step(1)}
+        onClick={step(by)}
         disabled={disabled || value >= max}
-        label={`One more ${label}`}
+        label={by === 1 ? `One more ${label}` : `${by} more ${label}`}
       />
     </span>
   );

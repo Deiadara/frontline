@@ -1,4 +1,5 @@
 import {
+  withoutRetiredUnits,
   ArmedTrapSchema,
   BattleAnalysisSchema,
   BattleDeploymentSchema,
@@ -85,8 +86,8 @@ function rowToDeployment(row: DeploymentRow): BattleDeployment {
     battleId: row.battle_id,
     baseId: row.base_id,
     side: row.side,
-    army: readJson(row.army_json),
-    perimeter: readJson(row.perimeter_json),
+    army: withoutRetiredUnits(readJson(row.army_json)),
+    perimeter: withoutRetiredUnits(readJson(row.perimeter_json)),
     boostId: row.boost_id,
     updatedAt: row.updated_at,
   });

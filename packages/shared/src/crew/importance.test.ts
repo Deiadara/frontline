@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ATTRIBUTE_NAMES, MAX_ATTRIBUTE, type Attributes } from '../attributes.js';
 import { OFFICER_ROLES } from '../roles.js';
+import { OFFICER_PORTRAIT_IDS, officerPortraits } from '../roles.js';
 import {
   IMPORTANCE_WEIGHT,
   ROLE_IMPORTANCE,
@@ -142,5 +143,57 @@ describe('the table of what each chair wants', () => {
       (a, b) => officerScore(spy, b).total - officerScore(spy, a).total,
     )[0];
     expect(best).toBe('head_spy');
+  });
+});
+
+/**
+ * One face each, and the same face every time.
+ *
+ * Hashing an id on its own is not enough, and the arithmetic is why: forty-three faces against six
+ * officers is the birthday problem and collides on about three rosters in ten. That shipped, and it
+ * shipped looking exactly like what it was: one woman on two cards.
+ */
+describe('who wears which face', () => {
+  const roster = (size: number, salt = ''): string[] =>
+    Array.from({ length: size }, (_, index) => `commander-${salt}-${index}`);
+
+  it('never gives two people on one roster the same face', () => {
+    for (let trial = 0; trial < 500; trial += 1) {
+      const ids = roster(OFFICER_ROLES.length, String(trial));
+      const faces = [...officerPortraits(ids).values()];
+      expect(new Set(faces).size, `roster ${trial}`).toBe(ids.length);
+    }
+  });
+
+  /** The pathological case: a roster as large as the pool has to consume the pool exactly. */
+  it('hands out every face when the roster is the size of the pool', () => {
+    const ids = roster(OFFICER_PORTRAIT_IDS.length);
+    expect(new Set(officerPortraits(ids).values()).size).toBe(OFFICER_PORTRAIT_IDS.length);
+  });
+
+  it('gives everybody a face from the pool, and nobody two', () => {
+    const ids = roster(9);
+    const assigned = officerPortraits(ids);
+    expect(assigned.size).toBe(ids.length);
+    for (const id of ids) expect(OFFICER_PORTRAIT_IDS).toContain(assigned.get(id));
+  });
+
+  /**
+   * Hiring somebody must not restyle the people already on the books.
+   *
+   * A crew screen where every face shuffles because one person was hired is worse than duplicates:
+   * it says the roster is not a list of people, it is a list of slots.
+   */
+  it('leaves the faces of everybody already placed alone when one more joins', () => {
+    const before = officerPortraits(roster(6));
+    const after = officerPortraits([...roster(6), 'commander--99']);
+    for (const [id, face] of before) expect(after.get(id), id).toBe(face);
+  });
+
+  it('does not depend on the order the roster is handed over in', () => {
+    const ids = roster(11);
+    expect([...officerPortraits(ids)].sort()).toEqual(
+      [...officerPortraits([...ids].reverse())].sort(),
+    );
   });
 });

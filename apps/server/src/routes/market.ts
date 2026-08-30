@@ -23,6 +23,7 @@ import {
   type MarketRefusal,
 } from '../market/board.js';
 import { AppError, parseBody } from '../errors.js';
+import { ownBase } from './own-base.js';
 
 /**
  * The market (market extension).
@@ -35,12 +36,6 @@ import { AppError, parseBody } from '../errors.js';
  * somebody else did between your last read and this one changes what you should do next, so
  * handing back a delta would leave the client showing a listing that is already gone.
  */
-
-function ownBase(app: FastifyInstance, ownerId: string): Base {
-  const base = app.repos.bases.findByOwnerId(ownerId);
-  if (!base) throw new AppError('NO_BASE', 'You do not have a base yet');
-  return base;
-}
 
 function refuse(reason: MarketRefusal): never {
   throw new AppError('MARKET_REFUSED', MARKET_REFUSAL_TEXT[reason]);

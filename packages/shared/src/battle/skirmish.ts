@@ -12,7 +12,7 @@ import {
   standingReport,
   type BattleFinding,
 } from './report.js';
-import { mulberry32, seedFrom } from './rng.js';
+import { mulberry32, seedFrom } from '../rng.js';
 import { pursuitSpeed, routSurvivors, winnerCasualties } from './rout.js';
 
 /**

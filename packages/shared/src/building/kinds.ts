@@ -122,7 +122,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Quarters',
     description:
       'Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they cannot sleep in.',
-    role: 'Houses the crew. Officers and assignees both need a bed, and nobody can be placed without one.',
+    role: 'Houses the crew. Officers and soldiers both need a bed, and nobody can be placed without one.',
     requires: [nexus(1)],
     // Supplies, alongside the timber: a bigger bunkhouse is stores laid in as much as it is beds
     // built, and it is the one structure whose whole purpose is keeping people.

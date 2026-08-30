@@ -266,6 +266,37 @@ for (const size of VIEWPORTS) {
       }
       expect(offScreen, `district tags off screen: ${offScreen.join(' | ')}`).toEqual([]);
 
+      /*
+       * ...and no two of them on top of each other.
+       *
+       * The marks are hand-placed against features in the painting, so the only thing that decides
+       * how wide a tag is is the *text*, and four of the twelve print a crew's name rather than an
+       * authored one (`districtDisplayName`). A crew called something long is three times the width
+       * of the word the mark was placed for: "The Ninth Street Crew" on the far-right terraces ran
+       * left under the cathedral and shouldered the CCS tag off it. Renaming a crew must not be
+       * able to bury a district, so the collision is measured rather than eyeballed.
+       */
+      const collisions = await page.evaluate(() => {
+        const tags = [...document.querySelectorAll('[data-testid^="district-tag-"]')].map(
+          (node) => ({
+            id: node.getAttribute('data-testid')!.replace('district-tag-', ''),
+            box: node.getBoundingClientRect(),
+          }),
+        );
+        const hits: string[] = [];
+        for (let i = 0; i < tags.length; i += 1) {
+          for (let j = i + 1; j < tags.length; j += 1) {
+            const a = tags[i]!.box;
+            const b = tags[j]!.box;
+            const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+            const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+            if (overlapX > 0 && overlapY > 0) hits.push(`${tags[i]!.id} over ${tags[j]!.id}`);
+          }
+        }
+        return hits;
+      });
+      expect(collisions, `district tags overlap: ${collisions.join(' | ')}`).toEqual([]);
+
       await page.screenshot({ path: `screenshots/visual/city-${tag}.png` });
     });
 
@@ -535,9 +566,8 @@ for (const size of VIEWPORTS) {
       await expect(page.getByText('Level 12 → 13')).toBeInViewport({ ratio: 1 });
       await expect(page.getByText('7799 / 7800 XP')).toBeInViewport({ ratio: 1 });
 
-      // §I2 grants at level 12: §G8 pool 2+11+2, §G3a cap floor(12/2), §H8 slots 2+11.
-      await expect(grantValue('Assignee pool')).toHaveText('15');
-      await expect(grantValue('Assignees / officer')).toHaveText('6');
+      // §I2 grants at level 12: §H8 slots 2+11. The two assignee rows that used to sit above this
+      // one went with the pool, which is why the panel is one row now.
       await expect(grantValue('Recruit slots')).toHaveText('13');
 
       await expectNothingClippedHorizontally(page);
@@ -606,12 +636,17 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
 
       /*
-       * All four groups on one line, which is the shape the screen was rebuilt for: three across
-       * with the fourth underneath is an L, and an L reads as a layout that ran out of room.
+       * Two rows of two, which is the shape the card was rebuilt for.
        *
-       * Counted by how many distinct tops the four headings have. Below the sheet's own breakpoint
-       * it falls to two columns and the card scrolls, and that is the no-cut-text rule winning
-       * over the shape rather than a regression: four groups need about 210px each.
+       * It used to be four groups on one line under the whole card, and the line above this one
+       * used to say that three-across-with-one-underneath is an L and an L reads as a layout that
+       * ran out of room. Still true, and a 2x2 is not that: it is a block. What changed is that
+       * the sheet now sits *beside* the dossier rather than under it, and four groups do not fit
+       * beside a portrait: they need about 210px each, and fourteen labels were measurably cut
+       * when this was tried at four. Two across also makes the block about as tall as the
+       * dossier, which is what fills the card.
+       *
+       * Counted by how many distinct tops the four headings have.
        */
       const groupRows = await page.evaluate(
         () =>
@@ -621,10 +656,7 @@ for (const size of VIEWPORTS) {
             ),
           ).size,
       );
-      expect(
-        groupRows,
-        `the attribute groups should be in ${size.width >= 1280 ? 'one row' : 'two rows'} at ${tag}`,
-      ).toBe(size.width >= 1280 ? 1 : 2);
+      expect(groupRows, `the attribute groups should be a 2x2 at ${tag}`).toBe(2);
       await page.screenshot({ path: `screenshots/visual/bar-roster-${tag}.png` });
       await page.keyboard.press('Escape');
 

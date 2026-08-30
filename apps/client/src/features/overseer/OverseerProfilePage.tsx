@@ -3,16 +3,12 @@ import {
   ATTRIBUTE_LABELS,
   CHANNEL_LABELS,
   EFFECT_CHANNELS,
-  TRAIT_CATALOG,
   attributesDriving,
-  isFlaw,
   type AttributeName,
   type EffectChannel,
-  type TraitId,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { DescribedTag } from '../../components/ui/DescribedTag';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
@@ -22,6 +18,7 @@ import { InfoNote, PageShell } from '../game/PageShell';
 import { AttributeRadar } from './AttributeRadar';
 import { AttributeSheet } from './AttributeSheet';
 import { OverseerPortrait } from './OverseerPortrait';
+import { PerkTags } from '../../components/PerkTags';
 
 /**
  * Who you are, and what the people around you are worth (§F1, §F2).
@@ -72,7 +69,6 @@ const CHANNEL_GROUP: Readonly<Record<EffectChannel, 'fight' | 'district' | 'book
   buildCostPercent: 'district',
   wageDiscountPercent: 'books',
   recruitPoolPercent: 'books',
-  alignmentHoldPercent: 'books',
   intelYieldPercent: 'intel',
   intelResistancePercent: 'intel',
 };
@@ -177,23 +173,7 @@ export function OverseerProfilePage() {
                 <p className="font-body text-[13px] italic leading-relaxed text-ink-200">
                   {overseer.bio}
                 </p>
-                {overseer.traits.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {overseer.traits.map((trait: TraitId) => (
-                      <DescribedTag
-                        key={trait}
-                        label={TRAIT_CATALOG[trait].name}
-                        description={TRAIT_CATALOG[trait].description}
-                        detail={traitDetail(trait)}
-                        className={
-                          isFlaw(trait)
-                            ? 'border-oxblood-500 text-oxblood-300'
-                            : 'border-brass-300/50 text-brass-300'
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
+                <PerkTags perks={overseer.perks} tone="profile" />
               </div>
             </div>
           </Panel>
@@ -364,14 +344,4 @@ function ChannelCard({
       </div>
     </li>
   );
-}
-
-/** A trait's whole mechanical effect, written out: the rule behind the name. */
-function traitDetail(trait: TraitId): string {
-  return Object.entries(TRAIT_CATALOG[trait].bonus)
-    .map(
-      ([name, amount]) =>
-        `${amount > 0 ? '+' : ''}${amount} ${ATTRIBUTE_LABELS[name as AttributeName]}`,
-    )
-    .join(' · ');
 }

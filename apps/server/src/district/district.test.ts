@@ -15,7 +15,6 @@ import {
   findModification,
   queueCompletesAt,
   researchCost,
-  startingAssignees,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -26,6 +25,7 @@ import {
   startingTraining,
   CITY_LOCATIONS,
   POPULATION_PER_LOCATION,
+  xpForClock,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -33,7 +33,7 @@ import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { queueBuild } from './build.js';
 import { fitModification, modificationBlocker, modificationOptions } from './modifications.js';
 import { districtPopulation } from './population.js';
-import { cancelTraining, queueTraining } from '../units/training.js';
+import { cancelTraining, queueTraining, settleTraining } from '../units/training.js';
 import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
 
 /**
@@ -74,6 +74,7 @@ interface SeedOptions {
   settledAt?: string | null;
   officers?: Base['commanders'];
   level?: number;
+  trainingQueue?: Base['trainingQueue'];
 }
 
 function seedBase(repos: Repositories, options: SeedOptions = {}): Base {
@@ -96,11 +97,10 @@ function seedBase(repos: Repositories, options: SeedOptions = {}): Base {
     economy: { ...economy, productionSettledAt: options.settledAt ?? NOW.toISOString() },
     progression: startingProgression(),
     research: startingResearch(),
-    assignees: startingAssignees(),
     buildings: options.buildings ?? [build('nexus', 1), build('generator', 1)],
     buildQueue: options.buildQueue ?? [],
     army: {},
-    trainingQueue: [],
+    trainingQueue: options.trainingQueue ?? [],
     training: startingTraining('2026-08-16T00:00:00.000Z'),
     inventory: {},
     fittedUpgrades: [],
@@ -293,6 +293,73 @@ describe('settling the district (§A1)', () => {
     expect(settleDistrict(repos, settled.base, NOW).completed).toEqual([]);
   });
 
+  /**
+   * The XP is priced off the order's own clock, and this is the test that says so at the call site.
+   *
+   * `xpForClock` being correct proves nothing about whether the settler passes it: the flat table
+   * entry was the bug, and it lived here rather than in the curve. Two orders of the same structure
+   * at wildly different clocks, one settle, and the long one has to pay more.
+   */
+  it('pays a long build more XP than a short one', () => {
+    const started = new Date(NOW.getTime() - 12 * HOUR_MS);
+    // A stack each: `seedBase` writes the same username, so one crew per database.
+    const settleOne = (durationSeconds: number) => {
+      const repos = openStack();
+      return settleDistrict(
+        repos,
+        seedBase(repos, {
+          buildQueue: [entry('quarters', 1, started, durationSeconds)],
+          settledAt: started.toISOString(),
+        }),
+        NOW,
+      );
+    };
+    const quick = settleOne(60);
+    const slow = settleOne(9 * 3600);
+
+    expect(quick.awards[0]!.xpGained).toBe(xpForClock('buildingConstructed', 60));
+    expect(slow.awards[0]!.xpGained).toBe(xpForClock('buildingConstructed', 9 * 3600));
+    expect(slow.awards[0]!.xpGained).toBeGreaterThan(quick.awards[0]!.xpGained * 4);
+  });
+
+  /**
+   * The bench, and the same rule at its own call site.
+   *
+   * Per body at a flat rate is what would make Razors an XP faucet: forty-five seconds apiece,
+   * twenty XP apiece, forever. The unit's own clock is what prices it, so a Colossus is worth
+   * bringing off the bench and a Razor is worth what a Razor takes.
+   */
+  it('pays more XP for a body that took longer to train', () => {
+    const started = new Date(NOW.getTime() - 4 * HOUR_MS);
+    const settleOne = (unitId: string) => {
+      const repos = openStack();
+      const unit = findUnit(unitId)!;
+      const base = seedBase(repos, {
+        trainingQueue: [
+          {
+            id: `order-${unitId}`,
+            unitId,
+            count: 1,
+            delivered: 0,
+            startedAt: started.toISOString(),
+            durationSeconds: unit.trainSeconds,
+            paid: {},
+          },
+        ],
+      });
+      return settleTraining(repos, base, NOW);
+    };
+
+    const cheap = settleOne('razors');
+    const dear = settleOne('the_colossus');
+    expect(cheap.awards).toHaveLength(1);
+    expect(dear.awards).toHaveLength(1);
+    expect(cheap.awards[0]!.xpGained).toBe(
+      xpForClock('unitTrained', findUnit('razors')!.trainSeconds),
+    );
+    expect(dear.awards[0]!.xpGained).toBeGreaterThan(cheap.awards[0]!.xpGained * 4);
+  });
+
   it('lands several orders in the order they were queued', () => {
     const repos = openStack();
     const started = new Date(NOW.getTime() - HOUR_MS);
@@ -367,7 +434,7 @@ describe('settling the district (§A1)', () => {
 });
 
 describe('population (§A1: one pool)', () => {
-  it('counts officers, placed assignees and soldiers against the same ceiling', () => {
+  it('counts officers and soldiers against the same ceiling', () => {
     const repos = openStack();
     const officers = [createCommander('o1', 'One', 'head_spy')];
     const base = seedBase(repos, {
@@ -375,20 +442,16 @@ describe('population (§A1: one pool)', () => {
       buildings: [build('nexus', 1), build('generator', 1), build('quarters', 2)],
     });
 
-    expect(districtPopulation(repos, base).total).toBe(1);
-
-    const withPlacement: Base = { ...base, assignees: { placements: { o1: 3 } } };
-    const placed = districtPopulation(repos, withPlacement);
-    expect(placed.total).toBe(4);
-    expect(placed.spare).toBe(districtPopulation(repos, base).spare - 3);
+    const withOfficer = districtPopulation(repos, base);
+    expect(withOfficer.total).toBe(1);
 
     // §A5, and the army draws on the same beds, which is the whole point of merging the pools.
     // Razors are supply 1 apiece, so five of them is five bodies and not one entry on a roster.
-    const withArmy: Base = { ...withPlacement, army: { razors: 5 } };
+    const withArmy: Base = { ...base, army: { razors: 5 } };
     const fielded = districtPopulation(repos, withArmy);
     expect(fielded.army).toBe(5);
-    expect(fielded.total).toBe(placed.total + 5);
-    expect(fielded.spare).toBe(placed.spare - 5);
+    expect(fielded.total).toBe(withOfficer.total + 5);
+    expect(fielded.spare).toBe(withOfficer.spare - 5);
   });
 
   /**

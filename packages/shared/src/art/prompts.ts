@@ -124,13 +124,18 @@ export const FRAMING = {
 /**
  * ART-PROMPTS §1b: the officer pool, keyed by `OFFICER_PORTRAIT_IDS`.
  *
- * Thirty-three faces the crew's officers are drawn from. Written as descriptions of paintings that
- * already exist rather than as directions for ones that do not: the board delivered this whole set
- * at once, and what these are for is the record of *which* painting each key is, so a re-encode or
- * a re-order can be checked against something.
+ * Forty-three faces the crew's officers are drawn from. Written as descriptions of paintings that
+ * already exist rather than as directions for ones that do not: the board delivered these, and what
+ * these lines are for is the record of *which* painting each key is, so a re-encode or a re-order
+ * can be checked against something.
  *
  * One shared instruction runs under all of them (`FRAMING.officer`); each line here is only what
- * makes that face different from the other thirty-two.
+ * makes that face different from the other forty-two.
+ *
+ * `34` to `43` were delivered later, off the ten administrative portraits sitting unused in the
+ * inbox. Appended rather than filed among the others: `officerPortraitId` indexes
+ * `OFFICER_PORTRAIT_IDS` by hash, so inserting in the middle would move every face after it onto a
+ * different officer.
  */
 export const OFFICER_SUBJECTS: Readonly<Record<string, string>> = {
   '01': block(`
@@ -261,6 +266,47 @@ export const OFFICER_SUBJECTS: Readonly<Record<string, string>> = {
     A woman in her forties with dark hair tied up and a scarf at her throat, an apron over her
     clothes, violet light behind her.
   `),
+  '34': block(`
+    A woman in her forties with dark curly hair pinned back, looking off to one side, in a lamplit
+    logistics office: a wall of routing charts, a hanging bulb, a pressure gauge, rank bars on the
+    shoulder of a dark coat.
+  `),
+  '35': block(`
+    A man with a close-cropped grey beard in a heavy supply-issue coat, standing among stacked
+    crates under a single warm lamp, cold green light off a ledger screen behind him.
+  `),
+  '36': block(`
+    A younger woman with dark hair and a headset collar, half-lit by the amber glow of a radio set,
+    patch cables and a valve rack out of focus behind her shoulder.
+  `),
+  '37': block(`
+    A woman in her fifties with a black bob and a high-collared burgundy coat over a white shirt,
+    unsmiling, a wall of card-index drawers and a green banker's lamp behind her.
+  `),
+  '38': block(`
+    A man in his forties in shirtsleeves and a canvas apron, sleeves rolled, a drawing board and a
+    theodolite behind him under a work lamp.
+  `),
+  '39': block(`
+    A broad man in his fifties with a shaved head and a quartermaster's tabard, standing at a issue
+    counter with tallies chalked on the board behind him.
+  `),
+  '40': block(`
+    A woman in her thirties in a medical coat with the collar turned up, a trolley of instruments
+    and a curtained bay behind her in cold clinical light.
+  `),
+  '41': block(`
+    An older man with wire spectacles and a cardigan under a coat, standing between two tall shelves
+    of bound records, dust in the lamp beam.
+  `),
+  '42': block(`
+    A man in his forties in a checkpoint greatcoat with a whistle on a cord, a striped barrier and a
+    guard hut light behind him in the rain.
+  `),
+  '43': block(`
+    A woman in her thirties with her hair covered, a clipboard held against her chest, a queue of
+    figures and a chain-link fence out of focus behind her.
+  `),
 };
 
 /** ART-PROMPTS §1: keyed by `OverseerPreset.portraitId`. */
@@ -355,6 +401,20 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
     a few intact bays, throwing a sick green glow up into the smog ceiling. Irrigation pipework leaking
     into rust runs. A collapsed section reveals the city drop below. Overgrown, abandoned, strangely
     serene.
+  `),
+  'upper-roofs': block(`
+    A shanty of stacked rooftops above a slab retaining wall, dwellings built on top of dwellings
+    and lashed to the parapet with cable. Bolted-on ladders and plank walkways instead of stairs,
+    each landing lit by one amber #f59e0b bulb on a hooked flex. Water butts, aerials, a goat.
+    Inhabited and improvised rather than derelict: the wall below is the Combine's and everything
+    above the coping is not. Two figures on a walkway, one hauling a bucket up on a rope.
+  `),
+  'south-quay': block(`
+    The tail end of a covered market where the awnings stop and a canal cut comes back up to meet
+    the street. Stalls converted into homes, tarpaulins over the gaps, one row of shutters still
+    painted with a trader's name nobody uses. Standing water reflecting hanging bulbs in warm
+    #f59e0b and a single cold cyan #22d3ee sign further down. Damp, cheap and out of the way, with
+    the noise of the market audible one arch away. Three figures under an awning, out of the rain.
   `),
   'kettle-row': block(`
     A long residential terrace along a southern cut, boiler houses venting between every third

@@ -4,6 +4,7 @@
  * Re-exported through a single barrel line in `../index.ts` (INTERFACES §3).
  */
 export * from './curve.js';
+export * from './effort.js';
 export * from './grants.js';
 export * from './unlocks.js';
 export * from './state.js';

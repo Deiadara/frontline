@@ -92,9 +92,21 @@ export const TYPICAL_SUPPLY: Readonly<Record<UnitTier, number>> = {
  * The Colossus is the board's own example. By supply it is twelve bodies; by reputation it is the
  * thing a district tells stories about, and killing one is the story. Anything in here is a
  * deliberate authorial call and needs a reason beside it.
+ *
+ * The other two are here because **tier does two jobs and they came apart**. A tier is a flavour
+ * grouping on the roster screen and it is also this table's proxy for what a unit is worth, and
+ * those agreed until the tiers were regrouped by what a unit *is* rather than by what it costs.
+ * Both of these are wretched, desperate things that belong with the rabble on the screen, and
+ * neither is remotely rabble to put on the street. Left on the tier's own number, killing one
+ * earned less than killing a Warden off a Gauntlet 4. `infamy.test.ts` now refuses that shape
+ * outright, so the next regroup fails loudly instead of quietly repricing the roster.
  */
 export const INFAMY_UNIT_VALUES: Readonly<Record<string, number>> = {
   the_colossus: 250,
+  // Gauntlet 12 and a Fight Pit taken off somebody: a deeper gate than any specialist.
+  the_condemned: 45,
+  // Gauntlet 6 and a Cistern 5, and the only thing that walks into a chlorine leak on purpose.
+  ash_walkers: 24,
 };
 
 /**

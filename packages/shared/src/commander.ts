@@ -1,86 +1,76 @@
 import { z } from 'zod';
 import { AttributesSchema, DEFAULT_ATTRIBUTES, type Attributes } from './attributes.js';
-import {
-  AlignmentSchema,
-  ALIGNMENT_START,
-  AmbitionSchema,
-  MoralCompassSchema,
-  type Ambition,
-  type MoralCompass,
-} from './bar/disposition.js';
-import { CHARACTER_LEVEL_MIN } from './bar/level.js';
-import { IdSchema, IsoDateTimeSchema } from './primitives.js';
+import { PerksSchema } from './crew/perks.js';
+import { IdSchema } from './primitives.js';
 import { OfficerRoleSchema, type OfficerRole } from './roles.js';
-import { TraitsSchema, type TraitId } from './traits.js';
 
-/** A character hired into one of the officer positions in GDD §C1. */
+/**
+ * A character hired into one of the officer positions in GDD §C1.
+ *
+ * ## What an officer is, and what they used to be
+ *
+ * Four things came off this sheet, and they came off together because they were one idea: that a
+ * hire was a *relationship* you maintained. An officer had an `ambition` and a `moralCompass`
+ * (what they were after), an `alignment` that drifted while you were not looking, and a `level`
+ * with banked XP and points to spend. Between them they asked a player to keep nineteen people
+ * happy and nineteen people levelled, on top of a city, an army and a research tree.
+ *
+ * None of it survived contact with what the screens actually showed. Alignment was a number that
+ * moved on its own and could be read as a mood badge nobody could act on; the level was a second
+ * progression track running beside the player's own, paying out points into the same attributes
+ * the Bar had already sold you on.
+ *
+ * So an officer is now exactly two things: **the sheet they were hired with**, and **what they
+ * bring** ({@link PerksSchema}). Both are visible at the Bar before a single cap is committed,
+ * neither changes behind the player's back, and the only ongoing cost is the wage. What used to be
+ * "manage your people" is now "choose your people", which is the decision the Bar was always for.
+ */
 export const CommanderSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
   role: OfficerRoleSchema,
   attributes: AttributesSchema,
-  traits: TraitsSchema,
-  /** §H4: what they want and how far they will go for it. Every character carries both. */
-  ambition: AmbitionSchema,
-  moralCompass: MoralCompassSchema,
-  /** §H5: how much they agree with what this crew does, 0..100. */
-  alignment: AlignmentSchema,
-  /** When `alignment` was last settled: the anchor for the §H5 drift. */
-  alignmentUpdatedAt: IsoDateTimeSchema,
   /**
-   * §H7: what they were asking for when they signed, in caps a week.
+   * §B7: nought to three perks, the things this person brings to the whole crew.
    *
-   * Frozen at hire and never re-derived. It is the denominator of `contractStance`, so what an
-   * officer thinks of the crew is measured against the price *they* named at the time rather than
-   * against whatever they would ask today. Defaulted to zero so an officer written before the
-   * payroll book existed parses as indifferent, which is what they were.
+   * Defaulted so an officer written before the perk book existed parses as somebody who brings
+   * nothing but their sheet, which is what they were.
    */
-  askingWage: z.number().int().nonnegative().default(0),
+  perks: PerksSchema.default([]),
   /**
-   * §H6: this character's own level (INTERFACES R1). Not player progression: `Base.level` is
-   * that, it is owned by W6, and nothing here mirrors it.
+   * §H7: what they agreed to, in caps a week.
+   *
+   * Named for what it is. It was `askingWage`, holding the price they *opened* at, because the
+   * §H5 drift measured how far the player had ground them below it: an officer who took their
+   * floor resented it for the rest of their tenure. With that mechanic gone the opening number has
+   * no reader left, and the number that matters is the one the payroll book is charged every week.
+   *
+   * Frozen at hire, so an officer who talked their way to a low number stays cheap for as long as
+   * they are on the books.
    */
-  level: z.number().int().min(CHARACTER_LEVEL_MIN),
-  /** XP banked towards this character's next level. */
-  xpIntoLevel: z.number().int().nonnegative(),
-  /** §H6a: level-up points still waiting for the player to assign. */
-  unspentPoints: z.number().int().nonnegative(),
+  weeklyWage: z.number().int().nonnegative().default(0),
 });
 export type Commander = z.infer<typeof CommanderSchema>;
 
-export interface CommanderOptions {
-  ambition?: Ambition;
-  moralCompass?: MoralCompass;
-  /** Anchors the §H5 drift; an officer minted now has not drifted anywhere yet. */
-  now?: string;
-}
-
 /**
- * Example factory: unlisted attributes default to the recruitment mean, and an officer built this
- * way starts fresh: neutral alignment, level 1, nothing banked. Recruits hired at the Bar are
- * built by the server from a rolled sheet instead (§H2).
+ * Example factory: unlisted attributes default to the recruitment mean.
+ *
+ * Recruits hired at the Bar are built by the server from a rolled sheet instead (§H2).
  */
 export function createCommander(
   id: string,
   name: string,
   role: OfficerRole,
   attributes: Partial<Attributes> = {},
-  traits: readonly TraitId[] = [],
-  options: CommanderOptions = {},
+  perks: readonly string[] = [],
+  weeklyWage = 0,
 ): Commander {
   return {
     id,
     name,
     role,
     attributes: { ...DEFAULT_ATTRIBUTES, ...attributes },
-    traits: [...traits],
-    ambition: options.ambition ?? 'wealth',
-    moralCompass: options.moralCompass ?? 'pragmatist',
-    alignment: ALIGNMENT_START,
-    alignmentUpdatedAt: options.now ?? new Date().toISOString(),
-    askingWage: 0,
-    level: CHARACTER_LEVEL_MIN,
-    xpIntoLevel: 0,
-    unspentPoints: 0,
+    perks: [...perks],
+    weeklyWage,
   };
 }

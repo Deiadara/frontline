@@ -50,6 +50,7 @@ import { cityContextFor } from '../city/view.js';
 import { sideOf } from './deploy.js';
 import { defendingBaseOf } from './declare.js';
 import { residentOf, targetName } from './ground.js';
+import { battlefieldOf } from './resolve.js';
 
 /**
  * The battle board, as one crew sees it (GDD §A4, battle rework).
@@ -149,6 +150,21 @@ function viewOf(
       side === 'defender'
         ? attackerName
         : (defenderBase?.name ?? holderLabel(battle.defender.kind)),
+    /*
+     * The ground, through the *same* function that will decide the fight (`battlefieldOf`).
+     *
+     * The deployment screen forecasts on it. Not a secret from either side: where the fight is and
+     * what that ground is like is the one thing a declaration makes public. Fortification is read
+     * live rather than frozen, so digging in between now and the mark shows up on both sides'
+     * estimates, which is the honest reading of a fortification that is still being built.
+     */
+    battlefield: battlefieldOf(
+      battle,
+      district?.name ?? 'somewhere',
+      battle.target.kind === 'location'
+        ? (repos.city.control(battle.target.locationId)?.fortification ?? 0)
+        : 0,
+    ),
     // A bystander is not buying anything for a fight they are not in, and sending them the shelf
     // would be sending them the caller's own research and officer list.
     boosts: side

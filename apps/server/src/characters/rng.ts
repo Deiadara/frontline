@@ -1,20 +1,21 @@
+import { mulberry32 } from '@frontline/shared';
+
 /**
- * A small seeded PRNG. Character generation must be reproducible: the Bar's roster is one
- * global roll shared by every player (GDD §H2a), so it has to be a pure function of its seed.
+ * The draws character generation takes, over the shared generator.
+ *
+ * Reproducibility is the whole requirement: the Bar's roster is one global roll every player sees
+ * the same way (GDD §H2a), so it has to be a pure function of its seed on every process and host.
+ *
+ * `createRng` used to be a second mulberry32, byte for byte identical to the one in the shared
+ * package. Two copies of a generator is two chances for one of them to be "improved" and quietly
+ * start dealing a different roster than the one a test pinned, and the compiler cannot see it
+ * happen. What is left here is the part that is genuinely this module's own: a normal deviate, a
+ * uniform integer, and two ways of drawing without replacement.
  */
 export type Rng = () => number;
 
-/** mulberry32: fast, and good enough for content rolls. */
-export function createRng(seed: number): Rng {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+/** The shared generator, under the name this module's callers already use. */
+export const createRng = (seed: number): Rng => mulberry32(seed);
 
 /** Box-Muller normal deviate. */
 export function gaussian(rng: Rng, mean: number, stdDev: number): number {

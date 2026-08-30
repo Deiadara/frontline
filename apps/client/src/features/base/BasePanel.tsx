@@ -350,8 +350,6 @@ function ProgressionRows({ base }: { base: Base }) {
         </span>
       </div>
       <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700">
-        <StatRow label="Assignee pool" value={String(grants.assigneePool)} />
-        <StatRow label="Assignees / officer" value={String(grants.assigneeCapPerOfficer)} />
         <StatRow label="Recruit slots" value={String(grants.recruitSlots)} />
       </dl>
     </div>

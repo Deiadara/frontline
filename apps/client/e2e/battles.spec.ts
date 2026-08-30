@@ -44,6 +44,19 @@ test('the list scans, and opening a fight says what is on the ground', async ({ 
     await expect(forces.getByTestId(`force-${unitId}`)).toBeVisible();
   }
 
+  /*
+   * The forecast, which is the number a player most needs before committing anybody.
+   *
+   * It runs `battle/forecast.ts` against the ground the fight will actually happen on, which is why
+   * `BattleView` carries a battlefield at all. The feature existed and was tested for a long time
+   * while being wired only into the garrison picker, where there is never an enemy: computed,
+   * correct, and on no screen anybody could reach.
+   */
+  const odds = detail.getByTestId('battle-odds');
+  await expect(odds).toBeVisible();
+  await expect(odds).toContainText('runs of the real thing');
+  await expect(odds).toContainText('%');
+
   // The one they are defending: the other side is running dark, so it says so rather than "0".
   const theirs = battles.coming[1]!;
   await page.getByTestId(`battle-${theirs.battle.id}`).click();
@@ -51,6 +64,9 @@ test('the list scans, and opening a fight says what is on the ground', async ({ 
   await expect(other).toBeVisible();
   await expect(other.getByText('Unknown')).toBeVisible();
   await expect(other.getByText('Nothing. They are running dark.')).toBeVisible();
+
+  // ...and with nothing counted there is no forecast, rather than a confident number built on air.
+  await expect(other.getByTestId('odds-none')).toBeVisible();
 
   await settleFonts(page);
   /*

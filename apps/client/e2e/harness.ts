@@ -3,6 +3,7 @@ import {
   negotiate,
   reservationWage,
   negotiationLine,
+  negotiationVoice,
   notorietyUpgradeCost,
   openNegotiation,
   type BarRecruit,
@@ -13,8 +14,8 @@ import {
 } from '@frontline/shared';
 import { expect, type Page } from '@playwright/test';
 import {
-  assigneesFat,
-  assigneesStart,
+  crewFat,
+  crewStart,
   authResponse,
   bar,
   actionsResponse,
@@ -400,15 +401,18 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       const turn = negotiate({
         negotiation:
           bar.negotiations[body.recruitId] ??
-          openNegotiation(recruit.askingWage, recruit.ambition, recruit.moralCompass),
+          openNegotiation(recruit.askingWage, recruit.attributes),
         offer: body.offerWage,
         asking: recruit.askingWage,
-        ambition: recruit.ambition,
-        moralCompass: recruit.moralCompass,
+        attributes: recruit.attributes,
       });
       return json({
         negotiation: turn.negotiation,
-        line: negotiationLine(recruit.moralCompass, turn.negotiation.mood, turn.negotiation.rounds),
+        line: negotiationLine(
+          negotiationVoice(recruit.id),
+          turn.negotiation.mood,
+          turn.negotiation.rounds,
+        ),
         accepted: turn.accepted,
         walkedAway: turn.walkedAway,
       });
@@ -455,8 +459,8 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // Keyed off the installed session for the same reason `/api/base/` is: a fixed §G payload
     // would put a twelve-pip late-game roster under a level-1 header, and the screenshot would be
     // of a screen the server can never produce.
-    if (pathname.endsWith('/api/assignees')) {
-      return json((meResponse.base?.level ?? 1) > 1 ? assigneesFat : assigneesStart);
+    if (pathname.endsWith('/api/crew')) {
+      return json((meResponse.base?.level ?? 1) > 1 ? crewFat : crewStart);
     }
     // Before the bare `/api/overseer` handler below, which does not match a sub-path, and would
     // answer a profile read with a 201 character-creation payload if it were reordered.
@@ -494,15 +498,19 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
  * The officer a signed recruit becomes.
  *
  * Built through the shared `createCommander` rather than by hand: a hand-written literal missed
- * `alignment`, `alignmentUpdatedAt` and `xpIntoLevel` and carried three fields the schema does not
- * have, so the response failed to parse, the mutation errored instead of succeeding, and the
- * window silently stayed open on a completed hire. The factory cannot drift from the schema.
+ * fields the schema requires and carried three it does not have, so the response failed to parse,
+ * the mutation errored instead of succeeding, and the window silently stayed open on a completed
+ * hire. The factory cannot drift from the schema.
  */
 function hiredOfficer(recruit: BarRecruit, role: OfficerRole): Commander {
-  return createCommander(recruit.id, recruit.name, role, recruit.attributes, recruit.traits, {
-    ambition: recruit.ambition,
-    moralCompass: recruit.moralCompass,
-  });
+  return createCommander(
+    recruit.id,
+    recruit.name,
+    role,
+    recruit.attributes,
+    recruit.perks,
+    recruit.askingWage ?? 0,
+  );
 }
 
 /**

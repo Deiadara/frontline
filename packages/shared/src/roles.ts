@@ -59,38 +59,93 @@ export const OFFICER_ROLE_LABELS: Record<OfficerRole, string> = {
 };
 
 /**
- * C4: reskilling (§G4) is the Professor's job. W4 (assignees) gates the reassign-everyone
- * process on *this* constant rather than hardcoding its own role check.
- */
-/**
  * The faces an officer can have (§C).
  *
- * A **pool**, not a portrait per role: the art is thirty-three people, and a Head Spy is a job
+ * A **pool**, not a portrait per role: the art is forty-three people, and a Head Spy is a job
  * rather than a face. Which one a given officer wears is derived from their id rather than stored
  * (see `officerPortraitId`), so every officer already on a save has a face the moment the pool
  * lands, with no migration and no column.
  */
-export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 33 }, (_, index) =>
+export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 43 }, (_, index) =>
   String(index + 1).padStart(2, '0'),
 );
 
-/**
- * Which face this officer wears, derived from their id.
- *
- * Deterministic and stable: the same officer is the same person every time the screen is drawn,
- * across sessions and across devices, without a byte of storage. An FNV-1a hash rather than a
- * character sum, because ids are UUIDs and a sum over those clusters hard: half the pool went
- * unused and two officers on the same roster routinely shared a face.
- */
-export function officerPortraitId(commanderId: string): string {
+/** FNV-1a over the id. A character sum clusters hard over UUIDs; this does not. */
+function hashOf(value: string): number {
   let hash = 0x811c9dc5;
-  for (let index = 0; index < commanderId.length; index += 1) {
-    hash ^= commanderId.charCodeAt(index);
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
-  return OFFICER_PORTRAIT_IDS[hash % OFFICER_PORTRAIT_IDS.length] as string;
+  return hash;
 }
 
+/**
+ * The face one person wears when there is nobody to clash with.
+ *
+ * For a lone card: a recruit being read at the Bar, a preview, a test. Where several people are on
+ * screen together, use {@link officerPortraits} instead, which is the same rule plus the one thing
+ * this cannot know about.
+ */
+export function officerPortraitId(commanderId: string): string {
+  return OFFICER_PORTRAIT_IDS[hashOf(commanderId) % OFFICER_PORTRAIT_IDS.length] as string;
+}
+
+/**
+ * Faces for a whole roster, **no two the same**.
+ *
+ * Hashing each id on its own is not enough and the arithmetic says why: forty-three faces against
+ * six officers is the birthday problem, and it collides on **31% of rosters** (it was 38% at the
+ * old pool of thirty-three). That is not an unlucky save, it is the common case, and a crew screen
+ * showing one woman twice reads as a bug because it is one. At a full nineteen-chair roster the
+ * naive pick collides on 99% of them.
+ *
+ * So the pick is a property of the roster rather than of the person. Each officer keeps their own
+ * probe sequence (double hashing, so two people who want the same face do not then want the same
+ * second choice either), and the first free face in it is theirs.
+ *
+ * Assigned in **sorted id order** for two reasons: the answer cannot depend on the order a caller
+ * happens to hold the roster in, and hiring somebody new cannot move the face of anybody already
+ * placed, because everyone sorted before them is resolved first and their choice does not change.
+ *
+ * The pool is larger than the nineteen seats, so this always terminates with everybody distinct.
+ */
+export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<string, string> {
+  const size = OFFICER_PORTRAIT_IDS.length;
+  const taken = new Set<string>();
+  const assigned = new Map<string, string>();
+  for (const id of [...new Set(commanderIds)].sort()) {
+    const hash = hashOf(id);
+    const stride = (hash % (size - 1)) + 1;
+    let pick = OFFICER_PORTRAIT_IDS[hash % size] as string;
+    for (let step = 1; taken.has(pick) && step < size; step += 1) {
+      pick = OFFICER_PORTRAIT_IDS[(hash + step * stride) % size] as string;
+    }
+    /*
+     * The sweep is not belt-and-braces, it is the part that makes the promise true.
+     *
+     * A double-hash probe only visits every slot when the stride is coprime with the pool size.
+     * The pool is 43, which is prime, so every stride in 1..42 is coprime with it and the probe
+     * does walk the whole pool: measured, no full nineteen-chair roster in two hundred thousand
+     * reaches this line. It is not dead code, it is the part that keeps the promise true if the
+     * pool size ever stops being prime. At the old size of 33 (3 x 11) any stride that was a
+     * multiple of 3 or 11 walked a subset and came back to a taken slot having missed free ones,
+     * and eight full rosters in three thousand still had a duplicate. A linear pass over what is
+     * left cannot fail while the pool is larger than the roster.
+     */
+    if (taken.has(pick)) {
+      pick = OFFICER_PORTRAIT_IDS.find((face) => !taken.has(face)) ?? pick;
+    }
+    taken.add(pick);
+    assigned.set(id, pick);
+  }
+  return assigned;
+}
+
+/**
+ * C4: reskilling (§G4) is the Professor's job. The reassign-everyone process gates on *this*
+ * constant rather than hardcoding its own role check.
+ */
 export const RESKILLING_ROLE: OfficerRole = 'professor';
 
 /**

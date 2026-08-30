@@ -6,7 +6,6 @@ import {
   territoryEffectsFor,
 } from '../city/index.js';
 import { UNIT_CATALOG, findUnit } from '../units/index.js';
-import { startingAssignees } from '../assignees/index.js';
 import { HOUSING_BASE, populationCapacity } from './production.js';
 import {
   POPULATION_PER_LOCATION,
@@ -92,7 +91,6 @@ describe('what a district can house (§A1)', () => {
 describe('who is drawing on it', () => {
   const crew = {
     commanders: [{ id: 'o1' }, { id: 'o2' }],
-    assignees: startingAssignees(),
     army: { razors: 6, juggernauts: 2 },
     trainingQueue: [],
   };
@@ -101,7 +99,7 @@ describe('who is drawing on it', () => {
     const draw = populationDraw(crew);
     expect(draw.officers).toBe(2);
     expect(draw.army).toBe(6 * populationCostOf('razors') + 2 * populationCostOf('juggernauts'));
-    expect(draw.total).toBe(draw.officers + draw.assignees + draw.army + draw.training);
+    expect(draw.total).toBe(draw.officers + draw.army + draw.training);
   });
 
   /** Ground is not a hiding place: a garrison three districts away is still somebody you feed. */

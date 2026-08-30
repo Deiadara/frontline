@@ -5,11 +5,14 @@ import { CITY_LOCATIONS, LOCATION_KINDS } from '../city/index.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import {
   UNIT_CATALOG,
+  UNIT_RULE_IDS,
+  UNIT_RULES,
   UNIT_TIERS,
   findUnit,
   isCombatUnit,
   isSupportUnit,
   unitsInTier,
+  unitRules,
   unitsUnlockedByLocation,
   type UnitSpec,
   type UnitTier,
@@ -156,7 +159,21 @@ describe('the catalogue (§A5)', () => {
     expect(RUNGS.flat().sort()).toEqual(UNIT_TIERS.filter((tier) => tier !== 'carrier').sort());
 
     for (const pick of [
-      (unit: UnitSpec) => unit.stats.offense,
+      /*
+       * Power, and it has to be **both halves of the sheet**.
+       *
+       * This axis was `offense` alone, and offense alone is not power: it says a Warden with 172
+       * damage behind 168 hit points and 40 armour is a weaker unit than a Sniper with 455 damage
+       * and 85 hit points, which is not what either sheet means and not how the engine settles a
+       * fight. `sidePower` in `battle/engine.ts` combines the two for exactly this reason, and it
+       * is the same product Lanchester's square law puts on a body.
+       *
+       * It matters here because the heavy tier's identity is *armour and hit points*, not damage.
+       * Asserting that heavies out-damage specialists forces the roster to make a shield-bearer
+       * hit harder than a marksman to keep a test green, which is content edited to satisfy an
+       * arbitrary ordering: the failure mode this test's own doc comment warns about, one rung up.
+       */
+      (unit: UnitSpec) => unit.stats.offense * unit.stats.vitality,
       (unit: UnitSpec) => unit.trainSeconds,
       (unit: UnitSpec) => unit.supply,
     ]) {
@@ -723,5 +740,101 @@ describe('rating stats and open figures (§A5)', () => {
     const top = UNIT_CATALOG.reduce((a, b) => (a.stats.offense >= b.stats.offense ? a : b));
     expect(() => UnitStatsSchema.parse({ ...top.stats, offense: 1400 })).not.toThrow();
     expect(() => UnitStatsSchema.parse({ ...top.stats, offense: -1 })).toThrow();
+  });
+});
+
+/**
+ * The bench clock, against the campaign that unlocked the unit.
+ *
+ * Not a second ladder: the same one. `UNIT_CATALOG`'s note says a roster is a readout of a campaign,
+ * and time is half of what a campaign costs. What this pins is that a unit you had to work harder
+ * for also takes longer to put on the street, which is what stops a deep-gated unit from being both
+ * the strongest thing you own and the quickest thing to replace.
+ *
+ * Measured rather than asserted: the correlation is 0.98 today, and the floor is well under it so
+ * that ordinary retuning stays free.
+ */
+describe('the bench clock climbs with the campaign', () => {
+  const LOCATION_WEIGHT = 12;
+  const FITTED_WEIGHT = 8;
+  const gateDepth = (unit: UnitSpec): number =>
+    unit.requires.reduce(
+      (total, need) =>
+        total +
+        (need.kind === 'building'
+          ? need.level
+          : need.kind === 'location'
+            ? LOCATION_WEIGHT
+            : FITTED_WEIGHT),
+      0,
+    );
+
+  const fighters = UNIT_CATALOG.filter((unit) => isCombatUnit(unit));
+
+  it('ranks by clock roughly the way it ranks by campaign', () => {
+    const rankOf = (by: (unit: UnitSpec) => number) => {
+      const sorted = [...fighters].sort((a, b) => by(a) - by(b));
+      return new Map(sorted.map((unit, index) => [unit.id, index]));
+    };
+    const byGate = rankOf(gateDepth);
+    const byClock = rankOf((unit) => unit.trainSeconds);
+    const n = fighters.length;
+    const d2 = fighters.reduce(
+      (total, unit) => total + (byGate.get(unit.id)! - byClock.get(unit.id)!) ** 2,
+      0,
+    );
+    expect(1 - (6 * d2) / (n * (n * n - 1))).toBeGreaterThan(0.85);
+  });
+
+  /**
+   * Seconds per point of supply, which is the figure a player actually feels: a Colossus is one
+   * body and twelve supply, so the honest comparison with a Razor is per point of the army cap it
+   * eats rather than per body.
+   */
+  it('keeps the clock per point of supply inside one order of magnitude', () => {
+    const perSupply = fighters.map((unit) => unit.trainSeconds / unit.supply);
+    expect(Math.max(...perSupply) / Math.min(...perSupply)).toBeLessThan(20);
+  });
+});
+
+/**
+ * The two flags that are rules rather than numbers, and the one table that names them.
+ *
+ * They were readable only by the engine: no screen could show them, so a player could field an
+ * Ironside without ever learning it is a shield line, or a Stitcher without learning it does
+ * anything at all. `UNIT_RULES` is what the roster, the dossier and the wire all read.
+ */
+describe('the rule flags are visible content, not engine trivia', () => {
+  it('names every flag a unit can carry, and nothing it cannot', () => {
+    for (const id of UNIT_RULE_IDS) {
+      expect(UNIT_RULES[id].label.length, id).toBeGreaterThan(2);
+      expect(UNIT_RULES[id].description.length, id).toBeGreaterThan(40);
+    }
+  });
+
+  it('reports exactly the flags a sheet sets', () => {
+    for (const unit of UNIT_CATALOG) {
+      const reported = unitRules(unit).map((rule) => rule.id);
+      const set = UNIT_RULE_IDS.filter((id) => unit[id] === true);
+      expect(reported, unit.id).toEqual(set);
+    }
+  });
+
+  /**
+   * Both flags have to be *on* something, or the table is describing a mechanic no player meets.
+   * This is the check that would have caught `mends` shipping as a field nothing set.
+   */
+  it('has a unit carrying each rule', () => {
+    for (const id of UNIT_RULE_IDS) {
+      expect(
+        UNIT_CATALOG.filter((unit) => unit[id] === true).map((unit) => unit.id),
+        id,
+      ).not.toEqual([]);
+    }
+  });
+
+  it('leaves most of the roster carrying none, so a rule stays a distinction', () => {
+    const carrying = UNIT_CATALOG.filter((unit) => unitRules(unit).length > 0);
+    expect(carrying.length).toBeLessThan(UNIT_CATALOG.length / 3);
   });
 });

@@ -7,17 +7,15 @@ import type {
   LaunchMissionRequest,
   LaunchMissionResponse,
   MeResponse,
-  AssigneesResponse,
+  CrewResponse,
   TrainUnitsResponse,
   UnitsResponse,
   FitSlotRequest,
 } from '@frontline/shared';
-import { alignmentBand, assigneeBonusPercent } from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import type { ApiRequestError } from './api';
 import {
-  assignPoint,
   fortifyLocation,
   upgradeLocation,
   getDistrict,
@@ -30,9 +28,7 @@ import {
   releaseOfficer,
   trainUnits,
   buildStructure,
-  getAssignees,
-  placeAssignees,
-  reskillAssignees,
+  getCrew,
   createOverseer,
   getBar,
   getBase,
@@ -90,7 +86,7 @@ export const queryKeys = {
   district: (id: string) => ['district', id] as const,
   units: ['units'] as const,
   research: ['research'] as const,
-  assignees: ['assignees'] as const,
+  crew: ['crew'] as const,
   training: ['training'] as const,
   crewStanding: ['crew-standing'] as const,
   market: ['market'] as const,
@@ -103,21 +99,19 @@ export const queryKeys = {
 };
 
 /**
- * Refresh everything a level-up moved: the HUD, and the §G layer derived from the same level.
+ * Refresh everything a level-up moved: the HUD, and the crew screen derived from the same level.
  *
- * `projectAssignees` (`apps/server/src/assignees/roster.ts`) computes the whole assignee payload
- * from nothing but `base.level`: the pool (§G8), the per-officer cap (§G3) and the bonus curve
- * (§G7), so every level-up invalidates it server-side. Said in one place because the four sites
- * that can cross a threshold (§I1: a mission settling, a launch that settled one, a build, a raid)
- * would otherwise each carry a copy of the reason.
+ * `projectCrew` reads `base.level` for the bed count beside the roster, so a level-up moves it
+ * server-side. Said in one place because the four sites that can cross a threshold (§I1: a mission
+ * settling, a launch that settled one, a build, a raid) would otherwise each carry a copy of the
+ * reason.
  *
- * Without it the cached roster stays authoritative for its whole `staleTime`: the board announces
- * "Assignee pool 8", the player walks to §G inside the window and reads Unplaced 0 with every Place
- * button dead: handed people, then refused permission to place them (MOU-381).
+ * Without it the cached roster stays authoritative for its whole `staleTime` and the screen keeps
+ * quoting the ceiling the crew had before the level (MOU-381).
  */
 function invalidateLevelSensitive(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-  void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
 }
 
 /**
@@ -308,12 +302,11 @@ export function useHireRecruit() {
        * Written first and invalidated after, in that order: `setQueryData` clears the invalidated
        * flag, so doing it the other way round would leave the cache holding an optimistic entry
        * that nothing ever reconciles. The entry itself is built from the officer the server just
-       * handed back, so nothing is invented: somebody signed a moment ago has no assignees on
-       * them, which is exactly what §G says.
+       * handed back, so nothing here is invented.
        */
       const officer = data.officer;
       if (officer) {
-        queryClient.setQueryData<AssigneesResponse>(queryKeys.assignees, (current) =>
+        queryClient.setQueryData<CrewResponse>(queryKeys.crew, (current) =>
           current && !current.officers.some((held) => held.officerId === officer.id)
             ? {
                 ...current,
@@ -323,14 +316,9 @@ export function useHireRecruit() {
                     officerId: officer.id,
                     name: officer.name,
                     role: officer.role,
-                    assignees: 0,
-                    bonusPercent: assigneeBonusPercent(0),
-                    nextBonusPercent: assigneeBonusPercent(1),
                     attributes: officer.attributes,
-                    traits: officer.traits,
-                    alignment: officer.alignment,
-                    alignmentBand: alignmentBand(officer.alignment),
-                    level: officer.level,
+                    perks: officer.perks,
+                    weeklyWage: officer.weeklyWage,
                   },
                 ],
               }
@@ -338,9 +326,8 @@ export function useHireRecruit() {
         );
       }
 
-      // And reconciled against the server: the counts beside the list (§G1 pool, §G3 cap) are the
-      // server's arithmetic, not something this can work out from one officer.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
+      // And reconciled against the server, which owns the bed count beside the list.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
       void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
     },
   });
@@ -371,7 +358,7 @@ export function useReleaseOfficer() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
       // …and the district, which is a *different* copy of the base. `BasePanel` prefers
       // `queryKeys.base(id)` over the one on `/me`, and its Reports drawer prints the payroll
       // book and the caps this just moved: without this the two screens disagree until the
@@ -392,18 +379,6 @@ export function useIncreasePayroll() {
       // The district's own copy of the base, which prints the book and the caps this just spent.
       // See the note in `useReleaseOfficer`.
       void queryClient.invalidateQueries({ queryKey: ['base'] });
-    },
-  });
-}
-
-/** Spend one of the §H6 points the player assigns by hand. */
-export function useAssignPoint() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: assignPoint,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
 }
@@ -448,36 +423,11 @@ export function useStartResearch() {
   });
 }
 
-/** The assignee layer: the pool, the placements and what each is worth (GDD §G). */
-export function useAssignees() {
+/** The crew: who is in which chair, and everything about them (GDD §C1, §C2). */
+export function useCrew() {
   const token = useSession((s) => s.token);
-  return useQuery({
-    queryKey: queryKeys.assignees,
-    queryFn: getAssignees,
-    enabled: token !== null,
-  });
+  return useQuery({ queryKey: queryKeys.crew, queryFn: getCrew, enabled: token !== null });
 }
-
-/**
- * §G2 placement and §G4 reskilling.
- *
- * Both invalidate the mission board as well as the §G screen: the assignee bonus is applied at
- * launch (§G5/§G7) and the §G6 gate turns on who is free, so moving people changes what the board
- * will quote and which runs it will accept.
- */
-function useAssigneeWrite<Body>(mutationFn: (body: Body) => Promise<unknown>) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.assignees });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
-    },
-  });
-}
-
-export const usePlaceAssignees = () => useAssigneeWrite(placeAssignees);
-export const useReskillAssignees = () => useAssigneeWrite(reskillAssignees);
 
 /** Mint an overseer + starting base from a preset, then prime the caches. */
 export function useCreateOverseer() {
@@ -988,7 +938,7 @@ export function useReassignOfficer() {
   return useMutation({
     mutationFn: reassignOfficer,
     onSuccess: (response) => {
-      queryClient.setQueryData(queryKeys.assignees, response.assignees);
+      queryClient.setQueryData(queryKeys.crew, response.crew);
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.training });
     },

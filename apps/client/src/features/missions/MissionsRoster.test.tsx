@@ -1,10 +1,9 @@
 import {
   MISC_AREA_ID,
-  assigneeBonusPercent,
   missionOffers,
   templateTimings,
   createCommander,
-  type AssigneesResponse,
+  type CrewResponse,
   type HireRecruitResponse,
   type MissionsResponse,
   makeAttributes,
@@ -28,7 +27,7 @@ import { useSession } from '../../store/session';
 /**
  * Where the mission board gets its officers from: the two ways that read goes wrong.
  *
- * §G6 makes `GET /assignees` a *gate* on this page and not a decoration: with no officer on the
+ * §G6 makes `GET /crew` a *gate* on this page and not a decoration: with no officer on the
  * card, every hard template is refused. So the board has to be right about the roster even when
  * the roster is not there, a read that failed, and a read that is simply out of date, because
  * both of those states have already been rendered to the player as "you have nobody" once.
@@ -83,28 +82,17 @@ async function openSend(): Promise<HTMLElement> {
   return screen.getByRole('dialog');
 }
 
-const staffed: AssigneesResponse = {
+const staffed: CrewResponse = {
   level: 6,
-  pool: 8,
-  placed: 3,
-  unplaced: 5,
-  capPerOfficer: 3,
-  maxBonusPercent: assigneeBonusPercent(3),
-  canReskill: false,
   housing: { used: 0, capacity: 8 },
   officers: [
     {
       officerId: 'off-1',
       name: 'Reza Malik',
       role: 'raid_boss',
-      assignees: 3,
-      bonusPercent: assigneeBonusPercent(3),
-      nextBonusPercent: assigneeBonusPercent(4),
       attributes: makeAttributes(15),
-      traits: [],
-      alignment: 50,
-      alignmentBand: 'settled' as const,
-      level: 1,
+      perks: [],
+      weeklyWage: 40,
     },
   ],
 };
@@ -149,7 +137,7 @@ afterEach(() => {
 describe('the board cannot read the roster', () => {
   const refuseTheRoster = () =>
     fetchMock.mockImplementation((path: string) => {
-      if (path.endsWith('/assignees'))
+      if (path.endsWith('/crew'))
         return reply({ error: { code: 'UNKNOWN', message: 'x' } }, { ok: false });
       if (path.endsWith('/missions')) return reply(board);
       throw new Error(`unstubbed request: ${path}`);
@@ -227,7 +215,7 @@ describe('a signing reaches the board', () => {
       throw new Error(`unstubbed request: ${path}`);
     });
     const queryClient = appClient();
-    queryClient.setQueryData(queryKeys.assignees, { ...staffed, officers: [] });
+    queryClient.setQueryData(queryKeys.crew, { ...staffed, officers: [] });
 
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -237,14 +225,12 @@ describe('a signing reaches the board', () => {
       await result.current.mutateAsync({ recruitId: 'r-1', role: 'raid_boss', offerWage: 40 });
     });
 
-    const cached = queryClient.getQueryData<AssigneesResponse>(queryKeys.assignees);
+    const cached = queryClient.getQueryData<CrewResponse>(queryKeys.crew);
     expect(cached?.officers.map((officer) => officer.officerId)).toEqual(['off-9']);
     expect(cached?.officers[0]?.name).toBe('Reza Malik');
-    // Freshly signed: nobody is placed with them yet, which is what §G says of a new officer.
-    expect(cached?.officers[0]?.assignees).toBe(0);
 
     await waitFor(() =>
-      expect(queryClient.getQueryState(queryKeys.assignees)?.isInvalidated).toBe(true),
+      expect(queryClient.getQueryState(queryKeys.crew)?.isInvalidated).toBe(true),
     );
   });
 });

@@ -1,3 +1,4 @@
+export * from './tiers.js';
 export * from './stats.js';
 export * from './catalog.js';
 export * from './unlocks.js';

@@ -34,10 +34,7 @@ describe('BattleResultModal announces the level-up the raid paid for (§I2)', ()
 
     const banner = screen.getByRole('region', { name: 'Level up' });
     expect(banner).toHaveTextContent('LEVEL 4');
-    // Level 4 is where §G3's per-officer cap turns over from 1 to 2: a real change to announce.
     const grants = playerLevelGrants(4);
-    expect(banner).toHaveTextContent(`Assignee pool${grants.assigneePool}`);
-    expect(banner).toHaveTextContent(`Assignees / officer${grants.assigneeCapPerOfficer}`);
     expect(banner).toHaveTextContent(`Recruit slots${grants.recruitSlots}`);
   });
 

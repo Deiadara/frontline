@@ -1,6 +1,7 @@
 import { noTerritoryEffects, type TerritoryEffects } from '../city/index.js';
 import {
   findUnit,
+  isCombatUnit,
   fittedFor,
   type Army,
   type UnitLoadouts,
@@ -17,7 +18,7 @@ import {
   type MoraleState,
 } from './morale.js';
 import { drawLuck } from './luck.js';
-import { mulberry32, seedFrom } from './rng.js';
+import { mulberry32, seedFrom } from '../rng.js';
 
 /**
  * The fight itself.
@@ -263,7 +264,22 @@ function buildStacks(
   const stacks: Stack[] = [];
   for (const [unitId, count] of Object.entries(army)) {
     const unit = findUnit(unitId);
-    if (!unit || count <= 0) continue;
+    /*
+     * The porters are not in the line, and the rule lives **here** rather than at the doors.
+     *
+     * `combat: false` is a hard rule: a Scavenger is never put in a battle line, never draws fire
+     * and contributes nothing to either side of an exchange. Three server doors already refuse to
+     * *send* one (`isFightingForce`, and `isCombatUnit` in `deploy.ts`), and every one of them
+     * guards a force the attacker chose. Nothing guarded the side that does not choose: a defender
+     * fights with whatever is standing in their district, so a raided crew put its porters in the
+     * rank and buried them. Measured before this line existed: 25 Breakers against a crew holding
+     * 20 Razors, 40 Scavengers and 30 Haulers killed 24 of the Scavengers and 23 of the Haulers.
+     *
+     * At the engine there is no door to forget. A force that is *only* porters simply has no line,
+     * which is the correct reading of the rule rather than a special case: there is nobody there to
+     * fight, so the other side walks in.
+     */
+    if (!unit || count <= 0 || !isCombatUnit(unit)) continue;
     const effective = effectiveStats(
       unit,
       battlefield,
@@ -338,6 +354,85 @@ export function allocate(
 
   const behind = live.filter((enemy) => enemy.unit.taunts !== true);
   return [...spread(taunting, TAUNT_PULL), ...spread(behind, 1 - TAUNT_PULL)];
+}
+
+/**
+ * Medics per fighting body at which a field hospital is doing everything it can.
+ *
+ * One in four. Past that the extra medics are standing behind people who are already being treated,
+ * which is why this is a ratio and not a rate: how much a hospital is worth depends on how many
+ * casualties there are to work on, and casualties come from the size of the line rather than from
+ * the size of the hospital.
+ *
+ * It was an absolute figure in hit points first (`MEND_PER_MEDIC`), and that was measurably the
+ * wrong model. In every fight short of a bloodbath the {@link MAX_MEND_SHARE} ceiling bound before
+ * the rate did, so two medics and twelve medics did exactly the same thing: sweeping the rate from
+ * 55 to 800 moved not one figure in the trial table. A support unit whose second copy is worth
+ * nothing is a support unit with one correct quantity, which is not a decision.
+ */
+export const MEND_FULL_COVER = 0.25;
+
+/**
+ * The most of one round's incoming damage a field hospital can undo, at full cover.
+ *
+ * Strictly under 1 on purpose, and not by a little: a side whose medics could cancel a whole round
+ * would end every fight on the round cap with both lines intact, which is the failure mode of every
+ * healing mechanic that was written without one of these. Under a ceiling, medics change *how many
+ * walk out*, which is what the sheet promises, and never who holds the ground.
+ */
+export const MAX_MEND_SHARE = 0.45;
+
+/**
+ * The share of incoming damage this side's medics undo, 0..{@link MAX_MEND_SHARE}.
+ *
+ * Linear in cover up to the full ratio and flat after it. Broken medics do not work, and the
+ * denominator is the line they are treating rather than the whole force, so a hospital does not get
+ * credit for covering itself.
+ */
+export function mendShare(side: SideState): number {
+  let medics = 0;
+  let line = 0;
+  for (const stack of side.stacks) {
+    if (stack.alive <= 0) continue;
+    if (stack.unit.mends === true) {
+      if (stack.brokeAt === null) medics += stack.alive;
+    } else {
+      line += stack.alive;
+    }
+  }
+  if (medics <= 0 || line <= 0) return 0;
+  return MAX_MEND_SHARE * Math.min(1, medics / (line * MEND_FULL_COVER));
+}
+
+/**
+ * Casualties the medics caught, taken off the round's damage before anybody counts it.
+ *
+ * Applied to `incoming` rather than after the fact, so the saved bodies are still standing when
+ * `moralePhase` asks the line how it is doing. Healing that only moved a number after the morale
+ * check would be healing nobody in the line could feel.
+ *
+ * Two rules, both load-bearing:
+ *
+ * - **Medics do not mend medics.** See `UnitSpec.mends`. A stack that carries the flag is skipped
+ *   as a recipient, so a force of nothing but Stitchers gets nothing at all.
+ * - **Split by what each stack is actually bleeding.** The medics go where the casualties are, so
+ *   a focused stack is the one that gets the attention, which is also the stack whose morale was
+ *   about to break.
+ *
+ * The opening ambush is deliberately not mended. An ambush lands before anybody is in position and
+ * the medics are somebody, so a force that is walked into is the one case where bringing a hospital
+ * does not help, and that is a real answer to a line built around one.
+ */
+export function mend(side: SideState, incoming: Map<Stack, number>): Map<Stack, number> {
+  const kept = 1 - mendShare(side);
+  if (kept >= 1) return incoming;
+
+  const out = new Map(incoming);
+  for (const [stack, damage] of incoming) {
+    if (stack.unit.mends === true || damage <= 0) continue;
+    out.set(stack, damage * kept);
+  }
+  return out;
 }
 
 /** Damage each stack on `side` deals this round, as a map from enemy stack index to damage. */
@@ -553,19 +648,17 @@ export function simulate(input: SimulateInput): Simulation {
 
     // Both sides fire from the same snapshot, then both take it. Sequential rounds hand the side
     // that happens to go first a free volley against a stack that is already dead.
-    const ontoDefender = fireRound(
-      attacker,
+    //
+    // Each side's own medics take their share off what is landing on them, before it lands: see
+    // `mend`. Wrapped here rather than inside `fireRound` because it is the *receiving* side's
+    // sheet that decides it, and `fireRound` only knows who is shooting.
+    const ontoDefender = mend(
       defender,
-      attackerConcentration,
-      attackerSwing,
-      battlefield.frontage,
+      fireRound(attacker, defender, attackerConcentration, attackerSwing, battlefield.frontage),
     );
-    const ontoAttacker = fireRound(
-      defender,
+    const ontoAttacker = mend(
       attacker,
-      defenderConcentration,
-      defenderSwing,
-      battlefield.frontage,
+      fireRound(defender, attacker, defenderConcentration, defenderSwing, battlefield.frontage),
     );
     const defenderLost = mergeLosses(
       applyDamage(defender, ontoDefender),

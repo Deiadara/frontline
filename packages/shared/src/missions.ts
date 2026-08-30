@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { MissionDifficultySchema } from './assignees/delegation.js';
+import { MissionDifficultySchema } from './delegation/delegation.js';
 import { MissionStanceSchema, type MissionStance } from './factions.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
+import { effortScale, EFFORT_BASELINE_MINUTES, EFFORT_EXPONENT } from './progression/effort.js';
 
 /**
  * Missions, travel and timers: GDD §E.
@@ -60,7 +61,7 @@ export const MissionTemplateSchema = z.object({
   brief: z.string().min(1),
   kind: MissionKindSchema,
   /**
-   * §G6: hard runs require an officer; easy ones can go out on assignees alone. Authored per
+   * §G6: hard runs require an officer; easy ones can go out with nobody leading. Authored per
    * mission rather than derived from `kind` or length: a day-long standard expedition beyond the
    * wire is not "easy" just because nobody shoots at you, and the board asked for a hard/easy
    * split, not a battle/standard one.
@@ -82,9 +83,32 @@ export const MissionTemplateSchema = z.object({
    * The thematic mix (§E1), authored as the bundle this mission would pay at
    * `REWARD_BASELINE_MINUTES`. The *amounts* a run actually pays come from `missionRewards`,
    * so two missions sharing a mix but not a length pay differently, purely by the §E5 curve.
+   *
+   * ## What has to be equal, and what is allowed to differ
+   *
+   * Which resources, and in what proportion, is the whole point of this field and is authored per
+   * job: a Timber Pull comes home with timber. **What it is worth is not.** Every bundle on the
+   * board is priced so that
+   *
+   *     capsOf(spoils) x successChance  =  143 x stance
+   *
+   * where `stance` is 1.15 against the Combine, 1.0 unaligned and 0.85 for the Combine, and the
+   * caps valuation is `market/offers.ts`. Expected value rather than face value, so a risky job
+   * *quotes* more and averages the same, which is what makes `successChance` a real number rather
+   * than decoration.
+   *
+   * Hold that steady and §E5's curve is the only thing left moving, which is what §E5 claims: pay
+   * grows with length and the *rate* falls, so a short run is the better hourly and a long one is
+   * what you launch before you log off. It did not hold. The raw bundles varied 9.4x, the variation
+   * was correlated with length, and the two multiplied: the board's best rate was a 140-minute raid
+   * at 795 caps an hour and its worst was an 18-minute errand at 78, which is the exact inverse of
+   * the rule and made most of the board unreadable. It is 4.2x now, and it falls with length.
+   *
+   * A new mission is priced by that formula first and adjusted for flavour second. A bundle worth
+   * noticeably more or less than its neighbours is a balance change, not a detail of the brief.
    */
   spoils: PartialResourcesSchema,
-  /** Chance the run succeeds outright, before any W4 assignee/officer modifier. */
+  /** Chance the run succeeds outright, before any officer modifier. */
   successChance: z.number().min(0).max(1),
 });
 export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
@@ -109,7 +133,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 3,
-    spoils: { scrap: 40, planks: 30, caps: 5 },
+    spoils: { scrap: 34, planks: 26, caps: 4 },
     successChance: 0.97,
   },
   {
@@ -122,7 +146,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 12,
-    spoils: { supplies: 35, caps: 8 },
+    spoils: { supplies: 87, caps: 20 },
     successChance: 0.95,
   },
   {
@@ -135,7 +159,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'close',
     durationMinutes: 25,
-    spoils: { caps: 30, oil: 20 },
+    spoils: { caps: 90, oil: 60 },
     successChance: 0.78,
   },
   {
@@ -148,7 +172,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 45,
-    spoils: { oil: 45, scrap: 10 },
+    spoils: { oil: 69, scrap: 15 },
     successChance: 0.93,
   },
   {
@@ -161,7 +185,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 60,
-    spoils: { highQualityMetal: 6, scrap: 25 },
+    spoils: { highQualityMetal: 10, scrap: 41 },
     successChance: 0.74,
   },
   {
@@ -174,7 +198,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'for_government',
     travelBand: 'further',
     durationMinutes: 90,
-    spoils: { caps: 55 },
+    spoils: { caps: 134 },
     successChance: 0.91,
   },
   {
@@ -188,7 +212,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     travelBand: 'close',
     durationMinutes: 40,
     // Combine pay: caps and the metal a state armoury can spare, never supplies it would rather ration.
-    spoils: { caps: 70, highQualityMetal: 4 },
+    spoils: { caps: 88, highQualityMetal: 5 },
     successChance: 0.82,
   },
   {
@@ -201,7 +225,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 480,
-    spoils: { highQualityMetal: 10, oil: 25, scrap: 20 },
+    spoils: { highQualityMetal: 11, oil: 27, scrap: 21 },
     successChance: 0.7,
   },
   {
@@ -214,7 +238,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'furthest',
     durationMinutes: MISSION_MAX_DURATION_MINUTES,
-    spoils: { caps: 20, supplies: 20, oil: 15, scrap: 25, planks: 20, highQualityMetal: 3 },
+    spoils: { caps: 15, supplies: 15, oil: 11, scrap: 18, planks: 15, highQualityMetal: 2 },
     successChance: 0.88,
   },
 
@@ -234,7 +258,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 8,
-    spoils: { supplies: 20, caps: 6 },
+    spoils: { supplies: 83, caps: 25 },
     successChance: 0.96,
   },
   {
@@ -247,7 +271,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'close',
     durationMinutes: 18,
-    spoils: { scrap: 55, highQualityMetal: 2 },
+    spoils: { scrap: 61, highQualityMetal: 2 },
     successChance: 0.92,
   },
   {
@@ -260,7 +284,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 22,
-    spoils: { planks: 70, scrap: 15 },
+    spoils: { planks: 56, scrap: 12 },
     successChance: 0.94,
   },
   {
@@ -273,7 +297,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'close',
     durationMinutes: 15,
-    spoils: { caps: 25, scrap: 15 },
+    spoils: { caps: 78, scrap: 47 },
     successChance: 0.84,
   },
   {
@@ -286,7 +310,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 20,
-    spoils: { caps: 45 },
+    spoils: { caps: 163 },
     successChance: 0.88,
   },
   {
@@ -299,7 +323,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 55,
-    spoils: { caps: 40, supplies: 35, scrap: 20 },
+    spoils: { caps: 61, supplies: 53, scrap: 30 },
     successChance: 0.76,
   },
   {
@@ -312,7 +336,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 70,
-    spoils: { highQualityMetal: 8, scrap: 30, caps: 20 },
+    spoils: { highQualityMetal: 10, scrap: 36, caps: 24 },
     successChance: 0.72,
   },
   {
@@ -325,7 +349,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 80,
-    spoils: { caps: 60, highQualityMetal: 4 },
+    spoils: { caps: 107, highQualityMetal: 7 },
     successChance: 0.85,
   },
   {
@@ -338,7 +362,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'for_government',
     travelBand: 'further',
     durationMinutes: 65,
-    spoils: { caps: 85, supplies: 30 },
+    spoils: { caps: 99, supplies: 35 },
     successChance: 0.8,
   },
   {
@@ -351,7 +375,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'for_government',
     travelBand: 'close',
     durationMinutes: 35,
-    spoils: { caps: 50 },
+    spoils: { caps: 131 },
     successChance: 0.93,
   },
   {
@@ -364,7 +388,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'further',
     durationMinutes: 120,
-    spoils: { scrap: 60, planks: 45, caps: 25 },
+    spoils: { scrap: 36, planks: 27, caps: 15 },
     successChance: 0.87,
   },
   {
@@ -377,7 +401,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'unaligned',
     travelBand: 'further',
     durationMinutes: 100,
-    spoils: { scrap: 90, highQualityMetal: 7, caps: 30 },
+    spoils: { scrap: 51, highQualityMetal: 4, caps: 17 },
     successChance: 0.74,
   },
   {
@@ -390,7 +414,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'for_government',
     travelBand: 'furthest',
     durationMinutes: 200,
-    spoils: { caps: 160, highQualityMetal: 6 },
+    spoils: { caps: 97, highQualityMetal: 4 },
     successChance: 0.86,
   },
   {
@@ -403,7 +427,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 300,
-    spoils: { supplies: 140, oil: 30, caps: 40 },
+    spoils: { supplies: 105, oil: 22, caps: 30 },
     successChance: 0.71,
   },
   {
@@ -416,7 +440,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 420,
-    spoils: { highQualityMetal: 14, caps: 70, scrap: 25 },
+    spoils: { highQualityMetal: 10, caps: 48, scrap: 17 },
     successChance: 0.79,
   },
 ];
@@ -471,8 +495,13 @@ export function templateTimings(template: MissionTemplate): MissionTimings {
  * the exponent were 1 every mission would pay the same per minute and only the longest would
  * matter; above 1, nothing but the longest would ever be worth launching.
  */
-export const REWARD_BASELINE_MINUTES = 30;
-export const REWARD_TIME_EXPONENT = 0.8;
+/**
+ * Re-exported rather than re-declared: the curve is `progression/effort.ts` and belongs to every
+ * system with a clock on it, not to this one. Kept under these names because §E5 and a good deal of
+ * content and test code reads them.
+ */
+export const REWARD_BASELINE_MINUTES = EFFORT_BASELINE_MINUTES;
+export const REWARD_TIME_EXPONENT = EFFORT_EXPONENT;
 
 /** Battles pay a premium over standard work for the same time on the clock (§E5). */
 export const KIND_REWARD_MULTIPLIER: Record<MissionKind, number> = {
@@ -495,9 +524,7 @@ export const FAILURE_REWARD_SHARE: Record<MissionKind, number> = {
 };
 
 export function rewardScale(totalMinutes: number, kind: MissionKind): number {
-  return (
-    (totalMinutes / REWARD_BASELINE_MINUTES) ** REWARD_TIME_EXPONENT * KIND_REWARD_MULTIPLIER[kind]
-  );
+  return effortScale(totalMinutes) * KIND_REWARD_MULTIPLIER[kind];
 }
 
 /**

@@ -11,22 +11,15 @@ import {
   missionOffers,
   missionXp,
   scaledSpoils,
-  ATTRIBUTE_NAMES,
-  CHARACTER_LEVEL_AUTO_POINTS,
-  CHARACTER_LEVEL_PLAYER_POINTS,
   MISSION_INFAMY_DELTA,
   PLAYER_XP_AWARDS,
   applyPlayerXp,
-  characterXpForActivity,
-  characterXpToNextLevel,
   createCommander,
   findMissionTemplate,
   missionRewards,
   playerLevelGrants,
   templateTimings,
-  type Attributes,
   type Base,
-  type Commander,
   type Mission,
   type MissionTemplate,
   type Resources,
@@ -50,13 +43,70 @@ import { resolveDueMissions } from './resolve.js';
  * both. `areasOffering` is what picks a board that genuinely offers the template, which is the
  * same check the route makes.
  */
+/**
+ * A launch payload for a job named outright, refusing to build one that cannot work.
+ *
+ * The fallback used to be `?? MISC_AREA_ID`, and that is what made this dangerous. Boards turn
+ * over daily, so a named id is a fixture with a hidden expiry date; on the day nothing offered it
+ * the helper quietly produced a payload for an area that does not stock the job, the route
+ * answered `NOT_FOUND` for a reason no test meant to exercise, and a test asserting 404 passed for
+ * the wrong reason. Throwing turns that into one legible failure that names the day.
+ *
+ * Prefer `aJobToday` / `anEasyJobToday` and only name a job when the test is genuinely about
+ * *that* job.
+ */
 function launchBody(templateId: string, extra: Record<string, unknown> = {}) {
-  return {
-    templateId,
-    areaId: areasOffering(templateId, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
-    force: { razors: 1 },
-    ...extra,
-  };
+  const day = missionBoardDay(new Date());
+  const areaId = areasOffering(templateId, day)[0];
+  if (areaId === undefined) {
+    throw new Error(
+      `no board offers "${templateId}" on ${day}: name a job that is on offer, or use aJobToday()`,
+    );
+  }
+  return { templateId, areaId, force: { razors: 1 }, ...extra };
+}
+
+/**
+ * Any job on any board today, with the area that offers it.
+ *
+ * The counterpart to `anEasyJobToday` for the tests that do not care *which* job goes out, only
+ * that one does. Every one of those used to name a template, which is the expiry-dated fixture
+ * described on `launchBody`.
+ */
+function aJobToday(): { template: MissionTemplate; areaId: string } {
+  const day = missionBoardDay(new Date());
+  for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
+    const template = missionOffers(areaId, day)[0];
+    if (template) return { template, areaId };
+  }
+  throw new Error(`no job on any board on ${day}`);
+}
+
+/** `aJobToday` as a launch payload. */
+function launchAnyJobToday(extra: Record<string, unknown> = {}) {
+  const { template, areaId } = aJobToday();
+  return { templateId: template.id, areaId, force: { razors: 1 }, ...extra };
+}
+
+/**
+ * A **hard** job on a board today: the §G6 refusal, for tests about a launch that gets turned away.
+ *
+ * Hard is the property that makes it refuse when nobody is leading, so a test that wants a refusal
+ * has to ask for that property rather than name a job that happens to have it today.
+ */
+function aHardJobToday(): { template: MissionTemplate; areaId: string } {
+  const day = missionBoardDay(new Date());
+  for (const template of MISSION_TEMPLATES.filter((entry) => entry.difficulty === 'hard')) {
+    const areaId = areasOffering(template.id, day)[0];
+    if (areaId !== undefined) return { template, areaId };
+  }
+  throw new Error(`no hard job on any board on ${day}`);
+}
+
+/** `aHardJobToday` as a launch payload, which a crew with no officer cannot legally send. */
+function launchAHardJobToday(extra: Record<string, unknown> = {}) {
+  const { template, areaId } = aHardJobToday();
+  return { templateId: template.id, areaId, force: { razors: 1 }, ...extra };
 }
 
 /**
@@ -234,10 +284,6 @@ function hardJob(): MissionTemplate {
 }
 
 const after = (minutes: number, from: Date = T0) => new Date(from.getTime() + minutes * MINUTE_MS);
-
-/** Every point on a sheet, so a level-up's auto-allocation can be counted without naming targets. */
-const sheetTotal = (attributes: Attributes) =>
-  ATTRIBUTE_NAMES.reduce((total, name) => total + attributes[name], 0);
 
 /**
  * The base as it stands right now. Every route re-reads it per request, so anything simulating
@@ -530,11 +576,19 @@ describe('the mission routes', () => {
     const { app, token } = stack;
     const officerId = withOfficer(stack);
 
+    // Whatever is on a board today, rather than a named job: the assertion below is that the run
+    // that came back is the run that went out, which does not need a particular template.
+    const going = aJobToday();
     const launched = await app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: launchBody('deep-expedition', { officerId }),
+      payload: {
+        templateId: going.template.id,
+        areaId: going.areaId,
+        force: { razors: 1 },
+        officerId,
+      },
     });
     expect(launched.statusCode, launched.body).toBe(200);
     expect(launched.json<{ mission: Mission }>().mission.status).toBe('active');
@@ -543,7 +597,7 @@ describe('the mission routes', () => {
     expect(board.statusCode).toBe(200);
     const body = board.json<{ missions: Mission[]; activeLimit: number; serverNow: string }>();
     expect(body.missions).toHaveLength(1);
-    expect(body.missions[0]?.templateId).toBe('deep-expedition');
+    expect(body.missions[0]?.templateId).toBe(going.template.id);
     expect(body.activeLimit).toBe(BASE_CONCURRENT_MISSIONS);
     expect(Date.parse(body.serverNow)).not.toBeNaN();
   });
@@ -574,7 +628,9 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: launchBody('not-a-mission'),
+      // Built by hand, not through `launchBody`: that helper now refuses to construct a payload
+      // for a job no board offers, which is exactly what this test is trying to send.
+      payload: { templateId: 'not-a-mission', areaId: MISC_AREA_ID, force: { razors: 1 } },
     });
     expect(res.statusCode).toBe(404);
     expect(res.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND');
@@ -716,7 +772,7 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: launchBody('scrap-run'),
+      payload: launchAnyJobToday(),
     });
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
@@ -1039,10 +1095,10 @@ describe('a settlement announces its level-up on the response that caused it (§
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: launchBody('scrap-run'),
+      payload: launchAnyJobToday(),
     });
 
-    expect(launched.statusCode).toBe(200);
+    expect(launched.statusCode, launched.body).toBe(200);
     expect(launched.json<LevelUpBody>().levelUp).toBeUndefined();
   });
 
@@ -1067,10 +1123,14 @@ describe('a settlement announces its level-up on the response that caused it (§
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: launchBody('scrap-run', { officerId: 'nobody-by-that-id' }),
+      payload: launchAnyJobToday({ officerId: 'nobody-by-that-id' }),
     });
 
     expect(refused.statusCode).toBe(404);
+    // Which 404 matters: all three on this route share `NOT_FOUND`, and the point of this test is
+    // the officer lookup. Without this the job falling off the board would 404 for its own reason
+    // and the test would pass having exercised nothing it claims to.
+    expect(refused.json<{ error: { message: string } }>().error.message).toMatch(/on your books/i);
     // Nothing to lose because nothing was banked: this check needs no post-settle state.
     expect(freshBase(stack).level).toBe(before);
     expect(stack.repos.missions.countActiveByBaseId(stack.base.id)).toBe(1);
@@ -1129,176 +1189,11 @@ describe('a settlement announces its level-up on the response that caused it (§
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: launchBody('convoy-ambush'),
+      // Hard, so it is refused for want of an officer: the envelope of a *refusal* is the subject.
+      payload: launchAHardJobToday(),
     });
 
-    expect(refused.statusCode).toBe(409);
+    expect(refused.statusCode, refused.body).toBe(409);
     expect(refused.json<LevelUpBody>().levelUp).toBeUndefined();
-  });
-});
-
-describe('character XP for a run (§H6, INTERFACES R2)', () => {
-  const OFFICER_ID = 'off-1';
-
-  /** Puts an officer on the books and hands back the base that actually knows about them. */
-  function stackWithOfficer(stack: Stack): { officer: Commander; base: Base } {
-    const officer = createCommander(OFFICER_ID, 'Halvard Nyx', 'field_commander');
-    stack.repos.bases.updateCommanders(stack.base.id, [officer]);
-    return { officer, base: freshBase(stack) };
-  }
-
-  /** Plants a mission with a named officer leading it (§G6). */
-  function plantedUnder(
-    stack: Stack,
-    template: MissionTemplate,
-    seed: number,
-    officer: Commander,
-    startedAt = T0,
-  ): Mission {
-    const stored = launchMission({
-      id: `mission-${seed}-${template.id}`,
-      base: stack.base,
-      template,
-      areaId: areasOffering(template.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
-      force: { haulers: 400 },
-      now: startedAt,
-      officer,
-      seed,
-    });
-    stack.repos.missions.insert(stored);
-    return stored.mission;
-  }
-
-  function officerOf(stack: Stack): Commander {
-    const found = freshBase(stack).commanders.find((c) => c.id === OFFICER_ID);
-    if (!found) throw new Error('officer vanished');
-    return found;
-  }
-
-  it('records who led the run on the mission row, and null for a delegation', async () => {
-    const stack = await makeStack();
-    const { officer } = stackWithOfficer(stack);
-
-    expect(plantedUnder(stack, scrapRun, ALWAYS_SUCCEEDS, officer).officerId).toBe(OFFICER_ID);
-    expect(planted(stack, scrapRun, ALWAYS_FAILS).officerId).toBeNull();
-  });
-
-  it('pays the officer for the minutes the run kept them engaged', async () => {
-    const stack = await makeStack();
-    const { officer, base } = stackWithOfficer(stack);
-    plantedUnder(stack, scrapRun, ALWAYS_SUCCEEDS, officer);
-
-    resolveDueMissions(stack.repos, base, after(templateTimings(scrapRun).totalMinutes));
-
-    expect(officerOf(stack).xpIntoLevel).toBe(
-      characterXpForActivity(templateTimings(scrapRun).totalMinutes),
-    );
-  });
-
-  it('pays a losing crew too: the time was spent either way', async () => {
-    const stack = await makeStack();
-    const { officer, base } = stackWithOfficer(stack);
-    const raid = findMissionTemplate('foundry-raid') as MissionTemplate;
-    plantedUnder(stack, raid, ALWAYS_FAILS, officer);
-
-    const settlement = resolveDueMissions(
-      stack.repos,
-      base,
-      after(templateTimings(raid).totalMinutes),
-    );
-
-    expect(settlement.resolved[0]?.outcome).toBe('failure');
-    expect(officerOf(stack).xpIntoLevel).toBeGreaterThan(0);
-  });
-
-  it('pays nobody for a §G6 delegation that went out unled', async () => {
-    const stack = await makeStack();
-    const { base } = stackWithOfficer(stack);
-    planted(stack, scrapRun, ALWAYS_SUCCEEDS);
-
-    resolveDueMissions(stack.repos, base, after(templateTimings(scrapRun).totalMinutes));
-
-    expect(officerOf(stack)).toMatchObject({ level: 1, xpIntoLevel: 0, unspentPoints: 0 });
-  });
-
-  it('levels an officer up and banks the §H6a points the player must assign', async () => {
-    const stack = await makeStack();
-    const { officer, base } = stackWithOfficer(stack);
-    // 130 minutes clears the 120 needed for level 2 with 10 to spare.
-    const long = findMissionTemplate('courier-contract') as MissionTemplate;
-    plantedUnder(stack, long, ALWAYS_SUCCEEDS, officer);
-
-    resolveDueMissions(stack.repos, base, after(templateTimings(long).totalMinutes));
-
-    const levelled = officerOf(stack);
-    expect(levelled.level).toBe(2);
-    expect(levelled.xpIntoLevel).toBe(
-      characterXpForActivity(templateTimings(long).totalMinutes) - characterXpToNextLevel(1),
-    );
-    expect(levelled.unspentPoints).toBe(CHARACTER_LEVEL_PLAYER_POINTS);
-    // The auto-allocated points landed on the sheet, so the character actually got better (§H6a).
-    expect(sheetTotal(levelled.attributes)).toBe(
-      sheetTotal(officer.attributes) + CHARACTER_LEVEL_AUTO_POINTS,
-    );
-  });
-
-  /**
-   * The reason `awardCharacterXp` folds per officer before it writes anything.
-   *
-   * Two 600-XP runs are worth three levels together but only two apiece, so an implementation that
-   * applied each award to the sheet as it was read, rather than to the running total, would land
-   * on level 3 and lose one. Verified by mutation: this pair of numbers is chosen because folded
-   * (level 4) and per-award-on-a-stale-sheet (level 3) actually disagree here.
-   */
-  it('folds two runs by the same officer into one award', async () => {
-    const stack = await makeStack();
-    const { officer, base } = stackWithOfficer(stack);
-    const long = findMissionTemplate('refinery-assault') as MissionTemplate;
-    plantedUnder(stack, long, ALWAYS_SUCCEEDS, officer);
-    plantedUnder(stack, long, ALWAYS_FAILS, officer);
-
-    resolveDueMissions(stack.repos, base, after(templateTimings(long).totalMinutes));
-
-    const each = characterXpForActivity(templateTimings(long).totalMinutes);
-    const levelled = officerOf(stack);
-    expect(each * 2).toBe(
-      characterXpToNextLevel(1) + characterXpToNextLevel(2) + characterXpToNextLevel(3),
-    );
-    expect(levelled.level).toBe(4);
-    expect(levelled.xpIntoLevel).toBe(0);
-    expect(levelled.unspentPoints).toBe(3 * CHARACTER_LEVEL_PLAYER_POINTS);
-  });
-
-  it('settles normally when the officer was dismissed while the run was out', async () => {
-    const stack = await makeStack();
-    const { officer } = stackWithOfficer(stack);
-    plantedUnder(stack, scrapRun, ALWAYS_SUCCEEDS, officer);
-    stack.repos.bases.updateCommanders(stack.base.id, []);
-
-    const settlement = resolveDueMissions(
-      stack.repos,
-      freshBase(stack),
-      after(templateTimings(scrapRun).totalMinutes),
-    );
-
-    expect(settlement.resolved).toHaveLength(1);
-    expect(freshBase(stack).commanders).toEqual([]);
-  });
-
-  it('leaves an officer who stayed home untouched', async () => {
-    const stack = await makeStack();
-    const led = createCommander(OFFICER_ID, 'Halvard Nyx', 'field_commander');
-    const idle = createCommander('off-2', 'Wren Sable', 'salvager');
-    stack.repos.bases.updateCommanders(stack.base.id, [led, idle]);
-    plantedUnder(stack, scrapRun, ALWAYS_SUCCEEDS, led);
-
-    resolveDueMissions(
-      stack.repos,
-      freshBase(stack),
-      after(templateTimings(scrapRun).totalMinutes),
-    );
-
-    expect(freshBase(stack).commanders.find((c) => c.id === 'off-2')).toEqual(idle);
-    expect(officerOf(stack).xpIntoLevel).toBeGreaterThan(0);
   });
 });

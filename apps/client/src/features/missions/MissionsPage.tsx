@@ -6,7 +6,7 @@ import {
   missionProgressAt,
   missionRemainingMs,
   missionTimings,
-  type AssigneeOfficer,
+  type CrewOfficer,
   type LevelUp,
   type Mission,
   type MissionPhase,
@@ -17,7 +17,7 @@ import { RewardLine } from '../../components/Resources';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
-import { useAssignees, useLaunchMission, useMissions } from '../../lib/queries';
+import { useCrew, useLaunchMission, useMissions } from '../../lib/queries';
 import { MissionBoard } from './MissionBoard';
 import { useServerClock } from './useServerClock';
 import { PageShell } from '../game/PageShell';
@@ -49,7 +49,7 @@ function Tag({ label, className }: { label: string; className?: string }) {
 type Roster =
   | { status: 'loading' }
   | { status: 'error' }
-  | { status: 'ready'; officers: readonly AssigneeOfficer[] };
+  | { status: 'ready'; officers: readonly CrewOfficer[] };
 
 /** One crew currently away, with its live countdown (§E3). */
 function InFlightRow({ mission, now }: { mission: Mission; now: Date }) {
@@ -149,14 +149,14 @@ function EmptyRow({ text }: { text: string }) {
  */
 export function MissionsPage() {
   const missionsQuery = useMissions();
-  const assigneesQuery = useAssignees();
+  const crewQuery = useCrew();
   const launch = useLaunchMission();
 
   const data = missionsQuery.data;
   const now = useServerClock(data?.serverNow, missionsQuery.dataUpdatedAt);
-  const roster: Roster = assigneesQuery.data
-    ? { status: 'ready', officers: assigneesQuery.data.officers }
-    : assigneesQuery.isError
+  const roster: Roster = crewQuery.data
+    ? { status: 'ready', officers: crewQuery.data.officers }
+    : crewQuery.isError
       ? { status: 'error' }
       : { status: 'loading' };
 

@@ -5,7 +5,9 @@ import {
   type AttributeName,
   type Attributes,
 } from '../attributes.js';
-import { noTerritoryEffects, type TerritoryEffects } from '../city/locations.js';
+import { applyHoldBonus, noTerritoryEffects, type TerritoryEffects } from '../city/locations.js';
+import { perksOf, type PerkBonus } from './perks.js';
+import type { UnitTier } from '../units/tiers.js';
 import type { OfficerRole } from '../roles.js';
 import {
   IMPORTANCE_WEIGHT,
@@ -78,7 +80,6 @@ export const EFFECT_CHANNELS = [
   'buildCostPercent',
   'wageDiscountPercent',
   'recruitPoolPercent',
-  'alignmentHoldPercent',
   'intelYieldPercent',
   'intelResistancePercent',
   'casualtyRecoveryPercent',
@@ -117,7 +118,6 @@ export const CHANNEL_LABELS: Readonly<Record<EffectChannel, ChannelLabel>> = {
   buildCostPercent: { label: 'Off the cost of a build', unit: 'percent' },
   wageDiscountPercent: { label: 'Off what an officer asks for', unit: 'percent' },
   recruitPoolPercent: { label: 'Who turns up at the bar', unit: 'percent' },
-  alignmentHoldPercent: { label: 'Keeping the ones you have', unit: 'percent' },
   intelYieldPercent: { label: 'What a scout brings back', unit: 'percent' },
   intelResistancePercent: { label: 'What theirs does not', unit: 'percent' },
   casualtyRecoveryPercent: { label: 'The ones the medics get back', unit: 'percent' },
@@ -136,8 +136,8 @@ export interface CrewOnlyEffects {
   wageDiscountPercent: number;
   /** How much wider the Bar's nightly pool runs. */
   recruitPoolPercent: number;
-  /** How much of the §H5 drift away from you is held off. */
-  alignmentHoldPercent: number;
+  /** Taken off what the next `Increase Payroll` step costs. */
+  payrollStepDiscountPercent: number;
   // `intelYieldPercent` used to live here. It is a `TerritoryEffects` channel now, because a
   // Watchtower and a Head Spy with a Logic of 80 buy the same thing and should land in one place.
   /** How much of *your* district a rival's scout fails to bring home. */
@@ -169,7 +169,7 @@ export function noCrewEffects(): CrewEffects {
     buildCostPercent: 0,
     wageDiscountPercent: 0,
     recruitPoolPercent: 0,
-    alignmentHoldPercent: 0,
+    payrollStepDiscountPercent: 0,
     intelResistancePercent: 0,
     casualtyRecoveryPercent: 0,
     cohesionPercent: 0,
@@ -292,8 +292,12 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     summary: 'A rival scout comes back with a full report of things that are not true.',
   },
   empathy: {
-    channel: 'alignmentHoldPercent',
-    summary: 'Notices which one of them is about to walk, in time to ask why.',
+    // Shared with `negotiation`, which the module doc says is how a channel gets deep. It used to
+    // drive the §H5 alignment hold; that mechanic is gone, and what empathy was actually buying
+    // there (knowing what somebody wants before they say it) is the same thing that gets a wage
+    // agreed below the asking price.
+    channel: 'wageDiscountPercent',
+    summary: 'Hears what somebody actually wants, which is rarely the number they opened with.',
   },
   diplomacy: {
     channel: 'recruitPoolPercent',
@@ -418,6 +422,15 @@ export const MAX_PEAK_UPLIFT = 0.6;
 export interface CrewMember {
   attributes: Attributes;
   /**
+   * The perk ids this person brought with them (`crew/perks.ts`), nought to three.
+   *
+   * **Required, not optional**, and that is deliberate. It was optional so that a caller who only
+   * cared about attributes could leave it out, and the cost of that convenience was immediate: the
+   * server's `crewSheetsFor` built every officer without perks, the whole book silently applied to
+   * nobody, and it compiled. An empty list has to be written down.
+   */
+  perks: readonly string[];
+  /**
    * The chair they are in, or `null` for the Overseer.
    *
    * The Overseer is the player: they are not in one of the nineteen seats, so every skill they have
@@ -503,9 +516,61 @@ export function effectsOfSheet(sheet: Attributes): CrewEffects {
   return effects;
 }
 
-/** The crew's effects: best-of across everyone in the seat they are sitting in, then cashed. */
+/**
+ * The crew's effects: best-of on the attribute sheet, plus every perk in the room.
+ *
+ * The two halves compose differently and that is the design. Attributes are **best-of**, because a
+ * rating is something the crew has and one specialist is enough. Perks **sum**, because a perk is
+ * something a person brought and two people who each know a foundry manager know two of them.
+ */
 export function crewEffects(crew: readonly CrewMember[]): CrewEffects {
-  return effectsOfSheet(crewSheet(crew));
+  const total = effectsOfSheet(crewSheet(crew));
+  for (const member of crew) {
+    for (const perk of perksOf(member.perks)) applyPerkBonus(total, perk.bonus);
+  }
+  return total;
+}
+
+/**
+ * Folds one perk into a running total. Mutates `into`, like `applyHoldBonus`, which it delegates to.
+ *
+ * The delegation is the point: every channel the map can already push is pushed by the map's own
+ * fold, so a perk and a location that grant the same thing cannot land differently. Only the
+ * crew-only channels, which no location can grant, are handled here.
+ */
+export function applyPerkBonus(into: CrewEffects, bonus: PerkBonus): CrewEffects {
+  switch (bonus.kind) {
+    case 'production':
+      into.productionPercent += bonus.percent;
+      return into;
+    case 'storage_capacity':
+      into.storageCapacityPercent += bonus.percent;
+      return into;
+    case 'build_cost':
+      into.buildCostPercent += bonus.percent;
+      return into;
+    case 'wage_discount':
+      into.wageDiscountPercent += bonus.percent;
+      return into;
+    case 'payroll_step_discount':
+      into.payrollStepDiscountPercent += bonus.percent;
+      return into;
+    case 'recruit_pool':
+      into.recruitPoolPercent += bonus.percent;
+      return into;
+    case 'intel_resistance':
+      into.intelResistancePercent += bonus.percent;
+      return into;
+    case 'casualty_recovery':
+      into.casualtyRecoveryPercent += bonus.percent;
+      return into;
+    case 'cohesion':
+      into.cohesionPercent += bonus.percent;
+      return into;
+    default:
+      applyHoldBonus(into, bonus);
+      return into;
+  }
 }
 
 /**
@@ -521,13 +586,51 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     perHour: mergeCounts(crew.perHour, territory.perHour),
     resourceYieldPercent: mergeCounts(crew.resourceYieldPercent, territory.resourceYieldPercent),
     officerGroupFlat: mergeCounts(crew.officerGroupFlat, territory.officerGroupFlat),
+    unitTierPercent: mergeTierCounts(crew.unitTierPercent, territory.unitTierPercent),
   };
   for (const key of Object.keys(territory) as (keyof TerritoryEffects)[]) {
-    // The three record-valued channels are merged above; everything else is a plain number, and
+    // The record-valued channels are merged above; everything else is a plain number, and
     // enumerating rather than listing is what stops a channel added tomorrow from being dropped
-    // here in silence.
-    if (key === 'perHour' || key === 'resourceYieldPercent' || key === 'officerGroupFlat') continue;
+    // here in silence. It works: `unitTierPercent` was added later and this loop is what refused
+    // to compile until it had been given a merge of its own.
+    if (isRecordChannel(key)) continue;
     total[key] = territory[key] + crew[key];
+  }
+  return total;
+}
+
+/**
+ * The channels that are not plain numbers, and so cannot be added by the loop in `combineEffects`.
+ *
+ * A `Set` rather than a chain of `===`, because the list has grown twice and a fourth entry
+ * appended to a boolean chain is how one of them quietly stops being skipped.
+ */
+type RecordChannel = 'perHour' | 'resourceYieldPercent' | 'officerGroupFlat' | 'unitTierPercent';
+
+const RECORD_CHANNELS = new Set<string>([
+  'perHour',
+  'resourceYieldPercent',
+  'officerGroupFlat',
+  'unitTierPercent',
+] satisfies RecordChannel[]);
+
+/**
+ * A predicate rather than a bare `has`, so the `continue` in `combineEffects` *narrows*: everything
+ * past it is one of the plain-number channels and the compiler knows it. A boolean check would
+ * leave `total[key] = territory[key] + crew[key]` adding two union types and failing to build.
+ */
+function isRecordChannel(key: keyof TerritoryEffects): key is RecordChannel {
+  return RECORD_CHANNELS.has(key);
+}
+
+/** Adds two `{ tier: { stat: number } }` maps: `mergeCounts`, one level further down. */
+function mergeTierCounts(
+  a: TerritoryEffects['unitTierPercent'],
+  b: TerritoryEffects['unitTierPercent'],
+): TerritoryEffects['unitTierPercent'] {
+  const total: TerritoryEffects['unitTierPercent'] = { ...a };
+  for (const tier of Object.keys(b) as UnitTier[]) {
+    total[tier] = mergeCounts(total[tier] ?? {}, b[tier] ?? {});
   }
   return total;
 }

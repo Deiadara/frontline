@@ -338,9 +338,6 @@ describe('the Watchtower', () => {
         'head_spy',
         { deception: 100, cryptography: 100 },
         [],
-        {
-          now: new Date().toISOString(),
-        },
       ),
     ]);
 

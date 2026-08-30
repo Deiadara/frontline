@@ -1,16 +1,12 @@
 import {
-  AMBITIONS,
-  MORAL_COMPASSES,
   BAR_HIRES_PER_DAY,
   RECRUIT_MAX_MIN_LEVEL,
   RECRUIT_MAX_MIN_NOTORIETY,
   RECRUIT_MIN_LEVEL_GATE,
   RECRUIT_MIN_NOTORIETY_GATE,
-  type Ambition,
   type Attributes,
+  seedFrom,
   type JoinRequirement,
-  type MoralCompass,
-  type TraitId,
 } from '@frontline/shared';
 import { MAX_CALIBRE, generateCharacter } from '../characters/generate.js';
 import { createRng, randomInt, type Rng } from '../characters/rng.js';
@@ -64,25 +60,6 @@ export function barDay(now: Date): string {
 }
 
 /**
- * FNV-1a over the seed string. Any stable string→int32 would do; what matters is that it depends
- * on nothing but its argument, so the same day yields the same roster on every process and host.
- */
-function seedFrom(text: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-}
-
-function pick<T>(rng: Rng, items: readonly T[]): T {
-  const chosen = items[randomInt(rng, 0, items.length - 1)];
-  if (chosen === undefined) throw new Error('cannot pick from an empty list');
-  return chosen;
-}
-
-/**
  * §H3: what this character asks of a crew. Most people at the Bar will talk to anyone; the rest
  * want a name that has already been heard, and a few want both that and a crew that has lasted.
  *
@@ -103,9 +80,7 @@ export interface BarCharacter {
   id: string;
   name: string;
   attributes: Attributes;
-  traits: TraitId[];
-  ambition: Ambition;
-  moralCompass: MoralCompass;
+  perks: string[];
   requirement: JoinRequirement;
 }
 
@@ -124,7 +99,7 @@ function recruitAt(
   generation: number,
   cityLevel: number,
 ): BarCharacter {
-  const { attributes, traits } = generateCharacter(
+  const { attributes, perks } = generateCharacter(
     seedFrom(`${day}:${index}:${generation}:sheet`),
     barCalibre(cityLevel),
   );
@@ -135,9 +110,7 @@ function recruitAt(
     id: recruitId(day, index, generation),
     name: rollName(rng),
     attributes,
-    traits,
-    ambition: pick(rng, AMBITIONS),
-    moralCompass: pick(rng, MORAL_COMPASSES),
+    perks,
     requirement: openDoor ? { minNotoriety: 0, minLevel: 1 } : rollRequirement(rng, cityLevel),
   };
 }

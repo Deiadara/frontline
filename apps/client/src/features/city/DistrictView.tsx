@@ -1,4 +1,5 @@
 import {
+  districtDisplayName,
   FORTIFY_DIFFICULTY_LABELS,
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
@@ -81,6 +82,17 @@ export function DistrictView() {
 
   const data = query.data;
   const army = me.data?.base?.army ?? {};
+  /*
+   * Who is doing the looking, for `districtDisplayName`.
+   *
+   * The *viewer's* own crew and plot, not the district's resident: a plot is called after its
+   * occupant only when the occupant is you, and everybody else's is a number. Passing the resident
+   * here would have published every crew's name on the one screen that opens onto their ground.
+   */
+  const viewer = {
+    ownDistrictId: me.data?.base?.districtId ?? null,
+    ownName: me.data?.base?.name ?? null,
+  };
   const slots = battles.data?.slots ?? [];
   // The server's reading of the district's front door. Derived there rather than here, so the
   // screen and the declaration rules cannot disagree about what may be attacked.
@@ -116,9 +128,22 @@ export function DistrictView() {
           <p className="mt-2 font-display text-[11px] tracking-[0.24em] text-brass-300">
             // {(data.district.nickname ?? data.district.kind).toUpperCase()} //
           </p>
+          {/* The same rule the map reads: a plot is called after whoever lives on it. Two screens
+              disagreeing about what a district is called is worse than either name being wrong. */}
           <h1 className="mt-1 font-display text-2xl font-bold tracking-[0.15em] text-ink-100">
-            {data.district.name}
+            {districtDisplayName(data.district, viewer)}
           </h1>
+          {/* What the initials stand for, on the one screen with room to say it. The map draws the
+              short name because a tag on a painting has room for three letters; this is where a
+              player finds out that CCS is the Civic Command Sector. */}
+          {data.district.formalName !== null && (
+            <p
+              className="mt-1 font-display text-[12px] uppercase tracking-[0.18em] text-brass-300"
+              data-testid="district-formal-name"
+            >
+              {data.district.formalName}
+            </p>
+          )}
           <p className="mt-2 max-w-2xl font-body text-xs leading-relaxed text-ink-300">
             {data.district.blurb}
           </p>
@@ -178,7 +203,7 @@ export function DistrictView() {
                 Read-only: the plots do not open a dialog, because there is nothing on somebody
                 else's ground for you to build. */}
             {data.residentBuildings.length > 0 && (
-              <Panel title={`${data.base?.name ?? 'Their'} district`}>
+              <Panel title={`${districtDisplayName(data.district, viewer)}`}>
                 {/* The plate's own shape, read from the asset rather than typed: a hard-coded
                     ratio here letterboxed the painting inside the panel the day it was
                     redelivered at a different size, and every outline in it moved with the
@@ -200,11 +225,15 @@ export function DistrictView() {
                 </div>
               </Panel>
             )}
-            <Panel title="A crew lives here">
+            <Panel title={data.base ? 'A crew lives here' : 'Nobody lives here yet'}>
               <div className="flex flex-col gap-3 p-4">
+                {/* Two states, and the empty one is not an error. Every plot is the same ground;
+                    one nobody has moved into is drawn as that ground at level 1, which is exactly
+                    what a crew settling here would start from. */}
                 <p className="font-body text-xs leading-relaxed text-ink-300">
-                  {data.base?.name ?? 'Nobody'} holds this ground. Home districts can never be
-                  captured. They get robbed, and they limp for a while afterwards.
+                  {data.base
+                    ? `${data.base.name} holds this ground. Home districts can never be captured. They get robbed, and they limp for a while afterwards.`
+                    : 'An empty plot, drawn as it stands before anybody builds on it. A crew settling here starts from exactly this.'}
                 </p>
                 {data.raidable && (
                   <div>
@@ -288,8 +317,8 @@ export function DistrictView() {
             targetName={
               calling.kind === 'location'
                 ? (data.locations.find((view) => view.location.id === calling.locationId)?.location
-                    .name ?? data.district.name)
-                : `the gate at ${data.district.name}`
+                    .name ?? districtDisplayName(data.district, viewer))
+                : `the gate at ${districtDisplayName(data.district, viewer)}`
             }
             slots={slots}
             pending={declare.isPending}

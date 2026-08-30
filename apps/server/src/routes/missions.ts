@@ -148,19 +148,20 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const overseer = request.currentUser.overseerId
       ? app.repos.overseers.findById(request.currentUser.overseerId)
       : undefined;
-    // §G6: hard runs need an officer; easy ones can go out on assignees alone. The crew also
-    // fixes the §G5/§G7 multipliers, which `launchMission` freezes onto the row beside §F5's.
-    //
-    // This sizes the delegation off `base.level`, which the settle above may just have raised, so
-    // it runs on the settled base: hoisting it would refuse a crew the level-up had already paid
-    // for. Its refusal therefore carries the level-up out on the envelope instead.
+    /*
+     * §G6: a hard run needs an officer leading it. The terms it fixes (`delegationTerms`) are what
+     * `launchMission` freezes onto the row beside §F5's.
+     *
+     * One refusal, not two. There used to be a second, for an easy job with no officer and nobody
+     * in the assignee pool to delegate to; there is no pool, and what a mission sends is units,
+     * which the force check above already covers. The level-up rides out on the envelope because
+     * the settle above may have banked one before this refused.
+     */
     const crew = resolveCrew({ base, template, officer });
     if (!crew.terms.allowed) {
       throw new AppError(
-        crew.terms.refusal === 'needs_officer' ? 'MISSION_NEEDS_OFFICER' : 'NO_ASSIGNEES',
-        crew.terms.refusal === 'needs_officer'
-          ? 'That job is too hard to run without an officer leading it'
-          : 'You have nobody free to send',
+        'MISSION_NEEDS_OFFICER',
+        'That job is too hard to run without an officer leading it',
         levelUp,
       );
     }
@@ -176,8 +177,13 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       terms: crew.terms,
       officer,
       admin: app.config.admin,
-      // §A4: the ground this crew holds takes time off the road (the Smuggler's Tunnel).
-      missionSpeedPercent: standingEffectsFor(app.repos, base).missionSpeedPercent,
+      // §A4/§E: the ground this crew holds takes time off the road (the Smuggler's Tunnel), and
+      // the people on the books take a bigger cut of what the job pays. Read once: two calls would
+      // be two settles of the same effects.
+      ...(({ missionSpeedPercent, missionSpoilsPercent }) => ({
+        missionSpeedPercent,
+        missionSpoilsPercent,
+      }))(standingEffectsFor(app.repos, base)),
     });
     // The row and the roster move together: a crew that is out is a crew that is not at home to
     // defend the district, and a split between these two would let the same people do both.

@@ -1,29 +1,21 @@
 import {
   DISMISSAL_WEEKS,
   PAYROLL_BASE,
-  contractStance,
   districtPopulationCapacity,
   noTerritoryEffects,
-  ALIGNMENT_LEAVE_THRESHOLD,
-  ALIGNMENT_MAX,
-  ALIGNMENT_START,
   ATTRIBUTE_NAMES,
-  CHARACTER_LEVEL_PLAYER_POINTS,
   CommanderSchema,
   MAX_RECRUITMENT_ATTRIBUTE,
-  MORAL_COMPASSES,
   RECRUIT_MAX_MIN_NOTORIETY,
-  alignmentTarget,
   askingWage,
   assessJoin,
   createCommander,
   playerLevelGrants,
   reservationWage,
   startingEconomy,
-  startingAssignees,
   startingProgression,
   startingResearch,
-  type AssigneesResponse,
+  type CrewResponse,
   type Base,
   type BarResponse,
   type Commander,
@@ -36,7 +28,6 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { hireRecruit, releaseOfficer, wageAskedOf } from './hire.js';
-import { alignmentAt, settleOfficerAlignment } from './officers.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
   BAR_HIRES_PER_DAY,
@@ -116,7 +107,6 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     economy: startingEconomy(NOW.toISOString()),
     progression: startingProgression(),
     research: startingResearch(),
-    assignees: startingAssignees(),
     buildings: [],
     buildQueue: [],
     army: {},
@@ -322,18 +312,20 @@ describe('§H2/§H2a: one global roster, generated from the UTC date', () => {
     // A guarantee that quietly flattened every recruit into the same safe disposition would pass
     // the check above and gut §H3/§H4 entirely.
     const gated = new Set<number>();
-    const compasses = new Set<string>();
+    const perksSeen = new Set<string>();
     for (let day = 0; day < 200; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
       barRoster(key).forEach((recruit, index) => {
         if (recruit.requirement.minNotoriety > 0) gated.add(index);
-        compasses.add(recruit.moralCompass);
+        for (const id of recruit.perks) perksSeen.add(id);
       });
     }
     expect(gated.size, 'every seat past the floor must be able to carry a §H3 gate').toBe(
       BAR_ROSTER_SIZE - BAR_OPEN_DOOR_FLOOR,
     );
-    expect(compasses.size).toBe(MORAL_COMPASSES.length);
+    // Two hundred days of rosters should reach a good part of the book. A catalogue whose tail
+    // never appears is content nobody can hire, which is the mission-board hazard in another form.
+    expect(perksSeen.size, 'the perk book barely circulates').toBeGreaterThan(60);
   });
 });
 
@@ -391,9 +383,9 @@ describe('§H7/§H8: hiring out of the Bar', () => {
 
     expect(result.wage).toBe(asking);
     expect(result.officer.role).toBe('head_spy');
-    expect(result.officer.alignment).toBe(ALIGNMENT_START);
-    expect(result.officer.level).toBe(1);
-    expect(result.officer.unspentPoints).toBe(0);
+    // What they signed for is what the book is charged, and it is the whole of the relationship.
+    expect(result.officer.weeklyWage).toBe(asking);
+    expect(result.officer.perks).toEqual(hire.perks);
     // The fee lives in the payroll book and nowhere else, as a commitment rather than a bill.
     expect(written.commitments).toEqual({ [hire.id]: asking });
     expect(result.base.economy.payroll.commitments[hire.id]).toBe(asking);
@@ -584,10 +576,7 @@ describe('§H7/§H8: hiring out of the Bar', () => {
     expect(playerLevelGrants(2).recruitSlots).toBe(3);
 
     const full = makeBase({
-      commanders: [
-        createCommander('a', 'A', 'scout', {}, [], { now: NOW.toISOString() }),
-        createCommander('b', 'B', 'trader', {}, [], { now: NOW.toISOString() }),
-      ],
+      commanders: [createCommander('a', 'A', 'scout', {}), createCommander('b', 'B', 'trader', {})],
     });
     expect(
       hireRecruit(fakeRepos().repos, {
@@ -616,7 +605,7 @@ describe('§H7/§H8: hiring out of the Bar', () => {
 
   it('holds §C3: one officer per role', () => {
     const taken = makeBase({
-      commanders: [createCommander('a', 'A', 'head_spy', {}, [], { now: NOW.toISOString() })],
+      commanders: [createCommander('a', 'A', 'head_spy', {})],
     });
     expect(
       hireRecruit(fakeRepos().repos, {
@@ -633,9 +622,7 @@ describe('§H7/§H8: hiring out of the Bar', () => {
   it('will not hire the same person twice', () => {
     const hire = recruit();
     const already = makeBase({
-      commanders: [
-        createCommander(hire.id, hire.name, 'scout', {}, [], { now: NOW.toISOString() }),
-      ],
+      commanders: [createCommander(hire.id, hire.name, 'scout', {})],
     });
     expect(
       hireRecruit(fakeRepos().repos, {
@@ -647,107 +634,6 @@ describe('§H7/§H8: hiring out of the Bar', () => {
         now: NOW,
       }),
     ).toEqual({ kind: 'refused', reason: 'already_hired' });
-  });
-});
-
-describe('§H5: alignment drifts to what they make of the crew', () => {
-  const officerWho = (ambition: Commander['ambition'], moralCompass: Commander['moralCompass']) =>
-    createCommander('o1', 'Test', 'scout', {}, [], {
-      ambition,
-      moralCompass,
-      now: NOW.toISOString(),
-    });
-
-  /** Ground all the way to their floor. They turn up knowing it, and they drift accordingly. */
-  it('falls below the leave threshold for an officer squeezed to their reservation', () => {
-    const officer = { ...officerWho('knowledge', 'pragmatist'), askingWage: 100 };
-    const floor = reservationWage(100);
-    expect(alignmentTarget(contractStance(floor, 100))).toBeLessThan(ALIGNMENT_LEAVE_THRESHOLD);
-
-    const aMonthLater = new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000);
-    expect(alignmentAt(officer, floor, aMonthLater)).toBeLessThan(ALIGNMENT_LEAVE_THRESHOLD);
-  });
-
-  it('climbs past the bonus threshold for an officer who got what they asked for', () => {
-    const officer = { ...officerWho('notoriety', 'ruthless'), askingWage: 100 };
-    const aMonthLater = new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000);
-    expect(alignmentAt(officer, 100, aMonthLater)).toBeGreaterThan(75);
-  });
-
-  it('stays inside the meter and does not move on a backwards clock', () => {
-    const officer = { ...officerWho('notoriety', 'ruthless'), askingWage: 100 };
-    const before = new Date(NOW.getTime() - 7 * 24 * 60 * 60 * 1000);
-    expect(alignmentAt(officer, 100, before)).toBe(ALIGNMENT_START);
-    expect(alignmentAt({ ...officer, alignment: ALIGNMENT_MAX }, 100, NOW)).toBeLessThanOrEqual(
-      ALIGNMENT_MAX,
-    );
-  });
-
-  it('refreshes the anchor of an officer who is sitting exactly on their target', () => {
-    // The write gate is the age of the anchor, not movement of the value. An officer whose stance
-    // is 0 targets ALIGNMENT_START and so never moves at all: gating on movement would pin their
-    // anchor to hire time for their whole tenure.
-    const writes: Commander[][] = [];
-    const repos = {
-      bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
-      // §F2 reads the crew's own sheets to work out how much of a slide it holds off. Answering
-      // "nobody", and "no ground", keeps this test about the anchor rather than about the hold.
-      users: { findById: () => undefined },
-      city: { controls: () => new Map() },
-    } as unknown as Parameters<typeof settleOfficerAlignment>[0];
-
-    // Nine tenths of their asking price is the neutral contract: they never move.
-    const indifferent = { ...officerWho('wealth', 'idealist'), askingWage: 100 };
-    const base = makeBase({
-      commanders: [indifferent],
-      economy: {
-        ...makeBase().economy,
-        payroll: { ...makeBase().economy.payroll, commitments: { o1: 90 } },
-      },
-    });
-    expect(contractStance(90, 100)).toBe(0);
-
-    const threeWeeks = new Date(NOW.getTime() + 21 * 24 * 60 * 60 * 1000);
-    const settled = settleOfficerAlignment(repos, base, threeWeeks);
-    const officer = settled.commanders[0];
-
-    // Nothing moved, and that is exactly why the anchor has to be written anyway.
-    expect(officer?.alignment).toBe(ALIGNMENT_START);
-    expect(writes).toHaveLength(1);
-    expect(officer?.alignmentUpdatedAt).toBe(threeWeeks.toISOString());
-  });
-
-  it('persists a drift, and writes nothing while the anchor is fresh', () => {
-    const writes: Commander[][] = [];
-    const repos = {
-      bases: { updateCommanders: (_id: string, c: Commander[]) => writes.push(c) },
-      // §F2 reads the crew's own sheets to work out how much of a slide it holds off. Answering
-      // "nobody", and "no ground", since §A4's Chapel and Broadcast Station lift officer sheets
-      // before that fold: keeps these two tests about the anchor rather than about the hold.
-      users: { findById: () => undefined },
-      city: { controls: () => new Map() },
-    } as unknown as Parameters<typeof settleOfficerAlignment>[0];
-
-    const base = makeBase({
-      commanders: [{ ...officerWho('notoriety', 'ruthless'), askingWage: 100 }],
-      economy: {
-        ...makeBase().economy,
-        payroll: { ...makeBase().economy.payroll, commitments: { o1: 100 } },
-      },
-    });
-    const later = new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const settled = settleOfficerAlignment(repos, base, later);
-    expect(writes).toHaveLength(1);
-    expect(settled.commanders[0]?.alignment).not.toBe(ALIGNMENT_START);
-
-    // Settling the already-settled roster again at the same instant is not a second write: the
-    // anchor it just wrote is zero seconds old.
-    settleOfficerAlignment(repos, settled, later);
-    expect(writes).toHaveLength(1);
-
-    // ...and a base with no officers never touches the database at all.
-    settleOfficerAlignment(repos, makeBase(), later);
-    expect(writes).toHaveLength(1);
   });
 });
 
@@ -818,11 +704,11 @@ describe('the Bar over HTTP', () => {
     // bug this catches.
     const crew = await app.inject({
       method: 'GET',
-      url: '/api/assignees',
+      url: '/api/crew',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(crew.statusCode).toBe(200);
-    const roster = crew.json<AssigneesResponse>();
+    const roster = crew.json<CrewResponse>();
     expect(roster.officers.map((one) => one.name)).toContain(target.name);
     expect(roster.officers.find((one) => one.name === target.name)?.role).toBe('head_spy');
 
@@ -935,54 +821,6 @@ describe('the Bar over HTTP', () => {
     expect(stale.statusCode).toBe(404);
   });
 
-  it('assigns a §H6 point by hand and refuses when none are banked', async () => {
-    const { app, db } = await makeApp();
-    const token = await makePlayer(app, 'levelling_operator');
-    const bar = await readBar(app, token);
-    const target = bar.recruits.find((r) => r.askingWage !== null);
-    if (!target?.askingWage) throw new Error('expected an interested recruit');
-
-    await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
-    });
-
-    const assign = (attribute: string) =>
-      app.inject({
-        method: 'POST',
-        url: '/api/bar/assign-point',
-        headers: { authorization: `Bearer ${token}` },
-        payload: { officerId: target.id, attribute },
-      });
-
-    // Nothing banked yet: a fresh hire is level 1 and has never levelled.
-    const empty = await assign('stealth');
-    expect(empty.statusCode).toBe(409);
-    expect(empty.json<{ error: { code: string } }>().error.code).toBe('NO_POINTS');
-
-    // Bank the §H6 grant directly: nothing in the game awards character XP yet (INTERFACES R2).
-    const row = db.prepare('SELECT id, commanders_json FROM bases WHERE is_bot = 0').get() as {
-      id: string;
-      commanders_json: string;
-    };
-    const officers = JSON.parse(row.commanders_json) as Commander[];
-    const before = officers[0]?.attributes.stealth ?? 0;
-    db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?').run(
-      JSON.stringify(
-        officers.map((o) => ({ ...o, level: 2, unspentPoints: CHARACTER_LEVEL_PLAYER_POINTS })),
-      ),
-      row.id,
-    );
-
-    const spent = await assign('stealth');
-    expect(spent.statusCode).toBe(200);
-    const officer = spent.json<{ officer: Commander }>().officer;
-    expect(officer.unspentPoints).toBe(CHARACTER_LEVEL_PLAYER_POINTS - 1);
-    expect(officer.attributes.stealth).toBe(before + 1);
-  });
-
   it('needs a base: recruiting from nowhere is a 409, not a crash', async () => {
     const { app } = await makeApp();
     const register = await app.inject({
@@ -1013,7 +851,13 @@ describe('0006_recruitment.sql', () => {
   function rewoundToBefore0006(): AppDatabase {
     const db = openDatabase(':memory:');
     runMigrations(db, MIGRATIONS);
-    db.prepare('DELETE FROM schema_migrations WHERE name = ?').run('0006_recruitment.sql');
+    // Both, and in that order. 0006 added the §H4/§H5/§H6 fields and 0043 took them away again
+    // when those mechanics were cut, so replaying only the first leaves the officer in a middle
+    // state no live save ever stops at. What a genuinely old save goes through is the pair.
+    // 0042 is deliberately not in this list: it renames a column, and DDL does not replay.
+    for (const name of ['0006_recruitment.sql', '0043_officer_perks.sql']) {
+      db.prepare('DELETE FROM schema_migrations WHERE name = ?').run(name);
+    }
     return db;
   }
 
@@ -1052,46 +896,53 @@ describe('0006_recruitment.sql', () => {
     traits: ['gutter_born'],
   };
 
-  it('backfills officers stored before §H4/§H5/§H6 existed', () => {
+  /*
+   * 0006 added the §H4/§H5/§H6 fields to legacy officers; 0042 took them away again when those
+   * mechanics were cut. Running the pair is the honest test, because that is what a save from
+   * before either of them actually goes through, and the property that matters is unchanged: the
+   * row parses with the schema the read path uses.
+   */
+  it('carries an officer stored before §H4 all the way to the perk-era schema', () => {
     const db = rewoundToBefore0006();
-    plantBase(db, 'legacy-base', [legacyOfficer]);
-    expect(runMigrations(db, MIGRATIONS)).toEqual(['0006_recruitment.sql']);
+    plantBase(db, 'legacy-base', [{ ...legacyOfficer, askingWage: 44 }]);
+    expect(runMigrations(db, MIGRATIONS)).toEqual([
+      '0006_recruitment.sql',
+      '0043_officer_perks.sql',
+    ]);
 
     const [migrated] = commandersOf(db, 'legacy-base');
-    expect(migrated).toMatchObject({
-      id: 'legacy-1',
-      name: 'Pre-H Officer',
-      role: 'head_spy',
-      traits: ['gutter_born'],
-      alignment: ALIGNMENT_START,
-      level: 1,
-      xpIntoLevel: 0,
-      unspentPoints: 0,
-    });
+    expect(migrated).toMatchObject({ id: 'legacy-1', name: 'Pre-H Officer', role: 'head_spy' });
+    // The fee follows the rename. Defaulting it would hand this crew a roster that works free.
+    expect(migrated?.weeklyWage, 'the agreed fee survived the rename').toBe(44);
+    // No honest mapping from a trait to a perk, so they start empty rather than being handed
+    // bonuses nobody offered them.
+    expect(migrated?.perks).toEqual([]);
     expect(migrated?.attributes.stealth, 'the existing sheet survives untouched').toBe(20);
     // The whole point: the row now parses with the schema the read path actually uses.
     expect(() => CommanderSchema.parse(migrated)).not.toThrow();
     db.close();
   });
 
-  it('leaves an empty roster alone and does not overwrite officers that already have the fields', () => {
+  /**
+   * An empty roster stays empty, and an officer who is already in the new shape is left alone.
+   *
+   * The second half is the one that matters, because `0043` rewrites every officer object in the
+   * column rather than patching missing keys. Without the `COALESCE` on both fields it would reset
+   * a hired officer's perks to `[]` and their fee back to the opening price on any replay, which
+   * is one restore away from being a live data loss rather than a hypothetical one.
+   */
+  it('leaves an empty roster alone and does not undo an officer already in the new shape', () => {
     const db = rewoundToBefore0006();
-    const already = createCommander('kept-1', 'Already Migrated', 'scout', {}, [], {
-      ambition: 'revenge',
-      moralCompass: 'ruthless',
-      now: NOW.toISOString(),
-    });
+    const already = createCommander('kept-1', 'Already Migrated', 'scout', {}, ['skim_route'], 30);
     plantBase(db, 'empty-base', []);
-    plantBase(db, 'kept-base', [{ ...already, alignment: 88, level: 4, unspentPoints: 3 }]);
+    plantBase(db, 'kept-base', [already]);
     runMigrations(db, MIGRATIONS);
 
     expect(commandersOf(db, 'empty-base')).toEqual([]);
     expect(commandersOf(db, 'kept-base')[0]).toMatchObject({
-      ambition: 'revenge',
-      moralCompass: 'ruthless',
-      alignment: 88,
-      level: 4,
-      unspentPoints: 3,
+      id: 'kept-1',
+      perks: ['skim_route'],
+      weeklyWage: 30,
     });
     db.close();
   });

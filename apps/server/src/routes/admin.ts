@@ -14,6 +14,7 @@ import type { FastifyInstance } from 'fastify';
 import { ADMIN_ACTION_SECONDS } from '../admin/mode.js';
 import { listBackups } from '../db/backup.js';
 import { AppError, parseBody } from '../errors.js';
+import { ownBase } from './own-base.js';
 
 /**
  * The bench: knobs that put the game at a chosen stage, in one click.
@@ -39,12 +40,6 @@ function requireAdmin(app: FastifyInstance): void {
   if (!app.config.admin) {
     throw new AppError('NOT_FOUND', 'Route GET /api/admin not found');
   }
-}
-
-function ownBase(app: FastifyInstance, ownerId: string): Base {
-  const base = app.repos.bases.findByOwnerId(ownerId);
-  if (!base) throw new AppError('NO_BASE', 'You do not have a base yet');
-  return base;
 }
 
 function snapshot(app: FastifyInstance, base: Base): AdminSnapshot {
