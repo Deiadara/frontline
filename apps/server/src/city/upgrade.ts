@@ -63,7 +63,7 @@ export function startUpgrade(
 ): UpgradeOutcome {
   const { base, location, control, now } = args;
 
-  if (control.holder.kind !== 'faction' || control.holder.baseId !== base.id) {
+  if (control.holder.kind !== 'crew' || control.holder.baseId !== base.id) {
     return { kind: 'refused', reason: 'not_yours' };
   }
   if (control.upgradingUntil !== null) return { kind: 'refused', reason: 'already_working' };

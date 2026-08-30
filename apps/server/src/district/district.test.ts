@@ -497,7 +497,7 @@ describe('population (§A1: one pool)', () => {
 
     const location = CITY_LOCATIONS[0]!;
     const held = repos.city.control(location.id)!;
-    repos.city.put({ ...held, holder: { kind: 'faction', baseId: base.id } });
+    repos.city.put({ ...held, holder: { kind: 'crew', baseId: base.id } });
 
     expect(districtPopulation(repos, base).capacity).toBe(bare + POPULATION_PER_LOCATION);
   });

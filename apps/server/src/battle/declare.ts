@@ -96,7 +96,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   if (illegal) return { kind: 'refused', reason: illegal };
 
   const defender = defenderOf(repos, target, district);
-  if (defender.kind === 'faction' && defender.baseId === base.id) {
+  if (defender.kind === 'crew' && defender.baseId === base.id) {
     return { kind: 'refused', reason: 'own_ground' };
   }
   if (target.kind === 'location') {
@@ -131,7 +131,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   // The defending side's row exists from the moment the call is made, so both participants have
   // somewhere to move people to. An NPC fills theirs immediately (§A3: they answer a call the same
   // day it is made); a crew fills theirs when they get round to it, or does not.
-  const defendingBase = defender.kind === 'faction' ? defender.baseId : null;
+  const defendingBase = defender.kind === 'crew' ? defender.baseId : null;
   repos.sieges.putDeployment({
     ...emptyDeployment(battle.id, defendingBase, 'defender', at),
     army: npcMuster(defender, district, battle.seed),
@@ -142,7 +142,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
 
 /** The crew standing behind the defending side, if one is. */
 export function defendingBaseOf(repos: Repositories, battle: ScheduledBattle): Base | undefined {
-  if (battle.defender.kind === 'faction') return repos.bases.findById(battle.defender.baseId);
+  if (battle.defender.kind === 'crew') return repos.bases.findById(battle.defender.baseId);
   // A gate or a structure names a district rather than a party, and a lived-in district has a crew
   // behind it whether or not the control table calls them the holder.
   if (battle.target.kind !== 'location') return residentOf(repos, battle.target.districtId);

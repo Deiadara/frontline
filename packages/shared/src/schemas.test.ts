@@ -19,7 +19,7 @@ import {
   raidTargetOf,
   type District,
 } from './city/index.js';
-import { GOVERNMENT_GARRISONS, governmentGarrisonFor } from './factions.js';
+import { GOVERNMENT_GARRISONS, governmentGarrisonFor } from './allegiance.js';
 
 /** Minimum gap between two district positions, in normalized (0..1) map units. */
 const MIN_DISTRICT_SEPARATION = 0.06;
@@ -70,7 +70,7 @@ describe('who holds the map (§A3)', () => {
   const contested = CONTESTED_DISTRICTS;
 
   it('makes the Combine the main enemy without making it the only one', () => {
-    const combine = contested.filter((d) => d.faction === 'government');
+    const combine = contested.filter((d) => d.allegiance === 'government');
     expect(combine.length).toBeGreaterThan(contested.length - combine.length);
     expect(combine.length).toBeLessThan(contested.length);
   });
@@ -79,7 +79,7 @@ describe('who holds the map (§A3)', () => {
     const seats = CITY_DISTRICTS.filter((d) => d.seatOfPower);
     expect(seats.length).toBeGreaterThan(0);
     for (const seat of seats) {
-      expect(seat.faction, seat.id).toBe('government');
+      expect(seat.allegiance, seat.id).toBe('government');
       expect(isSeatOfGovernmentPower(seat), seat.id).toBe(true);
     }
   });
@@ -92,7 +92,7 @@ describe('who holds the map (§A3)', () => {
 
   it('calls no residential district Combine ground', () => {
     for (const district of RESIDENTIAL_DISTRICTS) {
-      expect(district.faction, district.id).toBe('independent');
+      expect(district.allegiance, district.id).toBe('independent');
       expect(isSeatOfGovernmentPower(district), district.id).toBe(false);
       // And nobody lives on ground that can be taken out from under them.
       expect(district.locations, district.id).toEqual([]);
@@ -111,15 +111,15 @@ describe('who holds the map (§A3)', () => {
 
   it('reads a raid target off the district and nothing else', () => {
     expect(raidTargetOf(district('combine-spire'))).toEqual({
-      faction: 'government',
+      allegiance: 'government',
       isSeatOfPower: true,
     });
     expect(raidTargetOf(district('undergrid'))).toEqual({
-      faction: 'government',
+      allegiance: 'government',
       isSeatOfPower: false,
     });
     expect(raidTargetOf(district('rustyard'))).toEqual({
-      faction: 'independent',
+      allegiance: 'independent',
       isSeatOfPower: false,
     });
   });
@@ -128,7 +128,7 @@ describe('who holds the map (§A3)', () => {
     expect(garrisonOf(district('glasshouse-fields'))).not.toBe(
       garrisonOf(district('combine-spire')),
     );
-    for (const combineHeld of CITY_DISTRICTS.filter((d) => d.faction === 'government')) {
+    for (const combineHeld of CITY_DISTRICTS.filter((d) => d.allegiance === 'government')) {
       expect(garrisonOf(combineHeld), combineHeld.id).toMatch(/Combine|Directorate|enforcer/);
     }
     // Independent ground must not be narrated as the government's.

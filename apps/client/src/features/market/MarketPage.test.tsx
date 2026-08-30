@@ -18,7 +18,7 @@ import { useSession } from '../../store/session';
  * The market's one arithmetic claim: whether a deal is good for *you*.
  *
  * Both sides of this screen price a trade, and the two objects they price arrive with opposite
- * meanings. A board offer's `give` is what the other faction hands over, so it is what you
+ * meanings. A board offer's `give` is what the other allegiance hands over, so it is what you
  * receive; the composer's field called `give` is what leaves your own store. Feed the second one
  * into a badge written for the first and the screen congratulates a player for proposing a deal
  * that robs them, which is a worse failure than printing nothing at all.

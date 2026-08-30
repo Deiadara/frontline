@@ -10,6 +10,9 @@ import { CrewPage } from './features/crew/CrewPage';
 import { BarPage } from './features/bar/BarPage';
 import { BasePanel } from './features/base/BasePanel';
 import { DistrictView } from './features/city/DistrictView';
+import { FactionPage } from './features/faction/FactionPage';
+import { MessagesPage } from './features/social/MessagesPage';
+import { NotificationsPage } from './features/social/NotificationsPage';
 import { BattlePage } from './features/battle/BattlePage';
 import { UnitsPage } from './features/units/UnitsPage';
 import { ActionsPage } from './features/actions/ActionsPage';
@@ -100,6 +103,9 @@ export default function App() {
           <Route path="city/:districtId" element={<DistrictView />} />
           <Route path="actions" element={<ActionsPage />} />
           <Route path="battles" element={<BattlePage />} />
+          <Route path="faction" element={<FactionPage />} />
+          <Route path="messages" element={<MessagesPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           <Route path="units" element={<UnitsPage />} />
           <Route path="missions" element={<MissionsPage />} />
           {/* §I3: four screens open on a level. `RequireLevel` draws the door rather than

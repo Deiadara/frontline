@@ -50,6 +50,8 @@ import {
 import { standingEffectsFor } from '../crew/standing.js';
 import { recallOvertaken } from './movement.js';
 import type { Repositories } from '../db/repos/index.js';
+import { sideForce, splitSurvivors } from './side.js';
+import { notifyBase } from '../social/notify.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
 import { defendingBaseOf } from './declare.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
@@ -102,8 +104,11 @@ function assemble(
   battle: ScheduledBattle,
   resident: Base | undefined,
 ): Assembled {
-  const attackerDeployment = repos.sieges.deployment(battle.id, 'attacker');
-  const defenderDeployment = repos.sieges.deployment(battle.id, 'defender');
+  // The whole of each side, allies folded in (`battle/side.ts`). Reading one row here would have
+  // marched the declarer in alone while their reinforcements sat in the database.
+  const at = battle.scheduledFor;
+  const attackerDeployment = sideForce(repos, battle.id, 'attacker', at);
+  const defenderDeployment = sideForce(repos, battle.id, 'defender', at);
 
   const attacking = attackerDeployment?.army ?? {};
   const attackerRing = attackerDeployment?.perimeter ?? {};
@@ -232,7 +237,7 @@ function bankOutcome(
     killedInfamy +
     (won
       ? infamyForRaidWon({
-          fromTheState: target.faction === 'government',
+          fromTheState: target.allegiance === 'government',
           seatOfPower: target.isSeatOfPower,
         })
       : 0);
@@ -381,7 +386,7 @@ function resolveOne(
   const attackerBoost = appliedBoost(
     repos,
     attacker.id,
-    repos.sieges.deployment(battle.id, 'attacker'),
+    sideForce(repos, battle.id, 'attacker', battle.scheduledFor),
     assembled.attacking,
     cityLevel,
   );
@@ -389,7 +394,7 @@ function resolveOne(
     ? appliedBoost(
         repos,
         defenderBase.id,
-        repos.sieges.deployment(battle.id, 'defender'),
+        sideForce(repos, battle.id, 'defender', battle.scheduledFor),
         assembled.defending,
         cityLevel,
       )
@@ -569,6 +574,23 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   // attacker answered the question, because the ring stood outside the fight and never took the
   // ground it is being asked to hold.
   const attackerHome = mergeArmies(holds ? {} : attackerSurvivors, assembled.attackerRing);
+
+  /*
+   * Whose survivors these are.
+   *
+   * A side can be several crews now (`battle/side.ts`), and the engine answers for the side as a
+   * whole. Handing `attackerHome` to the declarer would quietly transfer an ally's army to whoever
+   * called the fight: they sent bodies, the bodies lived, and they would never come back.
+   *
+   * Split proportionally to what each crew committed, counting the ring as well as the line,
+   * because both are in `attackerHome`. The declarer's share carries on through `attackerNext`;
+   * everybody else is paid out below.
+   */
+  const attackerRows = repos.sieges.side(battle.id, 'attacker');
+  const attackerShares = splitSurvivors(attackerRows, attackerHome, (row) =>
+    mergeArmies(row.army, row.perimeter),
+  );
+  const attackerOwnHome = attackerShares.get(attacker.id) ?? {};
   const defenderSurvivors = attackerWon
     ? outcome.fled
     : removeForce(assembled.defending, defenderDead);
@@ -613,7 +635,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   let haul: PartialResources = refundFor(attackerDead, attackerGround.salvageRefundPercent);
   let attackerNext: Base = {
     ...attacker,
-    army: mergeArmies(attacker.army, attackerHome),
+    army: mergeArmies(attacker.army, attackerOwnHome),
     economy: bankOutcome(
       attacker.economy,
       district,
@@ -631,7 +653,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       // whoever the attacker left standing there on purpose, and nobody otherwise.
       repos.city.put({
         locationId: battle.target.locationId,
-        holder: { kind: 'faction', baseId: attacker.id },
+        holder: { kind: 'crew', baseId: attacker.id },
         // §A4: **a capture resets the location to level 1.** Nobody inherits the previous
         // holder's investment: three upgrades of work on a Gas Station are gone the moment
         // somebody else walks onto the forecourt. That is the whole tension of the level system,
@@ -687,6 +709,42 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
         defenderGround?.infamyGainPercent ?? 0,
       ),
     );
+  }
+
+  /*
+   * The allies' share, back to the crews that sent it.
+   *
+   * Written before the declarer's own line below only so the two reads cannot interleave: each
+   * ally's base is re-read here rather than carried, because nothing else in this settle has
+   * touched them and a stale copy would drop whatever they trained while the column was away.
+   */
+  for (const [allyId, share] of attackerShares) {
+    if (allyId === null || allyId === attacker.id) continue;
+    if (Object.keys(share).length === 0) continue;
+    const ally = repos.bases.findById(allyId);
+    if (!ally) continue;
+    repos.bases.updateArmy(ally.id, mergeArmies(ally.army, share), ally.trainingQueue);
+  }
+
+  /*
+   * The receipts for the fight.
+   *
+   * Everybody who had a row on either side hears, not only the two principals: an ally who sent
+   * twelve bodies into somebody else's battle has as much reason to read the report as the crew
+   * who called it, and they are the ones whose survivors just came back.
+   *
+   * `battle_report` is always-on (`social/notifications.ts`), so this is one of the two kinds a
+   * player cannot mute: a fight is irreversible and silence about one is how an army disappears.
+   */
+  for (const row of [...attackerRows, ...repos.sieges.side(battle.id, 'defender')]) {
+    if (row.baseId === null) continue;
+    notifyBase(repos, row.baseId, {
+      kind: 'battle_report',
+      title: attackerWon ? 'A fight was won' : 'A fight was lost',
+      body: `${targetName(battle.target, residentOf(repos, battle.target.districtId))} is settled.`,
+      link: '/game/battles',
+      now,
+    });
   }
 
   repos.bases.updateArmy(attackerNext.id, attackerNext.army, attackerNext.trainingQueue);

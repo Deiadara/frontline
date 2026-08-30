@@ -15,6 +15,10 @@ import {
 import { expect, type Page } from '@playwright/test';
 import {
   crewFat,
+  factionScreen,
+  factionNone,
+  messagesScreen,
+  notificationsScreen,
   crewStart,
   authResponse,
   bar,
@@ -459,6 +463,27 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // Keyed off the installed session for the same reason `/api/base/` is: a fixed §G payload
     // would put a twelve-pip late-game roster under a level-1 header, and the screenshot would be
     // of a screen the server can never produce.
+    /*
+     * The faction, the mailbox and the bell.
+     *
+     * Each write answers with the whole refreshed screen, exactly as the server does, so one
+     * handler covers the read and every write against it. That is the same rule the market's
+     * handler follows and it is what keeps the fixture *being* the contract: a write that answered
+     * with a different shape here would pass a test the real server fails.
+     */
+    if (pathname.endsWith('/api/factions')) {
+      // Keyed off the installed session's level, exactly as `/api/crew` is: a starting crew has
+      // not joined anything yet and should see the invitation they are holding, while a late-game
+      // one is at a table. A fixed payload would put a two-person roster under a level-1 header.
+      return json((meResponse.base?.level ?? 1) > 1 ? factionScreen : factionNone);
+    }
+    if (pathname.includes('/api/factions/')) return json({ faction: factionScreen });
+    if (pathname.endsWith('/api/messages')) return json(messagesScreen);
+    if (pathname.includes('/api/messages/')) return json({ messages: messagesScreen });
+    if (pathname.endsWith('/api/notifications')) return json(notificationsScreen);
+    if (pathname.includes('/api/notifications/'))
+      return json({ notifications: notificationsScreen });
+
     if (pathname.endsWith('/api/crew')) {
       return json((meResponse.base?.level ?? 1) > 1 ? crewFat : crewStart);
     }

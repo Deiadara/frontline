@@ -56,7 +56,7 @@ function holdingEverything(): TerritoryEffects {
       location.id,
       {
         locationId: location.id,
-        holder: { kind: 'faction', baseId: 'mine' },
+        holder: { kind: 'crew', baseId: 'mine' },
         level: MAX_LOCATION_LEVEL,
         upgradingUntil: null,
         fortification: 0,

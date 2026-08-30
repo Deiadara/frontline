@@ -33,7 +33,7 @@ export const MODIFICATION_EFFECTS = [
   'power_supply_percent',
   'power_draw_reduction',
   'defense_percent',
-  /** Percentage points on the faction's own XP, so the district levels you as well as it feeds you. */
+  /** Percentage points on the allegiance's own XP, so the district levels you as well as it feeds you. */
   'faction_xp_percent',
   'research_time_reduction',
   'housing_percent',
@@ -73,7 +73,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'nexus',
     name: 'Encrypted Core',
-    description: 'Encrypts all faction data. Anyone casing this district works blind.',
+    description: 'Encrypts all allegiance data. Anyone casing this district works blind.',
     effect: 'defense_percent',
     magnitude: 12,
   },

@@ -176,13 +176,13 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
 test.describe('the intel panel names who holds a district (§A3)', () => {
   const seat = CITY_DISTRICTS.find(isSeatOfGovernmentPower);
   const outpost = CITY_DISTRICTS.find(
-    (d) => d.faction === 'government' && !isSeatOfGovernmentPower(d),
+    (d) => d.allegiance === 'government' && !isSeatOfGovernmentPower(d),
   );
   const street = CITY_DISTRICTS.find(
-    (d) => d.kind === 'contested' && d.faction !== 'government' && d.id !== 'chrome-row',
+    (d) => d.kind === 'contested' && d.allegiance !== 'government' && d.id !== 'chrome-row',
   );
   if (!seat || !outpost || !street)
-    throw new Error('fixture error: city map is missing a faction case');
+    throw new Error('fixture error: city map is missing an allegiance case');
 
   /**
    * Walks into a district the way a player does: one click on its tag on the city painting.

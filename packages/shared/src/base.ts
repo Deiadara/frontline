@@ -14,7 +14,7 @@ import { ResearchStateSchema } from './research/state.js';
 import { ResourcesSchema } from './resources.js';
 
 /**
- * How long a faction's name may be.
+ * How long a allegiance's name may be.
  *
  * Long enough for "The Ninth Street Reclamation Company", short enough that the HUD's identity
  * line and the city map's marker can both render it whole at 1024px: the board's zero-cut-text
@@ -32,18 +32,18 @@ import { ResourcesSchema } from './resources.js';
  *
  * 28 is what the bar can carry at readable size. See `plaqueType` in `FactionPlaque`.
  */
-export const FACTION_NAME_MAX = 28;
-export const FactionNameSchema = z.string().trim().min(2).max(FACTION_NAME_MAX);
+export const DISTRICT_NAME_MAX = 28;
+export const DistrictNameSchema = z.string().trim().min(2).max(DISTRICT_NAME_MAX);
 
-/** A player's faction and the district it holds (GDD §A1). */
+/** A player's allegiance and the district it holds (GDD §A1). */
 export const BaseSchema = z.object({
   id: IdSchema,
   ownerId: IdSchema,
   /**
-   * The faction's name: the crew, not the place. Player-chosen and renameable, and the one label
+   * The allegiance's name: the crew, not the place. Player-chosen and renameable, and the one label
    * every other player sees on the city map.
    */
-  name: FactionNameSchema,
+  name: DistrictNameSchema,
   districtId: IdSchema,
   level: z.number().int().min(1),
   /** AI-controlled rival base. Bot bases are raidable; human bases are not. */

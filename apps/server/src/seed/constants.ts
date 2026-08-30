@@ -4,6 +4,7 @@ import {
   type Army,
   type Building,
   type Commander,
+  type FactionBadge,
   type Resources,
 } from '@frontline/shared';
 
@@ -104,7 +105,7 @@ export const MVP_BOT: BotBlueprint = {
       'Iris "Suture" Vale',
       'chief_medic',
       { medicine: 38, composure: 30, chemistry: 24 },
-      ['field_surgeon'],
+      ['field_medic'],
     ),
     createCommander('vex-commander-analyst', 'Ren Kaido', 'field_commander', {
       organization: 36,
@@ -121,7 +122,93 @@ export const MVP_BOT: BotBlueprint = {
       'The Ghost of Sector Nine',
       'head_spy',
       { stealth: 37, deception: 29, hacking: 26 },
-      ['gutter_born'],
+      ['quiet_boots'],
     ),
   ],
 };
+
+/**
+ * The neighbour who is on your side (board request).
+ *
+ * A hardcoded, non-playing crew that sits in a faction with the player, so the faction screen has
+ * somebody in it from the first minute: their district, their army, their fights and their standing
+ * are all real rows read by the same code that reads a live member's. Nothing drives them, which is
+ * the point: they are a fixture to build and test the faction screen against, not an AI.
+ *
+ * Distinct from `MVP_BOT`, who is the *rival*. One neighbour you fight and one you fight beside is
+ * what makes the map read as a city rather than a duel.
+ */
+export const MVP_ALLY: BotBlueprint = {
+  username: 'Sable_Ninth',
+  baseName: 'The Ninth Street Irregulars',
+  overseerPresetId: 'enforcer',
+  level: 6,
+  resources: {
+    caps: 5100,
+    supplies: 3300,
+    oil: 1900,
+    scrap: 4400,
+    planks: 2600,
+    highQualityMetal: 700,
+  },
+  buildings: [
+    { id: 'ally-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0, fortification: 0 },
+    { id: 'ally-gate', kind: 'gate', level: 3, modifications: [], damage: 0, fortification: 0 },
+    {
+      id: 'ally-gauntlet',
+      kind: 'gauntlet',
+      level: 4,
+      modifications: [],
+      damage: 0,
+      fortification: 0,
+    },
+    {
+      id: 'ally-quarters',
+      kind: 'quarters',
+      level: 4,
+      modifications: [],
+      damage: 0,
+      fortification: 0,
+    },
+  ],
+  // Deliberately a different shape from the player's opening roster: an ally worth having is one
+  // who fields what you do not, so the "who could help me" question on the faction screen has a
+  // real answer rather than "more of the same".
+  army: { ironsides: 8, snipers: 6, stitchers: 4, razors: 20 },
+  commanders: [
+    createCommander(
+      'ally-commander-boss',
+      'Halloran Sable',
+      'raid_boss',
+      { leadership: 36, intimidation: 31, resolve: 27 },
+      ['reputation', 'line_officer'],
+      120,
+    ),
+    createCommander(
+      'ally-commander-engineer',
+      'Petra Vance',
+      'lead_engineer',
+      { engineering: 34, fabrication: 29, salvage: 24 },
+      ['site_foreman'],
+      95,
+    ),
+  ],
+};
+
+/** The plot the ally sits on: the third residential district, beside the player and the rival. */
+export const ALLY_DISTRICT_ID = 'ashen-terraces';
+
+/** What the seeded faction is called. The ally founds it and leads it. */
+export const MVP_FACTION = {
+  name: 'The Ninth Circle',
+  /** Drawn, not typed: see `factions/badge.ts`. Soot ground, brass chevron, a brass skull on it. */
+  badge: {
+    shape: 'shield',
+    ground: 'soot',
+    field: 'chevron',
+    fieldColor: 'oxblood',
+    prop: 'skull',
+    ink: 'brass',
+  },
+  blurb: 'Five streets, one arrangement. Whoever comes for one of us finds all of us.',
+} as const satisfies { name: string; badge: FactionBadge; blurb: string };

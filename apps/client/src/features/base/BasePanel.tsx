@@ -81,7 +81,7 @@ export function BasePanel() {
       style={
         {
           // The HUD, and nothing else. The district used to dock its own title bar under the
-          // stockpile, carrying the faction plaque and three tags, and it cost the painting forty
+          // stockpile, carrying the allegiance plaque and three tags, and it cost the painting forty
           // pixels of height on every viewport for information that belongs to the *player* rather
           // than to this screen. The plaque is in the standing bar now (`DistrictPlaque`), where it
           // is on every screen instead of only this one, and the district is just the district.

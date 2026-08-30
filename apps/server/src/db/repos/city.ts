@@ -34,8 +34,8 @@ function rowToControl(row: ControlRow): LocationControl {
   return LocationControlSchema.parse({
     locationId: row.location_id,
     holder:
-      row.holder_kind === 'faction'
-        ? { kind: 'faction', baseId: row.holder_base_id }
+      row.holder_kind === 'crew'
+        ? { kind: 'crew', baseId: row.holder_base_id }
         : { kind: row.holder_kind },
     level: row.level,
     upgradingUntil: row.upgrading_until,
@@ -94,7 +94,7 @@ export function createCityRepo(db: AppDatabase): CityRepo {
     insertStmt.run(
       control.locationId,
       control.holder.kind,
-      control.holder.kind === 'faction' ? control.holder.baseId : null,
+      control.holder.kind === 'crew' ? control.holder.baseId : null,
       control.level,
       control.upgradingUntil,
       control.fortification,

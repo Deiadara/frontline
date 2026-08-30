@@ -372,6 +372,33 @@
   }
 
   /**
+   * A panel with a frame ruled round it by hand.
+   *
+   * `.ink-box` is for a control the size of a word; this is its panel-sized relative, and the
+   * difference is not only scale. A section of a screen needs to read as *a separate sheet* rather
+   * than as a region of one page, which takes three things: the drawn rectangle, a corner tick that
+   * overshoots the way a pen does when somebody rules a box in two strokes, and a ground of its own
+   * so the sheet sits on the table rather than being a line painted on it.
+   *
+   * Used by the faction screen, where the board asked for the parts to be separate panels with
+   * space between them rather than one wall of rows.
+   */
+  .ink-frame {
+    position: relative;
+    border-radius: 3px;
+    background-color: rgb(34 29 47 / 0.55);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 100%;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='240' viewBox='0 0 400 240' preserveAspectRatio='none'%3E%3Cfilter id='fr'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022' numOctaves='2' seed='17'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='2.4'/%3E%3C/filter%3E%3Cg filter='url(%23fr)' fill='none' stroke='%23f0ad4c' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 7 L394 5 L396 234 L5 236 Z' stroke-opacity='0.42' stroke-width='2'/%3E%3Cpath d='M5 236 L9 232 L34 234' stroke-opacity='0.3' stroke-width='1.4'/%3E%3Cpath d='M394 5 L390 10 L366 7' stroke-opacity='0.3' stroke-width='1.4'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /** The same sheet, in the colour of a decision rather than of a section. */
+  .ink-frame-brass {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='240' viewBox='0 0 400 240' preserveAspectRatio='none'%3E%3Cfilter id='fb'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022' numOctaves='2' seed='29'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='2.4'/%3E%3C/filter%3E%3Cg filter='url(%23fb)' fill='none' stroke='%23f0ad4c' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 7 L394 5 L396 234 L5 236 Z' stroke-opacity='0.8' stroke-width='2.6'/%3E%3Cpath d='M396 234 L391 229 L360 232' stroke-opacity='0.4' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /**
    * Ink wash: a brush loaded and dragged once across the surface.
    *
    * Two soft diagonal bands at very low opacity. What it buys is *unevenness*: the eye reads a

@@ -389,7 +389,7 @@ describe('settling a project (§B9, §F2, §F3)', () => {
     expect(pairingsIn(settlement.discovered)).toHaveLength(1);
   });
 
-  it('§F3: Charisma is worth faction XP on a finished project, and a dour Overseer is not', () => {
+  it('§F3: Charisma is worth allegiance XP on a finished project, and a dour Overseer is not', () => {
     const charismatic = makeAttributes(10, { charisma: MAX_ATTRIBUTE });
     const dour = makeAttributes(10, { charisma: 0 });
     expect(factionXpFromLeadership(dour)).toBe(0);

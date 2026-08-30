@@ -28,7 +28,7 @@ import type { MissionKind } from '../missions.js';
 /**
  * §F3: "**Charisma** → leading people". What that buys, now that district morale is gone.
  *
- * A finished project is worth more to the faction when the person who ran it can stand up and say
+ * A finished project is worth more to the allegiance when the person who ran it can stand up and say
  * what it means. Percentage points on the XP the project pays (§I1), scaled linearly off charisma,
  * so a dour genius still finishes the work and a charismatic one turns it into something the whole
  * crew learns from.

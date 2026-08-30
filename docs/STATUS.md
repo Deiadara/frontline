@@ -61,6 +61,24 @@ farmed by refreshing. The Quarters and power raise it; the Infirmary softens the
 payday.
 ✅ Infamy (§D7) and the §D8 reputation tally, with exponential decay.
 
+### Other people
+
+✅ **Factions**: a team of up to 5 players, invitation-only, three ranks (leader / officer /
+member). The roster shows every member's district, level, standing and army, read live off their
+district rather than copied onto the membership row.
+✅ **Fighting together**: a battle side is a list of contributors, not one crew. An ally's fights
+appear on the faction screen and units can be sent to them through the same deployment path a crew
+uses for its own battles, so travel, supply and losses follow the same rules. Survivors are split
+back per contributor by largest remainder, so nobody loses a body to rounding.
+✅ **Messages**: player-to-player and player-to-faction, fanned out per recipient at send time so
+read state is per person. Inbox, sent folder with a read count, reply with quoting, delete.
+✅ **Notifications**: 15 kinds in 4 groups, each carrying a link to what it is about. Unread badge
+in the standing bar, read-on-open, mark-all-read, and a per-kind mute list applied at **write**
+time. Battle reports and attacks on your district cannot be muted.
+✅ **A neighbour who fights beside you**: `Sable_Ninth` holds Ashen Terraces, leads the seeded
+faction and has a fight on the board. Not driven by anything: a fixture the faction screen is built
+and tested against, seeded through the same base insert as the rival.
+
 ### Characters
 
 ✅ 34 attributes in four groups, 0..100 (§B1-B6). 108 perks (§B7): crew-wide bonuses, nought to

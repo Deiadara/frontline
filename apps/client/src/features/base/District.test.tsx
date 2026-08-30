@@ -127,7 +127,8 @@ function stubApi({ detail = base, build }: Stubbed = {}): void {
     if (path.endsWith('/base/build')) {
       return build ? reply(build.body, { ok: build.ok, status: build.status }) : reply(queued);
     }
-    if (path.endsWith('/base/faction')) return reply({ base: { ...detail, name: 'Vermilion' } });
+    if (path.endsWith('/base/district-name'))
+      return reply({ base: { ...detail, name: 'Vermilion' } });
     if (path.endsWith('/me')) return reply({ ...me, base: detail });
     if (path.includes('/base/')) return reply({ base: detail });
     throw new Error(`unstubbed request: ${path}`);

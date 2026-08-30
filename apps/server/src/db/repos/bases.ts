@@ -88,8 +88,8 @@ export interface BasesRepo {
    * The mean level of every base standing in the city, bots included, rounded down.
    *
    * What the Bar scales its room off (§H2): "better officers based on the overall levels of all
-   * the factions in the districts of the city". Bots are in it on purpose, because they are the
-   * factions holding most of the districts, and a city where the NPC crews have levelled is a city
+   * the allegiances in the districts of the city". Bots are in it on purpose, because they are the
+   * allegiances holding most of the districts, and a city where the NPC crews have levelled is a city
    * where a good officer would expect better work.
    */
   averageLevel(): number;
@@ -118,7 +118,7 @@ export interface BasesRepo {
    * standing the building up would charge for a level nobody got.
    */
   updateDistrict(baseId: string, buildings: Building[], queue: BuildQueue): void;
-  /** §A1: the faction's name. The only field on a base a player types. */
+  /** §A1: the allegiance's name. The only field on a base a player types. */
   updateName(baseId: string, name: string): void;
   /**
    * The units at home and the training queue behind them (§A5), as one statement.

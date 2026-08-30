@@ -230,7 +230,7 @@ function projectLocation(
           }
         : null,
     holderName:
-      control.holder.kind === 'faction'
+      control.holder.kind === 'crew'
         ? context.nameOf(control.holder.baseId)
         : HOLDER_LABELS[control.holder.kind],
     fortification: control.fortification,
@@ -242,7 +242,7 @@ function projectLocation(
       ? garrisonSize(control)
       : blurredCount(
           garrisonSize(control),
-          control.holder.kind === 'faction' ? context.blurAgainst(control.holder.baseId) : 0,
+          control.holder.kind === 'crew' ? context.blurAgainst(control.holder.baseId) : 0,
         ),
     // Somebody else's composition is what scouting would be for. Ours, we know.
     garrison: mine ? control.garrison : null,

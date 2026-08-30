@@ -117,7 +117,7 @@ function give(stack: Stack, locationId: string, level = MAX_LOCATION_LEVEL): voi
   if (!control) throw new Error(`no control row for ${locationId}`);
   stack.app.repos.city.put({
     ...control,
-    holder: { kind: 'faction', baseId: stack.baseId },
+    holder: { kind: 'crew', baseId: stack.baseId },
     level,
     garrison: {},
   });
@@ -345,7 +345,7 @@ describe('the Watchtower', () => {
     if (!press) throw new Error('no ground to look at');
     stack.app.repos.city.put({
       ...press,
-      holder: { kind: 'faction', baseId: rivalId },
+      holder: { kind: 'crew', baseId: rivalId },
       // 37 rather than a round 40, and that is load-bearing. `blurredCount` rounds to a grain of
       // `1 + floor(blur / 8)`, and 40 lands back on 40 at grains 1, 2, 4, 5 and 8: a garrison of
       // forty made this assertion pass or fail on whether the blur happened to hit one of the

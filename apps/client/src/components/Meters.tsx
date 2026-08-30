@@ -11,7 +11,7 @@ import { Icon } from './ui/Icon';
 import { Button } from './ui/Button';
 
 /**
- * §I: the faction's own level, and how far into the next one the crew is.
+ * §I: the allegiance's own level, and how far into the next one the crew is.
  *
  * This took district morale's place in the standing bar, and the swap is the point. Morale was a
  * meter that drifted on its own towards a number the player could not aim at, so a glance at it
@@ -23,7 +23,7 @@ import { Button } from './ui/Button';
  * The card is Hero Zero's arrangement and it is the right one: the level as the headline, the bar
  * under it, and the exact figures, `1,240 / 2,100`, spelled out rather than left as a proportion.
  */
-export function FactionLevelChip({
+export function CrewLevelChip({
   level,
   xpIntoLevel,
   xpToNextLevel,
@@ -38,11 +38,11 @@ export function FactionLevelChip({
   return (
     <HoverCard
       data-testid="level-hover"
-      label={`Faction level ${level}`}
+      label={`Crew level ${level}`}
       size="window"
       card={
         <InfoWindow
-          eyebrow="Your faction"
+          eyebrow="Your crew"
           title={`Level ${level}`}
           tone="hextech"
           icon={
@@ -252,7 +252,7 @@ export function StandingReadout({
 }) {
   return (
     <div className="flex flex-wrap gap-2 p-4">
-      <FactionLevelChip level={level} xpIntoLevel={xpIntoLevel} xpToNextLevel={xpToNextLevel} />
+      <CrewLevelChip level={level} xpIntoLevel={xpIntoLevel} xpToNextLevel={xpToNextLevel} />
       <InfamyChip infamy={economy.infamy} notoriety={economy.notoriety} />
     </div>
   );

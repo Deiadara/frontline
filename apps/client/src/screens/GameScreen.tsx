@@ -69,6 +69,7 @@ export function GameScreen() {
             resources={base.resources}
             economy={base.economy}
             buildings={base.buildings}
+            {...(me.data?.unread ? { unread: me.data.unread } : {})}
           />
         </div>
         {/* The world's middle stays clear: nothing floats over it at all. */}

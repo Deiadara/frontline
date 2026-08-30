@@ -85,8 +85,10 @@ export function settleMovements(repos: Repositories, now: Date): void {
       returnHome(repos, movement);
       continue;
     }
+    // This crew's own row on that side, not the side as a whole: an ally's column arriving at your
+    // battle joins *their* deployment, which is what sends their survivors back to them.
     const existing =
-      repos.sieges.deployment(movement.battleId, movement.side) ??
+      repos.sieges.deployment(movement.battleId, movement.side, movement.baseId) ??
       emptyDeployment(movement.battleId, movement.baseId, movement.side, movement.arrivesAt);
     repos.sieges.putDeployment({
       ...existing,

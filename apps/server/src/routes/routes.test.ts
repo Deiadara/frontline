@@ -609,7 +609,7 @@ describe('crew names are unique in a city', () => {
 
     const claimed = await app.inject({
       method: 'POST',
-      url: '/api/base/faction',
+      url: '/api/base/district-name',
       headers: auth(mine.token),
       payload: { name: 'EterosEgw' },
     });
@@ -618,12 +618,12 @@ describe('crew names are unique in a city', () => {
     for (const name of ['EterosEgw', 'eterosegw', '  ETEROSEGW  ']) {
       const clash = await app.inject({
         method: 'POST',
-        url: '/api/base/faction',
+        url: '/api/base/district-name',
         headers: auth(theirs.token),
         payload: { name },
       });
       expect(clash.statusCode, name).toBe(409);
-      expect(errorCode(clash), name).toBe('FACTION_NAME_TAKEN');
+      expect(errorCode(clash), name).toBe('DISTRICT_NAME_TAKEN');
     }
   });
 
@@ -635,7 +635,7 @@ describe('crew names are unique in a city', () => {
     for (let i = 0; i < 2; i += 1) {
       const saved = await app.inject({
         method: 'POST',
-        url: '/api/base/faction',
+        url: '/api/base/district-name',
         headers: auth(mine.token),
         payload: { name: 'EterosEgw' },
       });
@@ -651,12 +651,12 @@ describe('crew names are unique in a city', () => {
     for (const name of ['Player District', 'Player District II', 'player district iii']) {
       const refused = await app.inject({
         method: 'POST',
-        url: '/api/base/faction',
+        url: '/api/base/district-name',
         headers: auth(mine.token),
         payload: { name },
       });
       expect(refused.statusCode, name).toBe(409);
-      expect(errorCode(refused), name).toBe('FACTION_NAME_TAKEN');
+      expect(errorCode(refused), name).toBe('DISTRICT_NAME_TAKEN');
     }
   });
 
@@ -670,7 +670,7 @@ describe('crew names are unique in a city', () => {
     await chooseOverseer(app, first.token);
     const taken = await app.inject({
       method: 'POST',
-      url: '/api/base/faction',
+      url: '/api/base/district-name',
       headers: auth(first.token),
       payload: { name: "rival's Crew" },
     });

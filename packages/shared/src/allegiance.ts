@@ -7,14 +7,14 @@ import { z } from 'zod';
  * player fights that is not another crew is the same enemy, so its name, its garrisons and the
  * fiction of a mission all come from here rather than being re-invented per district or per
  * mission brief. Anything that is *not* the state is `independent`: other crews, the markets,
- * scavenger ground. There is deliberately no third faction: a second antagonist would contradict
+ * scavenger ground. There is deliberately no third allegiance: a second antagonist would contradict
  * "the main enemy is the Government".
  */
-export const FACTIONS = ['government', 'independent'] as const;
-export const FactionSchema = z.enum(FACTIONS);
-export type Faction = z.infer<typeof FactionSchema>;
+export const ALLEGIANCES = ['government', 'independent'] as const;
+export const AllegianceSchema = z.enum(ALLEGIANCES);
+export type Allegiance = z.infer<typeof AllegianceSchema>;
 
-export interface FactionIdentity {
+export interface AllegianceIdentity {
   /** How the street refers to it, article included: `the Combine`. */
   name: string;
   /** Attributive form, for composed prose: `a Combine checkpoint`. */
@@ -23,7 +23,7 @@ export interface FactionIdentity {
   description: string;
 }
 
-export const FACTION_IDENTITIES: Readonly<Record<Faction, FactionIdentity>> = {
+export const ALLEGIANCE_IDENTITIES: Readonly<Record<Allegiance, AllegianceIdentity>> = {
   government: {
     name: 'the Combine',
     adjective: 'Combine',
@@ -38,12 +38,12 @@ export const FACTION_IDENTITIES: Readonly<Record<Faction, FactionIdentity>> = {
 };
 
 /** The §A3 antagonist, named once. Read this rather than hard-coding the word anywhere. */
-export const GOVERNMENT = FACTION_IDENTITIES.government;
+export const GOVERNMENT = ALLEGIANCE_IDENTITIES.government;
 
 /**
  * Which way a job points at the state (§A3, §D8).
  *
- * One field rather than a faction plus a direction, so "a job *for* the undercity in general" and
+ * One field rather than a allegiance plus a direction, so "a job *for* the undercity in general" and
  * other combinations that mean nothing cannot be written down. `against_government` is what §D8
  * reads as anti-systemic action; `for_government` is what it reads as collaboration.
  */

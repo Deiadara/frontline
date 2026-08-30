@@ -109,7 +109,7 @@ async function makeStack(): Promise<Stack> {
   // One location off the looters, so the Rustyard's gate is no longer armed and a location can be called.
   const control = app.repos.city.control('rustyard-bonefield');
   if (control) {
-    app.repos.city.put({ ...control, holder: { kind: 'faction', baseId }, garrison: {} });
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
   }
 
   return { app, db, token, baseId, seen };

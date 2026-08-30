@@ -13,6 +13,8 @@ import { createRepositories, type Repositories } from './db/repos/index.js';
 import { AppError } from './errors.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerCrewRoutes } from './routes/crew.js';
+import { registerFactionRoutes } from './routes/factions.js';
+import { registerSocialRoutes } from './routes/social.js';
 import { registerBarRoutes } from './routes/bar.js';
 import { registerBaseRoutes } from './routes/base.js';
 import { registerCityRoutes } from './routes/city.js';
@@ -136,6 +138,8 @@ export async function buildApp({
       registerBarRoutes(api);
       registerResearchRoutes(api);
       registerCrewRoutes(api);
+      registerFactionRoutes(api);
+      registerSocialRoutes(api);
       registerTrainingRoutes(api);
       registerMarketRoutes(api);
       registerBlackMarketRoutes(api);

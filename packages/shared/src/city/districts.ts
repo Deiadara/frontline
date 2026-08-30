@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { FactionSchema, governmentGarrisonFor, type Faction } from '../factions.js';
+import { AllegianceSchema, governmentGarrisonFor, type Allegiance } from '../allegiance.js';
 import { IdSchema } from './../primitives.js';
 import {
   FortifyDifficultySchema,
@@ -58,7 +58,7 @@ export const DistrictSchema = z.object({
   formalName: z.string().min(1).nullable().default(null),
   kind: DistrictKindSchema,
   /** Whose ground this nominally is (§A3), before anybody starts taking it off them. */
-  faction: FactionSchema,
+  allegiance: AllegianceSchema,
   /** A seat of the Combine's power rather than one of its holdings: see §D8's `Revolutionary`. */
   seatOfPower: z.boolean(),
   position: PositionSchema,
@@ -160,7 +160,7 @@ export function districtDisplayName(
  * pixels on the same tag while comparing as two different strings. A rule that only trimmed the
  * ends let the second crew through and put two identical tags on the map.
  */
-function factionNameKey(name: string): string {
+function districtNameKey(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 }
 
@@ -173,22 +173,22 @@ function factionNameKey(name: string): string {
  * a crew by that string and nothing else, so a duplicate makes two different people
  * indistinguishable everywhere they appear.
  */
-export function sameFactionName(a: string, b: string): boolean {
-  return factionNameKey(a) === factionNameKey(b);
+export function sameDistrictName(a: string, b: string): boolean {
+  return districtNameKey(a) === districtNameKey(b);
 }
 
 /**
  * Whether a crew may call itself this, ignoring who else is in the city.
  *
  * The plot numbers are reserved. A crew called `Player District II` would be indistinguishable from
- * the plot the map draws under that name, which is the same confusion `sameFactionName` exists to
+ * the plot the map draws under that name, which is the same confusion `sameDistrictName` exists to
  * prevent, arriving from the other direction.
  */
-export function isReservedFactionName(name: string): boolean {
-  const wanted = factionNameKey(name);
-  if (wanted === factionNameKey(UNCLAIMED_DISTRICT_NAME)) return true;
+export function isReservedDistrictName(name: string): boolean {
+  const wanted = districtNameKey(name);
+  if (wanted === districtNameKey(UNCLAIMED_DISTRICT_NAME)) return true;
   return PLOT_NUMERALS.some(
-    (numeral) => wanted === factionNameKey(`${UNCLAIMED_DISTRICT_NAME} ${numeral}`),
+    (numeral) => wanted === districtNameKey(`${UNCLAIMED_DISTRICT_NAME} ${numeral}`),
   );
 }
 
@@ -312,7 +312,7 @@ function locationsIn(
  * with height almost monotonically, so "further up" and "harder" are the same direction, and a
  * player who has taken the low ground can see what the next rung is without opening anything.
  *
- * Faction reads left-to-right within that: independent ground on the flanks, the Directorate's
+ * Allegiance reads left-to-right within that: independent ground on the flanks, the Directorate's
  * holdings up the centre and the right, which is why the Blacksite and the Annexes bracket the
  * approach to the Spire. `city.test.ts` pins the gradient and the spacing so a future district
  * cannot be dropped in on top of another one.
@@ -340,7 +340,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: 'the Docks',
     formalName: null,
     kind: 'contested',
-    faction: 'independent',
+    allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.15, y: 0.9 },
     difficulty: 1,
@@ -365,7 +365,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: null,
     formalName: null,
     kind: 'residential',
-    faction: 'independent',
+    allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.84, y: 0.62 },
     difficulty: 4,
@@ -379,7 +379,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: null,
     formalName: null,
     kind: 'residential',
-    faction: 'independent',
+    allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.38, y: 0.82 },
     difficulty: 2,
@@ -404,7 +404,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: 'the Belt',
     formalName: null,
     kind: 'contested',
-    faction: 'independent',
+    allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.63, y: 0.83 },
     difficulty: 2,
@@ -429,7 +429,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: 'the Old City Center',
     formalName: null,
     kind: 'contested',
-    faction: 'independent',
+    allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.3, y: 0.62 },
     difficulty: 4,
@@ -452,7 +452,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: 'the Power Spine',
     formalName: null,
     kind: 'contested',
-    faction: 'government',
+    allegiance: 'government',
     seatOfPower: false,
     position: { x: 0.55, y: 0.58 },
     difficulty: 5,
@@ -474,7 +474,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: 'the Tech District',
     formalName: null,
     kind: 'contested',
-    faction: 'government',
+    allegiance: 'government',
     seatOfPower: false,
     position: { x: 0.76, y: 0.38 },
     difficulty: 6,
@@ -498,7 +498,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: 'the Green Belt',
     formalName: null,
     kind: 'contested',
-    faction: 'government',
+    allegiance: 'government',
     seatOfPower: false,
     position: { x: 0.1, y: 0.58 },
     difficulty: 3,
@@ -521,7 +521,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: 'the Military District',
     formalName: null,
     kind: 'contested',
-    faction: 'government',
+    allegiance: 'government',
     seatOfPower: true,
     position: { x: 0.33, y: 0.3 },
     difficulty: 8,
@@ -544,7 +544,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     formalName: 'Civic Command Sector',
     nickname: 'the Spire',
     kind: 'contested',
-    faction: 'government',
+    allegiance: 'government',
     seatOfPower: true,
     position: { x: 0.57, y: 0.13 },
     difficulty: 10,
@@ -569,7 +569,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: null,
     formalName: null,
     kind: 'residential',
-    faction: 'independent',
+    allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.91, y: 0.79 },
     difficulty: 2,
@@ -584,7 +584,7 @@ export const CITY_DISTRICTS: readonly District[] = [
     nickname: null,
     formalName: null,
     kind: 'residential',
-    faction: 'independent',
+    allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.78, y: 0.93 },
     difficulty: 1,
@@ -623,12 +623,12 @@ export const CONTESTED_DISTRICTS: readonly District[] = CITY_DISTRICTS.filter(
  * §D8's `Anti-systemic` and `Revolutionary`.
  */
 export function isSeatOfGovernmentPower(district: District): boolean {
-  return district.faction === 'government' && district.seatOfPower;
+  return district.allegiance === 'government' && district.seatOfPower;
 }
 
 /** The garrison standing on a district when the strike team arrives (§A3). */
 export function garrisonOf(district: District): string {
-  return district.faction === 'government'
+  return district.allegiance === 'government'
     ? governmentGarrisonFor(district.difficulty)
     : 'whoever holds the ground and has decided to keep it';
 }
@@ -640,12 +640,12 @@ export function garrisonOf(district: District): string {
  * place the map is read for either: the ledger never has to know what a district is.
  */
 export interface RaidTarget {
-  faction: Faction;
+  allegiance: Allegiance;
   isSeatOfPower: boolean;
 }
 
 export function raidTargetOf(district: District): RaidTarget {
-  return { faction: district.faction, isSeatOfPower: isSeatOfGovernmentPower(district) };
+  return { allegiance: district.allegiance, isSeatOfPower: isSeatOfGovernmentPower(district) };
 }
 
 /**
@@ -664,9 +664,9 @@ export function unifiedBonusFor(districtId: string): UnifiedBonus | null {
   return UNIFIED_BONUSES[districtId] ?? null;
 }
 
-/** Which faction nominally garrisons a district's locations before anybody takes them. */
-export function defaultHolderFaction(district: District): Faction {
-  return district.faction;
+/** Which allegiance nominally garrisons a district's locations before anybody takes them. */
+export function defaultHolderFaction(district: District): Allegiance {
+  return district.allegiance;
 }
 
 /**

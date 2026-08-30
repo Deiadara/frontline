@@ -351,7 +351,7 @@ for (const size of VIEWPORTS) {
     test(`the district lays out cleanly at ${tag}`, async ({ page }) => {
       await installApi(page, me);
       await page.goto('/game/base');
-      await expect(page.getByTestId('faction-plaque')).toContainText('The Ninth Street Crew');
+      await expect(page.getByTestId('district-plaque')).toContainText('The Ninth Street Crew');
 
       await expectDistrictLaidOutCleanly(page);
       await expectNoDocumentOverflow(page);

@@ -292,7 +292,7 @@ export function DistrictView() {
                 <LocationCard
                   key={view.location.id}
                   view={view}
-                  mine={view.holder.kind === 'faction' && view.holder.baseId === baseId}
+                  mine={view.holder.kind === 'crew' && view.holder.baseId === baseId}
                   districtId={data.district.id}
                   baseId={baseId}
                   army={army}

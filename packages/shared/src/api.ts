@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MissionDifficultySchema } from './delegation/index.js';
-import { MissionStanceSchema } from './factions.js';
+import { MissionStanceSchema } from './allegiance.js';
+import { UnreadCountsSchema } from './api.social.js';
 import { AttributeNameSchema, AttributesSchema } from './attributes.js';
 import {
   JOIN_BLOCKERS,
@@ -8,7 +9,7 @@ import {
   NegotiationSchema,
   StandoffSchema,
 } from './bar/index.js';
-import { BaseSchema, BaseSummarySchema, FactionNameSchema } from './base.js';
+import { BaseSchema, BaseSummarySchema, DistrictNameSchema } from './base.js';
 import { PayrollLedgerSchema } from './economy/payroll.js';
 import { BattleResultSchema } from './battle/types.js';
 import {
@@ -143,6 +144,14 @@ export const MeResponseSchema = z.object({
    * announces has no second chance to.
    */
   levelUp: LevelUpSchema.optional(),
+  /**
+   * The two badges the HUD draws, on every screen.
+   *
+   * Folded into `/me` rather than polled separately, because the HUD is on every page and two more
+   * intervals against two more endpoints to draw two numbers is three requests where one will do.
+   * Optional so a response written before the mailbox existed still parses as "nothing waiting".
+   */
+  unread: UnreadCountsSchema.optional(),
   /**
    * Whether this build has an admin bench.
    *
@@ -486,21 +495,21 @@ export const BuildStructureResponseSchema = z.object({
 export type BuildStructureResponse = z.infer<typeof BuildStructureResponseSchema>;
 
 /**
- * Name the faction (§A1).
+ * Name the allegiance (§A1).
  *
  * The name is the crew's, not the district's, and it is the one thing about a player every other
- * player sees. Trimmed and length-bounded by `FactionNameSchema` rather than by the input control,
+ * player sees. Trimmed and length-bounded by `DistrictNameSchema` rather than by the input control,
  * so a name that came from anywhere other than the form is held to the same rule.
  */
-export const RenameFactionRequestSchema = z.object({
-  name: FactionNameSchema,
+export const RenameDistrictRequestSchema = z.object({
+  name: DistrictNameSchema,
 });
-export type RenameFactionRequest = z.infer<typeof RenameFactionRequestSchema>;
+export type RenameDistrictRequest = z.infer<typeof RenameDistrictRequestSchema>;
 
-export const RenameFactionResponseSchema = z.object({
+export const RenameDistrictResponseSchema = z.object({
   base: BaseSchema,
 });
-export type RenameFactionResponse = z.infer<typeof RenameFactionResponseSchema>;
+export type RenameDistrictResponse = z.infer<typeof RenameDistrictResponseSchema>;
 
 // --- battle ---
 export const BattleRequestSchema = z.object({
@@ -549,7 +558,7 @@ export const MissionOfferSchema = z.object({
   rewards: PartialResourcesSchema,
   /** Loot slots that payout takes up, so a player can size the crew before they send it. */
   payoutSlots: z.number().int().nonnegative(),
-  /** §I1: faction XP a clean run pays. On the card, because it is half of what a job is worth. */
+  /** §I1: allegiance XP a clean run pays. On the card, because it is half of what a job is worth. */
   xp: z.number().int().positive(),
   /** And what a run that came home empty still pays: `FAILED_MISSION_XP_SHARE` of it. */
   failedXp: z.number().int().nonnegative(),

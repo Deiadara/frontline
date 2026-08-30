@@ -10,12 +10,13 @@ import {
   type Resources,
 } from '@frontline/shared';
 import { NavLink } from 'react-router-dom';
-import { FactionPlaque } from '../../components/FactionPlaque';
-import { FactionLevelChip, InfamyChip } from '../../components/Meters';
+import { DistrictPlaque } from '../../components/DistrictPlaque';
+import { CrewLevelChip, InfamyChip } from '../../components/Meters';
 import { RESOURCE_ORDER, ResourceChip } from '../../components/Resources';
 import { OverseerPortrait } from '../overseer/OverseerPortrait';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
+import { badgeCount, type UnreadCounts } from '@frontline/shared';
 
 /**
  * A door in the standing bar.
@@ -30,11 +31,14 @@ function HudDoor({
   icon,
   label,
   title,
+  badge = 0,
 }: {
   to: string;
   icon: IconName;
   label: string;
   title: string;
+  /** Unread count. Zero draws nothing at all: an empty badge is a dot that means "no news". */
+  badge?: number;
 }) {
   return (
     /*
@@ -71,6 +75,27 @@ function HudDoor({
             name={icon}
             className="relative z-[2] h-6 w-6 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]"
           />
+          {/*
+           * The count, on the corner of the plate.
+           *
+           * Capped at `99+` (`badgeCount`), because three digits do not fit in a dot and a player
+           * with 340 unread is not deciding on the exact figure. Oxblood rather than brass: this
+           * is the one mark on the bar that is asking for something rather than reporting it.
+           */}
+          {badge > 0 && (
+            <span
+              data-testid={`hud-${label.toLowerCase()}-badge`}
+              aria-hidden
+              className={cn(
+                'absolute -right-1 -top-1 z-[3] flex h-[18px] min-w-[18px] items-center justify-center',
+                'rounded-full border border-oxblood-300/60 bg-oxblood-500 px-1',
+                'font-display text-[10px] font-bold leading-none tabular-nums text-ink-100',
+                'shadow-[0_1px_3px_rgba(0,0,0,0.6)]',
+              )}
+            >
+              {badgeCount(badge)}
+            </span>
+          )}
         </span>
       )}
     </NavLink>
@@ -80,9 +105,16 @@ function HudDoor({
 interface TopHudProps {
   overseer: Overseer;
   /**
+   * The two badges: how many messages and notifications are waiting.
+   *
+   * Comes off `/me`, which the shell already polls, rather than from two queries of its own. See
+   * `UnreadCountsSchema`. Optional so a response from a server without the mailbox still renders.
+   */
+  unread?: UnreadCounts;
+  /**
    * The crew, because the bar carries its name and the control that changes it.
    *
-   * The whole base rather than a `faction` string: the plaque is a rename form, and a form needs
+   * The whole base rather than a `allegiance` string: the plaque is a rename form, and a form needs
    * the id it is writing to. Passing the name alone put the rename control on the one screen that
    * had the base to hand, which is how it ended up buried in the district.
    */
@@ -108,7 +140,7 @@ interface TopHudProps {
  * Height here buys legible numerals, icons big enough to identify without reading the number beside
  * them, and hit targets that clear the 44px guideline for the parts that are clickable.
  */
-export function TopHud({ overseer, base, resources, economy, buildings }: TopHudProps) {
+export function TopHud({ overseer, base, resources, economy, buildings, unread }: TopHudProps) {
   /*
    * Three shelves, not one, and caps are on none of them.
    *
@@ -166,9 +198,9 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
       <span aria-hidden className="order-2 h-0 basis-full [@media(min-width:1280px)]:hidden" />
 
       {/* Where you are. The one control in the bar that changes anything about the crew itself:
-          see `FactionPlaque`. */}
+          see `DistrictPlaque`. */}
       <div className="order-3 flex min-w-0 justify-center [@media(min-width:1500px)]:justify-self-center">
-        <FactionPlaque base={base} />
+        <DistrictPlaque base={base} />
       </div>
 
       {/* What you have earned, and the two doors that open from anywhere.
@@ -180,6 +212,23 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
           scenery switcher now, closer to the hand. */}
       <div className="order-4 ml-auto flex shrink-0 items-center gap-1.5 [@media(min-width:1500px)]:ml-0 [@media(min-width:1500px)]:justify-self-end">
         <div className="flex shrink-0 items-center gap-1 border-r border-surface-600/70 pr-2.5">
+          {/* The mailbox and the bell, left of the fighting. The board's placement, and it is the
+              right one: these two are the game talking to *you*, and the two beside them are you
+              talking to the city. */}
+          <HudDoor
+            to="/game/messages"
+            icon="messages"
+            label="Messages"
+            title="Who has written to you"
+            badge={unread?.messages ?? 0}
+          />
+          <HudDoor
+            to="/game/notifications"
+            icon="bell"
+            label="Notifications"
+            title="What happened while you were not looking"
+            badge={unread?.notifications ?? 0}
+          />
           <HudDoor
             to="/game/battles"
             icon="battles"
@@ -194,7 +243,7 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
           />
         </div>
 
-        <FactionLevelChip
+        <CrewLevelChip
           level={base.level}
           xpIntoLevel={base.progression.xpIntoLevel}
           xpToNextLevel={playerXpToNextLevel(base.level)}
@@ -207,17 +256,25 @@ export function TopHud({ overseer, base, resources, economy, buildings }: TopHud
         <NavLink
           to="/game/overseer"
           data-testid="hud-overseer"
-          // The name is in the label as well as in the markup, because below 1800px the markup is
-          // hidden, and a door to "your own file" that does not say whose is a door with no name
-          // on it, to a screen reader and to a pointer looking for a tooltip alike.
+          // The name is in the label as well as in the markup, because at most widths the markup
+          // is hidden, and a door to "your own file" that does not say whose is a door with no
+          // name on it, to a screen reader and to a pointer looking for a tooltip alike.
           data-tip={`${overseer.name}: your own file`}
           aria-label={`${overseer.name}, Overseer: your own file`}
           className="group flex shrink-0 items-center gap-2.5 rounded-sm px-1 py-0.5 transition-colors hover:bg-brass-300/10 focus-visible:outline-none"
         >
           {/* The name and title are the first thing to go when the row is tight: the face is what
               makes this read as a door, and the sheet behind it opens with the name at the top of
-              it. Hidden rather than truncated: a nameplate cut to "Var…" is worse than none. */}
-          <span className="hidden text-right [@media(min-width:1800px)]:block">
+              it. Hidden rather than truncated: a nameplate cut to "Var…" is worse than none.
+
+              2100px, and the number is arithmetic rather than taste. The bar is a symmetric grid,
+              so the *wider* of the two side columns is charged to both of them: the nameplate's
+              151px is therefore 302px of bar, and it is only affordable once the viewport can pay
+              for it beside the widest plaque the game will accept (28 capital Ws measure 367px).
+              At 1800 with two doors it fit. The mailbox and the bell made four, and it stopped
+              fitting at 1920 for *every* name, which is what hung this control 6px off the right
+              edge of the screen. */}
+          <span className="hidden text-right [@media(min-width:2100px)]:block">
             <span className="block font-display text-sm font-semibold leading-tight tracking-[0.04em] text-ink-100">
               {overseer.name}
             </span>

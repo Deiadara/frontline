@@ -11,10 +11,16 @@ import { createSiegeRepo, type SiegeRepo } from './sieges.js';
 import { createMissionsRepo, type MissionsRepo } from './missions.js';
 import { createOverseersRepo, type OverseersRepo } from './overseers.js';
 import { createUsersRepo, type UsersRepo } from './users.js';
+import { createFactionsRepo, type FactionsRepo } from './factions.js';
+import { createSocialRepo, type SocialRepo } from './social.js';
 
 /** The full set of persistence repositories, backed by a single sqlite connection. */
 export interface Repositories {
   users: UsersRepo;
+  /** Teams of up to five players, and the invitations that are the only way in. */
+  factions: FactionsRepo;
+  /** The mailbox and the bell: both per-player lists with a read flag. */
+  social: SocialRepo;
   overseers: OverseersRepo;
   bases: BasesRepo;
   battles: BattlesRepo;
@@ -37,6 +43,8 @@ export interface Repositories {
 export function createRepositories(db: AppDatabase): Repositories {
   return {
     users: createUsersRepo(db),
+    factions: createFactionsRepo(db),
+    social: createSocialRepo(db),
     overseers: createOverseersRepo(db),
     bases: createBasesRepo(db),
     battles: createBattlesRepo(db),

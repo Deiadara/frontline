@@ -429,7 +429,7 @@ describe('a save that still names a retired unit', () => {
     seed(repos);
     db.prepare(
       `INSERT INTO location_control (location_id, holder_kind, holder_base_id, level, garrison_json)
-       VALUES ('rustyard-scrap-press', 'faction', 'b', 1, ?)`,
+       VALUES ('rustyard-scrap-press', 'crew', 'b', 1, ?)`,
     ).run(JSON.stringify({ razors: 2, muckrakers: 9, bell_ringers: 4 }));
 
     forgetRetirements(db);

@@ -1,4 +1,19 @@
 import {
+  FactionResponseSchema,
+  FactionMutationResponseSchema,
+  MessagesResponseSchema,
+  MessageMutationResponseSchema,
+  NotificationsResponseSchema,
+  NotificationMutationResponseSchema,
+  type AnswerInviteRequest,
+  type CreateFactionRequest,
+  type EditFactionDescriptionRequest,
+  type EditFactionIdentityRequest,
+  type FactionMemberActionRequest,
+  type InviteToFactionRequest,
+  type NotificationSettingsRequest,
+  type ReinforceRequest,
+  type SendMessageRequest,
   ApiErrorSchema,
   ActionsResponseSchema,
   BattlesResponseSchema,
@@ -19,7 +34,7 @@ import {
   TrainUnitsResponseSchema,
   UnitsResponseSchema,
   BuildStructureResponseSchema,
-  RenameFactionResponseSchema,
+  RenameDistrictResponseSchema,
   CityResponseSchema,
   CreateOverseerResponseSchema,
   HireRecruitResponseSchema,
@@ -52,7 +67,7 @@ import {
   type ReleaseOfficerRequest,
   type TrainUnitsRequest,
   type BuildStructureRequest,
-  type RenameFactionRequest,
+  type RenameDistrictRequest,
   type CreateOverseerRequest,
   type BuySupplyRequest,
   type HireRecruitRequest,
@@ -154,8 +169,8 @@ export const getBase = (id: string) => apiFetch(`/base/${id}`, BaseDetailRespons
 export const buildStructure = (body: BuildStructureRequest) =>
   apiFetch('/base/build', BuildStructureResponseSchema, jsonBody(body));
 
-export const renameFaction = (body: RenameFactionRequest) =>
-  apiFetch('/base/faction', RenameFactionResponseSchema, jsonBody(body));
+export const renameDistrict = (body: RenameDistrictRequest) =>
+  apiFetch('/base/district-name', RenameDistrictResponseSchema, jsonBody(body));
 
 export const getDistrict = (id: string) => apiFetch(`/city/${id}`, DistrictDetailResponseSchema);
 
@@ -307,3 +322,59 @@ export const recallMission = (body: RecallMissionRequest) =>
 
 export const reassignOfficer = (body: ReassignOfficerRequest) =>
   apiFetch('/crew/reassign', CrewMutationResponseSchema, jsonBody(body));
+
+// --- factions, messages and notifications (board request) ---
+
+export const getFaction = () => apiFetch('/factions', FactionResponseSchema);
+
+export const createFaction = (body: CreateFactionRequest) =>
+  apiFetch('/factions', FactionMutationResponseSchema, jsonBody(body));
+
+export const editFactionIdentity = (body: EditFactionIdentityRequest) =>
+  apiFetch('/factions/identity', FactionMutationResponseSchema, jsonBody(body));
+
+export const editFactionDescription = (body: EditFactionDescriptionRequest) =>
+  apiFetch('/factions/description', FactionMutationResponseSchema, jsonBody(body));
+
+export const inviteToFaction = (body: InviteToFactionRequest) =>
+  apiFetch('/factions/invite', FactionMutationResponseSchema, jsonBody(body));
+
+export const answerFactionInvite = (body: AnswerInviteRequest) =>
+  apiFetch('/factions/answer', FactionMutationResponseSchema, jsonBody(body));
+
+export const leaveFaction = () =>
+  apiFetch('/factions/leave', FactionMutationResponseSchema, jsonBody({}));
+
+export const disbandFaction = () =>
+  apiFetch('/factions/disband', FactionMutationResponseSchema, jsonBody({}));
+
+export const factionMemberAction = (body: FactionMemberActionRequest) =>
+  apiFetch('/factions/member', FactionMutationResponseSchema, jsonBody(body));
+
+export const reinforceAlly = (body: ReinforceRequest) =>
+  apiFetch('/factions/reinforce', FactionMutationResponseSchema, jsonBody(body));
+
+export const getMessages = () => apiFetch('/messages', MessagesResponseSchema);
+
+export const sendMessage = (body: SendMessageRequest) =>
+  apiFetch('/messages', MessageMutationResponseSchema, jsonBody(body));
+
+export const readMessage = (body: { id: string }) =>
+  apiFetch('/messages/read', MessageMutationResponseSchema, jsonBody(body));
+
+export const readAllMessages = () =>
+  apiFetch('/messages/read-all', MessageMutationResponseSchema, jsonBody({}));
+
+export const deleteMessage = (body: { id: string }) =>
+  apiFetch('/messages/delete', MessageMutationResponseSchema, jsonBody(body));
+
+export const getNotifications = () => apiFetch('/notifications', NotificationsResponseSchema);
+
+export const readNotification = (body: { id: string }) =>
+  apiFetch('/notifications/read', NotificationMutationResponseSchema, jsonBody(body));
+
+export const readAllNotifications = () =>
+  apiFetch('/notifications/read-all', NotificationMutationResponseSchema, jsonBody({}));
+
+export const setNotificationSettings = (body: NotificationSettingsRequest) =>
+  apiFetch('/notifications/settings', NotificationMutationResponseSchema, jsonBody(body));

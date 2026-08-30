@@ -88,8 +88,7 @@ async function makeStack(): Promise<Stack> {
     payload: { districtId: 'rustyard' },
   });
   const control = app.repos.city.control(MINE);
-  if (control)
-    app.repos.city.put({ ...control, holder: { kind: 'faction', baseId }, garrison: {} });
+  if (control) app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
 
   // Enough to cover three upgrades of anything on this ground without the test being about money.
   app.repos.bases.updateResources(baseId, {
@@ -283,7 +282,7 @@ describe('what a capture does to the work', () => {
     settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 
     const taken = stack.app.repos.city.control('rustyard-press');
-    expect(taken?.holder).toEqual({ kind: 'faction', baseId: stack.baseId });
+    expect(taken?.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
     expect(taken?.level, 'a capture resets the work').toBe(1);
     expect(taken?.upgradingUntil).toBeNull();
   });

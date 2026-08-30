@@ -100,7 +100,7 @@ describe('§F2: developing an attribute', () => {
   });
 });
 
-describe('§F3: Charisma turns a result into faction XP', () => {
+describe('§F3: Charisma turns a result into allegiance XP', () => {
   it('runs from nothing to the cap, and is monotone in between', () => {
     expect(factionXpFromLeadership(makeAttributes(0))).toBe(0);
     expect(factionXpFromLeadership(makeAttributes(100))).toBe(MAX_RESEARCH_LEADERSHIP_XP);

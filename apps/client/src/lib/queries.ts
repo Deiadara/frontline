@@ -1,6 +1,9 @@
 import type {
   BaseDetailResponse,
   BattleMutationResponse,
+  FactionMutationResponse,
+  MessageMutationResponse,
+  NotificationMutationResponse,
   SettingsResponse,
   MarketMutationResponse,
   WorkshopMutationResponse,
@@ -16,6 +19,25 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { useEffect, useRef } from 'react';
 import type { ApiRequestError } from './api';
 import {
+  answerFactionInvite,
+  createFaction,
+  deleteMessage,
+  disbandFaction,
+  editFactionDescription,
+  editFactionIdentity,
+  factionMemberAction,
+  getFaction,
+  getMessages,
+  getNotifications,
+  inviteToFaction,
+  leaveFaction,
+  readAllMessages,
+  readAllNotifications,
+  readMessage,
+  readNotification,
+  reinforceAlly,
+  sendMessage,
+  setNotificationSettings,
   fortifyLocation,
   upgradeLocation,
   getDistrict,
@@ -38,7 +60,7 @@ import {
   hireRecruit,
   negotiateWithRecruit,
   launchMission,
-  renameFaction,
+  renameDistrict,
   getResearch,
   startResearch,
   getTraining,
@@ -96,6 +118,9 @@ export const queryKeys = {
   workshop: ['workshop'] as const,
   battles: ['battles'] as const,
   actions: ['actions'] as const,
+  faction: ['faction'] as const,
+  messages: ['messages'] as const,
+  notifications: ['notifications'] as const,
 };
 
 /**
@@ -192,16 +217,16 @@ export function useBase(id: string | undefined) {
 }
 
 /**
- * §A1: name the faction.
+ * §A1: name the district.
  *
  * Writes the response into both caches rather than invalidating: the name is on the HUD, on the
  * district page and on the city map, and a player who has just typed it should not watch it flicker
  * back to the old one while a refetch lands.
  */
-export function useRenameFaction(baseId: string | undefined) {
+export function useRenameDistrict(baseId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: renameFaction,
+    mutationFn: renameDistrict,
     onSuccess: (data) => {
       if (baseId !== undefined) {
         queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), { base: data.base });
@@ -963,3 +988,114 @@ export function useStartTech() {
     },
   });
 }
+
+// --- factions, messages and notifications (board request) ---
+
+/**
+ * The faction screen.
+ *
+ * Polled on the same interval as the district, because it carries other people's battles and other
+ * people's armies: both move without this player doing anything, and a roster that only refreshed
+ * on a click would show an ally's army as it was when the tab was opened.
+ */
+export function useFaction() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.faction,
+    queryFn: getFaction,
+    enabled: token !== null,
+    refetchInterval: DISTRICT_POLL_MS,
+  });
+}
+
+/**
+ * Every faction write, through one hook.
+ *
+ * All of them answer with the whole refreshed screen, so the cache is *set* rather than
+ * invalidated: the response is already the truth and a refetch would be a second round trip to
+ * learn what the first one said. `me` is invalidated alongside, because joining or leaving changes
+ * the badge the HUD draws and the tag beside a name.
+ */
+function useFactionMutation<TInput>(
+  mutationFn: (input: TInput) => Promise<FactionMutationResponse>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.faction, response.faction);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      // A reinforcement takes units off the roster and puts a column on the road.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.battles });
+    },
+  });
+}
+
+export const useCreateFaction = () => useFactionMutation(createFaction);
+export const useEditFactionIdentity = () => useFactionMutation(editFactionIdentity);
+export const useEditFactionDescription = () => useFactionMutation(editFactionDescription);
+export const useDisbandFaction = () => useFactionMutation(() => disbandFaction());
+export const useInviteToFaction = () => useFactionMutation(inviteToFaction);
+export const useAnswerFactionInvite = () => useFactionMutation(answerFactionInvite);
+export const useLeaveFaction = () => useFactionMutation(() => leaveFaction());
+export const useFactionMemberAction = () => useFactionMutation(factionMemberAction);
+export const useReinforceAlly = () => useFactionMutation(reinforceAlly);
+
+export function useMessages() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.messages,
+    queryFn: getMessages,
+    enabled: token !== null,
+    refetchInterval: DISTRICT_POLL_MS,
+  });
+}
+
+function useMessageMutation<TInput>(
+  mutationFn: (input: TInput) => Promise<MessageMutationResponse>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.messages, response.messages);
+      // The HUD badge is on `/me`, so reading a message has to move it.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
+    },
+  });
+}
+
+export const useSendMessage = () => useMessageMutation(sendMessage);
+export const useReadMessage = () => useMessageMutation(readMessage);
+export const useReadAllMessages = () => useMessageMutation(() => readAllMessages());
+export const useDeleteMessage = () => useMessageMutation(deleteMessage);
+
+export function useNotifications() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.notifications,
+    queryFn: getNotifications,
+    enabled: token !== null,
+    refetchInterval: DISTRICT_POLL_MS,
+  });
+}
+
+function useNotificationMutation<TInput>(
+  mutationFn: (input: TInput) => Promise<NotificationMutationResponse>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.notifications, response.notifications);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}
+
+export const useReadNotification = () => useNotificationMutation(readNotification);
+export const useReadAllNotifications = () => useNotificationMutation(() => readAllNotifications());
+export const useNotificationSettings = () => useNotificationMutation(setNotificationSettings);

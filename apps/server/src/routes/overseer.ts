@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import {
   CreateOverseerRequestSchema,
-  FACTION_NAME_MAX,
+  DISTRICT_NAME_MAX,
+  MAX_FACTION_MEMBERS,
   STARTER_DISTRICT_ID,
   STARTING_RESOURCES,
   findOverseerPreset,
@@ -12,28 +13,30 @@ import {
   type CreateOverseerResponse,
   startingTraining,
   overseerFromPreset,
-  isReservedFactionName,
-  sameFactionName,
+  isReservedDistrictName,
+  sameDistrictName,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { applyUnlockedSandbox } from '../seed/sandbox.js';
+import { seededFactionId } from '../seed/index.js';
+import { notify } from '../social/notify.js';
 import { AppError, parseBody } from '../errors.js';
 
 /**
- * The name a faction carries until its player picks one.
+ * The name a allegiance carries until its player picks one.
  *
- * Truncated to `FACTION_NAME_MAX` here rather than left to fail validation on the way into the
- * database: usernames can be longer than a faction name may be, and a registration that succeeded
+ * Truncated to `DISTRICT_NAME_MAX` here rather than left to fail validation on the way into the
+ * database: usernames can be longer than a allegiance name may be, and a registration that succeeded
  * and then could not create a base would be an unrecoverable account.
  */
 function defaultFactionName(username: string): string {
-  return `${username}'s Crew`.slice(0, FACTION_NAME_MAX);
+  return `${username}'s Crew`.slice(0, DISTRICT_NAME_MAX);
 }
 
 /**
  * The first name in this city nobody else is using, starting from what the username suggests.
  *
- * Usernames are unique, so the derived name almost always is too. Almost: `FACTION_NAME_MAX`
+ * Usernames are unique, so the derived name almost always is too. Almost: `DISTRICT_NAME_MAX`
  * truncates, so two long usernames sharing a prefix derive the same crew name, and any player may
  * simply have *renamed* themselves to the name a later registration is about to derive.
  *
@@ -42,21 +45,21 @@ function defaultFactionName(username: string): string {
  * account, and a collision on a name the player never chose is not something to hand them as an
  * error. They can rename to whatever they like the moment they are in.
  */
-function freeFactionName(app: FastifyInstance, username: string): string {
+function freeDistrictName(app: FastifyInstance, username: string): string {
   const taken = app.repos.bases.listSummaries();
   const isFree = (candidate: string): boolean =>
-    !isReservedFactionName(candidate) &&
-    !taken.some((summary) => sameFactionName(summary.name, candidate));
+    !isReservedDistrictName(candidate) &&
+    !taken.some((summary) => sameDistrictName(summary.name, candidate));
 
   const wanted = defaultFactionName(username);
   if (isFree(wanted)) return wanted;
   for (let n = 2; n < 1000; n += 1) {
     const suffix = ` ${n}`;
-    const candidate = `${wanted.slice(0, FACTION_NAME_MAX - suffix.length)}${suffix}`;
+    const candidate = `${wanted.slice(0, DISTRICT_NAME_MAX - suffix.length)}${suffix}`;
     if (isFree(candidate)) return candidate;
   }
   // A thousand crews with one name is not a state this game reaches; the id keeps them apart.
-  return `${wanted.slice(0, FACTION_NAME_MAX - 9)} ${randomUUID().slice(0, 8)}`;
+  return `${wanted.slice(0, DISTRICT_NAME_MAX - 9)} ${randomUUID().slice(0, 8)}`;
 }
 
 export function registerOverseerRoutes(app: FastifyInstance): void {
@@ -80,10 +83,10 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
       const base: Base = {
         id: randomUUID(),
         ownerId: user.id,
-        // §A1: a faction has a name from the first second, because the HUD shows one from the
+        // §A1: a allegiance has a name from the first second, because the HUD shows one from the
         // first second. This is a placeholder the player is expected to replace, not a decision
-        // made for them: `POST /base/faction` is on the district page.
-        name: freeFactionName(app, user.username),
+        // made for them: `POST /base/district-name` is on the district page.
+        name: freeDistrictName(app, user.username),
         districtId: STARTER_DISTRICT_ID,
         level: 1,
         isBot: false,
@@ -155,6 +158,36 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
       if (app.config.unlocked) {
         applyUnlockedSandbox(app.repos, user.username);
         app.log.warn({ baseId: base.id }, 'UNLOCKED=true: new district opened at the end-game');
+      }
+
+      /*
+       * An invitation from the seeded faction, if there is room at it.
+       *
+       * A new account meets factions through the real door rather than by being quietly enrolled:
+       * they get an invitation in their notifications and on the faction screen, and accepting it
+       * runs the same `POST /factions/answer` anybody else's invitation does. Silently adding them
+       * to a table they never agreed to join would have been the shorter route and the wrong one.
+       */
+      const seeded = seededFactionId(app.repos);
+      if (seeded && app.repos.factions.memberCount(seeded) < MAX_FACTION_MEMBERS) {
+        const leader = app.repos.factions
+          .members(seeded)
+          .find((member) => member.rank === 'leader');
+        app.repos.factions.invite({
+          id: randomUUID(),
+          factionId: seeded,
+          invitedUserId: user.id,
+          invitedByUserId: leader?.userId ?? user.id,
+          sentAt: now,
+        });
+        notify(app.repos, {
+          userId: user.id,
+          kind: 'faction_invite',
+          title: 'A faction has asked you to join',
+          body: 'There is a table with a seat open.',
+          link: '/game/faction',
+          now: new Date(now),
+        });
       }
 
       const opened = app.repos.bases.findById(base.id) ?? base;

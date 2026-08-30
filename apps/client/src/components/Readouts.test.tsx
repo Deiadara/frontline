@@ -1,7 +1,7 @@
 import { storageCapacity } from '@frontline/shared';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { FactionLevelChip } from './Meters';
+import { CrewLevelChip } from './Meters';
 import { fillFraction, ResourceChip, STORAGE_WARN_AT } from './Resources';
 
 /**
@@ -115,8 +115,8 @@ describe('what a resource chip says when you look at it', () => {
 });
 
 describe('what the standing chips say when you look at them', () => {
-  it('spells the faction level out as a bar with both figures on it', () => {
-    render(<FactionLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
+  it('spells the crew level out as a bar with both figures on it', () => {
+    render(<CrewLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
     fireEvent.focus(screen.getByTestId('level-hover'));
     const card = screen.getByRole('tooltip');
     expect(within(card).getByText('Level 7')).toBeInTheDocument();
@@ -128,14 +128,14 @@ describe('what the standing chips say when you look at them', () => {
 
   /** The figure and the bar. No sentence about what a level is worth or what pays for one. */
   it('narrates nothing under the XP bar', () => {
-    render(<FactionLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
+    render(<CrewLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
     fireEvent.focus(screen.getByTestId('level-hover'));
     const card = screen.getByRole('tooltip');
     expect(card.textContent).not.toMatch(/what pays it|recruit slot|every level/i);
   });
 
   it('closes again when the pointer leaves', () => {
-    render(<FactionLevelChip level={3} xpIntoLevel={10} xpToNextLevel={600} />);
+    render(<CrewLevelChip level={3} xpIntoLevel={10} xpToNextLevel={600} />);
     const trigger = screen.getByTestId('level-chip');
     fireEvent.mouseEnter(trigger);
     expect(screen.getByRole('tooltip')).toBeInTheDocument();

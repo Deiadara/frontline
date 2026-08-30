@@ -15,6 +15,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
+import { sideForce } from './side.js';
 import { sendColumn } from './movement.js';
 
 /**
@@ -68,10 +69,15 @@ export interface DeployOutcome {
 export type DeployResult =
   { kind: 'refused'; reason: DeployRefusal } | ({ kind: 'ok' } & DeployOutcome);
 
-/** The ring the other side currently has standing outside this fight. */
+/**
+ * The ring the other side currently has standing outside this fight.
+ *
+ * The whole other side, allies included: a perimeter is what you would have to get past, and it
+ * does not matter to the crew walking into it whose name is on each body.
+ */
 function enemyRing(repos: Repositories, battle: ScheduledBattle, side: BattleSide): Army {
   const other = side === 'attacker' ? 'defender' : 'attacker';
-  return repos.sieges.deployment(battle.id, other)?.perimeter ?? {};
+  return sideForce(repos, battle.id, other, battle.scheduledFor).perimeter;
 }
 
 export function adjustDeployment(repos: Repositories, input: DeployInput): DeployResult {
@@ -83,7 +89,8 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
 
   const at = now.toISOString();
   const existing =
-    repos.sieges.deployment(battle.id, side) ?? emptyDeployment(battle.id, base.id, side, at);
+    repos.sieges.deployment(battle.id, side, base.id) ??
+    emptyDeployment(battle.id, base.id, side, at);
   if (existing.baseId !== null && existing.baseId !== base.id) {
     return { kind: 'refused', reason: 'not_a_participant' };
   }
@@ -195,8 +202,11 @@ export function sideOf(
   baseId: string,
 ): BattleSide | null {
   if (battle.attackerBaseId === baseId) return 'attacker';
-  const defending = repos.sieges.deployment(battle.id, 'defender');
-  if (defending?.baseId === baseId) return 'defender';
-  if (battle.defender.kind === 'faction' && battle.defender.baseId === baseId) return 'defender';
+  // Anybody with a row on the defending side is defending, which now includes an ally who came to
+  // help hold the ground rather than only the holder themselves.
+  if (repos.sieges.side(battle.id, 'defender').some((row) => row.baseId === baseId)) {
+    return 'defender';
+  }
+  if (battle.defender.kind === 'crew' && battle.defender.baseId === baseId) return 'defender';
   return null;
 }

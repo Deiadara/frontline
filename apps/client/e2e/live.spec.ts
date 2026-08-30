@@ -134,7 +134,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await page.getByRole('link', { name: 'District', exact: true }).click();
   // The crew's name, read off the sign in the middle of the standing bar. It stopped being a
   // heading when the plaque moved there: the bar carries no page heading now.
-  await expect(page.getByTestId('faction-plaque')).toContainText(/Crew/);
+  await expect(page.getByTestId('district-plaque')).toContainText(/Crew/);
   await expect(page.getByRole('button', { name: /^The Nexus,/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /^The Generator,/ })).toBeVisible();
   await shootEveryViewport(page, 'base');

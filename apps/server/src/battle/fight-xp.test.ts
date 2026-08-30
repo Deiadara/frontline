@@ -76,7 +76,7 @@ async function makeStack(winner: 'attacker' | 'defender'): Promise<Stack> {
   });
   const control = app.repos.city.control('rustyard-bonefield');
   if (control) {
-    app.repos.city.put({ ...control, holder: { kind: 'faction', baseId }, garrison: {} });
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
   }
 
   return { app, db, token, baseId };

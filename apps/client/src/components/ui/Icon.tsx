@@ -63,6 +63,9 @@ export const ICON_NAMES = [
   'technical',
   'archive',
   'desk',
+  'messages',
+  'bell',
+  'faction',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -314,6 +317,34 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M12 3.2l6.4 2.5v4.8c0 3.6-2.6 6.8-6.4 8-3.8-1.2-6.4-4.4-6.4-8V5.7z" {...S} />
       <path d="M8.4 8.2l7.2 7.2M15.6 8.2l-7.2 7.2" {...S} />
+    </>
+  ),
+  // An envelope. The one shape that has meant "mail" for long enough that nothing else needs to.
+  messages: (
+    <>
+      <rect x="3.2" y="5.6" width="17.6" height="12.8" rx="1.6" {...S} />
+      <path d="M3.8 6.6l8.2 6 8.2-6" {...S} />
+    </>
+  ),
+  // A bell, with the clapper. Drawn open at the bottom rather than as a filled dome, so it reads
+  // at 22px on a dark plate where a solid shape would just be a blob.
+  bell: (
+    <>
+      <path
+        d="M12 3.4a5.4 5.4 0 0 0-5.4 5.4c0 4-1.4 5.4-2.2 6.4h15.2c-.8-1-2.2-2.4-2.2-6.4A5.4 5.4 0 0 0 12 3.4z"
+        {...S}
+      />
+      <path d="M10 18.2a2 2 0 0 0 4 0" {...S} />
+    </>
+  ),
+  // Three figures shoulder to shoulder: a *group*, as against `crew`, which is one person's file.
+  faction: (
+    <>
+      <circle cx="12" cy="7" r="2.6" {...S} />
+      <circle cx="5.6" cy="9.4" r="2.1" {...S} />
+      <circle cx="18.4" cy="9.4" r="2.1" {...S} />
+      <path d="M7.6 19.2c0-2.6 2-4.4 4.4-4.4s4.4 1.8 4.4 4.4" {...S} />
+      <path d="M2.6 18.4c0-2 1.4-3.4 3-3.6M21.4 18.4c0-2-1.4-3.4-3-3.6" {...S} />
     </>
   ),
   // A boot on a road: what "somebody is walking somewhere" looks like at 22px without becoming a

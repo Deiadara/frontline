@@ -55,7 +55,7 @@ export interface NavDestination {
  */
 export const DESTINATIONS: readonly NavDestination[] = [
   { label: 'City', title: 'The city', to: '/game', icon: 'city' },
-  // Not "Base". A crew holds a district, and the faction is who holds it: the two words the
+  // Not "Base". A crew holds a district, and the crew is who holds it: the two words the
   // player already uses for this screen. "Foothold" was a third name for the same place.
   { label: 'District', title: 'Your district', to: '/game/base', icon: 'district' },
   { label: 'Units', title: 'The roster', to: '/game/units', icon: 'units' },
@@ -69,6 +69,7 @@ export const DESTINATIONS: readonly NavDestination[] = [
     area: 'research',
   },
   { label: 'Crew', title: 'Crew', to: '/game/crew', icon: 'crew' },
+  { label: 'Faction', title: 'The people you fight beside', to: '/game/faction', icon: 'faction' },
   {
     label: 'Training',
     title: 'Drills and reading',

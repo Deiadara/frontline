@@ -503,7 +503,7 @@ describe('resolving it (§A4)', () => {
     expect(settled).toHaveLength(1);
 
     const control = stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!;
-    expect(control.holder).toEqual({ kind: 'faction', baseId: stack.baseId });
+    expect(control.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
     expect(control.fortification).toBe(0);
     expect(control.garrison).toEqual({});
     expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before + 4);

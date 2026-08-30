@@ -109,7 +109,7 @@ async function makeStack(winner: 'attacker' | 'defender' = 'attacker'): Promise<
   // One location off the looters, so the Rustyard's gate is no longer armed and a location can be called.
   const control = app.repos.city.control('rustyard-bonefield');
   if (control) {
-    app.repos.city.put({ ...control, holder: { kind: 'faction', baseId }, garrison: {} });
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
   }
 
   return { app, db, token, baseId };
@@ -182,7 +182,7 @@ describe('what happens to the crew that took the location', () => {
     expect(bodies(rosterOf(stack)), 'a raid brings everybody back').toBe(before);
     // ...and the ground still changed hands. The flag decides where the crew sleeps, not who won.
     expect(stack.app.repos.city.control('rustyard-press')?.holder).toEqual({
-      kind: 'faction',
+      kind: 'crew',
       baseId: stack.baseId,
     });
   });
@@ -199,7 +199,7 @@ describe('what happens to the crew that took the location', () => {
     // satisfies the line above and fails this one.
     expect(bodies(rosterOf(stack))).toBe(before - 4);
     expect(stack.app.repos.city.control('rustyard-press')?.holder).toEqual({
-      kind: 'faction',
+      kind: 'crew',
       baseId: stack.baseId,
     });
   });
@@ -237,7 +237,7 @@ describe('what happens to the crew that took the location', () => {
     // asserted to be empty, and deliberately: on a successful defence it holds the *defender's*
     // survivors, which is the existing rule and not this flag's business.
     expect(stack.app.repos.city.control('rustyard-press')?.holder).not.toEqual({
-      kind: 'faction',
+      kind: 'crew',
       baseId: stack.baseId,
     });
     expect(bodies(rosterOf(stack)), 'a beaten force that ran is still a force').toBe(before);

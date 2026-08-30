@@ -595,7 +595,7 @@ describe('what the district is worth to the crew (§A1)', () => {
     expect(payrollBonusPercent([build('quarters', 10)])).toBeGreaterThan(bare);
   });
 
-  it('pays faction XP only for the modifications that grant it', () => {
+  it('pays allegiance XP only for the modifications that grant it', () => {
     expect(factionXpBonus([build('quarters', 20)])).toBe(0);
     const kitted: Building[] = [
       { ...build('quarters', 20), modifications: ['quarters_debriefing_room'] },

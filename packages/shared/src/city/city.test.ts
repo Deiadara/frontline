@@ -7,8 +7,8 @@ import {
   CONTESTED_DISTRICTS,
   RESIDENTIAL_DISTRICTS,
   districtDisplayName,
-  sameFactionName,
-  isReservedFactionName,
+  sameDistrictName,
+  isReservedDistrictName,
   BOT_DISTRICT_ID,
   STARTER_DISTRICT_ID,
   UNIFIED_BONUSES,
@@ -117,16 +117,16 @@ describe('the map (§A4)', () => {
 
   it('reads a raid target off the district and nothing else', () => {
     expect(raidTargetOf(findDistrict('combine-spire')!)).toEqual({
-      faction: 'government',
+      allegiance: 'government',
       isSeatOfPower: true,
     });
     expect(raidTargetOf(findDistrict('rustyard')!)).toEqual({
-      faction: 'independent',
+      allegiance: 'independent',
       isSeatOfPower: false,
     });
     for (const district of CITY_DISTRICTS) {
       expect(isSeatOfGovernmentPower(district)).toBe(
-        district.faction === 'government' && district.seatOfPower,
+        district.allegiance === 'government' && district.seatOfPower,
       );
     }
   });
@@ -316,14 +316,12 @@ describe('who holds what (§A4)', () => {
   });
 
   it('tells two crews apart, and a crew from the state', () => {
-    expect(sameHolder({ kind: 'faction', baseId: MINE }, { kind: 'faction', baseId: MINE })).toBe(
-      true,
-    );
-    expect(sameHolder({ kind: 'faction', baseId: MINE }, { kind: 'faction', baseId: THEIRS })).toBe(
+    expect(sameHolder({ kind: 'crew', baseId: MINE }, { kind: 'crew', baseId: MINE })).toBe(true);
+    expect(sameHolder({ kind: 'crew', baseId: MINE }, { kind: 'crew', baseId: THEIRS })).toBe(
       false,
     );
     expect(sameHolder({ kind: 'government' }, { kind: 'looters' })).toBe(false);
-    expect(isHeldBy(control('x', { holder: { kind: 'faction', baseId: MINE } }), MINE)).toBe(true);
+    expect(isHeldBy(control('x', { holder: { kind: 'crew', baseId: MINE } }), MINE)).toBe(true);
     expect(isHeldBy(control('x', { holder: { kind: 'government' } }), MINE)).toBe(false);
   });
 
@@ -350,17 +348,14 @@ describe('who holds what (§A4)', () => {
     // One location changing hands splits it, and a split district belongs to nobody.
     controls.set(
       district.locations[0]!.id,
-      control(district.locations[0]!.id, { holder: { kind: 'faction', baseId: MINE } }),
+      control(district.locations[0]!.id, { holder: { kind: 'crew', baseId: MINE } }),
     );
     expect(districtHolder(district, controls)).toBeNull();
 
     for (const location of district.locations) {
-      controls.set(
-        location.id,
-        control(location.id, { holder: { kind: 'faction', baseId: MINE } }),
-      );
+      controls.set(location.id, control(location.id, { holder: { kind: 'crew', baseId: MINE } }));
     }
-    expect(districtHolder(district, controls)).toEqual({ kind: 'faction', baseId: MINE });
+    expect(districtHolder(district, controls)).toEqual({ kind: 'crew', baseId: MINE });
     expect(districtsHeldBy(MINE, CONTESTED_DISTRICTS, controls).map((d) => d.id)).toEqual([
       district.id,
     ]);
@@ -396,14 +391,14 @@ describe('what territory is worth (§A4)', () => {
         control(location.id, {
           holder:
             location.id === district.locations[0]!.id
-              ? { kind: 'faction', baseId: MINE }
+              ? { kind: 'crew', baseId: MINE }
               : { kind: 'government' },
         }),
       ]),
     );
     const whole = world((locationId) =>
       district.locations.some((location) => location.id === locationId)
-        ? { kind: 'faction', baseId: MINE }
+        ? { kind: 'crew', baseId: MINE }
         : { kind: 'government' },
     );
 
@@ -416,7 +411,7 @@ describe('what territory is worth (§A4)', () => {
   });
 
   it('never pays a crew for ground somebody else is holding', () => {
-    const theirs = world(() => ({ kind: 'faction', baseId: THEIRS }));
+    const theirs = world(() => ({ kind: 'crew', baseId: THEIRS }));
     expect(territoryEffectsFor(MINE, CITY_LOCATIONS, theirs)).toEqual(noTerritoryEffects());
     expect(territoryEffectsFor(THEIRS, CITY_LOCATIONS, theirs)).not.toEqual(noTerritoryEffects());
   });
@@ -466,8 +461,8 @@ describe('NPC garrisons (§A3, §A4)', () => {
 
   it('puts regulars on Combine ground and rabble on everything else', () => {
     const withPlaces = CITY_DISTRICTS.filter((district) => district.locations.length > 0);
-    const combine = withPlaces.find((district) => district.faction === 'government');
-    const independent = withPlaces.find((district) => district.faction !== 'government');
+    const combine = withPlaces.find((district) => district.allegiance === 'government');
+    const independent = withPlaces.find((district) => district.allegiance !== 'government');
     expect(combine && independent).toBeTruthy();
     if (!combine || !independent) return;
 
@@ -651,7 +646,7 @@ describe('a plot is called after you, or numbered', () => {
    * HTML collapses runs of whitespace when it lays text out, so `The  Ninth  Street  Crew` paints
    * exactly the pixels `The Ninth Street Crew` paints. A rule that only trimmed the ends called
    * them two names, let the second crew register, and put two identical tags on one map: which is
-   * the whole thing `sameFactionName` exists to stop, arriving through the middle of the string
+   * the whole thing `sameDistrictName` exists to stop, arriving through the middle of the string
    * instead of the ends.
    */
   it('treats names that paint the same pixels as one name', () => {
@@ -664,20 +659,20 @@ describe('a plot is called after you, or numbered', () => {
       'The\tNinth\nStreet   Crew',
     ];
     for (const name of same) {
-      expect(sameFactionName('The Ninth Street Crew', name), name).toBe(true);
+      expect(sameDistrictName('The Ninth Street Crew', name), name).toBe(true);
     }
-    expect(sameFactionName('The Ninth Street Crew', 'The Tenth Street Crew')).toBe(false);
-    expect(sameFactionName('Vex', 'Vexx')).toBe(false);
+    expect(sameDistrictName('The Ninth Street Crew', 'The Tenth Street Crew')).toBe(false);
+    expect(sameDistrictName('Vex', 'Vexx')).toBe(false);
   });
 
   /** The reserved plot numbers are dodged through the same gap, so they close through it too. */
   it('reserves the plot numbers however they are spaced', () => {
     for (const name of ['Player District II', 'player  district  ii', ' PLAYER DISTRICT II ']) {
-      expect(isReservedFactionName(name), name).toBe(true);
+      expect(isReservedDistrictName(name), name).toBe(true);
     }
     // I..X are reserved as headroom for plots not drawn yet, so the first free one is XI.
-    expect(isReservedFactionName('Player District XI')).toBe(false);
-    expect(isReservedFactionName('The Ninth Street Crew')).toBe(false);
+    expect(isReservedDistrictName('Player District XI')).toBe(false);
+    expect(isReservedDistrictName('The Ninth Street Crew')).toBe(false);
   });
 
   /** Contested ground has a name of its own and a crew never gets to overwrite it. */

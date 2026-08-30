@@ -95,7 +95,7 @@ function held(stack: Stack, location: Location): void {
   if (!control) throw new Error(`no control row for ${location.id}`);
   stack.app.repos.city.put({
     ...control,
-    holder: { kind: 'faction', baseId: stack.base.id },
+    holder: { kind: 'crew', baseId: stack.base.id },
     level: MAX_LOCATION_LEVEL,
     garrison: {},
   });

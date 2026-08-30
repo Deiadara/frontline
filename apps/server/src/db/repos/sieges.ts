@@ -113,7 +113,19 @@ export interface SiegeRepo {
   markResolved(id: string, at: string, analysis: BattleAnalysis): void;
 
   deployments(battleId: string): BattleDeployment[];
-  deployment(battleId: string, side: BattleSide): BattleDeployment | undefined;
+  /**
+   * Everyone standing on one side of a fight, in the order they committed.
+   *
+   * The declarer plus any ally who reinforced them. `deployment` still answers for one crew, which
+   * is what a screen showing "what have *I* sent" wants; this is what the resolver wants.
+   */
+  side(battleId: string, side: BattleSide): BattleDeployment[];
+  /** One crew's own row on a side. `baseId` is null for the Combine and the looters. */
+  deployment(
+    battleId: string,
+    side: BattleSide,
+    baseId?: string | null,
+  ): BattleDeployment | undefined;
   /** Every deployment this crew has standing, across every fight still to come. */
   deploymentsFor(baseId: string): BattleDeployment[];
   putDeployment(deployment: BattleDeployment): void;
@@ -157,8 +169,18 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   );
 
   const deploymentsStmt = db.prepare('SELECT * FROM battle_deployments WHERE battle_id = ?');
+  /*
+   * One side's rows, oldest first.
+   *
+   * Plural, because a side is no longer one crew: an ally reinforcing your battle is a second
+   * contributor with a row of their own (migration `0045`). The declarer is `base_id = ?` and
+   * everybody else is a reinforcement; the resolver sums them and splits the survivors back.
+   */
+  const sideStmt = db.prepare(
+    'SELECT * FROM battle_deployments WHERE battle_id = ? AND side = ? ORDER BY updated_at, base_id',
+  );
   const deploymentStmt = db.prepare(
-    'SELECT * FROM battle_deployments WHERE battle_id = ? AND side = ?',
+    'SELECT * FROM battle_deployments WHERE battle_id = ? AND side = ? AND base_id IS ?',
   );
   /*
    * Joined against the battle rather than read flat, because a deployment row outlives its fight:
@@ -175,8 +197,7 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
     `INSERT INTO battle_deployments
        (battle_id, base_id, side, army_json, perimeter_json, boost_id, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (battle_id, side) DO UPDATE SET
-       base_id = excluded.base_id,
+     ON CONFLICT (battle_id, side, base_id) DO UPDATE SET
        army_json = excluded.army_json,
        perimeter_json = excluded.perimeter_json,
        boost_id = excluded.boost_id,
@@ -240,9 +261,12 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
     deployments(battleId) {
       return (deploymentsStmt.all(battleId) as DeploymentRow[]).map(rowToDeployment);
     },
-    deployment(battleId, side) {
-      const row = deploymentStmt.get(battleId, side) as DeploymentRow | undefined;
+    deployment(battleId, side, baseId = null) {
+      const row = deploymentStmt.get(battleId, side, baseId) as DeploymentRow | undefined;
       return row ? rowToDeployment(row) : undefined;
+    },
+    side(battleId, side) {
+      return (sideStmt.all(battleId, side) as DeploymentRow[]).map(rowToDeployment);
     },
     deploymentsFor(baseId) {
       return (deploymentsForStmt.all(baseId) as DeploymentRow[]).map(rowToDeployment);

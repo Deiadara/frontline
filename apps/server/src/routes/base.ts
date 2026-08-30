@@ -4,17 +4,17 @@ import {
   BUILDING_MAX_LEVEL,
   BuildStructureRequestSchema,
   MAX_BUILD_QUEUE,
-  RenameFactionRequestSchema,
+  RenameDistrictRequestSchema,
   type BaseDetailResponse,
   type BuildStructureResponse,
-  type RenameFactionResponse,
+  type RenameDistrictResponse,
   ITEM_CATALOG,
   buildingParts,
   nextQueuedLevel,
   type ItemId,
   describeBuildingRequirement,
-  isReservedFactionName,
-  sameFactionName,
+  isReservedDistrictName,
+  sameDistrictName,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { nexusGate, queueBuild, type BuildRefusal } from '../district/build.js';
@@ -92,26 +92,30 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     return { base: result.base, levelUp: levelUpFrom(settled.awards) };
   });
 
-  /** §A1: name the faction. */
-  app.post('/base/faction', { preHandler: app.authenticate }, (request): RenameFactionResponse => {
-    const { name } = parseBody(RenameFactionRequestSchema, request.body);
-    const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
-    if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
+  /** §A1: name the district. */
+  app.post(
+    '/base/district-name',
+    { preHandler: app.authenticate },
+    (request): RenameDistrictResponse => {
+      const { name } = parseBody(RenameDistrictRequestSchema, request.body);
+      const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
+      if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
 
-    /*
-     * One crew, one name, per city.
-     *
-     * The name is the *only* thing that identifies a crew anywhere a player meets one: the tag on
-     * the map, the two sides of a battle report, a listing on the trading board. Two crews sharing
-     * one does not look like a clash, it looks like the same crew being in two places, and there is
-     * no second field a reader could fall back on. Checked here rather than in the schema because
-     * it is a fact about the city rather than about the string.
-     */
-    factionNameMustBeFree(app, name, owned.id);
+      /*
+       * One crew, one name, per city.
+       *
+       * The name is the *only* thing that identifies a crew anywhere a player meets one: the tag on
+       * the map, the two sides of a battle report, a listing on the trading board. Two crews sharing
+       * one does not look like a clash, it looks like the same crew being in two places, and there is
+       * no second field a reader could fall back on. Checked here rather than in the schema because
+       * it is a fact about the city rather than about the string.
+       */
+      factionNameMustBeFree(app, name, owned.id);
 
-    app.repos.bases.updateName(owned.id, name);
-    return { base: { ...settleBase(app.repos, owned, new Date()).base, name } };
-  });
+      app.repos.bases.updateName(owned.id, name);
+      return { base: { ...settleBase(app.repos, owned, new Date()).base, name } };
+    },
+  );
 }
 
 /**
@@ -121,17 +125,17 @@ export function registerBaseRoutes(app: FastifyInstance): void {
  * collision, and refusing that would make the field impossible to leave alone.
  */
 function factionNameMustBeFree(app: FastifyInstance, name: string, exceptBaseId: string): void {
-  if (isReservedFactionName(name)) {
+  if (isReservedDistrictName(name)) {
     throw new AppError(
-      'FACTION_NAME_TAKEN',
+      'DISTRICT_NAME_TAKEN',
       `The city already calls a district "${name.trim()}". Pick something else.`,
     );
   }
   const clash = app.repos.bases
     .listSummaries()
-    .find((summary) => summary.id !== exceptBaseId && sameFactionName(summary.name, name));
+    .find((summary) => summary.id !== exceptBaseId && sameDistrictName(summary.name, name));
   if (clash) {
-    throw new AppError('FACTION_NAME_TAKEN', `Another crew in this city is already called that.`);
+    throw new AppError('DISTRICT_NAME_TAKEN', `Another crew in this city is already called that.`);
   }
 }
 

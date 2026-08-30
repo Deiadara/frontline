@@ -9,7 +9,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   CITY_DISTRICTS,
-  FACTION_NAME_MAX,
+  DISTRICT_NAME_MAX,
   MISSIONS_PER_AREA,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
@@ -332,9 +332,10 @@ for (const size of VIEWPORTS) {
           hud.getByRole('button', { name: new RegExp(`^${chip}:`, 'i') }),
         ).toBeInViewport({ ratio: 1 });
       }
-      // The faction level took the morale meter's place in the bar (§I). Named differently
-      // because it is not a `Thing: number` readout: it is a level, and it reads as one.
-      await expect(hud.getByRole('button', { name: /^Faction level/i })).toBeInViewport({
+      // The crew's level took the morale meter's place in the bar (§I). Named differently because
+      // it is not a `Thing: number` readout: it is a level, and it reads as one. "Crew" rather than
+      // "faction": a faction is now a team of players (§J) and this is the player's own progression.
+      await expect(hud.getByRole('button', { name: /^Crew level/i })).toBeInViewport({
         ratio: 1,
       });
       await page.screenshot({ path: `screenshots/visual/hud-late-game-${tag}.png` });
@@ -344,15 +345,15 @@ for (const size of VIEWPORTS) {
      * The bar has to survive a name the game itself allows.
      *
      * The cap was 40 and every fixture uses 21, so the row was fitted to a plaque half the width
-     * of a legal one and the bar wrapped at the ceiling. `FACTION_NAME_MAX` is 28 now, chosen as
+     * of a legal one and the bar wrapped at the ceiling. `DISTRICT_NAME_MAX` is 28 now, chosen as
      * what the row can actually carry, so the bar is asserted to keep **one line** at the longest
      * name the game will accept. The chips are not the thing to count: an over-wide plaque pushes
      * the meters and the avatar onto the second line and leaves every stockpile chip where it was,
      * which is how the first version of this passed with the fix taken out.
      */
-    test(`the HUD survives the longest legal faction name at ${tag}`, async ({ page }) => {
-      const longest = 'The Ninth Street Reclamation Company Ltd'.slice(0, FACTION_NAME_MAX);
-      expect(longest).toHaveLength(FACTION_NAME_MAX);
+    test(`the HUD survives the longest legal district name at ${tag}`, async ({ page }) => {
+      const longest = 'The Ninth Street Reclamation Company Ltd'.slice(0, DISTRICT_NAME_MAX);
+      expect(longest).toHaveLength(DISTRICT_NAME_MAX);
       const crew = lateGame.base;
       if (crew === null) throw new Error('the late-game fixture must have a crew');
       await installApi(page, { ...lateGame, base: { ...crew, name: longest } });
@@ -363,8 +364,8 @@ for (const size of VIEWPORTS) {
       // Whole and on screen. The crew name is the one label on this bar a player chose
       // themselves, so it is also the one that must not be sliced. It reads off the plaque rather
       // than off a heading now: the bar carries no page heading, and the sign in the middle of it
-      // is a button with two names on it (`FactionPlaque`).
-      const plaque = page.getByTestId('faction-plaque');
+      // is a button with two names on it (`DistrictPlaque`).
+      const plaque = page.getByTestId('district-plaque');
       await expect(plaque).toBeVisible();
       await expect(plaque).toContainText(longest);
 
@@ -376,7 +377,7 @@ for (const size of VIEWPORTS) {
         const items = [...bar.querySelectorAll('[data-testid^="resource-chip-"]')];
         return new Set(items.map((i) => Math.round(i.getBoundingClientRect().top))).size;
       });
-      expect(rows, 'a legal faction name wrapped the stockpile').toBe(1);
+      expect(rows, 'a legal district name wrapped the stockpile').toBe(1);
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
     });
@@ -384,7 +385,7 @@ for (const size of VIEWPORTS) {
     test(`base view at ${tag}`, async ({ page }) => {
       await installApi(page, me);
       await page.goto('/game/base');
-      await expect(page.getByTestId('faction-plaque')).toContainText('The Ninth Street Crew');
+      await expect(page.getByTestId('district-plaque')).toContainText('The Ninth Street Crew');
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       /*
@@ -549,7 +550,7 @@ for (const size of VIEWPORTS) {
     test(`late-game progression readout at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/base');
-      await expect(page.getByTestId('faction-plaque')).toContainText('The Ninth Street Crew');
+      await expect(page.getByTestId('district-plaque')).toContainText('The Ninth Street Crew');
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
 
@@ -1322,6 +1323,66 @@ for (const size of VIEWPORTS) {
     });
 
     /** The satchel, grouped by what a player would do with the thing. */
+    /*
+     * §J: the two faction screens, at every supported size.
+     *
+     * Both are new and both are the kind that breaks quietly: the founding screen centres a column
+     * that has to fit a 720p content area with a Create button on it, and the faction page is six
+     * separate framed panels in a grid. A probe run once during authoring proves neither stays
+     * fixed, which is what this matrix is for.
+     */
+    test(`joining or founding a faction at ${tag}`, async ({ page }) => {
+      await installApi(page, me);
+      await page.goto('/game/faction');
+      await expect(page.getByTestId('faction-none')).toBeVisible();
+      await settleFonts(page);
+
+      await expect(
+        page.getByRole('heading', { name: 'Join a faction or create your own' }),
+      ).toBeVisible();
+      // Both doors are on screen whole, not merely in the DOM: the whole point of the screen.
+      await expect(page.getByTestId('join-sheet')).toBeInViewport({ ratio: 1 });
+      await expect(page.getByTestId('start-faction')).toBeInViewport({ ratio: 1 });
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/faction-none-${tag}.png` });
+    });
+
+    test(`the badge builder at ${tag}`, async ({ page }) => {
+      await installApi(page, me);
+      await page.goto('/game/faction');
+      await page.getByTestId('start-faction').click();
+      await expect(page.getByTestId('create-sheet')).toBeVisible();
+      await settleFonts(page);
+
+      // The three fields the board asked for, and the control that draws the badge.
+      await expect(page.getByTestId('faction-name')).toBeVisible();
+      await expect(page.getByTestId('faction-blurb')).toBeVisible();
+      await expect(page.getByTestId('badge-shape-shield')).toBeVisible();
+      await expect(page.getByTestId('found-faction')).toBeVisible();
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/faction-create-${tag}.png` });
+    });
+
+    test(`the faction table at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/faction');
+      await expect(page.getByTestId('faction-workspace')).toBeVisible();
+      await settleFonts(page);
+
+      await expect(page.getByTestId('faction-identity')).toBeVisible();
+      await expect(page.getByTestId('faction-tally')).toBeVisible();
+      // The empty seats are drawn rather than left as blank panel.
+      await expect(page.getByTestId('faction-vacancies')).toBeVisible();
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/faction-${tag}.png` });
+    });
+
     test(`the satchel at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/inventory');

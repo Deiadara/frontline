@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { MissionDifficultySchema } from './delegation/delegation.js';
-import { MissionStanceSchema, type MissionStance } from './factions.js';
+import { MissionStanceSchema, type MissionStance } from './allegiance.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
@@ -607,7 +607,7 @@ export const MissionSchema = z.object({
    */
   payPercent: z.number().nonnegative().default(0),
   /**
-   * §I1: faction XP a clean run of this pays, frozen at launch for the same reason.
+   * §I1: allegiance XP a clean run of this pays, frozen at launch for the same reason.
    *
    * What actually lands is this, or `FAILED_MISSION_XP_SHARE` of it for a run that came home
    * empty. Zero on a row written before missions priced their own XP, which reads as "fall back

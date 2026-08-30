@@ -14,6 +14,7 @@ import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
+import { NotificationFilters } from '../social/NotificationFilters';
 import { cn } from '../../lib/cn';
 import { useChangePassword, useSettings, useUpdateProfile } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
@@ -365,6 +366,13 @@ export function SettingsPage() {
         />
         <ClockPanel timezone={data.user.timezone} serverNow={data.serverNow} />
       </div>
+
+      {/* The board asked for the filter to live here. It is the same control the bell's own second
+          tab draws, sharing one query rather than a second copy of the state: a player annoyed by a
+          category is usually looking at it, and a player hunting for a switch comes here. */}
+      <Panel title="What you hear about">
+        <NotificationFilters />
+      </Panel>
 
       <PassphrasePanel />
     </PageShell>

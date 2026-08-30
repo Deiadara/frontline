@@ -1,6 +1,7 @@
 import {
   accrueProduction,
   applyQueueEntry,
+  BUILDING_CATALOG,
   disruptionPercentAt,
   queueCompletesAt,
   splitDueQueue,
@@ -18,6 +19,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { settleTraining } from '../units/training.js';
+import { notifyBase } from '../social/notify.js';
 
 /**
  * Everything the district owes since it was last read (GDD §A1): finished builds, the resources
@@ -205,7 +207,25 @@ export function settleBase(repos: Repositories, base: Base, now: Date): District
   const district = settleDistrict(repos, base, now);
   // Training last: a batch landing does not feed anything else in the settle.
   const trained = settleTraining(repos, district.base, now);
-  // Both runs of awards, in the order they happened, so one read that finished a building and a
-  // batch announces one level-up rather than losing whichever came first.
+
+  /*
+   * The receipts, written once, here.
+   *
+   * This is the one function every route calls before touching a base, so it is the one place a
+   * finished build can be noticed exactly once. Emitting from the routes instead would mean a
+   * building announced twice when two screens settled the same crew, or not at all on whichever
+   * route somebody forgot. `notify` is filtered by the player's own settings and never throws, so a
+   * receipt that cannot be written does not take the settle down with it.
+   */
+  for (const entry of district.completed) {
+    notifyBase(repos, base.id, {
+      kind: 'building_done',
+      title: `${BUILDING_CATALOG[entry.kind].name} is finished`,
+      body: `Standing at level ${entry.level}.`,
+      link: '/game/base',
+      now,
+    });
+  }
+
   return { ...district, base: trained.base, awards: [...district.awards, ...trained.awards] };
 }

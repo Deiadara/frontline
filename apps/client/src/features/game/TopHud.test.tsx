@@ -76,7 +76,7 @@ const renderHud = (
   );
 
 /**
- * §A1: the faction's name, and the one control that changes it.
+ * §A1: the allegiance's name, and the one control that changes it.
  *
  * It used to be a plaque on the district's own title bar, which is the wrong screen for it twice
  * over: the name belongs to the player rather than to one place, and the bar cost the painting
@@ -111,18 +111,18 @@ describe('renaming the crew from the standing bar', () => {
     // The crew's own name and nothing else: the district's name was on here for a while and made
     // the smaller of the two read as a subtitle of the larger. The plaque is not an `<h1>` either:
     // the bar carries no page heading, and the one on each screen behind it is the page's own.
-    const plaque = screen.getByTestId('faction-plaque');
+    const plaque = screen.getByTestId('district-plaque');
     expect(plaque).toHaveTextContent(base.name);
 
     // The whole plaque is the control, so it is named for the thing it *is* plus the thing it
     // does, which is what a player reads on hover and what a screen reader announces.
-    fireEvent.click(screen.getByRole('button', { name: /rename your faction/i }));
-    fireEvent.change(screen.getByLabelText('Faction name'), { target: { value: 'Vermilion' } });
+    fireEvent.click(screen.getByRole('button', { name: /rename your district/i }));
+    fireEvent.change(screen.getByLabelText('District name'), { target: { value: 'Vermilion' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/base/faction'),
+        expect.stringContaining('/base/district-name'),
         expect.objectContaining({ body: JSON.stringify({ name: 'Vermilion' }) }),
       ),
     );
@@ -158,6 +158,38 @@ describe('TopHud', () => {
   });
 
   /**
+   * The digits, not a rounded stand-in.
+   *
+   * `125K` was the reading for a long time, and it cannot answer the question the stockpile is
+   * looked at for: 125,000 and 125,499 drew identically, so a player working out whether the next
+   * upgrade was affordable had to hover every chip to find out. Pinned at magnitudes where the two
+   * spellings differ: every starting value is under 10,000 and reads the same either way, so a
+   * fixture of starting resources cannot fail this however the chip is written.
+   */
+  it('spells out the full amount on every chip, not a rounded one', () => {
+    const stockpile: Resources = {
+      caps: 125_000,
+      supplies: 48_500,
+      oil: 32_100,
+      scrap: 96_750,
+      planks: 96_010,
+      highQualityMetal: 12_345,
+    };
+    renderHud({}, stockpile);
+
+    for (const key of RESOURCE_KEYS) {
+      const chip = screen.getByTestId(`resource-chip-${key}`);
+      expect(
+        within(chip).getByText(stockpile[key].toLocaleString()),
+        `${key} should read in full`,
+      ).toBeInTheDocument();
+    }
+    // ...and nothing on the bar is still speaking in thousands. The loop above passes on a chip
+    // that renders both spellings; this fails on it.
+    expect(screen.getByTestId('resource-chip-caps')).not.toHaveTextContent(/\d+(\.\d+)?[KM]\b/);
+  });
+
+  /**
    * The three shelves, as the player sees them.
    *
    * The Apothecary holds three times as much scrap as high-quality metal, so two chips holding the
@@ -177,7 +209,7 @@ describe('TopHud', () => {
     expect(width('oil')).toBeGreaterThan(width('planks'));
   });
 
-  it('shows the faction level and the infamy wallet (§I, §D7)', () => {
+  it('shows the crew level and the infamy wallet (§I, §D7)', () => {
     renderHud();
 
     expect(screen.getByTestId('level-chip')).toBeInTheDocument();

@@ -29,7 +29,7 @@ import {
  * and can still be taken off you afterwards, and saying so explicitly means no caller has to treat
  * `null` as a fifth case.
  */
-export const LOCATION_HOLDER_KINDS = ['unoccupied', 'government', 'looters', 'faction'] as const;
+export const LOCATION_HOLDER_KINDS = ['unoccupied', 'government', 'looters', 'crew'] as const;
 export const LocationHolderKindSchema = z.enum(LOCATION_HOLDER_KINDS);
 export type LocationHolderKind = z.infer<typeof LocationHolderKindSchema>;
 
@@ -38,7 +38,7 @@ export const LocationHolderSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('government') }),
   z.object({ kind: z.literal('looters') }),
   /** A crew: the base that holds it, which is also who its garrison answers to. */
-  z.object({ kind: z.literal('faction'), baseId: IdSchema }),
+  z.object({ kind: z.literal('crew'), baseId: IdSchema }),
 ]);
 export type LocationHolder = z.infer<typeof LocationHolderSchema>;
 
@@ -46,7 +46,7 @@ export const HOLDER_LABELS: Record<LocationHolderKind, string> = {
   unoccupied: 'Unoccupied',
   government: 'The Combine',
   looters: 'Looters',
-  faction: 'Another crew',
+  crew: 'Another crew',
 };
 
 /** One location's world state. */
@@ -74,13 +74,13 @@ export const LocationControlSchema = z.object({
 export type LocationControl = z.infer<typeof LocationControlSchema>;
 
 export function isHeldBy(control: LocationControl, baseId: string): boolean {
-  return control.holder.kind === 'faction' && control.holder.baseId === baseId;
+  return control.holder.kind === 'crew' && control.holder.baseId === baseId;
 }
 
 /** Two holders being the same party: the question "did this actually change hands?" asks. */
 export function sameHolder(a: LocationHolder, b: LocationHolder): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === 'faction' && b.kind === 'faction') return a.baseId === b.baseId;
+  if (a.kind === 'crew' && b.kind === 'crew') return a.baseId === b.baseId;
   return true;
 }
 
@@ -136,7 +136,7 @@ export function districtsHeldBy(
 ): District[] {
   return districts.filter((district) => {
     const holder = districtHolder(district, controls);
-    return holder?.kind === 'faction' && holder.baseId === baseId;
+    return holder?.kind === 'crew' && holder.baseId === baseId;
   });
 }
 
@@ -173,7 +173,7 @@ export function territoryEffectsFor(
     const district = findDistrict(districtId);
     if (!district) continue;
     const holder = districtHolder(district, controls);
-    if (holder?.kind !== 'faction' || holder.baseId !== baseId) continue;
+    if (holder?.kind !== 'crew' || holder.baseId !== baseId) continue;
     const unified = unifiedBonusFor(districtId);
     if (unified) applyHoldBonus(effects, unified.bonus);
   }
@@ -211,7 +211,7 @@ export function startingGarrison(
   district: District,
 ): LocationControl['garrison'] {
   const holder = startingHolder(location, district);
-  if (holder.kind === 'unoccupied' || holder.kind === 'faction') return {};
+  if (holder.kind === 'unoccupied' || holder.kind === 'crew') return {};
 
   const strength = Math.max(
     2,
@@ -277,7 +277,7 @@ export const SQUATTED_PLACES_PER_OPEN_DISTRICT = 2;
  * rather than sample it.
  */
 export function startingHolder(location: Location, district: District): LocationHolder {
-  if (district.faction === 'government') return { kind: 'government' };
+  if (district.allegiance === 'government') return { kind: 'government' };
   return squattedIn(district).includes(location.id) ? { kind: 'looters' } : { kind: 'unoccupied' };
 }
 

@@ -42,6 +42,9 @@ or client-facing type.
 | `overseer.ts`           | `Overseer`, archetypes, `OVERSEER_PRESETS` (4), `findOverseerPreset`                 |
 | `commander.ts`          | An officer: their sheet, their 0..3 perks and the wage they signed for               |
 | `crew/perks.ts`         | `PERK_CATALOG` (100+ crew-wide bonuses), `applyPerkBonus`, 0..3 an officer           |
+| `factions/`             | A team of up to 5 players: ranks, invitations, the cap                               |
+| `social/`               | The mailbox (per-recipient fan-out) and the bell (kinds, per-player mute list)       |
+| `allegiance.ts`         | Government vs independent: a _district's_ politics, not a player team                |
 | `resources.ts`          | `Resources` {caps,supplies,oil,scrap,highQualityMetal}, `STARTING_RESOURCES`         |
 | `building/`             | The district: 13 kinds, costs, power, production, standing, queue, 65 modifications  |
 | `base.ts`               | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)      |

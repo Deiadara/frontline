@@ -173,6 +173,61 @@ Conventions used below:
   and covers **however much of the week is left**.
 - **H8 [BOARD]** You can hold **2 recruits at the start**, **+1 per level**.
 
+## J. Factions [BOARD]
+
+- **J1 [BOARD]** Players can come together into a **faction**: a team of **up to 5** members, with a
+  name and a badge, on its own tab.
+  - **J1a [CEO]** The word previously meant two other things in the code (a district's own name, and
+    a map holder kind) and both were renamed out of the way. A district's politics is now its
+    **allegiance** (§A4).
+- **J2 [BOARD]** The faction screen shows the members, and **the armies each of them currently
+  holds**.
+- **J3 [BOARD]** An ally's battles appear on the faction tab, and a member can **send units into
+  them**. This is implicit rather than explicit: the fight is not a separate object, it is the
+  ally's own battle with more people standing on their side.
+  - **J3a [CEO]** Read as: a battle side is a list of contributors. Reinforcements go through the
+    same deployment path a crew uses for its own fights, so travel, supply and the deployment
+    window are the same rules. Survivors are split back per contributor, and everybody who had
+    units in a fight gets their own report.
+- **J4 [BOARD]** Ranks: **leader**, **chief**, **member**.
+  - A **leader** can do anything.
+  - A **chief** can invite, remove **members**, and change the description. Not the badge, not the
+    name, and not another chief or the leader.
+  - A **member** sees everything and fights in everything, and changes nothing.
+  - **J4a [CEO]** "Chief cannot touch chief" is the rule that needs stating: two chiefs able to
+    remove each other turns a disagreement into a race. `canKick` takes both ranks for that reason.
+- **J5 [BOARD]** A faction has a **name**, a **badge** and a **description**, and the name and badge
+  can both be changed later. The badge is **built** rather than typed: a shape, a ground colour, a
+  pattern over it, an emblem and a colour for the emblem, in the manner of any team-crest builder.
+  - **J5a [CEO]** 6 shapes x 12 colours x 6 patterns x 18 emblems x 12 colours, drawn from stored
+    identifiers rather than stored as an image (`factions/badge.ts`, `FactionBadge.tsx`). No asset
+    ships, and the board's art policy is untouched: it is code-generated art.
+- **J6 [BOARD]** **Invitation is the only way in, and it arrives as a message.** The invite lands in
+  the recipient's inbox with a button on it; the button asks for confirmation before it joins.
+  - **J6a [CEO]** The message carries the invitation's id, so the button spends the same row the
+    faction screen would: one way in, two doors onto it. Whether it is still open is read from the
+    invitation at display time, so an answered invite stops offering a way in immediately.
+- **J7 [BOARD]** **Leaving and disbanding.** Anybody can leave. A **leader** leaving disbands the
+  faction, unless they hand it to somebody first; a last member out disbands it whatever their rank.
+  The leader can also disband it outright.
+  - **J7a [CEO]** Leaving used to be refused for a leader with people at the table, which left
+    somebody who wanted out with no way to be finished. It is allowed now and the screen says what
+    it will cost before it happens (`leavingDisbands`, and a confirmation on every destructive
+    control).
+
+## K. Messages and notifications [BOARD]
+
+- **K1 [BOARD]** Two doors in the standing bar, **left of Battles**, each with an unread count.
+- **K2 [BOARD]** **Messages**: write to another player or to your whole faction. Inbox, sent folder,
+  reply, delete, unread until opened.
+- **K3 [BOARD]** **Notifications**, in the manner of Grepolis: the game reporting what happened
+  while you were away, every one linking to the thing it is about.
+- **K4 [BOARD]** A filter in settings decides which kinds reach you.
+  - **K4a [CEO]** Applied at **write** time rather than read time, so switching a kind back on is a
+    statement about the future rather than an unpacking of backlog, and the badge is always a count
+    of things the player asked for. Two kinds cannot be switched off: a battle report and an attack
+    on your district, both of which report something irreversible.
+
 ## I. Experience and levelling
 
 - **I1 [BOARD]** XP comes from **missions**, **building things**, **quests**, and **fighting other

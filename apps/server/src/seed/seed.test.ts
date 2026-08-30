@@ -14,7 +14,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { MVP_BOT } from './constants.js';
+import { ALLY_DISTRICT_ID, MVP_ALLY, MVP_BOT } from './constants.js';
 import { seedMvpWorld } from './index.js';
 
 interface Stack {
@@ -61,10 +61,19 @@ function countUsers(db: AppDatabase, username: string): number {
   return row.n;
 }
 
+/**
+ * Every non-playing crew in the world.
+ *
+ * Two now, and the number is the point of the assertions below: the **rival** you fight and the
+ * **ally** you fight beside. Both are `is_bot = 1` because neither is driven by a person, so a
+ * count of one here was the old world and a count of three would mean the seeder had run twice.
+ */
 function countBotBases(db: AppDatabase): number {
   const row = db.prepare('SELECT COUNT(*) AS n FROM bases WHERE is_bot = 1').get() as { n: number };
   return row.n;
 }
+
+const SEEDED_BOTS = 2;
 
 async function login(app: FastifyInstance, password: string) {
   return app.inject({
@@ -104,7 +113,7 @@ describe('seedMvpWorld', () => {
     expect(summary.createdBot).toBe(true);
     expect(countUsers(db, MVP_DEV_CREDENTIALS.username)).toBe(1);
     expect(countUsers(db, MVP_BOT.username)).toBe(1);
-    expect(countBotBases(db)).toBe(1);
+    expect(countBotBases(db)).toBe(SEEDED_BOTS);
   });
 
   it('is idempotent when run twice against the same database', async () => {
@@ -120,7 +129,7 @@ describe('seedMvpWorld', () => {
     expect(second.createdBot).toBe(false);
     expect(countUsers(db, MVP_DEV_CREDENTIALS.username)).toBe(1);
     expect(countUsers(db, MVP_BOT.username)).toBe(1);
-    expect(countBotBases(db)).toBe(1);
+    expect(countBotBases(db)).toBe(SEEDED_BOTS);
 
     const after = repos.users.findByUsername(MVP_DEV_CREDENTIALS.username);
     expect(after?.id).toBe(before?.id);
@@ -147,7 +156,7 @@ describe('seedMvpWorld', () => {
     expect(summary.createdBot).toBe(false);
     expect(countUsers(second.db, MVP_DEV_CREDENTIALS.username)).toBe(1);
     expect(countUsers(second.db, MVP_BOT.username)).toBe(1);
-    expect(countBotBases(second.db)).toBe(1);
+    expect(countBotBases(second.db)).toBe(SEEDED_BOTS);
 
     const playerAfter = second.repos.users.findByUsername(MVP_DEV_CREDENTIALS.username);
     expect(playerAfter?.id).toBe(player?.id);
@@ -160,13 +169,16 @@ describe('seedMvpWorld', () => {
     const { db, repos } = await openStack(':memory:');
     await seedMvpWorld({ db, repos });
     const botUser = repos.users.findByUsername(MVP_BOT.username);
-    db.prepare('DELETE FROM bases WHERE is_bot = 1').run();
-    expect(countBotBases(db)).toBe(0);
+    // The *rival's* row, not every bot row. The ally has a battle on the board with a foreign key
+    // to their base, so deleting them here would be testing a state the game cannot reach and
+    // failing on the integrity rule that stops it.
+    db.prepare('DELETE FROM bases WHERE district_id = ?').run(BOT_DISTRICT_ID);
+    expect(countBotBases(db)).toBe(SEEDED_BOTS - 1);
 
     const summary = await seedMvpWorld({ db, repos });
 
     expect(summary.createdBot).toBe(true);
-    expect(countBotBases(db)).toBe(1);
+    expect(countBotBases(db)).toBe(SEEDED_BOTS);
     expect(countUsers(db, MVP_BOT.username)).toBe(1); // no duplicate rival account
     const restored = repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);
     expect(restored?.name).toBe(MVP_BOT.baseName);
@@ -188,7 +200,7 @@ describe('seedMvpWorld', () => {
     expect(summaries.filter((s) => s.createdBot)).toHaveLength(1);
     expect(countUsers(a.db, MVP_DEV_CREDENTIALS.username)).toBe(1);
     expect(countUsers(a.db, MVP_BOT.username)).toBe(1);
-    expect(countBotBases(a.db)).toBe(1);
+    expect(countBotBases(a.db)).toBe(SEEDED_BOTS);
   });
 
   it('places a fortified, lootable bot base in the bot district', async () => {
@@ -221,10 +233,16 @@ describe('seedMvpWorld', () => {
       .json<CityResponse>()
       .districts.flatMap((entry) => (entry.base ? [entry.base] : []));
 
-    expect(bases.filter((b) => b.isBot)).toHaveLength(1);
-    const bot = bases.find((b) => b.isBot);
-    expect(bot?.districtId).toBe(BOT_DISTRICT_ID);
+    // Two non-playing crews on the map: the rival on their ground and the ally on theirs. Both are
+    // ordinary district rows, which is what makes the ally visible to every screen without any of
+    // them knowing they are a fixture.
+    expect(bases.filter((b) => b.isBot)).toHaveLength(SEEDED_BOTS);
+    const bot = bases.find((b) => b.districtId === BOT_DISTRICT_ID);
+    expect(bot?.isBot).toBe(true);
     expect(bot?.name).toBe(MVP_BOT.baseName);
+    const ally = bases.find((b) => b.districtId === ALLY_DISTRICT_ID);
+    expect(ally?.isBot).toBe(true);
+    expect(ally?.name).toBe(MVP_ALLY.baseName);
     expect(bases.filter((b) => !b.isBot)).toHaveLength(1); // exactly one human base
   });
 });

@@ -154,7 +154,7 @@ describe('what may be declared against (§A4)', () => {
   });
 
   it('reads an armed gate off who holds the ground, and never off unoccupied ground', () => {
-    expect(gateArmed({ kind: 'faction', baseId: 'b1' })).toBe(true);
+    expect(gateArmed({ kind: 'crew', baseId: 'b1' })).toBe(true);
     expect(gateArmed({ kind: 'government' })).toBe(true);
     expect(gateArmed({ kind: 'unoccupied' })).toBe(false);
     expect(gateArmed(null)).toBe(false);

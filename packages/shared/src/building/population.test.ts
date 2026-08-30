@@ -72,7 +72,7 @@ describe('what a district can house (§A1)', () => {
             locationId,
             {
               locationId,
-              holder: { kind: 'faction' as const, baseId: 'mine' },
+              holder: { kind: 'crew' as const, baseId: 'mine' },
               level: 1,
               upgradingUntil: null,
               fortification: 0,

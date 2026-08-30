@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import {
   AttributesSchema,
   BUILDING_KINDS,
+  BadgeSchema,
+  DEFAULT_BADGE,
   isModificationId,
   type Building,
 } from '@frontline/shared';
@@ -389,5 +391,97 @@ describe('the migration chain', () => {
       one.close();
       two.close();
     }
+  });
+});
+
+/**
+ * 0049: the tag becomes a badge, and an officer becomes a chief.
+ *
+ * The migration this is really guarding is the one it does **not** do. `factions` is the parent of
+ * `faction_members` and `faction_invites`, both ON DELETE CASCADE, so rebuilding it the usual way
+ * (create new, copy, DROP TABLE old, rename) empties both children on the DROP: every membership
+ * and every open invitation in the game, silently, from a migration that reads like a rename. The
+ * assertions below are what a rebuild would fail.
+ */
+describe('0049: faction badges and ranks', () => {
+  const BADGES = '0049_faction_badges_and_ranks.sql';
+  const NOW = '2026-08-01T00:00:00.000Z';
+
+  const legacyFaction = (): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, BADGES);
+    const user = db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    );
+    user.run('u1', 'leader', 'x', NOW);
+    user.run('u2', 'officer', 'x', NOW);
+    user.run('u3', 'outsider', 'x', NOW);
+
+    db.prepare(
+      'INSERT INTO factions (id, name, tag, blurb, founded_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('f1', 'The Ninth Circle', 'NINTH', 'Five streets.', NOW);
+    const member = db.prepare(
+      'INSERT INTO faction_members (user_id, faction_id, rank, joined_at) VALUES (?, ?, ?, ?)',
+    );
+    member.run('u1', 'f1', 'leader', NOW);
+    member.run('u2', 'f1', 'officer', NOW);
+    db.prepare(
+      `INSERT INTO faction_invites (id, faction_id, invited_user_id, invited_by_user_id, sent_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run('i1', 'f1', 'u3', 'u1', NOW);
+    db.prepare(
+      `INSERT INTO messages
+         (id, thread_id, sender_user_id, sender_name, sender_tag, recipient_user_id,
+          audience, addressed_to, subject, body, sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run('m1', 't1', 'u1', 'leader', 'NINTH', 'u2', 'player', 'officer', 'Docks', 'Tonight', NOW);
+    return db;
+  };
+
+  it('keeps every membership and every open invitation', () => {
+    const db = legacyFaction();
+    runMigrations(db, MIGRATIONS_DIR);
+
+    const members = db
+      .prepare('SELECT user_id, rank FROM faction_members ORDER BY user_id')
+      .all() as { user_id: string; rank: string }[];
+    expect(members).toHaveLength(2);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM faction_invites').get()).toEqual({ n: 1 });
+  });
+
+  it('turns an officer into a chief and leaves a leader alone', () => {
+    const db = legacyFaction();
+    runMigrations(db, MIGRATIONS_DIR);
+
+    const ranks = Object.fromEntries(
+      (
+        db.prepare('SELECT user_id, rank FROM faction_members').all() as {
+          user_id: string;
+          rank: string;
+        }[]
+      ).map((row) => [row.user_id, row.rank]),
+    );
+    expect(ranks).toEqual({ u1: 'leader', u2: 'chief' });
+  });
+
+  it('gives the faction a badge the game can draw, and drops the tag', () => {
+    const db = legacyFaction();
+    runMigrations(db, MIGRATIONS_DIR);
+
+    const row = db.prepare('SELECT * FROM factions WHERE id = ?').get('f1') as {
+      badge: string;
+      tag?: string;
+    };
+    expect(row.tag).toBeUndefined();
+    expect(BadgeSchema.parse(JSON.parse(row.badge))).toEqual(DEFAULT_BADGE);
+  });
+
+  /** A five-letter abbreviation is not a faction name, so it is joined back to one. */
+  it('rewrites a message’s sender tag as the faction’s name', () => {
+    const db = legacyFaction();
+    runMigrations(db, MIGRATIONS_DIR);
+
+    const row = db.prepare('SELECT sender_faction, invite_id FROM messages WHERE id = ?').get('m1');
+    expect(row).toEqual({ sender_faction: 'The Ninth Circle', invite_id: null });
   });
 });

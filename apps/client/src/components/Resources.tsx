@@ -227,22 +227,6 @@ interface ResourceChipProps {
 }
 
 /**
- * `125000` → `125K`. The exact figure stays in the chip's label and tooltip.
- *
- * Five stockpiles, two meters and an identity share one row, and a late-game player carries
- * six-figure numbers in all five. Spelled out with separators they wrap the bar onto a second line,
- * which costs the artwork ~50px on every screen in the game. A player scanning the bar is asking
- * "roughly how much, and is it going up": a question `125K` answers as well as `125,000` and in
- * half the width. Anyone who wants the digit is one hover away.
- */
-export function compactAmount(value: number): string {
-  const n = Math.round(value);
-  if (Math.abs(n) < 10_000) return n.toLocaleString();
-  if (Math.abs(n) < 1_000_000) return `${Math.round(n / 1000)}K`;
-  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-}
-
-/**
  * How full the Apothecary is, 0-1. Undefined capacity reads as empty rather than as full.
  *
  * Clamped at both ends: raids and mission pay are deliberately *not* clamped to storage (see
@@ -266,9 +250,13 @@ export const STORAGE_WARN_AT = 0.9;
  * and mission pay still land, so a full stockpile is a real, silent loss that a fill bar turns into
  * something you can see across the room.
  *
- * The chip itself stays compact and wordless. Everything else: the resource's name, the exact
- * figure, the ceiling: lives in the hover card, because five of these plus two meters and an
- * identity have to share one row over the artwork.
+ * The figure is the exact one. It used to be rounded (`125K`) to buy the row width back, and that
+ * is the wrong trade: a player deciding whether they can afford a 40,000-cap upgrade cannot do the
+ * arithmetic from a number with its last three digits thrown away, and "am I about to be able to
+ * pay for this" is the question the bar is read for. The width comes from the overseer's nameplate
+ * instead, which stands down earlier now (see `TopHud`).
+ *
+ * The chip stays wordless: the resource's name and its ceiling are still the hover card's job.
  */
 export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
   const meta = RESOURCE_META[kind];
@@ -303,10 +291,11 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
         (§D5b's planks) pushed the row over its width, the identity wrapped to a second line, and
         the 50px that cost came straight out of the screen below: district cards were sliced by
         the bottom nav at 1280.
-        The width comes out of the padding and the figure rather than the glyph, deliberately. The
-        icons are painted masters and the reason the bar is worth looking at, and shrinking them
-        would also shorten the chip: an 8px change in the bar's height moves every screen under it
-        past a fold, which is its own class of bug.
+        The width comes out of the padding rather than the glyph, deliberately. The icons are
+        painted masters and the reason the bar is worth looking at, and shrinking them would also
+        shorten the chip: an 8px change in the bar's height moves every screen under it past a
+        fold, which is its own class of bug. The figure is not a source of width either any more:
+        it is spelled out in full, and the row pays for that out of the overseer's nameplate.
       */}
       <span className="resource-well flex h-12 w-12 shrink-0 items-center justify-center rounded-lg">
         <ResourceIcon kind={kind} className="resource-art h-11 w-11" />
@@ -315,7 +304,7 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
         <span
           className={cn('font-display text-base font-bold leading-none tabular-nums', meta.color)}
         >
-          {compactAmount(value)}
+          {amount.toLocaleString()}
         </span>
         {/* Thinner and rounder than it was, and the track is a shadow in the glass rather than a
             black slot: the bar is a reading *on* the chip, not a second component inside it. */}

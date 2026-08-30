@@ -45,6 +45,7 @@ import {
 } from '@frontline/shared';
 import { crewEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
+import { sideForce } from './side.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
 import { cityContextFor } from '../city/view.js';
 import { sideOf } from './deploy.js';
@@ -77,9 +78,15 @@ import { battlefieldOf } from './resolve.js';
  */
 export const REPORT_HISTORY = 2000;
 
+/**
+ * What this side has on the ground, allies included.
+ *
+ * The whole side rather than the reader's own row: the muster is "what is standing here", and a
+ * screen that showed a player only their own contribution would tell them they were about to fight
+ * alone when three of their allegiance had already arrived.
+ */
 function musterOf(repos: Repositories, battle: ScheduledBattle, side: BattleSide) {
-  const deployment = repos.sieges.deployment(battle.id, side);
-  if (!deployment) return { army: {}, perimeter: {}, size: 0 };
+  const deployment = sideForce(repos, battle.id, side, battle.scheduledFor);
   return {
     army: deployment.army,
     perimeter: deployment.perimeter,
@@ -102,8 +109,9 @@ function readEnemy(
   reading: number,
 ): { size: number | null; quality: string } {
   const other: BattleSide = ownSide === 'attacker' ? 'defender' : 'attacker';
-  const deployment = repos.sieges.deployment(battle.id, other);
-  const force = deployment?.army ?? {};
+  // Everything on the other side. Reading one row would understate an enemy who has been reinforced,
+  // which is exactly the reading this function exists to get right.
+  const force = sideForce(repos, battle.id, other, battle.scheduledFor).army;
 
   const enemyBase =
     other === 'attacker'
@@ -134,7 +142,8 @@ function viewOf(
 
   const enemy = side ? readEnemy(repos, battle, side, reading) : { size: null, quality: '' };
   const muster = side ? musterOf(repos, battle, side) : null;
-  const deployment = side ? repos.sieges.deployment(battle.id, side) : undefined;
+  // This crew's own row: the deployment screen edits what *you* have sent, not what your allies have.
+  const deployment = side ? repos.sieges.deployment(battle.id, side, base.id) : undefined;
 
   return {
     battle,

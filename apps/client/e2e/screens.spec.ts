@@ -172,7 +172,7 @@ test('the hideout stands its structures on clickable plots', async ({ page }) =>
   await installApi(page, me);
   await page.goto('/game/base');
 
-  await expect(page.getByTestId('faction-plaque')).toContainText('The Ninth Street Crew');
+  await expect(page.getByTestId('district-plaque')).toContainText('The Ninth Street Crew');
   // §A1: the structures are plots in a place now, not rows in a list, so they are found by the
   // control you click rather than by a name printed somewhere on the page.
   await expect(page.getByRole('button', { name: /^The Nexus,/ })).toBeVisible();
@@ -462,7 +462,7 @@ test('the city leads to the district screen, except on your own ground', async (
   await page.getByTestId(`district-tag-${home}`).click();
   await expect(page).toHaveURL(/\/game\/base$/);
   // The hideout, not a district screen dressed as one.
-  await expect(page.getByTestId('faction-plaque')).toBeVisible();
+  await expect(page.getByTestId('district-plaque')).toBeVisible();
 
   await page.goto('/game');
   await expect(page.getByTestId('city-room')).toBeVisible();

@@ -22,6 +22,7 @@ import {
 import { mergeArmies } from '../battle/forces.js';
 import { createRng } from '../characters/rng.js';
 import type { Repositories } from '../db/repos/index.js';
+import { notifyBase } from '../social/notify.js';
 import type { StoredMission } from '../db/repos/missions.js';
 import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
 
@@ -213,6 +214,18 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   // §H6 used to pay the officer who led each run their own character XP here. Officers have no
   // level any more (see `commander.ts`): a run pays the crew, and who led it decides how well it
   // went rather than what it does to them.
+  // The receipts. One per run that landed, so a player who was on another screen finds out that
+  // the crew is back and what they brought, rather than noticing the roster changed.
+  for (const settled of settlements) {
+    notifyBase(repos, base.id, {
+      kind: 'mission_home',
+      title: 'A crew is home',
+      body: findMissionTemplate(settled.mission.templateId)?.name ?? 'The job is finished.',
+      link: '/game/missions',
+      now,
+    });
+  }
+
   return {
     base: progressed,
     resolved: settlements.map((s) => s.mission),

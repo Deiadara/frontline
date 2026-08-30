@@ -1,3 +1,4 @@
+import type { FactionResponse, MessagesResponse, NotificationsResponse } from '@frontline/shared';
 import {
   BAR_HIRES_PER_DAY,
   barterRateFor,
@@ -378,7 +379,7 @@ export const districtDetail: DistrictDetailResponse = {
     const note = upgradeNote(location.kind, level);
     return {
       location,
-      holder: mine ? { kind: 'faction' as const, baseId: base.id } : { kind: 'looters' as const },
+      holder: mine ? { kind: 'crew' as const, baseId: base.id } : { kind: 'looters' as const },
       holderName: mine ? base.name : 'Looters',
       level,
       upgradingUntil: null,
@@ -1721,4 +1722,232 @@ export const actionsResponse: ActionsResponse = {
       recallable: false,
     },
   ],
+};
+
+// --- factions, messages and notifications (board request) ---
+
+const ALLY_ID = 'ally-user';
+const ALLY_BASE = 'ally-base';
+
+/**
+ * A faction with somebody in it, seen from a leader's seat.
+ *
+ * Two members rather than one, and one of them a fixture that does not play, because that is the
+ * seeded world every player meets first: the screen has to be right when the person beside you is
+ * a hardcoded neighbour.
+ */
+export const factionScreen: FactionResponse = {
+  faction: {
+    id: 'faction-1',
+    name: 'The Ninth Circle',
+    badge: {
+      shape: 'shield',
+      ground: 'soot',
+      field: 'chevron',
+      fieldColor: 'oxblood',
+      prop: 'skull',
+      ink: 'brass',
+    },
+    blurb: 'Five streets, one arrangement. Whoever comes for one of us finds all of us.',
+    foundedAt: NOW,
+  },
+  rank: 'leader',
+  members: [
+    {
+      userId: 'me-user',
+      baseId: base.id,
+      username: 'Nikos',
+      districtName: base.name,
+      districtId: base.districtId,
+      rank: 'leader',
+      joinedAt: NOW,
+      level: base.level,
+      infamy: 100,
+      armySize: 26,
+      supplyUsed: 32,
+      isBot: false,
+    },
+    {
+      userId: ALLY_ID,
+      baseId: ALLY_BASE,
+      username: 'Sable_Ninth',
+      districtName: 'The Ninth Street Irregulars',
+      districtId: 'ashen-terraces',
+      rank: 'chief',
+      joinedAt: NOW,
+      level: 6,
+      infamy: 480,
+      armySize: 38,
+      supplyUsed: 60,
+      isBot: true,
+    },
+  ],
+  invites: [],
+  pending: [],
+  battles: [
+    {
+      battleId: 'ally-battle-1',
+      memberUserId: ALLY_ID,
+      memberName: 'Sable_Ninth',
+      districtName: 'The Ninth Street Irregulars',
+      targetName: 'The Tideline Market',
+      districtLabel: 'neon-docks',
+      scheduledFor: '2026-08-14T03:30:00.000Z',
+      side: 'attacker',
+      committed: 24,
+      yourContribution: 0,
+      canReinforce: true,
+    },
+  ],
+  armies: [
+    {
+      memberUserId: ALLY_ID,
+      memberName: 'Sable_Ninth',
+      army: { ironsides: 8, snipers: 6, stitchers: 4, razors: 20 },
+      size: 38,
+    },
+  ],
+  serverNow: NOW,
+};
+
+/** Nobody at a table yet: the invitation you are holding, and the form to found your own. */
+export const factionNone: FactionResponse = {
+  faction: null,
+  rank: null,
+  members: [],
+  invites: [
+    {
+      id: 'invite-1',
+      factionId: 'faction-1',
+      factionName: 'The Ninth Circle',
+      factionBadge: {
+        shape: 'shield',
+        ground: 'soot',
+        field: 'chevron',
+        fieldColor: 'oxblood',
+        prop: 'skull',
+        ink: 'brass',
+      },
+      invitedBy: 'Sable_Ninth',
+      invitedUserId: 'me-user',
+      sentAt: NOW,
+    },
+  ],
+  pending: [],
+  battles: [],
+  armies: [],
+  serverNow: NOW,
+};
+
+/** One read, one unread, and a sent row that has been opened by one of its two recipients. */
+export const messagesScreen: MessagesResponse = {
+  inbox: [
+    {
+      id: 'msg-1',
+      threadId: 'thread-1',
+      senderUserId: ALLY_ID,
+      senderName: 'Sable_Ninth',
+      senderFaction: 'The Ninth Circle',
+      audience: 'faction',
+      addressedTo: 'The Ninth Circle',
+      subject: 'The Tideline Market, oh-three-thirty',
+      body: 'Bringing eight Ironsides and the snipers. If anybody has bodies spare, the market is\nwide open on the north side.',
+      sentAt: NOW,
+      readAt: null,
+      invite: null,
+    },
+    {
+      id: 'msg-2',
+      threadId: 'thread-2',
+      senderUserId: 'other-user',
+      senderName: 'Vex_Combine',
+      senderFaction: null,
+      audience: 'player',
+      addressedTo: 'Nikos',
+      subject: 'You are on the wrong street',
+      body: 'Consider this the only warning you get.',
+      sentAt: '2026-08-12T20:00:00.000Z',
+      readAt: '2026-08-12T20:30:00.000Z',
+      invite: null,
+    },
+    /* An invitation, which is an ordinary message with a card on it (board request). */
+    {
+      id: 'msg-3',
+      threadId: 'thread-4',
+      senderUserId: ALLY_ID,
+      senderName: 'Sable_Ninth',
+      senderFaction: 'The Ninth Circle',
+      audience: 'player',
+      addressedTo: 'Nikos',
+      subject: 'An invitation to The Ninth Circle',
+      body: 'Sable_Ninth has asked you to join The Ninth Circle.',
+      sentAt: NOW,
+      readAt: null,
+      invite: {
+        inviteId: 'invite-1',
+        factionId: 'faction-1',
+        factionName: 'The Ninth Circle',
+        badge: {
+          shape: 'shield',
+          ground: 'soot',
+          field: 'chevron',
+          fieldColor: 'oxblood',
+          prop: 'skull',
+          ink: 'brass',
+        },
+        open: true,
+      },
+    },
+  ],
+  sent: [
+    {
+      threadId: 'thread-3',
+      audience: 'faction',
+      addressedTo: 'The Ninth Circle',
+      subject: 'Docks tonight',
+      body: 'Eight Ironsides to the waterfront.',
+      sentAt: NOW,
+      recipients: 2,
+      readBy: 1,
+    },
+  ],
+  unread: 1,
+  hasFaction: true,
+  serverNow: NOW,
+};
+
+/** A bell with something in it, including one already read, so both weights are drawn. */
+export const notificationsScreen: NotificationsResponse = {
+  notifications: [
+    {
+      id: 'note-1',
+      kind: 'battle_report',
+      title: 'A fight was won',
+      body: 'The Tideline Market is settled.',
+      link: '/game/battles',
+      createdAt: NOW,
+      readAt: null,
+    },
+    {
+      id: 'note-2',
+      kind: 'reinforcement_arrived',
+      title: 'Sable_Ninth is sending help',
+      body: 'Units are on the road to a fight of yours.',
+      link: '/game/battles',
+      createdAt: '2026-08-13T11:00:00.000Z',
+      readAt: null,
+    },
+    {
+      id: 'note-3',
+      kind: 'building_done',
+      title: 'The Quarters is finished',
+      body: 'Standing at level 4.',
+      link: '/game/base',
+      createdAt: '2026-08-13T09:00:00.000Z',
+      readAt: '2026-08-13T09:05:00.000Z',
+    },
+  ],
+  unread: 2,
+  settings: { muted: ['training_done'] },
+  serverNow: NOW,
 };

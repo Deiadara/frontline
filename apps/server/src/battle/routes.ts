@@ -51,7 +51,14 @@ const RECALL_ERRORS: Record<RecallRefusal, { code: ErrorCode; message: string }>
   window_closed: { code: 'PLACE_UNAVAILABLE', message: 'They are too far out to turn around' },
 };
 
-const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = {
+/**
+ * Exported so the faction reinforcement route says the same sentence for the same refusal.
+ *
+ * Sending units to an ally's fight goes through `adjustDeployment` exactly as deploying into your
+ * own does, so it can be turned away for the same reasons, and a second table of wordings is how
+ * "You do not have those units to send" becomes two different sentences on two screens.
+ */
+export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = {
   off_slot: 'Fights are called on the half hour, and only on the half hour',
   too_soon: 'Nobody gets less than eight hours to see you coming',
   too_late: 'Nothing is called more than a day out',
@@ -286,8 +293,10 @@ export function registerBattleRoutes(app: FastifyInstance): void {
         }
       }
 
+      // This crew's own row: a boost is bought against the buyer's deployment, and `side.ts` reads
+      // one boost for the whole side, so a reinforcement buying a second would be ignored anyway.
       const deployment =
-        app.repos.sieges.deployment(battleId, side) ??
+        app.repos.sieges.deployment(battleId, side, base.id) ??
         emptyDeployment(battleId, base.id, side, now.toISOString());
 
       /*

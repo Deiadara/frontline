@@ -1,7 +1,7 @@
-import { FACTION_NAME_MAX, type Base } from '@frontline/shared';
+import { DISTRICT_NAME_MAX, type Base } from '@frontline/shared';
 import { useState } from 'react';
 import { ApiRequestError } from '../lib/api';
-import { useRenameFaction } from '../lib/queries';
+import { useRenameDistrict } from '../lib/queries';
 import { Button } from './ui/Button';
 import { cn } from './../lib/cn';
 
@@ -30,18 +30,18 @@ import { cn } from './../lib/cn';
 /**
  * How big the name is allowed to be, given how long it is.
  *
- * `FACTION_NAME_MAX` is 28 and every fixture uses about 20, so a name at the ceiling set at the
+ * `DISTRICT_NAME_MAX` is 28 and every fixture uses about 20, so a name at the ceiling set at the
  * short name's size pushes the standing bar onto a second line, which costs the world underneath
  * it fifty pixels. **Ellipsis is not an option**: a cut label is what the board's bar forbids
- * outright. See the note on `FACTION_NAME_MAX`.
+ * outright. See the note on `DISTRICT_NAME_MAX`.
  */
 function plaqueType(length: number): string {
   if (length <= 21) return 'text-base [@media(min-width:1500px)]:text-lg';
   return 'text-sm [@media(min-width:1500px)]:text-base';
 }
 
-export function FactionPlaque({ base }: { base: Base }) {
-  const rename = useRenameFaction(base.id);
+export function DistrictPlaque({ base }: { base: Base }) {
+  const rename = useRenameDistrict(base.id);
   const [draft, setDraft] = useState<string | null>(null);
 
   if (draft === null) {
@@ -49,9 +49,9 @@ export function FactionPlaque({ base }: { base: Base }) {
       <button
         type="button"
         onClick={() => setDraft(base.name)}
-        data-testid="faction-plaque"
+        data-testid="district-plaque"
         data-tip={`${base.name} · rename`}
-        aria-label={`${base.name}. Rename your faction`}
+        aria-label={`${base.name}. Rename your district`}
         className={cn(
           'group glass painted edge-lit pointer-events-auto relative flex shrink-0 flex-col items-center',
           'justify-center rounded-md border-2 border-brass-500/60 px-6 py-1.5 shadow-panel',
@@ -132,20 +132,20 @@ export function FactionPlaque({ base }: { base: Base }) {
       {rename.error !== null && (
         <p
           role="alert"
-          data-testid="faction-name-error"
+          data-testid="district-name-error"
           className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap rounded-sm border border-oxblood-500/60 bg-surface-950/95 px-2 py-1 font-body text-[12px] leading-none text-oxblood-300"
         >
           {rename.error instanceof ApiRequestError ? rename.error.message : 'That did not save'}
         </p>
       )}
-      <label className="sr-only" htmlFor="faction-name">
-        Faction name
+      <label className="sr-only" htmlFor="district-name">
+        District name
       </label>
       <input
-        id="faction-name"
+        id="district-name"
         value={draft}
         autoFocus
-        maxLength={FACTION_NAME_MAX}
+        maxLength={DISTRICT_NAME_MAX}
         onChange={(event) => {
           rename.reset();
           setDraft(event.target.value);

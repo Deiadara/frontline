@@ -35,7 +35,7 @@ export function payrollBonusPercent(buildings: readonly Building[]): number {
   );
 }
 
-/** Percentage points the district adds to every faction XP award (§I1). */
+/** Percentage points the district adds to every allegiance XP award (§I1). */
 export function factionXpBonus(buildings: readonly Building[]): number {
   return districtEffects(buildings).faction_xp_percent;
 }

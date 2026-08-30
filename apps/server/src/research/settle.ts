@@ -12,6 +12,7 @@ import {
   type PlayerXpAward,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { notifyBase } from '../social/notify.js';
 import { fitModification } from '../district/modifications.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { nextPairing, nextRoleFact } from './discover.js';
@@ -109,16 +110,27 @@ export function settleResearch(
   }
   if (trained !== overseer) repos.overseers.updateAttributes(trained.id, trained.attributes);
 
-  // §G6/§H6: an investigation is the "internal process" half of INTERFACES R2: a named officer is
   // The lead used to be paid character XP here for the time the project kept them on it. Officers
   // have no level any more (see `commander.ts`), so a project pays the player and nobody else.
   const paid = settled;
 
   // §I1, and the player. A project is the longest single commitment in the game, so it is the one
-  // clock that has to be worth waiting out on its own. Last, after the officer's own XP, for the
-  // same reason: the two ledgers are separate and this one must not change what that one paid.
+  // clock that has to be worth waiting out on its own.
   // §F3: Charisma is "leading people". A lead who can present a result gets the crew more out of
   // it, which is the one thing that attribute buys now that district morale is gone.
+  notifyBase(repos, base.id, {
+    kind: 'research_done',
+    title: 'The Lab has finished',
+    body:
+      active.project.kind === 'investigation'
+        ? 'An investigation has turned something up.'
+        : active.project.kind === 'training'
+          ? 'An hour on the training floor is done.'
+          : 'A modification is fitted.',
+    link: '/game/research',
+    now,
+  });
+
   const progressed = awardPlayerXp(
     repos,
     paid,
