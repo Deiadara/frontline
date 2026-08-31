@@ -59,15 +59,58 @@ export const OFFICER_ROLE_LABELS: Record<OfficerRole, string> = {
 };
 
 /**
+ * What a chair with nobody's name on it is called, everywhere it is printed.
+ *
+ * Shared rather than typed out on each screen, because the training board, the crew page and the
+ * Bar all name it and three copies of one word drift the moment somebody rewords one of them.
+ */
+export const BENCH_LABEL = 'On the bench';
+
+/**
  * The faces an officer can have (§C).
  *
- * A **pool**, not a portrait per role: the art is forty-three people, and a Head Spy is a job
+ * A **pool**, not a portrait per role: the art is ninety-nine people, and a Head Spy is a job
  * rather than a face. Which one a given officer wears is derived from their id rather than stored
  * (see `officerPortraitId`), so every officer already on a save has a face the moment the pool
  * lands, with no migration and no column.
+ *
+ * This is the list of art that **exists**, which is what the manifest and the order sheet are
+ * about. What the game actually hands out is {@link ASSIGNABLE_OFFICER_PORTRAIT_IDS}, and the two
+ * are not the same list.
  */
-export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 43 }, (_, index) =>
+export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 99 }, (_, index) =>
   String(index + 1).padStart(2, '0'),
+);
+
+/**
+ * Two faces in the delivered art that are not their own face.
+ *
+ * `officer-42` is pixel-identical to `officer-26`, and `officer-43` is `officer-33` mirrored. A
+ * roster is guaranteed distinct *ids* by {@link officerPortraits}, which is why this was never
+ * caught there: two different ids were drawing the same person, once the right way round and once
+ * flipped, and on the crew screen that reads as a bug, because it is one.
+ *
+ * Measured rather than eyeballed. Every portrait was compared against every other and against its
+ * mirror on a 16x16 luminance signature: these two pairs sit at distance 0, and the next closest
+ * pair anywhere in the pool is at 34. There is no judgement call in the cut.
+ */
+export const DUPLICATE_OFFICER_PORTRAIT_IDS: readonly string[] = ['42', '43'];
+
+/**
+ * The faces the game will actually give somebody.
+ *
+ * Separate from {@link OFFICER_PORTRAIT_IDS} because the two answer different questions. That list
+ * is what art exists, and the manifest and `docs/ART-ORDER.md` are built from it; this one is what
+ * a roster may draw from. Dropping a duplicate from the second does not pretend the file is gone:
+ * it stays on disk, still described, for the board to replace with a new face. The day they do,
+ * `DUPLICATE_OFFICER_PORTRAIT_IDS` goes back to empty and the two lists are the same again.
+ *
+ * Ninety-seven, which is prime, and that is worth more than it looks: the probe in
+ * {@link officerPortraits} only walks the whole pool when its stride is coprime with the size, and
+ * every stride is coprime with a prime.
+ */
+export const ASSIGNABLE_OFFICER_PORTRAIT_IDS: readonly string[] = OFFICER_PORTRAIT_IDS.filter(
+  (portraitId) => !DUPLICATE_OFFICER_PORTRAIT_IDS.includes(portraitId),
 );
 
 /** FNV-1a over the id. A character sum clusters hard over UUIDs; this does not. */
@@ -88,7 +131,9 @@ function hashOf(value: string): number {
  * this cannot know about.
  */
 export function officerPortraitId(commanderId: string): string {
-  return OFFICER_PORTRAIT_IDS[hashOf(commanderId) % OFFICER_PORTRAIT_IDS.length] as string;
+  return ASSIGNABLE_OFFICER_PORTRAIT_IDS[
+    hashOf(commanderId) % ASSIGNABLE_OFFICER_PORTRAIT_IDS.length
+  ] as string;
 }
 
 /**
@@ -111,15 +156,15 @@ export function officerPortraitId(commanderId: string): string {
  * The pool is larger than the nineteen seats, so this always terminates with everybody distinct.
  */
 export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<string, string> {
-  const size = OFFICER_PORTRAIT_IDS.length;
+  const size = ASSIGNABLE_OFFICER_PORTRAIT_IDS.length;
   const taken = new Set<string>();
   const assigned = new Map<string, string>();
   for (const id of [...new Set(commanderIds)].sort()) {
     const hash = hashOf(id);
     const stride = (hash % (size - 1)) + 1;
-    let pick = OFFICER_PORTRAIT_IDS[hash % size] as string;
+    let pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS[hash % size] as string;
     for (let step = 1; taken.has(pick) && step < size; step += 1) {
-      pick = OFFICER_PORTRAIT_IDS[(hash + step * stride) % size] as string;
+      pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS[(hash + step * stride) % size] as string;
     }
     /*
      * The sweep is not belt-and-braces, it is the part that makes the promise true.
@@ -134,7 +179,7 @@ export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<s
      * left cannot fail while the pool is larger than the roster.
      */
     if (taken.has(pick)) {
-      pick = OFFICER_PORTRAIT_IDS.find((face) => !taken.has(face)) ?? pick;
+      pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS.find((face) => !taken.has(face)) ?? pick;
     }
     taken.add(pick);
     assigned.set(id, pick);

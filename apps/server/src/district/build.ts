@@ -22,6 +22,8 @@ import {
   hasItems,
   removeItems,
   unmetForQueue,
+  buildBoostPercent,
+  withReduction,
   type BuildingRequirement,
 } from '@frontline/shared';
 import { adminCost, adminSeconds } from '../admin/mode.js';
@@ -135,11 +137,29 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
   // buying it. Frozen onto the entry with the rest, so hiring an engineer mid-build does not
   // retime work already under way.
   const effects = standingEffectsFor(repos, base);
-  const cost = discounted(buildingCost(structure, level, base.buildings), effects.buildCostPercent);
+  /*
+   * Two discounts, added: the one that comes off everything, and the one that comes off *this*.
+   *
+   * §B7's narrow perks name a single structure, which is what makes them a decision rather than a
+   * number: the Bench Sponsor is a quarter off the Lab and nothing at all off the other eleven, so
+   * they are worth hiring for the district you are actually building. Added rather than compounded,
+   * for the reason `combineEffects` gives: two +20% sources are +40%, because a player who cannot
+   * explain the number cannot plan against it.
+   */
+  const offEverything = effects.buildCostPercent;
+  const offThisOne = effects.buildingCostPercent[structure] ?? 0;
+  const cost = discounted(
+    buildingCost(structure, level, base.buildings),
+    offEverything + offThisOne,
+  );
   // §A1: the handful of levels that ask for a part as well as a price. Taken at the moment the
   // order is placed, like the materials: a queued build has already been paid for.
   const parts = buildingParts(structure, level);
 
+  // §B4: an order placed while the Generator's burn is running is short by the same quarter the
+  // burn already took off everything ahead of it. Applied here, at order time, alongside every
+  // other discount, so the entry's frozen duration stays the one true answer for that order.
+  const burn = buildBoostPercent(base.economy.buildBoostUntil, now);
   const entry: BuildQueueEntry = {
     id,
     kind: structure,
@@ -149,8 +169,11 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
       Math.max(
         1,
         Math.round(
-          buildingBuildSeconds(structure, level, base.buildings) /
-            speedMultiplier(effects.buildSpeedPercent),
+          withReduction(
+            buildingBuildSeconds(structure, level, base.buildings) /
+              speedMultiplier(effects.buildSpeedPercent),
+            burn,
+          ),
         ),
       ),
       admin,

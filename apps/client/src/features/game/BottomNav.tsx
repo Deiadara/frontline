@@ -61,13 +61,9 @@ export const DESTINATIONS: readonly NavDestination[] = [
   { label: 'Units', title: 'The roster', to: '/game/units', icon: 'units' },
   { label: 'Missions', title: 'Missions', to: '/game/missions', icon: 'missions' },
   { label: 'The Bar', title: 'The bar', to: '/game/bar', icon: 'bar', area: 'bar' },
-  {
-    label: 'Research',
-    title: 'Research',
-    to: '/game/research',
-    icon: 'research',
-    area: 'research',
-  },
+  // §B8: Research is not a door any more. It is reached from the Lab's own window in the district,
+  // which is where a player is already standing when they decide to research something, and
+  // `/game/research` still resolves for a deep link or a notification.
   { label: 'Crew', title: 'Crew', to: '/game/crew', icon: 'crew' },
   { label: 'Faction', title: 'The people you fight beside', to: '/game/faction', icon: 'faction' },
   {
@@ -256,7 +252,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Places"
-      // `flex-wrap`. Thirteen doors (eleven places, Settings, and the Bench in an admin build) do
+      // `flex-wrap`. Twelve doors (ten places, Settings, and the Bench in an admin build) do
       // not fit one 1024px row, and without it the row does not
       // spill: it *shrinks*, squeezing each door to 65px until "Workshop" wraps onto two lines
       // inside a target the pointer can barely tell from its neighbour. Wrapping puts the overflow

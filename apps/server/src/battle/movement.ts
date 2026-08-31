@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   CITY_DISTRICTS,
+  carriedSpeedPercent,
   emptyDeployment,
   movementArrived,
   movementCancellable,
@@ -8,6 +9,7 @@ import {
   travelMinutesBetween,
   type Base,
   type BattleSide,
+  type Fleet,
   type Movement,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
@@ -29,12 +31,27 @@ import { mergeArmies } from './forces.js';
 
 const MINUTE_MS = 60_000;
 
-/** How long it takes this crew to reach the fight, in milliseconds. */
-export function travelMsTo(repos: Repositories, base: Base, districtId: string): number {
+/**
+ * How long it takes this crew to reach the fight, in milliseconds.
+ *
+ * §C3: the machines are counted here rather than in `standingEffectsFor`, because what a vehicle is
+ * worth depends on how many people it is carrying. A yard full of bikes and a column of four
+ * hundred is four people on bikes and everybody else walking, and the column arrives when the
+ * walkers do. `carriedSpeedPercent` is the whole of that rule.
+ */
+export function travelMsTo(
+  repos: Repositories,
+  base: Base,
+  districtId: string,
+  /** What this crew is taking to the fight, and how many bodies are in this column. */
+  riding: { vehicles: Fleet; bodies: number } = { vehicles: {}, bodies: 0 },
+): number {
   const from = CITY_DISTRICTS.find((district) => district.id === base.districtId);
   const to = CITY_DISTRICTS.find((district) => district.id === districtId);
   if (!from || !to) return 0;
-  const speed = standingEffectsFor(repos, base).travelSpeedPercent;
+  const speed =
+    standingEffectsFor(repos, base).travelSpeedPercent +
+    carriedSpeedPercent(riding.vehicles, riding.bodies);
   return travelMinutesBetween(from, to, speed) * MINUTE_MS;
 }
 
@@ -51,7 +68,22 @@ export function sendColumn(
     now: Date;
   },
 ): Movement {
-  const travel = travelMsTo(repos, input.base, input.toDistrictId);
+  /*
+   * §C3: this column rides on whatever the crew has committed to this fight.
+   *
+   * Read off the deployment rather than off the base, because a machine that has been named for a
+   * battle has left the Garage: it is not available to a second column going somewhere else, and
+   * a column sent before any machine was picked walks, which is the honest answer.
+   */
+  const committed = repos.sieges.deployment(input.battleId, input.side, input.base.id);
+  const bodies = [input.army, input.perimeter].reduce(
+    (total, force) => total + Object.values(force).reduce((sum, count) => sum + count, 0),
+    0,
+  );
+  const travel = travelMsTo(repos, input.base, input.toDistrictId, {
+    vehicles: committed?.vehicles ?? {},
+    bodies,
+  });
   const movement: Movement = {
     id: randomUUID(),
     baseId: input.base.id,

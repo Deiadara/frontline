@@ -58,18 +58,20 @@ async function makeStack(): Promise<Stack> {
     payload: { username: 'porter_boss', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
+  const chosen = await app.inject({
     method: 'POST',
     url: '/api/overseer',
     headers: auth(token),
     payload: { presetId: 'enforcer' },
   });
-  await app.inject({
-    method: 'POST',
-    url: '/api/city/scout',
-    headers: auth(token),
-    payload: { districtId: 'rustyard' },
-  });
+  // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
+  // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
+  // not the trip, so the intel is written directly.
+  app.repos.city.markScouted(
+    chosen.json<{ base: { id: string } }>().base.id,
+    'rustyard',
+    new Date().toISOString(),
+  );
 
   // A crew of porters and one fighter, so every case below can be run twice: once with people who
   // cannot fight, once with somebody who can, which is what makes the refusals mean something.

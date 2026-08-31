@@ -1,6 +1,6 @@
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
 import { districtEffects, MAX_EFFECT_REDUCTION, withReduction } from './effects.js';
-import { BUILDING_CATALOG, CENTRAL_BUILDING, type BuildingKind } from './kinds.js';
+import { BUILDING_CATALOG, type BuildingKind } from './kinds.js';
 import { buildingLevel, type Building } from './state.js';
 
 /**
@@ -9,6 +9,15 @@ import { buildingLevel, type Building } from './state.js';
  * Two separate curves on purpose. Materials climb gently enough that a level-20 structure is a
  * campaign rather than a wall; the clock climbs much harder, because *time* is what paces a
  * base-builder and materials are only what paces the first hour of it.
+ *
+ * ## The discount is the Generator's, and only on the clock (§B4)
+ *
+ * It used to be the Nexus's, and it came off both. The Nexus now spends its whole budget on
+ * permission (see `NEXUS_LADDERS`), which is a bigger job than a percentage: it decides *what* a
+ * district can be, not how quickly. The board moved the discount to the Generator and asked only
+ * for **time**, so the materials discount is not moved, it is **gone**. Nothing in the game takes
+ * a flat percentage off what a structure costs any more except a modification a player chose and a
+ * perk they hired, which is the version where the number is a decision rather than a tax rebate.
  */
 
 /** Materials multiply by this per level: level 20 costs ~100x level 1. */
@@ -19,43 +28,43 @@ export const BUILDING_COST_GROWTH = 1.28;
  *
  * With the catalogue's 20-70 second first levels that is the ladder the board asked for: seconds
  * at the start, a few minutes by level 10, and the better part of a working day at the top before
- * the Nexus takes its cut.
+ * the Generator takes its cut.
  */
 export const BUILDING_TIME_GROWTH = 1.4;
 
-/** Percentage points off every *other* structure's materials, per Nexus level above the first. */
-export const NEXUS_COST_DISCOUNT_PER_LEVEL = 1.5;
-/** And off their clock. Time is the discount players feel, so the Nexus buys more of it. */
-export const NEXUS_TIME_DISCOUNT_PER_LEVEL = 2.5;
+/**
+ * Percentage points the Generator takes off every *other* structure's clock, per level.
+ *
+ * 2.5 a level, so a finished Generator is 50 points before the {@link MAX_EFFECT_REDUCTION}
+ * ceiling clips it to 60 alongside whatever modifications add. The same rate the Nexus used to
+ * charge for time, deliberately: this is a move, not a buff, and a district that had the discount
+ * yesterday should not find its queue slower today for having built the wrong structure.
+ */
+export const GENERATOR_TIME_DISCOUNT_PER_LEVEL = 2.5;
 
 /**
- * How much the Nexus is worth to a build, in percentage points off materials and off the clock.
+ * How much the Generator is worth to a build, in percentage points off the clock.
  *
- * Zero for the Nexus itself: §A1 says it lowers the cost and time of *other* upgrades, and a
- * structure that discounts its own next level compounds into itself.
+ * Zero for the Generator itself: a structure that speeds up its own next level compounds into
+ * itself, which is the same reason the Nexus never discounted its own.
  */
-export function nexusDiscountFor(
-  kind: BuildingKind,
-  buildings: readonly Building[],
-): { costPercent: number; timePercent: number } {
-  if (kind === CENTRAL_BUILDING) return { costPercent: 0, timePercent: 0 };
-  const levelsAbleToHelp = Math.max(0, buildingLevel(buildings, CENTRAL_BUILDING) - 1);
-  return {
-    costPercent: levelsAbleToHelp * NEXUS_COST_DISCOUNT_PER_LEVEL,
-    timePercent: levelsAbleToHelp * NEXUS_TIME_DISCOUNT_PER_LEVEL,
-  };
+export function generatorTimeDiscount(kind: BuildingKind, buildings: readonly Building[]): number {
+  if (kind === 'generator') return 0;
+  return buildingLevel(buildings, 'generator') * GENERATOR_TIME_DISCOUNT_PER_LEVEL;
 }
 
-/** Everything taking percentage points off this build: the Nexus, plus installed modifications. */
+/** Everything taking percentage points off this build: the Generator, plus installed modifications. */
 export function buildDiscountFor(
   kind: BuildingKind,
   buildings: readonly Building[],
 ): { costPercent: number; timePercent: number } {
-  const nexus = nexusDiscountFor(kind, buildings);
   const effects = districtEffects(buildings);
   return {
-    costPercent: Math.min(MAX_EFFECT_REDUCTION, nexus.costPercent + effects.build_cost_reduction),
-    timePercent: Math.min(MAX_EFFECT_REDUCTION, nexus.timePercent + effects.build_time_reduction),
+    costPercent: Math.min(MAX_EFFECT_REDUCTION, effects.build_cost_reduction),
+    timePercent: Math.min(
+      MAX_EFFECT_REDUCTION,
+      generatorTimeDiscount(kind, buildings) + effects.build_time_reduction,
+    ),
   };
 }
 

@@ -9,6 +9,7 @@ import {
   type UnitStats,
 } from '../units/index.js';
 import type { Battlefield } from './battlefield.js';
+import type { UnitTierStat } from '../units/tiers.js';
 
 /**
  * From a unit's sheet to the numbers it fights with.
@@ -117,7 +118,26 @@ export function effectiveStats(
   unit: UnitSpec,
   battlefield: Battlefield,
   side: SideContext,
-  territory: TerritoryEffects,
+  /*
+   * `TerritoryEffects` plus the one crew-only channel a unit's stats can read.
+   *
+   * Widened rather than moved. `unitKindPercent` is a §B7 perk channel and no piece of ground
+   * grants it, so putting it on `TerritoryEffects` would be a lie about what the map can do; and
+   * importing `CrewEffects` here would point the battle module at the crew module for one field.
+   * Optional, because every caller in a fight passes a `CrewEffects`, which has it, and the unit
+   * tests that pass a bare `TerritoryEffects` should not have to invent one.
+   */
+  territory: TerritoryEffects & {
+    unitKindPercent?: Record<string, Partial<Record<UnitTierStat, number>>>;
+    /**
+     * §D5: flat points of evasion, from the officer leading (`crew/effects.ts`).
+     *
+     * Widened for the same reason `unitKindPercent` is: no piece of ground grants it, so putting
+     * it on `TerritoryEffects` would be a lie about what the map can do, and the fights that pass
+     * a bare `TerritoryEffects` should not have to invent a zero.
+     */
+    unitEvasionFlat?: number;
+  },
   upgrades: FittedUpgrades = [],
 ): Effective {
   const contexts: CombatContext[] = [...battlefield.contexts];
@@ -148,8 +168,21 @@ export function effectiveStats(
    * file: a player has to be able to add the reasons up.
    */
   const tier = territory.unitTierPercent[unit.tier] ?? {};
+  /*
+   * And what a bonus scoped to *this exact unit* is worth (`unit_kind` in `crew/perks.ts`).
+   *
+   * The narrowest bonus in the game, which is why it carries the biggest numbers: a tier bonus is
+   * a reason to field a tier, and this is a reason to field one particular unit. Added to the tier
+   * bonus rather than replacing it, so a crew that has both gets both, and summed with everything
+   * else for the reason at the top of this file.
+   */
+  const kind = territory.unitKindPercent?.[unit.id] ?? {};
   const offenseBonus =
-    percent + ground.percent + territory.unitOffensePercent + (tier.offense ?? 0);
+    percent +
+    ground.percent +
+    territory.unitOffensePercent +
+    (tier.offense ?? 0) +
+    (kind.offense ?? 0);
 
   // Everything the holder built buys *toughness*, not damage: a wall does not make a rifle shoot
   // harder. This is the one place percentages land on vitality rather than on offense.
@@ -165,6 +198,7 @@ export function effectiveStats(
   const vitalityBonus =
     territory.unitVitalityPercent +
     (tier.vitality ?? 0) +
+    (kind.vitality ?? 0) +
     Math.min(MAX_HELD_DEFENSE, held) +
     toughness;
 
@@ -177,13 +211,16 @@ export function effectiveStats(
       sheet.armor +
         (side.defending ? battlefield.baseDefense : 0) +
         territory.unitArmorPercent +
-        (tier.armor ?? 0),
+        (tier.armor ?? 0) +
+        (kind.armor ?? 0),
       0,
       100,
     ),
     speed: sheet.speed * (1 + territory.unitSpeedPercent / 100),
     range: sheet.range,
-    evasion: sheet.evasion,
+    // Points, not a multiplier, and clamped for the same reason armour is: no stack of bonuses may
+    // produce a body nothing can hit.
+    evasion: clamp(sheet.evasion + (territory.unitEvasionFlat ?? 0), 0, 100),
     penetration: sheet.penetration,
     stealth: Math.min(100, Math.round(sheet.stealth * (1 + territory.unitStealthPercent / 100))),
     intimidation: sheet.intimidation,

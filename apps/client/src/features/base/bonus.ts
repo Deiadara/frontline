@@ -1,15 +1,17 @@
 import {
-  CISTERN_YIELD_PER_LEVEL,
+  VEHICLES,
   RESOURCE_KEYS,
   buildingProduction,
-  characterXpBonus,
   districtDefense,
+  gateIntelResistancePercent,
+  generatorTimeDiscount,
   infirmaryRecoveryPercent,
   payrollBonusPercent,
   populationCapacity,
-  powerGrid,
   researchTimeReduction,
   storageCapacity,
+  trainingSuppliesReduction,
+  trainingTimeReduction,
   type Building,
   type BuildingKind,
   type PartialResources,
@@ -24,8 +26,8 @@ import {
  * to buy the level and go and look at the readouts underneath the district.
  *
  * Every figure comes from the same shared function the server settles with: `storageCapacity`,
- * `districtDefense`, `powerGrid` and the rest: evaluated against a district with this structure at
- * the level in question. Nothing here has its own formula, and nothing here knows a constant the
+ * `districtDefense`, `trainingTimeReduction` and the rest: evaluated against a district with this
+ * structure at the level in question. Nothing here has its own formula, and nothing here knows a constant the
  * game does not: a rebalance in `@frontline/shared` moves this line without anybody remembering to.
  */
 
@@ -81,48 +83,57 @@ function perHour(rates: PartialResources): string {
  */
 const LINES: Record<BuildingKind, (buildings: readonly Building[]) => StructureBonus> = {
   nexus: (buildings) => ({
-    label: 'Caps every other structure at',
-    value: `level ${buildings.find((b) => b.kind === 'nexus')?.level ?? 0}`,
+    label: 'Authorises every other structure up to',
+    value: `Nexus ${buildings.find((b) => b.kind === 'nexus')?.level ?? 0}`,
   }),
   quarters: (buildings) => ({
-    label: 'Beds for everybody, and what the payroll book stretches to',
+    label: 'Beds for the district, and what the payroll book stretches to',
     value: `${round(populationCapacity(buildings))} beds · +${round(payrollBonusPercent(buildings))}% payroll`,
   }),
   greenhouse: (buildings) => ({
-    label: 'Grows',
-    value: perHour(buildingProduction('greenhouse', buildings)),
+    label: 'Grows, and off the supplies a recruit eats',
+    value: `${perHour(buildingProduction('greenhouse', buildings))} · -${round(trainingSuppliesReduction(buildings))}%`,
   }),
   scrapyard: (buildings) => ({
     label: 'Salvages',
     value: perHour(buildingProduction('scrapyard', buildings)),
   }),
-  garage: (buildings) => ({
-    label: 'Refines',
-    value: perHour(buildingProduction('garage', buildings)),
-  }),
+  /*
+   * §B11: the Garage gives nothing passively, so its line is about what its level *opens*.
+   *
+   * It used to quote what it produced, and once that was removed it read "nothing yet" at every
+   * level: a structure whose plate says the same thing at 1 and at 20 tells a player their build
+   * bought nothing. What a level actually buys here is machines, and `requiresGarageLevel` runs
+   * from 1 to 12, so the honest line is how much of the catalogue is open.
+   */
+  garage: (buildings) => {
+    const level = buildings.find((b) => b.kind === 'garage')?.level ?? 0;
+    const open = VEHICLES.filter((spec) => spec.requiresGarageLevel <= level).length;
+    return {
+      label: 'Machines the yard can build',
+      value: `${open} of ${VEHICLES.length}`,
+    };
+  },
   apothecary: (buildings) => ({
     label: 'Holds, of each material',
     value: round(storageCapacity(buildings)),
   }),
-  cistern: (buildings) => ({
-    label: 'Treated water',
-    value: `+${(buildings.find((b) => b.kind === 'cistern')?.level ?? 0) * CISTERN_YIELD_PER_LEVEL}% yield · ${round(populationCapacity(buildings))} beds`,
+  generator: (buildings) => ({
+    label: 'Off every other structure’s build clock',
+    // Quoted against a structure that is not the Generator: it never discounts its own next level.
+    value: `${round(generatorTimeDiscount('quarters', buildings))}%`,
   }),
-  generator: (buildings) => {
-    const grid = powerGrid(buildings);
-    return { label: 'Supplies', value: `${round(grid.supply)} against ${round(grid.draw)} drawn` };
-  },
   gate: (buildings) => ({
-    label: 'A raider has to beat',
-    value: `${round(districtDefense(buildings))} defence`,
+    label: 'A raider has to beat, and a scout has to see past',
+    value: `${round(districtDefense(buildings))} defence · ${round(gateIntelResistancePercent(buildings))}% cover`,
   }),
   lab: (buildings) => ({
     label: 'Off every research clock',
     value: `${round(researchTimeReduction(buildings))}%`,
   }),
   gauntlet: (buildings) => ({
-    label: 'On every character XP award',
-    value: `+${round(characterXpBonus(buildings))}%`,
+    label: 'Off every unit’s training clock',
+    value: `${round(trainingTimeReduction(buildings))}%`,
   }),
   infirmary: (buildings) => ({
     label: 'Of the fallen back on their feet after a win',

@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { BuildQueueSchema, BuildingSchema } from './building/index.js';
+import {
+  AddonsSchema,
+  BuildQueueSchema,
+  BuildingSchema,
+  noAddons,
+  type Addons,
+} from './building/index.js';
 import { CommanderSchema } from './commander.js';
 import { TrainingStateSchema, startingTraining } from './crew/training.js';
 import { InventorySchema } from './items/inventory.js';
@@ -97,9 +103,27 @@ export const BaseSchema = z.object({
   unitLoadouts: UnitLoadoutsSchema.default({}),
   /** What is in the Garage. Counted, not itemised: one motorcycle is like any other. */
   fleet: FleetSchema.default({}),
+  /**
+   * §B9/§E: the blueprints the Lab has finished and the add-ons the Scrapyard has built.
+   *
+   * Separate from what is *fitted*, which lives on the structures themselves. Owning an add-on and
+   * having it installed used to be one fact, which left §E's "a slot can be emptied" with nowhere
+   * to put what came out. Migration 0056 fills it from what is already bolted on.
+   *
+   * **Optional**, not defaulted, for the same reason `BuildingSchema.damagedAt` is: a default makes
+   * the field required on the way *out* of the parser, which would mean writing an empty shelf into
+   * every `Base` literal in the codebase, most of them fixtures with nothing to do with the
+   * Scrapyard. Absent and empty are the same state; read it through {@link addonsOf}.
+   */
+  addons: AddonsSchema.optional(),
   createdAt: IsoDateTimeSchema,
 });
 export type Base = z.infer<typeof BaseSchema>;
+
+/** The crew's add-on shelf, empty for a district that has never bought one. */
+export function addonsOf(base: Pick<Base, 'addons'>): Addons {
+  return base.addons ?? noAddons();
+}
 
 /**
  * Public projection of a base, safe to show to other players on the city map.

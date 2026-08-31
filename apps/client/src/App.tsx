@@ -16,6 +16,8 @@ import { NotificationsPage } from './features/social/NotificationsPage';
 import { BattlePage } from './features/battle/BattlePage';
 import { UnitsPage } from './features/units/UnitsPage';
 import { ActionsPage } from './features/actions/ActionsPage';
+import { CrewEffectsPage } from './features/crew/CrewEffectsPage';
+import { LeaderboardPage } from './features/leaderboard/LeaderboardPage';
 import { CityView } from './features/game/CityView';
 import { MissionsPage } from './features/missions/MissionsPage';
 import { ResearchPage } from './features/research/ResearchPage';
@@ -27,6 +29,8 @@ import { SettingsPage } from './features/settings/SettingsPage';
 import { AdminPage } from './features/admin/AdminPage';
 import { InventoryPage } from './features/inventory/InventoryPage';
 import { WorkshopPage } from './features/workshop/WorkshopPage';
+import { ScrapyardPage } from './features/scrapyard/ScrapyardPage';
+import { GaragePage } from './features/garage/GaragePage';
 import {
   RequireAuth,
   RequireGuest,
@@ -102,6 +106,7 @@ export default function App() {
           <Route path="base" element={<BasePanel />} />
           <Route path="city/:districtId" element={<DistrictView />} />
           <Route path="actions" element={<ActionsPage />} />
+          <Route path="leaderboard" element={<LeaderboardPage />} />
           <Route path="battles" element={<BattlePage />} />
           <Route path="faction" element={<FactionPage />} />
           <Route path="messages" element={<MessagesPage />} />
@@ -127,6 +132,7 @@ export default function App() {
             }
           />
           <Route path="crew" element={<CrewPage />} />
+          <Route path="crew/effects" element={<CrewEffectsPage />} />
           <Route
             path="training"
             element={
@@ -156,6 +162,10 @@ export default function App() {
           <Route path="admin" element={<AdminPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="workshop" element={<WorkshopPage />} />
+          {/* §B9: the Scrapyard's own page, reached from the plot's dialog rather than the nav. */}
+          <Route path="scrapyard" element={<ScrapyardPage />} />
+          {/* §B11: the Garage has a page rather than a dialog, because its whole value is a list. */}
+          <Route path="garage" element={<GaragePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/game" replace />} />
       </Routes>

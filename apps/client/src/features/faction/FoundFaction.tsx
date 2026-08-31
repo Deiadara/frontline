@@ -73,7 +73,10 @@ export function FoundFaction({ data }: { data: FactionResponse }) {
               </h1>
             </div>
             <span aria-hidden className="ink-rule h-1 w-56" />
-            <p className="max-w-[40rem] font-body text-[12px] leading-snug text-ink-300">
+            {/* Gone on a short screen. At 1024x768 the content area is 314px and the two doors plus
+                this paragraph do not both fit; the doors are the screen and the paragraph is the
+                caption, so the caption yields. The heading still says what the screen is. */}
+            <p className="max-w-[40rem] font-body text-[12px] leading-snug text-ink-300 [@media(max-height:790px)]:hidden">
               {MAX_FACTION_MEMBERS} districts at most, one badge between them. Everybody sees
               everybody else&rsquo;s army, and a fight one of you calls is one the rest can join.
             </p>
@@ -99,7 +102,10 @@ function JoinSheet({ data }: { data: FactionResponse }) {
   const held = data.invites;
 
   return (
-    <section className="ink-frame flex flex-col gap-2 p-4" data-testid="join-sheet">
+    <section
+      className="ink-frame card-paper washed rivets flex flex-col gap-2 p-4"
+      data-testid="join-sheet"
+    >
       <h2 className="font-stamp text-[19px] leading-none text-ink-100">Join one</h2>
       <span aria-hidden className="ink-rule h-1 w-full" />
 
@@ -177,7 +183,7 @@ function JoinSheet({ data }: { data: FactionResponse }) {
 /** The right-hand door, before it is opened. */
 function CreateInvitation({ onStart }: { onStart: () => void }) {
   return (
-    <section className="ink-frame ink-frame-brass flex flex-col gap-2 p-4">
+    <section className="ink-frame ink-frame-brass card-paper washed rivets flex flex-col gap-2 p-4">
       <h2 className="font-stamp text-[19px] leading-none text-ink-100">Create your own</h2>
       <span aria-hidden className="ink-rule h-1 w-full" />
       <p className="font-body text-[13px] leading-relaxed text-ink-300">
@@ -218,7 +224,10 @@ function CreateSheet({ onCancel }: { onCancel: () => void }) {
   const tooShort = name.trim().length < FACTION_NAME_MIN;
 
   return (
-    <section className="ink-frame flex w-full flex-col gap-3 p-4" data-testid="create-sheet">
+    <section
+      className="ink-frame card-paper washed rivets flex w-full flex-col gap-3 p-4"
+      data-testid="create-sheet"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-stamp text-[19px] leading-none text-ink-100">Create your own</h2>
         <button

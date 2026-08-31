@@ -7,7 +7,6 @@ import {
 } from '../resources.js';
 import { buildingEffectiveness, districtEffectiveness } from './damage.js';
 import { districtEffects, localProductionPercent, withBonus } from './effects.js';
-import { powerGrid, type PowerGrid } from './power.js';
 import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
 import { buildingLevel, findBuilding, type Building } from './state.js';
 
@@ -20,14 +19,30 @@ import { buildingLevel, findBuilding, type Building } from './state.js';
  * the rates below are per *hour* rather than per anything the server would have to wake up for.
  */
 
-/** Per level, per hour, before the Cistern, modifications and any brownout. */
+/**
+ * Per level, per hour, before modifications and before damage.
+ *
+ * The Greenhouse's figure absorbed the Cistern (§A2). Treated water used to multiply this by
+ * `3% x cistern level`, so a finished district was on `12 x 1.6`; folding that into the rate at
+ * `12 x 1.6 = 19.2` keeps a maxed Greenhouse exactly where it was and hands the early game the
+ * difference, which is the right way round: the Cistern was a mid-game structure and losing it
+ * must not make a level-1 district poorer than it was yesterday.
+ */
 const PRODUCTION_PER_LEVEL: Partial<Record<BuildingKind, PartialResources>> = {
-  greenhouse: { supplies: 12 },
-  // §D5b: the Scrapyard strips timber as well as metal, so it is the source of both halves of what
-  // building costs. Planks come off slightly below scrap: a ruin has more steel in it than sound
-  // wood, and the wood that is sound is what somebody already took.
-  scrapyard: { scrap: 10, planks: 8, oil: 2, highQualityMetal: 0.25 },
-  garage: { oil: 4, highQualityMetal: 1 },
+  greenhouse: { supplies: 19.2 },
+  /*
+   * §D5b: the Scrapyard strips timber as well as metal, so it is the source of both halves of what
+   * building costs. Planks come off slightly below scrap: a ruin has more steel in it than sound
+   * wood, and the wood that is sound is what somebody already took.
+   *
+   * It absorbed the Garage's output (§B11). The board's rule is that the Garage **gives nothing**:
+   * its whole worth is the machines built in it. Deleting that income outright rather than moving
+   * it would have taken 80% of the high-quality metal out of the game (20 of 25 an hour at level
+   * 20) at the same moment the Garage started charging up to 2,400 of it for a rotorcraft, so the
+   * one building that needs the metal would have made it unobtainable. Moved here because this is
+   * the structure whose job is already cracking salvage into materials.
+   */
+  scrapyard: { scrap: 10, planks: 8, oil: 6, highQualityMetal: 1.25 },
 };
 
 /**
@@ -39,18 +54,12 @@ export const PRODUCING_BUILDINGS = BUILDING_KINDS.filter(
   (kind) => PRODUCTION_PER_LEVEL[kind] !== undefined,
 );
 
-/** Percentage points the Cistern adds to the Greenhouse's yield, per Cistern level. */
-export const CISTERN_YIELD_PER_LEVEL = 3;
-/** And to how many the Quarters can hold. Clean water is what puts a ceiling on a settlement. */
-export const CISTERN_HOUSING_PER_LEVEL = 3;
-
-/** Buildings whose output the Cistern's treated water multiplies. */
-const CISTERN_FED: readonly BuildingKind[] = ['greenhouse'];
-
 /**
- * One structure's hourly output, with its own `production_percent` modifications and: where it
- * drinks: the Cistern folded in. Not scaled by the grid: that is the district's business, applied
- * once in {@link districtProduction} rather than by every caller.
+ * One structure's hourly output, with its own `production_percent` modifications folded in.
+ *
+ * Nothing scales this district-wide any more. The Generator used to hold a grid up and everything
+ * ran at a fraction of itself when it could not (§A1 as it was); the grid is gone (§A1 as it is),
+ * so what a line makes is what its own level, its own modifications and its own damage say.
  */
 export function buildingProduction(
   kind: BuildingKind,
@@ -61,9 +70,6 @@ export function buildingProduction(
   if (!rates || level <= 0) return {};
 
   const local = localProductionPercent(findBuilding(buildings, kind));
-  const cistern = CISTERN_FED.includes(kind)
-    ? buildingLevel(buildings, 'cistern') * CISTERN_YIELD_PER_LEVEL
-    : 0;
   // §A4: a wrecked line runs at up to half. Applied here rather than to the district total so a
   // crew that lost its Greenhouse and kept its Scrapyard sees exactly that on the readout.
   const working = buildingEffectiveness(findBuilding(buildings, kind));
@@ -71,44 +77,25 @@ export function buildingProduction(
   return Object.fromEntries(
     Object.entries(rates).map(([key, rate]) => [
       key,
-      withBonus((rate ?? 0) * level, local + cistern) * working,
+      withBonus((rate ?? 0) * level, local) * working,
     ]),
   );
 }
 
 export interface DistrictProduction {
-  /**
-   * Net units per hour, brownout already applied. Oil is **net**: what the Scrapyard and Garage
-   * bring in, less what the Generator burns to keep them lit.
-   */
+  /** Units per hour, damage and modifications already folded in. */
   perHour: PartialResources;
-  /** Gross output before the grid took its cut: what the district would make fully powered. */
-  fullPowerPerHour: PartialResources;
-  grid: PowerGrid;
 }
 
 export function districtProduction(buildings: readonly Building[]): DistrictProduction {
-  const grid = powerGrid(buildings);
-
-  const gross: Record<string, number> = {};
+  const perHour: PartialResources = {};
   for (const kind of PRODUCING_BUILDINGS) {
     for (const [key, rate] of Object.entries(buildingProduction(kind, buildings))) {
-      gross[key] = (gross[key] ?? 0) + (rate ?? 0);
+      const resource = key as ResourceKey;
+      perHour[resource] = (perHour[resource] ?? 0) + (rate ?? 0);
     }
   }
-
-  const fullPowerPerHour: PartialResources = { ...(gross as PartialResources) };
-  fullPowerPerHour.oil = (gross.oil ?? 0) - grid.oilPerHour;
-
-  const perHour: Record<string, number> = {};
-  for (const [key, rate] of Object.entries(gross)) {
-    perHour[key] = rate * grid.ratio;
-  }
-  // The Generator burns its fuel whether or not the grid covers the district: a browned-out
-  // turbine is one running flat out and still losing, not one idling.
-  perHour.oil = (perHour.oil ?? 0) - grid.oilPerHour;
-
-  return { perHour: perHour, fullPowerPerHour, grid };
+  return { perHour };
 }
 
 /** Base ceiling with no Apothecary standing: a district can always hold *something*. */
@@ -168,26 +155,41 @@ export function storageCapacityFor(
 /**
  * Beds a district has before any Quarters go up: the founding crew sleep somewhere.
  *
- * Both figures absorbed the army pool the Gauntlet used to run separately (see
- * `building/population.ts`). The old pair was 8 beds + 4 per Quarters level for the people and 8
- * supply + 6 per Gauntlet level for the army; a crew at Quarters 10 / Gauntlet 10 therefore had
- * 48 + 68. Merged onto the Quarters alone, the same crew has 16 + 10 x 10, which is the same 116.
- * Sizing it any lower would have quietly halved every existing district on the day the pools
- * became one.
+ * This figure has absorbed two things. First the army pool the Gauntlet used to run separately
+ * (see `building/population.ts`), which took it from 8 to 16. Then the Cistern (§A2), whose
+ * treated water multiplied the whole ceiling by `1 + 3% x its level`: 16 x 1.6 = 25.6, rounded to
+ * 26. Sizing either of those lower would have quietly shrunk every existing district on the day
+ * the structure came down.
  */
-export const HOUSING_BASE = 16;
-export const HOUSING_PER_QUARTERS_LEVEL = 10;
+export const HOUSING_BASE = 26;
+/**
+ * Beds the Quarters add **per level, per level**: level 3 adds 3 x this, not this.
+ *
+ * Triangular rather than flat, so the total is `k * L * (L + 1) / 2`. A flat rate big enough to
+ * house a finished district would have to be five times what it is, and a level-1 Quarters would
+ * then start the game with beds for an army the player cannot pay for. Growth reads right, too: a
+ * tower houses more per storey than a hut does per storey.
+ *
+ * Sized against the board's target of **about 2000** for a district that is finished and holding
+ * ground, and then raised from 5 to 8 when the Cistern was removed (§A2). The Cistern paid
+ * `3% x its level` on top of everything the Quarters gave, so a finished district was on
+ * `(16 + 1050) x 1.6 = 1705` beds from its structures; `26 + 8 x 20 x 21 / 2 = 1706` is the same
+ * number with one structure instead of two. That is what "absorbs the Cistern's housing" has to
+ * mean: the ceiling does not move on the day the tank comes down. `building.test.ts` pins it so
+ * it cannot drift without somebody saying so.
+ */
+export const HOUSING_PER_QUARTERS_LEVEL = 8;
 
 /** How many people this district can house: officers and soldiers alike (§A1, §G, §H8). */
 export function populationCapacity(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  const beds = HOUSING_BASE + buildingLevel(buildings, 'quarters') * HOUSING_PER_QUARTERS_LEVEL;
-  const water = buildingLevel(buildings, 'cistern') * CISTERN_HOUSING_PER_LEVEL;
+  const quarters = buildingLevel(buildings, 'quarters');
+  const beds = HOUSING_BASE + HOUSING_PER_QUARTERS_LEVEL * ((quarters * (quarters + 1)) / 2);
   // Weighted across the whole district: people sleep in the Quarters but a wrecked district is a
   // wrecked district, and the floor keeps the founding crew housed however bad the night was.
   return Math.max(
     HOUSING_BASE,
-    Math.floor(withBonus(beds, water + effects.housing_percent) * districtEffectiveness(buildings)),
+    Math.floor(withBonus(beds, effects.housing_percent) * districtEffectiveness(buildings)),
   );
 }
 
@@ -256,9 +258,30 @@ export function accrueProduction(
   hours: number,
   crew: CrewYield = { productionPercent: 0, storageCapacityPercent: 0 },
   carry: ProductionCarry = {},
+  /**
+   * §A4: what the ground this crew holds makes, on top of what it built.
+   *
+   * Added to the structures' rate before anything is scaled, so a captured Gas Station goes
+   * through the same carry, the same crew multipliers and the same ceiling as the Generator does.
+   * Held separately from `buildings` because it is not a structure: nothing repairs it, nothing
+   * upgrades it, and it changes hands when the fight does.
+   *
+   * Defaulted empty, and that default was a bug for as long as this function has existed. Every
+   * `resource` bonus in `city/locations.ts` was folded into `TerritoryEffects.perHour`, merged by
+   * `combineEffects`, and then read by nobody: a crew holding **every location in the city**,
+   * worth 94 caps, 80 supplies, 72 oil, 62 planks, 32 scrap and 8 high-quality metal an hour,
+   * banked nothing at all. Measured, not deduced: the probe settled ten hours and the stockpile
+   * did not move. The whole §A4 map game paid zero.
+   */
+  extraPerHour: PartialResources = {},
 ): Accrual {
   if (hours <= 0) return { resources: stock, carry };
-  const { perHour } = districtProduction(buildings);
+  const built = districtProduction(buildings).perHour;
+  const perHour: PartialResources = { ...built };
+  for (const [key, rate] of Object.entries(extraPerHour)) {
+    const resource = key as ResourceKey;
+    perHour[resource] = (perHour[resource] ?? 0) + (rate ?? 0);
+  }
   const rate = Math.max(0, 1 + crew.productionPercent / 100);
   // The bulk shelf once, with the crew's bonus on it. Each resource takes its own share of this
   // below, and caps take none of it: production has never made caps, but a ceiling that applied to

@@ -1,4 +1,5 @@
 import {
+  DEFAULT_BADGE,
   findDistrict,
   findLocation,
   startingHolder,
@@ -94,12 +95,19 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
   });
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
 
-  await app.inject({
-    method: 'POST',
-    url: '/api/city/scout',
-    headers: auth(token),
-    payload: { districtId: 'rustyard' },
-  });
+  /*
+   * Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens ground: it
+   * sends somebody who walks back hours later. A fixture wants the *state*, not the trip.
+   *
+   * Reading every control in the district as well, which the removed HTTP call used to do as a
+   * side effect. `city.control()` writes the starting row the first time it is asked for one, and
+   * `setTrap` is an `UPDATE`: on a district nobody had read, arming a trap updated no rows and
+   * said nothing, so the fixture armed a trap that was never there. Production reads the control
+   * to check who holds the ground before it charges for the trap, so it materialises the row on
+   * the way past; this is the one path that did not.
+   */
+  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
 
   // Every district in the city starts wholly held by one NPC party, which means every gate in the
   // city starts armed: see the test that pins exactly that. Most of what is worth testing here is
@@ -483,17 +491,17 @@ describe('moving people up to it (§A4)', () => {
   });
 });
 
-describe('resolving it (§A4)', () => {
-  /** Sets a fight up, moves people to it, and drags its mark into the past. */
-  async function readyFight(stack: Stack, force: Record<string, number> = { razors: 4 }) {
-    const declared = await declare(stack);
-    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
-    if (Object.keys(force).length > 0) await deploy(stack, battle.id, force);
-    const mark = new Date(Date.now() - 60_000);
-    bringForward(stack, battle, mark);
-    return { battle: stack.repos.sieges.find(battle.id)!, mark };
-  }
+/** Sets a fight up, moves people to it, and drags its mark into the past. */
+async function readyFight(stack: Stack, force: Record<string, number> = { razors: 4 }) {
+  const declared = await declare(stack);
+  const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+  if (Object.keys(force).length > 0) await deploy(stack, battle.id, force);
+  const mark = new Date(Date.now() - 60_000);
+  bringForward(stack, battle, mark);
+  return { battle: stack.repos.sieges.find(battle.id)!, mark };
+}
 
+describe('resolving it (§A4)', () => {
   it('takes the location on a win, clears its diggings and brings the survivors home', async () => {
     const stack = await makeStack('winner', decided('attacker'));
     const { battle } = await readyFight(stack);
@@ -557,6 +565,39 @@ describe('resolving it (§A4)', () => {
     expect(after - before).toBe(
       6 * infamyForKill('razors') + infamyForRaidWon({ fromTheState: false, seatOfPower: false }),
     );
+  });
+
+  /**
+   * A fight is atomic, and the trap is what proves it.
+   *
+   * `springAnyTrap` consumes the trap *before* the engine runs, and `markResolved` happens after.
+   * So a fight that fails in between used to leave the world in a state the rules do not describe:
+   * the defender's trap spent, and the fight still on the board to be run again later without one.
+   * The world clock is what made that worth fixing rather than noting, because it retries every
+   * second and swallows what it catches, so the trap would be gone and nobody would be told.
+   *
+   * The engine is the failure injected here because it sits exactly between the two writes.
+   */
+  it('leaves nothing behind when a fight fails halfway through', async () => {
+    const exploding: SkirmishEngine = {
+      resolve: () => {
+        throw new Error('engine exploded');
+      },
+    };
+    const stack = await makeStack('halfway', exploding);
+    const spec = findTrap('trap_collapse')!;
+    const armedAt = new Date().toISOString();
+    stack.repos.sieges.setTrap(SQUATTED_RUSTYARD_LOCATION, { trapId: spec.id, armedAt });
+    const { battle } = await readyFight(stack);
+
+    expect(() => settleBattles(stack.repos, exploding, new Date())).toThrow('engine exploded');
+
+    // Both halves: the trap is still standing, and the fight is still coming.
+    expect(stack.repos.sieges.trap(SQUATTED_RUSTYARD_LOCATION)).toEqual({
+      trapId: spec.id,
+      armedAt,
+    });
+    expect(stack.repos.sieges.find(battle.id)!.resolvedAt).toBeNull();
   });
 
   /**
@@ -967,5 +1008,229 @@ describe('the beds an army abroad still occupies (§A1, §A4)', () => {
       payload: { unitId: 'razors', count: room + 4 },
     });
     expect(res.statusCode).toBe(409);
+  });
+});
+
+/**
+ * §J8: what a fight pays the faction, as opposed to what it pays the player.
+ *
+ * The board's rule has three halves and each one is a way the obvious implementation gets it wrong:
+ * a faction's figure is not a sum of its members' wallets, it does not fall when somebody spends,
+ * and it does not inherit what somebody was already holding when they walked in.
+ */
+describe('what a fight earns the faction', () => {
+  const seat = (stack: Stack, username: string) => {
+    const owner = stack.repos.bases.findById(stack.baseId)!.ownerId;
+    stack.repos.factions.insert({
+      id: 'f1',
+      name: 'Iron Wolves',
+      badge: DEFAULT_BADGE,
+      blurb: '',
+      foundedAt: new Date().toISOString(),
+    });
+    stack.repos.factions.addMember({
+      userId: owner,
+      factionId: 'f1',
+      rank: 'leader',
+      joinedAt: new Date().toISOString(),
+    });
+    expect(username).toBeTruthy();
+    return owner;
+  };
+
+  const earned = (stack: Stack, owner: string) =>
+    stack.repos.factions.membershipOf(owner)!.infamyEarned;
+
+  it('credits the table with exactly what the fight paid the player', async () => {
+    const stack = await makeStack('banker', decided('attacker'));
+    const owner = seat(stack, 'banker');
+    await readyFight(stack);
+
+    const before = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
+    expect(earned(stack, owner)).toBe(0);
+
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const after = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
+    expect(after).toBeGreaterThan(before);
+    // The same number, not a recomputation of it: the faction is credited from the two economies
+    // so a clamp on the player's side cannot leave the two disagreeing.
+    expect(earned(stack, owner)).toBeCloseTo(after - before, 6);
+  });
+
+  /**
+   * A member who joined holding a fortune hands the faction nothing.
+   *
+   * Asserted by giving the player a large balance *before* the fight and checking the faction's
+   * figure is the fight's pay rather than the wallet.
+   */
+  it('ignores what a member was already holding', async () => {
+    const stack = await makeStack('rich', decided('attacker'));
+    const owner = seat(stack, 'rich');
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 30_000 });
+    await readyFight(stack);
+
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const after = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
+    expect(after).toBeGreaterThan(30_000);
+    expect(earned(stack, owner)).toBeCloseTo(after - 30_000, 6);
+    expect(earned(stack, owner)).toBeLessThan(1_000);
+  });
+
+  /** Spending is a thing you do with a wallet. The record of what you won does not move. */
+  it('does not fall when the player spends infamy on notoriety', async () => {
+    const stack = await makeStack('spender', decided('attacker'));
+    const owner = seat(stack, 'spender');
+    await readyFight(stack);
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const won = earned(stack, owner);
+    expect(won).toBeGreaterThan(0);
+
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      infamy: base.economy.infamy + NOTORIETY_FIRST_COST,
+    });
+    const bought = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/notoriety',
+      headers: auth(stack.token),
+      payload: {},
+    });
+    expect(bought.statusCode).toBe(200);
+
+    expect(earned(stack, owner)).toBe(won);
+  });
+
+  /**
+   * The board's rule: append-only. A leaver does not un-win their fights.
+   *
+   * The member's own row goes with them, because that one is "what is this person contributing".
+   * The faction's total does not, because that one is "what has this faction done", and the answer
+   * to that does not change when somebody walks out of the room.
+   */
+  it('keeps what a leaver won, and forgets what the leaver was contributing', async () => {
+    const stack = await makeStack('leaver', decided('attacker'));
+    const owner = seat(stack, 'leaver');
+    await readyFight(stack);
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const won = earned(stack, owner);
+    expect(won).toBeGreaterThan(0);
+    expect(stack.repos.factions.find('f1')?.infamyEarned).toBeCloseTo(won, 6);
+
+    stack.repos.factions.removeMember(owner);
+    expect(stack.repos.factions.membershipOf(owner)).toBeUndefined();
+    // The faction's record is untouched by the departure.
+    expect(stack.repos.factions.find('f1')?.infamyEarned).toBeCloseTo(won, 6);
+
+    // ...and rejoining starts the *contribution* from nothing without resetting the faction.
+    stack.repos.factions.addMember({
+      userId: owner,
+      factionId: 'f1',
+      rank: 'member',
+      joinedAt: new Date().toISOString(),
+    });
+    expect(earned(stack, owner)).toBe(0);
+    expect(stack.repos.factions.find('f1')?.infamyEarned).toBeCloseTo(won, 6);
+  });
+
+  /**
+   * A member who joined holding a fortune hands the faction nothing.
+   *
+   * Asserted by giving the player a large balance *before* the fight and checking the faction's
+   * figure is the fight's pay rather than the wallet.
+   */
+  it('ignores what a member was already holding', async () => {
+    const stack = await makeStack('rich', decided('attacker'));
+    const owner = seat(stack, 'rich');
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 30_000 });
+    await readyFight(stack);
+
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const after = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
+    expect(after).toBeGreaterThan(30_000);
+    expect(earned(stack, owner)).toBeCloseTo(after - 30_000, 6);
+    expect(earned(stack, owner)).toBeLessThan(1_000);
+  });
+
+  /** Spending is a thing you do with a wallet. The record of what you won does not move. */
+  it('does not fall when the player spends infamy on notoriety', async () => {
+    const stack = await makeStack('spender', decided('attacker'));
+    const owner = seat(stack, 'spender');
+    await readyFight(stack);
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const won = earned(stack, owner);
+    expect(won).toBeGreaterThan(0);
+
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      infamy: base.economy.infamy + NOTORIETY_FIRST_COST,
+    });
+    const bought = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/notoriety',
+      headers: auth(stack.token),
+      payload: {},
+    });
+    expect(bought.statusCode).toBe(200);
+
+    expect(earned(stack, owner)).toBe(won);
+  });
+});
+
+/**
+ * A stored report this build cannot read costs its own row, and nothing else.
+ *
+ * The battles screen was unreachable for an account whose history contained one analysis written
+ * before a tier rename: the parse threw, the projection threw, and `GET /battles` answered 500. A
+ * history with a gap in it is a nuisance; a history that renders none of its rows because of one is
+ * a broken game.
+ */
+describe('reading a battle history written by an older build', () => {
+  it('skips a report it cannot parse and still serves the board', async () => {
+    const stack = await makeStack('archivist', decided('attacker'));
+    await readyFight(stack);
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+    expect(stack.repos.sieges.resolvedFor(stack.baseId, 10)).toHaveLength(1);
+
+    // Rewrite the stored analysis the way a retired vocabulary would leave it.
+    const row = stack.db
+      .prepare('SELECT id, analysis_json FROM scheduled_battles WHERE analysis_json IS NOT NULL')
+      .get() as { id: string; analysis_json: string };
+    const stored = JSON.parse(row.analysis_json) as {
+      attacker: { units: { tier: string }[] };
+      defender: { units: { tier: string }[] };
+    };
+    // The tier vocabulary as it was before the rename, which this build's enum does not have.
+    // Written onto whichever side fielded somebody, so the test does not depend on which one the
+    // fixture engine gave a unit line to.
+    const lines = [...stored.attacker.units, ...stored.defender.units];
+    if (lines.length > 0) {
+      for (const line of lines) line.tier = 'regular';
+    } else {
+      stored.attacker.units = [{ tier: 'regular' }];
+    }
+    stack.db
+      .prepare('UPDATE scheduled_battles SET analysis_json = ? WHERE id = ?')
+      .run(JSON.stringify(stored), row.id);
+
+    // The row is gone from the history rather than taking the history with it...
+    expect(stack.repos.sieges.resolvedFor(stack.baseId, 10)).toHaveLength(0);
+
+    // ...and the board still answers.
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/battles',
+      headers: auth(stack.token),
+    });
+    expect(board.statusCode).toBe(200);
   });
 });

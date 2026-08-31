@@ -19,8 +19,18 @@ function gradientFor(portraitId: string): string {
 interface OverseerPortraitProps {
   portraitId: string;
   archetype: OverseerArchetype;
-  /** Box shape. Portrait (3:4) per the layout rules; square for compact avatars. */
-  aspect?: 'portrait' | 'square';
+  /**
+   * Box shape.
+   *
+   * `portrait` (3:4) per the layout rules and `square` for compact avatars both *crop* to fill
+   * their box, which is right for an avatar: the delivery is framed face-in-the-central-70% so a
+   * crop always lands on the face.
+   *
+   * `fill` is the other kind of placement. The box is whatever height the parent has left, and the
+   * whole painting is fitted inside it rather than cropped to it, so nothing is ever cut off. For
+   * the one screen that is *about* the portrait rather than using it as a label.
+   */
+  aspect?: 'portrait' | 'square' | 'fill';
   /** Hide the archetype tag on tiny avatars. */
   showTag?: boolean;
   className?: string;
@@ -57,8 +67,20 @@ export function OverseerPortrait({
   return (
     <div
       className={cn(
-        'relative w-full overflow-hidden border border-surface-600/70 bg-gradient-to-b',
-        aspect === 'portrait' ? 'aspect-[3/4]' : 'aspect-square',
+        'relative overflow-hidden border border-surface-600/70 bg-gradient-to-b',
+        aspect !== 'fill' && 'w-full',
+        aspect === 'portrait' && 'aspect-[3/4]',
+        aspect === 'square' && 'aspect-square',
+        /*
+         * Height from the parent, width from the picture.
+         *
+         * `h-full w-auto` on a 3:4 box means the leftover height decides how big the portrait is
+         * and the width follows from it, so the frame is exactly the shape of the painting. The
+         * first version filled the parent's width and fitted the image inside with
+         * `object-contain`, which showed the whole picture but left a bar of panel down each side
+         * of it: a framed picture in a frame the wrong shape.
+         */
+        aspect === 'fill' && 'aspect-[3/4] h-full max-w-full',
         gradientFor(portraitId),
         className,
       )}

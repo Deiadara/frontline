@@ -93,6 +93,7 @@ const staffed: CrewResponse = {
       attributes: makeAttributes(15),
       perks: [],
       weeklyWage: 40,
+      injuredUntil: null,
     },
   ],
 };

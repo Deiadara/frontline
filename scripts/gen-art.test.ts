@@ -177,6 +177,14 @@ describe('orderForGeneration', () => {
 });
 
 describe('backend selection', () => {
+  /**
+   * The override wins whatever the environment says.
+   *
+   * Asserted with the env set to the *other* backend, which is the only way the assertion means
+   * anything: the overseer portraits are pinned to `fal` (their masters are a board delivery at a
+   * size gpt-image-1 does not render), so an env var of `fal` would have passed this test even if
+   * overrides were ignored entirely.
+   */
   it('honours the per-asset override ahead of the env var', () => {
     expect(resolveBackendName(PORTRAIT, { FRONTLINE_ART_BACKEND: 'fal' })).toBe('openai');
   });

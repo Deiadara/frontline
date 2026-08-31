@@ -127,18 +127,34 @@ export function supplyQueued(queue: TrainingQueue): number {
 /**
  * What training `count` of `unit` costs.
  *
- * `discountPercent` is everything that makes units cheaper: an Armory, a district's unified
- * bonus: already summed, so this module never has to know what a place is. Floored at 1 per line
- * so a deep discount can never make a unit free.
+ * `discountPercent` is everything that makes units cheaper across the board: an Armory, a
+ * district's unified bonus: already summed, so this module never has to know what a place is.
+ *
+ * `suppliesPercent` is §B5's Greenhouse, and it is a **separate argument rather than a bigger
+ * number** because it lands on one line of the bill and no other. A Greenhouse grows food, so what
+ * it makes cheaper is what a recruit eats while they learn, not the scrap their armour is cut
+ * from. Folding it into `discountPercent` would have been one fewer parameter and would have made
+ * the Greenhouse quietly pay for ammunition.
+ *
+ * Both are floored at 1 per line, so no depth of discount ever makes a unit free.
  */
 export const MAX_TRAINING_DISCOUNT = 50;
+/** And the ceiling on the supplies-only half, on top of the general one. */
+export const MAX_TRAINING_SUPPLIES_DISCOUNT = 40;
 
-export function trainingCost(unit: UnitSpec, count: number, discountPercent = 0): PartialResources {
-  const off = Math.min(MAX_TRAINING_DISCOUNT, Math.max(0, discountPercent)) / 100;
+export function trainingCost(
+  unit: UnitSpec,
+  count: number,
+  discountPercent = 0,
+  suppliesPercent = 0,
+): PartialResources {
+  const general = Math.min(MAX_TRAINING_DISCOUNT, Math.max(0, discountPercent));
+  const supplies = Math.min(MAX_TRAINING_SUPPLIES_DISCOUNT, Math.max(0, suppliesPercent));
   return Object.fromEntries(
     RESOURCE_KEYS.flatMap((key) => {
       const amount = unit.cost[key];
       if (amount === undefined) return [];
+      const off = (general + (key === 'supplies' ? supplies : 0)) / 100;
       return [[key, Math.max(1, Math.round(amount * count * (1 - off)))] as const];
     }),
   );
@@ -261,6 +277,7 @@ export function maxTrainable(
   stock: PartialResources,
   spare: number,
   discountPercent = 0,
+  suppliesPercent = 0,
 ): number {
   /*
    * A legendary is one or none, and it still has to be paid for.
@@ -272,14 +289,21 @@ export function maxTrainable(
    */
   if (unit.unique) {
     const room = spare >= unit.supply;
-    return room && affordable(trainingCost(unit, 1, discountPercent), stock) ? 1 : 0;
+    return room && affordable(trainingCost(unit, 1, discountPercent, suppliesPercent), stock)
+      ? 1
+      : 0;
   }
   const byRoom = Math.floor(Math.max(0, spare) / Math.max(1, unit.supply));
   // Binary search would be neater; the batch price is linear in `count` before rounding, so the
   // straight division is exact enough and then walked back until it actually fits. `TRAINING_MAX`
   // bounds the walk at the same number the roster's own stepper allows.
   let count = Math.min(TRAINING_MAX_BATCH, byRoom);
-  while (count > 0 && !affordable(trainingCost(unit, count, discountPercent), stock)) count -= 1;
+  while (
+    count > 0 &&
+    !affordable(trainingCost(unit, count, discountPercent, suppliesPercent), stock)
+  ) {
+    count -= 1;
+  }
   return count;
 }
 

@@ -1,4 +1,6 @@
 import {
+  makeAttributes,
+  createCommander,
   CITY_DISTRICTS,
   STARTING_RESOURCES,
   STARTER_DISTRICT_ID,
@@ -17,6 +19,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { settleScouting } from '../scouting/scouting.js';
 
 type InjectResponse = Awaited<ReturnType<FastifyInstance['inject']>>;
 
@@ -337,13 +340,22 @@ describe('GET /api/city', () => {
    */
   it('hides what is inside a district until the crew has looked', async () => {
     const { app } = await makeApp();
-    const { token } = await register(app, 'scout');
+    const { token, userId } = await register(app, 'scout');
     await chooseOverseer(app, token);
 
     const before = await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) });
+    /*
+     * A district this crew has *not* had eyes on.
+     *
+     * `find(kind === 'contested')` used to be enough, because a new crew had seen nothing at all.
+     * A new crew is now given its nearest unoccupied district (`openTheNearestGround`), so the
+     * first contested entry on the list is sometimes the one that is already open, and this test
+     * would then be asserting fog over ground the game deliberately handed them.
+     */
     const contested = before
       .json<CityResponse>()
-      .districts.find((entry) => entry.district.kind === 'contested');
+      .districts.find((entry) => entry.district.kind === 'contested' && !entry.scouted);
+    expect(contested, 'a new crew should still have ground it has not seen').toBeDefined();
     expect(contested?.scouted).toBe(false);
     expect(contested?.held).toBeNull();
 
@@ -354,12 +366,44 @@ describe('GET /api/city', () => {
     });
     expect(detail.json<DistrictDetailResponse>().locations).toEqual([]);
 
-    await app.inject({
+    /*
+     * Scouting is a journey now, so the button sends somebody and the ground opens when they are
+     * home. The fixture drives the *clock* rather than waiting hours: the run is wound back and
+     * the world clock settles it, which also exercises the path a real player's ground opens on.
+     */
+    /*
+     * Somebody to send.
+     *
+     * A brand-new crew has nobody on the books, and scouting now costs an officer, so the refusal
+     * is correct behaviour rather than something to work around: it is the reason a new player is
+     * handed one district open (`openTheNearestGround`). This test is about the fog, so it hires
+     * past that.
+     */
+    const own = app.repos.bases.findByOwnerId(userId)!;
+    app.repos.bases.updateCommanders(own.id, [
+      createCommander('scout-1', 'Wire', 'scout', makeAttributes(30), []),
+    ]);
+
+    const sent = await app.inject({
       method: 'POST',
       url: '/api/city/scout',
       headers: auth(token),
       payload: { districtId: contested?.district.id },
     });
+    expect(sent.statusCode).toBe(200);
+
+    // Still fogged, because nobody is back yet. This is the half the old instant scout skipped.
+    const midway = await app.inject({
+      method: 'GET',
+      url: `/api/city/${contested?.district.id ?? ''}`,
+      headers: auth(token),
+    });
+    expect(midway.json<DistrictDetailResponse>().scouted).toBe(false);
+
+    app.db
+      .prepare('UPDATE scouting_runs SET returns_at = ?')
+      .run(new Date(Date.now() - 60_000).toISOString());
+    settleScouting(app.repos, new Date());
 
     const after = await app.inject({
       method: 'GET',
@@ -385,7 +429,7 @@ describe('GET /api/city', () => {
    */
   it('shows what a neighbour has built, behind the same fog as everything else', async () => {
     const { app } = await makeApp();
-    const { token } = await register(app, 'neighbour');
+    const { token, userId } = await register(app, 'neighbour');
     await chooseOverseer(app, token);
 
     // A rival placed by hand rather than by the seed: `makeApp` deliberately builds an *unseeded*
@@ -438,12 +482,13 @@ describe('GET /api/city', () => {
     });
     expect(unscouted.json<DistrictDetailResponse>().residentBuildings).toEqual([]);
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/city/scout',
-      headers: auth(token),
-      payload: { districtId },
-    });
+    // A journey now, not a button. The fixture wants the *state* the journey produces, so it
+    // writes the intel directly rather than sending somebody and winding a clock forward.
+    app.repos.city.markScouted(
+      app.repos.bases.findByOwnerId(userId)!.id,
+      districtId,
+      new Date().toISOString(),
+    );
 
     const seen = (
       await app.inject({ method: 'GET', url: `/api/city/${districtId}`, headers: auth(token) })
@@ -567,12 +612,12 @@ describe('a plot nobody lives on draws itself at level 1', () => {
     );
     expect(empty, 'the city has an unoccupied plot to look at').toBeDefined();
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/city/scout',
-      headers: auth(mine.token),
-      payload: { districtId: empty!.id },
-    });
+    // The state, not the journey: see the note on the neighbour test above.
+    app.repos.city.markScouted(
+      app.repos.bases.findByOwnerId(mine.userId)!.id,
+      empty!.id,
+      new Date().toISOString(),
+    );
     const seen = (
       await app.inject({ method: 'GET', url: `/api/city/${empty!.id}`, headers: auth(mine.token) })
     ).json<DistrictDetailResponse>();

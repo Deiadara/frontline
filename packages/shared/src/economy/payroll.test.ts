@@ -4,6 +4,7 @@ import {
   PAYROLL_BASE,
   PAYROLL_STEP,
   PAYROLL_STEP_BASE_COST,
+  PayrollStateSchema,
   committedPayroll,
   dismissalFee,
   payrollCapacity,
@@ -11,7 +12,6 @@ import {
   payrollLedger,
   payrollStepCost,
   startingPayroll,
-  PayrollStateSchema,
 } from './payroll.js';
 
 describe('the payroll book (§H7)', () => {
@@ -102,5 +102,37 @@ describe('nothing recurs', () => {
     ]) {
       expect(payroll, gone).not.toHaveProperty(gone);
     }
+  });
+});
+
+/**
+ * §H7: what walking a commitment back costs.
+ *
+ * Pinned to the board's own arithmetic rather than to the constant, because a test that reads
+ * `DISMISSAL_WEEKS` to compute what it expects agrees with any value of it, including a wrong one.
+ * The board's example is the anchor: an officer on 30 caps a week costs 300 to release.
+ *
+ * Nothing asserted this before. The rate could be changed to any number and the whole suite stayed
+ * green, which is how it sat at half the intended figure without anybody noticing.
+ */
+describe('letting somebody go', () => {
+  it('costs ten times what they are on, in caps, on the spot', () => {
+    expect(dismissalFee(30)).toBe(300);
+    expect(dismissalFee(7)).toBe(70);
+    expect(DISMISSAL_WEEKS).toBe(10);
+  });
+
+  it('costs nothing for somebody who was never committed to', () => {
+    expect(dismissalFee(0)).toBe(0);
+  });
+
+  /** A fee is never a refund, whatever a caller hands in. */
+  it('never returns caps', () => {
+    expect(dismissalFee(-40)).toBe(0);
+  });
+
+  it('rounds the weekly figure before multiplying, so the fee is whole caps', () => {
+    expect(dismissalFee(12.4)).toBe(120);
+    expect(dismissalFee(12.6)).toBe(130);
   });
 });

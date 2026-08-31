@@ -1,4 +1,5 @@
 import {
+  BENCH_LABEL,
   type PayrollLedger,
   OFFICER_ROLE_LABELS,
   OFFICER_ROLES,
@@ -156,7 +157,7 @@ export function BarPage() {
   // recruit slots, the other about how many people the whole city may take out of the room today.
   const signedToday = data !== undefined && data.hiresLeftToday === 0;
 
-  const onOffer = (recruitId: string, role: OfficerRole, offerWage: number) => {
+  const onOffer = (recruitId: string, role: OfficerRole | null, offerWage: number) => {
     hire.reset();
     hire.mutate(
       { recruitId, role, offerWage },
@@ -989,7 +990,7 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
         </div>
         <div className="flex min-w-0 items-center justify-between gap-3">
           <span className="min-w-0 truncate font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-            {OFFICER_ROLE_LABELS[commander.role]}
+            {commander.role === null ? BENCH_LABEL : OFFICER_ROLE_LABELS[commander.role]}
           </span>
           <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
             <span className="tabular-nums text-ink-200">{officer.weeklyWage}</span> caps/wk

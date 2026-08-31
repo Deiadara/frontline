@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { EnvLabelSchema, WeatherKindSchema } from '../city/index.js';
 import { UnitTierSchema, type Army } from '../units/index.js';
-import type { Simulation, SideState } from './engine.js';
+import { officerOutcomeOf, type Simulation, type SideState } from './engine.js';
 import { moraleState, MORALE_STATE_LABELS } from './morale.js';
 import { BattleFindingSchema, findingsFor, narrate, type BattleFinding } from './report.js';
+import { OfficerReportSchema } from './officer.js';
 import { BattleSideSchema, type BattleSide } from './scheduled.js';
 
 /**
@@ -70,6 +71,17 @@ export const SideAnalysisSchema = z.object({
   /** Infamy this side banked for what it killed (§D7). */
   infamy: z.number().int().nonnegative(),
   units: z.array(UnitPerformanceSchema),
+  /**
+   * §D1: the officer who led this side, or null when nobody did.
+   *
+   * Beside the unit rows rather than in them. Every figure in `units` is a body count the settler
+   * writes back to a roster, and an officer is neither trained nor lost nor recovered: they are
+   * one person who was there. `injured` is filled in by the settler once the stretcher has been
+   * decided, and it is what {@link reportReaches} reads to withhold this side's report (§D4).
+   *
+   * Defaulted, so a report written before officers could lead reads as a fight nobody led.
+   */
+  officer: OfficerReportSchema.nullable().default(null),
 });
 export type SideAnalysis = z.infer<typeof SideAnalysisSchema>;
 
@@ -135,33 +147,38 @@ function performanceFor(
 ): UnitPerformance[] {
   const dealt = side.stacks.reduce((sum, stack) => sum + stack.dealt, 0);
 
-  return side.stacks
-    .filter((stack) => stack.started > 0)
-    .map((stack): UnitPerformance => {
-      // Two entirely different accountings, because the two sides end a fight in different states.
-      // A winner's roster is what it started with less its dead; a loser's is only the people who
-      // ran and got clear, and everybody else is gone however they went.
-      const ranHome = winning ? 0 : (fled[stack.unit.id] ?? 0);
-      const stopped = winning ? 0 : (caught[stack.unit.id] ?? 0);
-      const survived = winning ? stack.started - (winnerLosses[stack.unit.id] ?? 0) : ranHome;
+  return (
+    side.stacks
+      // §D1: the officer is not a unit row. `committed`, `lost` and `survived` are sums of these and
+      // every one of them is a body count the settler acts on; an officer is a person who was there,
+      // and they get their own field on the side. See `SideAnalysis.officer`.
+      .filter((stack) => stack.started > 0 && stack.officer === undefined)
+      .map((stack): UnitPerformance => {
+        // Two entirely different accountings, because the two sides end a fight in different states.
+        // A winner's roster is what it started with less its dead; a loser's is only the people who
+        // ran and got clear, and everybody else is gone however they went.
+        const ranHome = winning ? 0 : (fled[stack.unit.id] ?? 0);
+        const stopped = winning ? 0 : (caught[stack.unit.id] ?? 0);
+        const survived = winning ? stack.started - (winnerLosses[stack.unit.id] ?? 0) : ranHome;
 
-      return {
-        unitId: stack.unit.id,
-        name: stack.unit.name,
-        tier: stack.unit.tier,
-        unique: stack.unit.unique,
-        started: stack.started,
-        lost: Math.max(0, stack.started - survived),
-        fled: ranHome,
-        caught: stopped,
-        survived: Math.max(0, survived),
-        damage: Math.round(stack.dealt),
-        damageShare: dealt <= 0 ? 0 : stack.dealt / dealt,
-        brokeAtRound: stack.brokeAt,
-        state: MORALE_STATE_LABELS[stack.brokeAt === null ? moraleState(stack.morale) : 'routed'],
-      };
-    })
-    .sort((a, b) => b.damage - a.damage);
+        return {
+          unitId: stack.unit.id,
+          name: stack.unit.name,
+          tier: stack.unit.tier,
+          unique: stack.unit.unique,
+          started: stack.started,
+          lost: Math.max(0, stack.started - survived),
+          fled: ranHome,
+          caught: stopped,
+          survived: Math.max(0, survived),
+          damage: Math.round(stack.dealt),
+          damageShare: dealt <= 0 ? 0 : stack.dealt / dealt,
+          brokeAtRound: stack.brokeAt,
+          state: MORALE_STATE_LABELS[stack.brokeAt === null ? moraleState(stack.morale) : 'routed'],
+        };
+      })
+      .sort((a, b) => b.damage - a.damage)
+  );
 }
 
 function sideAnalysis(
@@ -170,6 +187,7 @@ function sideAnalysis(
   perimeter: Army,
   perimeterCaught: number,
   infamy: number,
+  officer: SideAnalysis['officer'],
 ): SideAnalysis {
   return {
     name,
@@ -181,7 +199,20 @@ function sideAnalysis(
     perimeterCaught,
     infamy,
     units: [...units],
+    officer,
   };
+}
+
+/**
+ * The officer as the report first sees them: what they did, and not yet what it cost them.
+ *
+ * `injured` is false here on purpose. Whether an officer ends up on a stretcher is a roll the
+ * *settler* makes, because it needs the day's margin and a stream it can bank against, and the
+ * engine has neither. The settler overwrites this field; nothing else may.
+ */
+function officerReportFor(side: SideState): SideAnalysis['officer'] {
+  const outcome = officerOutcomeOf(side);
+  return outcome === null ? null : { ...outcome, injured: false };
 }
 
 /**
@@ -249,6 +280,7 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     input.perimeter.attacker,
     attackerWon ? stopped : 0,
     input.infamy.attacker,
+    officerReportFor(simulation.attacker),
   );
   const defender = sideAnalysis(
     simulation.defender.name,
@@ -256,6 +288,7 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     input.perimeter.defender,
     attackerWon ? 0 : stopped,
     input.infamy.defender,
+    officerReportFor(simulation.defender),
   );
 
   const findings: BattleFinding[] = findingsFor(simulation);
@@ -286,9 +319,22 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
  * reason a perimeter is worth the bodies it costs.
  */
 export function reportReaches(side: BattleSide, analysis: BattleAnalysis): boolean {
+  /*
+   * §D4: an officer who came home injured writes nothing.
+   *
+   * The board's words: the same as if he died. Checked before the winner's clause, because it has
+   * to beat it: a crew that took the ground and carried their officer off it still has nobody who
+   * can tell them how. Sending an officer is therefore a real gamble rather than free upside, and
+   * that is the whole point of the rule.
+   */
+  if (analysis[side].officer?.injured === true) return false;
   if (side === analysis.winner) return true;
   return analysis[side].fled > 0;
 }
+
+/** The line shown in place of a report the officer was in no state to write. */
+export const INJURED_OFFICER_LINE =
+  'The one who would have written this came back on a stretcher. Nobody else was keeping notes.';
 
 /** The line shown in place of a report nobody came back from. */
 export const NO_REPORT_LINE = 'Nobody came back. Whatever happened out there, it stayed out there.';

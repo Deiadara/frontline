@@ -5,11 +5,12 @@ import { buildingLevel, findBuilding, type Building } from './state.js';
 /**
  * What the district is worth to the crew standing in it (§A1).
  *
- * Four structures reach the crew through this module: the Quarters sets how many names the payroll
- * book can carry, the Gate sets what a raider has to beat, the Lab shortens research, and the
- * Gauntlet pays officers more for the same work. Three of them do their *whole* job here: the
- * Quarters is the exception, because it also houses people, and that is `population.ts`. Everything
- * else is one exported function, so "what does the Gate actually do" has exactly one answer.
+ * Five structures reach the crew through this module: the Quarters sets how many names the payroll
+ * book can carry, the Gate holds the district and hides it, the Lab shortens research, the
+ * Gauntlet trains everybody faster, and the Greenhouse takes supplies off a training bill. Each is
+ * one exported function, so "what does the Gate actually do" has exactly one answer.
+ *
+ * The Quarters is the one exception, because it also houses people, and that is `population.ts`.
  */
 
 // --- the payroll book (§H7): how many names the district can carry ---
@@ -45,21 +46,59 @@ export function factionXpBonus(buildings: readonly Building[]): number {
 export const DEFENSE_PER_GATE_LEVEL = 6;
 
 /**
+ * §B7: percentage points of defence on **every unit holding this district**, per Gate level.
+ *
+ * The board asked for the Gate's contribution to be an explicit, level-scaled percentage rather
+ * than a number folded into a difficulty rating nobody could point at. This is that percentage, and
+ * it lands on the same `defensePercent` channel the ground and the crew already push, so the
+ * battle engine reads it without a new parameter: see `battle/effects.ts`, where a defending side
+ * adds `territory.defensePercent` to what it is holding.
+ *
+ * The same figure applies wherever this crew is the defender, which is the other half of §B7: a
+ * Gate raised on ground the crew has closed off pays there too, because the fold is per **crew**
+ * rather than per plot of land.
+ */
+export const GATE_DEFENSE_PERCENT_PER_LEVEL = 2.5;
+
+/**
+ * §B7: percentage points of intel resistance, per Gate level.
+ *
+ * A wall is not only something to shoot from. What a scout brings back about a district is decided
+ * by `intelResistancePercent` (`battle/intel.ts`), and a district nobody can walk up to is a
+ * district nobody can count. Slower than the defence figure on purpose: a maxed Gate is 30 points
+ * of resistance, which coarsens a scout's report without ever blanking it.
+ */
+export const GATE_INTEL_RESISTANCE_PER_LEVEL = 1.5;
+
+/** The Gate's own working level: what is standing, less whatever a siege took out of it. */
+function workingGateLevel(buildings: readonly Building[]): number {
+  // A Gate that has been kicked in is worth less until it is rebuilt, which is most of what a
+  // breach is *for*, and the reason a second raid inside the window is easier than the first.
+  return buildingLevel(buildings, 'gate') * buildingEffectiveness(findBuilding(buildings, 'gate'));
+}
+
+/** §B7: what the Gate adds to every defender's `defensePercent`, modifications included. */
+export function gateDefensePercent(buildings: readonly Building[]): number {
+  const effects = districtEffects(buildings);
+  return workingGateLevel(buildings) * GATE_DEFENSE_PERCENT_PER_LEVEL + effects.defense_percent;
+}
+
+/** §B7: what the Gate adds to `intelResistancePercent`. */
+export function gateIntelResistancePercent(buildings: readonly Building[]): number {
+  return workingGateLevel(buildings) * GATE_INTEL_RESISTANCE_PER_LEVEL;
+}
+
+/**
  * What a raider has to beat before they touch anything behind it.
  *
- * Added to the target's own difficulty by the battle engine, so a well-gated district is harder to
- * take than a bare one on the same ground. It is read for *whichever side is defending*, which is
- * why the bot rival's Gate already makes a difference today, and why a player's own Gate starts
- * paying the moment crews can raid each other.
+ * The flat rating, kept alongside the percentage above because they answer different questions: a
+ * player looking at the Gate's dialog wants one number for "how hard is this to get through", and
+ * the engine wants a percentage it can put on a unit. Both scale with the same level and the same
+ * damage, so they cannot disagree about whether the Gate is standing.
  */
 export function districtDefense(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  // A Gate that has been kicked in is worth less until it is rebuilt, which is most of what a
-  // breach is *for*, and the reason a second raid inside the window is easier than the first.
-  const gate =
-    buildingLevel(buildings, 'gate') *
-    DEFENSE_PER_GATE_LEVEL *
-    buildingEffectiveness(findBuilding(buildings, 'gate'));
+  const gate = workingGateLevel(buildings) * DEFENSE_PER_GATE_LEVEL;
   // §A4: and how far the Gate itself has been dug in, which is materials rather than bodies.
   return Math.round(gate * (1 + effects.defense_percent / 100) + gateFortifyPercent(buildings));
 }
@@ -96,7 +135,7 @@ export function characterXpBonus(buildings: readonly Building[]): number {
  * when a fight goes badly. Folded in beside the crew's own medics (`casualtyRecoveryPercent`),
  * which is why it is a percentage rather than a count.
  */
-export const CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL = 1.5;
+export const CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL = 4;
 
 export function infirmaryRecoveryPercent(buildings: readonly Building[]): number {
   return buildingLevel(buildings, 'infirmary') * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
@@ -105,4 +144,52 @@ export function infirmaryRecoveryPercent(buildings: readonly Building[]): number
 /** Percentage points on what a won raid brings home. Modifications only: no structure grants it. */
 export function raidLootBonus(buildings: readonly Building[]): number {
   return districtEffects(buildings).raid_loot_percent;
+}
+
+// --- the Gauntlet (§B6) and the Greenhouse (§B5): what training costs and how long it takes ---
+
+/** Percentage points off every unit's training clock, per Gauntlet level. */
+export const TRAINING_TIME_PER_GAUNTLET_LEVEL = 2;
+/** And the ceiling on it, before modifications. A maxed Gauntlet is 40 points on its own. */
+export const MAX_GAUNTLET_TRAINING_BONUS = 40;
+
+/**
+ * §B6: how much faster this district trains, in percentage points.
+ *
+ * Applies to **every** unit on the roster, including the ones the Gauntlet cannot train itself.
+ * That is the board's wording and it is the right rule: the Gauntlet is where a crew learns to
+ * drill, and a Cyber Dog assembled in the Infirmary is still handled by people who trained here.
+ *
+ * The Gauntlet's own contribution is capped separately from the modifications on top, so a maxed
+ * Gauntlet is 40 points and a maxed Gauntlet carrying Salvaged Simulators is 52.
+ */
+export function trainingTimeReduction(buildings: readonly Building[]): number {
+  const effects = districtEffects(buildings);
+  const gauntlet = Math.min(
+    MAX_GAUNTLET_TRAINING_BONUS,
+    buildingLevel(buildings, 'gauntlet') * TRAINING_TIME_PER_GAUNTLET_LEVEL,
+  );
+  return gauntlet + effects.training_time_reduction;
+}
+
+/** Percentage points off the **supplies** line of a training bill, per Greenhouse level. */
+export const TRAINING_SUPPLIES_PER_GREENHOUSE_LEVEL = 2;
+/** And the ceiling on it, before modifications. */
+export const MAX_GREENHOUSE_SUPPLIES_DISCOUNT = 30;
+
+/**
+ * §B5: how much less supplies a unit costs to train here, in percentage points.
+ *
+ * Supplies only, and that restriction is the whole point of the channel existing: the Greenhouse
+ * grows food, so what it makes cheaper is the food a recruit eats while they learn, not the scrap
+ * their armour is cut from. Folded on top of whatever general training discount the crew and the
+ * ground already carry, in `trainingCost`, which applies the two to different lines of the bill.
+ */
+export function trainingSuppliesReduction(buildings: readonly Building[]): number {
+  const effects = districtEffects(buildings);
+  const greenhouse = Math.min(
+    MAX_GREENHOUSE_SUPPLIES_DISCOUNT,
+    buildingLevel(buildings, 'greenhouse') * TRAINING_SUPPLIES_PER_GREENHOUSE_LEVEL,
+  );
+  return greenhouse + effects.training_supplies_reduction;
 }

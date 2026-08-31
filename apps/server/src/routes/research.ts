@@ -80,14 +80,21 @@ function settledPlayer(
 
 /** §B9/§C4 + §F4, who could lead an investigation, and what their own sheet unlocks. */
 function leadsOn(base: Base): ResearchLead[] {
-  return base.commanders
-    .filter((officer) => HIRING_INSIGHT_ROLES.includes(officer.role))
-    .map((officer) => ({
-      officerId: officer.id,
-      name: officer.name,
-      role: officer.role,
-      crossReference: unlocksCrossReference(officer.attributes),
-    }));
+  return (
+    base.commanders
+      // Narrowed to a seated officer, so `role` below is a chair rather than possibly the bench.
+      .flatMap((officer) =>
+        officer.role !== null && HIRING_INSIGHT_ROLES.includes(officer.role)
+          ? [{ ...officer, role: officer.role }]
+          : [],
+      )
+      .map((officer) => ({
+        officerId: officer.id,
+        name: officer.name,
+        role: officer.role,
+        crossReference: unlocksCrossReference(officer.attributes),
+      }))
+  );
 }
 
 /**

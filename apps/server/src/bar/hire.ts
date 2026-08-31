@@ -20,7 +20,7 @@ import {
   type Standoff,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { districtPopulation } from '../district/population.js';
+import { crewEffectsFor } from '../crew/standing.js';
 import { barDay, type BarCharacter } from './roster.js';
 
 /**
@@ -41,8 +41,14 @@ export interface HireInput {
   /** §H2b, which seat of the shared room they are sitting in, so it can be turned over. */
   seat: number;
   recruit: BarCharacter;
-  /** §C2: the role the player is hiring them *into*. A character has none until now. */
-  role: OfficerRole;
+  /**
+   * §C2: the role the player is hiring them *into*. A character has none until now.
+   *
+   * `null` signs them to the bench (board request), which is a hire with the chair left undecided.
+   * Everything else about it is identical: the wage is committed, the seat at the Bar turns over,
+   * the daily limit is spent. Only the assignment is deferred.
+   */
+  role: OfficerRole | null;
   /** §H7: the weekly fee in caps being offered. */
   offerWage: number;
   /** What this crew has already made of them: a walked negotiation marks the price up. */
@@ -63,7 +69,6 @@ export interface HireInput {
 export const HIRE_REFUSALS = [
   'already_hired',
   'daily_limit',
-  'no_housing',
   'no_slots',
   'role_taken',
   'requirement',
@@ -133,20 +138,26 @@ function refusalFor(
     role,
     standoff,
     hiresToday,
-    spare,
     now,
   }: Omit<HireInput, 'offerWage' | 'userId' | 'seat'> & {
     hiresToday: number;
-    /** Beds left in the district (§A1), read once by the caller that has the repositories. */
-    spare: number;
   },
   blockers: readonly JoinBlocker[],
 ): HireRefusal | null {
   if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
   // §H8: 2 at the start, +1 per level, read off W6's grant table rather than restated here.
   if (base.commanders.length >= playerLevelGrants(base.level).recruitSlots) return 'no_slots';
-  // §C3: a role is either filled or empty, so an occupied one cannot take a second officer.
-  if (base.commanders.some((officer) => officer.role === role)) return 'role_taken';
+  /*
+   * §C3: a role is either filled or empty, so an occupied one cannot take a second officer.
+   *
+   * The bench is the exception and it is not really one: `null` is the *absence* of a chair, so
+   * "somebody else already has that chair" cannot be true of it however many people are sitting
+   * there. Without the guard this read `officer.role === null` for a bench hire and refused the
+   * second one, which would have made the bench a chair with one seat in it.
+   */
+  if (role !== null && base.commanders.some((officer) => officer.role === role)) {
+    return 'role_taken';
+  }
 
   // The two limits that are about the crew's *capacity* rather than about this request being
   // nonsense, so they come after the three above: a player asking to fill a post that is already
@@ -155,10 +166,6 @@ function refusalFor(
   // §H2b: the shared room's stock is finite, so one signing per player per UTC day. Two from
   // level 40 (§I3), read off the same function the Bar screen quotes.
   if (hiresToday >= barHiresPerDay(base.level)) return 'daily_limit';
-  // §A1: an officer needs a bed like anyone else. Counted against the whole district population,
-  // soldiers included, because the Quarters do not care what somebody's job title is.
-  if (spare < 1) return 'no_housing';
-
   if (blockers.includes('notoriety')) return 'requirement';
   if (blockers.includes('level')) return 'level';
   /*
@@ -197,7 +204,6 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
       ...(standoff ? { standoff } : {}),
       now,
       hiresToday: repos.bar.hiresBy(userId, day),
-      spare: districtPopulation(repos, base).spare,
     },
     blockers,
   );
@@ -206,7 +212,19 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
   // The conversation is the negotiation route's business, and it has already happened: what
   // arrives here is the number the two of them shook on. This is the backstop, not the haggle. A
   // request that skipped the window and posted a lowball gets their floor back as a counter.
-  const asking = wageAskedOf(recruit, standoff);
+  /*
+   * §H7: what the crew's own negotiators take off the ask.
+   *
+   * Computed here rather than passed in, because this is the backstop every path ends at and a
+   * parameter is a thing a caller can forget. `wageDiscountPercent` was folded by four perks, two
+   * attributes and a technology and read by nobody at all: hiring a negotiator moved no number at
+   * the Bar, in the window, or on the books.
+   *
+   * The same figure has to reach `projectRecruit` and the negotiation route, or the price on the
+   * screen and the price charged would differ, which is the one pricing bug that looks like a
+   * refund. See the note on `ledgerFor` about exactly that.
+   */
+  const asking = wageAskedOf(recruit, standoff, crewEffectsFor(repos, base).wageDiscountPercent);
   const wage = Math.max(0, Math.round(offerWage));
   const floor = reservationWage(asking);
   if (wage < floor) return { kind: 'countered', wage: floor };
@@ -221,6 +239,8 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
     name: recruit.name,
     role,
     attributes: recruit.attributes,
+    // §D4: nobody is hired hurt. The clock is only ever written by a fight the settler ran.
+    injuredUntil: null,
     // §B7: the perks come with the person, exactly as the card at the Bar advertised them.
     perks: recruit.perks,
     // §H7: the wage that was actually agreed, which is what the payroll book is charged and what

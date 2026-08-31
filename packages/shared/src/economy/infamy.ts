@@ -105,7 +105,7 @@ export const INFAMY_UNIT_VALUES: Readonly<Record<string, number>> = {
   the_colossus: 250,
   // Gauntlet 12 and a Fight Pit taken off somebody: a deeper gate than any specialist.
   the_condemned: 45,
-  // Gauntlet 6 and a Cistern 5, and the only thing that walks into a chlorine leak on purpose.
+  // Gauntlet 6 and a Greenhouse 5, and the only thing that walks into a chlorine leak on purpose.
   ash_walkers: 24,
 };
 

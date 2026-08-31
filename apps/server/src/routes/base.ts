@@ -15,9 +15,26 @@ import {
   describeBuildingRequirement,
   isReservedDistrictName,
   sameDistrictName,
+  BUILD_BOOST_HOURS,
+  BUILD_BOOST_PERCENT,
+  BuyBuildBoostRequestSchema,
+  ClearModificationRequestSchema,
+  FitModificationRequestSchema,
+  buildBoostOilCost,
+  describeSlotRefusal,
+  nexusLevelForUpgrade,
+  nexusShortfall,
+  projectedBuildings,
+  buildingLevel,
+  type BuildBoostRefusal,
+  type BuildBoostResponse,
+  type ClearSlotRefusal,
+  type ModificationSlotResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { nexusGate, queueBuild, type BuildRefusal } from '../district/build.js';
+import { buyBuildBoost } from '../district/boost.js';
+import { clearSlot, fitIntoSlot } from '../district/modifications.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { levelUpFrom } from '../progression/award.js';
@@ -92,6 +109,67 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     return { base: result.base, levelUp: levelUpFrom(settled.awards) };
   });
 
+  /**
+   * §B4: light the Generator's two-hour burn.
+   *
+   * Settles first like every other write, and for a reason specific to this one: the burn re-times
+   * what is in the queue, and re-timing an order whose clock has already run out would hand the
+   * player back work they have already finished.
+   */
+  app.post('/base/boost', { preHandler: app.authenticate }, (request): BuildBoostResponse => {
+    parseBody(BuyBuildBoostRequestSchema, request.body);
+    const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
+    if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
+
+    const now = new Date();
+    const settled = settleBase(app.repos, owned, now);
+    const result = app.db.transaction(() =>
+      buyBuildBoost(app.repos, settled.base, now, app.config.admin),
+    )();
+    if (result.kind === 'refused') {
+      throw new AppError('BOOST_REFUSED', boostMessage(result.reason, settled.base));
+    }
+    return { base: result.base, paid: result.paid };
+  });
+
+  /** §E: put one of the crew's built add-ons into a structure's first free slot. */
+  app.post(
+    '/base/modifications/fit',
+    { preHandler: app.authenticate },
+    (request): ModificationSlotResponse => {
+      const { building, modificationId } = parseBody(FitModificationRequestSchema, request.body);
+      return app.db.transaction(() => {
+        const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
+        if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
+        const settled = settleBase(app.repos, owned, new Date());
+        const result = fitIntoSlot(app.repos, settled.base, building, modificationId);
+        if (result.kind === 'refused') {
+          throw new AppError('SLOT_REFUSED', describeSlotRefusal(result.reason, building));
+        }
+        return { base: result.base };
+      })();
+    },
+  );
+
+  /** §E: and take it out again. It goes back on the shelf rather than being destroyed. */
+  app.post(
+    '/base/modifications/clear',
+    { preHandler: app.authenticate },
+    (request): ModificationSlotResponse => {
+      const { building, slot } = parseBody(ClearModificationRequestSchema, request.body);
+      return app.db.transaction(() => {
+        const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
+        if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
+        const settled = settleBase(app.repos, owned, new Date());
+        const result = clearSlot(app.repos, settled.base, building, slot);
+        if (result.kind === 'refused') {
+          throw new AppError('SLOT_REFUSED', CLEAR_MESSAGES[result.reason]);
+        }
+        return { base: result.base };
+      })();
+    },
+  );
+
   /** §A1: name the district. */
   app.post(
     '/base/district-name',
@@ -139,6 +217,24 @@ function factionNameMustBeFree(app: FastifyInstance, name: string, exceptBaseId:
   }
 }
 
+const CLEAR_MESSAGES: Record<ClearSlotRefusal, string> = {
+  no_structure: 'There is nothing standing there',
+  bad_slot: 'There is no slot there',
+  already_empty: 'That slot is already empty',
+};
+
+/** §B4: why the burn could not be bought, with the number that makes it actionable. */
+function boostMessage(reason: BuildBoostRefusal, base: Parameters<typeof nexusGate>[1]): string {
+  switch (reason) {
+    case 'no_generator':
+      return 'Build the Generator first. It is what sells the burn';
+    case 'already_running':
+      return `A burn is already running. Buying a second one extends nothing: wait it out`;
+    case 'cannot_afford':
+      return `${BUILD_BOOST_HOURS} hours at ${BUILD_BOOST_PERCENT}% off costs ${buildBoostOilCost(base.buildings)} oil, and you are short`;
+  }
+}
+
 /** What to tell the player, with the numbers that make the advice actionable. */
 function refusalMessage(
   reason: BuildRefusal,
@@ -158,8 +254,19 @@ function refusalMessage(
     case 'at_max_level':
       return `${spec.name} is as good as it gets at level ${BUILDING_MAX_LEVEL}`;
     case 'nexus_cap': {
+      /*
+       * §B1: name the Nexus level this upgrade wants, not the one the district has.
+       *
+       * The old line said "raise it past level 6", which was true under the rule that everything
+       * stopped at the Nexus's own level and is useless under the permission table: the Gate's
+       * next rung might be Nexus 5 and the Lab's might be 12, and "past 6" does not distinguish
+       * them. The requirement is per building and per level, so the message has to be too.
+       */
+      const short = nexusShortfall(kind, projectedBuildings(base.buildings, base.buildQueue));
       const { at } = nexusGate(kind, base);
-      return `Nothing outgrows the Nexus. Raise it past level ${at} first`;
+      const needed =
+        short?.needed ?? nexusLevelForUpgrade(kind, buildingLevel(base.buildings, kind) + 1);
+      return `${spec.name} needs the Nexus at level ${needed}. Yours is at ${short?.at ?? at}`;
     }
     case 'queue_full':
       return `All ${MAX_BUILD_QUEUE} build slots are working`;

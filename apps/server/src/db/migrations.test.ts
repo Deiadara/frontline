@@ -6,7 +6,6 @@ import {
   BUILDING_KINDS,
   BadgeSchema,
   DEFAULT_BADGE,
-  isModificationId,
   type Building,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
@@ -124,24 +123,59 @@ describe('0014: dropping the Commons from saved districts', () => {
   });
 
   /**
-   * The Cistern's fifth modification was renamed with the morale it fed. Its id is derived from its
-   * name, so an installed copy under the old id reads as *not installed*: the player keeps the
-   * effect and gets the slot back, which is the quiet half of this migration.
+   * §A2: the Cistern is gone, and a save that has one still has to open.
+   *
+   * 0014 used to rename the Cistern's fifth modification; 0056 removes the structure it was bolted
+   * to outright, so the rename now has nothing to land on and this is the assertion that survives
+   * it. Both halves are checked because both are ways an account fails to load:
+   * `BuildingKindSchema` is an enum over the live catalogue, so one Cistern row anywhere in
+   * `buildings_json` or `build_queue_json` is a district that cannot be parsed.
    */
-  it('renames the Cistern modification the Commons took its name from', () => {
-    const db = legacyBase([
-      {
-        kind: 'cistern',
-        level: 9,
-        modifications: ['cistern_clean_line_to_the_commons'],
-      },
-    ]);
+  it('§A2: takes a saved Cistern out of the district and out of the queue', () => {
+    const db = legacyBase(
+      [
+        { kind: 'nexus', level: 4, modifications: [] },
+        { kind: 'cistern', level: 9, modifications: ['cistern_clean_line_to_the_commons'] },
+      ],
+      [
+        { kind: 'cistern', level: 10, doneAt: '2026-01-01T00:00:00.000Z' },
+        { kind: 'lab', level: 1, doneAt: '2026-01-01T00:00:00.000Z' },
+      ],
+    );
+    runMigrations(db);
 
-    const [cistern] = buildingsAfter(db);
-    expect(cistern?.modifications).toEqual(['cistern_clean_line_to_the_quarters']);
-    // The point of the rename, rather than its spelling: the id the player ends up holding is one
-    // the catalogue can actually find.
-    expect(isModificationId(cistern?.modifications[0] ?? '')).toBe(true);
+    expect(buildingsAfter(db).map((building) => building.kind)).toEqual(['nexus']);
+    const row = db.prepare('SELECT build_queue_json FROM bases').get() as {
+      build_queue_json: string;
+    };
+    expect((JSON.parse(row.build_queue_json) as { kind: string }[]).map((e) => e.kind)).toEqual([
+      'lab',
+    ]);
+  });
+
+  /**
+   * §B9/§E: the shelf is filled from what is already bolted on, so nobody loses an add-on they
+   * paid for on the day fitting became reversible.
+   */
+  it('§B9: seeds the add-on shelf from the modifications already fitted', () => {
+    const db = legacyBase([
+      { kind: 'nexus', level: 20, modifications: ['nexus_encrypted_core'] },
+      { kind: 'lab', level: 20, modifications: ['lab_quantum_modeling'] },
+    ]);
+    runMigrations(db);
+
+    const row = db.prepare('SELECT addons_json FROM bases').get() as { addons_json: string };
+    const addons = JSON.parse(row.addons_json) as { researched: string[]; built: string[] };
+    expect(addons.built.sort()).toEqual(['lab_quantum_modeling', 'nexus_encrypted_core']);
+    expect(addons.researched.sort()).toEqual(['lab_quantum_modeling', 'nexus_encrypted_core']);
+  });
+
+  /** ...and a district that never fitted one gets an empty shelf rather than a null column. */
+  it('§B9: gives a district with no modifications an empty shelf', () => {
+    const db = legacyBase([{ kind: 'nexus', level: 1, modifications: [] }]);
+    runMigrations(db);
+    const row = db.prepare('SELECT addons_json FROM bases').get() as { addons_json: string };
+    expect(JSON.parse(row.addons_json)).toEqual({ researched: [], built: [] });
   });
 
   /** Nothing that survives may name a structure the game no longer has. */
@@ -483,5 +517,72 @@ describe('0049: faction badges and ranks', () => {
 
     const row = db.prepare('SELECT sender_faction, invite_id FROM messages WHERE id = ?').get('m1');
     expect(row).toEqual({ sender_faction: 'The Ninth Circle', invite_id: null });
+  });
+});
+
+/**
+ * 0054: a report written before `regular` became `heavy`.
+ *
+ * The bug this closes was out of all proportion to its cause. One stored analysis from an old fight
+ * carried a tier name the enum no longer has, `BattleAnalysisSchema.parse` rejected it,
+ * `resolvedFor` threw, and `GET /battles` answered 500, so the battles screen was unreachable for
+ * that account for good, showing "Reading the board..." because the page drew an error the same way
+ * it drew a load.
+ */
+describe('0054: battle reports written under the old tier names', () => {
+  const TIERS = '0054_battle_report_tiers.sql';
+  const NOW = '2026-08-01T00:00:00.000Z';
+
+  const analysis = (tier: string) =>
+    JSON.stringify({
+      outcome: 'attacker',
+      rounds: 1,
+      attacker: { units: [{ unitId: 'anodics', name: 'Anodics', tier: 'rabble' }] },
+      defender: { units: [{ unitId: 'wardens', name: 'Wardens', tier }] },
+    });
+
+  const legacyBattle = (): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, TIERS);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u1', 'veteran', 'x', NOW);
+    const columns = (db.prepare('SELECT * FROM bases LIMIT 0').columns() as { name: string }[]).map(
+      (column) => column.name,
+    );
+    const base: Record<string, string | number> = {};
+    for (const name of columns) {
+      base[name] = name.endsWith('_json') ? '{}' : name.endsWith('_at') ? NOW : 0;
+    }
+    Object.assign(base, { id: 'base-1', owner_id: 'u1', name: 'Nowhere', district_id: 'rustyard' });
+    db.prepare(
+      `INSERT INTO bases (${columns.join(', ')})
+       VALUES (${columns.map((name) => `@${name}`).join(', ')})`,
+    ).run(base);
+
+    // A resolved fight over a location, which is the only shape the table's CHECKs accept with a
+    // `location_id` set. Everything but `analysis_json` is scaffolding.
+    db.prepare(
+      `INSERT INTO scheduled_battles
+         (id, attacker_base_id, target_kind, district_id, location_id, defender_json,
+          scheduled_for, declared_at, resolved_at, seed, analysis_json)
+       VALUES (?, ?, 'location', ?, ?, '{}', ?, ?, ?, 'seed', ?)`,
+    ).run('b1', 'base-1', 'rustyard', 'rustyard-ramp', NOW, NOW, NOW, analysis('regular'));
+    return db;
+  };
+
+  it('rewrites the retired tier so the report parses again', () => {
+    const db = legacyBattle();
+    runMigrations(db, MIGRATIONS_DIR);
+
+    const row = db
+      .prepare('SELECT analysis_json FROM scheduled_battles WHERE id = ?')
+      .get('b1') as {
+      analysis_json: string;
+    };
+    expect(row.analysis_json).not.toContain('"tier":"regular"');
+    expect(row.analysis_json).toContain('"tier":"heavy"');
+    // The other side's tier is untouched: this is a rename, not a rewrite of every report.
+    expect(row.analysis_json).toContain('"tier":"rabble"');
   });
 });

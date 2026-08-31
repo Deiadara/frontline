@@ -9,6 +9,9 @@ import {
   startingEconomy,
   startingProgression,
   startingResearch,
+  CITY_DISTRICTS,
+  findDistrict,
+  travelMinutesBetween,
   type Base,
   type CreateOverseerResponse,
   startingTraining,
@@ -21,6 +24,7 @@ import { applyUnlockedSandbox } from '../seed/sandbox.js';
 import { seededFactionId } from '../seed/index.js';
 import { notify } from '../social/notify.js';
 import { AppError, parseBody } from '../errors.js';
+import type { Repositories } from '../db/repos/index.js';
 
 /**
  * The name a allegiance carries until its player picks one.
@@ -62,6 +66,32 @@ function freeDistrictName(app: FastifyInstance, username: string): string {
   return `${wanted.slice(0, DISTRICT_NAME_MAX - 9)} ${randomUUID().slice(0, 8)}`;
 }
 
+/**
+ * §A4: one district open from the first minute (board request).
+ *
+ * Scouting is a journey now, and a new crew has nobody worth sending and nothing to do while they
+ * walk. Starting wholly fogged in meant a first session that opens with a four-hour wait before
+ * the first mission board can be read, which is the worst possible first five minutes.
+ *
+ * The **nearest district nobody lives in**, so the free ground is somewhere a new player can
+ * actually work: the closest district overall is often another crew's home, and opening that would
+ * hand a beginner a view of somebody's defences and nothing to do with it. Nearest rather than
+ * best, because the map's geography should be the thing that decides, and nearest is also the one
+ * they would have sent somebody to first.
+ */
+function openTheNearestGround(repos: Repositories, base: Base, nowIso: string): void {
+  const home = findDistrict(base.districtId);
+  if (!home) return;
+  const occupied = new Set(repos.bases.listSummaries().map((other) => other.districtId));
+  const nearest = CITY_DISTRICTS.filter(
+    (district) => district.id !== base.districtId && !occupied.has(district.id),
+  ).sort(
+    (a, b) =>
+      travelMinutesBetween(home, a) - travelMinutesBetween(home, b) || a.id.localeCompare(b.id),
+  )[0];
+  if (nearest) repos.city.markScouted(base.id, nearest.id, nowIso);
+}
+
 export function registerOverseerRoutes(app: FastifyInstance): void {
   app.post(
     '/overseer',
@@ -98,9 +128,9 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
          * What a new district starts standing (§A1).
          *
          * The Nexus, because it is what authorises everything else and a district without one
-         * caps every other plot at zero. The Generator, because every other structure draws on
-         * the grid and a district that browns out on its first build would read as broken rather
-         * than as a decision. Everything else is the player's to lay.
+         * caps every other plot at zero. The Generator, because it is what takes time off every
+         * other structure's clock (§B4), and a first session where every build runs at full length
+         * is a first session spent waiting. Everything else is the player's to lay.
          */
         buildings: [
           {
@@ -150,6 +180,7 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         });
         app.repos.users.setOverseerId(user.id, overseer.id);
         app.repos.bases.insert(base);
+        openTheNearestGround(app.repos, base, now);
       })();
 
       // The sandbox switch also runs at boot, but a base does not exist until this moment: on a

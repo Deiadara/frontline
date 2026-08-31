@@ -5,7 +5,9 @@ import {
   factionXpFromLeadership,
   recordFacts,
   xpForClock,
+  addonsOf,
   type ActiveResearch,
+  type Addons,
   type Base,
   type DiscoveredFact,
   type Overseer,
@@ -13,7 +15,6 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
-import { fitModification } from '../district/modifications.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { nextPairing, nextRoleFact } from './discover.js';
 
@@ -89,25 +90,34 @@ export function settleResearch(
       ? { ...overseer, attributes: developAttribute(overseer.attributes, active.project.attribute) }
       : overseer;
 
-  // §A1: modification work ends with the thing bolted on. `fitModification` is a no-op when the
-  // structure or its slot went away while the work was under way, which is why this is a plain
-  // assignment rather than a branch: the project lands either way and never runs twice.
-  const buildings =
-    active.project.kind === 'modification'
-      ? fitModification(base.buildings, active.project.modificationId)
-      : base.buildings;
+  /*
+   * §B9: modification work ends with a **blueprint**, not with the thing bolted on.
+   *
+   * It used to end with `fitModification`, which put it straight into whatever slot happened to be
+   * free. That made owning an add-on and having it installed one fact, and §E needs them apart:
+   * a slot that can be emptied has to have somewhere to empty into. So the Lab designs it, the
+   * Scrapyard builds it (§B9) and the structure's own dialog fits it (§E). Research itself is
+   * unchanged: same project kind, same clock, same cost, same one-at-a-time rule.
+   *
+   * Recorded rather than counted, so researching the same modification twice is a no-op rather
+   * than two blueprints for one drawing.
+   */
+  const shelf = addonsOf(base);
+  const addons: Addons =
+    active.project.kind === 'modification' &&
+    !shelf.researched.includes(active.project.modificationId)
+      ? { ...shelf, researched: [...shelf.researched, active.project.modificationId] }
+      : shelf;
 
   const settled: Base = {
     ...base,
-    buildings,
+    addons,
     research: { ...recordFacts(base.research, discovered), active: null },
   };
 
   repos.bases.updateResearch(settled.id, settled.research);
   repos.bases.updateEconomy(settled.id, settled.economy);
-  if (buildings !== base.buildings) {
-    repos.bases.updateDistrict(settled.id, settled.buildings, settled.buildQueue);
-  }
+  if (addons !== shelf) repos.bases.updateAddons(settled.id, addons);
   if (trained !== overseer) repos.overseers.updateAttributes(trained.id, trained.attributes);
 
   // The lead used to be paid character XP here for the time the project kept them on it. Officers

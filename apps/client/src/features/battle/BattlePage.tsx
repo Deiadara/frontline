@@ -1,5 +1,9 @@
 import {
+  VEHICLES,
   canAfford,
+  carriedSpeedPercent,
+  mergeFleets,
+  type VehicleId,
   type BattleBoostOption,
   type BattleReportView,
   type BattleView,
@@ -11,6 +15,7 @@ import {
 } from '@frontline/shared';
 import { useMemo, useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { LoadFailure } from '../../components/ui/LoadFailure';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
@@ -21,6 +26,8 @@ import { cn } from '../../lib/cn';
 import {
   useBattles,
   useBuyBattleBoost,
+  useLeadBattle,
+  useTakeVehicles,
   useDeployToBattle,
   useFortifyStructure,
   useMe,
@@ -104,7 +111,20 @@ export function BattlePage() {
       lede="Fights are called for a time, and everybody gets to see them coming."
       action={data ? <Counts data={data} /> : null}
     >
-      {!data ? (
+      {battles.isError ? (
+        /*
+         * A failure said out loud, with a way to try again.
+         *
+         * This branch is why a single unreadable row in an account's battle history made the whole
+         * screen unreachable *silently*: the page drew every state that was not data as "Reading
+         * the board...", so a 500 looked exactly like a slow network and looked like it forever.
+         */
+        <LoadFailure
+          what="The board"
+          onRetry={() => void battles.refetch()}
+          detail="Whatever went wrong is on our side, not yours. The fights themselves are unaffected: they resolve on their own clock."
+        />
+      ) : !data ? (
         <p className="p-6 font-display text-xs uppercase tracking-[0.2em] text-ink-300">
           Reading the board…
         </p>
@@ -377,8 +397,179 @@ function BattleDetail({
         )}
       </Panel>
 
+      {view.side !== null && <LeadPicker view={view} />}
+      {view.side !== null && <VehiclePicker view={view} />}
       {view.side !== null && <NameBuys view={view} infamy={infamy} />}
     </div>
+  );
+}
+
+/**
+ * §C3: the machines this crew is taking.
+ *
+ * A row of counters over what the yard and this fight hold between them, because the question is
+ * "how many of these am I sending" rather than "which one". Committed machines have left the yard,
+ * exactly as deployed units have left the roster, so the totals on this panel always add up to the
+ * fleet the crew owns.
+ *
+ * The line under it is the one that decides anything: what a machine buys is speed for the people
+ * *on it*, so a bike under a column of four hundred is worth almost nothing and a hauler under
+ * forty is worth all of it.
+ */
+function VehiclePicker({ view }: { view: BattleView }) {
+  const take = useTakeVehicles();
+  const shut = !view.deploymentOpen;
+  const owned = mergeFleets(view.yard, view.vehicles);
+  const bodies = view.muster?.size ?? 0;
+  const speed = carriedSpeedPercent(view.vehicles, bodies);
+
+  const set = (id: VehicleId, count: number) =>
+    take.mutate({
+      battleId: view.battle.id,
+      vehicles: Object.fromEntries(
+        Object.entries({ ...view.vehicles, [id]: count }).filter(([, amount]) => amount > 0),
+      ),
+    });
+
+  const lines = VEHICLES.filter((spec) => (owned[spec.id] ?? 0) > 0);
+  return (
+    <Panel title="Machines">
+      <div className="flex flex-col gap-2.5 p-4" data-testid="vehicle-picker">
+        <PanelSection
+          label="Loaded"
+          note={
+            lines.length === 0
+              ? 'Nothing in the yard'
+              : speed > 0
+                ? `${speed}% off the road for this column`
+                : 'Nothing loaded, so everybody walks'
+          }
+        >
+          {lines.length === 0 ? (
+            <p className="font-body text-[12px] leading-relaxed text-ink-300">
+              Build something in the Garage first. A column with nothing under it walks.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {lines.map((spec) => {
+                const taking = view.vehicles[spec.id] ?? 0;
+                const held = owned[spec.id] ?? 0;
+                return (
+                  <li
+                    key={spec.id}
+                    className="flex items-center justify-between gap-2"
+                    data-testid={`take-${spec.id}`}
+                  >
+                    <span className="min-w-0 truncate font-body text-[12px] text-ink-100">
+                      {spec.name}{' '}
+                      <span className="text-ink-400">
+                        carries {spec.capacity}, {spec.speedPercent}% off the road
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={shut || taking === 0 || take.isPending}
+                        onClick={() => set(spec.id, taking - 1)}
+                        data-testid={`take-less-${spec.id}`}
+                      >
+                        −
+                      </Button>
+                      <span className="w-10 text-center font-display text-[12px] tabular-nums text-brass-300">
+                        {taking}/{held}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={shut || taking >= held || take.isPending}
+                        onClick={() => set(spec.id, taking + 1)}
+                        data-testid={`take-more-${spec.id}`}
+                      >
+                        +
+                      </Button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </PanelSection>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * §D1: who is leading this one, if anybody.
+ *
+ * A drop-down for the same reason the boost is one: it is at most one choice out of a list of
+ * comparable things, and the interesting part is the comparison. What is on each line is what the
+ * officer would *fight* as, because that is the decision: a Head of Security with a Strength of 70
+ * is a body worth putting in the line and a Finance Officer is not.
+ *
+ * Free, and free to change up to the mark. What it costs is on the card under it, and it is worth
+ * spelling out: a fight that goes badly can take an officer out of the crew for a day, and it takes
+ * this side's report with them.
+ */
+function LeadPicker({ view }: { view: BattleView }) {
+  const lead = useLeadBattle();
+  const chosen = view.leaders.find((leader) => leader.officerId === view.officerId) ?? null;
+  const shut = !view.deploymentOpen;
+
+  return (
+    <Panel title="Leading">
+      <div className="flex flex-col gap-2.5 p-4" data-testid="lead-picker">
+        <PanelSection
+          label="At the front"
+          note={shut ? 'They are already on the ground' : 'One officer, and only if you want one'}
+          action={
+            view.officerId === null ? undefined : (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={shut || lead.isPending}
+                onClick={() => lead.mutate({ battleId: view.battle.id, officerId: null })}
+                data-testid="lead-clear"
+              >
+                Keep them home
+              </Button>
+            )
+          }
+        >
+          {chosen ? (
+            <>
+              <p className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
+                {chosen.name}
+              </p>
+              <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
+                Fights at {chosen.stats.offense} damage and {chosen.stats.vitality} vitality. Half
+                as likely to be shot at while anyone else is standing, and never killed: the worst
+                that happens is a day laid up, and no report from this fight.
+              </p>
+            </>
+          ) : (
+            <p className="font-body text-[12px] leading-relaxed text-ink-300">
+              Nobody is leading. Their perks stay at home with them, and so does the risk.
+            </p>
+          )}
+        </PanelSection>
+
+        <Dropdown
+          label="Officer"
+          placeholder={view.leaders.length === 0 ? 'Nobody fit to send' : 'Send somebody'}
+          value={view.officerId ?? ''}
+          disabled={shut || view.leaders.length === 0 || lead.isPending}
+          options={view.leaders.map((leader) => ({
+            value: leader.officerId,
+            label: leader.name,
+            hint: `${leader.stats.offense} damage · ${leader.stats.vitality} vitality · ${leader.stats.armor} armour`,
+          }))}
+          onChange={(officerId) => lead.mutate({ battleId: view.battle.id, officerId })}
+          data-testid="lead-officer-picker"
+        />
+      </div>
+    </Panel>
   );
 }
 

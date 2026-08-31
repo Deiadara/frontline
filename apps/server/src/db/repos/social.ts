@@ -47,6 +47,8 @@ export interface NewNotification {
   title: string;
   body: string;
   link: string;
+  /** The id of the thing this is about (`0053`), or null where the kind has no single subject. */
+  subjectId: string | null;
   createdAt: string;
 }
 
@@ -107,6 +109,7 @@ interface NotificationRow {
   title: string;
   body: string;
   link: string;
+  subject_id: string | null;
   created_at: string;
   read_at: string | null;
 }
@@ -216,8 +219,8 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
   );
 
   const putNotificationStmt = db.prepare(
-    `INSERT INTO notifications (id, user_id, kind, title, body, link, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO notifications (id, user_id, kind, title, body, link, subject_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const notificationsStmt = db.prepare(
     'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?',
@@ -305,6 +308,7 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
         notification.title,
         notification.body,
         notification.link,
+        notification.subjectId,
         notification.createdAt,
       );
     },
@@ -318,6 +322,7 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
                 title: row.title,
                 body: row.body,
                 link: row.link,
+                subjectId: row.subject_id,
                 createdAt: row.created_at,
                 readAt: row.read_at,
               },

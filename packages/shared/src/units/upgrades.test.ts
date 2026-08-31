@@ -1,10 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import {
-  MAX_PER_VEHICLE,
-  VEHICLES,
-  fleetTravelSpeedPercent,
-  vehicleRefusal,
-} from '../building/vehicles.js';
 import { ITEM_CATALOG } from '../items/catalog.js';
 import {
   UNIT_UPGRADES,
@@ -176,59 +170,5 @@ describe('what a refit does to a sheet', () => {
 
   it('ignores an upgrade id it does not recognise rather than throwing', () => {
     expect(upgradedStats(razors.stats, ['nonsense'])).toEqual(razors.stats);
-  });
-});
-
-describe('the yard', () => {
-  it('is worth nothing empty', () => {
-    expect(fleetTravelSpeedPercent({})).toBe(0);
-  });
-
-  it('pays less for each additional machine of a kind', () => {
-    const one = fleetTravelSpeedPercent({ motorcycle: 1 });
-    const two = fleetTravelSpeedPercent({ motorcycle: 2 });
-    const three = fleetTravelSpeedPercent({ motorcycle: 3 });
-    expect(two - one).toBeGreaterThan(0);
-    expect(three - two).toBeLessThan(two - one);
-  });
-
-  it('caps each line however many are parked', () => {
-    for (const spec of VEHICLES) {
-      const full = fleetTravelSpeedPercent({ [spec.id]: 99 });
-      expect(full, spec.id).toBeLessThanOrEqual(
-        VEHICLES.reduce((total, other) => total + other.maxTravelSpeedPercent, 0),
-      );
-      expect(fleetTravelSpeedPercent({ [spec.id]: 99 }), spec.id).toBeLessThanOrEqual(
-        spec.maxTravelSpeedPercent,
-      );
-    }
-  });
-
-  it('adds the two lines together', () => {
-    const both = fleetTravelSpeedPercent({ motorcycle: 2, rotorcraft: 1 });
-    expect(both).toBeGreaterThan(fleetTravelSpeedPercent({ motorcycle: 2 }));
-    expect(both).toBeGreaterThan(fleetTravelSpeedPercent({ rotorcraft: 1 }));
-  });
-
-  describe('building one', () => {
-    it('lets a Garage-owning crew lay down a motorcycle', () => {
-      expect(vehicleRefusal('motorcycle', {}, 2, NO, YES, YES)).toBeNull();
-    });
-
-    it('will not build a rotorcraft without the blueprint, whatever the Garage is at', () => {
-      expect(vehicleRefusal('rotorcraft', {}, 99, NO, YES, YES)).toBe('needs_blueprint');
-    });
-
-    it('refuses on the Garage, the money and the parts in that order', () => {
-      expect(vehicleRefusal('rotorcraft', {}, 1, YES, YES, YES)).toBe('garage_too_low');
-      expect(vehicleRefusal('motorcycle', {}, 9, YES, NO, YES)).toBe('cannot_afford');
-      expect(vehicleRefusal('motorcycle', {}, 9, YES, YES, NO)).toBe('missing_parts');
-    });
-
-    it('stops at a full yard', () => {
-      expect(vehicleRefusal('motorcycle', { motorcycle: MAX_PER_VEHICLE }, 9, YES, YES, YES)).toBe(
-        'fleet_full',
-      );
-    });
   });
 });

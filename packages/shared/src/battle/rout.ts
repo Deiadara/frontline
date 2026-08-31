@@ -96,6 +96,15 @@ export function routSurvivors(
   const killed: Army = {};
 
   for (const stack of losing.stacks) {
+    /*
+     * §D4: the officer is not on this list, whichever way the fight went.
+     *
+     * They never die, so they are never in `killed`, and they always come home, so putting them in
+     * `fled` would be a lie the server would then act on: both maps are `Army` records the settler
+     * merges straight back into a roster, and a synthesised officer id landing in one would credit
+     * a crew a unit that does not exist. Their fate is `officerOutcomeOf` and nothing else.
+     */
+    if (stack.officer !== undefined) continue;
     // Everything that fell during the fight is already dead; only the standing get a roll.
     const dead = stack.started - stack.alive;
     if (dead > 0) killed[stack.unit.id] = (killed[stack.unit.id] ?? 0) + dead;
@@ -115,6 +124,8 @@ export function routSurvivors(
 export function winnerCasualties(winning: SideState): Army {
   const killed: Army = {};
   for (const stack of winning.stacks) {
+    // The officer is never a casualty: see `routSurvivors`, same reason.
+    if (stack.officer !== undefined) continue;
     const dead = stack.started - stack.alive;
     if (dead > 0) killed[stack.unit.id] = dead;
   }

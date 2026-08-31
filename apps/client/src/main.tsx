@@ -8,7 +8,20 @@ import './index.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000 },
+    queries: {
+      retry: false,
+      /*
+       * On, and it was off.
+       *
+       * This is a game other people are playing while this tab is in the background. Coming back to
+       * it after ten minutes on something else and being shown the ten-minute-old board is the
+       * single most misleading state the client can be in, because it is indistinguishable from a
+       * board where nothing happened. React Query refetches only what a mounted screen is actually
+       * using, and `staleTime` still keeps a tab-flick from refetching anything.
+       */
+      refetchOnWindowFocus: true,
+      staleTime: 30_000,
+    },
   },
 });
 

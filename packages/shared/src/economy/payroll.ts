@@ -61,8 +61,16 @@ export const PAYROLL_STEP_BASE_COST = 500;
  */
 export const PAYROLL_STEP_GROWTH = 1.15;
 
-/** Weeks of an officer's own commitment it costs to let them go, paid in caps on the spot. */
-export const DISMISSAL_WEEKS = 5;
+/**
+ * Weeks of an officer's own commitment it costs to let them go, paid in caps on the spot.
+ *
+ * Ten, at the board's rate: an officer on 30 caps a week costs 300 to release. Doubled from five,
+ * and the reason is what the book is *for*. Committing costs nothing and releasing is the only
+ * thing that walks it back, so the fee is the whole difference between a payroll and a scratch pad
+ * a crew rewrites every time a better sheet walks into the Bar. At five weeks the sums worked out
+ * in the player's favour too often: sign, try, release, sign again.
+ */
+export const DISMISSAL_WEEKS = 10;
 
 export const PayrollStateSchema = z.object({
   /**

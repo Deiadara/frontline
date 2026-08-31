@@ -73,7 +73,9 @@ function refusalFor(input: StartInput): ResearchRefusal | null {
     // §B9/§C4: a Professor or Head of Research, gated on W1's constant rather than a second
     // hardcoded role check (INTERFACES R4).
     const lead = base.commanders.find((officer) => officer.id === project.leadOfficerId);
-    if (!lead || !HIRING_INSIGHT_ROLES.includes(lead.role)) return 'no_lead';
+    // A benched officer leads nothing: an investigation is run out of a chair, and the whole
+    // point of the bench is that they are not in one yet.
+    if (!lead || lead.role === null || !HIRING_INSIGHT_ROLES.includes(lead.role)) return 'no_lead';
     if (project.crossReference && !unlocksCrossReference(lead.attributes)) return 'option_locked';
 
     // A role at `MAX_ROLE_FACTS` has nothing left to give, and a cross-reference-only run is

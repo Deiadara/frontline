@@ -95,11 +95,20 @@ describe('who is drawing on it', () => {
     trainingQueue: [],
   };
 
-  it('counts officers, the army and the bench in one figure', () => {
+  /**
+   * §A1 as the board rewrote it: the army and the bench draw on the pool, the officers do not.
+   *
+   * They are still counted, because "how many are on the books" is worth reporting. They are simply
+   * not charged: the crew is who you are and the army is what you can field, and hiring somebody
+   * should not compete with training somebody.
+   */
+  it('charges the army and the bench, and counts the officers without charging them', () => {
     const draw = populationDraw(crew);
-    expect(draw.officers).toBe(2);
+    expect(draw.officers, 'counted').toBe(2);
     expect(draw.army).toBe(6 * populationCostOf('razors') + 2 * populationCostOf('juggernauts'));
-    expect(draw.total).toBe(draw.officers + draw.army + draw.training);
+    expect(draw.total).toBe(draw.army + draw.training);
+    // Written out rather than left implied: this is the whole of the rule change.
+    expect(draw.total).not.toBe(draw.officers + draw.army + draw.training);
   });
 
   /** Ground is not a hiding place: a garrison three districts away is still somebody you feed. */

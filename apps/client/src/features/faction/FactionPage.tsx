@@ -39,6 +39,7 @@ import {
   useReinforceAlly,
   useUnits,
 } from '../../lib/queries';
+import { LoadFailure } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
 import { BadgeBuilder } from './BadgeBuilder';
 import { FactionBadge } from './FactionBadge';
@@ -91,7 +92,20 @@ export function FactionPage() {
   const describe = useEditFactionDescription();
 
   const data = query.data;
-  if (!data) return null;
+  /*
+   * A failure is said out loud rather than rendered as a blank sheet.
+   *
+   * `return null` here drew *nothing at all* on a failed read: no heading, no text, no way to tell
+   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us.
+   */
+  if (!data) {
+    if (!query.isError) return null;
+    return (
+      <PageShell title="Factions" wide>
+        <LoadFailure what="Your faction" onRetry={() => void query.refetch()} />
+      </PageShell>
+    );
+  }
 
   const error =
     invite.error ??
@@ -123,7 +137,14 @@ export function FactionPage() {
   };
 
   const bodies = data.members.reduce((total, member) => total + member.armySize, 0);
-  const infamy = data.members.reduce((total, member) => total + member.infamy, 0);
+  /*
+   * §J8: what the table has *earned*, not what the people at it are holding.
+   *
+   * The two are different numbers and the wallet sum is the wrong one: it falls when somebody buys
+   * notoriety, and it jumps when a rich stranger joins. This is the same figure the standings rank
+   * factions by, read off the same field, so the two screens cannot disagree about who is ahead.
+   */
+  const infamy = data.members.reduce((total, member) => total + member.infamyEarned, 0);
   const topLevel = data.members.reduce((best, member) => Math.max(best, member.level), 0);
 
   return (
@@ -131,7 +152,7 @@ export function FactionPage() {
       <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <div className="flex min-h-0 min-w-0 flex-col gap-4">
           <Identity faction={faction} rank={data.rank} seats={data.members.length} />
-          <div className="ink-frame flex min-h-0 flex-col overflow-hidden">
+          <div className="ink-frame card-paper washed flex min-h-0 flex-col overflow-hidden">
             <Rail section={section} onSelect={setSection} counts={counts} />
           </div>
         </div>
@@ -149,7 +170,7 @@ export function FactionPage() {
               icon="faction"
             />
             <Tally label="Bodies" value={bodies.toLocaleString()} icon="units" />
-            <Tally label="Infamy" value={Math.round(infamy).toLocaleString()} icon="infamy" />
+            <Tally label="Earned" value={Math.round(infamy).toLocaleString()} icon="infamy" />
             <Tally label="Top level" value={String(topLevel)} icon="level" />
           </div>
 
@@ -159,7 +180,10 @@ export function FactionPage() {
             </p>
           )}
 
-          <div className="ink-frame min-h-0 flex-1 overflow-y-auto" data-testid="faction-workspace">
+          <div
+            className="ink-frame card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto"
+            data-testid="faction-workspace"
+          >
             {section === 'table' && (
               <Table
                 data={data}
@@ -248,11 +272,12 @@ export function FactionPage() {
               Ask somebody to join
             </h2>
             <p className="font-body text-[13px] leading-relaxed text-ink-300">
-              The invitation lands in their messages with a button on it. They decide from there.
+              Anybody, in any city. The invitation lands in their messages with a button on it, and
+              they decide from there.
             </p>
             <label className="flex flex-col gap-1">
               <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
-                Their name in the city
+                Their name
               </span>
               <input
                 value={username}
@@ -314,7 +339,7 @@ function Identity({
 }) {
   return (
     <section
-      className="ink-frame flex shrink-0 items-center gap-3 p-3.5"
+      className="ink-frame card-paper washed flex shrink-0 items-center gap-3 p-3.5"
       data-testid="faction-identity"
     >
       <FactionBadge badge={faction.badge} size={60} title={`${faction.name}'s badge`} />
@@ -343,7 +368,7 @@ function Tally({
   icon: 'faction' | 'units' | 'infamy' | 'level';
 }) {
   return (
-    <div className="ink-frame flex items-center gap-2.5 px-3 py-2.5">
+    <div className="ink-frame card-paper washed flex items-center gap-2.5 px-3 py-2.5">
       <span
         aria-hidden
         className="icon-plate flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-4 [&_svg]:w-4"
@@ -439,14 +464,24 @@ function Table({
   const vacancies = Math.max(0, MAX_FACTION_MEMBERS - data.members.length);
   return (
     <>
+      {/* The count and the one control that changes it.
+          The button is drawn (`.ink-box`) rather than a filled brass slab: a solid rectangle in the
+          corner of a ruled sheet reads as something stuck on top of the paper, and the board asked
+          for it to be a standalone drawn control instead. */}
       <div className="flex items-center justify-between gap-3 border-b border-surface-700/70 px-4 py-2.5">
         <h2 className="font-display text-[12px] font-bold uppercase tracking-[0.18em] text-brass-300">
           {data.members.length} of {MAX_FACTION_MEMBERS}
         </h2>
         {canAsk && (
-          <Button size="sm" data-testid="open-invite" onClick={onInvite}>
+          <button
+            type="button"
+            data-testid="open-invite"
+            onClick={onInvite}
+            className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-200 transition-colors hover:text-brass-100"
+          >
+            <Icon name="crew" aria-hidden className="h-3.5 w-3.5" />
             Invite somebody
-          </Button>
+          </button>
         )}
       </div>
       <ul data-testid="faction-members">
@@ -528,6 +563,16 @@ function MemberRow({
   // and the refusal behind it can never disagree about who may do what.
   const mayKick = rank !== null && !isSelf && canKick(rank, member.rank);
   const mayRank = rank !== null && !isSelf && canSetRank(rank) && member.rank !== 'leader';
+  /*
+   * The two that cannot be taken back ask first.
+   *
+   * Leaving and disbanding already did; removing somebody and handing the faction over did not,
+   * and they are the same kind of act: one throws a person out of a table they have to be invited
+   * back to, and the other gives away every permission the presser holds, to somebody else, with
+   * no way to take it back if they were wrong about which row they clicked. Promote and demote are
+   * deliberately *not* here: both are one click to undo.
+   */
+  const [asking, setAsking] = useState<'kick' | 'hand_over' | null>(null);
 
   return (
     <li
@@ -601,7 +646,7 @@ function MemberRow({
             variant="ghost"
             disabled={pending}
             data-testid={`hand-over-${member.username}`}
-            onClick={() => onAction('hand_over')}
+            onClick={() => setAsking('hand_over')}
           >
             Hand over
           </Button>
@@ -612,12 +657,40 @@ function MemberRow({
             variant="danger"
             disabled={pending}
             data-testid={`kick-${member.username}`}
-            onClick={() => onAction('kick')}
+            onClick={() => setAsking('kick')}
           >
             Remove
           </Button>
         )}
       </span>
+
+      {asking === 'kick' && (
+        <Confirm
+          title={`Remove ${member.username}?`}
+          body={`They leave the table and everything of theirs goes with them. Getting back in takes a fresh invitation.`}
+          confirm="Remove them"
+          testId="confirm-kick"
+          onCancel={() => setAsking(null)}
+          onConfirm={() => {
+            setAsking(null);
+            onAction('kick');
+          }}
+        />
+      )}
+
+      {asking === 'hand_over' && (
+        <Confirm
+          title={`Hand the faction to ${member.username}?`}
+          body={`They become the leader and you step down to chief. Only they can hand it back, and only if they choose to.`}
+          confirm="Hand it over"
+          testId="confirm-hand-over"
+          onCancel={() => setAsking(null)}
+          onConfirm={() => {
+            setAsking(null);
+            onAction('hand_over');
+          }}
+        />
+      )}
     </li>
   );
 }

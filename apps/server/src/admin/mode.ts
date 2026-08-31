@@ -105,7 +105,6 @@ export const WAIVED_REFUSALS: ReadonlySet<string> = new Set([
   'no_modification_slot',
   // Capacity gates: there is room for this, just not right now.
   'queue_full',
-  'no_housing',
   'no_slots',
   'no_supply',
   'daily_limit',

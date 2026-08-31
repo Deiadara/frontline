@@ -17,6 +17,7 @@ import {
   type BuildQueue,
   type TrainingQueue,
   type Commander,
+  EconomyStateSchema,
   type EconomyState,
   type ProgressionState,
   type ResearchState,
@@ -25,6 +26,7 @@ import {
   type Inventory,
   type Fleet,
   type UnitLoadouts,
+  type Addons,
 } from '@frontline/shared';
 import { readJson } from '../json.js';
 import type { AppDatabase } from '../index.js';
@@ -50,6 +52,7 @@ interface BaseRow {
   fitted_upgrades_json: string | null;
   unit_loadouts_json: string | null;
   fleet_json: string | null;
+  addons_json: string | null;
   created_at: string;
 }
 
@@ -57,6 +60,18 @@ type BaseSummaryRow = Pick<
   BaseRow,
   'id' | 'owner_id' | 'name' | 'district_id' | 'level' | 'is_bot'
 >;
+
+/** One row of the leaderboard's player board, straight out of the table. */
+export interface BaseStanding {
+  id: string;
+  ownerId: string;
+  name: string;
+  districtId: string;
+  level: number;
+  isBot: boolean;
+  infamy: number;
+  notoriety: number;
+}
 
 export interface BasesRepo {
   insert(base: Base): void;
@@ -70,6 +85,14 @@ export interface BasesRepo {
   findBotByDistrictId(districtId: string): Base | undefined;
   /** Public projections of every base: never exposes resources, buildings or commanders. */
   listSummaries(): BaseSummary[];
+  /**
+   * Every district's standing, for the leaderboard (§J9).
+   *
+   * A projection of its own rather than `listSummaries` plus a lookup per row: the board is one
+   * request over every account in the game, and reading a full base per player to get at two
+   * numbers is how a screen that lists everybody becomes the slowest screen in the game.
+   */
+  listStandings(): BaseStanding[];
   updateResources(baseId: string, resources: Resources): void;
   updateEconomy(baseId: string, economy: EconomyState): void;
   /** §F2: the training board and the officers it pays out to, written together. */
@@ -95,6 +118,8 @@ export interface BasesRepo {
   averageLevel(): number;
   /** What is parked in the yard. */
   updateFleet(baseId: string, fleet: Fleet): void;
+  /** §B9/§E: the blueprints researched and the add-ons the Scrapyard has built. */
+  updateAddons(baseId: string, addons: Addons): void;
   /**
    * Writes a level-up as one statement (GDD §I2). Level and banked XP move together: a partial
    * write would leave progress sitting above its own level's threshold.
@@ -208,6 +233,43 @@ function isRow(value: unknown): value is StoredRow {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * A shelf holding only add-ons the catalogue still knows.
+ *
+ * The same repair `knownBuildings` does one level down, and it is needed for the same reason and
+ * by the same events: migration 0056 backfills the shelf from whatever is bolted on today, which
+ * on a district built before §A1 and §A2 includes the Cistern's five modifications and the four
+ * that pushed a power grid. None of them has a catalogue entry any more, so none of them can be
+ * priced, described or fitted, and carrying them would put a row on the Scrapyard's page that
+ * renders as blank.
+ */
+function knownAddons(raw: unknown): unknown {
+  if (!isRow(raw)) return raw;
+  const clean = (value: unknown): unknown =>
+    Array.isArray(value)
+      ? (value as unknown[]).filter((id) => typeof id !== 'string' || findModification(id))
+      : value;
+  return { ...raw, researched: clean(raw.researched), built: clean(raw.built) };
+}
+
+/**
+ * Build orders for a structure that still exists.
+ *
+ * `BuildQueueEntrySchema.kind` is an enum over the live catalogue, so an order for a retired
+ * structure does not fail validation with a bad field: it fails `BaseSchema.parse` on the way
+ * *out of the database*, which is the account refusing to open. `knownBuildings` beside this has
+ * covered the standing structures since the last removal; the queue was the half nobody had had a
+ * reason to look at until §A2 retired the Cistern with orders possibly in flight for it.
+ */
+function knownBuildQueue(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return (raw as unknown[]).filter((entry) => {
+    if (!isRow(entry)) return true;
+    const kind = entry.kind;
+    return typeof kind !== 'string' || kind in BUILDING_CATALOG;
+  });
+}
+
 /** Structures of a kind that still exists, each carrying only modifications that still exist. */
 function knownBuildings(raw: unknown): unknown {
   if (!Array.isArray(raw)) return raw;
@@ -269,7 +331,7 @@ function rowToBase(row: BaseRow): Base {
     progression: readJson(row.progression_json),
     research: readJson(row.research_json),
     buildings: knownBuildings(readJson(row.buildings_json)),
-    buildQueue: readJson(row.build_queue_json),
+    buildQueue: knownBuildQueue(readJson(row.build_queue_json)),
     army: withoutRetiredUnits(readJson(row.army_json)),
     trainingQueue: knownTrainingQueue(readJson(row.training_queue_json)),
     commanders: knownCommanders(readJson(row.commanders_json)),
@@ -290,6 +352,7 @@ function rowToBase(row: BaseRow): Base {
         ? loadoutsForPreSlotSave(row.fitted_upgrades_json)
         : readJson(row.unit_loadouts_json),
     fleet: row.fleet_json === null ? undefined : readJson(row.fleet_json),
+    addons: row.addons_json === null ? undefined : knownAddons(readJson(row.addons_json)),
     createdAt: row.created_at,
   });
 }
@@ -356,15 +419,18 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         resources_json, economy_json, progression_json, research_json,
         buildings_json, build_queue_json, army_json, training_queue_json,
         commanders_json, training_json, inventory_json, fitted_upgrades_json,
-        unit_loadouts_json, fleet_json,
+        unit_loadouts_json, fleet_json, addons_json,
         created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
   const botByDistrictStmt = db.prepare('SELECT * FROM bases WHERE district_id = ? AND is_bot = 1');
   const summariesStmt = db.prepare(
     'SELECT id, owner_id, name, district_id, level, is_bot FROM bases',
+  );
+  const standingsStmt = db.prepare(
+    'SELECT id, owner_id, name, district_id, level, is_bot, economy_json FROM bases',
   );
   const updateResourcesStmt = db.prepare('UPDATE bases SET resources_json = ? WHERE id = ?');
   const updateEconomyStmt = db.prepare('UPDATE bases SET economy_json = ? WHERE id = ?');
@@ -382,6 +448,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const updateLoadoutsStmt = db.prepare('UPDATE bases SET unit_loadouts_json = ? WHERE id = ?');
   const averageLevelStmt = db.prepare('SELECT avg(level) AS mean FROM bases');
   const updateFleetStmt = db.prepare('UPDATE bases SET fleet_json = ? WHERE id = ?');
+  const updateAddonsStmt = db.prepare('UPDATE bases SET addons_json = ? WHERE id = ?');
   const updateTrainingStmt = db.prepare(
     'UPDATE bases SET training_json = ?, commanders_json = ? WHERE id = ?',
   );
@@ -418,6 +485,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.fittedUpgrades),
         JSON.stringify(base.unitLoadouts),
         JSON.stringify(base.fleet),
+        JSON.stringify(base.addons ?? { researched: [], built: [] }),
         base.createdAt,
       );
     },
@@ -436,6 +504,24 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     listSummaries() {
       const rows = summariesStmt.all() as BaseSummaryRow[];
       return rows.map(rowToSummary);
+    },
+    listStandings() {
+      const rows = standingsStmt.all() as (BaseSummaryRow & { economy_json: string })[];
+      return rows.map((row) => {
+        // Parsed through the shared schema rather than cast: this is the one place the leaderboard
+        // touches stored JSON, and a row written by an older build should fail here by name.
+        const economy = EconomyStateSchema.parse(readJson(row.economy_json));
+        return {
+          id: row.id,
+          ownerId: row.owner_id,
+          name: row.name,
+          districtId: row.district_id,
+          level: row.level,
+          isBot: row.is_bot === 1,
+          infamy: economy.infamy,
+          notoriety: economy.notoriety,
+        };
+      });
     },
     updateResources(baseId, resources) {
       updateResourcesStmt.run(JSON.stringify(countable(resources, baseId)), baseId);
@@ -459,6 +545,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateFleet(baseId, fleet) {
       updateFleetStmt.run(JSON.stringify(fleet), baseId);
+    },
+    updateAddons(baseId, addons) {
+      updateAddonsStmt.run(JSON.stringify(addons), baseId);
     },
     updateTraining(baseId, training, commanders) {
       updateTrainingStmt.run(JSON.stringify(training), JSON.stringify(commanders), baseId);

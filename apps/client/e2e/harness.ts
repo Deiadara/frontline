@@ -11,12 +11,18 @@ import {
   type Commander,
   type MeResponse,
   type OfficerRole,
+  dismissalFee,
+  type CrewOfficer,
+  type CrewResponse,
+  type ScoutingRunView,
 } from '@frontline/shared';
 import { expect, type Page } from '@playwright/test';
 import {
   crewFat,
   factionScreen,
   factionNone,
+  leaderboardFactions,
+  leaderboardPlayers,
   messagesScreen,
   notificationsScreen,
   crewStart,
@@ -37,6 +43,8 @@ import {
   blackMarket,
   settings,
   adminSnapshot,
+  garage,
+  scrapyard,
   workshop,
   launchResponse,
   missionsResponse,
@@ -281,14 +289,58 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
    * whichever assertion happened to run first.
    */
   let session = meResponse;
+  /*
+   * The roster this page sees, copied per install.
+   *
+   * `crewFat` and `crewStart` are module-level fixtures shared by every spec in the run, and the
+   * two write handlers below (release, reassign) change what the next read answers with. Mutating
+   * the shared object made one spec's release visible to the next spec's read: the let-go test
+   * passed alone and failed in the suite, because by then the officer it wanted had already been
+   * let go by an earlier run of itself. A copy per `installApi` is what makes each spec's writes
+   * its own.
+   */
+  /*
+   * The scouting run this crew has out, if any.
+   *
+   * Per install and mutable for the same reason the roster is: sending a scout is a *write*, and
+   * the client invalidates the district and reads it again straight afterwards. A fixture that
+   * answered the write with a run and the next read without one would flip the panel back to
+   * "send somebody" a frame later, and a test could not tell that from the button doing nothing.
+   */
+  let scoutingRun: ScoutingRunView | null = null;
+
+  const roster: CrewResponse = structuredClone(
+    (meResponse.base?.level ?? 1) > 1 ? crewFat : crewStart,
+  );
 
   await page.route('**/api/**', async (route) => {
-    const { pathname } = new URL(route.request().url());
+    const { pathname, searchParams } = new URL(route.request().url());
     const json = (data: unknown, status = 200) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
 
+    /*
+     * The live channel, left hanging on purpose.
+     *
+     * `useLiveEvents` holds one request open to `/api/events` for the whole session, and a healthy
+     * one *is* a request that never answers: the server only writes to it when something happens
+     * in the game, and in a fixture nothing does. Leaving the route unfulfilled is therefore the
+     * most faithful stub available, not a shortcut, and Playwright has no way to fulfil a response
+     * that stays open.
+     *
+     * The alternative is what the catch-all at the bottom of this router would have done: 404 it.
+     * That is a fixture asserting the server is broken. Measured rather than assumed: with the
+     * route 404ing, `live-offline` renders on the standings screen, so the HUD would carry its
+     * "Reconnecting" marker into every screenshot this suite writes for the board to look at, and
+     * the hook would back off and retry for the length of every test. No *assertion* in
+     * `visual.spec.ts` catches that, because this suite has no pixel baselines: it checks layout
+     * invariants and files the images for review. `screens.spec.ts` carries the guard that does.
+     */
+    if (pathname.endsWith('/api/events')) return new Promise<void>(() => {});
+
     if (pathname.endsWith('/api/me')) return json(session);
     if (pathname.endsWith('/api/city')) return json(city);
+    // §B7: raising a captured gate answers with the whole city, like every other city write.
+    if (pathname.endsWith('/api/city/gate')) return json(city);
     // The base screen reads `GET /base/:id`, not `/me`. Serving one fixed base regardless of the
     // session made `installApi(page, lateGame)` a half-fixture: a late-game HUD over a starting
     // base, so the detail follows whichever session was installed.
@@ -335,10 +387,36 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       // below and answered a POST with a district, which is a 200 that changes nothing.
       pathname.endsWith('/api/city/upgrade')
     ) {
+      /*
+       * §A4: sending a scout does not open the ground, it starts a walk.
+       *
+       * The fixture answers the send with the same district still dark and a run under way, which
+       * is what the server does. Answering with open ground would let a test press the button and
+       * watch the fog lift, which is the old instant scout, and the whole point of the rework is
+       * that it does not do that any more.
+       */
+      if (pathname.endsWith('/api/city/scout')) {
+        const body = route.request().postDataJSON() as { districtId: string };
+        const detail = districtDetailFor(body.districtId);
+        scoutingRun = {
+          districtId: body.districtId,
+          districtName: detail.district.name,
+          officerId: 'off-3',
+          officerName: 'Vela',
+          departedAt: new Date().toISOString(),
+          returnsAt: new Date(Date.now() + 214 * 60_000).toISOString(),
+        };
+        return json({
+          district: { ...detail, scoutPlan: null, scoutingRun },
+          base: meResponse.base ?? baseDetail.base,
+        });
+      }
       return json({ district: districtDetail, base: meResponse.base ?? baseDetail.base });
     }
     if (pathname.includes('/api/city/')) {
-      return json(districtDetailFor(pathname.split('/').filter(Boolean).pop() ?? ''));
+      const detail = districtDetailFor(pathname.split('/').filter(Boolean).pop() ?? '');
+      // A run under way outlives the write that started it, so the panel stays on the countdown.
+      return json(scoutingRun === null ? detail : { ...detail, scoutingRun, scoutPlan: null });
     }
     /*
      * §A4: the road. `recall` answers with the list minus the column it was given, so a run can
@@ -478,14 +556,60 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       return json((meResponse.base?.level ?? 1) > 1 ? factionScreen : factionNone);
     }
     if (pathname.includes('/api/factions/')) return json({ faction: factionScreen });
+    /* The standings. Which board is answered comes off the query string, the way the route does
+       it, so the tab control is exercised rather than stubbed past. */
+    if (pathname.endsWith('/api/leaderboard')) {
+      const board = searchParams.get('board');
+      return json(board === 'factions' ? leaderboardFactions : leaderboardPlayers);
+    }
     if (pathname.endsWith('/api/messages')) return json(messagesScreen);
     if (pathname.includes('/api/messages/')) return json({ messages: messagesScreen });
     if (pathname.endsWith('/api/notifications')) return json(notificationsScreen);
     if (pathname.includes('/api/notifications/'))
       return json({ notifications: notificationsScreen });
 
-    if (pathname.endsWith('/api/crew')) {
-      return json((meResponse.base?.level ?? 1) > 1 ? crewFat : crewStart);
+    /*
+     * §C2: moving somebody between a chair and the bench.
+     *
+     * Answered here for the reason the note on `/api/bar/hire` gives: the crew screen calls this
+     * from two places now (the officer's own window, and the picker on an empty chair), and an
+     * unanswered route is a control a test can press while nothing happens.
+     */
+    if (pathname.endsWith('/api/crew/reassign')) {
+      const body = route.request().postDataJSON() as { officerId: string; role: string | null };
+      roster.officers = roster.officers.map((entry) =>
+        entry.officerId === body.officerId
+          ? { ...entry, role: body.role as CrewOfficer['role'] }
+          : entry,
+      );
+      return json({ crew: roster });
+    }
+    // The per-install copy, so a release or a reassignment is *observable*: the roster really
+    // changes on the next read, which is what lets a test assert the outcome rather than the call.
+    if (pathname.endsWith('/api/crew')) return json(roster);
+    /*
+     * §H7: letting somebody go, from the crew page as well as from the Bar.
+     *
+     * Answered here for the reason the note on `/api/bar/hire` gives. The button moved onto the
+     * officer's own window, which is a screen the Bar's fixture never touched, so without this the
+     * whole flow would fall through to the 404 catch-all and a test could press the button and
+     * watch nothing happen, exactly as a player would.
+     */
+    if (pathname.endsWith('/api/bar/release')) {
+      const body = route.request().postDataJSON() as { officerId: string };
+      const officer = roster.officers.find((entry) => entry.officerId === body.officerId);
+      if (!officer) {
+        return json({ error: { code: 'NOT_FOUND', message: 'Not on the books' } }, 404);
+      }
+      const fee = dismissalFee(officer.weeklyWage);
+      // The roster the next read answers with, minus the person who just left.
+      roster.officers = roster.officers.filter((entry) => entry.officerId !== body.officerId);
+      return json({
+        officerId: body.officerId,
+        fee,
+        resources: { ...(meResponse.base?.resources ?? {}) },
+        payroll: bar.payroll,
+      });
     }
     // Before the bare `/api/overseer` handler below, which does not match a sub-path, and would
     // answer a profile read with a 201 character-creation payload if it were reordered.
@@ -509,6 +633,21 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // snapshot is what puts the Bench door in the nav for these runs.
     if (pathname.endsWith('/api/admin')) return json(adminSnapshot);
     if (pathname.endsWith('/api/admin/knobs')) return json({ admin: adminSnapshot });
+    // §B11: the yard has its own page. Checked before `/api/workshop` only for tidiness: the two
+    // prefixes do not overlap.
+    /*
+     * §B9: the Scrapyard's own page.
+     *
+     * Answered for the reason the note on `/api/bar/hire` gives. The page and its route landed
+     * without a fixture, so under this harness it fell through to the 404 catch-all below: a whole
+     * screen a test could walk to and find empty, exactly as a player would.
+     */
+    if (pathname.includes('/api/scrapyard')) {
+      return json(route.request().method() === 'GET' ? scrapyard : { scrapyard });
+    }
+    if (pathname.includes('/api/garage')) {
+      return json(route.request().method() === 'GET' ? garage : { garage });
+    }
     if (pathname.includes('/api/workshop')) {
       return json(route.request().method() === 'GET' ? workshop : { workshop });
     }

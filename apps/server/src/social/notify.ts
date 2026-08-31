@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { wantsNotification, type NotificationKind } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { liveHub } from '../live/hub.js';
+import { NOTIFICATION_LIVE_KINDS } from '../live/kinds.js';
 
 /**
  * Writing a notification.
@@ -31,6 +33,8 @@ export interface NotifyInput {
   body?: string;
   /** Where this goes when clicked. A receipt with nowhere to go makes the player hunt. */
   link: string;
+  /** The id of the thing this is about, so opening it can show it. */
+  subjectId?: string | null;
   now: Date;
 }
 
@@ -50,11 +54,18 @@ export function notify(repos: Repositories, input: NotifyInput): boolean {
       title: input.title,
       body: input.body ?? '',
       link: input.link,
+      subjectId: input.subjectId ?? null,
       createdAt: input.now.toISOString(),
     });
     // Trimmed on write rather than on a schedule: there is no scheduler in this server, and the
     // only moment a list is known to have grown is the moment something was added to it.
     repos.social.trimNotifications(input.userId, NOTIFICATION_HISTORY);
+    // The live nudge rides the same funnel as the receipt, which is why it is one line and not a
+    // publisher wired into every emitter: anything worth writing down is worth telling an open tab
+    // about, and the two can never disagree about whether it happened.
+    liveHub.publish(input.userId, 'notification', input.now);
+    const extra = NOTIFICATION_LIVE_KINDS[input.kind];
+    if (extra) liveHub.publish(input.userId, extra, input.now);
     return true;
   } catch {
     return false;

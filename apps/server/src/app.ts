@@ -14,6 +14,7 @@ import { AppError } from './errors.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerCrewRoutes } from './routes/crew.js';
 import { registerFactionRoutes } from './routes/factions.js';
+import { registerLeaderboardRoutes } from './routes/leaderboard.js';
 import { registerSocialRoutes } from './routes/social.js';
 import { registerBarRoutes } from './routes/bar.js';
 import { registerBaseRoutes } from './routes/base.js';
@@ -30,6 +31,10 @@ import { registerBlackMarketRoutes } from './routes/blackmarket.js';
 import { registerSettingsRoutes } from './routes/settings.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { registerWorkshopRoutes } from './routes/workshop.js';
+import { registerScrapyardRoutes } from './routes/scrapyard.js';
+import { registerGarageRoutes } from './garage/routes.js';
+import { registerLiveRoutes } from './live/routes.js';
+import { registerRateLimits } from './limits/plugin.js';
 import type { JwtPayload } from './types.js';
 
 declare module 'fastify' {
@@ -77,6 +82,10 @@ export async function buildApp({
 
   await app.register(cors, { origin: config.corsOrigin });
   await app.register(jwt, { secret: config.jwtSecret });
+
+  // After `jwt`, because the limiter buckets by account where there is one and needs `app.jwt` to
+  // read it. Before every route, because the whole value of a limit is refusing work early.
+  registerRateLimits(app);
 
   app.decorate('authenticate', async (request: FastifyRequest): Promise<void> => {
     let payload: JwtPayload;
@@ -140,10 +149,14 @@ export async function buildApp({
       registerCrewRoutes(api);
       registerFactionRoutes(api);
       registerSocialRoutes(api);
+      registerLiveRoutes(api);
+      registerLeaderboardRoutes(api);
       registerTrainingRoutes(api);
       registerMarketRoutes(api);
       registerBlackMarketRoutes(api);
       registerWorkshopRoutes(api);
+      registerScrapyardRoutes(api);
+      registerGarageRoutes(api);
       registerSettingsRoutes(api);
       registerAdminRoutes(api);
       done();

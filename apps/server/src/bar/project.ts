@@ -23,6 +23,8 @@ export function projectRecruit(
   base: Base,
   recruit: BarCharacter,
   standoff: Standoff | undefined,
+  /** §H7: what this crew's negotiators take off the ask. The screen must quote what is charged. */
+  wageDiscountPercent = 0,
 ): BarRecruit {
   const assessment = assessAgainst(base, recruit);
   return {
@@ -34,7 +36,7 @@ export function projectRecruit(
     assessment,
     // §H7 prices a fee only "if the character is interested". There is no number to show someone
     // who will not sit down, and inventing one would advertise a hire that cannot happen.
-    askingWage: assessment.interested ? wageAskedOf(recruit, standoff) : null,
+    askingWage: assessment.interested ? wageAskedOf(recruit, standoff, wageDiscountPercent) : null,
     hired: base.commanders.some((officer) => officer.id === recruit.id),
     standoff: standoff ?? null,
   };

@@ -1,4 +1,5 @@
 import {
+  capturedGateDefensePercent,
   addResources,
   mergeResources,
   battlefieldFor,
@@ -33,7 +34,6 @@ import {
   type SideAnalysis,
   type SkirmishEngine,
   type SkirmishOutcome,
-  type TerritoryEffects,
   NO_BOOST,
   boostBundle,
   blackMarketBoost,
@@ -46,6 +46,23 @@ import {
   type CrewEffects,
   findUnit,
   districtDisplayName,
+  battleMargin,
+  infirmaryRecoveryPercent,
+  leading,
+  mulberry32,
+  officerInjured,
+  officerIsInjured,
+  officerRecoveryAt,
+  mergeFleets,
+  removeFleet,
+  scaledSpoils,
+  seedFrom,
+  vehicleInfamy,
+  wrecked,
+  type Fleet,
+  type BattleOfficer,
+  type BattleSide,
+  type Commander,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
 import { recallOvertaken } from './movement.js';
@@ -57,6 +74,7 @@ import { defendingBaseOf } from './declare.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
 import { controlsIn, residentOf, targetName } from './ground.js';
 import { awardPlayerXp } from '../progression/award.js';
+import { gateFor, holdsDistrictWhole } from '../city/gates.js';
 
 /**
  * Running the fights whose mark has passed (GDD §A4, battle rework).
@@ -247,8 +265,105 @@ function bankOutcome(
   };
 }
 
-function withGate(effects: TerritoryEffects, buildings: readonly Building[]): TerritoryEffects {
-  return { ...effects, defensePercent: effects.defensePercent + districtDefense(buildings) };
+/**
+ * The Gate's own contribution to holding the ground, and the perks that only pay for a Gate.
+ *
+ * `gateDefensePercent` (§B7) is folded in here rather than into `defensePercent` at the source,
+ * because that is what makes it conditional: this function is only called for the side that is
+ * *defending a district it has built a Gate on*, so a Gatewright is worth nothing on an attack and
+ * nothing at all to a crew that never raised one. Added to the same channel the Gate itself pays
+ * into, so it is one number on the report rather than two that have to be reconciled.
+ */
+/**
+ * How many different crews put people on one side of a fight.
+ *
+ * The condition behind `allied_offense` (§B7). More than one means somebody else's crew is
+ * standing in your line, which is the whole thing the perk is about: an ally who sent twelve
+ * bodies is a different fight from one you took on your own, and a perk that only pays there is a
+ * reason to fight alongside your faction rather than a number that pays out regardless.
+ *
+ * Counted from the rows rather than from the declaration, because reinforcements arrive after it.
+ */
+function alliedSideCount(repos: Repositories, battleId: string, side: 'attacker' | 'defender') {
+  const bases = new Set<string>();
+  for (const row of repos.sieges.side(battleId, side)) {
+    if (row.baseId !== null) bases.add(row.baseId);
+  }
+  return bases.size;
+}
+
+/**
+ * Whether this crew holds every location in the district they live in.
+ *
+ * The condition behind `whole_district`. A sweep rather than a majority on purpose: the perk is
+ * priced for a state that is hard to reach and easy to lose, so one location changing hands turns
+ * it off, and getting it back turns it on again.
+ */
+function holdsWholeDistrict(repos: Repositories, base: Base): boolean {
+  const district = findDistrict(base.districtId);
+  if (!district || district.locations.length === 0) return false;
+  const controls = repos.city.controls();
+  return district.locations.every((location) => {
+    const holder = controls.get(location.id)?.holder;
+    return holder?.kind === 'crew' && holder.baseId === base.id;
+  });
+}
+
+/** Pays out the two situational channels, and only where their condition actually holds. */
+function situational(
+  effects: CrewEffects,
+  when: { allied: boolean; wholeDistrict: boolean },
+): CrewEffects {
+  const offense = when.allied ? effects.alliedOffensePercent : 0;
+  const defense = when.wholeDistrict ? effects.wholeDistrictPercent : 0;
+  if (offense === 0 && defense === 0) return effects;
+  return {
+    ...effects,
+    unitOffensePercent: effects.unitOffensePercent + offense,
+    defensePercent: effects.defensePercent + defense,
+  };
+}
+
+function withGate(
+  effects: CrewEffects,
+  buildings: readonly Building[],
+  /**
+   * §B7: the gate on the ground this fight is being had on, when the defender holds it whole.
+   *
+   * A crew defending a district they have taken is standing behind *that* district's wall, not
+   * behind the one at home four districts away. Passed in rather than folded into
+   * `standingEffectsFor`, because that fold is per crew and this is a fact about *where the fight
+   * is*: folding it there would have paid a captured gate out in every fight the crew took
+   * anywhere, which is the unconditional-bonus mistake the whole §B7 rework was about.
+   */
+  capturedGateLevel = 0,
+): CrewEffects {
+  const gate = districtDefense(buildings);
+  // No Gate, no bonus: the perk buys a better door, not a door. A captured gate is a door, so it
+  // counts for the perk too: a Gatewright is worth the same on a wall they took as on one they built.
+  const anyGate = gate > 0 || capturedGateLevel > 0;
+  const fromPerks = anyGate ? effects.gateDefensePercent : 0;
+  const captured = capturedGateDefensePercent(capturedGateLevel);
+  return {
+    ...effects,
+    defensePercent: effects.defensePercent + gate + captured + fromPerks,
+  };
+}
+
+/**
+ * Credits a fight's infamy to the faction the crew fights for (§J8).
+ *
+ * Takes the two economies rather than the earned figure, so what reaches the faction is exactly
+ * what reached the player: `gainInfamy` clamps, and a faction crediting the pre-clamp number would
+ * drift above the sum of what its members were actually paid.
+ *
+ * Only ever adds. Infamy leaves a player's wallet when they buy notoriety, and a team record that
+ * fell when somebody spent would be a record of what the faction is holding rather than of what it
+ * has done.
+ */
+function creditFaction(repos: Repositories, base: Base, before: EconomyState, after: EconomyState) {
+  const earned = after.infamy - before.infamy;
+  if (earned > 0) repos.factions.addInfamyEarned(base.ownerId, earned);
 }
 
 export interface ResolvedSiege {
@@ -270,7 +385,20 @@ export function settleBattles(
   const resolved: ResolvedSiege[] = [];
   for (const battle of repos.sieges.due(now.toISOString())) {
     if (!isBattleDue(battle, now)) continue;
-    const outcome = resolveOne(repos, engine, battle, now);
+    /*
+     * One fight, one transaction.
+     *
+     * A fight is not a single write. It springs the trap standing on the ground, runs the engine,
+     * marks itself resolved, moves both sides' armies, hands over the location and pays out the
+     * haul, and those happen in that order. Unwrapped, anything that threw between the first and
+     * the last left the world in a state the rules do not describe: the clearest is the trap, which
+     * `springAnyTrap` consumes *before* the engine runs, so an engine that threw took the
+     * defender's trap with it and left the fight to run again later without one.
+     *
+     * Per fight rather than per sweep, so one unreadable battle cannot roll back the fights that
+     * resolved cleanly beside it in the same tick.
+     */
+    const outcome = repos.tx(() => resolveOne(repos, engine, battle, now));
     if (outcome) resolved.push(outcome);
   }
   return resolved;
@@ -345,6 +473,109 @@ function boosted(effects: CrewEffects, boost: BattleBoost): CrewEffects {
  */
 export const STIM_PERCENT_EACH = 3;
 
+/**
+ * §D1: the officer leading one side, or null.
+ *
+ * Read off the **principal** crew's deployment row: the declarer for the attacker, whoever is
+ * being attacked for the defender. A side can be several crews and only one officer may lead it,
+ * so somebody has to own the slot; the principal is the crew whose `CrewEffects` the whole side
+ * already fights under, which makes the officer's perks land on the same numbers as the rest of
+ * that crew's book rather than on a second, disagreeing fold.
+ *
+ * Re-read against the roster at the mark rather than trusted from the row. An id written sixteen
+ * hours ago can name somebody who has since been released, or who came back hurt from an earlier
+ * fight, and an injured officer is out: §D4 says their services are off, and leading is a service.
+ */
+function leaderFor(
+  repos: Repositories,
+  battle: ScheduledBattle,
+  side: BattleSide,
+  base: Base,
+  now: Date,
+): Commander | null {
+  const officerId = repos.sieges.deployment(battle.id, side, base.id)?.officerId;
+  if (!officerId) return null;
+  const officer = base.commanders.find((candidate) => candidate.id === officerId);
+  if (!officer || officerIsInjured(officer.injuredUntil, now)) return null;
+  return officer;
+}
+
+/** An officer as the engine takes them. */
+function asCombatant(officer: Commander): BattleOfficer {
+  return { officerId: officer.id, name: officer.name, attributes: officer.attributes };
+}
+
+/**
+ * §D4: whether each side's officer came home hurt.
+ *
+ * One draw per side, from a stream seeded on the battle and the side, so it is reproducible from
+ * the row and settles the same on a second read. Drawn even when nobody led, so adding a leader to
+ * one side cannot shift the other side's roll: a seeded stream that changes shape with the input
+ * is a seed that stops replaying.
+ *
+ * The margin is the difference of the two surviving shares (`battleMargin`), so it says how the
+ * fight *went* rather than how big it was. An officer taken off the field is injured whatever the
+ * roll says: see `officerInjured`.
+ */
+function settleInjuries(
+  battle: ScheduledBattle,
+  outcome: SkirmishOutcome,
+): Record<BattleSide, boolean> {
+  const share = (side: SideAnalysis | undefined): number =>
+    !side || side.committed <= 0 ? 0 : side.survived / side.committed;
+  const attackerShare = share(outcome.analysis?.attacker);
+  const defenderShare = share(outcome.analysis?.defender);
+
+  const hurt = (side: BattleSide, ownShare: number, enemyShare: number): boolean => {
+    const reported = outcome.officers[side];
+    const roll = mulberry32(seedFrom(`${battle.seed}:officer:${side}`))();
+    if (!reported) return false;
+    return officerInjured(reported.fell, battleMargin(ownShare, enemyShare), roll);
+  };
+  return {
+    attacker: hurt('attacker', attackerShare, defenderShare),
+    defender: hurt('defender', defenderShare, attackerShare),
+  };
+}
+
+/**
+ * §C3: what a side's machines came home to, and what the other side gets for the rest.
+ *
+ * Writes the survivors straight back onto the base's fleet and clears the deployment's, so a fight
+ * that has been settled cannot hand the same machines back twice on a second read. Returns what was
+ * destroyed, which is what the *enemy's* infamy is priced off.
+ */
+function settleVehicles(
+  repos: Repositories,
+  battle: ScheduledBattle,
+  side: BattleSide,
+  base: Base,
+  force: { committed: number; survivors: number },
+): { destroyed: Fleet } {
+  const deployment = repos.sieges.deployment(battle.id, side, base.id);
+  const took = deployment?.vehicles ?? {};
+  if (Object.keys(took).length === 0) return { destroyed: {} };
+
+  // A force of nobody that somehow took machines lost all of them: there was nobody to drive one
+  // home, which is the same answer a wipe gets and for the same reason.
+  const surviving = force.committed <= 0 ? 0 : force.survivors / force.committed;
+  const destroyed = wrecked(took, surviving);
+  const home = removeFleet(took, destroyed);
+
+  repos.sieges.putDeployment({ ...deployment!, vehicles: {} });
+  if (Object.keys(home).length > 0) {
+    repos.bases.updateFleet(base.id, mergeFleets(repos.bases.findById(base.id)?.fleet ?? {}, home));
+  }
+  return { destroyed };
+}
+
+/** The roster with one officer laid up for a day. Written by the settler and nowhere else. */
+function withInjury(commanders: readonly Commander[], officerId: string, now: Date): Commander[] {
+  return commanders.map((officer) =>
+    officer.id === officerId ? { ...officer, injuredUntil: officerRecoveryAt(now) } : officer,
+  );
+}
+
 function resolveOne(
   repos: Repositories,
   engine: SkirmishEngine,
@@ -400,10 +631,62 @@ function resolveOne(
       )
     : NO_BOOST;
 
-  const attackerEffects = boosted(standingEffectsFor(repos, attacker), attackerBoost);
+  /*
+   * §B7's two situational perks, applied where the situation is actually known.
+   *
+   * Neither can be folded at the source, because neither is a fact about the crew: whether an ally
+   * turned up is a fact about *this fight*, and whether you hold the whole district is a fact about
+   * the map at this moment. Folding them into `defensePercent` in `crew/effects.ts` would pay them
+   * out in every fight, which is exactly the unconditional bonus the board asked us to stop making.
+   */
+  /*
+   * §B7: the wall on the ground this fight is on, if the defender took the district whole.
+   *
+   * Read once here, next to the other two situational conditions, because it is the same kind of
+   * fact: not "what does this crew own" but "what is true of *this fight*". A crew defending a
+   * district they hold outright fights behind its gate; the same crew attacking somewhere else
+   * gets nothing from it.
+   *
+   * Zero while the district is still split, which is also what makes taking the last location
+   * worth something beyond the location.
+   */
+  const defenderCapturedGateLevel =
+    defenderBase && holdsDistrictWhole(repos, defenderBase.id, battle.target.districtId)
+      ? gateFor(repos, battle.target.districtId).level
+      : 0;
+
+  const attackerAllied = alliedSideCount(repos, battle.id, 'attacker') > 1;
+  const defenderAllied = alliedSideCount(repos, battle.id, 'defender') > 1;
+
+  /*
+   * §D1/§D5: who is leading, and what their book is worth because of it.
+   *
+   * `leading` is the spending step for the perk channels that pay nothing until an officer
+   * actually goes. Applied here rather than in `standingEffectsFor` for the reason every
+   * conditional channel exists: folding it at the source would pay a leading bonus out on every
+   * fight, including the ones the officer sat at home for.
+   */
+  const attackerLead = leaderFor(repos, battle, 'attacker', attacker, now);
+  const defenderLead = defenderBase
+    ? leaderFor(repos, battle, 'defender', defenderBase, now)
+    : null;
+
+  const attackerEffects = situational(
+    boosted(standingEffectsFor(repos, attacker, now), attackerBoost),
+    {
+      allied: attackerAllied,
+      wholeDistrict: holdsWholeDistrict(repos, attacker),
+    },
+  );
+  const attackerFinal = attackerLead ? leading(attackerEffects) : attackerEffects;
   const defenderEffects = defenderBase
-    ? boosted(standingEffectsFor(repos, defenderBase), defenderBoost)
+    ? situational(boosted(standingEffectsFor(repos, defenderBase, now), defenderBoost), {
+        allied: defenderAllied,
+        wholeDistrict: holdsWholeDistrict(repos, defenderBase),
+      })
     : undefined;
+  const defenderFinal =
+    defenderEffects && defenderLead ? leading(defenderEffects) : defenderEffects;
 
   const name = targetName(battle.target, resident);
   // Read once and shared: the engine fights on it and the report is stamped with it, so a card can
@@ -432,16 +715,22 @@ function resolveOne(
     attacking: trap.attacking,
     defending: assembled.defending,
     battlefield: ground,
-    attackerTerritory: attackerEffects,
+    attackerTerritory: attackerFinal,
     attackerUpgrades: attacker.unitLoadouts,
-    attackerCohesionPercent: attackerEffects.cohesionPercent,
+    attackerCohesionPercent: attackerFinal.cohesionPercent,
     attackerPerimeter: assembled.attackerRing,
     defenderPerimeter: assembled.defenderRing,
-    ...(defenderEffects && defenderBase
+    ...(attackerLead ? { attackerOfficer: asCombatant(attackerLead) } : {}),
+    ...(defenderLead ? { defenderOfficer: asCombatant(defenderLead) } : {}),
+    ...(defenderFinal && defenderBase
       ? {
           // The Gate, and everybody garrisoned inside the structures behind it (§A1, §A4).
-          defenderTerritory: withGate(defenderEffects, defenderBase.buildings),
-          defenderCohesionPercent: defenderEffects.cohesionPercent,
+          defenderTerritory: withGate(
+            defenderFinal,
+            defenderBase.buildings,
+            defenderCapturedGateLevel,
+          ),
+          defenderCohesionPercent: defenderFinal.cohesionPercent,
           defenderUpgrades: defenderBase.unitLoadouts,
         }
       : {}),
@@ -456,6 +745,9 @@ function resolveOne(
   // has still been run: it costs one seeded stream and it produces the report that says so.
   const attackerWon = !trap.wipedOut && outcome.winner === 'attacker';
 
+  // §D4: settled before anything is written, because the roster write and the report both read it.
+  const injured = settleInjuries(battle, outcome);
+
   const settlement = applyOutcome(repos, {
     battle,
     district,
@@ -467,15 +759,33 @@ function resolveOne(
     outcome,
     attackerWon,
     now,
+    lead: { attacker: attackerLead, defender: defenderLead },
+    leadEffects: { attacker: attackerFinal, defender: defenderFinal },
+    injured,
   });
 
   const base = outcome.analysis ?? fallbackAnalysis(battle, name, outcome, attacker.name, ground);
+  /*
+   * §D4: the injury lands on the analysis, which is what withholds the report.
+   *
+   * `reportReaches` reads exactly this field, so an officer on a stretcher takes this side's report
+   * with them: winner or loser, whoever else got home. The engine leaves `injured` false because it
+   * has no margin and no stream; the settler is the only writer.
+   */
+  const withOfficer = (side: BattleSide, into: SideAnalysis): SideAnalysis => {
+    // Written from the *outcome* rather than patched onto whatever the analysis carried, so the
+    // settler is the single writer of this field and a stub engine with no ledger behind it still
+    // reports the officer it was told about. `analyseBattle` fills it in with `injured: false`
+    // because it has no margin and no stream to roll one with.
+    const reported = outcome.officers[side];
+    return reported === null ? into : { ...into, officer: { ...reported, injured: injured[side] } };
+  };
   const analysis: BattleAnalysis = {
     ...base,
     winner: attackerWon ? 'attacker' : 'defender',
     trap: trap.note,
-    attacker: { ...base.attacker, infamy: settlement.attackerInfamy },
-    defender: { ...base.defender, infamy: settlement.defenderInfamy },
+    attacker: { ...withOfficer('attacker', base.attacker), infamy: settlement.attackerInfamy },
+    defender: { ...withOfficer('defender', base.defender), infamy: settlement.defenderInfamy },
   };
 
   repos.sieges.markResolved(battle.id, now.toISOString(), analysis);
@@ -524,6 +834,12 @@ interface SettleInput {
   outcome: SkirmishOutcome;
   attackerWon: boolean;
   now: Date;
+  /** §D1: who led each side, or null. Re-read at the mark by `leaderFor`. */
+  lead: Record<BattleSide, Commander | null>;
+  /** ...and that side's folded book, `leading` already spent. Undefined where there is no crew. */
+  leadEffects: { attacker: CrewEffects; defender: CrewEffects | undefined };
+  /** §D4: whether each side's officer came home hurt. */
+  injured: Record<BattleSide, boolean>;
 }
 
 interface Settlement {
@@ -547,11 +863,25 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   const attackerGround = standingEffectsFor(repos, attacker);
   const defenderGround = defenderBase ? standingEffectsFor(repos, defenderBase) : null;
 
-  // §F2: the medics take some of the *winner's* dead off the list before it is applied. Only ever
-  // the winner's: a routed force leaves its wounded on the field, which is what routing means.
-  const winnerRecovery = attackerWon
-    ? attackerGround.casualtyRecoveryPercent
-    : (defenderGround?.casualtyRecoveryPercent ?? 0);
+  /*
+   * §F2 and §B10: the medics take some of the *winner's* dead off the list before it is applied.
+   *
+   * Only ever the winner's, which is both the board's rule for the Infirmary ("wins only") and the
+   * one that was already true here: a routed force leaves its wounded on the field, which is what
+   * routing means.
+   *
+   * Two sources, added. `casualtyRecoveryPercent` is the crew's own medicine and whatever ground
+   * they hold; `infirmaryRecoveryPercent` is the structure, and it was authored, drawn on the base
+   * screen and read by nothing at all until this line. `recoverCasualties` caps the total at
+   * `MAX_CASUALTY_RECOVERY`, so a crew with a deep Infirmary and a chief medic does not walk
+   * everybody home.
+   */
+  const winnerBase = attackerWon ? attacker : defenderBase;
+  const winnerRecovery =
+    (attackerWon
+      ? attackerGround.casualtyRecoveryPercent
+      : (defenderGround?.casualtyRecoveryPercent ?? 0)) +
+    (winnerBase ? infirmaryRecoveryPercent(winnerBase.buildings) : 0);
   const winnerDead = recoverCasualties(outcome.winnerLosses, winnerRecovery);
   const attackerDead = attackerWon ? winnerDead : outcome.killed;
   const defenderDead = attackerWon ? outcome.killed : winnerDead;
@@ -612,8 +942,33 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       : undefined;
   const captureInfamy = taken ? (LOCATION_CATALOG[taken.kind].captureInfamy ?? 0) : 0;
 
-  const attackerInfamy = infamyForKills(defenderDead) + captureInfamy;
-  const defenderInfamy = infamyForKills(attackerDead);
+  /*
+   * §C3: the machines, and what the other side earns for wrecking them.
+   *
+   * *"If every unit riding a vehicle dies, the vehicle is destroyed."* Riders are not tracked
+   * individually and could not honestly be: a column is a force rather than a seating plan. What
+   * `wrecked` reads is the share of the force that came home, so a side that was wiped loses
+   * everything it committed and a side that walked it off loses nothing. Whatever survives goes
+   * straight back in the yard, which is the other half of the board's rule.
+   *
+   * The infamy is the machines' **capacity**, not their price: a War Hauler is a bigger thing to
+   * have destroyed than a Motorcycle whatever either cost to build, and capacity is what the fight
+   * actually took off the board.
+   */
+  const attackerVehicles = settleVehicles(repos, battle, 'attacker', attacker, {
+    committed: forceSize(input.committed),
+    survivors: forceSize(attackerSurvivors),
+  });
+  const defenderVehicles = defenderBase
+    ? settleVehicles(repos, battle, 'defender', defenderBase, {
+        committed: forceSize(assembled.defending),
+        survivors: forceSize(defenderSurvivors),
+      })
+    : { destroyed: {} as Fleet };
+
+  const attackerInfamy =
+    infamyForKills(defenderDead) + captureInfamy + vehicleInfamy(defenderVehicles.destroyed);
+  const defenderInfamy = infamyForKills(attackerDead) + vehicleInfamy(attackerVehicles.destroyed);
 
   /**
    * §A4: the Bone Market. A share of what you lost comes back as caps rather than as nothing.
@@ -633,17 +988,29 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * banked. A mechanic that is visible and inert is worse than one that is absent.
    */
   let haul: PartialResources = refundFor(attackerDead, attackerGround.salvageRefundPercent);
+  /*
+   * §D5: what the officer's own book adds to the take, when they led and the fight was won.
+   *
+   * Spent here rather than folded into `lootCapacityPercent`, because "a percentage more loot" and
+   * "a bigger truck" are different promises: the truck is already full on most raids, and a crew
+   * that bought the perk would have measured nothing. Applied at the end, to everything the fight
+   * paid, so the refund and the break-in are both scaled by it.
+   */
+  const leadLoot =
+    attackerWon && input.lead.attacker ? input.leadEffects.attacker.leadLootPercent : 0;
+  const attackerBanked = bankOutcome(
+    attacker.economy,
+    district,
+    attackerWon,
+    attackerInfamy,
+    now,
+    attackerGround.infamyGainPercent,
+  );
+  creditFaction(repos, attacker, attacker.economy, attackerBanked);
   let attackerNext: Base = {
     ...attacker,
     army: mergeArmies(attacker.army, attackerOwnHome),
-    economy: bankOutcome(
-      attacker.economy,
-      district,
-      attackerWon,
-      attackerInfamy,
-      now,
-      attackerGround.infamyGainPercent,
-    ),
+    economy: attackerBanked,
   };
 
   // --- the ground ---
@@ -673,6 +1040,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     haul = mergeResources(haul, breakIn(repos, input));
   }
 
+  if (leadLoot > 0) haul = scaledSpoils(haul, leadLoot);
+
   // Banked once, on every path. Nothing above this line touches the stockpile.
   if (Object.keys(haul).length > 0) {
     attackerNext = { ...attackerNext, resources: addResources(attackerNext.resources, haul) };
@@ -698,17 +1067,16 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
         addResources(defenderBase.resources, theirRefund),
       );
     }
-    repos.bases.updateEconomy(
-      defenderBase.id,
-      bankOutcome(
-        defenderBase.economy,
-        district,
-        !attackerWon,
-        defenderInfamy,
-        now,
-        defenderGround?.infamyGainPercent ?? 0,
-      ),
+    const defenderBanked = bankOutcome(
+      defenderBase.economy,
+      district,
+      !attackerWon,
+      defenderInfamy,
+      now,
+      defenderGround?.infamyGainPercent ?? 0,
     );
+    creditFaction(repos, defenderBase, defenderBase.economy, defenderBanked);
+    repos.bases.updateEconomy(defenderBase.id, defenderBanked);
   }
 
   /*
@@ -727,6 +1095,21 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   }
 
   /*
+   * §D4: the officer who would have died is laid up for a day instead.
+   *
+   * Written straight onto the roster rather than banked into `attackerNext`, because the defender's
+   * roster is written by its own branch above and the attacker's is written below: one statement
+   * that names the base it is changing is easier to be sure about than two that have to be threaded
+   * into two different accumulators. `updateCommanders` touches only `commanders_json`.
+   */
+  for (const side of ['attacker', 'defender'] as const) {
+    const officer = input.lead[side];
+    const owner = side === 'attacker' ? attacker : defenderBase;
+    if (!officer || !owner || !input.injured[side]) continue;
+    repos.bases.updateCommanders(owner.id, withInjury(owner.commanders, officer.id, now));
+  }
+
+  /*
    * The receipts for the fight.
    *
    * Everybody who had a row on either side hears, not only the two principals: an ally who sent
@@ -735,16 +1118,26 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    *
    * `battle_report` is always-on (`social/notifications.ts`), so this is one of the two kinds a
    * player cannot mute: a fight is irreversible and silence about one is how an army disappears.
+   *
+   * §D4 is the one exception, and it is the point of the rule: a side whose officer came home hurt
+   * gets no report, so telling them one is waiting would be a notification pointing at a redaction.
    */
-  for (const row of [...attackerRows, ...repos.sieges.side(battle.id, 'defender')]) {
-    if (row.baseId === null) continue;
-    notifyBase(repos, row.baseId, {
-      kind: 'battle_report',
-      title: attackerWon ? 'A fight was won' : 'A fight was lost',
-      body: `${targetName(battle.target, residentOf(repos, battle.target.districtId))} is settled.`,
-      link: '/game/battles',
-      now,
-    });
+  const rows: [BattleSide, ReturnType<Repositories['sieges']['side']>][] = [
+    ['attacker', attackerRows],
+    ['defender', repos.sieges.side(battle.id, 'defender')],
+  ];
+  for (const [side, sideRows] of rows) {
+    if (input.injured[side]) continue;
+    for (const row of sideRows) {
+      if (row.baseId === null) continue;
+      notifyBase(repos, row.baseId, {
+        kind: 'battle_report',
+        title: attackerWon ? 'A fight was won' : 'A fight was lost',
+        body: `${targetName(battle.target, residentOf(repos, battle.target.districtId))} is settled.`,
+        link: '/game/battles',
+        now,
+      });
+    }
   }
 
   repos.bases.updateArmy(attackerNext.id, attackerNext.army, attackerNext.trainingQueue);
@@ -836,6 +1229,8 @@ function emptySide(name: string): SideAnalysis {
     perimeterCaught: 0,
     infamy: 0,
     units: [],
+    // A stub engine ran no officer, because it ran no fight.
+    officer: null,
   };
 }
 

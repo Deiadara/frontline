@@ -77,6 +77,7 @@ const officer = (officerId: string, name: string) => ({
   attributes: makeAttributes(15),
   perks: [],
   weeklyWage: 40,
+  injuredUntil: null,
 });
 
 /** §G: a roster with people on the books, so a hard run has somebody to lead it. */
@@ -108,6 +109,7 @@ const accepted: LaunchMissionResponse = {
     payPercent: 0,
     xp: 240,
     force: { razors: 1 },
+    vehicles: {},
     startedAt: NOW,
     travelMinutes: 5,
     durationMinutes: 3,
@@ -115,6 +117,7 @@ const accepted: LaunchMissionResponse = {
     status: 'active',
     outcome: null,
     rewards: {},
+    spoils: {},
     resolvedAt: null,
     recalledAt: null,
   },
@@ -251,6 +254,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
         templateId: offer.templateId,
         areaId: MISC_AREA_ID,
         force: { razors: 2 },
+        vehicles: {},
         officerId: 'off-1',
       }),
     );

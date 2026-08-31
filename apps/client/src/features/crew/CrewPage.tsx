@@ -1,4 +1,6 @@
 import {
+  BENCH_LABEL,
+  dismissalFee,
   OFFICER_ROLES,
   OFFICER_ROLE_LABELS,
   officerPortraits,
@@ -10,16 +12,14 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
-import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
-import { InfoWindow } from '../../components/ui/InfoWindow';
 import { Modal } from '../../components/ui/Modal';
 import { InkButton } from '../../components/ui/InkButton';
 import { OfficerPortrait } from '../overseer/OfficerPortrait';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { PerkTags } from '../../components/PerkTags';
 import { cn } from '../../lib/cn';
-import { useCrew, useReassignOfficer } from '../../lib/queries';
+import { useCrew, useReassignOfficer, useReleaseOfficer } from '../../lib/queries';
 import { PageShell } from '../game/PageShell';
 
 /**
@@ -77,8 +77,9 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
   const label = OFFICER_ROLE_LABELS[role];
   if (!officer) {
     return (
-      <Link
-        to="/game/bar"
+      <button
+        type="button"
+        onClick={onOpen}
         data-testid={`seat-${role}`}
         className={cn(CARD, 'text-left hover:border-brass-300/40')}
       >
@@ -123,7 +124,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
           </span>
           <span aria-hidden className="ink-rule w-full opacity-50" />
         </span>
-      </Link>
+      </button>
     );
   }
 
@@ -147,6 +148,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
         <OfficerPortrait
           portraitId={portraitId}
           name={officer.name}
+          injuredUntil={officer.injuredUntil}
           className="absolute inset-0 h-full w-full rounded-none border-0"
         />
         {/* A wash up from the bottom so the name reads off the painting rather than on a bar over
@@ -178,9 +180,11 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
        * is discrete, it is the reason this person is worth their wage, and there are at most three.
        * The sheet is still one click away in the window.
        */}
+      {/* `nested`: the whole seat is a button, so these cannot be hover *buttons* of their own.
+          See `DescribedTag`. */}
       <span className={FOOTER}>
         {officer.perks.length > 0 ? (
-          <PerkTags perks={officer.perks} tone="card" side="top" />
+          <PerkTags perks={officer.perks} tone="card" side="top" nested />
         ) : (
           <span className="font-body text-[12px] italic leading-snug text-ink-400">
             No specialities. Just the work.
@@ -188,6 +192,171 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
         )}
       </span>
     </button>
+  );
+}
+
+/**
+ * Somebody signed and unassigned.
+ *
+ * The seat card without the seat: the same painting, the same perks, and the job line replaced by
+ * what they are costing while they wait. Deliberately the same shape rather than a compact list
+ * row, because a benched officer is a person you are meant to keep looking at until you find them
+ * a chair, and a row in a list is something you stop seeing.
+ */
+function BenchCard({
+  officer,
+  portraitId,
+  onOpen,
+}: {
+  officer: CrewOfficer;
+  portraitId: string | null;
+  onOpen: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-testid={`bench-${officer.officerId}`}
+      className={cn(CARD, 'text-left hover:border-brass-300/50')}
+    >
+      <span className="relative w-full shrink-0 overflow-hidden" style={{ aspectRatio: '4 / 5' }}>
+        <OfficerPortrait
+          portraitId={portraitId}
+          name={officer.name}
+          injuredUntil={officer.injuredUntil}
+          className="absolute inset-0 h-full w-full rounded-none border-0"
+        />
+        <span
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[rgb(24_20_22)] via-[rgb(24_20_22)]/80 to-transparent"
+        />
+        <span className="absolute inset-x-0 bottom-0 flex flex-col gap-0.5 px-3.5 pb-2.5">
+          <span className="truncate font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400">
+            {BENCH_LABEL}
+          </span>
+          <span className="break-words font-stamp text-[19px] leading-tight text-ink-100">
+            {officer.name}
+          </span>
+        </span>
+      </span>
+      <span className={FOOTER}>
+        {officer.perks.length > 0 ? (
+          <PerkTags perks={officer.perks} tone="card" side="top" nested />
+        ) : (
+          <span className="font-body text-[12px] italic leading-snug text-ink-400">
+            No specialities. Just the work.
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * What an empty chair offers (board request).
+ *
+ * It used to be a link straight to the Bar, which was right when the Bar was the only source of an
+ * officer. With a bench there are two, and the difference matters: the Bar costs a signing and one
+ * of the day's hires, and the bench costs nothing because you have already paid for these people.
+ * Somebody sitting on the bench is the cheapest way to fill a chair in the game, and a control that
+ * walked past them to the Bar would hide that.
+ *
+ * The Bar is still the first thing on it, because on most rosters the bench is empty.
+ */
+function ChairWindow({
+  role,
+  bench,
+  faces,
+  pending,
+  onAssign,
+  onClose,
+}: {
+  role: OfficerRole;
+  bench: readonly CrewOfficer[];
+  faces: ReadonlyMap<string, string>;
+  pending: boolean;
+  onAssign: (officerId: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal onClose={onClose} labelledBy="chair-window-title" size="wide">
+      <div className="flex min-h-0 flex-col" data-testid="chair-window">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-surface-600/60 px-5 py-4">
+          <div className="min-w-0">
+            <h2 id="chair-window-title" className="font-stamp text-xl leading-tight text-ink-100">
+              {OFFICER_ROLE_LABELS[role]}
+            </h2>
+            <p className="mt-0.5 font-display text-[11px] uppercase tracking-[0.16em] text-brass-300">
+              Nobody in this chair
+            </p>
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-5 py-4">
+          <div className="flex flex-col gap-2">
+            <Heading>Sign somebody</Heading>
+            <p className="font-body text-[13px] leading-relaxed text-ink-300">
+              The Bar turns over at midnight, and you may sign a limited number a day.
+            </p>
+            <InkButton to="/game/bar" icon="bar" className="self-start">
+              Go to the Bar
+            </InkButton>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Heading>Take somebody off the bench</Heading>
+            {bench.length === 0 ? (
+              <p className="font-body text-[13px] italic leading-relaxed text-ink-400">
+                Nobody is on the bench. Anyone you sign without a chair in mind waits here.
+              </p>
+            ) : (
+              <ul className="grid gap-2 sm:grid-cols-2" data-testid="bench-picker">
+                {bench.map((officer) => (
+                  <li key={officer.officerId}>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => onAssign(officer.officerId)}
+                      data-testid={`assign-${officer.officerId}`}
+                      className="ink-frame card-paper washed flex w-full items-center gap-2.5 p-2 text-left transition-colors hover:border-brass-300/60 disabled:opacity-60"
+                    >
+                      <OfficerPortrait
+                        portraitId={faces.get(officer.officerId) ?? null}
+                        name={officer.name}
+                        injuredUntil={officer.injuredUntil}
+                        className="aspect-[4/5] w-12 shrink-0 border border-surface-600"
+                      />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate font-stamp text-[14px] text-ink-100">
+                          {officer.name}
+                        </span>
+                        <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                          <span className="tabular-nums">{officer.weeklyWage}</span> caps / wk
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function Heading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <h3 className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">
+        {children}
+      </h3>
+      <span aria-hidden className="ink-rule h-1 w-full" />
+    </div>
   );
 }
 
@@ -204,10 +373,29 @@ function OfficerWindow({
   portraitId: string | null;
   filledRoles: readonly OfficerRole[];
   pending: boolean;
-  onReassign: (role: OfficerRole) => void;
+  onReassign: (role: OfficerRole | null) => void;
   onClose: () => void;
 }) {
   const open = OFFICER_ROLES.filter((role) => role === officer.role || !filledRoles.includes(role));
+  /*
+   * The chair list, with the bench on the end of it.
+   *
+   * A sentinel string rather than `null` in the option value, because the dropdown is a `<select>`
+   * underneath and a select's value is a string: `null` round-trips through the DOM as the empty
+   * string and comes back as a role nobody has.
+   */
+  const BENCH = '__bench';
+  const release = useReleaseOfficer();
+  /*
+   * Two presses to end somebody's job (board request).
+   *
+   * The fee is ten weeks of what they are on and it is taken on the spot, so the first press only
+   * *says the price* and the second is the one that pays it. A single button here would sit two
+   * centimetres from the chair dropdown on a window a player opens to read a sheet, and the
+   * cheapest way to lose an officer would be a misclick on the way to reassigning them.
+   */
+  const [ending, setEnding] = useState(false);
+  const fee = dismissalFee(officer.weeklyWage);
   return (
     <Modal
       onClose={onClose}
@@ -225,7 +413,7 @@ function OfficerWindow({
               {officer.name}
             </h2>
             <p className="mt-0.5 font-display text-[13px] uppercase tracking-[0.16em] text-brass-300">
-              {OFFICER_ROLE_LABELS[officer.role]}
+              {officer.role === null ? BENCH_LABEL : OFFICER_ROLE_LABELS[officer.role]}
             </p>
           </div>
           <span className="flex items-center gap-3">
@@ -254,6 +442,7 @@ function OfficerWindow({
             <OfficerPortrait
               portraitId={portraitId}
               name={officer.name}
+              injuredUntil={officer.injuredUntil}
               className="painted rivets edge-lit aspect-[4/5] w-full border-2 border-brass-500/40"
             />
             {officer.perks.length > 0 ? (
@@ -268,6 +457,57 @@ function OfficerWindow({
             <InkButton to="/game/training" icon="training" className="mt-1 w-full">
               Training
             </InkButton>
+
+            {/* §H7, in the one place a player is already reading this person's whole file. It was
+                only ever on the Bar's payroll list, which is where you go to look at *the book*
+                rather than at somebody. */}
+            <div className="mt-auto flex flex-col gap-1.5 border-t border-surface-600/60 pt-3">
+              {ending ? (
+                <>
+                  <p className="font-body text-[12px] leading-snug text-ink-300">
+                    Ending it costs{' '}
+                    <span className="tabular-nums text-oxblood-300">{fee.toLocaleString()}</span>{' '}
+                    caps, paid now. Their chair opens immediately.
+                  </p>
+                  <div className="flex gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={release.isPending}
+                      onClick={() => {
+                        release.mutate(
+                          { officerId: officer.officerId },
+                          { onSuccess: () => onClose() },
+                        );
+                      }}
+                      data-testid="confirm-let-go"
+                    >
+                      {release.isPending ? 'Ending it…' : 'Yes, let them go'}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEnding(false)}>
+                      Keep them
+                    </Button>
+                  </div>
+                  {release.isError && (
+                    <p className="font-body text-[12px] text-oxblood-300">
+                      That did not go through. You may not have the caps.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEnding(true)}
+                  data-testid="let-go"
+                  className="ink-box inline-flex items-center justify-center gap-1.5 px-3 py-1.5 font-stamp text-[13px] leading-none text-oxblood-300 transition-colors hover:text-oxblood-200"
+                >
+                  Let go
+                  <span className="font-display text-[11px] tabular-nums text-ink-400">
+                    {fee.toLocaleString()} caps
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex min-w-0 flex-col gap-3">
@@ -278,13 +518,17 @@ function OfficerWindow({
               <span aria-hidden className="ink-rule block min-w-0 flex-1" />
               <Dropdown
                 label={`Position for ${officer.name}`}
-                value={officer.role}
-                onChange={onReassign}
+                value={officer.role ?? BENCH}
+                onChange={(value) => onReassign(value === BENCH ? null : value)}
                 disabled={pending}
-                options={open.map((role) => ({
-                  value: role,
-                  label: OFFICER_ROLE_LABELS[role],
-                }))}
+                options={[
+                  ...open.map((role) => ({
+                    value: role,
+                    label: OFFICER_ROLE_LABELS[role],
+                  })),
+                  // Taking a chair back without ending the job: the other half of the bench.
+                  { value: BENCH, label: BENCH_LABEL },
+                ]}
                 data-testid="reassign-role"
               />
             </div>
@@ -302,10 +546,20 @@ function OfficerWindow({
   );
 }
 
+/** Chairs that are actually taken. Somebody on the bench takes none, so every seat stays open. */
+function seated(officers: readonly CrewOfficer[]): OfficerRole[] {
+  return officers
+    .map((officer) => officer.role)
+    .filter((role): role is OfficerRole => role !== null);
+}
+
 function Layout({ data }: { data: CrewResponse }) {
   const reassign = useReassignOfficer();
   const [opened, setOpened] = useState<string | null>(null);
+  /** The empty chair a player has clicked, if any. Separate state: a vacancy has no officer id. */
+  const [chair, setChair] = useState<OfficerRole | null>(null);
   const open = data.officers.find((officer) => officer.officerId === opened);
+  const bench = data.officers.filter((officer) => officer.role === null);
   /*
    * One face each, decided across the whole roster rather than per card.
    *
@@ -314,32 +568,28 @@ function Layout({ data }: { data: CrewResponse }) {
    * one woman twice reads as a bug because it is one.
    */
   const faces = officerPortraits(data.officers.map((officer) => officer.officerId));
-  const filled = data.officers.length;
+  // Chairs, not headcount. Somebody on the bench is on the books and in no chair, so counting the
+  // roster here read "5 of 19 chairs filled" with three people actually sitting in one.
+  const filled = seated(data.officers).length;
 
   return (
-    <PageShell quote="Nobody here is doing the job they trained for. That is the job." wide>
+    <PageShell quote="The city tests everyone. These are the ones it keeps calling back." wide>
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-display text-[12px] uppercase tracking-[0.18em] text-ink-300">
           {filled} of {OFFICER_ROLES.length} chairs filled
         </span>
         <span aria-hidden className="ink-rule block min-w-0 flex-1" />
-        <HoverCard
-          size="window"
-          label="Beds"
-          card={
-            <InfoWindow eyebrow="§A1" title="Beds" tone="brass">
-              <p className="font-body text-[14px] leading-relaxed text-ink-100">
-                Everybody you feed comes out of one pool: the officers on this page and every body
-                in the army. Raise the Quarters to make room.
-              </p>
-            </InfoWindow>
-          }
+        {/* No bed count here any more (§A1, board rule): officers are not charged against the
+            district's population, the army is, so a housing figure on the crew screen was a number
+            nobody on this page can move. It lives on the screens that field units. */}
+        <Link
+          to="/game/crew/effects"
+          data-testid="open-crew-effects"
+          className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-200 transition-colors hover:text-brass-100"
         >
-          <span className="flex items-center gap-2 font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
-            <Icon name="crew" aria-hidden className="h-3.5 w-3.5" />
-            {data.housing.used} / {data.housing.capacity} beds
-          </span>
-        </HoverCard>
+          <Icon name="spark" aria-hidden className="h-3.5 w-3.5" />
+          What the crew is buying
+        </Link>
       </div>
 
       {/* Said outright rather than folded into an `InfoNote`: that control starts collapsed behind
@@ -352,11 +602,24 @@ function Layout({ data }: { data: CrewResponse }) {
         </p>
       )}
 
+      {chair !== null && (
+        <ChairWindow
+          role={chair}
+          bench={bench}
+          faces={faces}
+          pending={reassign.isPending}
+          onAssign={(officerId) => {
+            reassign.mutate({ officerId, role: chair }, { onSuccess: () => setChair(null) });
+          }}
+          onClose={() => setChair(null)}
+        />
+      )}
+
       {open !== undefined && (
         <OfficerWindow
           officer={open}
           portraitId={faces.get(open.officerId) ?? null}
-          filledRoles={data.officers.map((one) => one.role)}
+          filledRoles={seated(data.officers)}
           pending={reassign.isPending}
           onReassign={(role) => reassign.mutate({ officerId: open.officerId, role })}
           onClose={() => setOpened(null)}
@@ -385,11 +648,51 @@ function Layout({ data }: { data: CrewResponse }) {
               role={role}
               officer={officer}
               portraitId={officer ? (faces.get(officer.officerId) ?? null) : null}
-              onOpen={() => setOpened(officer?.officerId ?? null)}
+              // A filled chair opens the person's file; an empty one asks where to fill it from.
+              onOpen={() => (officer ? setOpened(officer.officerId) : setChair(role))}
             />
           );
         })}
       </div>
+
+      {/*
+       * The bench, under the chairs (board request).
+       *
+       * Below rather than mixed in, because these are the same kind of thing in a different state
+       * and a roster is read as nineteen posts: somebody with no post does not belong in the grid
+       * of posts. Drawn only when there is somebody on it, so a crew that has never used the bench
+       * never sees a heading for it.
+       *
+       * They open the same window a seated officer does, which is where the chair is chosen. The
+       * quickest route is still the other way round, from the empty chair.
+       */}
+      {bench.length > 0 && (
+        <section className="flex flex-col gap-3" data-testid="crew-bench">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="font-display text-[12px] font-bold uppercase tracking-[0.18em] text-brass-300">
+              {BENCH_LABEL}
+            </h2>
+            <span aria-hidden className="ink-rule block min-w-0 flex-1" />
+            <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-400">
+              {bench.length} signed, no chair
+            </span>
+          </div>
+          <p className="max-w-prose font-body text-[13px] leading-relaxed text-ink-300">
+            On the books and drawing a wage. They still bring what they know to the crew, at a
+            fraction of what the right chair would be worth, so give them one when you have it.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 [@media(min-width:1600px)]:grid-cols-5 [@media(min-width:1920px)]:grid-cols-6">
+            {bench.map((officer) => (
+              <BenchCard
+                key={officer.officerId}
+                officer={officer}
+                portraitId={faces.get(officer.officerId) ?? null}
+                onOpen={() => setOpened(officer.officerId)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
     </PageShell>
   );
 }

@@ -1,4 +1,5 @@
 import {
+  type RaiseGateRequest,
   FactionResponseSchema,
   FactionMutationResponseSchema,
   MessagesResponseSchema,
@@ -7,7 +8,9 @@ import {
   NotificationMutationResponseSchema,
   type AnswerInviteRequest,
   type CreateFactionRequest,
+  LeaderboardResponseSchema,
   type EditFactionDescriptionRequest,
+  type LeaderboardBoard,
   type EditFactionIdentityRequest,
   type FactionMemberActionRequest,
   type InviteToFactionRequest,
@@ -23,6 +26,10 @@ import {
   type FortifyStructureRequest,
   type LayTrapRequest,
   type BuyBattleBoostRequest,
+  type LeadBattleRequest,
+  type TakeVehiclesRequest,
+  GarageResponseSchema,
+  GarageMutationResponseSchema,
   type RecallColumnRequest,
   CrewResponseSchema,
   CrewMutationResponseSchema,
@@ -34,6 +41,14 @@ import {
   TrainUnitsResponseSchema,
   UnitsResponseSchema,
   BuildStructureResponseSchema,
+  BuildBoostResponseSchema,
+  BuildAddonResponseSchema,
+  ModificationSlotResponseSchema,
+  ScrapyardResponseSchema,
+  type BuyBuildBoostRequest,
+  type BuildAddonRequest,
+  type ClearModificationRequest,
+  type FitModificationRequest,
   RenameDistrictResponseSchema,
   CityResponseSchema,
   CreateOverseerResponseSchema,
@@ -72,7 +87,7 @@ import {
   type BuySupplyRequest,
   type HireRecruitRequest,
   type NegotiateRequest,
-  type LaunchMissionRequest,
+  type LaunchMissionInput,
   type LevelUp,
   type LoginRequest,
   type RegisterRequest,
@@ -172,6 +187,23 @@ export const buildStructure = (body: BuildStructureRequest) =>
 export const renameDistrict = (body: RenameDistrictRequest) =>
   apiFetch('/base/district-name', RenameDistrictResponseSchema, jsonBody(body));
 
+/** §B4: light the Generator's two-hour burn. */
+export const buyBuildBoost = (body: BuyBuildBoostRequest) =>
+  apiFetch('/base/boost', BuildBoostResponseSchema, jsonBody(body));
+
+/** §E: fill one of a structure's three slots, and empty one again. */
+export const fitModification = (body: FitModificationRequest) =>
+  apiFetch('/base/modifications/fit', ModificationSlotResponseSchema, jsonBody(body));
+
+export const clearModification = (body: ClearModificationRequest) =>
+  apiFetch('/base/modifications/clear', ModificationSlotResponseSchema, jsonBody(body));
+
+/** §B9: the Scrapyard's own page. */
+export const getScrapyard = () => apiFetch('/scrapyard', ScrapyardResponseSchema);
+
+export const buildAddon = (body: BuildAddonRequest) =>
+  apiFetch('/scrapyard/build', BuildAddonResponseSchema, jsonBody(body));
+
 export const getDistrict = (id: string) => apiFetch(`/city/${id}`, DistrictDetailResponseSchema);
 
 export const scoutDistrict = (body: ScoutRequest) =>
@@ -206,6 +238,9 @@ export const fortifyStructure = (body: FortifyStructureRequest) =>
 export const buyBattleBoost = (body: BuyBattleBoostRequest) =>
   apiFetch('/battles/boost', BattleMutationResponseSchema, jsonBody(body));
 
+export const leadBattle = (body: LeadBattleRequest) =>
+  apiFetch('/battles/lead', BattleMutationResponseSchema, jsonBody(body));
+
 export const upgradeNotoriety = () =>
   apiFetch('/battles/notoriety', BattleMutationResponseSchema, jsonBody({}));
 
@@ -233,7 +268,7 @@ export const fitSlot = (body: FitSlotRequest) =>
 
 export const getMissions = () => apiFetch('/missions', MissionsResponseSchema);
 
-export const launchMission = (body: LaunchMissionRequest) =>
+export const launchMission = (body: LaunchMissionInput) =>
   apiFetch('/missions', LaunchMissionResponseSchema, jsonBody(body));
 
 export const getBar = () => apiFetch('/bar', BarResponseSchema);
@@ -314,8 +349,14 @@ export const getWorkshop = () => apiFetch('/workshop', WorkshopResponseSchema);
 export const fitUpgrade = (body: FitUpgradeRequest) =>
   apiFetch('/workshop/fit', WorkshopMutationResponseSchema, jsonBody(body));
 
+// §B11: the yard has its own page now.
+export const getGarage = () => apiFetch('/garage', GarageResponseSchema);
+
 export const buildVehicle = (body: BuildVehicleRequest) =>
-  apiFetch('/workshop/vehicle', WorkshopMutationResponseSchema, jsonBody(body));
+  apiFetch('/garage/build', GarageMutationResponseSchema, jsonBody(body));
+
+export const takeVehicles = (body: TakeVehiclesRequest) =>
+  apiFetch('/battles/vehicles', BattleMutationResponseSchema, jsonBody(body));
 
 export const recallMission = (body: RecallMissionRequest) =>
   apiFetch('/missions/recall', MissionsResponseSchema, jsonBody(body));
@@ -344,6 +385,16 @@ export const answerFactionInvite = (body: AnswerInviteRequest) =>
 
 export const leaveFaction = () =>
   apiFetch('/factions/leave', FactionMutationResponseSchema, jsonBody({}));
+
+/**
+ * The standings (§J9). A GET with the board and the scope in the query string, because it is a
+ * read and a player should be able to sit on it with the browser's own refresh.
+ */
+export const getLeaderboard = (board: LeaderboardBoard, localOnly: boolean) =>
+  apiFetch(
+    `/leaderboard?board=${board}&localOnly=${localOnly ? 'true' : 'false'}`,
+    LeaderboardResponseSchema,
+  );
 
 export const disbandFaction = () =>
   apiFetch('/factions/disband', FactionMutationResponseSchema, jsonBody({}));
@@ -378,3 +429,10 @@ export const readAllNotifications = () =>
 
 export const setNotificationSettings = (body: NotificationSettingsRequest) =>
   apiFetch('/notifications/settings', NotificationMutationResponseSchema, jsonBody(body));
+
+/** §B7: raise the gate on a district this crew has taken whole. */
+export const raiseGate = (body: RaiseGateRequest) =>
+  apiFetch<typeof CityResponseSchema>('/city/gate', CityResponseSchema, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });

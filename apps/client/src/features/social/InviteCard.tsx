@@ -23,7 +23,10 @@ export function InviteCard({ invite }: { invite: MessageInvite }) {
   const [asking, setAsking] = useState(false);
 
   return (
-    <section className="ink-frame mt-4 flex flex-col gap-3 p-4" data-testid="invite-card">
+    <section
+      className="ink-frame card-paper washed rivets mt-4 flex flex-col gap-3 p-4"
+      data-testid="invite-card"
+    >
       <div className="flex min-w-0 items-center gap-3">
         <FactionBadge badge={invite.badge} size={52} title={`${invite.factionName}'s badge`} />
         <div className="flex min-w-0 flex-col">

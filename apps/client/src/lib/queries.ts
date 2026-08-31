@@ -1,5 +1,6 @@
 import type {
   BaseDetailResponse,
+  LeaderboardBoard,
   BattleMutationResponse,
   FactionMutationResponse,
   MessageMutationResponse,
@@ -7,7 +8,7 @@ import type {
   SettingsResponse,
   MarketMutationResponse,
   WorkshopMutationResponse,
-  LaunchMissionRequest,
+  LaunchMissionInput,
   LaunchMissionResponse,
   MeResponse,
   CrewResponse,
@@ -19,10 +20,12 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { useEffect, useRef } from 'react';
 import type { ApiRequestError } from './api';
 import {
+  raiseGate,
   answerFactionInvite,
   createFaction,
   deleteMessage,
   disbandFaction,
+  getLeaderboard,
   editFactionDescription,
   editFactionIdentity,
   factionMemberAction,
@@ -50,6 +53,11 @@ import {
   releaseOfficer,
   trainUnits,
   buildStructure,
+  buyBuildBoost,
+  buildAddon,
+  clearModification,
+  fitModification,
+  getScrapyard,
   getCrew,
   createOverseer,
   getBar,
@@ -94,6 +102,9 @@ import {
   layTrap,
   fortifyStructure,
   buyBattleBoost,
+  getGarage,
+  leadBattle,
+  takeVehicles,
   upgradeNotoriety,
 } from './api';
 import { useSession } from '../store/session';
@@ -116,9 +127,12 @@ export const queryKeys = {
   settings: ['settings'] as const,
   admin: ['admin'] as const,
   workshop: ['workshop'] as const,
+  garage: ['garage'] as const,
+  scrapyard: ['scrapyard'] as const,
   battles: ['battles'] as const,
   actions: ['actions'] as const,
   faction: ['faction'] as const,
+  leaderboard: (board: string, localOnly: boolean) => ['leaderboard', board, localOnly] as const,
   messages: ['messages'] as const,
   notifications: ['notifications'] as const,
 };
@@ -178,16 +192,43 @@ const RESEARCH_POLL_MS = 15_000;
  */
 const DISTRICT_POLL_MS = 5_000;
 
+/**
+ * The two queries that are open on every screen: the HUD's own, and the map.
+ *
+ * These had no interval at all, and `/me`'s own documentation on the server describes it as "the
+ * call the game shell polls", which is what it was written to be. The effect of the gap was that
+ * the default screen was the deadest one in the game: a player standing on the city map saw a
+ * stockpile frozen at whatever it read when the page loaded, an unread badge that never moved, and
+ * no sign of an attack marching towards them, until they happened to click something.
+ *
+ * Five seconds, the same as the district, because `/me` settles the base on read: this poll is what
+ * banks a finished build and moves the resource counter while nobody is clicking. It is also the
+ * fallback path for everything the live channel (`lib/live.ts`) delivers in about a second, and
+ * that is the order of the two: the channel is for latency, the poll is for correctness. React
+ * Query does not run intervals in a hidden tab, so a backgrounded game costs nothing.
+ */
+const SHELL_POLL_MS = 5_000;
+
 /** Authenticated session snapshot: user + overseer + base. */
 export function useMe() {
   const token = useSession((s) => s.token);
-  return useQuery({ queryKey: queryKeys.me, queryFn: getMe, enabled: token !== null });
+  return useQuery({
+    queryKey: queryKeys.me,
+    queryFn: getMe,
+    enabled: token !== null,
+    refetchInterval: SHELL_POLL_MS,
+  });
 }
 
 /** City map: districts + public base summaries. */
 export function useCity() {
   const token = useSession((s) => s.token);
-  return useQuery({ queryKey: queryKeys.city, queryFn: getCity, enabled: token !== null });
+  return useQuery({
+    queryKey: queryKeys.city,
+    queryFn: getCity,
+    enabled: token !== null,
+    refetchInterval: SHELL_POLL_MS,
+  });
 }
 
 /** Detail for a single owned base: the district, its queue and its stockpile (§A1). */
@@ -272,7 +313,7 @@ export function useLaunchMission() {
   const queryClient = useQueryClient();
   // Typed on `ApiRequestError` rather than `Error`: a refused launch may still have settled the
   // board, and the level-up it banked rides out on the failure (MOU-280).
-  return useMutation<LaunchMissionResponse, ApiRequestError, LaunchMissionRequest>({
+  return useMutation<LaunchMissionResponse, ApiRequestError, LaunchMissionInput>({
     mutationFn: launchMission,
     /*
      * `onSettled`, not `onSuccess`: the launch settles the board before it validates, and that
@@ -344,6 +385,8 @@ export function useHireRecruit() {
                     attributes: officer.attributes,
                     perks: officer.perks,
                     weeklyWage: officer.weeklyWage,
+                    // §D4: nobody is hired hurt.
+                    injuredUntil: null,
                   },
                 ],
               }
@@ -780,6 +823,50 @@ function settingsMutation<TArgs>(mutationFn: (args: TArgs) => Promise<SettingsRe
  * countdown honest: the cutoff is one second before the mark, and a stale board would keep a
  * shut window looking open.
  */
+/**
+ * Warms the caches for the screens behind the standing bar and the bottom nav.
+ *
+ * The pattern every client-side game UI ends up at, and the reason is the same everywhere: a screen
+ * that fetches on mount shows a spinner for as long as the round trip takes, *every time* a player
+ * opens it, and a player opens Battles and Missions dozens of times a session. Fetching them once
+ * when the session comes up means the click is instant and the request the click would have made
+ * has already happened while the player was reading something else.
+ *
+ * `prefetchQuery` rather than a `useQuery` per screen: it fills the same cache the screen's own hook
+ * reads, so nothing renders here, nothing re-renders when it lands, and the screen's hook takes over
+ * (including its polling) the moment it mounts. A prefetch that fails is dropped on the floor
+ * deliberately: the screen's own hook will ask again and *that* is the request whose failure the
+ * player should be told about.
+ *
+ * Not everything: the boards that take a district or a base id are not knowable until the player
+ * picks one, and prefetching all twelve would be twelve requests for one that gets read.
+ *
+ * `ready` is the caller saying there is a district to read these against. Every endpoint below
+ * needs one, so running this during overseer selection is eight requests that can only fail, and a
+ * failed prefetch leaves an error in the cache for the screen's own hook to open on.
+ */
+export function usePrefetchScreens(ready: boolean): void {
+  const token = useSession((s) => s.token);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (token === null || !ready) return;
+    const warm: [readonly unknown[], () => Promise<unknown>][] = [
+      [queryKeys.battles, getBattles],
+      [queryKeys.missions, getMissions],
+      [queryKeys.units, getUnits],
+      [queryKeys.crew, getCrew],
+      [queryKeys.actions, getActions],
+      [queryKeys.research, getResearch],
+      [queryKeys.messages, getMessages],
+      [queryKeys.notifications, getNotifications],
+    ];
+    for (const [queryKey, queryFn] of warm) {
+      void queryClient.prefetchQuery({ queryKey, queryFn, staleTime: 10_000 });
+    }
+  }, [token, ready, queryClient]);
+}
+
 export function useBattles() {
   const token = useSession((s) => s.token);
   return useQuery({
@@ -873,6 +960,7 @@ export const useDeployToBattle = battleMutation(deployToBattle);
 export const useLayTrap = battleMutation(layTrap);
 export const useFortifyStructure = battleMutation(fortifyStructure);
 export const useBuyBattleBoost = battleMutation(buyBattleBoost);
+export const useLeadBattle = battleMutation(leadBattle);
 export const useUpgradeNotoriety = battleMutation(upgradeNotoriety);
 
 export const useUpdateProfile = settingsMutation(updateProfile);
@@ -943,7 +1031,94 @@ function workshopMutation<TArgs>(mutationFn: (args: TArgs) => Promise<WorkshopMu
 }
 
 export const useFitUpgrade = workshopMutation(fitUpgrade);
-export const useBuildVehicle = workshopMutation(buildVehicle);
+
+/** §B9: the Scrapyard, on its own page and its own key. */
+export function useScrapyard() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.scrapyard,
+    queryFn: getScrapyard,
+    enabled: token !== null,
+  });
+}
+
+export function useBuildAddon() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: buildAddon,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.scrapyard, response.scrapyard);
+      queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(response.base.id), {
+        base: response.base,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      // A built refit changes every unit's sheet, and the roster is where a player looks for it.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workshop });
+    },
+  });
+}
+
+/**
+ * §B4 and §E: the three writes the district's own dialog makes.
+ *
+ * All three answer with the whole refreshed base, so the cache is written rather than invalidated:
+ * a slot that has just been emptied must not flicker back to full while a refetch is in the air.
+ */
+function districtMutation<TArgs, TResponse extends { base: BaseDetailResponse['base'] }>(
+  mutationFn: (args: TArgs) => Promise<TResponse>,
+) {
+  return function useDistrictMutation(baseId: string | undefined) {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn,
+      onSuccess: (response) => {
+        if (baseId !== undefined) {
+          queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), {
+            base: response.base,
+          });
+        }
+      },
+      // `onSettled`, not `onSuccess`: see the note at the top of this file. Every one of these
+      // routes settles the district before it decides, so a refusal has still banked production.
+      onSettled: () => invalidateLevelSensitive(queryClient),
+      onError: () => {
+        if (baseId !== undefined) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
+        }
+      },
+    });
+  };
+}
+
+export const useBuyBuildBoost = districtMutation(buyBuildBoost);
+export const useFitModification = districtMutation(fitModification);
+export const useClearModification = districtMutation(clearModification);
+
+/** §B11: the Garage, on its own page and its own key. */
+export function useGarage() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.garage,
+    queryFn: getGarage,
+    enabled: token !== null,
+  });
+}
+
+export function useBuildVehicle() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: buildVehicle,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.garage, response.garage);
+      // The stockpile moved, and the battle screen quotes what is in the yard.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.battles });
+    },
+  });
+}
+
+export const useTakeVehicles = battleMutation(takeVehicles);
 
 /** §E: turn a crew around. The board answers with the whole refreshed set of runs. */
 export function useRecallMission() {
@@ -1037,6 +1212,22 @@ export const useCreateFaction = () => useFactionMutation(createFaction);
 export const useEditFactionIdentity = () => useFactionMutation(editFactionIdentity);
 export const useEditFactionDescription = () => useFactionMutation(editFactionDescription);
 export const useDisbandFaction = () => useFactionMutation(() => disbandFaction());
+
+/**
+ * The standings.
+ *
+ * Keyed by board and scope, so switching tabs or ticking the box is a cache hit the second time
+ * and never shows one board's rows under the other's heading. `placeholderData` keeps the previous
+ * board on screen while the next one loads, which is what stops the page collapsing to nothing on
+ * every click.
+ */
+export function useLeaderboard(board: LeaderboardBoard, localOnly: boolean) {
+  return useQuery({
+    queryKey: queryKeys.leaderboard(board, localOnly),
+    queryFn: () => getLeaderboard(board, localOnly),
+    placeholderData: (previous) => previous,
+  });
+}
 export const useInviteToFaction = () => useFactionMutation(inviteToFaction);
 export const useAnswerFactionInvite = () => useFactionMutation(answerFactionInvite);
 export const useLeaveFaction = () => useFactionMutation(() => leaveFaction());
@@ -1099,3 +1290,21 @@ function useNotificationMutation<TInput>(
 export const useReadNotification = () => useNotificationMutation(readNotification);
 export const useReadAllNotifications = () => useNotificationMutation(() => readAllNotifications());
 export const useNotificationSettings = () => useNotificationMutation(setNotificationSettings);
+
+/**
+ * §B7: raise a captured gate.
+ *
+ * Invalidates the city, which is where the gate is drawn, and `/me`, which carries the stockpile
+ * the order was just paid out of. Both, because a screen that shows the new level beside the old
+ * caps is a screen that looks like the order was free.
+ */
+export function useRaiseGate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: raiseGate,
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.city });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}

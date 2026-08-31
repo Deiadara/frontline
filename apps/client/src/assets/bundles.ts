@@ -29,7 +29,7 @@ export function bundleFor(spec: AssetSpec): AssetBundleName {
       return 'splash';
     case 'portrait':
       return 'overseer';
-    // The officer pool is thirty-three faces and it belongs to the crew and training screens, not
+    // The officer pool is ninety-nine faces and it belongs to the crew and training screens, not
     // to character select: bundling it with the four overseer heroes would put 5MB of faces in
     // front of a player who has not chosen a character yet.
     case 'officer':

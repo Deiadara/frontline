@@ -5,8 +5,8 @@ import type { BuildingKind } from './kinds.js';
  * The levels a structure cannot be raised past on scrap alone (§A1, items extension).
  *
  * Resources are the *pace* of a district: you always get more of them eventually, so a cost in
- * scrap is a cost in time. Parts are a *gate*: a Cistern at level ten needs a Coolant Cell, and no
- * amount of patience produces one. That is what makes the market a place a builder has to go rather
+ * scrap is a cost in time. Parts are a *gate*: a Generator at level eight needs a Coolant Cell, and
+ * no amount of patience produces one. That is what makes the market a place a builder has to go rather
  * than a screen a trader visits.
  *
  * Deliberately sparse. Most levels of most structures ask for nothing but materials, because a
@@ -39,10 +39,6 @@ export const BUILDING_PART_GATES: Readonly<
   garage: {
     5: { gyro_assembly: 2 },
     12: { gyro_assembly: 4, rotor_hub: 1 },
-  },
-  // Cold storage, at the level where it stops being shelves.
-  cistern: {
-    10: { coolant_cell: 2 },
   },
   // The infirmary's theatre. There is one part in the district that can hold a life open.
   infirmary: {

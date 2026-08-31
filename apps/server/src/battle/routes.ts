@@ -4,6 +4,11 @@ import {
   FortifyStructureRequestSchema,
   LayTrapRequestSchema,
   BuyBattleBoostRequestSchema,
+  LeadBattleRequestSchema,
+  TakeVehiclesRequestSchema,
+  mergeFleets,
+  officerIsInjured,
+  removeFleet,
   RecallColumnRequestSchema,
   canAfford,
   fortifyCost,
@@ -33,6 +38,7 @@ import { adjustDeployment, sideOf, type DeployRefusal } from './deploy.js';
 import { recallColumn, settleMovements, type RecallRefusal } from './movement.js';
 import { settleBattles } from './resolve.js';
 import { projectActions, projectBattles } from './view.js';
+import { seatedRoles } from '../crew/roster.js';
 
 /**
  * The battle board (GDD §A4, battle rework): what is coming, what you have moved up for it, what
@@ -272,7 +278,8 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       if (spec !== undefined) {
         const allowed = boostAvailable(spec.unlock, {
           technologies: base.research.technologies,
-          roles: base.commanders.map((officer) => officer.role),
+          // A benched officer is in no chair, so they unlock nothing a chair unlocks.
+          roles: seatedRoles(base.commanders),
         });
         if (!allowed) throw new AppError('FORBIDDEN', 'Nobody has put that on the table for you');
       } else {
@@ -321,6 +328,131 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       const economy = { ...base.economy, infamy: left };
       app.repos.bases.updateEconomy(base.id, economy);
       return respond({ ...base, economy }, now);
+    },
+  );
+
+  /**
+   * §D1: put one officer at the front of this column, or take them back off it.
+   *
+   * Free, and free to change right up to the mark. Nothing is spent by naming somebody: what a
+   * player is committing is the person, and the price is §D4's stretcher if it goes badly.
+   *
+   * One officer per **crew**, which the deployment row enforces by holding a single id, and one per
+   * **side**, which is enforced here: an ally who names somebody when the crew whose fight it is
+   * has already named somebody is refused, because the settler reads exactly one leader per side
+   * and the second would silently do nothing.
+   */
+  app.post('/battles/lead', { preHandler: app.authenticate }, (request): BattleMutationResponse => {
+    const { battleId, officerId } = parseBody(LeadBattleRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(request.currentUser.id, now);
+
+    const battle = app.repos.sieges.find(battleId);
+    if (!battle || battle.resolvedAt !== null) {
+      throw new AppError('NOT_FOUND', 'No fight by that name is still coming');
+    }
+    const side = sideOf(app.repos, battle, base.id);
+    if (side === null) throw new AppError('FORBIDDEN', 'You are not in this one');
+    if (!deploymentIsOpen(new Date(battle.scheduledFor), now)) {
+      throw new AppError('PLACE_UNAVAILABLE', 'They are already on the ground');
+    }
+
+    if (officerId !== null) {
+      const officer = base.commanders.find((held) => held.id === officerId);
+      if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+      // §D4: leading is a service, and an officer in a bed is not performing any.
+      if (officerIsInjured(officer.injuredUntil, now)) {
+        throw new AppError('FORBIDDEN', `${officer.name} is still laid up`);
+      }
+      const taken = app.repos.sieges
+        .side(battle.id, side)
+        .some((row) => row.baseId !== base.id && row.officerId !== null);
+      if (taken) {
+        throw new AppError('FORBIDDEN', 'Somebody on your side is already leading this one');
+      }
+      /*
+       * §D1: one officer, one fight.
+       *
+       * The clause above only asked whether *this* fight already had a leader, so the same person
+       * could be written onto every battle a crew had declared and turn up at all of them: their
+       * sheet in each line and their leading perks paid out several times over, off one wage.
+       * Declaring is free and reversible, so this was cheap to do by accident as well as on
+       * purpose.
+       *
+       * Refused rather than silently moved. A player who has forgotten where they put somebody is
+       * better told than quietly un-led somewhere they are not looking.
+       */
+      const elsewhere = app.repos.sieges.leadingElsewhere(officerId, battle.id);
+      if (elsewhere.length > 0) {
+        throw new AppError(
+          'FORBIDDEN',
+          `${officer.name} is already leading another fight. Stand them down there first`,
+        );
+      }
+    }
+
+    const deployment =
+      app.repos.sieges.deployment(battleId, side, base.id) ??
+      emptyDeployment(battleId, base.id, side, now.toISOString());
+    app.repos.sieges.putDeployment({
+      ...deployment,
+      baseId: base.id,
+      officerId,
+      updatedAt: now.toISOString(),
+    });
+    return respond(base, now);
+  });
+
+  /**
+   * §C3: which machines this crew is taking to this fight.
+   *
+   * Absolute rather than a delta, and the whole set in one request: a fleet is a dozen machines at
+   * the very top end and the picker is a row of counters, so "this is what I am taking" is the
+   * honest shape. Committed machines leave the Garage on this request, exactly as deployed units
+   * leave the roster, and come back the moment the set is narrowed again.
+   *
+   * Nothing is spent. What is risked is the machines: a force that is wiped loses everything it
+   * took, and the crew that wiped it earns infamy equal to what those machines could carry.
+   */
+  app.post(
+    '/battles/vehicles',
+    { preHandler: app.authenticate },
+    (request): BattleMutationResponse => {
+      const { battleId, vehicles } = parseBody(TakeVehiclesRequestSchema, request.body);
+      const now = new Date();
+      const base = settled(request.currentUser.id, now);
+
+      const battle = app.repos.sieges.find(battleId);
+      if (!battle || battle.resolvedAt !== null) {
+        throw new AppError('NOT_FOUND', 'No fight by that name is still coming');
+      }
+      const side = sideOf(app.repos, battle, base.id);
+      if (side === null) throw new AppError('FORBIDDEN', 'You are not in this one');
+      if (!deploymentIsOpen(new Date(battle.scheduledFor), now)) {
+        throw new AppError('PLACE_UNAVAILABLE', 'They are already on the ground');
+      }
+
+      const deployment =
+        app.repos.sieges.deployment(battleId, side, base.id) ??
+        emptyDeployment(battleId, base.id, side, now.toISOString());
+      // Against the yard *plus what this fight already holds*, so narrowing a set is never refused
+      // for machines the crew has already handed over to this very battle.
+      const available = mergeFleets(base.fleet, deployment.vehicles);
+      for (const [id, count] of Object.entries(vehicles)) {
+        if ((available[id as keyof typeof available] ?? 0) < (count ?? 0)) {
+          throw new AppError('FORBIDDEN', 'You do not have that many in the yard');
+        }
+      }
+
+      const fleet = removeFleet(available, vehicles);
+      app.repos.sieges.putDeployment({
+        ...deployment,
+        baseId: base.id,
+        vehicles,
+        updatedAt: now.toISOString(),
+      });
+      app.repos.bases.updateFleet(base.id, fleet);
+      return respond({ ...base, fleet }, now);
     },
   );
 

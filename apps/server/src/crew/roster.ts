@@ -1,4 +1,10 @@
-import { type Base, type Commander, type CrewOfficer, type CrewResponse } from '@frontline/shared';
+import {
+  type Base,
+  type Commander,
+  type CrewOfficer,
+  type CrewResponse,
+  type OfficerRole,
+} from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { districtPopulation, type DistrictPopulation } from '../district/population.js';
 
@@ -20,6 +26,8 @@ export function projectCrewOfficer(officer: Commander): CrewOfficer {
     attributes: officer.attributes,
     perks: officer.perks,
     weeklyWage: officer.weeklyWage,
+    // §D4: sent as the raw clock rather than as a boolean, so the card can count down to it.
+    injuredUntil: officer.injuredUntil,
   };
 }
 
@@ -35,4 +43,17 @@ export function projectCrew(repos: Repositories, base: Base): CrewResponse {
     housing: housingOf(districtPopulation(repos, base)),
     officers: base.commanders.map(projectCrewOfficer),
   };
+}
+
+/**
+ * The chairs that are actually taken.
+ *
+ * `commanders.map(o => o.role)` was the idiom everywhere and it stopped being right the day an
+ * officer could have no chair: it answered a list with `null` in it, and every caller was asking
+ * "which seats are filled". Named, so the question is asked once and the answer cannot drift.
+ */
+export function seatedRoles(commanders: readonly Commander[]): OfficerRole[] {
+  return commanders
+    .map((officer) => officer.role)
+    .filter((role): role is OfficerRole => role !== null);
 }

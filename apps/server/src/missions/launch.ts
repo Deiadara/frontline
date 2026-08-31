@@ -1,5 +1,7 @@
 import { randomInt } from 'node:crypto';
 import {
+  carriedSpeedPercent,
+  type Fleet,
   TRAVEL_BAND_MINUTES,
   delegatedMinutes,
   delegatedSuccessChance,
@@ -64,6 +66,15 @@ export function launchMission(args: {
    * who was actually out can be paid for it when the crew comes home (INTERFACES §2 R2).
    */
   officer?: Commander | undefined;
+  /**
+   * §C3: the machines carrying them, taken out of the Garage for this run.
+   *
+   * They buy time off the road and nothing else: a mission's odds, its pay and its haul are
+   * untouched by what the crew arrived in. Priced against how much of the force they can actually
+   * seat (`carriedSpeedPercent`), so parking a truck in the yard is worth nothing and sending one
+   * with two people in it is worth almost nothing.
+   */
+  vehicles?: Fleet;
   /** Overridable so tests can pin the roll. */
   seed?: number;
   /**
@@ -106,6 +117,7 @@ export function launchMission(args: {
     missionSpoilsPercent = 0,
     areaId,
     force,
+    vehicles = {},
     seed = randomInt(0, 2 ** 32),
   } = args;
 
@@ -113,10 +125,21 @@ export function launchMission(args: {
   // more. Applied before the Overseer's edge and the delegation, so the two modifiers move a
   // number that already belongs to this crew.
   const authored = scaledSuccessChance(template.successChance, base.level);
+
+  /*
+   * §C3: the road only. What a machine buys is the journey, not the job.
+   *
+   * Folded into `missionSpeedPercent` for the *travel* leg and deliberately not into the duration:
+   * a van gets a crew to the site sooner and does not make the work there go faster, which is the
+   * same rule the battle side applies to a marching column. Adding it to both would have made a
+   * truck worth more on a long job than on a long road, which is backwards.
+   */
+  const bodies = Object.values(force).reduce((total, count) => total + count, 0);
+  const carried = carriedSpeedPercent(vehicles, bodies);
   const timings = missionTimings({
     travelMinutes: admin
       ? 0
-      : hastenedMinutes(TRAVEL_BAND_MINUTES[template.travelBand], missionSpeedPercent),
+      : hastenedMinutes(TRAVEL_BAND_MINUTES[template.travelBand], missionSpeedPercent + carried),
     durationMinutes: adminMinutes(
       hastenedMinutes(
         terms ? delegatedMinutes(template.durationMinutes, terms) : template.durationMinutes,
@@ -143,6 +166,7 @@ export function launchMission(args: {
       payPercent: areaPayPercent(areaId) + levelPayPercent(base.level) + missionSpoilsPercent,
       xp: missionXp(template, timings.totalMinutes, base.level),
       force,
+      vehicles,
       startedAt: now.toISOString(),
       recalledAt: null,
       travelMinutes: timings.travelMinutes,
@@ -151,6 +175,7 @@ export function launchMission(args: {
       officerId: officer?.id ?? null,
       outcome: null,
       rewards: {},
+      spoils: {},
       resolvedAt: null,
     },
     seed,

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { LocationHolderSchema, type LocationHolder } from '../city/control.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import { FleetSchema } from '../building/vehicles.js';
 import { ArmySchema, type Army } from '../units/training.js';
 
 /**
@@ -161,6 +162,27 @@ export const BattleDeploymentSchema = z.object({
    * still spent the name. Changing it refunds nothing, which is what stops it being a shop.
    */
   boostId: z.string().min(1).nullable().default(null),
+  /**
+   * §D1: the one officer this crew is sending to lead, or null.
+   *
+   * On the deployment for the same reason the boost is: both sides get one, both are chosen and
+   * changed freely up to the mark, and an ally who reinforces somebody else's fight has their own
+   * row and their own answer. At most one per *crew*, which is what the column enforces; §D1's
+   * "one per side" is enforced at the door in `battle/routes.ts`, because a side is several crews.
+   *
+   * Not a foreign key: officers live inside `bases.commanders_json`, and the settler re-reads the
+   * roster at the mark rather than trusting an id that was written sixteen hours ago.
+   */
+  officerId: IdSchema.nullable().default(null),
+  /**
+   * §C3: the machines this crew is taking to the fight.
+   *
+   * They have **left the Garage**, exactly as deployed units have left the roster: a fleet promised
+   * to three battles at once is a fleet the settler would have to invent. What they buy is a
+   * shorter road for every column this crew sends to this fight (`battle/movement.ts`), and what
+   * they risk is being wrecked in proportion to what the crew lost (`wrecked`).
+   */
+  vehicles: FleetSchema.default({}),
   updatedAt: IsoDateTimeSchema,
 });
 export type BattleDeployment = z.infer<typeof BattleDeploymentSchema>;
@@ -220,5 +242,15 @@ export function emptyDeployment(
   side: BattleSide,
   at: string,
 ): BattleDeployment {
-  return { battleId, baseId, side, army: {}, perimeter: {}, boostId: null, updatedAt: at };
+  return {
+    battleId,
+    baseId,
+    side,
+    army: {},
+    perimeter: {},
+    boostId: null,
+    officerId: null,
+    vehicles: {},
+    updatedAt: at,
+  };
 }

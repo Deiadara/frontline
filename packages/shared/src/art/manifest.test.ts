@@ -77,6 +77,62 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['officer-41', 'officer-41.webp', 115041],
   ['officer-42', 'officer-42.webp', 115042],
   ['officer-43', 'officer-43.webp', 115043],
+  ['officer-44', 'officer-44.webp', 115044],
+  ['officer-45', 'officer-45.webp', 115045],
+  ['officer-46', 'officer-46.webp', 115046],
+  ['officer-47', 'officer-47.webp', 115047],
+  ['officer-48', 'officer-48.webp', 115048],
+  ['officer-49', 'officer-49.webp', 115049],
+  ['officer-50', 'officer-50.webp', 115050],
+  ['officer-51', 'officer-51.webp', 115051],
+  ['officer-52', 'officer-52.webp', 115052],
+  ['officer-53', 'officer-53.webp', 115053],
+  ['officer-54', 'officer-54.webp', 115054],
+  ['officer-55', 'officer-55.webp', 115055],
+  ['officer-56', 'officer-56.webp', 115056],
+  ['officer-57', 'officer-57.webp', 115057],
+  ['officer-58', 'officer-58.webp', 115058],
+  ['officer-59', 'officer-59.webp', 115059],
+  ['officer-60', 'officer-60.webp', 115060],
+  ['officer-61', 'officer-61.webp', 115061],
+  ['officer-62', 'officer-62.webp', 115062],
+  ['officer-63', 'officer-63.webp', 115063],
+  ['officer-64', 'officer-64.webp', 115064],
+  ['officer-65', 'officer-65.webp', 115065],
+  ['officer-66', 'officer-66.webp', 115066],
+  ['officer-67', 'officer-67.webp', 115067],
+  ['officer-68', 'officer-68.webp', 115068],
+  ['officer-69', 'officer-69.webp', 115069],
+  ['officer-70', 'officer-70.webp', 115070],
+  ['officer-71', 'officer-71.webp', 115071],
+  ['officer-72', 'officer-72.webp', 115072],
+  ['officer-73', 'officer-73.webp', 115073],
+  ['officer-74', 'officer-74.webp', 115074],
+  ['officer-75', 'officer-75.webp', 115075],
+  ['officer-76', 'officer-76.webp', 115076],
+  ['officer-77', 'officer-77.webp', 115077],
+  ['officer-78', 'officer-78.webp', 115078],
+  ['officer-79', 'officer-79.webp', 115079],
+  ['officer-80', 'officer-80.webp', 115080],
+  ['officer-81', 'officer-81.webp', 115081],
+  ['officer-82', 'officer-82.webp', 115082],
+  ['officer-83', 'officer-83.webp', 115083],
+  ['officer-84', 'officer-84.webp', 115084],
+  ['officer-85', 'officer-85.webp', 115085],
+  ['officer-86', 'officer-86.webp', 115086],
+  ['officer-87', 'officer-87.webp', 115087],
+  ['officer-88', 'officer-88.webp', 115088],
+  ['officer-89', 'officer-89.webp', 115089],
+  ['officer-90', 'officer-90.webp', 115090],
+  ['officer-91', 'officer-91.webp', 115091],
+  ['officer-92', 'officer-92.webp', 115092],
+  ['officer-93', 'officer-93.webp', 115093],
+  ['officer-94', 'officer-94.webp', 115094],
+  ['officer-95', 'officer-95.webp', 115095],
+  ['officer-96', 'officer-96.webp', 115096],
+  ['officer-97', 'officer-97.webp', 115097],
+  ['officer-98', 'officer-98.webp', 115098],
+  ['officer-99', 'officer-99.webp', 115099],
   ['district-neon-docks', 'district-neon-docks.webp', 120001],
   ['district-ashen-terraces', 'district-ashen-terraces.webp', 120002],
   ['district-kettle-row', 'district-kettle-row.webp', 120003],
@@ -101,13 +157,12 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['building-greenhouse', 'building-greenhouse.webp', 140003],
   ['building-generator', 'building-generator.webp', 140004],
   ['building-scrapyard', 'building-scrapyard.webp', 140005],
-  ['building-cistern', 'building-cistern.webp', 140006],
-  ['building-apothecary', 'building-apothecary.webp', 140007],
-  ['building-gate', 'building-gate.webp', 140008],
-  ['building-lab', 'building-lab.webp', 140009],
-  ['building-gauntlet', 'building-gauntlet.webp', 140010],
-  ['building-infirmary', 'building-infirmary.webp', 140011],
-  ['building-garage', 'building-garage.webp', 140012],
+  ['building-apothecary', 'building-apothecary.webp', 140006],
+  ['building-gate', 'building-gate.webp', 140007],
+  ['building-lab', 'building-lab.webp', 140008],
+  ['building-gauntlet', 'building-gauntlet.webp', 140009],
+  ['building-infirmary', 'building-infirmary.webp', 140010],
+  ['building-garage', 'building-garage.webp', 140011],
   ['unit-razors', 'unit-razors.webp', 145001],
   ['unit-anodics', 'unit-anodics.webp', 145002],
   ['unit-sparks', 'unit-sparks.webp', 145003],
@@ -200,6 +255,15 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-location-skate-ground', 'icon-location-skate-ground.webp', 160071],
   ['icon-location-chapel', 'icon-location-chapel.webp', 160072],
   ['icon-location-graveyard', 'icon-location-graveyard.webp', 160073],
+  // §C1: the Garage's catalogue, appended after the location markers so no seed above moves.
+  ['icon-vehicle-motorcycle', 'icon-vehicle-motorcycle.webp', 161001],
+  ['icon-vehicle-dirt-runner', 'icon-vehicle-dirt-runner.webp', 161002],
+  ['icon-vehicle-scrap-car', 'icon-vehicle-scrap-car.webp', 161003],
+  ['icon-vehicle-armoured-car', 'icon-vehicle-armoured-car.webp', 161004],
+  ['icon-vehicle-flatbed', 'icon-vehicle-flatbed.webp', 161005],
+  ['icon-vehicle-war-hauler', 'icon-vehicle-war-hauler.webp', 161006],
+  ['icon-vehicle-gas-balloon', 'icon-vehicle-gas-balloon.webp', 161007],
+  ['icon-vehicle-rotorcraft', 'icon-vehicle-rotorcraft.webp', 161008],
 ];
 
 /**
@@ -270,8 +334,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 170 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(170);
+  it('holds the 233 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(233);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -466,11 +530,11 @@ describe('ART_MANIFEST', () => {
     ).toEqual(['plane-city-far', 'plane-city-fore']);
   });
 
-  it('leaves the other 54 assets needing no post-process at all', () => {
-    // 123 in the manifest, 69 of them post-processed. The title used to say 53 against the same
-    // two numbers, which did not add up even before planks: an icon is one of the post-processed
-    // ones, so adding a resource moves both figures.
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(69);
+  it('leaves the other 157 assets needing no post-process at all', () => {
+    // 233 in the manifest, 76 of them post-processed. Both figures move together whenever a
+    // subject is added or removed, because an icon is one of the post-processed classes: §A2 took
+    // the Cistern out and §C1 put the Garage's eight machines in.
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(76);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {

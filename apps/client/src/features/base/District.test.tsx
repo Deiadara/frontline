@@ -15,6 +15,7 @@ import {
   startingTraining,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BasePanel } from './BasePanel';
@@ -141,7 +142,11 @@ function renderDistrict() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <BasePanel />
+      {/* §B8/§B9: the Lab's and the Scrapyard's windows carry a door to a page, so the panel
+          reaches for `useNavigate` and needs a router around it. */}
+      <MemoryRouter>
+        <BasePanel />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -312,11 +317,13 @@ describe('§D3: building and upgrading consume materials, and take time', () => 
     stubApi();
     renderDistrict();
 
-    // The Generator is level 1 and so is the Nexus: §A1's ceiling, not a money problem.
+    // §B1: the Generator's ladder wants Nexus 3 for level 4. The fixture's Generator is at 1, so
+    // what the dialog has to say is the *requirement*, not a refusal: the number is on the card
+    // before anything is spent.
     await waitFor(() => expect(plot('The Generator')).toBeInTheDocument());
     fireEvent.click(plot('The Generator'));
 
-    expect(within(dialog()).getByText(/CAPPED BY THE NEXUS/)).toBeInTheDocument();
+    expect(within(dialog()).getByTestId('nexus-requirement')).toHaveTextContent('Level 1');
     expect(within(dialog()).getByRole('button', { name: 'Queue upgrade' })).toBeDisabled();
   });
 
@@ -353,27 +360,32 @@ describe('§D3: building and upgrading consume materials, and take time', () => 
   });
 });
 
-describe('§A1: the grid and what the district makes', () => {
-  it('reports draw against supply, and calls a brownout what it is', async () => {
+describe('§A1: what the district houses and what it makes', () => {
+  it('reports who is housed against how many beds there are', async () => {
     stubApi();
     renderDistrict();
 
-    // Nexus 1 draws 4; one Generator level supplies 26. Comfortable, and reported as such.
+    // §A1 took the power grid off this panel. What replaced it is the one district-wide ceiling
+    // that is still a decision: a Nexus-and-Generator district has the housing floor and nobody
+    // in it.
     await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
     openReports();
-    await waitFor(() => expect(screen.getByTestId('power-balance')).toHaveTextContent('4 / 26'));
-    expect(screen.getByText(/spare\. The lights are on/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('housing-balance')).toHaveTextContent('0 / 26'));
+    expect(screen.getByText(/beds spare/)).toBeInTheDocument();
   });
 
-  it('shows the Generator burning fuel with nothing yet producing it', async () => {
+  it('§A1: mentions no power, no energy and no grid anywhere on the district', async () => {
     stubApi();
     renderDistrict();
 
-    // The only rate a brand-new district has is the fuel going the wrong way.
     await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
     openReports();
-    await waitFor(() => expect(screen.getByTestId('production')).toBeInTheDocument());
-    expect(within(screen.getByTestId('production')).getByText(/^-/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('housing-balance')).toBeInTheDocument());
+    // The whole screen, including the plot dialog, which used to carry a draw figure of its own.
+    // The reports drawer is a dialog too, so this reads the document rather than `dialog()`.
+    fireEvent.click(plot('The Generator'));
+    await waitFor(() => expect(screen.getByTestId('build-boost')).toBeInTheDocument());
+    expect(document.body.textContent ?? '').not.toMatch(/\b(power|energy|brownout|grid)\b/i);
   });
 });
 
@@ -501,6 +513,8 @@ describe("a neighbour's district (§A4)", () => {
    * padlock and a note listing the rung they had just bought, over a dialog offering to build it.
    */
   it('stops calling a plot locked once its prerequisite is in the queue', () => {
+    // The Lab rather than the Gate: §B1 pulled the Gate down to Nexus 2, so it is no longer a
+    // plot a Nexus 3 district is short of. The Lab wants Nexus 4, an Apothecary at 2 and crew 5.
     const standing = [
       {
         id: 'n1',
@@ -512,7 +526,7 @@ describe("a neighbour's district (§A4)", () => {
       },
       {
         id: 'n2',
-        kind: 'scrapyard' as const,
+        kind: 'apothecary' as const,
         level: 3,
         modifications: [],
         damage: 0,
@@ -530,9 +544,9 @@ describe("a neighbour's district (§A4)", () => {
         />,
       );
 
-    // The Gate wants the Nexus at 4 and a Scrapyard at 3. One rung short, it is locked.
+    // The Lab wants the Nexus at 4 and an Apothecary at 2. One rung short, it is locked.
     const shut = draw([]);
-    expect(shut.getByTestId('plot-gate')).toHaveAccessibleName(/locked/);
+    expect(shut.getByTestId('plot-lab')).toHaveAccessibleName(/locked/);
     shut.unmount();
 
     // With that rung ordered, it is not: even though nothing has finished building.
@@ -545,7 +559,7 @@ describe("a neighbour's district (§A4)", () => {
         durationSeconds: 600,
       },
     ]);
-    expect(queued.getByTestId('plot-gate')).toHaveAccessibleName(/vacant plot/);
+    expect(queued.getByTestId('plot-lab')).toHaveAccessibleName(/vacant plot/);
   });
 
   /** §I3: a locked plate is still a control, and hovering it says what is in the way. */

@@ -61,6 +61,7 @@ export const NOTIFICATION_KINDS = [
   'faction_invite',
   'faction_joined',
   'faction_left',
+  'scout_home',
 ] as const;
 export const NotificationKindSchema = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKindSchema>;
@@ -176,6 +177,12 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     blurb: 'Somebody has left your faction, or been shown the door.',
     icon: 'faction',
   },
+  scout_home: {
+    group: 'district',
+    label: 'Scouts returning',
+    blurb: 'Somebody you sent out has walked a district and come back with it.',
+    icon: 'eye',
+  },
 };
 
 /** The kinds a player is never allowed to silence. */
@@ -201,6 +208,14 @@ export const NotificationSchema = z.object({
    * thing it is about is the failure mode this whole feature exists to avoid.
    */
   link: z.string().min(1),
+  /**
+   * The id of the thing this is about: a mission, a battle, a faction.
+   *
+   * What `kind` is to "what sort of thing happened", this is to "which one". Null where the kind
+   * has no single subject, and on every row written before it existed; the detail sheet then shows
+   * the headline and the door, which is all a notification could ever do before.
+   */
+  subjectId: z.string().min(1).nullable().default(null),
   createdAt: IsoDateTimeSchema,
   readAt: IsoDateTimeSchema.nullable(),
 });

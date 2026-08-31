@@ -1,10 +1,13 @@
 import {
+  capturedGateIntelResistancePercent,
   CITY_DISTRICTS,
+  findDistrict,
   CITY_LOCATIONS,
   HOLDER_LABELS,
   LOCATION_CATALOG,
   describeHoldBonus,
   districtHolder,
+  gateIntelResistancePercent,
   garrisonSize,
   isDistrictRaidable,
   isHeldBy,
@@ -34,6 +37,8 @@ import {
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { upgradeSeconds } from './upgrade.js';
 import type { Repositories } from '../db/repos/index.js';
+import { defaultScout, planScout } from '../scouting/scouting.js';
+import { capturedGatesFor, gateFor, holdsDistrictWhole } from './gates.js';
 
 /**
  * Reading the city (GDD §A4).
@@ -65,6 +70,8 @@ export interface CityContext {
    * for the unaligned holders, who keep no secrets worth the name.
    */
   blurAgainst: (baseId: string) => number;
+  /** §B7: what the gate on one district adds, when that crew holds the whole of it. */
+  gateBlurOn: (districtId: string, baseId: string) => number;
 }
 
 export function cityContextFor(repos: Repositories, base: Base): CityContext {
@@ -99,10 +106,20 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
       let held = resistance.get(baseId);
       if (held === undefined) {
         const rival = repos.bases.findById(baseId);
-        held = rival ? crewEffectsFor(repos, rival).intelResistancePercent : 0;
+        // §B7: their Gate is half of what a scout has to see past. Folded here rather than into
+        // `crewEffectsFor`, which is about the people: a wall is not one of the crew.
+        held = rival
+          ? crewEffectsFor(repos, rival).intelResistancePercent +
+            gateIntelResistancePercent(rival.buildings)
+          : 0;
         resistance.set(baseId, held);
       }
       return Math.max(0, held - reading);
+    },
+    gateBlurOn: (districtId, baseId) => {
+      if (baseId === base.id) return 0;
+      if (!holdsDistrictWhole(repos, baseId, districtId)) return 0;
+      return capturedGateIntelResistancePercent(gateFor(repos, districtId).level);
     },
   };
 }
@@ -178,6 +195,8 @@ export function projectCity(repos: Repositories, base: Base, now: Date): CityRes
         summaries.find((candidate) => candidate.districtId === district.id) ?? null,
       ),
     ),
+    // §B7: the gates on ground this crew holds outright. Empty for a crew that holds none.
+    capturedGates: capturedGatesFor(repos, base, now),
     homeDistrictId: base.districtId,
     serverNow: now.toISOString(),
   };
@@ -242,7 +261,18 @@ function projectLocation(
       ? garrisonSize(control)
       : blurredCount(
           garrisonSize(control),
-          control.holder.kind === 'crew' ? context.blurAgainst(control.holder.baseId) : 0,
+          /*
+           * §B7: their crew's counter-intel, their home Gate, and the gate on *this* ground.
+           *
+           * The board's rule is that the spying half is true for all gates. A district somebody
+           * has taken whole and walled is exactly as hard to read as a home district behind the
+           * same level of wall, so the captured gate lands on the same channel rather than on a
+           * parallel one nobody would remember to check.
+           */
+          control.holder.kind === 'crew'
+            ? context.blurAgainst(control.holder.baseId) +
+                context.gateBlurOn(location.districtId, control.holder.baseId)
+            : 0,
         ),
     // Somebody else's composition is what scouting would be for. Ours, we know.
     garrison: mine ? control.garrison : null,
@@ -259,6 +289,37 @@ function projectLocation(
     labels: mergeLabels(spec.labels, weatherLabels(weatherAt(now))),
     unlocks: unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
   };
+}
+
+/** The run this crew has out, if any, named so a screen can say who and where. */
+function scoutingRunView(repos: Repositories, base: Base): DistrictDetailResponse['scoutingRun'] {
+  const run = repos.scouting.activeFor(base.id)[0];
+  if (!run) return null;
+  const officer = base.commanders.find((held) => held.id === run.officerId);
+  return {
+    districtId: run.districtId,
+    districtName: findDistrict(run.districtId)?.name ?? run.districtId,
+    officerId: run.officerId,
+    // A run whose officer was let go mid-journey still has to draw: the walk is under way whoever
+    // is doing it, and a card that renders nothing is worse than one that says "somebody".
+    officerName: officer?.name ?? 'Somebody',
+    departedAt: run.departedAt,
+    returnsAt: run.returnsAt,
+  };
+}
+
+/** What sending somebody here would cost, before it is committed to. */
+function quoteScout(
+  repos: Repositories,
+  base: Base,
+  district: District,
+  now: Date,
+): DistrictDetailResponse['scoutPlan'] {
+  const officer = defaultScout(base);
+  if (!officer) return null;
+  const plan = planScout(repos, base, district.id, officer, now);
+  if (!plan) return null;
+  return { officerId: officer.id, officerName: officer.name, minutes: plan.minutes };
 }
 
 export function projectDistrict(
@@ -313,6 +374,11 @@ export function projectDistrict(
       resident !== undefined &&
       resident.id !== base.id &&
       isDistrictRaidable(district, district.id === base.districtId),
+    scoutingRun: scoutingRunView(repos, base),
+    // Quoted only where it could be acted on. A price beside ground you have already walked is
+    // noise, and one beside your own front door is nonsense.
+    scoutPlan:
+      scouted || district.id === base.districtId ? null : quoteScout(repos, base, district, now),
     serverNow: now.toISOString(),
   };
 }

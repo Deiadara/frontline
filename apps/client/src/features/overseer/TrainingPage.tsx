@@ -27,7 +27,7 @@ import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/r
 import { useStartTraining, useTraining } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
-import { InfoNote, PageShell } from '../game/PageShell';
+import { PageShell } from '../game/PageShell';
 import { OfficerPortrait } from './OfficerPortrait';
 import { OverseerPortrait } from './OverseerPortrait';
 import { IMPORTANCE_EDGE } from '../../lib/importance';
@@ -104,7 +104,7 @@ export function TrainingPage() {
            * more would fit before it starts scrolling, and it gives the two blocks under it
            * something to sit against.
            */}
-          <Panel title="On the books" className="min-h-0 flex-1 border border-surface-500/70">
+          <Panel title="On the books" className="ink-frame min-h-0 flex-1">
             {/* The one scrolling region on the screen. A crew of fifteen officers has to be
                 reachable without the sheet beside them moving a pixel. */}
             <ul
@@ -124,17 +124,16 @@ export function TrainingPage() {
             </ul>
           </Panel>
 
-          {/* The day, as hours chalked on the wall by the door.
-              No `mt-auto`: the roster above grows into the free space now, so a margin that also
-              claimed it left the panel hugging its two officers with a gap under it. One of the
-              two has to absorb the slack, and it is the section the crew lives in. */}
+          {/* The day, as hours chalked on the wall by the door, at the foot of the rail.
+              No heading on it: five brass strokes and `3 / 5` are already the sentence, and the
+              words over them were a line of chrome saying what the drawing said. The paragraph
+              explaining the rules went with them: it was read once and then sat there for good.
+              No `mt-auto` either, because the roster above is `flex-1` and grows into whatever
+              this does not use. */}
           <div
-            className="card-paper washed rivets edge-lit flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-sm border border-surface-600/70 px-3 py-2.5"
+            className="ink-frame card-paper washed flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5"
             data-testid="training-day"
           >
-            <span className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
-              The day
-            </span>
             <div className="flex items-end gap-1.5" data-testid="training-allowance">
               {/* Spent from the **right**, which is the way every meter a player has ever seen
                   empties: a bar drains towards its start, and the lit run on the left is what is
@@ -166,15 +165,6 @@ export function TrainingPage() {
               {data.sessionsLeft} / {data.perDay}
             </span>
           </div>
-
-          {/* The rule of the room, at the bottom of the rail: read once, then never again. */}
-          <div className="shrink-0">
-            <InfoNote label="How a day works">
-              {data.perDay} sessions a day, an hour each, {data.gainPerSession} points a session.
-              Nobody drills the same thing twice running, so the day after a hard run is a day for
-              reading. Unspent hours do not carry over.
-            </InfoNote>
-          </div>
         </div>
 
         {/* What. */}
@@ -190,7 +180,7 @@ export function TrainingPage() {
             {/* The banner is fixed furniture, so every pixel it takes is a pixel off the sheet.
                 A 3:4 portrait at `w-16` is 85px tall and the block sits at about a hundred, which
                 is what lets an eleven-row column clear a 900-tall laptop without scrolling. */}
-            <div className="card-paper washed rivets edge-lit relative flex shrink-0 items-start gap-3.5 overflow-hidden rounded-sm border border-brass-500/40 p-3 shadow-panel">
+            <div className="ink-frame ink-frame-brass card-paper washed relative flex shrink-0 items-start gap-3.5 overflow-hidden p-3 shadow-panel">
               <span className="w-14 shrink-0 sm:w-16">
                 {/* The Overseer wears the portrait they chose; an officer wears one off the
                     pool, at that pool's own 4:5 rather than the overseer frame's 3:4. */}
@@ -204,6 +194,7 @@ export function TrainingPage() {
                   <OfficerPortrait
                     portraitId={subject.portraitId}
                     name={subject.name}
+                    injuredUntil={subject.injuredUntil}
                     className="aspect-[4/5] w-full"
                   />
                 )}
@@ -342,6 +333,7 @@ function SubjectRow({
           <OfficerPortrait
             portraitId={subject.portraitId}
             name={subject.name}
+            injuredUntil={subject.injuredUntil}
             className="aspect-[4/5] w-full"
           />
         ) : (
@@ -388,7 +380,7 @@ function SubjectRow({
         </span>
       ) : (
         <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.12em] text-verdigris-300">
-          Free
+          Idle
         </span>
       )}
     </button>
@@ -442,6 +434,9 @@ function GroupSheet({
   return (
     <section
       className={cn(
+        // Not `ink-frame`: these four carry the attribute groups' colour code on their border
+        // (`GROUP_STYLE.edge`), and a drawn frame paints over a border colour. The code is the
+        // point of the cards, so they keep the hairline.
         'card-paper washed edge-lit flex min-w-0 flex-col rounded-sm border shadow-panel',
         style.edge,
       )}

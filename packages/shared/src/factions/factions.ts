@@ -133,6 +133,14 @@ export const FactionSchema = z.object({
   name: FactionNameSchema,
   badge: BadgeSchema,
   blurb: FactionBlurbSchema,
+  /**
+   * §J8: every scrap of infamy won in battle by somebody wearing this badge, ever.
+   *
+   * Append-only. It is not the sum of the members' wallets and it is not the sum of the members'
+   * contributions either: somebody leaving takes their seat, not the fights they won while they sat
+   * in it. The number only goes up, and it is what the standings rank factions by.
+   */
+  infamyEarned: z.number().nonnegative(),
   foundedAt: IsoDateTimeSchema,
 });
 export type Faction = z.infer<typeof FactionSchema>;
@@ -157,6 +165,14 @@ export const FactionMemberSchema = z.object({
   level: z.number().int().positive(),
   /** §D7: their name in the city, so the roster can be read as a pecking order. */
   infamy: z.number().nonnegative(),
+  /**
+   * What *this member* has won for the faction since sitting down (§J8).
+   *
+   * Their share of the faction's total, not the total: the faction keeps what a leaver won, and
+   * this row goes with them. Not a slice of the wallet above either, which falls when they buy
+   * notoriety while this never does.
+   */
+  infamyEarned: z.number().nonnegative(),
   /** Bodies on their roster right now. The number an ally is actually deciding about. */
   armySize: z.number().int().nonnegative(),
   /** Supply their army is standing on, so a big number and a thin one read differently. */
@@ -179,7 +195,20 @@ export const FactionInviteSchema = z.object({
 });
 export type FactionInvite = z.infer<typeof FactionInviteSchema>;
 
+/**
+ * §B1: what a crew has to be before it can put its own name over a table.
+ *
+ * Two gates, and they say different things. The player level is about the *person*: somebody who
+ * has run a handful of jobs has seen enough of the city to be worth following. The Nexus level is
+ * about the *place*: a faction is administered from somewhere, and a crew whose command post is a
+ * shipping container is not administering anybody. The refusal names both, because a player who is
+ * short of one and not the other has one thing to go and do.
+ */
+export const FOUND_FACTION_PLAYER_LEVEL = 5;
+export const FOUND_FACTION_NEXUS_LEVEL = 3;
+
 export const FACTION_REFUSALS = [
+  'not_established',
   'already_in_a_faction',
   'faction_full',
   'name_taken',
@@ -195,6 +224,7 @@ export type FactionRefusal = z.infer<typeof FactionRefusalSchema>;
 
 /** One sentence a player can act on, for every way this can be turned down. */
 export const FACTION_REFUSAL_TEXT: Record<FactionRefusal, string> = {
+  not_established: `Founding a faction takes crew level ${FOUND_FACTION_PLAYER_LEVEL} and the Nexus at ${FOUND_FACTION_NEXUS_LEVEL}.`,
   already_in_a_faction: 'You are already in a faction. Leave it first.',
   faction_full: `A faction holds ${MAX_FACTION_MEMBERS} people. This one is full.`,
   name_taken: 'Another faction already goes by that name.',
@@ -222,15 +252,4 @@ export function sameFactionName(a: string, b: string): boolean {
     a.trim().replace(/\s+/g, ' ').toLocaleLowerCase() ===
     b.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
   );
-}
-
-/**
- * How a faction is named in running text.
- *
- * Just the name. There used to be a `[TAG]` in front of it, and the badge replaced the tag: a
- * five-letter abbreviation and a drawn crest are the same job done twice, and the crest is the one
- * a player recognises without reading. Anywhere the badge itself can be drawn, draw it beside this.
- */
-export function factionLabel(name: string): string {
-  return name;
 }

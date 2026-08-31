@@ -54,6 +54,14 @@ const FIELDS: Record<BadgeField, string | null> = {
   quarters: 'M-30 -30 H50 V60 H130 V150 H50 V60 H-30 Z',
   pale: 'M35 -30 H65 V150 H35 Z',
   fess: 'M-30 46 H130 V80 H-30 Z',
+  // The plain four: a bar at the foot, a bar at the head, a rule round the edge, and a cross.
+  base: 'M-30 82 H130 V150 H-30 Z',
+  chief: 'M-30 -30 H130 V32 H-30 Z',
+  // Drawn as a ring rather than a slab, so the ground still shows through the middle: the outer
+  // rectangle and the inner one, wound the same way, with `evenodd` punching the inside out.
+  border: 'M-30 -30 H130 V150 H-30 Z M8 8 H92 V112 H8 Z',
+  saltire:
+    'M-30 -14 L-14 -30 L130 118 L130 150 L114 150 Z M130 -14 L114 -30 L-30 118 L-30 150 L-14 150 Z',
 };
 
 /**
@@ -175,7 +183,8 @@ export function FactionBadge({
       <g filter={drawn ? `url(#${inkId})` : undefined}>
         <g clipPath={`url(#${clipId})`}>
           <path d={SHAPES[badge.shape]} fill={ground} />
-          {field && <path d={field} fill={fieldColor} />}
+          {/* `evenodd`, so `border`'s inner rectangle is a hole rather than a second slab. */}
+          {field && <path d={field} fill={fieldColor} fillRule="evenodd" />}
           {prop && (
             // The emblem, dropped into the middle of the field at a fixed size. `evenodd` is what
             // makes the skull's eyes holes rather than shapes painted over it in the same colour.

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { PartialResources } from '../resources.js';
 
 /**
- * The thirteen parts of a district (GDD §A1): what the crew actually builds on its own ground.
+ * The eleven parts of a district (GDD §A1): what the crew actually builds on its own ground.
  *
  * This list *replaces* the MVP's six structures outright. The old names were a placeholder set
  * with no economy behind them; these are the ones the board named, and each one has exactly one
@@ -18,7 +18,6 @@ export const BUILDING_KINDS = [
   'greenhouse',
   'generator',
   'scrapyard',
-  'cistern',
   'apothecary',
   'gate',
   'lab',
@@ -31,14 +30,14 @@ export type BuildingKind = z.infer<typeof BuildingKindSchema>;
 
 /**
  * The one structure every other one answers to (§A1). Named rather than spelled out at each use:
- * three separate rules key off it, the level cap, the unlock ladder and the build discount, and
- * a string literal repeated three times is three places to get it wrong.
+ * two separate rules key off it, the unlock ladder and the per-level permission table, and a
+ * string literal repeated at each of them is a place to get it wrong.
  */
 export const CENTRAL_BUILDING: BuildingKind = 'nexus';
 
 /**
- * Ceiling on every structure's level. The Nexus is the only one allowed to reach it; see
- * `structureLevelCap`, which holds everything else at the Nexus's own level.
+ * Ceiling on every structure's level. The Nexus is the only one that reaches it on its own
+ * authority; see {@link NEXUS_LADDERS}, which says how far up the Nexus lets each of the others go.
  */
 export const BUILDING_MAX_LEVEL = 20;
 
@@ -85,18 +84,11 @@ export interface BuildingSpec {
   requires: readonly BuildingRequirement[];
   /** Cost of level 1 before the Nexus discount. Every level above scales it: see `buildingCost`. */
   baseCost: PartialResources;
-  /** Seconds to raise level 1, before the Nexus discount. See `buildingBuildSeconds`. */
+  /** Seconds to raise level 1, before the Generator's discount. See `buildingBuildSeconds`. */
   baseSeconds: number;
-  /**
-   * Power drawn at level 1. The Generator is the only 0: it supplies rather than draws.
-   *
-   * Power is not a resource and is never banked: the Generator burns oil to hold the grid up, and
-   * what matters is whether supply covers draw *right now*. See `power.ts`.
-   */
-  basePowerDraw: number;
 }
 
-/** Terser than writing the discriminated union out twelve times below. */
+/** Terser than writing the discriminated union out eleven times below. */
 const needs = (building: BuildingKind, level: number): BuildingRequirement => ({
   kind: 'building',
   building,
@@ -111,113 +103,95 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Nexus',
     description:
       'A commandeered transit hub with the maps still on the walls. Everything the district decides, it decides here.',
-    role: 'Caps every other structure at its own level, unlocks new ones as it grows, and takes time and materials off every other upgrade.',
+    role: 'Authorises every other structure. Each of them has a level it cannot pass until the Nexus is senior enough to sign for it, and new plots open as it grows.',
     requires: [],
     baseCost: { caps: 400, scrap: 200, planks: 120, oil: 60 },
     baseSeconds: 45,
-    basePowerDraw: 4,
   },
   quarters: {
     name: 'The Quarters',
     shortName: 'Quarters',
     description:
       'Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they cannot sleep in.',
-    role: 'Houses the crew. Officers and soldiers both need a bed, and nobody can be placed without one.',
+    role: 'Raises the district population ceiling, and nothing else. Every soldier needs a bed, so this is the number that decides how big the army can be.',
     requires: [nexus(1)],
     // Supplies, alongside the timber: a bigger bunkhouse is stores laid in as much as it is beds
     // built, and it is the one structure whose whole purpose is keeping people.
     baseCost: { caps: 120, supplies: 70, scrap: 90, planks: 110, oil: 10 },
     baseSeconds: 20,
-    basePowerDraw: 2,
   },
   greenhouse: {
     name: 'The Greenhouse',
     shortName: 'Greenhouse',
     description:
-      'Grow lamps over stacked trays, humming on district power. The only food down here nobody had to fight for.',
-    role: 'Grows supplies around the clock. The Cistern raises the yield.',
+      'Grow lamps over stacked trays, running day and night. The only food down here nobody had to fight for.',
+    role: 'Grows supplies around the clock, and every level takes a little more of the supplies bill off training a unit.',
     requires: [nexus(1)],
     baseCost: { caps: 100, scrap: 70, supplies: 40, planks: 90, oil: 10 },
     baseSeconds: 20,
-    basePowerDraw: 3,
   },
   generator: {
     name: 'The Generator',
     shortName: 'Generator',
     description:
-      'A turbine block running on whatever burns. It is loud, it is filthy, and the lights are on because of it.',
-    role: 'Burns oil to power the district. Everything else draws on it, and a district short of power runs slow.',
+      'A turbine block running on whatever burns. It is loud, it is filthy, and every crane in the district turns because of it.',
+    role: "Takes time off every other structure's build, by level, and sells a two-hour burn of oil that takes a quarter off the whole queue.",
     requires: [nexus(1)],
-    baseCost: { caps: 150, scrap: 110, planks: 40, oil: 30 },
+    // Mainly oil (§B4). The turbine is fed rather than built: the plant is a drum, a rotor and a
+    // fuel line, and what a bigger one costs is what it swallows getting there.
+    baseCost: { caps: 150, oil: 220, planks: 55, scrap: 70 },
     baseSeconds: 30,
-    basePowerDraw: 0,
   },
   scrapyard: {
     name: 'The Scrapyard',
     shortName: 'Scrapyard',
     description:
       'Torch work, press lines and a sorting floor. Where wreckage is taken apart and something useful is made out of it.',
-    role: 'Strips salvage into scrap, fuel and the occasional length of good metal.',
+    role: 'Strips salvage into scrap, fuel and the occasional length of good metal, and builds the add-ons that bolt onto a structure or a unit.',
     requires: [nexus(2), needs('generator', 1)],
     baseCost: { caps: 140, scrap: 120, planks: 60, oil: 20 },
     baseSeconds: 25,
-    basePowerDraw: 5,
-  },
-  cistern: {
-    name: 'The Cistern',
-    shortName: 'Cistern',
-    description:
-      'Settling tanks, sand filters and a UV stage bolted on last. The Combine meters the water; this crew does not.',
-    role: 'Treats water for the district, which raises what the Greenhouse yields and how many the Quarters can hold.',
-    requires: [nexus(3), needs('greenhouse', 2)],
-    baseCost: { caps: 160, scrap: 130, planks: 70, oil: 20 },
-    baseSeconds: 30,
-    basePowerDraw: 4,
   },
   apothecary: {
     name: 'The Apothecary',
     shortName: 'Apothecary',
     description:
       'Racks, cages and a ledger nobody else can read. Half dispensary, half the only honest warehouse in the district.',
-    role: 'Holds the stockpile. Production stops at the ceiling it sets, so a full district is a district wasting its own output.',
+    role: 'Sets the ceiling on how much of each resource the district can hold. Production stops there, so a full district is a district wasting its own output.',
     requires: [nexus(3), needs('scrapyard', 2), crew(3)],
     baseCost: { caps: 180, scrap: 140, planks: 80, oil: 25 },
     baseSeconds: 35,
-    basePowerDraw: 2,
   },
   gate: {
     name: 'The Gate',
     shortName: 'Gate',
     description:
       'Ferrocrete, razorwire and a firing step. The first thing anyone coming for this district has to get through.',
-    role: 'Defends the district. A raider has to beat what stands here before they touch anything behind it.',
-    requires: [nexus(4), needs('scrapyard', 3)],
+    role: 'Adds a percentage of defence to every unit holding this district, and makes the place harder to scout.',
+    requires: [nexus(2), needs('scrapyard', 3)],
     baseCost: { caps: 100, scrap: 220, planks: 150, oil: 30 },
     baseSeconds: 30,
-    basePowerDraw: 3,
   },
   lab: {
     name: 'The Lab',
     shortName: 'Lab',
     description:
       'Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Ideas, not devices.',
-    role: 'Cuts the time every research project takes. Investigations, training and modification work all move faster.',
-    requires: [nexus(6), needs('apothecary', 2), crew(5)],
+    role: 'The door to research, and the clock on it: every project takes less time as the Lab grows.',
+    requires: [nexus(4), needs('apothecary', 2), crew(5)],
     baseCost: { caps: 260, scrap: 130, planks: 60, oil: 40, highQualityMetal: 10 },
     baseSeconds: 50,
-    basePowerDraw: 6,
   },
   gauntlet: {
     name: 'The Gauntlet',
     shortName: 'Gauntlet',
     description:
       'A run of welded obstacles, a mat that has seen better decades, and somebody shouting. People come out of it better than they went in.',
-    role: 'Trains the crew. Officers earn more from every job they are sent on.',
-    requires: [nexus(8), needs('quarters', 4), needs('gate', 2), crew(7)],
+    role: 'Unlocks units as it grows and takes time off training every one of them, including the ones it cannot train itself.',
+    requires: [nexus(2), needs('quarters', 1)],
     // Every recruit trained here eats while they do it, and the ground itself is no different.
     baseCost: { caps: 280, supplies: 90, scrap: 180, planks: 100, oil: 40, highQualityMetal: 8 },
     baseSeconds: 55,
-    basePowerDraw: 4,
   },
   infirmary: {
     name: 'The Infirmary',
@@ -228,37 +202,174 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     // clock any more, so there is no lean week to soften: what it does is get people off the
     // casualty list, which is what `infirmaryRecoveryPercent` has always actually paid out.
     role: 'Looks after the crew. Some of the people a fight would have cost you walk out of here instead.',
-    requires: [nexus(10), needs('cistern', 4), needs('lab', 2), crew(10)],
+    requires: [nexus(10), needs('greenhouse', 4), needs('lab', 2), crew(10)],
     // Medical stores are stores.
     baseCost: { caps: 300, supplies: 80, scrap: 160, planks: 70, oil: 45, highQualityMetal: 14 },
     baseSeconds: 60,
-    basePowerDraw: 5,
   },
   garage: {
     name: 'The Garage',
     shortName: 'Garage',
     description:
       'Pits, a gantry crane and a half-built rotor nobody will discuss. Motors first, vehicles after, and eventually something that flies.',
-    role: 'Runs a motor pool: cracks fuel out of salvage and turns out the good metal the heavy work needs.',
+    role: 'Builds and keeps the machines. Gives nothing on its own: what it is worth is what is parked in it.',
     requires: [nexus(12), needs('scrapyard', 6), needs('generator', 6), crew(14)],
     baseCost: { caps: 340, scrap: 240, planks: 50, oil: 60, highQualityMetal: 20 },
     baseSeconds: 50,
-    basePowerDraw: 7,
   },
 };
 
 /**
- * The Nexus level in a structure's clause list, or 0 for the Nexus itself.
+ * The Nexus's permission table (§B1): how far up each structure the Nexus will sign, per level.
  *
- * The ladder is still the spine of the build order, so it stays readable as a number even though it
- * is stored as one clause among several. Derived rather than duplicated: a structure whose Nexus
- * clause is retuned cannot end up with two different answers to "when does this open".
+ * The Nexus used to be a single rule, "nothing outgrows the Nexus", which is one number doing
+ * eleven jobs: a Gate and a Lab were held at exactly the same rung, so the build order was a
+ * straight line and the Nexus was a toll rather than a decision. The board asked for the opposite:
+ * a **per-building, per-level** requirement that is deliberately **asymmetric**, so a district can
+ * be a fortress at Nexus 5 and a laboratory at Nexus 5 but not both.
+ *
+ * ## The shape, and why it is a table rather than a formula
+ *
+ * A ladder is a list of breakpoints, `[targetLevel, nexusLevel]`, ascending in both. The
+ * requirement for target level *L* is the last breakpoint at or below *L*, so a run of levels that
+ * ask for the same Nexus is written once. That is the whole authoring surface: eleven short lists
+ * a designer reads down a column and retunes without touching a line of code. A formula with a
+ * per-building coefficient would have looked tidier and would have made asymmetry impossible to
+ * express, which is the one thing this is for.
+ *
+ * The first breakpoint is always the structure's own `requires` clause and is asserted to be, at
+ * module load: two numbers for "when does this plot open" is two answers to one question.
+ */
+export type NexusLadder = readonly (readonly [targetLevel: number, nexusLevel: number])[];
+
+export const NEXUS_LADDERS: Readonly<Record<BuildingKind, NexusLadder>> = {
+  // The Nexus answers to nobody. Empty rather than a run of zeroes, so the exception is visible.
+  nexus: [],
+  // Beds. The one thing a crew always wants more of, so the Nexus barely stands in its way: this
+  // is the ladder every other one is read against.
+  quarters: [
+    [1, 1],
+    [5, 3],
+    [9, 5],
+    [13, 8],
+    [17, 11],
+  ],
+  // Food, on much the same terms as beds until the top, where a glasshouse the size of a district
+  // needs the district to be one.
+  greenhouse: [
+    [1, 1],
+    [5, 3],
+    [9, 6],
+    [13, 9],
+    [17, 13],
+  ],
+  // The Generator paces everybody else's clock, so it is allowed to run a little ahead of them.
+  generator: [
+    [1, 1],
+    [4, 3],
+    [8, 6],
+    [12, 9],
+    [16, 13],
+  ],
+  scrapyard: [
+    [1, 2],
+    [5, 4],
+    [9, 7],
+    [13, 10],
+    [17, 14],
+  ],
+  // The warehouse is the least interesting thing to be stopped by, and the most annoying: it is
+  // the ceiling every other structure's output runs into.
+  apothecary: [
+    [1, 3],
+    [6, 5],
+    [11, 9],
+    [16, 13],
+  ],
+  // The board's own example: a Gate going to 5 needs Nexus 2 while a Lab going to 5 needs Nexus 4.
+  // Defence is what a crew reaches for when it is losing, and a crew that is losing has a small
+  // Nexus, so this is the shallowest ladder in the table by a wide margin.
+  gate: [
+    [1, 2],
+    [9, 5],
+    [13, 8],
+    [17, 12],
+  ],
+  // And the other half of the example. The Lab is the deep end of the game: it is allowed to open
+  // early and then it wants a district behind it.
+  lab: [
+    [1, 4],
+    [5, 4],
+    [9, 8],
+    [13, 12],
+    [17, 16],
+  ],
+  // The Gauntlet is the unit ladder (§B6), so it opens almost immediately and climbs steadily:
+  // holding it back would be holding the roster back, which is the game.
+  gauntlet: [
+    [1, 2],
+    [5, 4],
+    [9, 7],
+    [13, 10],
+    [17, 14],
+  ],
+  infirmary: [
+    [1, 10],
+    [6, 12],
+    [11, 15],
+    [16, 18],
+  ],
+  // The last plot, and the steepest ladder: a motor pool is the end of a district rather than a
+  // part of one.
+  garage: [
+    [1, 12],
+    [6, 14],
+    [11, 16],
+    [16, 19],
+  ],
+};
+
+/**
+ * The Nexus level that has to be standing before `kind` may be raised **to** `level`.
+ *
+ * Zero for the Nexus itself and for anything below the first breakpoint. The answer a refusal is
+ * written out of, so it is a number rather than a boolean: "raise the Nexus first" is only advice
+ * when it says how far.
+ */
+export function nexusLevelForUpgrade(kind: BuildingKind, level: number): number {
+  let needed = 0;
+  for (const [targetLevel, nexusLevel] of NEXUS_LADDERS[kind]) {
+    if (targetLevel > level) break;
+    needed = nexusLevel;
+  }
+  return needed;
+}
+
+/**
+ * The highest level `kind` may be raised to with the Nexus standing at `nexusLevel`.
+ *
+ * The read side of the same table. Walks the ladder rather than inverting it, because the ladder
+ * is at most five entries long and an inversion is a second thing to keep in step.
+ */
+export function levelCapForNexus(kind: BuildingKind, nexusLevel: number): number {
+  if (kind === CENTRAL_BUILDING) return BUILDING_MAX_LEVEL;
+  let cap = 0;
+  for (let level = 1; level <= BUILDING_MAX_LEVEL; level += 1) {
+    if (nexusLevelForUpgrade(kind, level) > nexusLevel) break;
+    cap = level;
+  }
+  return cap;
+}
+
+/**
+ * The Nexus level a structure's **first** level needs, or 0 for the Nexus itself.
+ *
+ * Read off the ladder rather than off the clause list, so there is one source for it. The clause
+ * list still carries the same number because that is what `unmetRequirements` renders, and the
+ * guard at the bottom of this file holds the two together.
  */
 export function nexusLevelFor(kind: BuildingKind): number {
-  for (const clause of BUILDING_CATALOG[kind].requires) {
-    if (clause.kind === 'building' && clause.building === CENTRAL_BUILDING) return clause.level;
-  }
-  return 0;
+  return nexusLevelForUpgrade(kind, 1);
 }
 
 /** Every kind whose first level the district may not lay until the Nexus reaches `nexusLevel`. */
@@ -297,5 +408,44 @@ for (const kind of BUILDING_KINDS) {
     if (clause.level > BUILDING_MAX_LEVEL) {
       throw new Error(`${kind} needs ${clause.building} at ${clause.level}, past the ceiling`);
     }
+  }
+}
+
+/**
+ * And guards the permission table (§B1), which has four ways of locking a structure out of the
+ * game and none of them shows up on a screen.
+ *
+ * A ladder that steps *down* would let a level be legal and the one below it not; a breakpoint past
+ * the ceiling is a rung nobody reaches; a first breakpoint that disagrees with the structure's own
+ * Nexus clause is two answers to "when does this open"; and a Nexus requirement at the ceiling
+ * itself would make the top level of that structure unreachable, because the Nexus can only ever be
+ * {@link BUILDING_MAX_LEVEL}.
+ */
+for (const kind of BUILDING_KINDS) {
+  let lastTarget = 0;
+  let lastNexus = 0;
+  for (const [target, needed] of NEXUS_LADDERS[kind]) {
+    if (target <= lastTarget && lastTarget !== 0) {
+      throw new Error(`${kind}'s ladder revisits level ${target}`);
+    }
+    if (needed < lastNexus) throw new Error(`${kind}'s ladder steps down at level ${target}`);
+    if (target > BUILDING_MAX_LEVEL || needed > BUILDING_MAX_LEVEL) {
+      throw new Error(`${kind}'s ladder asks for ${needed} at level ${target}, past the ceiling`);
+    }
+    lastTarget = target;
+    lastNexus = needed;
+  }
+  if (kind === CENTRAL_BUILDING) continue;
+  const clause = BUILDING_CATALOG[kind].requires.find(
+    (need): need is { kind: 'building'; building: BuildingKind; level: number } =>
+      need.kind === 'building' && need.building === CENTRAL_BUILDING,
+  );
+  if ((clause?.level ?? 0) !== nexusLevelForUpgrade(kind, 1)) {
+    throw new Error(
+      `${kind} opens at Nexus ${clause?.level ?? 0} in its clauses and at ${nexusLevelForUpgrade(kind, 1)} on its ladder`,
+    );
+  }
+  if (levelCapForNexus(kind, BUILDING_MAX_LEVEL) !== BUILDING_MAX_LEVEL) {
+    throw new Error(`${kind} cannot reach level ${BUILDING_MAX_LEVEL} at any Nexus level`);
   }
 }

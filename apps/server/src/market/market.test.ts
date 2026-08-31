@@ -560,37 +560,8 @@ describe('the workshop, over HTTP', () => {
     expect(withOne.statusCode).toBe(200);
   });
 
-  it('builds a machine and shortens the road with it', async () => {
-    const { app, token } = await ready();
-    const base = baseOf(app, 'smith');
-    app.repos.bases.updateDistrict(
-      base.id,
-      [
-        ...base.buildings,
-        { id: 'gar', kind: 'garage', level: 6, modifications: [], damage: 0, fortification: 0 },
-      ],
-      [],
-    );
-    app.repos.bases.updateHoldings(base.id, base.resources, {
-      ...base.inventory,
-      gyro_assembly: 4,
-    });
-
-    const before = await workshop(app, token);
-    expect(before.fleetTravelSpeedPercent).toBe(0);
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/workshop/vehicle',
-      headers: auth(token),
-      payload: { vehicleId: 'motorcycle' },
-    });
-    expect(res.statusCode).toBe(200);
-
-    const after = await workshop(app, token);
-    expect(after.fleetTravelSpeedPercent).toBeGreaterThan(0);
-    expect(baseOf(app, 'smith').fleet.motorcycle).toBe(1);
-  });
+  // §B11 moved the yard onto its own page: building a machine is `/garage/build` now, and it is
+  // covered by `garage/garage.test.ts` rather than here.
 });
 
 describe('the barrow is the same for the whole city', () => {

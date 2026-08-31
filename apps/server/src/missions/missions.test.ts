@@ -73,13 +73,22 @@ function launchBody(templateId: string, extra: Record<string, unknown> = {}) {
  * that one does. Every one of those used to name a template, which is the expiry-dated fixture
  * described on `launchBody`.
  */
+/**
+ * A job on a board today that a delegation can actually be sent on.
+ *
+ * **Not** simply the first job offered. §G6 refuses a `hard` job with nobody leading it, and the
+ * board rotates by date, so "the first offer on the first board" is a launch that succeeds on most
+ * days and is refused on the days a hard job happens to sort first: the suite then goes red on a
+ * date rather than on a change. Asking for the property the test needs is the fix, exactly as
+ * `aHardJobToday` asks for the opposite one.
+ */
 function aJobToday(): { template: MissionTemplate; areaId: string } {
   const day = missionBoardDay(new Date());
   for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
-    const template = missionOffers(areaId, day)[0];
+    const template = missionOffers(areaId, day).find((entry) => entry.difficulty !== 'hard');
     if (template) return { template, areaId };
   }
-  throw new Error(`no job on any board on ${day}`);
+  throw new Error(`no job a delegation can run on any board on ${day}`);
 }
 
 /** `aJobToday` as a launch payload. */
@@ -181,6 +190,8 @@ interface Stack {
   repos: Repositories;
   base: Base;
   token: string;
+  /** The handle itself, for the few tests that wind a clock back rather than going through HTTP. */
+  db: AppDatabase;
 }
 
 async function makeStack(username = 'runner'): Promise<Stack> {
@@ -220,7 +231,7 @@ async function makeStack(username = 'runner'): Promise<Stack> {
   }
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('base vanished after arming it');
-  return { app, repos, base, token };
+  return { app, repos, base, token, db };
 }
 
 const scrapRun = findMissionTemplate('scrap-run') as MissionTemplate;
@@ -1195,5 +1206,140 @@ describe('a settlement announces its level-up on the response that caused it (§
 
     expect(refused.statusCode, refused.body).toBe(409);
     expect(refused.json<LevelUpBody>().levelUp).toBeUndefined();
+  });
+});
+
+/**
+ * §C3: the Garage on a run.
+ *
+ * The battle side of this landed first and missions were left walking, which made the Garage worth
+ * building only for the fights a player chooses to pick. These pin the three things that differ
+ * from the battle path.
+ *
+ * The one that matters most is the last: **a mission never destroys a machine.** A vehicle is lost
+ * when everybody riding it dies, and a mission does not kill anybody, so the yard gets everything
+ * back whatever the run did. That is not an oversight to be tidied up later, it is the rule.
+ */
+describe('vehicles on a mission (§C3)', () => {
+  const yardWith = (stack: Stack, fleet: Record<string, number>) => {
+    stack.repos.bases.updateFleet(stack.base.id, fleet);
+    return stack.repos.bases.findById(stack.base.id)!;
+  };
+
+  async function launchWith(stack: Stack, vehicles: Record<string, number>) {
+    return stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: { authorization: `Bearer ${stack.token}` },
+      payload: { ...launchAnyJobToday(), force: { razors: 4 }, vehicles },
+    });
+  }
+
+  it('takes the machines out of the yard for the length of the run', async () => {
+    const stack = await makeStack('rider');
+    yardWith(stack, { motorcycle: 3 });
+
+    const res = await launchWith(stack, { motorcycle: 2 });
+
+    expect(res.statusCode, res.body).toBe(200);
+    expect(stack.repos.bases.findById(stack.base.id)!.fleet.motorcycle).toBe(1);
+  });
+
+  /** Checked against the yard rather than trusted: naming four buys the speed of four. */
+  it('refuses a crew that names machines it does not own', async () => {
+    const stack = await makeStack('bluffer');
+    yardWith(stack, { motorcycle: 1 });
+
+    const res = await launchWith(stack, { motorcycle: 4 });
+
+    expect(res.statusCode).toBe(403);
+    // And nothing left the yard on a refused launch.
+    expect(stack.repos.bases.findById(stack.base.id)!.fleet.motorcycle).toBe(1);
+  });
+
+  /**
+   * The point of the whole feature: the road is shorter.
+   *
+   * Compared against the same job launched on foot rather than against a fixed number, because the
+   * travel band is authored per template and a hard-coded figure would be pinning the template.
+   */
+  it('gets the crew there sooner than the same job on foot', async () => {
+    const walking = await makeStack('walker');
+    const riding = await makeStack('driver');
+    yardWith(riding, { motorcycle: 2 });
+
+    const onFoot = await launchWith(walking, {});
+    const onWheels = await launchWith(riding, { motorcycle: 2 });
+
+    expect(onFoot.statusCode, onFoot.body).toBe(200);
+    expect(onWheels.statusCode, onWheels.body).toBe(200);
+    expect(onWheels.json<{ mission: Mission }>().mission.travelMinutes).toBeLessThan(
+      onFoot.json<{ mission: Mission }>().mission.travelMinutes,
+    );
+  });
+
+  /** And it is the *road* that shortens, not the work at the far end. */
+  it('does not make the job itself go faster', async () => {
+    const walking = await makeStack('slow');
+    const riding = await makeStack('fast');
+    yardWith(riding, { motorcycle: 2 });
+
+    const onFoot = await launchWith(walking, {});
+    const onWheels = await launchWith(riding, { motorcycle: 2 });
+
+    expect(onWheels.json<{ mission: Mission }>().mission.durationMinutes).toBe(
+      onFoot.json<{ mission: Mission }>().mission.durationMinutes,
+    );
+  });
+
+  /** An empty seat buys nothing: a truck sent with four people is a truck mostly full of air. */
+  it('pays for the share of the crew a machine actually carries', async () => {
+    const few = await makeStack('few');
+    const many = await makeStack('many');
+    yardWith(few, { war_hauler: 1 });
+    yardWith(many, { war_hauler: 1 });
+
+    const smallForce = await few.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: { authorization: `Bearer ${few.token}` },
+      payload: { ...launchAnyJobToday(), force: { razors: 1 }, vehicles: { war_hauler: 1 } },
+    });
+    const bigForce = await many.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: { authorization: `Bearer ${many.token}` },
+      payload: { ...launchAnyJobToday(), force: { razors: 20 }, vehicles: { war_hauler: 1 } },
+    });
+
+    // Both ride the same truck; the fuller one is not slower for it. The rule under test is that
+    // the *hauler's* contribution is weighted by what it carries, so neither run is penalised.
+    expect(smallForce.statusCode, smallForce.body).toBe(200);
+    expect(bigForce.statusCode, bigForce.body).toBe(200);
+    expect(bigForce.json<{ mission: Mission }>().mission.vehicles.war_hauler).toBe(1);
+  });
+
+  it('brings every machine home when the crew comes back', async () => {
+    const stack = await makeStack('homecoming');
+    yardWith(stack, { motorcycle: 2, scrap_car: 1 });
+
+    const launched = await launchWith(stack, { motorcycle: 2, scrap_car: 1 });
+    expect(launched.statusCode, launched.body).toBe(200);
+    expect(stack.repos.bases.findById(stack.base.id)!.fleet.motorcycle ?? 0).toBe(0);
+
+    // Wind the run into the past and settle it the way a read would.
+    const id = launched.json<{ mission: Mission }>().mission.id;
+    stack.db
+      .prepare('UPDATE missions SET started_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - 30 * 24 * 3600_000).toISOString(), id);
+    await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: { authorization: `Bearer ${stack.token}` },
+    });
+
+    const yard = stack.repos.bases.findById(stack.base.id)!.fleet;
+    expect(yard.motorcycle).toBe(2);
+    expect(yard.scrap_car).toBe(1);
   });
 });

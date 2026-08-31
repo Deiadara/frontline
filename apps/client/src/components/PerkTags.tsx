@@ -45,10 +45,12 @@ export interface PerkTagsProps {
   tone?: PerkTone;
   /** Which side the hover card hangs from, for a row near the bottom of a frame. */
   side?: 'top' | 'bottom';
+  /** Set on a row that sits inside another control: see `DescribedTag`'s own note. */
+  nested?: boolean;
 }
 
 /** Renders nothing at all for somebody with no perks, so a caller needs no guard of its own. */
-export function PerkTags({ perks, tone = 'card', side }: PerkTagsProps) {
+export function PerkTags({ perks, tone = 'card', side, nested = false }: PerkTagsProps) {
   const found = perks.map(findPerk).filter((perk) => perk !== undefined);
   if (found.length === 0) return null;
   return (
@@ -60,6 +62,7 @@ export function PerkTags({ perks, tone = 'card', side }: PerkTagsProps) {
           description={`${PERK_CATEGORY_LABELS[perk.category]}. ${perk.description}`}
           detail={perkDetail(perk.id)}
           {...(side ? { side } : {})}
+          nested={nested}
           className={PERK_TONES[tone]}
         />
       ))}

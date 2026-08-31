@@ -34,9 +34,9 @@ export const MAX_EFFECT_REDUCTION = 60;
 const REDUCTIONS: readonly ModificationEffect[] = [
   'build_cost_reduction',
   'build_time_reduction',
-  'power_draw_reduction',
   'research_time_reduction',
-  'fuel_efficiency',
+  'training_time_reduction',
+  'training_supplies_reduction',
 ];
 
 export function districtEffects(buildings: readonly Building[]): DistrictEffects {

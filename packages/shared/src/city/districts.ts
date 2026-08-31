@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_CITY_ID } from './cities.js';
 import { AllegianceSchema, governmentGarrisonFor, type Allegiance } from '../allegiance.js';
 import { IdSchema } from './../primitives.js';
 import {
@@ -596,6 +597,22 @@ export const CITY_DISTRICTS: readonly District[] = [
 
 export function findDistrict(districtId: string): District | undefined {
   return CITY_DISTRICTS.find((district) => district.id === districtId);
+}
+
+/**
+ * Which city a district is in, or `undefined` for a district nothing authored.
+ *
+ * Every district is in Ashfall today, so the map is built by assigning them all the one id. That is
+ * the honest shape rather than a hardcoded return: the *edge* from district to city exists, and
+ * when the board adds a second city only the values here change. Every screen asking "is this near
+ * me" already goes through this.
+ */
+const DISTRICT_CITY: ReadonlyMap<string, string> = new Map(
+  CITY_DISTRICTS.map((district) => [district.id, DEFAULT_CITY_ID]),
+);
+
+export function cityOf(districtId: string): string | undefined {
+  return DISTRICT_CITY.get(districtId);
 }
 
 /** Every authored location in the city, flattened. */

@@ -29,6 +29,9 @@ import {
   movementSize,
   observedForceSize,
   reportReaches,
+  officerBattleStats,
+  officerIsInjured,
+  type BattleLeader,
   type Army,
   type BattleReportView,
   type BattleSide,
@@ -52,6 +55,7 @@ import { sideOf } from './deploy.js';
 import { defendingBaseOf } from './declare.js';
 import { residentOf, targetName } from './ground.js';
 import { battlefieldOf } from './resolve.js';
+import { seatedRoles } from '../crew/roster.js';
 
 /**
  * The battle board, as one crew sees it (GDD §A4, battle rework).
@@ -185,7 +189,34 @@ function viewOf(
         )
       : [],
     boostId: deployment?.boostId ?? null,
+    officerId: deployment?.officerId ?? null,
+    // §C3: what has been committed, and what is still in the yard to commit. Both, because the
+    // picker's question is "how many of these am I taking", and the answer is bounded by the sum.
+    vehicles: deployment?.vehicles ?? {},
+    yard: side ? base.fleet : {},
+    // §D1: who this crew could send. A bystander gets nothing, for the same reason they get no
+    // shelf: the list is the caller's own roster and it is not the other side's business.
+    leaders: side ? leadersFor(base, now) : [],
   };
+}
+
+/**
+ * The officers a crew could put at the front of a column (§D1).
+ *
+ * Fit ones only. An injured officer is left out rather than sent and greyed: their recovery clock
+ * is on the crew screen, which is the one place it belongs, and a second copy of it here is a
+ * second place for it to drift. Their combat sheet rides along so the player can weigh a person
+ * against a stack of Razors before deciding, which is the whole decision §D1 adds.
+ */
+function leadersFor(base: Base, now: Date): BattleLeader[] {
+  return base.commanders
+    .filter((officer) => !officerIsInjured(officer.injuredUntil, now))
+    .map((officer) => ({
+      officerId: officer.id,
+      name: officer.name,
+      role: officer.role,
+      stats: officerBattleStats(officer.attributes),
+    }));
 }
 
 function holderLabel(kind: ScheduledBattle['defender']['kind']): string {
@@ -283,7 +314,9 @@ function boostsFor(
 ): BattleBoostOption[] {
   const crew = {
     technologies: base.research.technologies,
-    roles: base.commanders.map((officer) => officer.role),
+    // Chairs, not headcount: a boost unlocked by having a Raid Boss is not unlocked by having
+    // signed one and left them on the bench.
+    roles: seatedRoles(base.commanders),
   };
   const names = BATTLE_BOOSTS.map((spec) => ({
     id: spec.id,

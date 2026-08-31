@@ -21,7 +21,6 @@ import type { BuildingKind } from '@frontline/shared';
  */
 export const STRUCTURE_ASPECT: Readonly<Record<BuildingKind, number>> = {
   nexus: 0.8,
-  cistern: 0.9,
   apothecary: 0.95,
   lab: 1.02,
   quarters: 1.03,
@@ -95,7 +94,6 @@ export const MAX_BRIGHTEN = 1.1;
  */
 export const STRUCTURE_GRADE: Readonly<Record<BuildingKind, StructureGrade>> = {
   apothecary: { brightness: 0.79, saturate: 0.79 },
-  cistern: { brightness: 1.01, saturate: 0.96 },
   garage: { brightness: 1.1, saturate: 0.76 },
   gate: { brightness: 0.9, saturate: 0.82 },
   gauntlet: { brightness: 1.1, saturate: 0.92 },

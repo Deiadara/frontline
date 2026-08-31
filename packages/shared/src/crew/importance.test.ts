@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ATTRIBUTE_NAMES, MAX_ATTRIBUTE, type Attributes } from '../attributes.js';
 import { OFFICER_ROLES } from '../roles.js';
-import { OFFICER_PORTRAIT_IDS, officerPortraits } from '../roles.js';
+import {
+  ASSIGNABLE_OFFICER_PORTRAIT_IDS,
+  DUPLICATE_OFFICER_PORTRAIT_IDS,
+  OFFICER_PORTRAIT_IDS,
+  officerPortraitId,
+  officerPortraits,
+} from '../roles.js';
 import {
   IMPORTANCE_WEIGHT,
   ROLE_IMPORTANCE,
@@ -167,8 +173,44 @@ describe('who wears which face', () => {
 
   /** The pathological case: a roster as large as the pool has to consume the pool exactly. */
   it('hands out every face when the roster is the size of the pool', () => {
-    const ids = roster(OFFICER_PORTRAIT_IDS.length);
-    expect(new Set(officerPortraits(ids).values()).size).toBe(OFFICER_PORTRAIT_IDS.length);
+    const ids = roster(ASSIGNABLE_OFFICER_PORTRAIT_IDS.length);
+    expect(new Set(officerPortraits(ids).values()).size).toBe(
+      ASSIGNABLE_OFFICER_PORTRAIT_IDS.length,
+    );
+  });
+
+  /**
+   * The two faces that are somebody else's face, kept out of every roster.
+   *
+   * `officer-42` is pixel-identical to `officer-26` and `officer-43` is `officer-33` mirrored, so
+   * handing either out puts one person on the crew screen twice under two names.
+   *
+   * The ids are **written out here as literals**, and that is the point of the test rather than an
+   * accident of style. The first version of this asserted against
+   * `DUPLICATE_OFFICER_PORTRAIT_IDS`, which is the list under test: emptying that list made the
+   * assertion vacuously true and the test stayed green through the exact regression it exists to
+   * catch. Measured, not assumed, the mutant was run. An expectation copied from the source agrees
+   * with any source, including a wrong one.
+   */
+  it('never hands out either of the two duplicated faces', () => {
+    const everybody = [
+      ...officerPortraits(roster(ASSIGNABLE_OFFICER_PORTRAIT_IDS.length)).values(),
+    ];
+    expect(everybody).not.toContain('42');
+    expect(everybody).not.toContain('43');
+
+    const lone = roster(500).map((id) => officerPortraitId(id));
+    expect(lone).not.toContain('42');
+    expect(lone).not.toContain('43');
+  });
+
+  /** The art still describes them, so the board's order sheet does not lose two entries. */
+  it('still lists the duplicates as art that exists', () => {
+    expect(OFFICER_PORTRAIT_IDS).toContain('42');
+    expect(OFFICER_PORTRAIT_IDS).toContain('43');
+    expect(OFFICER_PORTRAIT_IDS).toHaveLength(99);
+    expect(ASSIGNABLE_OFFICER_PORTRAIT_IDS).toHaveLength(97);
+    expect(DUPLICATE_OFFICER_PORTRAIT_IDS).toEqual(['42', '43']);
   });
 
   it('gives everybody a face from the pool, and nobody two', () => {

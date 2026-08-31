@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { PartialResources } from '../resources.js';
-import { BUILDING_CATALOG, type Building } from '../building/index.js';
+import {
+  BUILDING_CATALOG,
+  BUILDING_MAX_LEVEL,
+  VEHICLE_IDS,
+  type Building,
+} from '../building/index.js';
 import { CITY_LOCATIONS, LOCATION_KINDS } from '../city/index.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import {
+  GAUNTLET_UNLOCKED_UNITS,
   UNIT_CATALOG,
   UNIT_RULE_IDS,
   UNIT_RULES,
   UNIT_TIERS,
   findUnit,
+  gauntletLevelFor,
   isCombatUnit,
   isSupportUnit,
   unitsInTier,
@@ -70,7 +77,11 @@ import { noTerritoryEffects } from '../city/locations.js';
  * between need more than one kind of progress at once. A roster is meant to read as a campaign.
  */
 
-const NOTHING = { buildings: [] as Building[], heldPlaceKinds: new Set<never>() };
+const NOTHING = {
+  buildings: [] as Building[],
+  heldPlaceKinds: new Set<never>(),
+  buildableVehicles: new Set<string>(),
+};
 
 const building = (
   kind: Building['kind'],
@@ -96,6 +107,7 @@ const EVERYTHING = {
     ]),
   ),
   heldPlaceKinds: new Set(LOCATION_KINDS),
+  buildableVehicles: new Set(VEHICLE_IDS),
 };
 
 describe('the catalogue (§A5)', () => {
@@ -271,13 +283,50 @@ describe('the catalogue (§A5)', () => {
 });
 
 describe('unlocking them (§A5)', () => {
-  it('lets a crew with nothing field something, and not much', () => {
-    const starters = unlockedUnits(NOTHING);
+  /**
+   * §B6 moved the floor: the Gauntlet is now the gate on the starters as well as on the rest, so
+   * "a crew with nothing" is a crew with a Gauntlet rather than a crew with an empty plot. The
+   * claim underneath is unchanged and is the one worth holding: the first structure that trains
+   * anybody opens a handful of rabble and porters and nothing that fights properly.
+   */
+  it('lets a crew with a first Gauntlet field something, and not much', () => {
+    expect(unlockedUnits(NOTHING)).toHaveLength(0);
+
+    const opened = { ...NOTHING, buildings: [building('gauntlet', 1)] };
+    const starters = unlockedUnits(opened);
     expect(starters.length).toBeGreaterThan(0);
-    // Razors and the porters the Nexus itself signs: the two things a crew with no barracks can
-    // put on the street. Nothing that fights properly.
     expect(starters.every((unit) => unit.tier === 'rabble' || unit.tier === 'carrier')).toBe(true);
     expect(starters.length).toBeLessThan(UNIT_CATALOG.length / 3);
+  });
+
+  /** §B6: exactly the twelve the board named hang off the Gauntlet, and each on a real level. */
+  it('gates the board’s twelve on the Gauntlet and nothing else', () => {
+    const gated = UNIT_CATALOG.filter((unit) => gauntletLevelFor(unit.id) !== null).map(
+      (unit) => unit.id,
+    );
+    expect(new Set(gated)).toEqual(new Set(GAUNTLET_UNLOCKED_UNITS));
+    expect(gated).toHaveLength(12);
+    for (const id of GAUNTLET_UNLOCKED_UNITS) {
+      expect(gauntletLevelFor(id), id).toBeGreaterThanOrEqual(1);
+      expect(gauntletLevelFor(id), id).toBeLessThanOrEqual(BUILDING_MAX_LEVEL);
+    }
+    // The Road Reavers want the Garage as well, and a Garage that can turn out bikes: both
+    // clauses, not either.
+    const reavers = findUnit('road_reavers');
+    expect(reavers?.requires.map((need) => need.kind).sort()).toEqual([
+      'building',
+      'building',
+      'vehicle',
+    ]);
+    expect(isUnitUnlocked(reavers!, { ...EVERYTHING, buildableVehicles: new Set() })).toBe(false);
+  });
+
+  /** §B6: no unit may become unreachable, which is the other half of moving every gate at once. */
+  it('leaves every unit with a gate, and every gate reachable', () => {
+    for (const unit of UNIT_CATALOG) {
+      expect(unit.requires.length, unit.id).toBeGreaterThan(0);
+      expect(isUnitUnlocked(unit, EVERYTHING), unit.id).toBe(true);
+    }
   });
 
   it('lets a crew at the top of every tree field everything', () => {
@@ -296,9 +345,9 @@ describe('unlocking them (§A5)', () => {
     }
   });
 
-  it('gates something on each of the three kinds of clause', () => {
+  it('gates something on each of the four kinds of clause', () => {
     const kinds = new Set(UNIT_CATALOG.flatMap((unit) => unit.requires.map((need) => need.kind)));
-    expect(kinds).toEqual(new Set(['building', 'modification', 'location']));
+    expect(kinds).toEqual(new Set(['building', 'modification', 'location', 'vehicle']));
   });
 
   it('reads a building clause off the level, a modification off what is fitted', () => {
@@ -334,8 +383,8 @@ describe('unlocking them (§A5)', () => {
 
     // Meeting one does not silence the others.
     const partway = missingRequirements(colossus!, {
+      ...NOTHING,
       buildings: [building('garage', 20)],
-      heldPlaceKinds: new Set(),
     });
     expect(partway.length).toBe(colossus!.requires.length - 1);
     expect(isUnitUnlocked(colossus!, partway.length === 0 ? EVERYTHING : NOTHING)).toBe(false);

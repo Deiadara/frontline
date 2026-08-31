@@ -2,6 +2,7 @@ import {
   BUILDING_CATALOG,
   buildingLevel,
   findModification,
+  findVehicle,
   type Building,
 } from '../building/index.js';
 import { LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
@@ -20,6 +21,15 @@ export interface UnlockContext {
   buildings: readonly Building[];
   /** Location kinds this crew currently holds, anywhere in the city. */
   heldPlaceKinds: ReadonlySet<LocationKind>;
+  /**
+   * §B6: machines the Garage could turn out today, by vehicle id.
+   *
+   * What the Garage *can build*, not what is parked in it. Required rather than optional, and that
+   * is deliberate: a default of "nothing" would leave a caller who forgot to fill it in with a
+   * permanently locked Road Reaver and no error anywhere, which is the exact failure mode this
+   * whole module's guards exist to prevent.
+   */
+  buildableVehicles: ReadonlySet<string>;
 }
 
 export function requirementMet(need: UnitRequirement, context: UnlockContext): boolean {
@@ -32,6 +42,8 @@ export function requirementMet(need: UnitRequirement, context: UnlockContext): b
       );
     case 'location':
       return context.heldPlaceKinds.has(need.locationKind);
+    case 'vehicle':
+      return context.buildableVehicles.has(need.vehicleId);
   }
 }
 
@@ -64,6 +76,8 @@ export function describeRequirement(need: UnitRequirement): string {
       return findModification(need.modificationId)?.name ?? need.modificationId;
     case 'location':
       return `Hold ${theLocation(need.locationKind)}`;
+    case 'vehicle':
+      return `${findVehicle(need.vehicleId)?.name ?? need.vehicleId}s buildable in the Garage`;
   }
 }
 

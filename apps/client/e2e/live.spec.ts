@@ -5,6 +5,7 @@ import {
   buildingCost,
   spendResources,
   findDistrict,
+  type District,
 } from '@frontline/shared';
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
 
@@ -183,10 +184,6 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await page.getByRole('link', { name: 'City', exact: true }).click();
   await expect(page.getByTestId('city-room')).toBeVisible();
 
-  const scrapfields = findDistrict('rustyard');
-  if (!scrapfields) throw new Error('fixture error: the Rustyard is missing from the city');
-  await page.getByTestId(`district-tag-${scrapfields.id}`).click();
-
   /*
    * Fog first: a district nobody has been to says nothing about what is inside it.
    *
@@ -194,11 +191,37 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    * intel panel floating on the city map, and the map went when the city became a painting: one
    * click on a tag is the whole walk in, so there is no in-between screen left to say it on.
    */
-  await expect(page.getByRole('heading', { name: scrapfields.name })).toBeVisible();
+  const dark = findDistrict('undergrid');
+  if (!dark) throw new Error('fixture error: the Undergrid is missing from the city');
+  await page.getByTestId(`district-tag-${dark.id}`).click();
+  await expect(page.getByRole('heading', { name: dark.name })).toBeVisible();
   await expect(page.getByTestId('locations')).toHaveCount(0);
   await shootEveryViewport(page, 'city-fog');
 
-  await page.getByRole('button', { name: 'Send scouts' }).click();
+  /*
+   * §A4: opening ground is a journey, and this account cannot make it yet.
+   *
+   * Scouting sends one officer who walks there, looks, and walks back, and a crew on its first
+   * evening has nobody on the books to send. That refusal is the thing a live session can prove
+   * about the rework: pressing used to lift the fog on the spot, and there is now no press at all
+   * until somebody has been signed. Waiting out a real run is hours, so the clock itself is pinned
+   * on the server (`scouting/scouting.test.ts`) rather than here.
+   */
+  await expect(page.getByTestId('scout-nobody')).toBeVisible();
+  await expect(page.getByTestId('send-scout')).toHaveCount(0);
+
+  /*
+   * So the fight happens on the ground the game hands a new crew.
+   *
+   * A new district opens with its nearest unoccupied neighbour already walked, precisely so a first
+   * session has somewhere to work before it has anybody to send. Read off the city rather than
+   * hard-coded, because which district that is depends on where this account was planted.
+   */
+  await page.getByRole('link', { name: 'City', exact: true }).click();
+  await expect(page.getByTestId('city-room')).toBeVisible();
+  const granted = await openGround(page);
+  await page.getByTestId(`district-tag-${granted.id}`).click();
+  await expect(page.getByRole('heading', { name: granted.name })).toBeVisible();
   await expect(page.getByTestId('locations')).toBeVisible();
   await shootEveryViewport(page, 'district-locations');
 
@@ -213,8 +236,8 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    * the call goes on the board, the squad leaves the roster for it, and pulling them back puts
    * them where they were.
    */
-  const firstPlace = scrapfields.locations[0];
-  if (!firstPlace) throw new Error('fixture error: the Rustyard has no locations');
+  const firstPlace = granted.locations[0];
+  if (!firstPlace) throw new Error(`fixture error: ${granted.name} has no locations`);
   const card = page.getByTestId(`location-${firstPlace.id}`);
   await expect(card).toBeVisible();
 
@@ -238,13 +261,56 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await page.getByRole('link', { name: 'Units', exact: true }).click();
   await expect(page.getByTestId('unit-catalogue')).toBeVisible();
   await expect(page.getByTestId('supply')).toBeVisible();
-  // Razors need nothing at all, so a crew on its first day can always train more.
-  await expect(
-    page.getByTestId('unit-razors').getByRole('button', { name: 'Train' }),
-  ).toBeEnabled();
+  // The catalogue opens on the carriers (board request), so the fighting tier is one click away.
+  await page.getByRole('button', { name: 'Rabble' }).click();
+  /*
+   * §B6: on day one the fighting tier is locked, and the card says what would open it.
+   *
+   * This asserted that Razors could be trained immediately, on the grounds that they "need nothing
+   * at all". That stopped being true when the Gauntlet became the gate for the twelve units it
+   * trains: a new crew now runs Quarters, then the Nexus to 2, then a Gauntlet, before its first
+   * Razor. That is a real change to the opening and it is the board's to keep or revert.
+   *
+   * The assertion is kept pointed at the same card, because what it is really guarding is that the
+   * roster renders against the live backend and explains itself. A locked unit that says nothing
+   * is the failure worth catching either way.
+   */
+  await expect(page.getByTestId('unit-razors')).toBeVisible();
+  await expect(page.getByLabel('Razors is locked')).toBeVisible();
   await shootEveryViewport(page, 'units');
 
   expect(pageErrors, `uncaught page errors: ${pageErrors.join(' | ')}`).toEqual([]);
   expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
   expect(offOrigin, `the flow fetched third-party assets: ${offOrigin.join(' | ')}`).toEqual([]);
 });
+
+/**
+ * The district a new crew starts with open, read off the running server.
+ *
+ * `openTheNearestGround` gives a fresh account its nearest unoccupied neighbour, and which one that
+ * is depends on the district the account was planted in, so it cannot be written down here. Found
+ * by asking the city which ground is already walked and is not home.
+ */
+async function openGround(page: Page): Promise<District> {
+  const city = await page.evaluate(async () => {
+    // `zustand/persist` stores `{ state, version }` under the store's own key.
+    const token = JSON.parse(localStorage.getItem('frontline.token') ?? '{}') as {
+      state?: { token?: string };
+    };
+    const res = await fetch('/api/city', {
+      headers: { authorization: `Bearer ${token.state?.token ?? ''}` },
+    });
+    return (await res.json()) as {
+      homeDistrictId: string;
+      districts: { district: { id: string }; scouted: boolean }[];
+    };
+  });
+  // Home is always "scouted" because you live there, and clicking its tag opens your own district
+  // rather than the city's view of somebody else's ground. `homeDistrictId` is what excludes it.
+  const open = city.districts.find(
+    (entry) => entry.scouted && entry.district.id !== city.homeDistrictId,
+  );
+  const district = open ? findDistrict(open.district.id) : undefined;
+  if (!district) throw new Error('a new crew should start with one district open');
+  return district;
+}

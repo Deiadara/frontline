@@ -18,6 +18,12 @@ import {
   type MoraleState,
 } from './morale.js';
 import { drawLuck } from './luck.js';
+import {
+  OFFICER_TARGET_SHARE,
+  officerUnit,
+  type BattleOfficer,
+  type OfficerOutcome,
+} from './officer.js';
 import { mulberry32, seedFrom } from '../rng.js';
 
 /**
@@ -156,6 +162,15 @@ export interface Stack {
    * `battle/analysis.ts` reads to say which of your units actually earned their supply.
    */
   dealt: number;
+  /**
+   * §D1: this stack is the officer leading the side, not a unit off the roster.
+   *
+   * One body, and three rules follow from the flag. They draw {@link OFFICER_TARGET_SHARE} of the
+   * fire an equally threatening unit would (§D3); they are skipped by every casualty ledger, so no
+   * synthesised id ever reaches an `Army` map the server writes back to a roster; and falling here
+   * means injured rather than dead (§D4, settled by `officerInjured`).
+   */
+  officer?: BattleOfficer;
 }
 
 export interface SideSetup {
@@ -172,6 +187,13 @@ export interface SideSetup {
   upgrades?: UnitLoadouts;
   /** §A5 teamwork: how much of a force too big for the ground can be brought to bear anyway. */
   cohesionPercent?: number;
+  /**
+   * §D1: the one officer leading this side, or absent. Leading is optional and never more than one.
+   *
+   * Handed over as a sheet rather than as stats, so the attribute table in `battle/officer.ts` is
+   * the only place a sheet is ever turned into combat numbers.
+   */
+  officer?: BattleOfficer;
 }
 
 export interface SideState {
@@ -260,6 +282,8 @@ function buildStacks(
   outnumbered: boolean,
   territory: TerritoryEffects,
   upgrades: UnitLoadouts,
+  /** §D1: the officer leading, appended as a one-body stack after the roster. */
+  officer?: BattleOfficer,
 ): Stack[] {
   const stacks: Stack[] = [];
   for (const [unitId, count] of Object.entries(army)) {
@@ -298,7 +322,53 @@ function buildStacks(
       dealt: 0,
     });
   }
+
+  /*
+   * And the officer, last, so a side's own roster keeps the order it was written in.
+   *
+   * Built through `effectiveStats` like everything else: the ground, the weather, the crew's own
+   * offense channel and a tier bonus for specialists all reach them, which is what "fights as a
+   * normal unit" has to mean if it means anything. Fitted upgrades do not, because the id is not a
+   * roster id and nothing is bolted to a person.
+   */
+  if (officer) {
+    const unit = officerUnit(officer);
+    const effective = effectiveStats(unit, battlefield, { defending, outnumbered }, territory);
+    stacks.push({
+      unit,
+      effective,
+      alive: 1,
+      pool: effective.vitality,
+      morale: effective.morale,
+      brokeAt: null,
+      started: 1,
+      dealt: 0,
+      officer,
+    });
+  }
   return stacks;
+}
+
+/** The officer's stack on this side, or undefined when nobody led. */
+export function officerStackOf(side: SideState): Stack | undefined {
+  return side.stacks.find((stack) => stack.officer !== undefined);
+}
+
+/**
+ * What the officer on this side did, for the settler that has to decide about a stretcher (§D4).
+ *
+ * `fell` is the whole question: a body taken off the field is somebody who *would have died*, and
+ * the board's rule is that the worst thing that happens to an officer is an injury.
+ */
+export function officerOutcomeOf(side: SideState): OfficerOutcome | null {
+  const stack = officerStackOf(side);
+  if (!stack?.officer) return null;
+  return {
+    officerId: stack.officer.officerId,
+    name: stack.officer.name,
+    fell: stack.alive <= 0,
+    damage: Math.round(stack.dealt),
+  };
 }
 
 /**
@@ -333,11 +403,22 @@ export function allocate(
   const live = enemies.filter((enemy) => enemy.alive > 0 && enemy.pool > 0);
   if (live.length === 0) return [];
 
+  /*
+   * §D3: an officer is half as likely to be shot at, while there is anybody else to shoot at.
+   *
+   * A weight, not a rule of its own, so it composes with everything targeting already does: a
+   * taunting shield line still pulls its share off the top, and an officer standing behind one is
+   * half of what is left rather than half of the whole fight. The condition is the board's, and it
+   * is the reason this is not simply a stat: a crew that sends an officer in alone has nobody for
+   * them to hide behind, and the discount is off.
+   */
+  const cover = live.some((enemy) => enemy.officer === undefined);
   const weigh = (of: readonly Stack[]): number[] =>
     of.map((enemy) =>
       Math.max(
         0,
-        threatWeight(attacker.effective, attacker.unit.modifiers, enemy.effective, enemy.morale),
+        threatWeight(attacker.effective, attacker.unit.modifiers, enemy.effective, enemy.morale) *
+          (cover && enemy.officer !== undefined ? OFFICER_TARGET_SHARE : 1),
       ),
     );
   /** Threat weights, normalised to shares of `budget`. Falls back to an even split at zero. */
@@ -605,6 +686,7 @@ export function simulate(input: SimulateInput): Simulation {
       ownCount > 0 && otherCount / ownCount >= OUTNUMBERED_RATIO,
       setup.territory ?? noTerritoryEffects(),
       setup.upgrades ?? {},
+      setup.officer,
     ),
   });
 

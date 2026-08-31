@@ -7,7 +7,6 @@ import {
   BADGE_PROP_LABELS,
   BADGE_SHAPES,
   BADGE_SHAPE_LABELS,
-  badgeIsLegible,
   randomBadge,
   type BadgeColor,
   type FactionBadge as Badge,
@@ -43,13 +42,12 @@ export function BadgeBuilder({
 }) {
   const set = <K extends keyof Badge>(key: K, value: Badge[K]) =>
     onChange({ ...badge, [key]: value });
-  const legible = badgeIsLegible(badge);
 
   return (
     <div className={cn('flex flex-col gap-4 md:flex-row md:gap-5', className)}>
       {/* The badge, big. The reason the panel is this wide. */}
       <div className="flex shrink-0 flex-col items-center gap-2.5">
-        <div className="ink-frame flex items-center justify-center px-4 py-3">
+        <div className="ink-frame card-paper washed flex items-center justify-center px-4 py-3">
           <FactionBadge badge={badge} size={96} title="Your faction's badge" />
         </div>
         <button
@@ -154,19 +152,6 @@ export function BadgeBuilder({
               />
             ))}
           </Row>
-        )}
-
-        {/* A warning, not a refusal: it is their badge. The one thing worth saying is that the
-            emblem they chose is currently invisible, which is not obvious from a swatch. */}
-        {!legible && (
-          <p
-            role="status"
-            data-testid="badge-illegible"
-            className="font-body text-[12px] leading-snug text-brass-300"
-          >
-            The emblem is the same colour as what is behind it, so it cannot be seen. Still allowed,
-            in case that is the point.
-          </p>
         )}
       </div>
     </div>

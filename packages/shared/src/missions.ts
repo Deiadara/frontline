@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { FleetSchema } from './building/vehicles.js';
 import { MissionDifficultySchema } from './delegation/delegation.js';
 import { MissionStanceSchema, type MissionStance } from './allegiance.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
@@ -623,6 +624,19 @@ export const MissionSchema = z.object({
    * before missions took units parses as the delegation it was.
    */
   force: ArmySchema.default({}),
+  /**
+   * §C3: the machines carrying them, out of the Garage and back into it.
+   *
+   * Frozen on the row like the force and the clock, because the speed they bought was priced at
+   * launch: a machine built or lost while a crew is on the road must not re-time a run already
+   * under way. Defaulted empty, so a run launched before the Garage existed parses as the walk it
+   * was.
+   *
+   * A mission never destroys one. A vehicle is lost when everybody riding it dies, and a mission
+   * does not kill anybody (see `missions/resolve.ts`): what a failed run costs is the clock and
+   * the pay. So these always come home, on a clean run and on a disaster alike.
+   */
+  vehicles: FleetSchema.default({}),
   startedAt: IsoDateTimeSchema,
   travelMinutes: z.number().int().nonnegative(),
   durationMinutes: z.number().int().positive(),
@@ -639,6 +653,17 @@ export const MissionSchema = z.object({
   outcome: MissionOutcomeSchema.nullable(),
   /** What was actually banked. Empty until the mission resolves. */
   rewards: PartialResourcesSchema,
+  /**
+   * What the job paid before the crew's carrying capacity was applied (§E).
+   *
+   * `rewards` is this, capped by what the units sent could lift (`missionCarry`). The two are equal
+   * on a run with enough porters, and the difference is what a player needs in order to learn that
+   * they are under-crewing: it is the whole feedback loop for the carry mechanic.
+   *
+   * Empty on a mission resolved before this was recorded, which the report reads as "not known"
+   * rather than as "nothing was left behind".
+   */
+  spoils: PartialResourcesSchema,
   resolvedAt: IsoDateTimeSchema.nullable(),
   /**
    * When the crew was turned around, or `null` if they were left to finish.

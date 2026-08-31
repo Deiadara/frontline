@@ -39,9 +39,17 @@ export function registerCrewRoutes(app: FastifyInstance): void {
       if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
       if (officer.role === role) return { crew: projectCrew(app.repos, base) };
 
-      const taken = base.commanders.some(
-        (candidate) => candidate.role === role && candidate.id !== officerId,
-      );
+      /*
+       * A chair holds one officer. The bench holds as many as you have signed.
+       *
+       * `role === null` is the absence of a chair, not a chair called "none", so the occupancy
+       * check has to skip it: without the guard, moving a second person to the bench would be
+       * refused as "somebody already holds that position", which is both wrong and a confusing
+       * thing to be told about a bench.
+       */
+      const taken =
+        role !== null &&
+        base.commanders.some((candidate) => candidate.role === role && candidate.id !== officerId);
       if (taken) throw new AppError('ROLE_TAKEN', 'Somebody already holds that position');
 
       const commanders = base.commanders.map((candidate) =>

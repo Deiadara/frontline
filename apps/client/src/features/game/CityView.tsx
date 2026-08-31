@@ -1,7 +1,15 @@
-import { CITY_DISTRICTS, districtDisplayName, plateAspect, type District } from '@frontline/shared';
+import {
+  CITY_DISTRICTS,
+  districtDisplayName,
+  plateAspect,
+  type CapturedGateView,
+  type District,
+} from '@frontline/shared';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMe } from '../../lib/queries';
+import { CostLine } from '../../components/Resources';
+import { Button } from '../../components/ui/Button';
+import { useCity, useMe, useRaiseGate } from '../../lib/queries';
 import { Icon } from '../../components/ui/Icon';
 import { CitiesView } from '../cities/CitiesView';
 import { cn } from '../../lib/cn';
@@ -116,56 +124,34 @@ function DistrictTag({
       />
 
       {/*
-       * Light card stock with the tape **over** it, which is the way round tape works.
+       * The same plate the district screen puts under a building (board request).
        *
-       * The tag was dark paper with two amber tabs tucked behind its edges, and on a painting of a
-       * city at night that is a smudge with a word in it and two bright wings sticking out. Light
-       * stock reads instantly against the dark, and a translucent strip laid across each top corner
-       * reads as something holding the label down, because it is on top of it.
+       * These were scraps of light card stock with tape over the corners, and against a night
+       * painting they were the brightest thing on the screen: ten cream stickers over the artwork,
+       * competing with it rather than labelling it. The district screen had already solved the same
+       * problem the other way, with a dark plate and small uppercase type that sits *in* the
+       * picture, and two maps in one game reading as two different games is the worse bug.
+       *
+       * Name only, and nothing else on it. The tag's job on this screen is to say which ground is
+       * which; everything a player wants after that is one click away on the district itself.
        */}
-      <span className="relative flex items-center">
-        <span
-          className={cn(
-            'tag-paper relative flex flex-col items-center gap-0.5 px-3 py-1.5 transition-transform duration-200',
-            mine && 'ring-1 ring-inset ring-brass-500/50',
-          )}
-        >
-          <span
-            className={cn(
-              /*
-               * Wraps, with a ceiling on how wide it may get.
-               *
-               * It was `whitespace-nowrap`, which is right for a district name somebody authored
-               * and wrong for a *crew* name, which the player types: a tag on the far-right plot
-               * carrying a maximum-length name ran 222px wide and off the edge of a 1024 viewport.
-               * A ceiling and two lines is what a scrap of paper does; truncating would break the
-               * one rule this interface does not bend, and moving the mark only hides it until
-               * somebody picks a longer name.
-               */
-              'max-w-[10rem] text-balance break-words text-center font-stamp text-[13px] leading-tight',
-              // Ink on paper, not chrome text: the tag is a physical object on the picture.
-              mine ? 'text-oxblood-500' : 'text-[rgb(28_22_18)]',
-            )}
-          >
-            {label}
-          </span>
-          {mine && (
-            <span className="flex items-center gap-1 font-display text-[8px] font-bold uppercase leading-none tracking-[0.18em] text-oxblood-500">
-              <Icon name="district" aria-hidden className="h-2 w-2" />
-              Yours
-            </span>
-          )}
-        </span>
-        {/* Over the paper, at `z-10`, and clear of the torn edge so the strip is not clipped by it.
-            Two different angles and lengths: a matched pair reads as printed rather than stuck. */}
-        <span
-          aria-hidden
-          className="tape-strip pointer-events-none absolute -left-1 -top-1 z-10 h-3 w-6 -rotate-[22deg]"
-        />
-        <span
-          aria-hidden
-          className="tape-strip pointer-events-none absolute -right-1.5 -top-1 z-10 h-3 w-6 rotate-[17deg]"
-        />
+      <span
+        className={cn(
+          'flex items-center whitespace-normal rounded-sm border px-2 py-0.5 shadow-lifted',
+          'max-w-[10rem] text-balance break-words text-center',
+          'font-display text-[11px] font-semibold uppercase leading-tight tracking-[0.1em]',
+          'transition-colors duration-200',
+          /*
+           * Your own ground is the one tag that leads somewhere different, so it stays legible as
+           * yours without a second line saying so: the plate takes the working state's amber, the
+           * same colour the district screen gives a building that is doing something.
+           */
+          mine
+            ? 'border-ember-300/70 bg-surface-950/90 text-ember-300'
+            : 'border-surface-600 bg-surface-950/90 text-ink-200 group-hover:border-brass-300/70 group-hover:text-brass-100',
+        )}
+      >
+        {label}
       </span>
     </button>
   );
@@ -175,6 +161,10 @@ export function CityView() {
   const me = useMe();
   const navigate = useNavigate();
   const myBase = me.data?.base ?? null;
+  // §B7: the gates on districts this crew holds outright. Empty for almost every crew.
+  const city = useCity();
+  const gates = city.data?.capturedGates ?? [];
+  const raise = useRaiseGate();
 
   /**
    * Which zoom the camera is at: the city, or the step back from it.
@@ -252,6 +242,100 @@ export function CityView() {
           All cities
         </button>
       </div>
+
+      {/*
+       * §B7: the gates on ground this crew holds outright (board request).
+       *
+       * Bottom-left, over the map, and drawn only when there is one. A crew that has never taken a
+       * district whole sees the screen it has always seen; taking the last location in one makes a
+       * panel appear, which is the clearest way to tell a player that the sweep bought them
+       * something beyond the location.
+       */}
+      {gates.length > 0 && (
+        <div
+          className="pointer-events-none absolute bottom-0 left-0 z-10 flex flex-col gap-2 px-3"
+          style={{ paddingBottom: 'calc(var(--nav-h, 96px) + 12px)' }}
+          data-testid="captured-gates"
+        >
+          {gates.map((gate) => (
+            <CapturedGatePanel
+              key={gate.districtId}
+              gate={gate}
+              stock={myBase?.resources ?? {}}
+              pending={raise.isPending}
+              onRaise={() => raise.mutate({ districtId: gate.districtId })}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One gate a crew holds, and the one thing they can do about it.
+ *
+ * Drawn as a plate over the map rather than as a page of its own, because it is a fact about a
+ * district on the screen already showing the districts, and a wall with one button does not earn a
+ * route. What it prints is what it is worth right now, in the two units the player cares about:
+ * how much harder the ground is to take, and how much less a scout comes away with.
+ */
+function CapturedGatePanel({
+  gate,
+  stock,
+  pending,
+  onRaise,
+}: {
+  gate: CapturedGateView;
+  /** What is in the stockpile, so the price reads red when it cannot be paid. */
+  stock: Parameters<typeof CostLine>[0]['stock'];
+  pending: boolean;
+  onRaise: () => void;
+}) {
+  const working = gate.upgradingUntil !== null;
+  return (
+    <div
+      data-testid={`captured-gate-${gate.districtId}`}
+      className="glass edge-lit pointer-events-auto flex min-w-[15rem] flex-col gap-1.5 rounded-sm border border-surface-600 px-3 py-2.5"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-brass-300">
+          {gate.districtName} gate
+        </span>
+        <span className="font-display text-[12px] font-bold tabular-nums text-ink-100">
+          Lv {gate.level}
+        </span>
+      </div>
+      <p className="font-body text-[12px] leading-snug text-ink-300">
+        +{Math.round(gate.defensePercent)}% holding it, and{' '}
+        {Math.round(gate.intelResistancePercent)}% less for anybody reading it.
+      </p>
+      {working ? (
+        <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ember-300">
+          Being raised
+        </span>
+      ) : gate.nextCost === null ? (
+        <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-400">
+          As high as it goes
+        </span>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <CostLine cost={gate.nextCost} stock={stock} />
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              disabled={gate.refusal !== null || pending}
+              onClick={onRaise}
+              data-testid={`raise-gate-${gate.districtId}`}
+            >
+              Raise it
+            </Button>
+            {gate.refusal !== null && (
+              <span className="font-display text-[11px] text-oxblood-300">{gate.refusal}</span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

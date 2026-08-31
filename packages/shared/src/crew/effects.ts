@@ -1,13 +1,17 @@
 import {
   ATTRIBUTE_NAMES,
   ATTRIBUTE_LABELS,
+  ATTRIBUTES_BY_GROUP,
   MAX_ATTRIBUTE,
+  clampAttribute,
+  type AttributeGroup,
   type AttributeName,
   type Attributes,
 } from '../attributes.js';
 import { applyHoldBonus, noTerritoryEffects, type TerritoryEffects } from '../city/locations.js';
 import { perksOf, type PerkBonus } from './perks.js';
-import type { UnitTier } from '../units/tiers.js';
+import type { UnitTier, UnitTierStat } from '../units/tiers.js';
+import type { BuildingKind } from '../building/kinds.js';
 import type { OfficerRole } from '../roles.js';
 import {
   IMPORTANCE_WEIGHT,
@@ -157,9 +161,86 @@ export interface CrewOnlyEffects {
    * worth nothing at all until the ground is too narrow for the force standing on it.
    */
   cohesionPercent: number;
+  /**
+   * Flat points on every unit's evasion rating.
+   *
+   * The one defensive stat with no channel at all until §D5 wanted one: the map can buy vitality
+   * and armour and offense, and nothing anywhere could buy the number that decides whether a hit
+   * lands. Flat because evasion is a rating and a percentage of a rating of 10 is nothing, which
+   * is the same argument `unitArmorPercent` makes on `TerritoryEffects`.
+   *
+   * Read by `battle/effects.ts` through the optional widening on its `territory` parameter, the
+   * way `unitKindPercent` already is: a crew-only channel a piece of ground cannot grant.
+   */
+  unitEvasionFlat: number;
 }
 
-export interface CrewEffects extends TerritoryEffects, CrewOnlyEffects {}
+/**
+ * The channels that only pay when something is true (board request).
+ *
+ * Kept together and named for their condition, so a consumer reading one is reminded that it has a
+ * gate on it. Every one of them is folded like any other channel and then *applied* by whichever
+ * system knows whether the condition holds: the battle engine knows whether an ally turned up, the
+ * build queue knows which structure is being raised. Folding is unconditional, spending is not.
+ */
+export interface ConditionalCrewEffects {
+  /** Offense, but only in a fight another crew's units are also standing in. */
+  alliedOffensePercent: number;
+  /** Defense, but only for a Gate, and only while it is the thing being hit. */
+  gateDefensePercent: number;
+  /** Defense, but only while every location in the district is yours. */
+  wholeDistrictPercent: number;
+  /** Per structure: taken off what that one costs to raise. */
+  buildingCostPercent: Partial<Record<BuildingKind, number>>;
+  /** Per unit id, per stat: one named unit is better at one thing. */
+  unitKindPercent: Record<string, Partial<Record<UnitTierStat, number>>>;
+  /** Added to everything that pays experience. */
+  xpGainPercent: number;
+  /**
+   * Flat points one officer's perks put on *other* officers' sheets, per attribute.
+   *
+   * Two shapes. `flat` is unconditional; `atLeast` only pays for an officer who has already
+   * reached `threshold` in that attribute under their own steam.
+   */
+  officerAttributeFlat: Partial<Record<AttributeName, number>>;
+  officerAttributeAtLeast: Partial<Record<AttributeName, { flat: number; threshold: number }>>;
+  /*
+   * §D5: the channels that pay only while an officer is *leading* the fight.
+   *
+   * Folded off perks like everything else and spent by {@link leading}, which is called by whoever
+   * knows whether an officer actually went. That is the same shape `alliedOffensePercent` has and
+   * it is the whole reason these are conditional rather than ordinary: a perk that pays whether or
+   * not its officer left the district is not a reason to send them anywhere.
+   */
+  /** Offense, for every friendly unit, while this crew's officer is leading. */
+  leadOffensePercent: number;
+  /** ...evasion, in flat points. */
+  leadEvasionFlat: number;
+  /** ...armour, in flat points. */
+  leadArmorFlat: number;
+  /** ...morale, in flat points. */
+  leadMoraleFlat: number;
+  /** A percentage more of whatever the fight pays out. */
+  leadLootPercent: number;
+  /** Time off the road, both to a battle and on a mission. */
+  leadArrivalPercent: number;
+}
+
+export interface CrewEffects extends TerritoryEffects, CrewOnlyEffects, ConditionalCrewEffects {}
+
+/**
+ * The channels that hold a plain number, as opposed to a record keyed by resource, tier or
+ * structure.
+ *
+ * Derived from the struct rather than listed, so a channel added tomorrow lands in the right half
+ * on its own. Callers that fold a `Partial<Record<..., number>>` into a `CrewEffects` (the Lab's
+ * technologies, the Garage) index through this: without it the compiler has to assume any key
+ * might be one of the record-valued ones, and adding the fifth of those is what turned that
+ * assignment into an error.
+ */
+export type NumericEffectChannel = {
+  [K in keyof CrewEffects]: CrewEffects[K] extends number ? K : never;
+}[keyof CrewEffects];
 
 export function noCrewEffects(): CrewEffects {
   return {
@@ -173,8 +254,96 @@ export function noCrewEffects(): CrewEffects {
     intelResistancePercent: 0,
     casualtyRecoveryPercent: 0,
     cohesionPercent: 0,
+    unitEvasionFlat: 0,
+    alliedOffensePercent: 0,
+    gateDefensePercent: 0,
+    wholeDistrictPercent: 0,
+    buildingCostPercent: {},
+    unitKindPercent: {},
+    xpGainPercent: 0,
+    officerAttributeFlat: {},
+    officerAttributeAtLeast: {},
+    leadOffensePercent: 0,
+    leadEvasionFlat: 0,
+    leadArmorFlat: 0,
+    leadMoraleFlat: 0,
+    leadLootPercent: 0,
+    leadArrivalPercent: 0,
   };
 }
+
+/**
+ * The perk-only channels, and when each one pays.
+ *
+ * Deliberately **not** in {@link EFFECT_CHANNELS}. That list means "channels an attribute pushes",
+ * and the game holds an invariant that every one of them has exactly one attribute driving it, so
+ * putting a conditional channel there would have meant either breaking the invariant or
+ * reassigning an attribute away from the channel it already drives to make room. Neither is worth
+ * doing to fit a display list.
+ *
+ * These come from perks and from nothing else, which is also what makes them the interesting half
+ * of a hire: an attribute is a rating that rises with training, a conditional bonus is a thing a
+ * particular person brought with them.
+ */
+export const CONDITIONAL_CHANNELS = [
+  'alliedOffensePercent',
+  'gateDefensePercent',
+  'wholeDistrictPercent',
+  'xpGainPercent',
+  'leadOffensePercent',
+  'leadEvasionFlat',
+  'leadArmorFlat',
+  'leadMoraleFlat',
+  'leadLootPercent',
+  'leadArrivalPercent',
+] as const;
+export type ConditionalChannel = (typeof CONDITIONAL_CHANNELS)[number];
+
+/** What each is called, and the condition that has to hold before it is worth anything. */
+export const CONDITIONAL_CHANNEL_LABELS: Readonly<
+  Record<ConditionalChannel, { label: string; when: string }>
+> = {
+  alliedOffensePercent: {
+    label: 'Fighting beside allies',
+    when: 'In any fight another crew has also sent people to',
+  },
+  gateDefensePercent: {
+    label: 'Holding the Gate',
+    when: 'Only when your Gate is the thing being hit',
+  },
+  wholeDistrictPercent: {
+    label: 'Holding the whole district',
+    when: 'Only while every location in your district is yours',
+  },
+  xpGainPercent: {
+    label: 'What the work teaches you',
+    when: 'On everything that pays experience',
+  },
+  leadOffensePercent: {
+    label: 'What the crew hits for behind them',
+    when: 'Only in a fight this officer is leading',
+  },
+  leadEvasionFlat: {
+    label: 'How often the crew is missed',
+    when: 'Only in a fight this officer is leading',
+  },
+  leadArmorFlat: {
+    label: 'What the crew is wearing',
+    when: 'Only in a fight this officer is leading',
+  },
+  leadMoraleFlat: {
+    label: 'Whether the crew holds',
+    when: 'Only in a fight this officer is leading',
+  },
+  leadLootPercent: {
+    label: 'What comes back off the ground',
+    when: 'Only in a fight this officer is leading',
+  },
+  leadArrivalPercent: {
+    label: 'Time on the road',
+    when: 'Only when this officer is leading the column',
+  },
+};
 
 export interface AttributeEffect {
   /** Where this attribute lands. */
@@ -386,6 +555,22 @@ export const OFF_DUTY_SHARE = 0.35;
  * more towards the bonuses" rule: it is applied per skill, before best-of, so an officer in the
  * right chair beats a better officer in the wrong one.
  */
+/**
+ * What somebody on the bench contributes, per attribute (§C2).
+ *
+ * The *lowest* share a chair pays, deliberately, and not {@link OFF_DUTY_SHARE}.
+ *
+ * Off-duty was the obvious pick and it is wrong by a margin the arithmetic makes obvious: it is
+ * 0.35 and `insignificant` is 0.25, so a benched officer would be worth **more** than a seated one
+ * in every skill their chair does not care about. Since a crew's rating is the best-of across
+ * everybody, that makes taking somebody out of their chair a way to raise the crew's numbers, and
+ * a bench that is sometimes an upgrade is not a bench.
+ *
+ * At the insignificant share the promise holds in one direction with no exceptions: seating
+ * somebody is never worse than leaving them on it, and is usually a great deal better.
+ */
+export const BENCH_SHARE = 0.25;
+
 export const IMPORTANCE_SHARE: Readonly<Record<AttributeImportance, number>> = {
   insignificant: IMPORTANCE_WEIGHT.insignificant / IMPORTANCE_WEIGHT.irreplaceable,
   useful: IMPORTANCE_WEIGHT.useful / IMPORTANCE_WEIGHT.irreplaceable,
@@ -431,12 +616,26 @@ export interface CrewMember {
    */
   perks: readonly string[];
   /**
-   * The chair they are in, or `null` for the Overseer.
+   * The chair they are in, or `null` for somebody who is in no chair at all.
    *
-   * The Overseer is the player: they are not in one of the nineteen seats, so every skill they have
-   * counts in full and no band uplift is read off them.
+   * Two different people have no chair and they are not worth the same, which is what {@link
+   * benched} is for. The Overseer is the player: not one of the nineteen seats, so every skill
+   * they have counts in full. An officer on the bench is signed and unassigned: nothing counts in
+   * full, because the chair is most of what an officer is worth.
    */
   role: OfficerRole | null;
+  /**
+   * On the books, in no chair (§C2, board request).
+   *
+   * Paid {@link OFF_DUTY_SHARE} of everything, the same share a seated officer gets in the skills
+   * their own chair does not use. So a benched specialist is still worth something, and putting
+   * them in the right chair is still worth a great deal more, which is the decision the bench
+   * exists to let a player postpone rather than avoid.
+   *
+   * Only ever true when `role` is `null`, and the two together are what separate a benched officer
+   * from the Overseer, who also has no chair and is paid in full.
+   */
+  benched?: boolean;
 }
 
 /**
@@ -463,7 +662,18 @@ export function crewSheet(crew: readonly CrewMember[]): Attributes {
   for (const member of crew) {
     const uplift = peakUplift(member);
     for (const name of ATTRIBUTE_NAMES) {
-      const share = member.role === null ? 1 : IMPORTANCE_SHARE[importanceOf(member.role, name)];
+      /*
+       * Three cases, and the middle one is the bench.
+       *
+       * A seated officer is paid by how much their chair cares about the skill; the Overseer is
+       * paid in full because they have no chair to be a poor fit for; a benched officer is paid
+       * the off-duty share in everything, because they have no chair *yet*.
+       */
+      const share = member.benched
+        ? BENCH_SHARE
+        : member.role === null
+          ? 1
+          : IMPORTANCE_SHARE[importanceOf(member.role, name)];
       /*
        * Rounded and clamped, because this is an `Attributes` and that type is integers 0..100.
        *
@@ -493,6 +703,7 @@ export function crewSheet(crew: readonly CrewMember[]): Attributes {
  * nothing, because they have no chair to be a good fit for.
  */
 export function peakUplift(member: CrewMember): number {
+  // No chair, no fit to be good at: true for the Overseer and for anybody on the bench.
   if (member.role === null) return 1;
   const { base, bonus } = officerScore(member.attributes, member.role);
   if (base <= 0) return 1;
@@ -567,10 +778,165 @@ export function applyPerkBonus(into: CrewEffects, bonus: PerkBonus): CrewEffects
     case 'cohesion':
       into.cohesionPercent += bonus.percent;
       return into;
+    case 'allied_offense':
+      into.alliedOffensePercent += bonus.percent;
+      return into;
+    case 'gate_defense':
+      into.gateDefensePercent += bonus.percent;
+      return into;
+    case 'whole_district':
+      into.wholeDistrictPercent += bonus.percent;
+      return into;
+    case 'building_cost':
+      into.buildingCostPercent = {
+        ...into.buildingCostPercent,
+        [bonus.building]: (into.buildingCostPercent[bonus.building] ?? 0) + bonus.percent,
+      };
+      return into;
+    case 'unit_kind':
+      into.unitKindPercent = {
+        ...into.unitKindPercent,
+        [bonus.unitId]: {
+          ...into.unitKindPercent[bonus.unitId],
+          [bonus.stat]: (into.unitKindPercent[bonus.unitId]?.[bonus.stat] ?? 0) + bonus.percent,
+        },
+      };
+      return into;
+    case 'xp_gain':
+      into.xpGainPercent += bonus.percent;
+      return into;
+    case 'lead_offense':
+      into.leadOffensePercent += bonus.percent;
+      return into;
+    case 'lead_evasion':
+      into.leadEvasionFlat += bonus.flat;
+      return into;
+    case 'lead_armor':
+      into.leadArmorFlat += bonus.flat;
+      return into;
+    case 'lead_morale':
+      into.leadMoraleFlat += bonus.flat;
+      return into;
+    case 'lead_loot':
+      into.leadLootPercent += bonus.percent;
+      return into;
+    case 'lead_arrival':
+      into.leadArrivalPercent += bonus.percent;
+      return into;
+    case 'officer_attribute':
+      into.officerAttributeFlat = {
+        ...into.officerAttributeFlat,
+        [bonus.attribute]: (into.officerAttributeFlat[bonus.attribute] ?? 0) + bonus.flat,
+      };
+      return into;
+    case 'officer_threshold': {
+      // Two perks on the same attribute keep the *lower* bar and add their points: a crew that has
+      // bought this twice should not find the second copy has raised the price of the first.
+      const held = into.officerAttributeAtLeast[bonus.attribute];
+      into.officerAttributeAtLeast = {
+        ...into.officerAttributeAtLeast,
+        [bonus.attribute]: {
+          flat: (held?.flat ?? 0) + bonus.flat,
+          threshold: Math.min(held?.threshold ?? bonus.threshold, bonus.threshold),
+        },
+      };
+      return into;
+    }
     default:
       applyHoldBonus(into, bonus);
       return into;
   }
+}
+
+/**
+ * §D5: the leading channels, spent (buildings-and-combat patch).
+ *
+ * Called by whoever knows an officer actually went: the battle settler and the mission launcher.
+ * Everything here is already folded into the struct by `applyPerkBonus`; this is the step that
+ * moves it onto the channels the engine and the clock read, and it is a no-op for a crew that sent
+ * nobody, which is what makes these perks a reason to send somebody.
+ *
+ * Additive onto whatever the ground and the sheet were already worth, like every other source in
+ * this file: a `+6%` from a perk and a `+6%` from a held Fight Pit is `+12%`, not `+12.36%`.
+ *
+ * `leadLootPercent` is deliberately **not** folded here. It is spent by the settler against the
+ * haul, which is a bundle of resources rather than a channel on a unit, and folding it into
+ * `lootCapacityPercent` would quietly turn "more loot" into "a bigger truck".
+ */
+export function leading(effects: CrewEffects): CrewEffects {
+  return {
+    ...effects,
+    unitOffensePercent: effects.unitOffensePercent + effects.leadOffensePercent,
+    unitEvasionFlat: effects.unitEvasionFlat + effects.leadEvasionFlat,
+    unitArmorPercent: effects.unitArmorPercent + effects.leadArmorFlat,
+    unitMoraleFlat: effects.unitMoraleFlat + effects.leadMoraleFlat,
+    travelSpeedPercent: effects.travelSpeedPercent + effects.leadArrivalPercent,
+    missionSpeedPercent: effects.missionSpeedPercent + effects.leadArrivalPercent,
+  };
+}
+
+/**
+ * Everything one officer's perks put on *other* people's sheets, folded on its own.
+ *
+ * Fed only perk ids, so it never needs a sheet to compute and there is no circularity: a perk is
+ * static data on a person, not a derived rating. That is what makes the lift below possible at all.
+ */
+export function peerLift(perkIds: readonly string[]): CrewEffects {
+  const total = noCrewEffects();
+  for (const perk of perksOf(perkIds)) applyPerkBonus(total, perk.bonus);
+  return total;
+}
+
+/**
+ * One officer's sheet, lifted by everybody else and by the ground (§B7, §A4).
+ *
+ * Three sources, and the rule that ties them together is **never yourself**. An officer's own
+ * perks do not touch their own attributes: a perk that raised the number printed on the card it is
+ * printed on is not a perk, it is a different number, and the board said so. Every one of these is
+ * a thing a person does *for the people around them*.
+ *
+ * - `fromGround`, per attribute group, from held locations. Applies to everyone equally.
+ * - `officerGroupFlat`, per attribute group, from the other officers' perks. This is the half that
+ *   was doing nothing: eight perks folded into the channel and no consumer ever read it.
+ * - `officerAttributeFlat`, per attribute, from the other officers' perks.
+ * - `officerAttributeAtLeast`, the same but only where this officer has already cleared the bar
+ *   under their own steam. Checked against `own` rather than against the running total, so two
+ *   officers carrying the same perk cannot bootstrap each other over the line.
+ */
+export function liftOfficer(
+  own: Attributes,
+  fromPeers: Pick<
+    CrewEffects,
+    'officerGroupFlat' | 'officerAttributeFlat' | 'officerAttributeAtLeast'
+  >,
+  fromGround: TerritoryEffects['officerGroupFlat'],
+): Attributes {
+  const lifted = { ...own };
+
+  // The ground's group lift and the peers' are the same kind of thing and are added, not maxed:
+  // a Chapel and an Old Instructor are two different people helping, not one helping twice.
+  const groupFlat = mergeCounts(fromGround, fromPeers.officerGroupFlat);
+  for (const [group, flat] of Object.entries(groupFlat)) {
+    if (!flat) continue;
+    for (const name of ATTRIBUTES_BY_GROUP[group as AttributeGroup]) {
+      lifted[name] = clampAttribute(lifted[name] + flat);
+    }
+  }
+
+  for (const [name, flat] of Object.entries(fromPeers.officerAttributeFlat)) {
+    if (!flat) continue;
+    lifted[name as AttributeName] = clampAttribute(lifted[name as AttributeName] + flat);
+  }
+
+  for (const [name, rule] of Object.entries(fromPeers.officerAttributeAtLeast)) {
+    if (!rule) continue;
+    // Against the *unlifted* figure: what this perk pays for is somebody who was already good at
+    // it, and reading the running total would let a group bonus carry somebody over the bar.
+    if (own[name as AttributeName] < rule.threshold) continue;
+    lifted[name as AttributeName] = clampAttribute(lifted[name as AttributeName] + rule.flat);
+  }
+
+  return lifted;
 }
 
 /**

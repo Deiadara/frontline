@@ -5,9 +5,10 @@ import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
  * Building modifications (GDD §A1): the second axis a structure improves along.
  *
  * A modification is **not** a level. Levels are bought with materials and time; a modification is
- * *researched*, needs a Lead Engineer on the books to run the work, and then stays installed. Each
- * structure offers five, and holds at most {@link MAX_MODIFICATION_SLOTS} of them, so the choice
- * is which three of the five this district is, and it is not reversible on a whim.
+ * *researched* or built in the Scrapyard, needs a Lead Engineer on the books to design it, and then
+ * sits in one of the structure's three slots. Each structure offers five and holds three, so the
+ * choice is which three of the five this district is: see §E, which is what made the slots
+ * emptiable again.
  *
  * Slots open as the structure grows, at {@link MODIFICATION_SLOT_LEVELS}.
  */
@@ -30,8 +31,6 @@ export const MODIFICATION_EFFECTS = [
   'build_cost_reduction',
   'build_time_reduction',
   'storage_percent',
-  'power_supply_percent',
-  'power_draw_reduction',
   'defense_percent',
   /** Percentage points on the allegiance's own XP, so the district levels you as well as it feeds you. */
   'faction_xp_percent',
@@ -41,8 +40,10 @@ export const MODIFICATION_EFFECTS = [
   /** Percentage points on the payroll ceiling: room for another name on the book. */
   'payroll_percent',
   'raid_loot_percent',
-  /** Oil the Generator burns to hold the grid up. */
-  'fuel_efficiency',
+  /** Percentage points off the training clock of every unit on the roster. */
+  'training_time_reduction',
+  /** Percentage points off the **supplies** line of a training bill, and no other line. */
+  'training_supplies_reduction',
 ] as const;
 export const ModificationEffectSchema = z.enum(MODIFICATION_EFFECTS);
 export type ModificationEffect = z.infer<typeof ModificationEffectSchema>;
@@ -102,9 +103,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   },
   {
     building: 'nexus',
-    name: 'Grid Priority Bus',
-    description: 'The Nexus decides what browns out first, and it is never anything that matters.',
-    effect: 'power_draw_reduction',
+    name: 'Priority Bus',
+    description: 'The Nexus decides which job goes first, and it is never the one that can wait.',
+    effect: 'build_time_reduction',
     magnitude: 8,
   },
 
@@ -136,9 +137,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'quarters',
     name: 'Prefab Stacks',
     description:
-      'The crew assembles its own housing off a pattern, and the pattern gets reused everywhere else.',
-    effect: 'build_cost_reduction',
-    magnitude: 6,
+      'The crew assembles its own housing off a pattern, and the pattern is a storey taller each time.',
+    effect: 'housing_percent',
+    magnitude: 12,
   },
   {
     building: 'quarters',
@@ -168,8 +169,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'greenhouse',
     name: 'Sealed Growrooms',
-    description: 'Heat stays in, so the lamps stop paying to warm the district.',
-    effect: 'power_draw_reduction',
+    description:
+      'Heat stays in and the trays run year round, so a ration goes further than it did.',
+    effect: 'training_supplies_reduction',
     magnitude: 12,
   },
   {
@@ -194,30 +196,30 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'generator',
     name: 'Cascade Turbines',
     description:
-      'Exhaust off the first stage spins the second. Twice the noise, far more than twice the output.',
-    effect: 'power_supply_percent',
-    magnitude: 20,
+      'Exhaust off the first stage spins the second. Twice the noise, and every crane in the district turns faster.',
+    effect: 'build_time_reduction',
+    magnitude: 14,
   },
   {
     building: 'generator',
     name: 'Heat Recapture',
     description: 'The waste heat goes back into the boiler instead of into the ceiling.',
-    effect: 'power_supply_percent',
-    magnitude: 14,
+    effect: 'build_cost_reduction',
+    magnitude: 10,
   },
   {
     building: 'generator',
     name: 'Fuel Polishing',
     description: 'Water and sludge out before the burn. The same oil goes appreciably further.',
-    effect: 'fuel_efficiency',
-    magnitude: 25,
+    effect: 'build_cost_reduction',
+    magnitude: 12,
   },
   {
     building: 'generator',
     name: 'Load Balancers',
     description:
-      'Draw is smoothed across the day, so nothing spikes and nothing is oversized to survive it.',
-    effect: 'power_draw_reduction',
+      'Work is smoothed across the day, so nothing spikes and no crew stands idle waiting for one.',
+    effect: 'build_time_reduction',
     magnitude: 10,
   },
   {
@@ -266,51 +268,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'scrapyard',
     name: 'Cutting Bay Extraction',
     description:
-      'Fume hoods and local extraction replace running the whole floor at full ventilation.',
-    effect: 'power_draw_reduction',
+      'Fume hoods and local extraction, so the floor runs a full shift instead of clearing the air twice a day.',
+    effect: 'production_percent',
     magnitude: 10,
-  },
-
-  // --- The Cistern ---
-  {
-    building: 'cistern',
-    name: 'Reverse Osmosis Stack',
-    description:
-      'Membrane filtration on the outflow. The district can hold more people on the same intake.',
-    effect: 'housing_percent',
-    magnitude: 14,
-  },
-  {
-    building: 'cistern',
-    name: 'Greywater Recovery',
-    description:
-      'Nothing leaves this district once, so the wage book is not also paying for water.',
-    effect: 'payroll_percent',
-    magnitude: 18,
-  },
-  {
-    building: 'cistern',
-    name: 'Chlorination Automation',
-    description:
-      'Dosing runs itself instead of running the pumps flat out and correcting afterwards.',
-    effect: 'power_draw_reduction',
-    magnitude: 12,
-  },
-  {
-    building: 'cistern',
-    name: 'Settling Expansion',
-    description:
-      'Two more tanks cut into the rock. Buffer for the district, and space for everything else.',
-    effect: 'storage_percent',
-    magnitude: 12,
-  },
-  {
-    building: 'cistern',
-    name: 'Clean Line to the Quarters',
-    description:
-      'Drinkable water on tap where the crew sleeps. A crew that is not ill learns faster.',
-    effect: 'faction_xp_percent',
-    magnitude: 5,
   },
 
   // --- The Apothecary ---
@@ -466,9 +426,10 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'gauntlet',
     name: 'Salvaged Simulators',
-    description: 'Combine training rigs, repurposed. They teach the crew and they teach the Lab.',
-    effect: 'research_time_reduction',
-    magnitude: 8,
+    description:
+      'Combine training rigs, repurposed. A recruit walks the course before they walk it.',
+    effect: 'training_time_reduction',
+    magnitude: 12,
   },
 
   // --- The Infirmary ---
@@ -544,9 +505,10 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   },
   {
     building: 'garage',
-    name: 'Mobile Generators',
-    description: 'Vehicle powerplants patched into the grid when they are not under a chassis.',
-    effect: 'power_supply_percent',
+    name: 'Mobile Rigs',
+    description:
+      'Vehicle powerplants dragged out to whichever site needs one, when nothing is on the ramp.',
+    effect: 'build_time_reduction',
     magnitude: 10,
   },
 ];

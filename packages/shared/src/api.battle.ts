@@ -3,10 +3,12 @@ import { BattleAnalysisSchema } from './battle/analysis.js';
 import { BattlefieldSchema } from './battle/battlefield.js';
 import { BattleSideSchema, BattleTargetSchema, ScheduledBattleSchema } from './battle/scheduled.js';
 import { BaseSchema } from './base.js';
+import { FleetSchema } from './building/vehicles.js';
 import { LevelUpSchema } from './api.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema } from './resources.js';
-import { ArmySchema } from './units/index.js';
+import { OfficerRoleSchema } from './roles.js';
+import { ArmySchema, UnitStatsSchema } from './units/index.js';
 
 /**
  * The REST contract for declared battles, deployments, reports and the infamy sinks.
@@ -16,6 +18,17 @@ import { ArmySchema } from './units/index.js';
  * contain**. Everything here is written from one side's point of view, the caller's, because the
  * fog is enforced by not sending things rather than by flagging them, exactly as the city view does.
  */
+
+/** One officer a crew could put at the front of this column (§D1). */
+export const BattleLeaderSchema = z.object({
+  officerId: IdSchema,
+  name: z.string(),
+  /** The chair they sit in, or null on the bench. Shown so the picker is not nineteen bare names. */
+  role: OfficerRoleSchema.nullable(),
+  /** What they would fight as, so the player can compare them to a unit before sending them. */
+  stats: UnitStatsSchema,
+});
+export type BattleLeader = z.infer<typeof BattleLeaderSchema>;
 
 /** How the caller stands to a battle. `bystander` is a fight in a district they can merely see. */
 export const BATTLE_ROLES = ['attacker', 'defender', 'bystander'] as const;
@@ -110,6 +123,25 @@ export const BattleViewSchema = z.object({
   boosts: z.array(BattleBoostOptionSchema),
   /** The one already bought for this fight, or null. One per battle, and it is not refundable. */
   boostId: z.string().nullable(),
+  /**
+   * §D1: the officer this crew is sending to lead, or null for a fight nobody leads.
+   *
+   * Free to change right up to the mark, unlike the boost: nothing is spent by naming somebody, and
+   * what it costs is the risk that they come home hurt (§D4).
+   */
+  officerId: IdSchema.nullable().default(null),
+  /** §C3: the machines this crew has committed to this fight. */
+  vehicles: FleetSchema.default({}),
+  /** ...and what is still parked in the yard, so the picker can offer it. */
+  yard: FleetSchema.default({}),
+  /**
+   * Who this crew could send: everybody on the books who is fit to go.
+   *
+   * An injured officer is simply absent from the list rather than present and greyed, because
+   * "unavailable until 14:20 tomorrow" is a fact about a person the crew screen already shows and
+   * a second copy of it here is a second place for it to be wrong. Empty for a bystander.
+   */
+  leaders: z.array(BattleLeaderSchema).default([]),
 });
 export type BattleView = z.infer<typeof BattleViewSchema>;
 
@@ -255,6 +287,18 @@ export type DeclareBattleRequest = z.infer<typeof DeclareBattleRequestSchema>;
  * reasons: a client that sends absolutes overwrites whatever a second tab did, and a delta of `-3`
  * is the withdraw the board asked for without a second endpoint for it.
  */
+/**
+ * §D1: put one officer at the front of this column, or take them back off it.
+ *
+ * `officerId: null` is the un-send, and it is free. Naming somebody costs nothing either: what a
+ * player is committing to is the risk in §D4, not a price.
+ */
+export const LeadBattleRequestSchema = z.object({
+  battleId: IdSchema,
+  officerId: IdSchema.nullable(),
+});
+export type LeadBattleRequest = z.infer<typeof LeadBattleRequestSchema>;
+
 export const DeployRequestSchema = z.object({
   battleId: IdSchema,
   /** Positive sends units to the ground; negative brings them home. */

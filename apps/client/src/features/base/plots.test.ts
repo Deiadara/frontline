@@ -133,7 +133,7 @@ describe('the district layout (GDD §A1)', () => {
    * Nothing claims anybody else's pixels.
    *
    * This is the assertion the layout exists to satisfy, and the reason the outlines are outlines:
-   * the Cistern stands a couple of percent from the Scrapyard's fence and the Gate lies across the
+   * the Apothecary stands a couple of percent from the Nexus and the Gate lies across the
    * road below both, so their *bounding boxes* would have argued and their shapes do not.
    */
   it('never lets two outlines claim the same ground', () => {

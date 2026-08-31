@@ -9,7 +9,6 @@ import {
   canKick,
   canSetRank,
   factionHasRoom,
-  factionLabel,
   leavingDisbands,
   sameFactionName,
   type FactionRank,
@@ -134,10 +133,5 @@ describe('the table itself', () => {
   it('reads two names as one when they paint the same pixels', () => {
     expect(sameFactionName('The  Ninth   Circle', 'the ninth circle')).toBe(true);
     expect(sameFactionName('Ninth Circle', 'Ninth Circles')).toBe(false);
-  });
-
-  /** The tag is gone: a faction is named by its name and recognised by its drawn badge. */
-  it('names a faction with no bracketed tag in front of it', () => {
-    expect(factionLabel('The Ninth Circle')).toBe('The Ninth Circle');
   });
 });

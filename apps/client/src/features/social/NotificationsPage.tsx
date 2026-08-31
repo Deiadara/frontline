@@ -1,30 +1,28 @@
 import { NOTIFICATION_KIND_SPECS, type Notification } from '@frontline/shared';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
 import { useNotifications, useReadAllNotifications, useReadNotification } from '../../lib/queries';
+import { Modal } from '../../components/ui/Modal';
+import { LoadFailure } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
+import { NotificationDetail } from './NotificationDetail';
 import { NotificationFilters } from './NotificationFilters';
 
 /**
  * The bell (board request).
  *
- * Two tabs, and they are the two halves of what a notification system is: **what happened**, and
- * **what you want to hear about**. Putting the filters on a separate screen was considered and
- * rejected: a player who is annoyed by a category is looking at that category when they decide, and
- * making them go and find a settings page is how the filters end up never being used.
+ * **The list is the screen.** It used to be two equal tabs, "What happened" and "What reaches you",
+ * which made a player choose between the news and the settings every time they opened the bell:
+ * two buttons across the top, one of them always the wrong one, and the news, which is the entire
+ * reason the screen exists, given half the billing. Now the news is simply what is here, with no
+ * heading over it and nothing to click to reach it, and the filters are one drawn button in the
+ * corner marked **Preferences**.
  *
- * Every row is a link. A notification is a receipt for something that happened somewhere else, and
- * one that does not take you there is a line of text that makes you go and hunt.
+ * Every row opens. A notification is a receipt for something that happened somewhere else, and one
+ * that cannot be opened is a line of text that makes you go and hunt for the thing it is about.
  */
-
-const TABS = [
-  { id: 'list', label: 'What happened' },
-  { id: 'settings', label: 'What reaches you' },
-] as const;
-type TabId = (typeof TABS)[number]['id'];
 
 /** How long ago, in the coarsest unit that is still true. */
 function ago(iso: string, now: number): string {
@@ -96,77 +94,100 @@ export function NotificationsPage() {
   const query = useNotifications();
   const read = useReadNotification();
   const readAll = useReadAllNotifications();
-  const navigate = useNavigate();
-  const [tab, setTab] = useState<TabId>('list');
+  const [opened, setOpened] = useState<Notification | null>(null);
+  const [preferences, setPreferences] = useState(false);
 
   const data = query.data;
-  if (!data) return null;
+  /*
+   * A failure is said out loud rather than rendered as a blank sheet.
+   *
+   * `return null` here drew *nothing at all* on a failed read: no heading, no text, no way to tell
+   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us.
+   */
+  if (!data) {
+    if (!query.isError) return null;
+    return (
+      <PageShell title="Notifications" wide>
+        <LoadFailure what="Your notifications" onRetry={() => void query.refetch()} />
+      </PageShell>
+    );
+  }
   const now = Date.parse(data.serverNow);
 
-  /** Opening a receipt marks it read and goes where it points. Both, in one gesture. */
+  /** Opening a receipt marks it read and shows what is behind it. Both, in one gesture. */
   const openEntry = (entry: Notification) => {
     if (entry.readAt === null) read.mutate({ id: entry.id });
-    void navigate(entry.link);
+    setOpened(entry);
   };
 
-  return (
-    <PageShell title="Notifications" fills wide>
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {TABS.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              onClick={() => setTab(entry.id)}
-              aria-pressed={tab === entry.id}
-              data-testid={`notification-tab-${entry.id}`}
-              className={cn(
-                'rounded-sm border px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
-                tab === entry.id
-                  ? 'border-brass-300 bg-brass-300/10 text-brass-100'
-                  : 'border-surface-600 text-ink-300 hover:border-brass-300/60',
-              )}
-            >
-              {entry.label}
-            </button>
-          ))}
-          {tab === 'list' && data.unread > 0 && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="ml-auto"
-              disabled={readAll.isPending}
-              data-testid="read-all-notifications"
-              onClick={() => readAll.mutate(undefined)}
-            >
-              Mark all read
-            </Button>
-          )}
-        </div>
+  /*
+   * Both controls ride the title row rather than a row of their own.
+   *
+   * A strip under the heading holding two right-aligned buttons is forty pixels of sheet spent on
+   * whitespace, and it pushes the list down the screen for as long as the screen exists. `PageShell`
+   * already keeps a slot on the title line for exactly this.
+   */
+  const controls = (
+    <div className="flex flex-wrap items-center gap-2">
+      {data.unread > 0 && (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={readAll.isPending}
+          data-testid="read-all-notifications"
+          onClick={() => readAll.mutate(undefined)}
+        >
+          Mark all read
+        </Button>
+      )}
+      {/* The filters, drawn rather than filled: this is a door to a settings sheet, not the other
+          half of the screen. */}
+      <button
+        type="button"
+        onClick={() => setPreferences(true)}
+        data-testid="notification-preferences"
+        className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-200 transition-colors hover:text-brass-100"
+      >
+        <Icon name="gear" aria-hidden className="h-3.5 w-3.5" />
+        Preferences
+      </button>
+    </div>
+  );
 
+  return (
+    <PageShell title="Notifications" action={controls} fills wide>
+      <div className="flex min-h-0 flex-1 flex-col">
         <div
-          className="card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto rounded-sm border border-surface-600/70"
+          className="ink-frame card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto"
           data-testid="notification-list"
         >
-          {tab === 'list' ? (
-            data.notifications.length === 0 ? (
-              <p className="p-4 font-body text-[13px] italic text-ink-400">
-                Nothing has happened that you asked to hear about.
-              </p>
-            ) : (
-              <ul>
-                {data.notifications.map((entry) => (
-                  <Row key={entry.id} entry={entry} now={now} onOpen={openEntry} />
-                ))}
-              </ul>
-            )
-          ) : (
-            <div className="p-4">
-              <NotificationFilters />
-            </div>
+          {/* Nothing at all when nothing has happened. No heading, no empty-state paragraph
+              explaining that the list is empty: an empty sheet says that already. */}
+          {data.notifications.length > 0 && (
+            <ul>
+              {data.notifications.map((entry) => (
+                <Row key={entry.id} entry={entry} now={now} onOpen={openEntry} />
+              ))}
+            </ul>
           )}
         </div>
       </div>
+
+      {opened && <NotificationDetail entry={opened} onClose={() => setOpened(null)} />}
+
+      {preferences && (
+        <Modal onClose={() => setPreferences(false)} labelledBy="prefs-title" size="wide">
+          <div className="flex min-h-0 flex-col gap-3 p-5">
+            <h2 id="prefs-title" className="font-stamp text-xl text-ink-100">
+              Preferences
+            </h2>
+            <span aria-hidden className="ink-rule h-1 w-full" />
+            <div className="min-h-0 overflow-y-auto">
+              <NotificationFilters />
+            </div>
+          </div>
+        </Modal>
+      )}
     </PageShell>
   );
 }

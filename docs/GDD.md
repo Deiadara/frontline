@@ -16,6 +16,12 @@ Conventions used below:
 
 ## A. World, tone and art direction
 
+- **A1a [BOARD]** **Population is the army's, not the crew's.** Officers are counted on the books
+  and charged nothing: hiring somebody must not compete with training somebody. A district that is
+  finished and holding ground houses **about 2,000**, up from 345.
+  - **A1b [CEO]** The Quarters' contribution is triangular (`HOUSING_PER_QUARTERS_LEVEL * L(L+1)/2`)
+    rather than flat, so the ceiling reaches the board's figure without a level-1 Quarters starting
+    the game with beds for an army nobody can pay for. Pinned in `building.test.ts`.
 - **A1 [BOARD]** The hideout is a **small village**, laid out like Grepolis' town view: discrete
   buildings you can see and click, sitting in a place, not the current single-panel base view. Keep only
   the _vibe_ of what exists today, not the layout.
@@ -215,6 +221,27 @@ Conventions used below:
     it will cost before it happens (`leavingDisbands`, and a confirmation on every destructive
     control).
 
+- **J8 [BOARD]** **Team infamy** is **append-only**: the total infamy won in battle by people who
+  were members of the faction at the time they won it. It is not the sum of the members' wallets
+  (joining with 30,000 adds nothing, spending on notoriety takes nothing away), and **it does not
+  fall when somebody leaves**: what they won, they won under that badge.
+  - **J8a [CEO]** An accumulator on the _faction_, credited from the two economies a fight produces
+    so the faction gets exactly what the player was paid (`creditFaction`). The membership row keeps
+    its own figure as well: that one is the member's contribution while they are at the table, which
+    is what the roster shows, and it is the one that leaves with them.
+- **J9 [BOARD]** A **standings** screen, reached from the standing bar next to Actions. Two boards,
+  **players** and **factions**, and a checkbox reading **My city only** that limits either one to
+  the player's own city rather than every city.
+  - **J9a [CEO]** There is one city (`CITIES`, Ashfall) so the two scopes list the same people
+    today, which the board has accepted: the filter is written against a city id so that a second
+    city makes it real with no screen change. A crew's city is read off its district (`cityOf`)
+    rather than stored, so the map stays the only place that fact lives. A faction is on a city's
+    board if any of its members is.
+  - **J9b [CEO]** Players rank on the infamy they hold, factions on §J8's append-only figure. Ties
+    share a place and the next row skips the places used up.
+
+- **J10 [BOARD]** Invitations are not bounded by geography: you can ask anybody, in any city.
+
 ## K. Messages and notifications [BOARD]
 
 - **K1 [BOARD]** Two doors in the standing bar, **left of Battles**, each with an unread count.
@@ -227,6 +254,20 @@ Conventions used below:
     statement about the future rather than an unpacking of backlog, and the badge is always a count
     of things the player asked for. Two kinds cannot be switched off: a battle report and an attack
     on your district, both of which report something irreversible.
+
+- **K5 [BOARD]** The bell **is** the list. No tabs and no heading over it: an empty screen when
+  nothing has happened, and the filters behind one drawn button in the corner marked
+  **Preferences**.
+- **K6 [BOARD]** Every notification **opens onto the thing it is about**, as a drawn report with
+  labels and boxes rather than a line of prose.
+  - **K6a [BOARD]** A mission's report says which job, which district, whether it worked, the
+    battle result where there was one, and **what came back against what the job paid**.
+  - **K6b [CEO]** A notification carries a `subjectId` (`0053`) so it can name its mission rather
+    than pointing at the missions screen. Missions record `spoils`, the payout before the carry cap,
+    beside `rewards`, the payout after it (`0052`): neither is derivable from the other after the
+    fact, and the difference is the only feedback the carry mechanic has ever had.
+- **K7 [BOARD]** Sending units on a mission takes a typed number, steppers, and one-press **Half**
+  and **Max**.
 
 ## I. Experience and levelling
 

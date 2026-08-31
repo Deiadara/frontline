@@ -254,11 +254,11 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
   oil: {
     what: 'Refined fuel. Everything with a motor in it drinks this.',
     spentOn: [
-      'Running the Generator',
       'Building and upgrading structures',
+      "The Generator's two-hour burn, which takes a quarter off the whole build queue",
       'Vehicles, once the Garage is standing',
     ],
-    from: 'The Cistern, and holds like the Chemical Plant.',
+    from: 'The Scrapyard and the Garage, and holds like the Chemical Plant.',
   },
   planks: {
     what: 'Sawn timber, pulled out of whatever the city was before it was this.',

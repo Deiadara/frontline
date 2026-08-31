@@ -24,7 +24,7 @@ Last verified: **2026-08-27**, gates green (`format:check`, `lint`, `typecheck`,
 
 ### The district (GDD §A1, §D3)
 
-✅ Twelve structures: Nexus, Quarters, Greenhouse, Generator, Scrapyard, Cistern, Apothecary,
+✅ Eleven structures: Nexus, Quarters, Greenhouse, Generator, Scrapyard, Apothecary,
 Gate, Lab, Gauntlet, Infirmary, Garage. Max level 20. Every one owns exactly one
 implemented mechanic (the `role` field on `BuildingSpec` is the contract that keeps it that way).
 
@@ -44,8 +44,7 @@ supplies, Scrapyard → scrap/oil/HQ metal, Garage → oil/HQ metal. Caps are no
 missions and raids.
 
 ✅ **Storage** (Apothecary) clamps production only: raid loot and pay are never clawed back.
-✅ **Housing** (Quarters × Cistern) caps officers + placed assignees, enforced on both hiring and
-placement.
+✅ **Housing** (Quarters) caps the army, enforced on both hiring and placement.
 
 ✅ **Modifications**: 65 of them, five per structure, slots opening at levels 5/10/20. Researched
 rather than bought; needs a Lead Engineer. Fourteen effect kinds, every one wired to a real
@@ -263,7 +262,7 @@ half-delivered set is a normal state rather than a broken one.
 
 The district itself is now a **town view rather than a grid** (`features/base/plots.ts`): no sky,
 the whole scene is ground seen from above. Since the delivered `plate-district` paints its own
-buildings, the twelve structures are no longer cutouts pasted onto it: each is a **polygon traced
+buildings, the eleven structures are no longer cutouts pasted onto it: each is a **polygon traced
 around its silhouette on the painting**, and that outline is the control: hovering it washes light
 over that building, clicking it opens its window, and the browser hit-tests the shape rather than a
 box around it. `plots.test.ts` pins the tracing as plane geometry (inside the frame, convex,

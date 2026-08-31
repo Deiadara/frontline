@@ -1,5 +1,17 @@
-import type { FactionResponse, MessagesResponse, NotificationsResponse } from '@frontline/shared';
+import type {
+  LeaderboardResponse,
+  FactionResponse,
+  MessagesResponse,
+  NotificationsResponse,
+} from '@frontline/shared';
 import {
+  capturedGateIntelResistancePercent,
+  capturedGateDefensePercent,
+  capturedGateSeconds,
+  capturedGateCost,
+  describeAddonEffect,
+  modificationPrice,
+  type ScrapyardResponse,
   BAR_HIRES_PER_DAY,
   barterRateFor,
   storageCapacity,
@@ -93,6 +105,10 @@ import {
   createCommander,
   findMissionTemplate,
   makeAttributes,
+  officerBattleStats,
+  fleetCapacity,
+  ITEM_CATALOG,
+  type GarageResponse,
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
   startingEconomy,
@@ -306,6 +322,26 @@ const UNSCOUTED = new Set(['chrome-row', 'glasshouse-fields']);
  * residential tag prints the crew's name and an empty one prints `Player District`.
  */
 export const city: CityResponse = {
+  /*
+   * §B7: one district taken whole, so the city screen has a gate to draw.
+   *
+   * Level 6 rather than 1, and mid-upgrade rather than idle, because the three states the panel
+   * draws differently are "standing", "being raised" and "at the ceiling", and a fixture at level
+   * 1 and idle screenshots one of them.
+   */
+  capturedGates: [
+    {
+      districtId: 'rustyard',
+      districtName: 'The Rustyard',
+      level: 6,
+      nextCost: capturedGateCost(7),
+      nextSeconds: capturedGateSeconds(7),
+      upgradingUntil: null,
+      defensePercent: capturedGateDefensePercent(6),
+      intelResistancePercent: capturedGateIntelResistancePercent(6),
+      refusal: null,
+    },
+  ],
   homeDistrictId: STARTER_DISTRICT_ID,
   serverNow: NOW,
   districts: CITY_DISTRICTS.map((district, index) => {
@@ -361,6 +397,9 @@ if (!rustyard) throw new Error('fixture error: the Rustyard is missing from the 
 export const districtDetail: DistrictDetailResponse = {
   district: rustyard,
   scouted: true,
+  // Nobody out, and no quote: this ground is already open, so there is nothing to send anybody for.
+  scoutingRun: null,
+  scoutPlan: null,
   travelMinutes: 24,
   // Contested ground, so nobody lives here and there is nothing standing to look at.
   residentBuildings: [],
@@ -409,9 +448,47 @@ export const districtDetail: DistrictDetailResponse = {
  * fixture that hands back the wrong district makes that untestable. This keeps the Rustyard's
  * worked-over shape and swaps in the district that was actually asked for.
  */
+/**
+ * Somewhere this crew has not walked, so the scouting panel has something to draw.
+ *
+ * §A4: opening ground is a journey now, and the panel that offers it has three states. A fixture
+ * where every district is already scouted can only ever render the fourth, which is nothing.
+ */
+/*
+ * `datavault-sigma` specifically, and the choice is load-bearing.
+ *
+ * Marking a district unscouted puts fog over everything on it, so any other spec that reads that
+ * ground goes red for a reason that has nothing to do with it. This took two goes to get right:
+ * `undergrid` is the district `government.spec.ts` picks as its "outpost" case, and `blacksite-7`
+ * is the one it picks as the seat of Combine power. Neither is named as a string anywhere, which is
+ * why grepping for the id found nothing both times: they are *selected*, by
+ * `isSeatOfGovernmentPower` and by allegiance.
+ *
+ * Claimed elsewhere, and therefore unavailable: `kettle-row` (where a new crew is planted),
+ * `upper-roofs` (the AI rival), `blacksite-7` and `undergrid` (government.spec's two Combine
+ * cases), `neon-docks` (its independent case), and `rustyard`, `chrome-row`, `ashen-terraces` and
+ * `glasshouse-fields` (named by other specs). This one is claimed by nothing.
+ */
+export const UNSCOUTED_DISTRICT_ID = 'datavault-sigma';
+
 export function districtDetailFor(id: string): DistrictDetailResponse {
   const district = CITY_DISTRICTS.find((entry) => entry.id === id);
   if (!district || district.id === districtDetail.district.id) return districtDetail;
+  if (district.id === UNSCOUTED_DISTRICT_ID) {
+    return {
+      ...districtDetail,
+      district,
+      scouted: false,
+      unified: null,
+      locations: [],
+      residentBuildings: [],
+      base: null,
+      holder: null,
+      scoutingRun: null,
+      // The quote a player reads before committing an evening to it.
+      scoutPlan: { officerId: 'off-3', officerName: 'Vela', minutes: 214 },
+    };
+  }
   return {
     ...districtDetail,
     district,
@@ -751,6 +828,7 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     payPercent: 0,
     xp: 240,
     force: { razors: 3, scavengers: 4 },
+    vehicles: {},
     startedAt,
     travelMinutes,
     durationMinutes,
@@ -759,6 +837,7 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     officerId: null,
     outcome: null,
     rewards: {},
+    spoils: {},
     resolvedAt: null,
     recalledAt: null,
   };
@@ -770,8 +849,10 @@ function resolvedMission(
   outcome: MissionOutcome,
   rewards: PartialResources,
   resolvedAt: string,
+  /** What the job paid before the crew's carry cap. Defaults to "they carried it all". */
+  spoils: PartialResources = rewards,
 ): Mission {
-  return { ...mission, status: 'resolved', outcome, rewards, resolvedAt };
+  return { ...mission, status: 'resolved', outcome, rewards, spoils, resolvedAt };
 }
 
 /**
@@ -795,8 +876,15 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
     templateId: string,
     outcome: MissionOutcome,
     rewards: PartialResources,
+    spoils?: PartialResources,
   ): Mission =>
-    resolvedMission(inFlight(id, templateId, 5_000), outcome, rewards, minutesBefore(now, 60));
+    resolvedMission(
+      inFlight(id, templateId, 5_000),
+      outcome,
+      rewards,
+      minutesBefore(now, 60),
+      spoils,
+    );
 
   return {
     missions: [
@@ -810,14 +898,14 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
        * countdown it ever can.
        */
       inFlight('m-1', 'deep-expedition', 1),
-      returned('m-5', 'deep-expedition', 'success', {
-        caps: 268,
-        supplies: 268,
-        oil: 201,
-        scrap: 335,
-        highQualityMetal: 40,
-        planks: 335,
-      }),
+      returned(
+        'm-5',
+        'deep-expedition',
+        'success',
+        { caps: 268, supplies: 268, oil: 201, scrap: 335, highQualityMetal: 40, planks: 335 },
+        // Earned half again as much as came home: the under-crewed case the report is for.
+        { caps: 402, supplies: 402, oil: 302, scrap: 503, highQualityMetal: 60, planks: 503 },
+      ),
       returned('m-6', 'foundry-raid', 'failure', {}),
       returned('m-7', 'convoy-ambush', 'success', { caps: 52, oil: 35 }),
     ],
@@ -1077,6 +1165,8 @@ function crewOfficer(
   role: CrewOfficer['role'],
   perks: readonly string[],
   weeklyWage: number,
+  /** §D6: when they are back on their feet. Null for everybody but the one screenshotted hurt. */
+  injuredUntil: string | null = null,
 ): CrewOfficer {
   return {
     officerId,
@@ -1085,6 +1175,7 @@ function crewOfficer(
     attributes: makeAttributes(15, { leadership: 32, composure: 27, empathy: 24, hacking: 8 }),
     perks: [...perks],
     weeklyWage,
+    injuredUntil,
   };
 }
 
@@ -1103,10 +1194,18 @@ const PERK_SPREAD: readonly (readonly string[])[] = [
 
 function crewAt(
   level: number,
-  hired: readonly [string, string, CrewOfficer['role']][],
+  /** id, name, chair, and how many hours they are laid up for (§D6). Zero is fit. */
+  hired: readonly [string, string, CrewOfficer['role'], number?][],
 ): CrewResponse {
-  const officers = hired.map(([id, name, role], index) =>
-    crewOfficer(id, name, role, PERK_SPREAD[index % PERK_SPREAD.length] ?? [], 40 + index * 37),
+  const officers = hired.map(([id, name, role, hurtHours = 0], index) =>
+    crewOfficer(
+      id,
+      name,
+      role,
+      PERK_SPREAD[index % PERK_SPREAD.length] ?? [],
+      40 + index * 37,
+      hurtHours === 0 ? null : new Date(Date.parse(NOW) + hurtHours * 3600 * 1000).toISOString(),
+    ),
   );
   return {
     level,
@@ -1129,8 +1228,14 @@ export const crewStart: CrewResponse = crewAt(1, []);
  */
 export const crewFat: CrewResponse = crewAt(48, [
   ['off-1', 'The Ghost of Sector Nine', 'instructor_of_the_young'],
-  ['off-2', 'Wilhelmina Okonkwo-Restrepo', 'head_of_research'],
+  // §D6: one of them came back from a fight on a stretcher, so the grid's screenshot carries the
+  // red band and the countdown beside four healthy cards rather than needing a fixture of its own.
+  ['off-2', 'Wilhelmina Okonkwo-Restrepo', 'head_of_research', 19],
   ['off-3', 'Vela', 'professor'],
+  // §C2: two on the bench, because one would not show whether the section can hold more than one,
+  // and the bench is the half of the roster that is allowed to.
+  ['off-4', 'Tomas Reyes', null],
+  ['off-5', 'Nadia Ferrand', null],
 ]);
 
 /**
@@ -1163,6 +1268,8 @@ export const trainingResponse: TrainingResponse = {
         durationSeconds: TRAINING_SECONDS,
       },
       lastAttribute: 'stamina',
+      // The player is never a casualty: §D4 is about officers.
+      injuredUntil: null,
     },
     {
       id: 'officer-1',
@@ -1177,6 +1284,9 @@ export const trainingResponse: TrainingResponse = {
       perks: ['war_college'],
       session: null,
       lastAttribute: 'intuition',
+      // §D6: the board's own screenshot of the injured state. Twelve hours out, so the countdown
+      // draws in its wide form and the red band is on a card the layout guards already measure.
+      injuredUntil: new Date(Date.parse(NOW) + 12 * 3600 * 1000).toISOString(),
     },
   ],
 };
@@ -1313,17 +1423,42 @@ export const workshop: WorkshopResponse = {
           ? null
           : `Needs the Gauntlet at level ${spec.requiresGauntletLevel}`,
   })),
+};
+
+/**
+ * The Garage (§B11, §C), with a yard that has something in it and a ladder that does not.
+ *
+ * Derived from the catalogue rather than hand-written, so a machine added tomorrow appears on the
+ * screenshot instead of the fixture quietly showing an old roster. The bikes are built, the plans
+ * for everything else are missing, which is the state a mid-game crew is actually in and the one
+ * where the lock lines are worth reading.
+ */
+export const garage: GarageResponse = {
+  resources: base.resources,
+  garageLevel: 5,
+  fleet: { motorcycle: 2 },
+  capacity: fleetCapacity({ motorcycle: 2 }),
   vehicles: VEHICLES.map((spec) => ({
     id: spec.id,
     name: spec.name,
+    class: spec.class,
     description: spec.description,
-    cost: spec.cost,
-    parts: spec.parts,
     owned: spec.id === 'motorcycle' ? 2 : 0,
-    travelSpeedPercent: spec.travelSpeedPercent,
-    blocker: spec.id === 'motorcycle' ? null : 'Needs the Blueprint: Rotorcraft',
+    cost: spec.cost,
+    buildSeconds: spec.buildSeconds,
+    capacity: spec.capacity,
+    speedPercent: spec.speedPercent,
+    requiresGarageLevel: spec.requiresGarageLevel,
+    requiresBlueprint:
+      spec.requiresBlueprint === null ? null : ITEM_CATALOG[spec.requiresBlueprint].name,
+    hasBlueprint: spec.requiresBlueprint === null,
+    refusal:
+      spec.requiresBlueprint !== null
+        ? `Needs the ${ITEM_CATALOG[spec.requiresBlueprint].name}`
+        : spec.requiresGarageLevel > 5
+          ? `Needs the Garage at level ${spec.requiresGarageLevel}`
+          : null,
   })),
-  fleetTravelSpeedPercent: 13,
 };
 
 /**
@@ -1391,7 +1526,6 @@ export const adminSnapshot: AdminSnapshot = {
     { kind: 'greenhouse', level: 8 },
     { kind: 'generator', level: 9 },
     { kind: 'scrapyard', level: 8 },
-    { kind: 'cistern', level: 6 },
     { kind: 'apothecary', level: 7 },
     { kind: 'gate', level: 10 },
     { kind: 'lab', level: 6 },
@@ -1448,6 +1582,8 @@ const boardAnalysis: BattleAnalysis = {
     perimeter: 4,
     perimeterCaught: 5,
     infamy: 118,
+    // §D1: nobody led this one, which is the ordinary case and the one the card must draw.
+    officer: null,
     units: [
       {
         unitId: 'snipers',
@@ -1490,6 +1626,7 @@ const boardAnalysis: BattleAnalysis = {
     perimeter: 0,
     perimeterCaught: 0,
     infamy: 0,
+    officer: null,
     units: [
       {
         unitId: 'razors',
@@ -1606,6 +1743,18 @@ const comingBattle = (
     })),
   ],
   boostId: null,
+  // §D1: nobody named yet, and one officer on the books who could be. The picker's interesting
+  // state on a screenshot is "there is somebody to send", not a crew of nineteen.
+  officerId: null,
+  // §C3: two bikes in the yard, one already loaded, so the counter row screenshots in both states.
+  vehicles: { motorcycle: 1 },
+  yard: { motorcycle: 1 },
+  leaders: crewFat.officers.slice(0, 1).map((officer) => ({
+    officerId: officer.officerId,
+    name: officer.name,
+    role: officer.role,
+    stats: officerBattleStats(officer.attributes),
+  })),
 });
 
 export const battles: BattlesResponse = {
@@ -1736,19 +1885,23 @@ const ALLY_BASE = 'ally-base';
  * seeded world every player meets first: the screen has to be right when the person beside you is
  * a hardcoded neighbour.
  */
+/** The seeded faction's badge, shared by every fixture that draws it. */
+const NINTH_BADGE = {
+  shape: 'shield',
+  ground: 'soot',
+  field: 'chevron',
+  fieldColor: 'oxblood',
+  prop: 'skull',
+  ink: 'brass',
+} as const;
+
 export const factionScreen: FactionResponse = {
   faction: {
     id: 'faction-1',
     name: 'The Ninth Circle',
-    badge: {
-      shape: 'shield',
-      ground: 'soot',
-      field: 'chevron',
-      fieldColor: 'oxblood',
-      prop: 'skull',
-      ink: 'brass',
-    },
+    badge: NINTH_BADGE,
     blurb: 'Five streets, one arrangement. Whoever comes for one of us finds all of us.',
+    infamyEarned: 1820,
     foundedAt: NOW,
   },
   rank: 'leader',
@@ -1763,6 +1916,7 @@ export const factionScreen: FactionResponse = {
       joinedAt: NOW,
       level: base.level,
       infamy: 100,
+      infamyEarned: 640,
       armySize: 26,
       supplyUsed: 32,
       isBot: false,
@@ -1777,6 +1931,7 @@ export const factionScreen: FactionResponse = {
       joinedAt: NOW,
       level: 6,
       infamy: 480,
+      infamyEarned: 1180,
       armySize: 38,
       supplyUsed: 60,
       isBot: true,
@@ -1820,14 +1975,7 @@ export const factionNone: FactionResponse = {
       id: 'invite-1',
       factionId: 'faction-1',
       factionName: 'The Ninth Circle',
-      factionBadge: {
-        shape: 'shield',
-        ground: 'soot',
-        field: 'chevron',
-        fieldColor: 'oxblood',
-        prop: 'skull',
-        ink: 'brass',
-      },
+      factionBadge: NINTH_BADGE,
       invitedBy: 'Sable_Ninth',
       invitedUserId: 'me-user',
       sentAt: NOW,
@@ -1887,14 +2035,7 @@ export const messagesScreen: MessagesResponse = {
         inviteId: 'invite-1',
         factionId: 'faction-1',
         factionName: 'The Ninth Circle',
-        badge: {
-          shape: 'shield',
-          ground: 'soot',
-          field: 'chevron',
-          fieldColor: 'oxblood',
-          prop: 'skull',
-          ink: 'brass',
-        },
+        badge: NINTH_BADGE,
         open: true,
       },
     },
@@ -1919,12 +2060,24 @@ export const messagesScreen: MessagesResponse = {
 /** A bell with something in it, including one already read, so both weights are drawn. */
 export const notificationsScreen: NotificationsResponse = {
   notifications: [
+    /* A mission receipt that names its mission, so opening it draws the report (§K5). */
+    {
+      id: 'note-0',
+      kind: 'mission_home',
+      title: 'A crew is home',
+      body: 'Deep Expedition',
+      link: '/game/missions',
+      subjectId: 'm-5',
+      createdAt: NOW,
+      readAt: null,
+    },
     {
       id: 'note-1',
       kind: 'battle_report',
       title: 'A fight was won',
       body: 'The Tideline Market is settled.',
       link: '/game/battles',
+      subjectId: null,
       createdAt: NOW,
       readAt: null,
     },
@@ -1934,6 +2087,7 @@ export const notificationsScreen: NotificationsResponse = {
       title: 'Sable_Ninth is sending help',
       body: 'Units are on the road to a fight of yours.',
       link: '/game/battles',
+      subjectId: null,
       createdAt: '2026-08-13T11:00:00.000Z',
       readAt: null,
     },
@@ -1943,6 +2097,7 @@ export const notificationsScreen: NotificationsResponse = {
       title: 'The Quarters is finished',
       body: 'Standing at level 4.',
       link: '/game/base',
+      subjectId: null,
       createdAt: '2026-08-13T09:00:00.000Z',
       readAt: '2026-08-13T09:05:00.000Z',
     },
@@ -1950,4 +2105,136 @@ export const notificationsScreen: NotificationsResponse = {
   unread: 2,
   settings: { muted: ['training_done'] },
   serverNow: NOW,
+};
+
+/**
+ * The standings (§J9), both boards.
+ *
+ * The player rows are built so a tie is on screen (two on 4,000, both third) and so the faction
+ * board cannot be confused with a sum of wallets: `Rust Assembly` holds the most infamy between its
+ * members and has earned the least at its own table.
+ */
+export const leaderboardPlayers: LeaderboardResponse = {
+  board: 'players',
+  localOnly: false,
+  scope: null,
+  yourRank: 3,
+  entries: [
+    {
+      rank: 1,
+      userId: 'ally-user',
+      username: 'Sable_Ninth',
+      districtId: 'ashen-terraces',
+      cityId: 'ashfall',
+      districtName: 'The Ninth Street Irregulars',
+      level: 6,
+      infamy: 9840,
+      notoriety: 4,
+      factionName: 'The Ninth Circle',
+      factionBadge: NINTH_BADGE,
+      isBot: true,
+    },
+    {
+      rank: 2,
+      userId: 'vex-user',
+      username: 'Vex_Combine',
+      districtId: 'neon-docks',
+      cityId: 'ashfall',
+      districtName: 'Pier Nine Holdings',
+      level: 11,
+      infamy: 7200,
+      notoriety: 3,
+      factionName: null,
+      factionBadge: null,
+      isBot: false,
+    },
+    {
+      rank: 3,
+      userId: 'me-user',
+      username: 'Nikos',
+      districtId: base.districtId,
+      cityId: 'ashfall',
+      districtName: base.name,
+      level: base.level,
+      infamy: 4000,
+      notoriety: 1,
+      factionName: 'The Ninth Circle',
+      factionBadge: NINTH_BADGE,
+      isBot: false,
+    },
+    {
+      rank: 3,
+      userId: 'tied-user',
+      username: 'Marrow',
+      districtId: 'rustyard',
+      cityId: 'ashfall',
+      districtName: 'The Scrap Line',
+      level: 9,
+      infamy: 4000,
+      notoriety: 0,
+      factionName: null,
+      factionBadge: null,
+      isBot: false,
+    },
+  ],
+};
+
+export const leaderboardFactions: LeaderboardResponse = {
+  board: 'factions',
+  localOnly: false,
+  scope: null,
+  yourRank: 1,
+  entries: [
+    {
+      rank: 1,
+      factionId: 'faction-1',
+      name: 'The Ninth Circle',
+      badge: NINTH_BADGE,
+      members: 2,
+      infamy: 1820,
+      topLevel: 12,
+    },
+    {
+      rank: 2,
+      factionId: 'faction-2',
+      name: 'Rust Assembly',
+      badge: {
+        shape: 'banner',
+        ground: 'rust',
+        field: 'bend',
+        fieldColor: 'sulphur',
+        prop: 'cog',
+        ink: 'soot',
+      },
+      members: 4,
+      infamy: 240,
+      topLevel: 8,
+    },
+  ],
+};
+
+/**
+ * §B9: the Scrapyard's board of add-ons.
+ *
+ * Built from the real catalogues rather than typed out, so an entry added to the game appears here
+ * without anybody remembering to. Three states are forced on purpose: one already owned, one
+ * buildable, and one held behind a blueprint, because those are the three the page draws
+ * differently and a fixture with only the middle one screenshots a third of the screen.
+ */
+export const scrapyard: ScrapyardResponse = {
+  scrapyardLevel: 6,
+  resources: lateGameBase.resources,
+  entries: MODIFICATIONS.slice(0, 9).map((mod, index) => ({
+    id: mod.id,
+    kind: 'modification' as const,
+    name: mod.name,
+    description: mod.description,
+    building: mod.building,
+    effect: describeAddonEffect(mod),
+    cost: modificationPrice(mod),
+    advanced: index % 3 === 2,
+    blueprint: index % 3 === 2 ? 'Blueprint: Composite Armour' : null,
+    owned: index % 3 === 0 ? 1 : 0,
+    blocker: index % 3 === 2 ? 'Needs the Blueprint: Composite Armour' : null,
+  })),
 };

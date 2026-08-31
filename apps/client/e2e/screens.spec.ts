@@ -5,6 +5,7 @@ import {
   bar,
   city,
   lateGame,
+  UNSCOUTED_DISTRICT_ID,
   me,
   meNoOverseer,
   overseer,
@@ -391,8 +392,10 @@ test('a standing note opens fully on screen, on every screen that has one', asyn
     '/game/market',
     '/game/market/black',
     '/game/bar',
-    '/game/overseer',
-    '/game/training',
+    // Not `/game/overseer` or `/game/training`: the board had the notes on both taken out. The
+    // overseer's file lost "Whose numbers these are" when the crew's ledger moved to its own
+    // screen, and the training rail lost "How a day works", which was read once and then sat at
+    // the foot of the rail for good.
     '/game/admin',
   ];
 
@@ -529,6 +532,12 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
 
   await expect(page.getByTestId('unit-catalogue')).toBeVisible();
   await expect(page.getByTestId('supply')).toBeVisible();
+
+  // The screen opens on the carriers (board request): they are the tier that decides whether a
+  // mission comes home with what it earned, and they were four tabs down behind the fighting ones.
+  await expect(page.getByTestId('unit-scavengers')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Rabble' }).click();
   await expect(page.getByTestId('unit-razors')).toBeVisible();
 
   // A locked tier says *what it is waiting on* rather than simply being absent.
@@ -829,4 +838,257 @@ test('a refused launch tells the player why', async ({ page }) => {
 
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/missions-refused.png', fullPage: false });
+});
+
+/**
+ * A screen whose read fails must **say so**.
+ *
+ * This is the gate for the bug that cost the most this cycle. `GET /battles` was answering 500 for
+ * one account whose history held a report written under a retired unit tier; the page drew every
+ * state that was not data as "Reading the board...", so the failure looked exactly like a slow
+ * network and looked like it forever. Three more screens were worse: they returned `null` on a
+ * failed read and drew a blank sheet with no text on it at all.
+ *
+ * A spinner that never resolves is the one failure a player cannot act on, cannot describe, and
+ * will not report. Driven by failing each screen's own endpoint, because that is the only way to
+ * tell a screen that handles the case from one whose loading text happens to be on screen.
+ */
+test('a screen that cannot load says so, rather than spinning or going blank', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  const screens: readonly [route: string, api: string][] = [
+    ['/game/battles', '**/api/battles'],
+    ['/game/leaderboard', '**/api/leaderboard*'],
+    ['/game/crew/effects', '**/api/overseer/me'],
+    ['/game/notifications', '**/api/notifications'],
+    ['/game/messages', '**/api/messages'],
+    ['/game/faction', '**/api/factions'],
+    // Both added with this patch, and both shipped drawing "Opening the yard..." for a 500.
+    ['/game/garage', '**/api/garage'],
+    ['/game/scrapyard', '**/api/scrapyard'],
+  ];
+
+  for (const [route, api] of screens) {
+    await installApi(page, lateGame);
+    // Registered after the harness's own handler, so this one wins for the endpoint under test.
+    await page.route(api, (route500) =>
+      route500.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: '{"error":{"code":"INTERNAL","message":"boom"}}',
+      }),
+    );
+
+    await page.goto(route);
+    await expect(page.getByTestId('load-failure'), `${route} hid a failed read`).toBeVisible();
+    // ...and offers the one remedy that is actually available.
+    await expect(page.getByTestId('load-retry')).toBeVisible();
+    await page.unroute(api);
+  }
+});
+
+/**
+ * The live channel, from the outside.
+ *
+ * Counted rather than looked at, and that is the whole point of the test. The obvious version of
+ * this asserts the "Reconnecting" marker is absent under a healthy fixture, and that version is
+ * worthless: `toHaveCount(0)` is satisfied the instant it is called, long before a channel that is
+ * going to fail has failed, so it passes with the fixture's `/api/events` stub deleted. Measured,
+ * not assumed: that mutant was run, and it stayed green.
+ *
+ * What separates a live channel from a broken one is whether it is being *reopened*. A healthy one
+ * is opened and held; a refused one is reopened on a backoff for as long as the page is up. So the
+ * count is taken over a window that starts once the screen has settled, rather than from the
+ * navigation: under StrictMode the mount itself legitimately opens twice, since React runs the
+ * effect, tears it down and runs it again, and counting from zero would be counting that.
+ */
+test('holds the live channel open rather than reopening it', async ({ page }) => {
+  await installApi(page, lateGame);
+  let opened = 0;
+  page.on('request', (request) => {
+    if (request.url().includes('/api/events')) opened += 1;
+  });
+
+  await page.goto('/game/leaderboard');
+  await expect(page.getByTestId('leaderboard')).toBeVisible();
+  await page.waitForTimeout(1_000);
+
+  // From here on a held connection is silent. The backoff starts at a jittered ~1s, so a channel
+  // that was flapping would reopen at least once inside the window below.
+  const settled = opened;
+  await page.waitForTimeout(2_500);
+
+  expect(opened - settled, 'a held channel does not reopen; a broken one does').toBe(0);
+  await expect(page.getByTestId('live-offline')).toHaveCount(0);
+});
+
+/** The other half: when it does break, the HUD says so rather than looking like a quiet evening. */
+test('says when it has stopped receiving updates', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.route('**/api/events', (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: '{"error":{"code":"INTERNAL","message":"boom"}}',
+    }),
+  );
+
+  await page.goto('/game/leaderboard');
+
+  await expect(page.getByTestId('live-offline')).toBeVisible();
+});
+
+/**
+ * §H7: ending somebody's job, from their own file.
+ *
+ * The control was only ever on the Bar's payroll list, which is the screen you open to look at
+ * *the book*. The board asked for it where a player is already reading the person: the officer's
+ * window on the crew screen.
+ *
+ * Two presses on purpose, and the test asserts the first one does not release anybody. The window
+ * exists to be read, the chair dropdown is two centimetres away, and a one-press control there
+ * would make a misclick the cheapest way in the game to lose an officer and ten weeks of wages.
+ */
+test('an officer can be let go from their own file, at a price, and not by accident', async ({
+  page,
+}) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/crew');
+
+  /*
+   * A filled chair.
+   *
+   * `seat-<role>` is drawn for a vacancy too, and a vacancy is a `<a>` to the Bar rather than a
+   * button that opens a file, so the discriminator is the element and not the id. `professor` is
+   * the seat the late-game fixture fills; picking it by role rather than by position also means a
+   * reordered grid does not silently point this test at an empty chair.
+   */
+  const seat = page.getByTestId('seat-professor');
+  await expect(seat).toBeVisible();
+  await seat.click();
+
+  const sheet = page.getByTestId('crew-detail');
+  await expect(sheet).toBeVisible();
+
+  // The price is on the button before anything is committed to.
+  const letGo = sheet.getByTestId('let-go');
+  await expect(letGo).toContainText('caps');
+  await letGo.click();
+
+  // The first press only says the price. Nobody has left yet.
+  await expect(sheet.getByTestId('confirm-let-go')).toBeVisible();
+  await expect(page.getByTestId('crew-detail')).toBeVisible();
+
+  /*
+   * The second press, and what it has to actually do.
+   *
+   * Asserted on the *request* and on the chair afterwards, not on the window closing. The first
+   * version of this checked only that the sheet went away, and it passed against a confirm button
+   * wired to `onClose()` and nothing else: measured, the mutant was run. A control that looks like
+   * it worked and did not is the exact failure this whole flow is about.
+   */
+  const released = page.waitForRequest(
+    (request) => request.url().includes('/api/bar/release') && request.method() === 'POST',
+  );
+  await sheet.getByTestId('confirm-let-go').click();
+  expect(((await released).postDataJSON() as { officerId: string }).officerId).toBeTruthy();
+
+  await expect(page.getByTestId('crew-detail')).toBeHidden();
+  // The chair is empty: clicking it now offers a way to fill it rather than opening a file.
+  await page.getByTestId('seat-professor').click();
+  await expect(page.getByTestId('chair-window')).toBeVisible();
+});
+
+/**
+ * §C2: filling a chair from the bench (board request).
+ *
+ * The bench exists because the Bar turns over at midnight and a good sheet walks away, so a player
+ * has to be able to sign somebody before deciding where to put them. This is the other end of it:
+ * an empty chair offers both sources, and taking somebody who is already on the books costs
+ * nothing and does not spend one of the day's hires.
+ */
+test('an empty chair can be filled from the bench', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/crew');
+  await expect(page.getByTestId('crew-books')).toBeVisible();
+
+  // Somebody is on the bench to begin with, or the rest of this proves nothing.
+  const bench = page.getByTestId('crew-bench');
+  await expect(bench).toBeVisible();
+  const before = await bench.locator('[data-testid^="bench-"]').count();
+  expect(before).toBeGreaterThan(0);
+
+  await page.getByTestId('seat-head_spy').click();
+  const window = page.getByTestId('chair-window');
+  await expect(window).toBeVisible();
+  // Both routes into the chair are offered, not just the Bar.
+  await expect(window.getByRole('link', { name: /Bar/i })).toBeVisible();
+
+  const picker = window.getByTestId('bench-picker');
+  await expect(picker).toBeVisible();
+
+  const assigned = page.waitForRequest(
+    (request) => request.url().includes('/api/crew/reassign') && request.method() === 'POST',
+  );
+  await picker.locator('button').first().click();
+  const body = (await assigned).postDataJSON() as { officerId: string; role: string };
+  expect(body.role).toBe('head_spy');
+
+  // The window closes and the bench is one shorter.
+  await expect(page.getByTestId('chair-window')).toBeHidden();
+  await expect(bench.locator('[data-testid^="bench-"]')).toHaveCount(before - 1);
+});
+
+/**
+ * §A4: opening a district is a journey (board rework).
+ *
+ * The old scout was a button that lifted the fog on the spot. The three things this pins are the
+ * three the rework is for: the price is quoted before the press, the press starts a walk rather
+ * than finishing one, and the ground stays dark while somebody is on the road.
+ */
+test('scouting a district sends somebody rather than opening it', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto(`/game/city/${UNSCOUTED_DISTRICT_ID}`);
+
+  // Quoted first: a run is measured in hours, so how long is a decision, not a surprise.
+  const send = page.getByTestId('send-scout');
+  await expect(send).toBeVisible();
+  await expect(page.getByText(/would be gone/i)).toBeVisible();
+
+  const sent = page.waitForRequest(
+    (request) => request.url().includes('/api/city/scout') && request.method() === 'POST',
+  );
+  await send.click();
+  await sent;
+
+  // Somebody is walking, the ground is still dark, and there is nothing left to press.
+  await expect(page.getByTestId('scout-underway')).toBeVisible();
+  await expect(page.getByTestId('scout-countdown')).toBeVisible();
+  await expect(page.getByTestId('send-scout')).toHaveCount(0);
+});
+
+/**
+ * §B7: the gate on a district this crew has taken whole.
+ *
+ * The panel is the only way a player learns the mechanic exists, so it has to say what the wall is
+ * worth in both the units it pays in, and the button has to actually reach the server. Asserted on
+ * the request as well as on the screen, because a control that looks like it worked and did not is
+ * the failure this suite keeps finding.
+ */
+test('a captured district offers its gate, and raising it reaches the server', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/city');
+
+  const panel = page.getByTestId('captured-gate-rustyard');
+  await expect(panel).toBeVisible();
+  // Level 6 at the shared rates: 6 x 2.5 defending, 6 x 1.5 against a scout.
+  await expect(panel).toContainText('Lv 6');
+  await expect(panel).toContainText('15%');
+  await expect(panel).toContainText('9%');
+
+  const raised = page.waitForRequest(
+    (request) => request.url().includes('/api/city/gate') && request.method() === 'POST',
+  );
+  await page.getByTestId('raise-gate-rustyard').click();
+  expect(((await raised).postDataJSON() as { districtId: string }).districtId).toBe('rustyard');
 });

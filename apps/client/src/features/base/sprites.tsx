@@ -135,21 +135,6 @@ const SPRITES: Record<BuildingKind, ReactNode> = {
       <Ground x={8} width={84} />
     </>
   ),
-  // Two riveted tanks of different heights, joined by a pipe bridge. The only paired cylinders.
-  cistern: (
-    <>
-      <rect x={14} y={40} width={32} height={54} fill={ferrite[700]} />
-      <ellipse cx={30} cy={40} rx={16} ry={6} fill={ferrite[500]} />
-      <rect x={56} y={56} width={28} height={38} fill={ferrite[700]} />
-      <ellipse cx={70} cy={56} rx={14} ry={5} fill={ferrite[500]} />
-      <path d="M46 50 56 50" stroke={ferrite[300]} strokeWidth={3} />
-      <path d="M14 62h32M56 72h28" stroke={ferrite[950]} strokeWidth={1.5} />
-      <rect x={26} y={76} width={8} height={18} fill={ferrite[950]} />
-      <Lamp x={64} y={64} glow={hextech[300]} />
-      <path d="M84 84q6 6 8 10" stroke={hextech[500]} strokeWidth={1.5} fill="none" />
-      <Ground x={10} width={80} />
-    </>
-  ),
   // A shuttered block with one lit hatch: the only closed front.
   apothecary: (
     <>

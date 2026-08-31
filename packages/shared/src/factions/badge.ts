@@ -10,8 +10,8 @@ import { z } from 'zod';
  * small set of decisions with no wrong answers, which is what this is: an outline, a ground, a
  * pattern over the ground, an emblem, and a colour for the emblem.
  *
- * 6 x 12 x 6 x 18 x 12 is a little over ninety thousand badges, which is enough that two factions
- * choosing the same one is a coincidence rather than an inevitability.
+ * 6 x 12 x 10 x 18 x 12 is over one hundred and fifty thousand badges, which is enough that two
+ * factions choosing the same one is a coincidence rather than an inevitability.
  *
  * ## Ids, not pixels
  *
@@ -47,8 +47,23 @@ export const BADGE_SHAPE_LABELS: Record<BadgeShape, string> = {
  * Heraldry calls these divisions of the field and they are the cheapest way to make two badges
  * with the same shape and emblem read as different factions: a diagonal band changes the silhouette
  * of the colour without touching either decision on either side of it.
+ *
+ * Four of the ten are deliberately the plainest thing that is still a pattern: a bar across the
+ * foot, a bar across the head, a rule round the edge, a cross. Somebody who wants two colours and
+ * no fuss should not have to take a chevron to get them.
  */
-export const BADGE_FIELDS = ['plain', 'bend', 'chevron', 'quarters', 'pale', 'fess'] as const;
+export const BADGE_FIELDS = [
+  'plain',
+  'bend',
+  'chevron',
+  'quarters',
+  'pale',
+  'fess',
+  'base',
+  'chief',
+  'border',
+  'saltire',
+] as const;
 export const BadgeFieldSchema = z.enum(BADGE_FIELDS);
 export type BadgeField = z.infer<typeof BadgeFieldSchema>;
 
@@ -59,6 +74,10 @@ export const BADGE_FIELD_LABELS: Record<BadgeField, string> = {
   quarters: 'Quarters',
   pale: 'Vertical',
   fess: 'Horizontal',
+  base: 'Foot',
+  chief: 'Head',
+  border: 'Edge',
+  saltire: 'Cross',
 };
 
 /**
@@ -171,10 +190,9 @@ export const DEFAULT_BADGE: FactionBadge = {
 /**
  * Whether an emblem can be seen against what is behind it.
  *
- * The one way to build an unusable badge with these controls is to paint the emblem the same
- * colour as the ground, and a player doing it by accident gets a blank shield and no explanation.
- * Checked rather than prevented: the builder warns, and the check is here so the warning and any
- * future refusal cannot drift apart.
+ * Not enforced anywhere: it is their badge, and an emblem hidden in its own ground is a thing
+ * somebody may well want. What it is for is `randomBadge`, which must not hand a badge nobody chose
+ * to a player who pressed "roll one" and cannot see what they got.
  */
 export function badgeIsLegible(badge: FactionBadge): boolean {
   if (badge.prop === 'blank') return true;

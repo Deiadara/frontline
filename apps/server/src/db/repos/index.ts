@@ -3,6 +3,7 @@ import { createBarRepo, type BarRepo } from './bar.js';
 import { createBasesRepo, type BasesRepo } from './bases.js';
 import { createMarketRepo, type MarketRepo } from './market.js';
 import { createBlackMarketRepo, type BlackMarketRepo } from './blackmarket.js';
+import { createCapturedGatesRepo, type CapturedGatesRepo } from './gates.js';
 import { createHistoryRepo, type HistoryRepo } from './history.js';
 import { createCityRepo, type CityRepo } from './city.js';
 import { createMovementRepo, type MovementRepo } from './movements.js';
@@ -13,6 +14,7 @@ import { createOverseersRepo, type OverseersRepo } from './overseers.js';
 import { createUsersRepo, type UsersRepo } from './users.js';
 import { createFactionsRepo, type FactionsRepo } from './factions.js';
 import { createSocialRepo, type SocialRepo } from './social.js';
+import { createScoutingRepo, type ScoutingRepo } from './scouting.js';
 
 /** The full set of persistence repositories, backed by a single sqlite connection. */
 export interface Repositories {
@@ -36,8 +38,23 @@ export interface Repositories {
   market: MarketRepo;
   /** The back room: slot turnover, receipts, and boosts nobody has spent yet. */
   blackMarket: BlackMarketRepo;
+  /** §B7: the gates on districts crews have taken whole. Keyed by ground, not by crew. */
+  capturedGates: CapturedGatesRepo;
   /** Append-only record of what has happened. Written to, never read by a rule. */
   history: HistoryRepo;
+  /** §A4: officers out casing a district, and the ground they have opened. */
+  scouting: ScoutingRepo;
+  /**
+   * Runs `work` so that either all of its writes land or none of them do.
+   *
+   * Here rather than passed around as a database handle because the things that need it are the
+   * settle functions, and those take repositories: handing them a `Database` as well would make
+   * every one of their signatures carry a second way to reach the same rows.
+   *
+   * Nests safely. better-sqlite3 turns an inner `transaction` into a savepoint, so a settle that
+   * uses this inside a route that has already opened one is still a single atomic unit.
+   */
+  tx<T>(work: () => T): T;
 }
 
 export function createRepositories(db: AppDatabase): Repositories {
@@ -55,6 +72,9 @@ export function createRepositories(db: AppDatabase): Repositories {
     movements: createMovementRepo(db),
     market: createMarketRepo(db),
     blackMarket: createBlackMarketRepo(db),
+    capturedGates: createCapturedGatesRepo(db),
     history: createHistoryRepo(db),
+    scouting: createScoutingRepo(db),
+    tx: (work) => db.transaction(work)(),
   };
 }

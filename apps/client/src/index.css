@@ -114,80 +114,6 @@
   }
 
   /**
-   * A label of aged card stock, for a tag pinned to a night painting.
-   *
-   * Not `.scrap`, and the difference is the whole point. That surface is a *dark* paper, and it is
-   * right everywhere it is used: a hover card sits over the game's own dark chrome and has to
-   * belong to it. The city's district tags sit on a painting of a city at night, where a dark paper
-   * on a dark ground is a smudge with a word in it. This one is light stock with dark ink, so the
-   * tag reads as a thing somebody stuck on the picture rather than a hole cut in it.
-   */
-  .tag-paper {
-    position: relative;
-    color: rgb(30 24 20 / 0.94);
-    background:
-      linear-gradient(
-        152deg,
-        rgb(232 218 190 / 0.97),
-        rgb(214 198 168 / 0.97) 58%,
-        rgb(196 178 148 / 0.97)
-      ),
-      radial-gradient(circle at 22% 14%, rgb(255 250 235 / 0.5), transparent 62%);
-    box-shadow:
-      0 16px 34px -14px rgb(6 5 10 / 0.9),
-      0 1px 0 0 rgb(255 255 255 / 0.35) inset,
-      0 -1px 0 0 rgb(90 70 50 / 0.25) inset;
-    /* The same torn vertical edges the scrap has, so the two read as the same material family. */
-    clip-path: polygon(
-      1.1% 0%,
-      100% 0%,
-      98.9% 6%,
-      100% 14%,
-      99% 24%,
-      100% 34%,
-      98.9% 45%,
-      100% 56%,
-      99.1% 68%,
-      100% 80%,
-      98.8% 90%,
-      100% 100%,
-      0% 100%,
-      1% 88%,
-      0% 76%,
-      1.1% 64%,
-      0% 52%,
-      0.9% 40%,
-      0% 28%,
-      1% 16%
-    );
-  }
-
-  /**
-   * A strip of tape stuck **over** a label, rather than a tab tucked under it.
-   *
-   * Tape goes on top of the thing it is holding down: that is what tape is. The tabs this replaces
-   * sat behind the paper, which reads as two coloured wings sticking out of a label rather than as
-   * anything holding it, and it was worse on a dark tag where the wings were the brightest part.
-   *
-   * Translucent, so the paper's grain and the torn edge show through it, with a brighter line down
-   * each long side: the two things that stop a rectangle of amber reading as a rectangle of amber.
-   */
-  .tape-strip {
-    background: linear-gradient(
-      110deg,
-      rgb(246 228 178 / 0.34),
-      rgb(238 212 150 / 0.26) 45%,
-      rgb(228 198 132 / 0.34)
-    );
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 248 225 / 0.4),
-      inset 0 -1px 0 0 rgb(120 92 48 / 0.28),
-      0 2px 5px -2px rgb(8 6 12 / 0.55);
-    /* Torn ends, cut slightly differently at each so a pair never looks stamped. */
-    clip-path: polygon(0% 8%, 100% 0%, 96% 100%, 4% 92%);
-  }
-
-  /**
    * A small tab of tape, stuck across the edge of something.
    *
    * The sibling of `.taped`, and it exists because `.taped` cannot do this job: that one is a wide
@@ -304,12 +230,24 @@
    *
    * Replaces the 1px divider under headings. A straight line is fine; a line that is *nearly*
    * straight is what a person leaves behind, and it costs one background image.
+   *
+   * ## Tiled at a fixed width, not stretched to fit
+   *
+   * It used to be `background-size: 100% 100%` over a 300-unit path, which stretched one drawing
+   * across whatever it was sitting on. That is fine on a full-width panel and wrong everywhere
+   * else: in one of the four attribute cards on the training screen the element is about 250px, so
+   * the same three waves were squeezed into a fifth of the space and the line read as a zigzag
+   * rather than as a hand not quite steady. The board saw it on the training tab twice.
+   *
+   * Tiling at 300px instead means the wobble has the *same* frequency however wide the rule is: a
+   * narrow card shows a shorter piece of the same gentle line, not a compressed copy of the whole
+   * one. The path opens and closes at the same height so the seam between tiles is invisible.
    */
   .ink-rule {
     height: 4px;
-    background-repeat: no-repeat;
-    background-size: 100% 100%;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='4' preserveAspectRatio='none'%3E%3Cpath d='M1 2.6 C 40 1.4, 80 3.2, 120 2.1 S 200 1.2, 240 2.8 S 280 2, 299 2.4' fill='none' stroke='%23f0ad4c' stroke-opacity='0.5' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: repeat-x;
+    background-size: 300px 4px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='4'%3E%3Cpath d='M0 2.2 C 40 1.6, 80 2.8, 120 2.2 S 200 1.7, 240 2.7 S 280 2, 300 2.2' fill='none' stroke='%23f0ad4c' stroke-opacity='0.5' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
   }
 
   /**
@@ -374,28 +312,50 @@
   /**
    * A panel with a frame ruled round it by hand.
    *
-   * `.ink-box` is for a control the size of a word; this is its panel-sized relative, and the
-   * difference is not only scale. A section of a screen needs to read as *a separate sheet* rather
-   * than as a region of one page, which takes three things: the drawn rectangle, a corner tick that
-   * overshoots the way a pen does when somebody rules a box in two strokes, and a ground of its own
-   * so the sheet sits on the table rather than being a line painted on it.
+   * `border-image`, not a stretched background, and the difference is the whole point.
    *
-   * Used by the faction screen, where the board asked for the parts to be separate panels with
-   * space between them rather than one wall of rows.
+   * The first version drew the rectangle into a 400x240 box and stretched it to fit. On a 1900px
+   * panel that is a 4.75x horizontal stretch, so a 6-unit inset became a 28px one and a 2.4-unit
+   * wobble became an 11px one: the line wandered inward across the header text and the empty-seat
+   * icons. A drawn border cannot be a stretched picture of a drawn border.
+   *
+   * With `border-image` the corners keep their size, the edges *tile* at their authored size, and
+   * `border-width` reserves the space: the line sits 2px from the edge and content physically
+   * cannot be drawn under it whatever shape the panel takes.
+   *
+   * ## How much wobble
+   *
+   * As little as `.scrap::before` has, which is the register the board pointed at: pale
+   * (`#e6c99a` at 0.38), thin, and barely off straight. Authored at 120 units with a 12-unit
+   * corner, the tiling unit is 96 units carrying one full wave, which at the 0.5 scale of a 6px
+   * border is a 48px wave about half a pixel deep. Long and shallow reads as a ruled line; short
+   * and deep reads as a decorative squiggle, which is what the first two attempts were. Each edge
+   * slice returns to its baseline at both ends so the tiling has no seam, and `round` scales the
+   * tile to a whole number of repeats so a wave is never cut in half at a corner.
    */
   .ink-frame {
-    position: relative;
-    border-radius: 3px;
-    background-color: rgb(34 29 47 / 0.55);
-    background-repeat: no-repeat;
-    background-position: center;
-    background-size: 100% 100%;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='240' viewBox='0 0 400 240' preserveAspectRatio='none'%3E%3Cfilter id='fr'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022' numOctaves='2' seed='17'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='2.4'/%3E%3C/filter%3E%3Cg filter='url(%23fr)' fill='none' stroke='%23f0ad4c' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 7 L394 5 L396 234 L5 236 Z' stroke-opacity='0.42' stroke-width='2'/%3E%3Cpath d='M5 236 L9 232 L34 234' stroke-opacity='0.3' stroke-width='1.4'/%3E%3Cpath d='M394 5 L390 10 L366 7' stroke-opacity='0.3' stroke-width='1.4'/%3E%3C/g%3E%3C/svg%3E");
+    border: 6px solid transparent;
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23e6c99a' stroke-opacity='0.38' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M4 4 H12 q24 -1.1 48 0 q24 1.1 48 0 H116'/%3E%3Cpath d='M116 4 V12 q1.1 24 0 48 q-1.1 24 0 48 V116'/%3E%3Cpath d='M116 116 H108 q-24 1.1 -48 0 q-24 -1.1 -48 0 H4'/%3E%3Cpath d='M4 116 V108 q-1.1 -24 0 -48 q1.1 -24 0 -48 V4'/%3E%3C/g%3E%3C/svg%3E");
+    border-image-slice: 12;
+    border-image-repeat: round;
   }
 
   /** The same sheet, in the colour of a decision rather than of a section. */
   .ink-frame-brass {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='240' viewBox='0 0 400 240' preserveAspectRatio='none'%3E%3Cfilter id='fb'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022' numOctaves='2' seed='29'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='2.4'/%3E%3C/filter%3E%3Cg filter='url(%23fb)' fill='none' stroke='%23f0ad4c' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 7 L394 5 L396 234 L5 236 Z' stroke-opacity='0.8' stroke-width='2.6'/%3E%3Cpath d='M396 234 L391 229 L360 232' stroke-opacity='0.4' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23e6c99a' stroke-opacity='0.7' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M4 4 H12 q24 -1.1 48 0 q24 1.1 48 0 H116'/%3E%3Cpath d='M116 4 V12 q1.1 24 0 48 q-1.1 24 0 48 V116'/%3E%3Cpath d='M116 116 H108 q-24 1.1 -48 0 q-24 -1.1 -48 0 H4'/%3E%3Cpath d='M4 116 V108 q-1.1 -24 0 -48 q1.1 -24 0 -48 V4'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /*
+   * No ground of its own, deliberately. A framed panel is `ink-frame card-paper washed` at the call
+   * site, exactly as a crew card is `card-paper rivets edge-lit`: the frame is the *edge* treatment
+   * and the paper is the surface, and keeping them separate is what lets the faction and standings
+   * screens sit in the same material as the crew, the officers and the Bar rather than being flat
+   * violet rectangles with a drawn line round them.
+   */
+
+  /** The same sheet, in the colour of a decision rather than of a section. */
+  .ink-frame-brass {
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23f0ad4c' stroke-opacity='0.85' stroke-width='3.6' stroke-linecap='round'%3E%3Cpath d='M4 4 H12 q24 -2.4 48 0 q24 2.4 48 0 H116'/%3E%3Cpath d='M116 4 V12 q2.4 24 0 48 q-2.4 24 0 48 V116'/%3E%3Cpath d='M116 116 H108 q-24 2.4 -48 0 q-24 -2.4 -48 0 H4'/%3E%3Cpath d='M4 116 V108 q-2.4 -24 0 -48 q2.4 -24 0 -48 V4'/%3E%3C/g%3E%3C/svg%3E");
   }
 
   /**

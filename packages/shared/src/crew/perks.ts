@@ -1,5 +1,9 @@
 import { z } from 'zod';
+import { ATTRIBUTE_LABELS, type AttributeName } from '../attributes.js';
+import { BUILDING_CATALOG, type BuildingKind } from '../building/kinds.js';
 import { describeHoldBonus, type HoldBonus } from '../city/locations.js';
+import { findUnit } from '../units/catalog.js';
+import { UNIT_TIER_STAT_LABELS, type UnitTierStat } from '../units/tiers.js';
 
 /**
  * Perks: the discrete things an officer brings to the crew (GDD §B7).
@@ -54,7 +58,63 @@ export type CrewOnlyBonus =
   | { kind: 'recruit_pool'; percent: number }
   | { kind: 'intel_resistance'; percent: number }
   | { kind: 'casualty_recovery'; percent: number }
-  | { kind: 'cohesion'; percent: number };
+  | { kind: 'cohesion'; percent: number }
+  /*
+   * The conditional ones (board request).
+   *
+   * Everything above is worth the same on every turn of every game. These are worth nothing at all
+   * until a particular thing is true, which is what makes them a decision rather than a number: an
+   * officer who is only good when you fight beside your faction is a reason to fight beside your
+   * faction, and a dead weight in a crew that never does.
+   */
+  /** Every unit hits harder when somebody else's crew is on your side of the fight. */
+  | { kind: 'allied_offense'; percent: number }
+  /** The Gate holds harder, and only the Gate. Worth nothing to an attacker. */
+  | { kind: 'gate_defense'; percent: number }
+  /** Worth nothing until you hold every location in your district, and a lot once you do. */
+  | { kind: 'whole_district'; percent: number }
+  /** One named structure is cheaper to raise. Not every structure: this one. */
+  | { kind: 'building_cost'; building: BuildingKind; percent: number }
+  /** One named unit is better at one thing. The narrowest bonus in the game, so the biggest. */
+  | { kind: 'unit_kind'; unitId: string; stat: UnitTierStat; percent: number }
+  /** Everything that pays experience pays more of it. */
+  | { kind: 'xp_gain'; percent: number }
+  /*
+   * §D5: the ones that pay only while this officer is **leading** a fight or a run.
+   *
+   * The narrowest condition in the book, and deliberately so. Everything else here is worth
+   * something to a crew that never leaves the district; these are worth exactly nothing until the
+   * player picks this person off the roster and sends them, which turns a hire into a reason to
+   * fight rather than a percentage on a screen. Only one officer may lead, so they never stack
+   * with each other.
+   */
+  /** Every friendly unit hits harder while they are leading. */
+  | { kind: 'lead_offense'; percent: number }
+  /** ...and is harder to hit, in flat points of evasion. */
+  | { kind: 'lead_evasion'; flat: number }
+  /** ...and is wearing more, in flat points of armour. */
+  | { kind: 'lead_armor'; flat: number }
+  /** ...and holds longer, in flat points of morale. */
+  | { kind: 'lead_morale'; flat: number }
+  /** A percentage more of whatever the fight pays out. */
+  | { kind: 'lead_loot'; percent: number }
+  /** The column gets there sooner, on the road and on a run. */
+  | { kind: 'lead_arrival'; percent: number }
+  /** Flat points on one attribute, for every officer on the books **except the one carrying it**. */
+  | { kind: 'officer_attribute'; attribute: AttributeName; flat: number }
+  /**
+   * The same, but only for officers who are already good at it.
+   *
+   * A specialist's perk rather than a teacher's: it does nothing for a crew of generalists and
+   * compounds in a crew built around one discipline. `threshold` is the bar they must already have
+   * cleared, which is what stops it being a strictly better `officer_attribute`.
+   */
+  | {
+      kind: 'officer_threshold';
+      attribute: AttributeName;
+      flat: number;
+      threshold: number;
+    };
 
 /**
  * What a perk can do: every `HoldBonus` except `location`, plus the crew-only channels above.
@@ -261,13 +321,23 @@ const CATALOG: Perk[] = [
       percent: 8,
     },
   ),
-  perk('grid_tap', 'Grid Tap', 'economy', 'The meter runs backwards on a good week.', {
-    kind: 'power_supply',
-    amount: 4,
-  }),
-  perk('load_balancer', 'Load Balancer', 'economy', 'Nothing browns out while they are on shift.', {
-    kind: 'power_supply',
-    amount: 7,
+  // §A1 took the grid out of the game. Both of these paid into it, so both are re-pointed at oil,
+  // which is what the Generator used to burn: the officer is the same person doing the same job.
+  perk(
+    'grid_tap',
+    'Fuel Tap',
+    'economy',
+    'A drum goes missing off every load, and none is missed.',
+    {
+      kind: 'resource',
+      resource: 'oil',
+      perHour: 4,
+    },
+  ),
+  perk('load_balancer', 'Line Balancer', 'economy', 'Nothing runs dry while they are on shift.', {
+    kind: 'resource',
+    resource: 'oil',
+    perHour: 7,
   }),
 
   // --- Military: what the units do when it starts --------------------------------------------
@@ -871,6 +941,287 @@ const CATALOG: Perk[] = [
     kind: 'vision',
     districts: 2,
   }),
+
+  /*
+   * --- Conditional: worth nothing until something is true ------------------------------------
+   *
+   * The board's note on the old book was that a bonus to the number already printed on the card
+   * carrying it is not a bonus, and the fix it asked for is these: every one lands on somebody
+   * else, on a particular unit, on one structure, or on a situation you have to arrange.
+   *
+   * They are priced against their condition rather than against their size. `Line Brother` is a
+   * bigger number than anything unconditional in the book and pays out in no fight you take on
+   * your own; `Kept Ledger` is a quarter off one structure and nothing at all off the other
+   * eleven. That is the trade the board wanted at the Bar: not "is this good" but "is this the
+   * shape of the game I am playing".
+   */
+  perk(
+    'line_brother',
+    'Line Brother',
+    'military',
+    'Has stood in somebody else\u2019s line and held it.',
+    {
+      kind: 'allied_offense',
+      percent: 12,
+    },
+  ),
+  perk('two_flags', 'Two Flags', 'military', 'Knows how the other crew whistles their orders.', {
+    kind: 'allied_offense',
+    percent: 8,
+  }),
+  perk('gatewright', 'Gatewright', 'military', 'Built the door, so knows where it gives.', {
+    kind: 'gate_defense',
+    percent: 15,
+  }),
+  perk('doorkeeper', 'Doorkeeper', 'military', 'Has never once let the wrong person through.', {
+    kind: 'gate_defense',
+    percent: 9,
+  }),
+  perk('ward_boss', 'Ward Boss', 'people', 'Owns every street on the map, and the map.', {
+    kind: 'whole_district',
+    percent: 14,
+  }),
+  perk('block_captain', 'Block Captain', 'people', 'Knows every door between here and the wire.', {
+    kind: 'whole_district',
+    percent: 8,
+  }),
+
+  // One structure each, and a different one each time: the reason to read the perk rather than
+  // count it. A crew that has not built a Lab has no use at all for the Bench Sponsor.
+  perk('kept_ledger', 'Kept Ledger', 'economy', 'The quartermaster still owes them a favour.', {
+    kind: 'building_cost',
+    building: 'quarters',
+    percent: 22,
+  }),
+  perk('bench_sponsor', 'Bench Sponsor', 'economy', 'Funded the bench before anybody used it.', {
+    kind: 'building_cost',
+    building: 'lab',
+    percent: 25,
+  }),
+  perk(
+    'scrap_baron',
+    'Scrap Baron',
+    'economy',
+    'Buys the yard\u2019s output before it is output.',
+    {
+      kind: 'building_cost',
+      building: 'scrapyard',
+      percent: 20,
+    },
+  ),
+  perk('wall_money', 'Wall Money', 'economy', 'Paid for the last door and will pay for this one.', {
+    kind: 'building_cost',
+    building: 'gate',
+    percent: 24,
+  }),
+  perk('green_thumb', 'Green Thumb', 'economy', 'Grew food on a roof nobody thought would hold.', {
+    kind: 'building_cost',
+    building: 'greenhouse',
+    percent: 20,
+  }),
+  perk('turbine_hand', 'Turbine Hand', 'economy', 'Kept a dead generator running for a winter.', {
+    kind: 'building_cost',
+    building: 'generator',
+    percent: 20,
+  }),
+
+  /*
+   * One named unit, one named stat.
+   *
+   * The narrowest bonus the book has, so it carries the biggest number. A tier bonus is a reason
+   * to field a tier; this is a reason to field *that unit*, and a crew that never trains an
+   * Anodic gets nothing at all from the Arc Warden. Legendary units get the small version: there
+   * is only ever one of them on the field, so a percentage of it is worth less than the same
+   * percentage across a stack of Razors.
+   */
+  perk('arc_warden', 'Arc Warden', 'military', 'Wired the first Anodic and never stopped.', {
+    kind: 'unit_kind',
+    unitId: 'anodics',
+    stat: 'offense',
+    percent: 18,
+  }),
+  perk(
+    'razor_drill',
+    'Razor Drill',
+    'military',
+    'Drills the same six moves until they are reflex.',
+    {
+      kind: 'unit_kind',
+      unitId: 'razors',
+      stat: 'offense',
+      percent: 15,
+    },
+  ),
+  perk(
+    'plate_fitter',
+    'Plate Fitter',
+    'military',
+    'Fits Ironside plate that actually sits right.',
+    {
+      kind: 'unit_kind',
+      unitId: 'ironsides',
+      stat: 'armor',
+      percent: 20,
+    },
+  ),
+  perk('sniper\u2019s_eye', "Sniper's Eye", 'military', 'Spotted for the best shot in the city.', {
+    kind: 'unit_kind',
+    unitId: 'snipers',
+    stat: 'offense',
+    percent: 16,
+  }),
+  perk('dog_handler', 'Dog Handler', 'military', 'The Cyber Dogs come back to them, not to you.', {
+    kind: 'unit_kind',
+    unitId: 'cyber_dogs',
+    stat: 'vitality',
+    percent: 18,
+  }),
+  // The small one, and the note says why: there is only ever one Colossus on the field.
+  perk(
+    'colossus_wright',
+    'Colossus Wright',
+    'military',
+    'One of four people who can still service it.',
+    {
+      kind: 'unit_kind',
+      unitId: 'the_colossus',
+      stat: 'vitality',
+      percent: 8,
+    },
+  ),
+  perk(
+    'specter_handler',
+    'Specter Handler',
+    'military',
+    'Talks to it. It is not clear that it listens.',
+    {
+      kind: 'unit_kind',
+      unitId: 'the_specter',
+      stat: 'offense',
+      percent: 7,
+    },
+  ),
+
+  perk('war_story', 'War Story', 'people', 'Tells it after every job, and everybody learns.', {
+    kind: 'xp_gain',
+    percent: 10,
+  }),
+  perk(
+    'debrief_habit',
+    'Debrief Habit',
+    'people',
+    'Nobody goes home until the run is written up.',
+    {
+      kind: 'xp_gain',
+      percent: 14,
+    },
+  ),
+
+  /*
+   * Other people's sheets.
+   *
+   * `officer_attribute` is a teacher: everybody else on the books gains, whatever they came in
+   * with. `officer_threshold` is a specialist's peer, and does nothing for a crew of generalists:
+   * it only pays for officers who have already cleared the bar on their own, which makes it worth
+   * hiring *after* you have built a crew around a discipline rather than before.
+   *
+   * Neither ever touches the officer carrying it. See `liftOfficer`.
+   */
+  perk(
+    'grip_coach',
+    'Grip Coach',
+    'people',
+    'Fixes how everybody else lifts, one wrist at a time.',
+    {
+      kind: 'officer_attribute',
+      attribute: 'strength',
+      flat: 5,
+    },
+  ),
+  perk('case_reader', 'Case Reader', 'people', 'Makes the others show their working.', {
+    kind: 'officer_attribute',
+    attribute: 'analysis',
+    flat: 5,
+  }),
+  perk('parade_voice', 'Parade Voice', 'people', 'Nobody mumbles an order twice around them.', {
+    kind: 'officer_attribute',
+    attribute: 'authority',
+    flat: 4,
+  }),
+  perk('steady_hand', 'Steady Hand', 'people', 'The room slows down when they walk into it.', {
+    kind: 'officer_attribute',
+    attribute: 'composure',
+    flat: 5,
+  }),
+  perk('shop_floor', 'Shop Floor', 'people', 'Teaches the bench by standing at it.', {
+    kind: 'officer_attribute',
+    attribute: 'engineering',
+    flat: 4,
+  }),
+  perk('masters_table', "Master's Table", 'people', 'Only argues with people worth arguing with.', {
+    kind: 'officer_threshold',
+    attribute: 'strategy',
+    flat: 8,
+    threshold: 50,
+  }),
+  perk('cutters_circle', "Cutter's Circle", 'people', 'Will not waste an evening on a beginner.', {
+    kind: 'officer_threshold',
+    attribute: 'demolition',
+    flat: 8,
+    threshold: 50,
+  }),
+  perk('closed_ward', 'Closed Ward', 'people', 'Teaches the ones who already know how to cut.', {
+    kind: 'officer_threshold',
+    attribute: 'medicine',
+    flat: 8,
+    threshold: 50,
+  }),
+
+  /*
+   * §D5: the officer's own battle perks.
+   *
+   * Worth nothing at all until the player takes this person out of the district and puts them at
+   * the front of a column, which is what makes them the first perks in the book that are a reason
+   * to *do* something rather than a percentage that accrues. Magnitudes run a little above the
+   * unconditional entries for exactly that reason: a bonus that pays on one fight in ten has to be
+   * worth noticing on the tenth.
+   */
+  perk('front_rank', 'Front Rank', 'military', 'Stands where the line is thinnest, every time.', {
+    kind: 'lead_offense',
+    percent: 8,
+  }),
+  perk(
+    'read_the_room',
+    'Read the Room',
+    'military',
+    'Calls the shift a half second before it happens.',
+    {
+      kind: 'lead_evasion',
+      flat: 6,
+    },
+  ),
+  perk('plate_hoarder', 'Plate Hoarder', 'military', 'Nobody walks out without a chest rig on.', {
+    kind: 'lead_armor',
+    flat: 5,
+  }),
+  perk(
+    'holds_the_line',
+    'Holds the Line',
+    'military',
+    'Has never once told anybody to fall back.',
+    {
+      kind: 'lead_morale',
+      flat: 8,
+    },
+  ),
+  perk('picks_the_crate', 'Picks the Crate', 'logistics', 'Knows which pallet is the real one.', {
+    kind: 'lead_loot',
+    percent: 12,
+  }),
+  perk('short_way', 'Short Way', 'logistics', 'Has never taken the road anybody else would.', {
+    kind: 'lead_arrival',
+    percent: 10,
+  }),
 ];
 
 export const PERK_CATALOG: readonly Perk[] = CATALOG;
@@ -936,6 +1287,37 @@ export function describePerkBonus(bonus: PerkBonus): string {
       return `+${bonus.percent}% wounded recovered`;
     case 'cohesion':
       return `+${bonus.percent}% cohesion`;
+    // The conditional ones say *when*, not only how much: a number with no condition on it reads
+    // as an unconditional bonus, and these are worth nothing until their condition is true.
+    case 'allied_offense':
+      return `+${bonus.percent}% offense fighting alongside allies`;
+    case 'gate_defense':
+      return `+${bonus.percent}% Gate defense`;
+    case 'whole_district':
+      return `+${bonus.percent}% defense holding the whole district`;
+    case 'building_cost':
+      return `-${bonus.percent}% ${BUILDING_CATALOG[bonus.building].name} cost`;
+    case 'unit_kind':
+      return `+${bonus.percent}% ${findUnit(bonus.unitId)?.name ?? bonus.unitId} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
+    case 'xp_gain':
+      return `+${bonus.percent}% experience`;
+    // §D5: every one of these says *while leading*, because that is the whole of what they are.
+    case 'lead_offense':
+      return `+${bonus.percent}% offense while leading`;
+    case 'lead_evasion':
+      return `+${bonus.flat} evasion while leading`;
+    case 'lead_armor':
+      return `+${bonus.flat} armour while leading`;
+    case 'lead_morale':
+      return `+${bonus.flat} morale while leading`;
+    case 'lead_loot':
+      return `+${bonus.percent}% loot while leading`;
+    case 'lead_arrival':
+      return `+${bonus.percent}% travel speed while leading`;
+    case 'officer_attribute':
+      return `+${bonus.flat} ${ATTRIBUTE_LABELS[bonus.attribute]} to every other officer`;
+    case 'officer_threshold':
+      return `+${bonus.flat} ${ATTRIBUTE_LABELS[bonus.attribute]} to officers already at ${bonus.threshold}`;
     default:
       return describeHoldBonus(bonus);
   }

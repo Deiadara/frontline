@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import {
   CITY_LOCATIONS,
   MAX_TRAINING_QUEUE,
+  VEHICLES,
+  buildingLevel,
+  trainingSuppliesReduction,
+  trainingTimeReduction,
   addResources,
   addToArmy,
   alreadyHolds,
@@ -53,6 +57,25 @@ export type TrainingResult =
   | { kind: 'refused'; reason: TrainingRefusal }
   | { kind: 'queued'; base: Base; order: TrainingOrder };
 
+/**
+ * §B6: the machines the Garage could turn out today, by id.
+ *
+ * "Can build", not "has built": the Road Reavers' gate is that the yard *makes* motorcycles, so a
+ * crew that sends its last bike out on a mission does not lose the ability to train them. Read off
+ * the vehicle catalogue's own two unlock clauses, its Garage level and its blueprint, and
+ * deliberately not off its price: being short of scrap this afternoon is not a campaign gate.
+ */
+export function buildableVehiclesFor(base: Base): Set<string> {
+  const garage = buildingLevel(base.buildings, 'garage');
+  return new Set(
+    VEHICLES.filter(
+      (spec) =>
+        garage >= spec.requiresGarageLevel &&
+        (spec.requiresBlueprint === null || (base.inventory[spec.requiresBlueprint] ?? 0) > 0),
+    ).map((spec) => spec.id),
+  );
+}
+
 /** What this crew's territory does to unlocks: the place kinds it currently holds. */
 export function unlockContextFor(repos: Repositories, base: Base): UnlockContext {
   const controls = repos.city.controls();
@@ -62,7 +85,33 @@ export function unlockContextFor(repos: Repositories, base: Base): UnlockContext
       const control = controls.get(locationId);
       return control !== undefined && isHeldBy(control, base.id);
     }),
+    buildableVehicles: buildableVehiclesFor(base),
   };
+}
+
+/**
+ * Everything this district takes off a training bill and a training clock.
+ *
+ * Three sources folded once, here, so the roster's quoted price, `Max`, and the route's charge are
+ * by construction the same three numbers. The Greenhouse's is deliberately kept apart from the
+ * general discount all the way down to `trainingCost`, because §B5 says it lands on the supplies
+ * line and on nothing else.
+ */
+export function trainingRatesFor(repos: Repositories, base: Base): TrainingRates {
+  const effects = standingEffectsFor(repos, base);
+  return {
+    costPercent: effects.trainingCostPercent,
+    // §B5: the Greenhouse, and the modifications that grow with it.
+    suppliesPercent: trainingSuppliesReduction(base.buildings),
+    // §B6: the Gauntlet takes time off every unit on the roster, the ones it cannot train included.
+    speedPercent: effects.trainingSpeedPercent + trainingTimeReduction(base.buildings),
+  };
+}
+
+export interface TrainingRates {
+  costPercent: number;
+  suppliesPercent: number;
+  speedPercent: number;
 }
 
 export interface TrainingSettlement {
@@ -195,7 +244,7 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
     return { kind: 'refused', reason: 'already_have_one' };
   }
 
-  const effects = standingEffectsFor(repos, base);
+  const rates = trainingRatesFor(repos, base);
   // §A1: soldiers come out of the district's population, alongside the officers and the placed
   // assignees. `districtPopulation` has already counted everything standing, garrisons and the
   // training bench included, so what this order needs is only what it adds on top.
@@ -205,7 +254,7 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
     if (refused) return refused;
   }
 
-  const cost = trainingCost(unit, count, effects.trainingCostPercent);
+  const cost = trainingCost(unit, count, rates.costPercent, rates.suppliesPercent);
   if (!canAfford(base.resources, cost)) {
     const refused = refuse('cannot_afford');
     if (refused) return refused;
@@ -218,10 +267,7 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
     count,
     delivered: 0,
     startedAt: trainingStartsAt(base.trainingQueue, now).toISOString(),
-    durationSeconds: adminSeconds(
-      trainingSeconds(unit, count, effects.trainingSpeedPercent),
-      admin,
-    ),
+    durationSeconds: adminSeconds(trainingSeconds(unit, count, rates.speedPercent), admin),
     // What was actually taken, so a refund is against the price paid rather than the price today.
     // A discount finished after the order was placed must not turn cancelling into a profit.
     paid: charged,

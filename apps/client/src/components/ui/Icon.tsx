@@ -54,6 +54,7 @@ export const ICON_NAMES = [
   'spark',
   'loot',
   'level',
+  'standings',
   'training',
   'workshop',
   'satchel',
@@ -401,6 +402,20 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M4 13.5 12 6l8 7.5" {...S} />
       <path d="M4 18.5 12 11l8 7.5" {...S} />
+    </>
+  ),
+  /* Three steps of a podium, tallest in the middle. Deliberately nothing like `level`, which is a
+     pair of chevrons: the standings door and the crew's own level chip sit two inches apart in the
+     standing bar and were drawing the same mark. */
+  standings: (
+    <>
+      <path d="M9.5 10.5h5v9.5h-5z" {...S} />
+      <path d="M3.5 14h6v6h-6z" {...S} />
+      <path d="M14.5 12.5h6v7.5h-6z" {...S} />
+      <path
+        d="M12 4.2l1.15 2.4 2.6.35-1.9 1.82.46 2.58L12 10.13l-2.31 1.22.46-2.58-1.9-1.82 2.6-.35z"
+        {...S}
+      />
     </>
   ),
   loot: (

@@ -1,4 +1,9 @@
 import {
+  crewSheet,
+  BENCH_SHARE,
+  ATTRIBUTE_NAMES,
+  PERK_CATALOG,
+  type Commander,
   BUILDING_CATALOG,
   MAX_ATTRIBUTE,
   OVERSEER_SUBJECT,
@@ -29,7 +34,8 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { queueBuild } from '../district/build.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { crewEffectsFor, standingEffectsFor } from './standing.js';
+import { crewEffectsFor, crewSheetsFor, standingEffectsFor } from './standing.js';
+import { seatedRoles } from './roster.js';
 
 /**
  * The crew layer end to end: the Training tab's rules over HTTP, and a positive control for each
@@ -305,6 +311,7 @@ describe('an attribute changes an outcome', () => {
     repos: Repositories,
     sheet: Record<string, number>,
     perks: readonly string[] = [],
+    extra: Commander[] = [],
   ): Base {
     repos.users.insert({ id: 'u', username: 'crew', passwordHash: 'x', createdAt: HOUR });
     const base: Base = {
@@ -329,7 +336,10 @@ describe('an attribute changes an outcome', () => {
       fittedUpgrades: [],
       unitLoadouts: {},
       fleet: {},
-      commanders: [createCommander('o1', 'Spec', 'head_spy', makeAttributes(0, sheet), perks)],
+      commanders: [
+        createCommander('o1', 'Spec', 'head_spy', makeAttributes(0, sheet), perks),
+        ...extra,
+      ],
       createdAt: HOUR,
     };
     repos.bases.insert(base);
@@ -464,5 +474,314 @@ describe('an attribute changes an outcome', () => {
     // renamed out from under it would make the cost assertions vacuous rather than failing.
     expect(RESOURCE_KEYS).toContain('scrap');
     expect(BUILDING_CATALOG.quarters).toBeDefined();
+  });
+});
+
+/**
+ * §B7: the perks that land on *other people's* sheets.
+ *
+ * The board's rule, in their words: a flat bonus an officer gives to their own attribute is not a
+ * bonus, because the same officer with a higher attribute is the identical crew. So every
+ * officer-facing perk reaches everybody on the books except the person carrying it, and the test
+ * that matters here is the one that pins the exception.
+ *
+ * Driven through `crewSheetsFor` rather than through `liftOfficer`, because the bug this replaced
+ * was not in the arithmetic. `officer_group` folded correctly into `officerGroupFlat` and the only
+ * consumer of that channel read the *ground's* copy and never the crew's, so eight perks in the
+ * book moved no number anywhere in the game. Unit tests of the fold all passed throughout.
+ */
+describe('a perk that lifts the other officers', () => {
+  const HOUR = '2026-08-16T12:00:00.000Z';
+
+  function roster(repos: Repositories, officers: Commander[]): Base {
+    repos.users.insert({ id: 'u', username: 'lift', passwordHash: 'x', createdAt: HOUR });
+    const base: Base = {
+      id: 'b',
+      ownerId: 'u',
+      name: 'The Yard',
+      districtId: 'neon-docks',
+      level: 1,
+      isBot: false,
+      resources: { ...STARTING_RESOURCES },
+      economy: startingEconomy(HOUR),
+      progression: startingProgression(),
+      research: startingResearch(),
+      buildings: [],
+      buildQueue: [],
+      army: {},
+      trainingQueue: [],
+      training: startingTraining(HOUR),
+      inventory: {},
+      fittedUpgrades: [],
+      unitLoadouts: {},
+      fleet: {},
+      commanders: officers,
+      createdAt: HOUR,
+    };
+    repos.bases.insert(base);
+    return base;
+  }
+
+  /** The perk in the book that lifts one named attribute for the rest of the crew. */
+  const teacher = PERK_CATALOG.find((entry) => entry.bonus.kind === 'officer_attribute');
+  if (!teacher || teacher.bonus.kind !== 'officer_attribute') {
+    throw new Error('no officer_attribute perk in the book');
+  }
+  const { attribute, flat } = teacher.bonus;
+
+  function sheetOf(repos: Repositories, base: Base, officerId: string) {
+    const officer = base.commanders.find((entry) => entry.id === officerId)!;
+    const index = base.commanders.indexOf(officer);
+    // `crewSheetsFor` puts the Overseer first when there is one; there is not, in this fixture.
+    return crewSheetsFor(repos, base)[index]!;
+  }
+
+  it('raises the attribute on everybody else', () => {
+    const repos = openStack();
+    const base = roster(repos, [
+      createCommander('teacher', 'Teach', 'head_spy', makeAttributes(20), [teacher.id]),
+      createCommander('pupil', 'Pupil', 'trader', makeAttributes(20), []),
+    ]);
+
+    expect(sheetOf(repos, base, 'pupil').attributes[attribute]).toBe(20 + flat);
+  });
+
+  /** The rule the board asked for, and the whole reason the perk book was reworked. */
+  it('does not raise it on the officer carrying it', () => {
+    const repos = openStack();
+    const base = roster(repos, [
+      createCommander('teacher', 'Teach', 'head_spy', makeAttributes(20), [teacher.id]),
+      createCommander('pupil', 'Pupil', 'trader', makeAttributes(20), []),
+    ]);
+
+    expect(sheetOf(repos, base, 'teacher').attributes[attribute]).toBe(20);
+  });
+
+  it('stacks when two officers both carry one', () => {
+    const repos = openStack();
+    const base = roster(repos, [
+      createCommander('one', 'One', 'head_spy', makeAttributes(20), [teacher.id]),
+      createCommander('two', 'Two', 'trader', makeAttributes(20), [teacher.id]),
+      createCommander('three', 'Three', 'raid_boss', makeAttributes(20), []),
+    ]);
+
+    // The two teachers lift each other once each; the third is lifted by both.
+    expect(sheetOf(repos, base, 'one').attributes[attribute]).toBe(20 + flat);
+    expect(sheetOf(repos, base, 'three').attributes[attribute]).toBe(20 + flat * 2);
+  });
+
+  it('leaves a lone officer exactly as they came in', () => {
+    const repos = openStack();
+    const base = roster(repos, [
+      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), [teacher.id]),
+    ]);
+
+    expect(sheetOf(repos, base, 'alone').attributes[attribute]).toBe(20);
+  });
+});
+
+/**
+ * §C2: the bench, and what somebody on it is worth (board request).
+ *
+ * The Bar turns over at midnight and a good sheet walks away, so the pressure to sign is real and
+ * the pressure to have already decided which chair was artificial. The bench removes the second
+ * without removing the first: sign them now, seat them later, and pay for the delay in what they
+ * contribute meanwhile.
+ */
+describe('the bench', () => {
+  const HOUR = '2026-08-16T12:00:00.000Z';
+
+  function roster(repos: Repositories, officers: Commander[]): Base {
+    repos.users.insert({ id: 'u', username: 'bench', passwordHash: 'x', createdAt: HOUR });
+    const base: Base = {
+      id: 'b',
+      ownerId: 'u',
+      name: 'The Yard',
+      districtId: 'neon-docks',
+      level: 1,
+      isBot: false,
+      resources: { ...STARTING_RESOURCES },
+      economy: startingEconomy(HOUR),
+      progression: startingProgression(),
+      research: startingResearch(),
+      buildings: [],
+      buildQueue: [],
+      army: {},
+      trainingQueue: [],
+      training: startingTraining(HOUR),
+      inventory: {},
+      fittedUpgrades: [],
+      unitLoadouts: {},
+      fleet: {},
+      commanders: officers,
+      createdAt: HOUR,
+    };
+    repos.bases.insert(base);
+    return base;
+  }
+
+  /**
+   * The price of the bench, and the reason it is not a free parking space.
+   *
+   * A seated officer is paid in full in the skills their chair uses. A benched one is paid the
+   * off-duty share in everything, which is the same share a seated officer gets in the skills
+   * their own chair does not care about. So signing somebody is always worth something and seating
+   * them is worth a great deal more.
+   *
+   * Asserted through `crewSheet`, which is where the share is actually applied. `crewSheetsFor`
+   * hands back each person's *raw* sheet with the peer lifts on it; reading that would have shown
+   * a benched officer at their full 40 and proved nothing about the discount.
+   */
+  it('pays somebody with no chair the off-duty share of everything', () => {
+    const repos = openStack();
+    const base = roster(repos, [createCommander('benched', 'Bench', null, makeAttributes(40), [])]);
+
+    const sheet = crewSheet(crewSheetsFor(repos, base));
+    for (const name of ATTRIBUTE_NAMES) {
+      expect(sheet[name]).toBe(Math.round(40 * BENCH_SHARE));
+    }
+  });
+
+  /** And the same person in a chair is worth more, in what that chair is actually for. */
+  it('is worth less than the same person seated', () => {
+    const benched = crewSheet(
+      crewSheetsFor(
+        openStack(),
+        roster(openStack(), [createCommander('x', 'X', null, makeAttributes(40), [])]),
+      ),
+    );
+    const seated = crewSheet(
+      crewSheetsFor(
+        openStack(),
+        roster(openStack(), [createCommander('x', 'X', 'head_spy', makeAttributes(40), [])]),
+      ),
+    );
+
+    // Ahead somewhere (the chair's own duties) and behind nowhere: the off-duty share is the floor
+    // a seat can never pay less than.
+    expect(ATTRIBUTE_NAMES.some((name) => seated[name] > benched[name])).toBe(true);
+    expect(ATTRIBUTE_NAMES.every((name) => benched[name] <= seated[name])).toBe(true);
+  });
+
+  /**
+   * A benched officer still lifts the people around them.
+   *
+   * Perks are things a person brought with them rather than something their chair does, so the
+   * bench does not switch them off. It is what makes signing a teacher you have nowhere to put a
+   * defensible move rather than a mistake.
+   */
+  it('still carries a perk that lifts the other officers', () => {
+    const teacher = PERK_CATALOG.find((entry) => entry.bonus.kind === 'officer_attribute');
+    if (!teacher || teacher.bonus.kind !== 'officer_attribute') throw new Error('no such perk');
+    const { attribute, flat } = teacher.bonus;
+
+    const withTeacher = openStack();
+    const pairBase = roster(withTeacher, [
+      createCommander('benched', 'Bench', null, makeAttributes(20), [teacher.id]),
+      createCommander('seated', 'Seat', 'head_spy', makeAttributes(20), []),
+    ]);
+    const lifted = crewSheetsFor(withTeacher, pairBase).find(
+      (member) => member.role === 'head_spy',
+    )!;
+
+    const alone = openStack();
+    const loneBase = roster(alone, [
+      createCommander('seated', 'Seat', 'head_spy', makeAttributes(20), []),
+    ]);
+    const unlifted = crewSheetsFor(alone, loneBase)[0]!;
+
+    expect(lifted.attributes[attribute]).toBe(unlifted.attributes[attribute] + flat);
+  });
+
+  /** A chair holds one person. The bench holds everybody you have not placed. */
+  it('holds as many people as have been signed', () => {
+    const repos = openStack();
+    const base = roster(repos, [
+      createCommander('one', 'One', null, makeAttributes(20), []),
+      createCommander('two', 'Two', null, makeAttributes(20), []),
+      createCommander('three', 'Three', null, makeAttributes(20), []),
+    ]);
+
+    expect(crewSheetsFor(repos, base)).toHaveLength(3);
+    expect(seatedRoles(base.commanders)).toEqual([]);
+  });
+});
+
+/**
+ * §B7: the Gate reaches the fight.
+ *
+ * Written at integration, because the two halves of this were built by different people and the
+ * seam between them is exactly where a bonus stops applying. `gateDefensePercent` was authored,
+ * levelled, and unit-tested against the building catalogue, and `standingEffectsFor` is the only
+ * path from a district into `battle/effects.ts`. Until these two lines existed the Gate's whole
+ * percentage was computed correctly and thrown away, which is the same failure the eight
+ * `officer_group` perks shipped with: a channel with no consumer.
+ *
+ * Asserted through the funnel rather than on the helper, for that reason. The helper's own tests
+ * pass either way.
+ */
+describe('the Gate, from the district into a fight', () => {
+  const HOUR = '2026-08-16T12:00:00.000Z';
+
+  function withGateAt(level: number): { repos: Repositories; base: Base } {
+    const repos = openStack();
+    repos.users.insert({ id: 'u', username: 'gate', passwordHash: 'x', createdAt: HOUR });
+    const base: Base = {
+      id: 'b',
+      ownerId: 'u',
+      name: 'The Yard',
+      districtId: 'neon-docks',
+      level: 1,
+      isBot: false,
+      resources: { ...STARTING_RESOURCES },
+      economy: startingEconomy(HOUR),
+      progression: startingProgression(),
+      research: startingResearch(),
+      buildings:
+        level === 0
+          ? []
+          : [{ id: 'g', kind: 'gate', level, modifications: [], damage: 0, fortification: 0 }],
+      buildQueue: [],
+      army: {},
+      trainingQueue: [],
+      training: startingTraining(HOUR),
+      inventory: {},
+      fittedUpgrades: [],
+      unitLoadouts: {},
+      fleet: {},
+      commanders: [],
+      createdAt: HOUR,
+    };
+    repos.bases.insert(base);
+    return { repos, base };
+  }
+
+  it('puts a raised Gate on the channel the battle engine reads', () => {
+    const none = withGateAt(0);
+    const raised = withGateAt(6);
+
+    const without = standingEffectsFor(none.repos, none.base).defensePercent;
+    const with6 = standingEffectsFor(raised.repos, raised.base).defensePercent;
+
+    expect(with6).toBeGreaterThan(without);
+  });
+
+  it('is worth more the higher it is raised', () => {
+    const low = withGateAt(2);
+    const high = withGateAt(10);
+
+    expect(standingEffectsFor(high.repos, high.base).defensePercent).toBeGreaterThan(
+      standingEffectsFor(low.repos, low.base).defensePercent,
+    );
+  });
+
+  /** The other half of §B7: a raised Gate is a district that is harder to read. */
+  it('makes the district harder to scout', () => {
+    const none = withGateAt(0);
+    const raised = withGateAt(6);
+
+    expect(standingEffectsFor(raised.repos, raised.base).intelResistancePercent).toBeGreaterThan(
+      standingEffectsFor(none.repos, none.base).intelResistancePercent,
+    );
   });
 });

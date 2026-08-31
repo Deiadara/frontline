@@ -17,7 +17,7 @@ import { RewardLine } from '../../components/Resources';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
-import { useCrew, useLaunchMission, useMissions } from '../../lib/queries';
+import { useCrew, useLaunchMission, useMe, useMissions } from '../../lib/queries';
 import { MissionBoard } from './MissionBoard';
 import { useServerClock } from './useServerClock';
 import { PageShell } from '../game/PageShell';
@@ -150,6 +150,9 @@ function EmptyRow({ text }: { text: string }) {
 export function MissionsPage() {
   const missionsQuery = useMissions();
   const crewQuery = useCrew();
+  // §C3: the yard lives on the session snapshot, not on the missions payload: a machine is a fact
+  // about the district rather than about the board.
+  const me = useMe();
   const launch = useLaunchMission();
 
   const data = missionsQuery.data;
@@ -216,6 +219,7 @@ export function MissionsPage() {
           <MissionBoard
             areas={data?.areas ?? []}
             army={data?.army ?? {}}
+            fleet={me.data?.base?.fleet ?? {}}
             roster={roster}
             atCapacity={atCapacity}
             pendingTemplateId={launch.isPending ? (launch.variables?.templateId ?? null) : null}
@@ -224,9 +228,15 @@ export function MissionsPage() {
                 ? { templateId: launch.variables.templateId, message: launch.error.message }
                 : null
             }
-            onLaunch={(areaId, templateId, force, officerId) =>
+            onLaunch={(areaId, templateId, force, officerId, vehicles) =>
               launch.mutate(
-                { areaId, templateId, force, ...(officerId ? { officerId } : {}) },
+                {
+                  areaId,
+                  templateId,
+                  force,
+                  vehicles: vehicles ?? {},
+                  ...(officerId ? { officerId } : {}),
+                },
                 // A launch settles the board first, so this response is the only place a crew
                 // that landed on it is ever reported: including when the launch is then
                 // refused, since the settle is not rolled back (MOU-280).

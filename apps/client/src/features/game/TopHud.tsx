@@ -16,6 +16,7 @@ import { RESOURCE_ORDER, ResourceChip } from '../../components/Resources';
 import { OverseerPortrait } from '../overseer/OverseerPortrait';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
+import type { LiveStatus } from '../../lib/live';
 import { badgeCount, type UnreadCounts } from '@frontline/shared';
 
 /**
@@ -62,7 +63,11 @@ function HudDoor({
             // The same struck plate the scenery switcher's doors wear (`door-tile`): bevel,
             // interior glow, sheen and drop shadow. The two rows are the same kind of object and
             // now say so, which is what the board asked for.
-            'door-tile relative flex h-11 w-11 items-center justify-center rounded-lg border transition-all duration-150 ease-out',
+            // 40px, matching the overseer's portrait at the other end of the group. The five doors
+            // were 44 and made the right-hand cluster 23px wider than the stockpile, which put the
+            // plaque visibly off-centre between them: it is centred in the *viewport* by the grid,
+            // so any difference in the two groups' widths shows up as uneven air around the sign.
+            'door-tile relative flex h-10 w-10 items-center justify-center rounded-lg border transition-all duration-150 ease-out',
             isActive
               ? 'door-tile-active z-10 -translate-y-0.5 scale-105 border-brass-300 text-brass-100'
               : 'border-surface-500/70 text-ink-200 ' +
@@ -123,6 +128,8 @@ interface TopHudProps {
   economy: EconomyState;
   /** What is standing: the Apothecary in it is what sets the stockpile ceiling. */
   buildings: readonly Building[];
+  /** The live channel's state (`lib/live.ts`). Drawn only when it is not up. */
+  live?: LiveStatus;
 }
 
 /**
@@ -140,7 +147,15 @@ interface TopHudProps {
  * Height here buys legible numerals, icons big enough to identify without reading the number beside
  * them, and hit targets that clear the 44px guideline for the parts that are clickable.
  */
-export function TopHud({ overseer, base, resources, economy, buildings, unread }: TopHudProps) {
+export function TopHud({
+  overseer,
+  base,
+  resources,
+  economy,
+  buildings,
+  unread,
+  live,
+}: TopHudProps) {
   /*
    * Three shelves, not one, and caps are on none of them.
    *
@@ -211,6 +226,7 @@ export function TopHud({ overseer, base, resources, economy, buildings, unread }
           rather than walked to. Settings used to be a third; it is pinned to the right of the
           scenery switcher now, closer to the hand. */}
       <div className="order-4 ml-auto flex shrink-0 items-center gap-1.5 [@media(min-width:1500px)]:ml-0 [@media(min-width:1500px)]:justify-self-end">
+        <LiveMarker status={live} />
         <div className="flex shrink-0 items-center gap-1 border-r border-surface-600/70 pr-2.5">
           {/* The mailbox and the bell, left of the fighting. The board's placement, and it is the
               right one: these two are the game talking to *you*, and the two beside them are you
@@ -240,6 +256,14 @@ export function TopHud({ overseer, base, resources, economy, buildings, unread }
             icon="actions"
             label="Actions"
             title="Who is on the road, and how long they have left"
+          />
+          {/* The standings, next to Actions (board's placement). The last door in the group, and
+              the only one that is about somebody other than you. */}
+          <HudDoor
+            to="/game/leaderboard"
+            icon="standings"
+            label="Standings"
+            title="Who is ahead, of the players and of the factions"
           />
         </div>
 
@@ -295,5 +319,29 @@ export function TopHud({ overseer, base, resources, economy, buildings, unread }
         </NavLink>
       </div>
     </header>
+  );
+}
+
+/**
+ * Says when the game has stopped listening, and nothing at all when it has not.
+ *
+ * Drawn only in the failed state on purpose. A green "connected" light is chrome a player learns to
+ * stop seeing within a day, and its whole job is to be noticed on the one day it goes out. What is
+ * worth saying is the opposite: this board may be behind, because a strategy game that has quietly
+ * lost its connection looks exactly like a strategy game where nothing is happening. The screens
+ * are still polling underneath (`SHELL_POLL_MS`), so this is "slower than it should be" rather than
+ * "broken", and it says so.
+ */
+function LiveMarker({ status }: { status: LiveStatus | undefined }) {
+  if (status !== 'offline') return null;
+  return (
+    <span
+      data-testid="live-offline"
+      data-tip="Not receiving updates as they happen. The board is still refreshing, just slower."
+      className="flex shrink-0 items-center gap-1.5 rounded-sm border border-oxblood-400/50 bg-oxblood-500/10 px-2 py-1 font-display text-[10px] uppercase tracking-[0.14em] text-oxblood-200"
+    >
+      <Icon name="clock" aria-hidden className="h-3 w-3" />
+      Reconnecting
+    </span>
   );
 }

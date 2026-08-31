@@ -457,6 +457,342 @@ SUBJECT: A man in his forties in a checkpoint greatcoat with a whistle on a cord
 SUBJECT: A woman in her thirties with her hair covered, a clipboard held against her chest, a queue of figures and a chain-link fence out of focus behind her.
 ```
 
+### 1b.44 `officer-44`
+
+```
+SUBJECT: A woman in her forties with dark curls pinned up, layered work coat, a wall of ledgers and files behind her.
+```
+
+### 1b.45 `officer-45`
+
+```
+SUBJECT: A bald man in his sixties with a heavy jaw and a red-brown work jacket, a lit machine shop behind him.
+```
+
+### 1b.46 `officer-46`
+
+```
+SUBJECT: A woman in her sixties with silver curls and a deep red coat, warm lamplight on brass fittings behind her.
+```
+
+### 1b.47 `officer-47`
+
+```
+SUBJECT: A man in his fifties with slicked hair and a moustache, high collar, green bottle-lamps down the wall behind.
+```
+
+### 1b.48 `officer-48`
+
+```
+SUBJECT: A woman in her sixties with close-cropped grey hair in a braided dark uniform, violet machine light behind.
+```
+
+### 1b.49 `officer-49`
+
+```
+SUBJECT: A pale woman in her fifties with short platinum hair, a red coat over a check shirt, dim workshop behind.
+```
+
+### 1b.50 `officer-50`
+
+```
+SUBJECT: A thin smiling man in his fifties with receding red hair, waistcoat and tie, warm interior light.
+```
+
+### 1b.51 `officer-51`
+
+```
+SUBJECT: A woman in her sixties with a grey bob and a dark collar, a neon window on the wet street behind her.
+```
+
+### 1b.52 `officer-52`
+
+```
+SUBJECT: A bald man in his sixties with a grey beard and a green work jacket, teal machine light behind him.
+```
+
+### 1b.53 `officer-53`
+
+```
+SUBJECT: A man in his sixties with a grey beard, mustard coat over blue, a dim corridor behind.
+```
+
+### 1b.54 `officer-54`
+
+```
+SUBJECT: A young woman with a black bob and a dark jacket, standing in a lamplit alley.
+```
+
+### 1b.55 `officer-55`
+
+```
+SUBJECT: A man in his seventies with a white beard and a heavy dark coat, grey daylight behind him.
+```
+
+### 1b.56 `officer-56`
+
+```
+SUBJECT: A thin pale man in his forties with sparse hair and a grey coat, standing in a doorway.
+```
+
+### 1b.57 `officer-57`
+
+```
+SUBJECT: A woman in her thirties with dark curls and an oxblood leather jacket, warm street light behind.
+```
+
+### 1b.58 `officer-58`
+
+```
+SUBJECT: A woman in her fifties with grey curls and a brown coat, violet dusk over the rooftops behind her.
+```
+
+### 1b.59 `officer-59`
+
+```
+SUBJECT: A young man with black hair and a blue work coat, a rain-slick bridge behind him.
+```
+
+### 1b.60 `officer-60`
+
+```
+SUBJECT: A woman in her fifties with grey hair tied back, plain coat, a street of shutters behind her.
+```
+
+### 1b.61 `officer-61`
+
+```
+SUBJECT: A man in his fifties with a lined face and a green coat, heavy pipework behind him.
+```
+
+### 1b.62 `officer-62`
+
+```
+SUBJECT: A man in his seventies with white hair and a brown coat, a quiet pale interior behind him.
+```
+
+### 1b.63 `officer-63`
+
+```
+SUBJECT: A woman in her thirties with dark hair pinned up and a red-brown coat, chimneys and smoke behind.
+```
+
+### 1b.64 `officer-64`
+
+```
+SUBJECT: A young man with dark hair and a teal-lined coat, a dim brick passage behind him.
+```
+
+### 1b.65 `officer-65`
+
+```
+SUBJECT: A woman in her forties with dark curls and a plum scarf, a lit doorway on a night street behind.
+```
+
+### 1b.66 `officer-66`
+
+```
+SUBJECT: A young man with dark curls and a heavy coat, a rusted stairwell behind him.
+```
+
+### 1b.67 `officer-67`
+
+```
+SUBJECT: A woman in her fifties with short grey hair and a work coat, blue-lit machinery behind her.
+```
+
+### 1b.68 `officer-68`
+
+```
+SUBJECT: A man in his fifties with a grey beard and an open collar, bunting over a night street behind him.
+```
+
+### 1b.69 `officer-69`
+
+```
+SUBJECT: A woman in her forties with dark curls and a brown coat, a weathered wall behind her.
+```
+
+### 1b.70 `officer-70`
+
+```
+SUBJECT: A young man with short fair hair and a dark coat, a pale courtyard behind him.
+```
+
+### 1b.71 `officer-71`
+
+```
+SUBJECT: A woman in her thirties with cropped blonde hair and a heavy coat, a bright empty street behind.
+```
+
+### 1b.72 `officer-72`
+
+```
+SUBJECT: A woman in her forties with dark hair and a brown coat, a canal and a bridge behind her.
+```
+
+### 1b.73 `officer-73`
+
+```
+SUBJECT: A man in his thirties with a red beard and a heavy coat, a waterway and stonework behind him.
+```
+
+### 1b.74 `officer-74`
+
+```
+SUBJECT: A man in his forties with dark hair and a moustache, worn jacket, lamplit alley behind him.
+```
+
+### 1b.75 `officer-75`
+
+```
+SUBJECT: A woman in her forties with fair hair loose, a leather coat, hanging lanterns behind her.
+```
+
+### 1b.76 `officer-76`
+
+```
+SUBJECT: A man in his forties with dark hair, collar turned up, a narrow lamplit street behind him.
+```
+
+### 1b.77 `officer-77`
+
+```
+SUBJECT: A woman in her forties with dark curly hair and a long coat, iron railings behind her.
+```
+
+### 1b.78 `officer-78`
+
+```
+SUBJECT: A man in his forties with short fair hair and a grey coat, a wet street at dusk behind him.
+```
+
+### 1b.79 `officer-79`
+
+```
+SUBJECT: A woman in her thirties with dark cropped hair and an open coat, pale stone behind her.
+```
+
+### 1b.80 `officer-80`
+
+```
+SUBJECT: A man in his thirties with short dark hair, shirt and tie under a coat, a dim street behind.
+```
+
+### 1b.81 `officer-81`
+
+```
+SUBJECT: A man in his fifties with long dark hair and a worn coat, a lamplit lane behind him.
+```
+
+### 1b.82 `officer-82`
+
+```
+SUBJECT: A woman in her thirties with a dark bob and a work jacket, a stairwell and a lantern behind her.
+```
+
+### 1b.83 `officer-83`
+
+```
+SUBJECT: A man in his forties with dark hair and a moustache, heavy coat, green-lit alley behind him.
+```
+
+### 1b.84 `officer-84`
+
+```
+SUBJECT: A person in their thirties with short dark hair and a plain coat, a shuttered street behind them.
+```
+
+### 1b.85 `officer-85`
+
+```
+SUBJECT: A woman in her thirties with dark wavy hair and a strapped coat, a stone wall behind her.
+```
+
+### 1b.86 `officer-86`
+
+```
+SUBJECT: A man in his forties with short dark hair and a brown collar, a dim room behind him.
+```
+
+### 1b.87 `officer-87`
+
+```
+SUBJECT: A man in his forties with black hair and a heavy coat, a lit shopfront behind him.
+```
+
+### 1b.88 `officer-88`
+
+```
+SUBJECT: A woman in her forties with a long dark braid and a high collar, a bare interior behind her.
+```
+
+### 1b.89 `officer-89`
+
+```
+SUBJECT: A bald man in his fifties with facial implants and a purple coat, teal machine light behind him.
+```
+
+### 1b.90 `officer-90`
+
+```
+SUBJECT: A thin man in his thirties with red hair and a buttoned coat, a grey overpass behind him.
+```
+
+### 1b.91 `officer-91`
+
+```
+SUBJECT: A woman in her forties with dark curls and a red coat with a crest, warm lamps behind her.
+```
+
+### 1b.92 `officer-92`
+
+```
+SUBJECT: A man in his fifties with fair hair and a tan coat, a green glass dome behind him.
+```
+
+### 1b.93 `officer-93`
+
+```
+SUBJECT: A gaunt man in his forties with a green coat and a crest, a pale crowded street behind him.
+```
+
+### 1b.94 `officer-94`
+
+```
+SUBJECT: A woman in her sixties with long grey hair, a yellow coat and a blue scarf, a bright street behind.
+```
+
+### 1b.95 `officer-95`
+
+```
+SUBJECT: A woman in her thirties with red hair and a dark red coat with a crest, lit shelves behind her.
+```
+
+### 1b.96 `officer-96`
+
+```
+SUBJECT: A man in his forties with a beard and a patched brown coat, a lamplit quay behind him.
+```
+
+### 1b.97 `officer-97`
+
+```
+SUBJECT: A heavy-set man in his sixties in a blue coat and red tie, a grey waterfront behind him.
+```
+
+### 1b.98 `officer-98`
+
+```
+SUBJECT: A man in his thirties with short black hair and a dark leather coat, a dim interior behind him.
+```
+
+### 1b.99 `officer-99`
+
+```
+SUBJECT: A young woman with cropped fair hair and a pale lilac coat, a bleached-out street behind her.
+```
+
 ## 2. District illustrations: 12 assets
 
 **Class framing** (append to each):
@@ -746,13 +1082,12 @@ Ids match `BuildingKind` in `@frontline/shared`.
 | `building-greenhouse` | The Greenhouse | `140003` |
 | `building-generator`  | The Generator  | `140004` |
 | `building-scrapyard`  | The Scrapyard  | `140005` |
-| `building-cistern`    | The Cistern    | `140006` |
-| `building-apothecary` | The Apothecary | `140007` |
-| `building-gate`       | The Gate       | `140008` |
-| `building-lab`        | The Lab        | `140010` |
-| `building-gauntlet`   | The Gauntlet   | `140011` |
-| `building-infirmary`  | The Infirmary  | `140012` |
-| `building-garage`     | The Garage     | `140013` |
+| `building-apothecary` | The Apothecary | `140006` |
+| `building-gate`       | The Gate       | `140007` |
+| `building-lab`        | The Lab        | `140008` |
+| `building-gauntlet`   | The Gauntlet   | `140009` |
+| `building-infirmary`  | The Infirmary  | `140010` |
+| `building-garage`     | The Garage     | `140011` |
 
 ### 4.1 `building-nexus`
 
@@ -800,16 +1135,7 @@ into its flank. Cutting sparks throw #ffd166 light up under the deck. Widest and
 industrial group, and the most cluttered silhouette in the district.
 ```
 
-### 4.6 `building-cistern`
-
-```
-SUBJECT: A water treatment stack: two riveted settling tanks of differing heights joined by an
-external pipe bridge, a sand-filter housing at the base, and a UV stage bolted on last in
-obviously newer metal. A cold #22d3ee inspection lamp over the outflow. Wet staining down the tank
-flanks. Cylindrical, paired, immediately unlike anything else on the ground.
-```
-
-### 4.7 `building-apothecary`
+### 4.6 `building-apothecary`
 
 ```
 SUBJECT: A dispensary-warehouse: a windowless block with one heavy roller shutter half raised,
@@ -818,7 +1144,7 @@ hand-painted apothecary symbols weathering off the render. Crates stacked under 
 orderly, guarded: the only building that looks locked.
 ```
 
-### 4.8 `building-gate`
+### 4.7 `building-gate`
 
 ```
 SUBJECT: A perimeter gate: a ferrocrete slab wall with a razorwire crown, one buttressed pier, a
@@ -827,7 +1153,7 @@ hasty patch-plates across the face. Lowest and widest silhouette; must read as h
 everything else.
 ```
 
-### 4.9 `building-lab`
+### 4.8 `building-lab`
 
 ```
 SUBJECT: A research stack: a vertical black slab of racked datacores behind a louvred skin, cold
@@ -836,7 +1162,7 @@ through one lit ground-floor window. A dense fan of fibre trunking sweeps out of
 shimmer above. The tallest and thinnest silhouette.
 ```
 
-### 4.10 `building-gauntlet`
+### 4.9 `building-gauntlet`
 
 ```
 SUBJECT: A training ground: an open run of welded obstacles, a climbing frame of scaffold pipe, a
@@ -845,7 +1171,7 @@ on a pole throwing hard white light across the course. Mostly open ground: the o
 as an *area* rather than a structure.
 ```
 
-### 4.11 `building-infirmary`
+### 4.10 `building-infirmary`
 
 ```
 SUBJECT: A clinic: a small clean-walled prefab with a red-cross panel repainted over something
@@ -854,7 +1180,7 @@ stack of gas cylinders chained beside the door. An air handler grumbling on the 
 building on the ground, deliberately at odds with everything around it.
 ```
 
-### 4.12 `building-garage`
+### 4.11 `building-garage`
 
 ```
 SUBJECT: A motor pool: a deep-mouthed open bay tall enough for a mast, a gantry crane on rails
@@ -937,7 +1263,7 @@ the central horizontal eighth of the canvas; the rest is fully transparent.
 
 ---
 
-## 6. Icons: 54 assets
+## 6. Icons: 62 assets
 
 **Class framing:**
 
@@ -1024,6 +1350,22 @@ One marker per _kind_ of place, not per place: thirty-one places share twenty ki
 | `icon-location-skate-ground`          | `160071` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.`     |
 | `icon-location-chapel`                | `160072` | `SUBJECT: A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one narrow window.`                                    |
 | `icon-location-graveyard`             | `160073` | `SUBJECT: Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8 stone, one lamp at the gate in #f59e0b.`               |
+
+### 6.5 Garage machines: ids match `VehicleId`
+
+The Garage's catalogue (`building/vehicles.ts`). Read at card size beside a cost line, so each is
+one machine in silhouette rather than a scene: the card carries the numbers.
+
+| Key                         | Seed     | Prompt                                                                                                                                 |
+| --------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon-vehicle-motorcycle`   | `161001` | `SUBJECT: A stripped street bike in three-quarter view, no fairing, welded rack over the tail, warm #f59e0b highlight along the tank.` |
+| `icon-vehicle-dirt-runner`  | `161002` | `SUBJECT: A knobble-tyred bike with a raised front mudguard and a strapped fuel can, mud-caked #8a5209 lower half.`                    |
+| `icon-vehicle-scrap-car`    | `161003` | `SUBJECT: A boxy saloon welded out of three donor bodies, mismatched panels, one headlamp lit #ffd166.`                                |
+| `icon-vehicle-armoured-car` | `161004` | `SUBJECT: A plated four-door with slit windows and a rolled bar over the roof, cold #94a3b8 steel.`                                    |
+| `icon-vehicle-flatbed`      | `161005` | `SUBJECT: A flatbed lorry in side view, rail sides and a rolled tarpaulin, deck stacked with crates.`                                  |
+| `icon-vehicle-war-hauler`   | `161006` | `SUBJECT: A six-axle hauler with a slab-sided cab and no visible glass, dust plume at the wheels.`                                     |
+| `icon-vehicle-gas-balloon`  | `161007` | `SUBJECT: A patched gas envelope over a slung basket, mooring lines trailing, pale #7ff0ff sky behind.`                                |
+| `icon-vehicle-rotorcraft`   | `161008` | `SUBJECT: A light helicopter with an open frame tail boom and a bulbous canopy, rotor blurred.`                                        |
 
 ---
 

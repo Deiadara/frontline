@@ -25,6 +25,8 @@ test('orders a batch, and Max asks for what the crew can actually afford and hou
   await installApi(page, lateGame);
   await page.goto('/game/units');
   await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+  // The catalogue opens on the carriers now; this is a test about the Razors' stepper.
+  await page.getByRole('button', { name: 'Rabble' }).click();
   await settleFonts(page);
 
   const card = page.getByTestId('unit-razors');

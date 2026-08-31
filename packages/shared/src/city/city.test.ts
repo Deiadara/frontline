@@ -405,9 +405,10 @@ describe('what territory is worth (§A4)', () => {
     const one = territoryEffectsFor(MINE, CITY_LOCATIONS, partial);
     const all = territoryEffectsFor(MINE, CITY_LOCATIONS, whole);
 
-    // The Undergrid's locations are substations; its unified bonus is more supply on top.
-    expect(one.powerSupply).toBeGreaterThan(0);
-    expect(all.powerSupply).toBeGreaterThan(one.powerSupply);
+    // The Undergrid's locations are substations with fuel bunkers behind them; its unified bonus
+    // is faster building on top (§A1 re-pointed the substations at oil when the grid went).
+    expect(one.perHour.oil ?? 0).toBeGreaterThan(0);
+    expect(all.buildSpeedPercent).toBeGreaterThan(one.buildSpeedPercent);
   });
 
   it('never pays a crew for ground somebody else is holding', () => {

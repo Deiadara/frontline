@@ -1,4 +1,7 @@
 import {
+  type Fleet,
+  carriedSpeedPercent,
+  VEHICLES,
   MISSION_STANCE_SPECS,
   findUnit,
   formatDuration,
@@ -123,6 +126,8 @@ export interface MissionBoardProps {
   areas: readonly MissionArea[];
   /** What is at home to send. */
   army: Army;
+  /** §C3: what is parked in the Garage, for the send dialog's "what carries them" rows. */
+  fleet: Fleet;
   roster: Roster;
   /** Every crew is out: no job on any board can be taken. */
   atCapacity: boolean;
@@ -136,12 +141,44 @@ export interface MissionBoardProps {
    * server has answered.
    */
   refusal: { templateId: string; message: string } | null;
-  onLaunch: (areaId: string, templateId: string, force: Army, officerId?: string) => void;
+  onLaunch: (
+    areaId: string,
+    templateId: string,
+    force: Army,
+    officerId?: string,
+    vehicles?: Fleet,
+  ) => void;
+}
+
+/** A one-press amount beside a `NumberField`: drawn, because it is a note rather than a machine. */
+function Quick({
+  label,
+  onClick,
+  disabled,
+  testId,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled: boolean;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      data-testid={testId}
+      className="ink-box px-2 py-1 font-stamp text-[11px] leading-none text-brass-200 transition-colors hover:text-brass-100 disabled:opacity-40"
+    >
+      {label}
+    </button>
+  );
 }
 
 export function MissionBoard({
   areas,
   army,
+  fleet,
   roster,
   atCapacity,
   pendingTemplateId,
@@ -256,10 +293,11 @@ export function MissionBoard({
           offer={sending}
           areaName={area.name}
           army={army}
+          fleet={fleet}
           roster={roster}
           onClose={() => setSending(null)}
-          onSend={(force, officerId) => {
-            onLaunch(area.id, sending.templateId, force, officerId);
+          onSend={(force, officerId, vehicles) => {
+            onLaunch(area.id, sending.templateId, force, officerId, vehicles);
             setSending(null);
           }}
         />
@@ -431,6 +469,7 @@ function SendDialog({
   offer,
   areaName,
   army,
+  fleet,
   roster,
   onClose,
   onSend,
@@ -438,12 +477,15 @@ function SendDialog({
   offer: MissionOffer;
   areaName: string;
   army: Army;
+  /** §C3: what is parked in the Garage and could carry them there. */
+  fleet: Fleet;
   roster: Roster;
   onClose: () => void;
-  onSend: (force: Army, officerId?: string) => void;
+  onSend: (force: Army, officerId?: string, vehicles?: Fleet) => void;
 }) {
   const officers = roster.status === 'ready' ? roster.officers : [];
   const [force, setForce] = useState<Army>({});
+  const [riding, setRiding] = useState<Fleet>({});
   const [pickedId, setPickedId] = useState('');
 
   const available = Object.entries(army)
@@ -455,6 +497,8 @@ function SendDialog({
 
   const going = Object.values(force).reduce((total, count) => total + count, 0);
   const carry = missionCarry(force);
+  // What the machines picked are worth against the crew picked: see `carriedSpeedPercent`.
+  const ridingSpeed = Math.round(carriedSpeedPercent(riding, going));
   const fighters = Object.entries(force).some(
     ([unitId, count]) => count > 0 && isCombatUnit(unitId),
   );
@@ -520,13 +564,32 @@ function SendDialog({
                     {isCombatUnit(unit) ? '' : ' · cannot fight'}
                   </span>
                 </span>
-                <NumberField
-                  label={`How many ${unit.name}`}
-                  value={force[unit.id] ?? 0}
-                  min={0}
-                  max={count}
-                  onChange={(value) => set(unit.id, value, count)}
-                />
+                {/* Half and Max beside the field.
+                    Sending everybody, or half of them, are the two amounts a player actually picks
+                    on a carrier row, and stepping to them one arrow-press at a time on a stack of
+                    forty scavengers is not a decision, it is typing. The field itself still takes a
+                    typed number and still has its steppers. */}
+                <span className="flex shrink-0 items-center gap-1">
+                  <Quick
+                    label="Half"
+                    disabled={count < 2}
+                    testId={`half-${unit.id}`}
+                    onClick={() => set(unit.id, Math.floor(count / 2), count)}
+                  />
+                  <Quick
+                    label="Max"
+                    disabled={count < 1}
+                    testId={`max-${unit.id}`}
+                    onClick={() => set(unit.id, count, count)}
+                  />
+                  <NumberField
+                    label={`How many ${unit.name}`}
+                    value={force[unit.id] ?? 0}
+                    min={0}
+                    max={count}
+                    onChange={(value) => set(unit.id, value, count)}
+                  />
+                </span>
               </li>
             ))}
           </ul>
@@ -571,6 +634,59 @@ function SendDialog({
           )}
         </label>
 
+        {/*
+         * §C3: what carries them there.
+         *
+         * Under the crew rather than beside it, because it is a decision made *after* the one
+         * above: how many seats you need is a fact about how many people you are sending. Drawn
+         * only when the yard has something in it, so a crew without a Garage sees the dialog it
+         * has always seen.
+         *
+         * The saving is quoted live and against the force actually picked, because an empty seat
+         * buys nothing: sending two people in a war hauler is a truck full of air, and the number
+         * says so before the crew leaves rather than in the report afterwards.
+         */}
+        {Object.values(fleet).some((count) => (count ?? 0) > 0) && (
+          <div className="flex flex-col gap-1.5" data-testid="mission-vehicles">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="font-display text-[11px] uppercase tracking-[0.18em] text-brass-300">
+                What carries them
+              </span>
+              <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
+                {ridingSpeed > 0 ? (
+                  <>
+                    <span className="tabular-nums text-brass-300">{ridingSpeed}%</span> off the road
+                  </>
+                ) : (
+                  'On foot'
+                )}
+              </span>
+            </div>
+            <ul className="flex flex-col gap-1">
+              {VEHICLES.filter((spec) => (fleet[spec.id] ?? 0) > 0).map((spec) => (
+                <li
+                  key={spec.id}
+                  className="flex items-center justify-between gap-2 rounded-sm border border-surface-600/70 px-2.5 py-1.5"
+                >
+                  <span className="min-w-0 font-display text-[12px] text-ink-200">
+                    {spec.name}
+                    <span className="ml-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-400">
+                      seats {spec.capacity}
+                    </span>
+                  </span>
+                  <NumberField
+                    label={`How many ${spec.name}`}
+                    value={riding[spec.id] ?? 0}
+                    min={0}
+                    max={fleet[spec.id] ?? 0}
+                    onChange={(value) => setRiding((held) => ({ ...held, [spec.id]: value }))}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {unled && (
           <p role="alert" className="font-body text-[12px] text-oxblood-300">
             That job is too hard to run without an officer leading it.
@@ -589,7 +705,7 @@ function SendDialog({
           <Button
             variant={offer.kind === 'battle' ? 'danger' : 'primary'}
             disabled={going === 0 || unled || needsFighters}
-            onClick={() => onSend(force, leader?.officerId)}
+            onClick={() => onSend(force, leader?.officerId, riding)}
             data-testid="confirm-send"
           >
             Send them

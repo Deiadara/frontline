@@ -6,6 +6,7 @@ import {
   type PlayerXpAward,
   type PlayerXpSource,
 } from '@frontline/shared';
+import { crewEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 
 export interface AwardedXp {
@@ -34,8 +35,18 @@ export function awardPlayerXp(
     { level: base.level, xpIntoLevel: base.progression.xpIntoLevel },
     source,
     undefined,
-    // §I1: the district's own contribution, plus whatever the caller is adding on this event.
-    factionXpBonus(base.buildings) + extraPercent,
+    /*
+     * §I1: the district's own contribution, the crew's, and whatever the caller adds on this event.
+     *
+     * The crew's share is read here rather than passed in by every caller, for the reason the note
+     * above gives: this is the *only* function that writes player XP, so a channel folded in here
+     * reaches missions, builds, fights and research without any of them knowing it exists. Wired
+     * at the funnel is also the only way it cannot be forgotten at one of the four call sites.
+     *
+     * `crewEffectsFor` rather than `standingEffectsFor`: what a crew has learnt to squeeze out of
+     * a job is about the people, and holding a Gas Station does not teach anybody anything.
+     */
+    factionXpBonus(base.buildings) + crewEffectsFor(repos, base).xpGainPercent + extraPercent,
     amount,
   );
   repos.bases.updateProgression(base.id, award.level, award.progression);

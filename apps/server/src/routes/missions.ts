@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  removeFleet,
   CITY_DISTRICTS,
   LaunchMissionRequestSchema,
   MISC_AREA_ID,
@@ -10,6 +11,8 @@ import {
   missionForceRefusal,
   missionBoardDay,
   missionOffers,
+  leading,
+  officerIsInjured,
   type Base,
   type LaunchMissionResponse,
   type MissionForceRefusal,
@@ -71,7 +74,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
   });
 
   app.post('/missions', { preHandler: app.authenticate }, (request): LaunchMissionResponse => {
-    const { templateId, areaId, force, officerId } = parseBody(
+    const { templateId, areaId, force, officerId, vehicles } = parseBody(
       LaunchMissionRequestSchema,
       request.body,
     );
@@ -98,6 +101,12 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const officer = officerId ? own.commanders.find((held) => held.id === officerId) : undefined;
     if (officerId !== undefined && !officer) {
       throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+    }
+    // §D4: an officer who is still recovering is out, and leading is a service like any other.
+    // Refused rather than quietly demoted to an unled run: the player picked a person, and a job
+    // that silently costs the §G6 penalty is worse than one that says why it will not go.
+    if (officer && officerIsInjured(officer.injuredUntil, now)) {
+      throw new AppError('MISSION_REFUSED', `${officer.name} is still laid up`);
     }
 
     // Settle first: a mission that came home while the player was reading the board frees a slot
@@ -166,12 +175,27 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       );
     }
 
+    /*
+     * §C3: the machines leave the yard with the crew.
+     *
+     * Checked against the yard rather than trusted, like the force above: a client naming four
+     * trucks it does not own would otherwise buy the speed of four trucks. Refused whole rather
+     * than silently trimmed, because a crew that thought it was riding and is walking has made a
+     * different decision about a clock it cannot see.
+     */
+    for (const [id, count] of Object.entries(vehicles)) {
+      if ((base.fleet[id as keyof typeof base.fleet] ?? 0) < (count ?? 0)) {
+        throw new AppError('FORBIDDEN', 'You do not have that many in the yard', levelUp);
+      }
+    }
+
     const stored = launchMission({
       id: randomUUID(),
       base,
       template,
       areaId,
       force,
+      vehicles,
       now,
       overseer,
       terms: crew.terms,
@@ -180,16 +204,30 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       // §A4/§E: the ground this crew holds takes time off the road (the Smuggler's Tunnel), and
       // the people on the books take a bigger cut of what the job pays. Read once: two calls would
       // be two settles of the same effects.
-      ...(({ missionSpeedPercent, missionSpoilsPercent }) => ({
+      /*
+       * §D5: an officer's leading perks pay on a run they are actually on.
+       *
+       * `leading` spends them onto the same two channels the ground already pushes, so a Short Way
+       * and a Smuggler's Tunnel add up rather than arriving through two parallel paths. Skipped
+       * outright when nobody is leading, which is the whole condition on the channel.
+       */
+      ...(({ missionSpeedPercent, missionSpoilsPercent, leadLootPercent }) => ({
         missionSpeedPercent,
-        missionSpoilsPercent,
-      }))(standingEffectsFor(app.repos, base)),
+        missionSpoilsPercent: missionSpoilsPercent + (officer ? leadLootPercent : 0),
+      }))(
+        officer
+          ? leading(standingEffectsFor(app.repos, base, now))
+          : standingEffectsFor(app.repos, base, now),
+      ),
     });
     // The row and the roster move together: a crew that is out is a crew that is not at home to
     // defend the district, and a split between these two would let the same people do both.
     app.db.transaction(() => {
       app.repos.missions.insert(stored);
       app.repos.bases.updateArmy(base.id, removeForce(base.army, force), base.trainingQueue);
+      // The yard empties with the roster, and for the same reason: a machine that is out on a run
+      // is not in the yard to be sent to a fight.
+      app.repos.bases.updateFleet(base.id, removeFleet(base.fleet, vehicles));
     })();
     // The settle above is the only place this level-up is ever reported: the next `GET /missions`
     // re-resolves nothing, so dropping it here loses it outright rather than deferring it.

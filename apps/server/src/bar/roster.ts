@@ -191,12 +191,22 @@ export function seatOf(day: string, id: string): number | null {
  *
  * `undefined` covers both "no such seat" and "that seat has moved on", and the caller wants the
  * same answer for both: the person named is not here.
+ *
+ * ## `cityLevel` is not optional in practice
+ *
+ * It defaults to 0 for the same reason `barRoster`'s does, and every caller that resolves somebody
+ * a player is about to *sign* must pass the real one. The roster route was passing the city's
+ * average level and the hire and negotiate routes were not, so the sheet on the card and the sheet
+ * on the contract were generated at two different calibres: a player at a mature Bar was shown a
+ * strong recruit and handed the level-1 version of them. The seed grammar makes that silent, since
+ * both are legitimate people with the same id.
  */
 export function findBarRecruit(
   day: string,
   recruitId: string,
   generations: readonly number[] = [],
   seats: number = BAR_ROSTER_SIZE,
+  cityLevel = 0,
 ): BarCharacter | undefined {
-  return barRoster(day, generations, seats).find((recruit) => recruit.id === recruitId);
+  return barRoster(day, generations, seats, cityLevel).find((recruit) => recruit.id === recruitId);
 }

@@ -25,7 +25,15 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
-import { useBase, useBuildStructure, useMe } from '../../lib/queries';
+import {
+  useBase,
+  useBuildStructure,
+  useBuyBuildBoost,
+  useClearModification,
+  useFitModification,
+  useMe,
+} from '../../lib/queries';
+import { useNavigate } from 'react-router-dom';
 import { useServerClock } from '../missions/useServerClock';
 import { StructureDialog } from './StructureDialog';
 import { DistrictScene } from './DistrictScene';
@@ -35,8 +43,8 @@ import { formatRate, formatRemaining } from './format';
  * The district (GDD §A1): a place you look at and click, not a list of structure rows.
  *
  * Everything under the scene is a readout of something the scene cannot show: what is being built,
- * what the grid is doing, what the structures are making, and the W2/W6 numbers that were already
- * on this page. Nothing here computes a game rule: every figure comes from a shared function the
+ * who the district is housing, what the structures are making, and the W2/W6 numbers that were
+ * already on this page. Nothing here computes a game rule: every figure comes from a shared function the
  * server calls too.
  */
 export function BasePanel() {
@@ -45,6 +53,11 @@ export function BasePanel() {
   const baseQuery = useBase(baseId);
   const base = baseQuery.data?.base ?? me.data?.base ?? null;
   const build = useBuildStructure(baseId);
+  // §B4 and §E: the three writes the plot dialog makes, all answering with the whole base.
+  const boost = useBuyBuildBoost(baseId);
+  const fit = useFitModification(baseId);
+  const clear = useClearModification(baseId);
+  const navigate = useNavigate();
   const [selectedPlot, setSelectedPlot] = useState<BuildingKind | null>(null);
 
   if (!base) {
@@ -60,6 +73,9 @@ export function BasePanel() {
   // A fresh plot starts with a clean slate: the refusal from the last one is not about this one.
   const selectPlot = (kind: BuildingKind) => {
     build.reset();
+    boost.reset();
+    fit.reset();
+    clear.reset();
     setSelectedPlot(kind);
   };
 
@@ -121,8 +137,8 @@ export function BasePanel() {
         </Panel>
 
         <div className="grid gap-5 lg:grid-cols-2">
-          <Panel title="The grid">
-            <GridReadout base={base} />
+          <Panel title="The district">
+            <HousingReadout base={base} />
           </Panel>
           <Panel title="Production">
             <ProductionRows base={base} />
@@ -166,9 +182,17 @@ export function BasePanel() {
           kind={selectedPlot}
           base={base}
           pending={build.isPending}
-          error={build.error}
+          error={build.error ?? boost.error ?? fit.error ?? clear.error}
           onBuild={() => build.mutate({ kind: selectedPlot })}
           onClose={() => setSelectedPlot(null)}
+          onBoost={() => boost.mutate({})}
+          boostPending={boost.isPending}
+          onFitSlot={(modificationId) => fit.mutate({ building: selectedPlot, modificationId })}
+          onClearSlot={(slot) => clear.mutate({ building: selectedPlot, slot })}
+          onGo={(path) => {
+            setSelectedPlot(null);
+            void navigate(path);
+          }}
         />
       )}
     </div>
@@ -222,53 +246,50 @@ function BuildQueue({ base }: { base: Base }) {
   );
 }
 
-/** Supply against draw, and what a shortfall is costing (§A1: the Generator's whole job). */
-function GridReadout({ base }: { base: Base }) {
-  const { grid } = districtProduction(base.buildings);
-  const load = grid.supply === 0 ? 1 : Math.min(1, grid.draw / grid.supply);
+/**
+ * Who the district is housing, against how many it can (§A1).
+ *
+ * What used to be here was the power grid: supply against draw, with a brownout warning under it.
+ * The grid is gone (§A1) and so is the readout; what is left is the one district-wide figure a
+ * player has to keep an eye on, which used to be a row inside it.
+ */
+function HousingReadout({ base }: { base: Base }) {
+  const draw = populationDraw(base);
+  const capacity = populationCapacity(base.buildings);
+  const filled = capacity <= 0 ? 1 : Math.min(1, draw.total / capacity);
 
   return (
     <div className="flex flex-col gap-3 p-4">
       <div className="flex items-baseline justify-between gap-4">
         <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-          Draw / supply
+          Housed
         </span>
         <span
-          data-testid="power-balance"
+          data-testid="housing-balance"
           className={cn(
             'font-display text-sm font-semibold tabular-nums',
-            grid.brownout ? 'text-oxblood-300' : 'text-brass-300',
+            filled >= 1 ? 'text-oxblood-300' : 'text-brass-300',
           )}
         >
-          {grid.draw} / {grid.supply}
+          {draw.total} / {capacity}
         </span>
       </div>
       <span className="block h-1.5 w-full bg-surface-700">
         <span
-          className={cn('block h-full', grid.brownout ? 'bg-oxblood-300' : 'bg-brass-300')}
-          style={{ width: `${load * 100}%` }}
+          className={cn('block h-full', filled >= 1 ? 'bg-oxblood-300' : 'bg-brass-300')}
+          style={{ width: `${filled * 100}%` }}
         />
       </span>
       <p className="font-body text-xs leading-relaxed text-ink-300">
-        {grid.brownout
-          ? `Brownout. Everything the district makes is running at ${Math.round(grid.ratio * 100)}%, and morale is going with it. Raise the Generator.`
-          : `${grid.headroom} spare. The lights are on, and the crew notices.`}
+        {filled >= 1
+          ? 'Every bed is taken. Raise the Quarters before you order anybody else.'
+          : `${capacity - draw.total} beds spare. The army is ${draw.army} of what is taken.`}
       </p>
-      <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700">
-        <StatRow label="Fuel burn" value={formatRate(-grid.oilPerHour)} />
-        {/* §A1: one pool, so the figure has to count everybody in it. Quoting officers alone
-            against the whole ceiling was a readout that said "3 / 48" to a crew with no room left,
-            which is the most misleading thing a number can do. */}
-        <StatRow
-          label="Housed"
-          value={`${populationDraw(base).total} / ${populationCapacity(base.buildings)}`}
-        />
-      </dl>
     </div>
   );
 }
 
-/** Net hourly output, brownout and modifications already folded in by the shared function. */
+/** Net hourly output and modifications already folded in by the shared function. */
 function ProductionRows({ base }: { base: Base }) {
   const { perHour } = districtProduction(base.buildings);
   const producing = RESOURCE_KEYS.filter((key) => (perHour[key] ?? 0) !== 0);
@@ -386,7 +407,7 @@ function StatRow({
  * Everything written *about* the district, folded away until it is asked for.
  *
  * The district page used to be a three-thousand-pixel document with a picture at the top: build
- * queue, grid, production, stockpile, standing, payroll, progression. All of it is worth reading and
+ * queue, housing, production, stockpile, standing, payroll, progression. All of it is worth reading and
  * none of it is worth losing the place to: a player who opens their district wants to look at it
  * and click a building, and scrolling the town off the top of the screen to reach a payroll table
  * is what makes a game read as a spreadsheet.

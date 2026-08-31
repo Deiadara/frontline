@@ -4,7 +4,8 @@ import type { Army, UnitLoadouts } from '../units/index.js';
 import { analyseBattle, BattleAnalysisSchema } from './analysis.js';
 import { perimeterToll } from './perimeter.js';
 import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
-import { simulate, type Simulation } from './engine.js';
+import { officerOutcomeOf, simulate, type Simulation } from './engine.js';
+import { OfficerOutcomeSchema, type BattleOfficer } from './officer.js';
 import {
   BattleFindingSchema,
   findingsFor,
@@ -63,6 +64,14 @@ export interface SkirmishInput {
   defenderPerimeter?: Army;
   /** Names the row this fight belongs to, so the report can be filed against it. */
   battleId?: string;
+  /**
+   * §D1: the one officer leading each side, when there is one. Leading is always optional.
+   *
+   * At most one per side, and the type says so: a second officer would be a second set of perks
+   * applying to the same crew, which is the thing the board capped at one.
+   */
+  attackerOfficer?: BattleOfficer;
+  defenderOfficer?: BattleOfficer;
 }
 
 export const SkirmishOutcomeSchema = z.object({
@@ -91,6 +100,19 @@ export const SkirmishOutcomeSchema = z.object({
    */
   perimeterCaught: z.record(z.string(), z.number().int().nonnegative()).default({}),
   battlefield: BattlefieldSchema.optional(),
+  /**
+   * §D1: what each side's officer did, and whether they were taken off the field.
+   *
+   * Null on a side nobody led, which is most fights. The settler reads `fell` to decide the
+   * stretcher (§D4); nothing here says whether they were injured, because that needs a roll and a
+   * margin the engine does not have.
+   */
+  officers: z
+    .object({
+      attacker: OfficerOutcomeSchema.nullable().default(null),
+      defender: OfficerOutcomeSchema.nullable().default(null),
+    })
+    .default({ attacker: null, defender: null }),
   /**
    * The full ledger (`battle/analysis.ts`), when the engine that ran this was the real one.
    *
@@ -125,6 +147,7 @@ export function skirmishOutcome(partial: Partial<SkirmishOutcome> = {}): Skirmis
     findings: [],
     standing: { attacker: [], defender: [] },
     perimeterCaught: {},
+    officers: { attacker: null, defender: null },
     ...partial,
   };
 }
@@ -153,6 +176,7 @@ export class TacticalSkirmishEngine implements SkirmishEngine {
         ...(input.attackerCohesionPercent !== undefined
           ? { cohesionPercent: input.attackerCohesionPercent }
           : {}),
+        ...(input.attackerOfficer ? { officer: input.attackerOfficer } : {}),
       },
       defender: {
         name: input.defenderName,
@@ -163,6 +187,7 @@ export class TacticalSkirmishEngine implements SkirmishEngine {
         ...(input.defenderCohesionPercent !== undefined
           ? { cohesionPercent: input.defenderCohesionPercent }
           : {}),
+        ...(input.defenderOfficer ? { officer: input.defenderOfficer } : {}),
       },
     });
 
@@ -221,6 +246,10 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
       defender: standingReport(simulation.defender),
     },
     perimeterCaught: caught,
+    officers: {
+      attacker: officerOutcomeOf(simulation.attacker),
+      defender: officerOutcomeOf(simulation.defender),
+    },
     battlefield: simulation.battlefield,
     analysis: analyseBattle({
       battleId: input.battleId ?? input.seed,
@@ -299,6 +328,8 @@ export class CoinFlipSkirmishEngine implements SkirmishEngine {
       findings: [],
       standing: { attacker: [], defender: [] },
       perimeterCaught: {},
+      // The coin flip reads no sheet, so it has no officer to report on either.
+      officers: { attacker: null, defender: null },
     };
   }
 }

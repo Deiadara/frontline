@@ -7,32 +7,31 @@ import {
   type ItemId,
   type UpgradeLine,
   type WorkshopUpgrade,
-  type WorkshopVehicle,
 } from '@frontline/shared';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
-import { useBuildVehicle, useFitUpgrade, useWorkshop } from '../../lib/queries';
+import { useFitUpgrade, useWorkshop } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
 
 /**
- * The workshop and the yard (workshop extension).
+ * The workshop (workshop extension).
  *
- * Two things a player buys once and keeps: refits, which go into the crew's stock until they are
- * bolted into a unit's brackets over in the roster, and
- * machines that shorten the road. Both are laid out as *ladders* rather than as a shopping list,
- * because the shape of the decision is which line to climb, not which item to buy, and a ladder
- * with its second rung greyed out and labelled "needs the Composite Armour blueprint" is the
- * clearest possible statement of what the market is for.
+ * Refits, which go into the crew's stock until they are bolted into a unit's brackets over in the
+ * roster. Laid out as *ladders* rather than as a shopping list, because the shape of the decision
+ * is which line to climb, not which item to buy, and a ladder with its second rung greyed out and
+ * labelled "needs the Composite Armour blueprint" is the clearest possible statement of what the
+ * market is for.
+ *
+ * The yard was here too until §B11 gave the Garage a page of its own. See `features/garage`.
  */
 export function WorkshopPage() {
   const query = useWorkshop();
   const fit = useFitUpgrade();
-  const build = useBuildVehicle();
 
   const data = query.data;
   if (!data) {
@@ -76,33 +75,9 @@ export function WorkshopPage() {
         ))}
       </div>
 
-      <Panel
-        title="The yard"
-        action={
-          <span className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
-            {data.fleetTravelSpeedPercent > 0
-              ? `−${data.fleetTravelSpeedPercent}% off the road`
-              : 'nothing built'}
-          </span>
-        }
-      >
-        <ul className="grid gap-3 p-4 md:grid-cols-2">
-          {data.vehicles.map((vehicle) => (
-            <li key={vehicle.id}>
-              <VehicleCard
-                vehicle={vehicle}
-                resources={data.resources}
-                pending={build.isPending}
-                onBuild={() => build.mutate({ vehicleId: vehicle.id })}
-              />
-            </li>
-          ))}
-        </ul>
-      </Panel>
-
-      {(fit.error ?? build.error) !== null && (
+      {fit.error !== null && (
         <p role="alert" className="font-body text-[13px] text-oxblood-300">
-          {(fit.error ?? build.error)?.message}
+          {fit.error.message}
         </p>
       )}
     </PageShell>
@@ -204,46 +179,6 @@ function UpgradeCard({
           </div>
         </>
       )}
-    </article>
-  );
-}
-
-function VehicleCard({
-  vehicle,
-  resources,
-  pending,
-  onBuild,
-}: {
-  vehicle: WorkshopVehicle;
-  resources: Parameters<typeof CostLine>[0]['stock'];
-  pending: boolean;
-  onBuild: () => void;
-}) {
-  return (
-    <article
-      data-testid={`vehicle-${vehicle.id}`}
-      className="flex flex-col gap-2.5 rounded-sm border border-surface-600 bg-surface-800/60 p-3.5"
-    >
-      <header className="flex items-baseline justify-between gap-2">
-        <h3 className="min-w-0 font-display text-[15px] font-bold text-ink-100">{vehicle.name}</h3>
-        <span className="shrink-0 rounded-sm border border-surface-600 px-2 py-0.5 font-display text-[13px] font-bold tabular-nums text-ink-100">
-          {vehicle.owned}
-        </span>
-      </header>
-      <p className="font-body text-[13px] leading-relaxed text-ink-200">{vehicle.description}</p>
-      <p className="font-display text-[12px] uppercase tracking-[0.1em] text-brass-300">
-        −{vehicle.travelSpeedPercent}% off the road, for the first one
-      </p>
-      <CostLine cost={vehicle.cost} stock={resources} />
-      <PartsRow parts={vehicle.parts} />
-      <div className="flex items-center gap-2.5">
-        <Button size="sm" disabled={vehicle.blocker !== null || pending} onClick={onBuild}>
-          Build one
-        </Button>
-        {vehicle.blocker !== null && (
-          <span className="font-display text-[12px] text-oxblood-300">{vehicle.blocker}</span>
-        )}
-      </div>
     </article>
   );
 }

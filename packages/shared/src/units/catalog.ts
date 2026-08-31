@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { BUILDING_KINDS, findModification, type BuildingKind } from '../building/index.js';
+import {
+  BUILDING_KINDS,
+  findModification,
+  findVehicle,
+  type BuildingKind,
+} from '../building/index.js';
 import { ENV_LABEL_IDS, type EnvLabelId } from '../city/labels.js';
 import { LOCATION_KINDS, type LocationKind } from '../city/locations.js';
 import type { PartialResources } from '../resources.js';
@@ -52,15 +57,21 @@ export { UNIT_TIERS, UnitTierSchema, UNIT_TIER_LABELS, type UnitTier } from './t
 /**
  * One condition on fielding a unit. **All** of a unit's clauses must hold.
  *
- * Three kinds, and between them they cover everything the design asks for: "enough Gauntlet
+ * Four kinds, and between them they cover everything the design asks for: "enough Gauntlet
  * levels", "a strong enough Generator", "researched it in the Lab" and "a certain augment fitted"
  * are all `building` or `modification`; "there is a factory in another district that makes them"
- * is `location`.
+ * is `location`; and §B6's Road Reavers need a machine the Garage can actually turn out, which is
+ * `vehicle`.
+ *
+ * `vehicle` is deliberately about what the Garage *can build* rather than about what is parked in
+ * it. A unit gate that emptied itself the moment a bike was sent out on a mission would be a unit
+ * you could train on Tuesday and not on Wednesday, for reasons nothing on the screen explains.
  */
 export type UnitRequirement =
   | { kind: 'building'; building: BuildingKind; level: number }
   | { kind: 'modification'; modificationId: string }
-  | { kind: 'location'; locationKind: LocationKind };
+  | { kind: 'location'; locationKind: LocationKind }
+  | { kind: 'vehicle'; vehicleId: string };
 
 export interface UnitSpec {
   id: string;
@@ -206,6 +217,8 @@ const fitted = (modificationId: string): UnitRequirement => ({
   modificationId,
 });
 const holds = (locationKind: LocationKind): UnitRequirement => ({ kind: 'location', locationKind });
+/** §B6: the Garage can turn this machine out, which is a different claim from owning one. */
+const canBuild = (vehicleId: string): UnitRequirement => ({ kind: 'vehicle', vehicleId });
 
 export const UNIT_CATALOG: readonly UnitSpec[] = [
   // ---------------------------------------------------------------- rabble
@@ -224,7 +237,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * and a roster that was entirely locked behind a barracks would make the whole city
      * unreachable until one was standing.
      */
-    requires: [],
+    requires: [gauntlet(1)],
     cost: { caps: 40, supplies: 10 },
     trainSeconds: 45,
     supply: 1,
@@ -252,7 +265,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every book in the district, shaved most of it off, and came down here with a bottle of speed and a plan.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(2)],
+    requires: [structure('scrapyard', 2)],
     /**
      * The cheapest thing in the game that can take a hit.
      *
@@ -313,7 +326,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Young recruits with jury-rigged weapons. Hit hard once, then hope.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(1)],
+    requires: [structure('generator', 2)],
     cost: { caps: 45, supplies: 5, scrap: 20 },
     trainSeconds: 50,
     supply: 1,
@@ -395,7 +408,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Defensive specialists. Considerably better at holding a location than at taking one.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(4)],
+    requires: [gauntlet(5)],
     cost: { caps: 130, supplies: 20, scrap: 80 },
     trainSeconds: 160,
     supply: 2,
@@ -422,7 +435,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(5)],
+    requires: [gauntlet(6)],
     cost: { caps: 160, supplies: 25, oil: 20 },
     trainSeconds: 180,
     supply: 2,
@@ -450,7 +463,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Motorcycle raiders. Fast, loud, aggressive, and halfway home with your fuel.',
     trainedAt: 'garage',
     unique: false,
-    requires: [gauntlet(5), structure('garage', 4)],
+    requires: [gauntlet(7), structure('garage', 4), canBuild('motorcycle')],
     cost: { caps: 180, supplies: 25, scrap: 90, oil: 60 },
     trainSeconds: 200,
     supply: 2,
@@ -494,7 +507,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     taunts: true,
-    requires: [gauntlet(6), structure('scrapyard', 5)],
+    requires: [structure('scrapyard', 5), structure('gate', 6)],
     cost: { caps: 200, supplies: 30, scrap: 140, highQualityMetal: 10 },
     trainSeconds: 240,
     supply: 3,
@@ -529,7 +542,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Chem-suited troops who go where the air is wrong and come back out of it.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(6), structure('cistern', 5)],
+    requires: [gauntlet(6), structure('greenhouse', 5)],
     cost: { caps: 190, supplies: 30, scrap: 70, oil: 40 },
     trainSeconds: 220,
     supply: 2,
@@ -563,7 +576,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Long range, one shot, one kill. Everything else is spent waiting for it.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(7), fitted('gauntlet_live_fire_range')],
+    requires: [structure('gate', 7), fitted('gauntlet_live_fire_range')],
     cost: { caps: 260, supplies: 40, scrap: 60, highQualityMetal: 12 },
     trainSeconds: 300,
     supply: 2,
@@ -658,7 +671,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Explosive ordnance experts. Uninterested in your people; very interested in your walls.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(8), structure('scrapyard', 6)],
+    requires: [structure('scrapyard', 6), structure('generator', 8)],
     cost: { caps: 280, supplies: 40, scrap: 120, oil: 80, highQualityMetal: 15 },
     trainSeconds: 330,
     supply: 3,
@@ -685,7 +698,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Drone operators working off rooftops. They see the fight before anybody is in it.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(8), structure('lab', 5)],
+    requires: [structure('lab', 5), structure('generator', 8)],
     cost: { caps: 280, supplies: 40, scrap: 40, highQualityMetal: 18 },
     trainSeconds: 310,
     supply: 2,
@@ -743,7 +756,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Planted long ago, and useful exactly once. They are already inside.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(9), fitted('nexus_encrypted_core')],
+    requires: [structure('nexus', 9), fitted('nexus_encrypted_core')],
     cost: { caps: 340, supplies: 50, oil: 30 },
     trainSeconds: 360,
     supply: 2,
@@ -816,7 +829,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Fully augmented heavy assault units. Barely human any more, and no longer bothered by it.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(12), structure('generator', 10), holds('gene_clinic')],
+    requires: [structure('generator', 10), structure('infirmary', 12), holds('gene_clinic')],
     cost: { caps: 700, supplies: 105, scrap: 300, oil: 200, highQualityMetal: 90 },
     trainSeconds: 900,
     supply: 6,
@@ -843,7 +856,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Shock troops with the fear surgically removed. It took the rest of it with it.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(13), structure('infirmary', 10), holds('gene_clinic')],
+    requires: [structure('infirmary', 10), structure('lab', 13), holds('gene_clinic')],
     cost: { caps: 650, supplies: 200, highQualityMetal: 70 },
     trainSeconds: 840,
     supply: 5,
@@ -873,7 +886,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Death row, handed one last chance and a blade. Nothing left to threaten them with.',
     trainedAt: 'gauntlet',
     unique: false,
-    requires: [gauntlet(12), holds('fight_pit')],
+    requires: [structure('quarters', 12), holds('fight_pit')],
     cost: { caps: 300, supplies: 120 },
     trainSeconds: 600,
     supply: 3,
@@ -1013,7 +1026,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A legendary fighter whose presence alone steadies everyone who can see them.',
     trainedAt: 'gauntlet',
     unique: true,
-    requires: [gauntlet(15), structure('quarters', 12), holds('tavern')],
+    requires: [structure('quarters', 12), structure('infirmary', 15), holds('tavern')],
     cost: { caps: 1200, supplies: 300, highQualityMetal: 120 },
     trainSeconds: 3000,
     supply: 6,
@@ -1151,7 +1164,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'nexus',
     unique: false,
     combat: false,
-    requires: [],
+    requires: [gauntlet(1)],
     cost: { caps: 25, supplies: 15 },
     trainSeconds: 30,
     supply: 1,
@@ -1184,7 +1197,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'nexus',
     unique: false,
     combat: false,
-    requires: [structure('nexus', 4)],
+    requires: [gauntlet(4), structure('nexus', 4)],
     cost: { caps: 60, supplies: 20, planks: 30 },
     trainSeconds: 90,
     supply: 2,
@@ -1225,7 +1238,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * Gauntlet at the top for the fighter, a Lab deep enough to have built the legs, and the Fight
      * Pit, which is where it learned what they were for.
      */
-    requires: [gauntlet(15), structure('lab', 12), holds('fight_pit')],
+    requires: [structure('lab', 12), structure('quarters', 15), holds('fight_pit')],
     cost: { caps: 1400, supplies: 260, oil: 180, highQualityMetal: 200 },
     trainSeconds: 3300,
     supply: 6,
@@ -1316,7 +1329,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * A Gauntlet at the top, a Garage that can keep a powered blade fed, and a rail yard, which is
      * where somebody who has to keep moving ends up and where the contract finally lapsed.
      */
-    requires: [gauntlet(16), structure('garage', 12), holds('rail_yard')],
+    requires: [structure('garage', 12), structure('generator', 16), holds('rail_yard')],
     cost: { caps: 1600, supplies: 240, oil: 220, highQualityMetal: 260 },
     trainSeconds: 3600,
     supply: 7,
@@ -1388,6 +1401,44 @@ export function unitsUnlockedByLocation(locationKind: LocationKind): UnitSpec[] 
 }
 
 /**
+ * §B6: the twelve the Gauntlet unlocks, and nothing else.
+ *
+ * The board named these by hand, so the list is transcribed by hand and then *asserted* against the
+ * catalogue at module load. The alternative, deriving the list from the requirements, would make
+ * the assertion tautological: it would agree with whatever the catalogue happened to say, which is
+ * exactly the mistake it exists to catch. Two independent statements, checked against each other.
+ */
+export const GAUNTLET_UNLOCKED_UNITS: readonly string[] = [
+  'scavengers',
+  'haulers',
+  'razors',
+  'scrapers',
+  'ash_walkers',
+  'netrunners',
+  'stitchers',
+  'ghosts',
+  'road_reavers',
+  'breakers',
+  'wardens',
+  'sluggers',
+];
+
+/** The Gauntlet level `unitId` needs, or `null` when the Gauntlet is not one of its gates. */
+export function gauntletLevelFor(unitId: string): number | null {
+  const unit = findUnit(unitId);
+  if (!unit) return null;
+  for (const need of unit.requires) {
+    if (need.kind === 'building' && need.building === 'gauntlet') return need.level;
+  }
+  return null;
+}
+
+/** Every unit the Gauntlet opens at this level, so the dialog can say what a level buys. */
+export function unitsUnlockedAtGauntlet(level: number): UnitSpec[] {
+  return UNIT_CATALOG.filter((unit) => gauntletLevelFor(unit.id) === level);
+}
+
+/**
  * Guards the catalogue at module load.
  *
  * A requirement naming a modification or a location kind that does not exist is a unit nobody can
@@ -1426,6 +1477,37 @@ for (const unit of UNIT_CATALOG) {
       throw new Error(`${unit.id} is immune to ${id}, which is not an environment label`);
     }
   }
+  if (unit.requires.length === 0 && unit.id !== 'razors') {
+    // §B6: no unit may end up with no gate at all. Razors are the exception the opening move
+    // depends on and they still carry one, so in practice this is a blanket rule.
+    throw new Error(`${unit.id} has no requirement at all`);
+  }
+  for (const need of unit.requires) {
+    if (need.kind === 'vehicle' && !findVehicle(need.vehicleId)) {
+      throw new Error(
+        `${unit.id} needs a ${need.vehicleId}, which is not a machine the Garage builds`,
+      );
+    }
+  }
 }
 
 if (BY_ID.size !== UNIT_CATALOG.length) throw new Error('two units share an id');
+
+/**
+ * §B6, both halves: the Gauntlet gates exactly the twelve the board named, and every one of them
+ * carries a level.
+ *
+ * The second half is the one worth spelling out. "Unlocked by the Gauntlet" is meaningless without
+ * a level, and a clause of `gauntlet(0)` would satisfy the first check while gating nothing.
+ */
+for (const unitId of GAUNTLET_UNLOCKED_UNITS) {
+  const level = gauntletLevelFor(unitId);
+  if (level === null)
+    throw new Error(`${unitId} is on the Gauntlet's list with no Gauntlet clause`);
+  if (level < 1) throw new Error(`${unitId} is gated on Gauntlet ${level}, which gates nothing`);
+}
+for (const unit of UNIT_CATALOG) {
+  if (gauntletLevelFor(unit.id) !== null && !GAUNTLET_UNLOCKED_UNITS.includes(unit.id)) {
+    throw new Error(`${unit.id} is gated on the Gauntlet but is not on the board's list`);
+  }
+}

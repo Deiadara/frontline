@@ -23,9 +23,8 @@ import {
   ENV_LABEL_IDS,
   type UnitSpec,
 } from '@frontline/shared';
-import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
-import { unlockContextFor } from './training.js';
+import { trainingRatesFor, unlockContextFor } from './training.js';
 import { districtPopulation, unitsAbroad } from '../district/population.js';
 
 /**
@@ -89,7 +88,7 @@ function describeSlot(upgradeId: string | null): FittedSlot {
 
 export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsResponse {
   const context = unlockContextFor(repos, base);
-  const effects = standingEffectsFor(repos, base);
+  const rates = trainingRatesFor(repos, base);
   const garrisoned = garrisonedUnits(repos, base);
   const abroad = unitsAbroad(repos, base);
   const population = districtPopulation(repos, base, garrisoned);
@@ -144,10 +143,14 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
      * coincidence.
      */
     supplyUsed: population.army + population.training,
-    supplyCap: population.capacity - population.officers,
+    // The whole ceiling: officers are not charged against it (`building/population.ts`).
+    supplyCap: population.capacity,
     queue: base.trainingQueue,
     resources: base.resources,
-    trainingCostReduction: effects.trainingCostPercent,
+    // §B5/§B6: the same three figures the route charges and clocks with, so the page's quoted
+    // price and its **Max** button cannot offer a batch the route then refuses.
+    trainingCostReduction: rates.costPercent,
+    trainingSuppliesReduction: rates.suppliesPercent,
     built: base.fittedUpgrades
       .map((id) => findUpgrade(id))
       .filter((spec): spec is UpgradeSpec => spec !== undefined)
@@ -159,6 +162,6 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
         description: spec.description,
         effect: spec.effect as Record<string, number>,
       })),
-    trainingSpeedBonus: effects.trainingSpeedPercent,
+    trainingSpeedBonus: rates.speedPercent,
   };
 }

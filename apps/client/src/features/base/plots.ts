@@ -21,7 +21,7 @@ import {
  * layer is those polygons: hover lights one, click opens its dialog. The old model: centre, ground
  * line, box sized to the master's aspect: has no job left, and keeping it would have meant hit
  * areas that are rectangles over a painting where nothing is a rectangle: the Scrapyard's box would
- * have swallowed the Cistern beside it, and the Gate's would have covered the road it stands over.
+ * have swallowed the tank beside it, and the Gate's would have covered the road it stands over.
  *
  * The masters in `art-src/building-*.png` are not wasted. They are what the structure's dialog shows
  * as its portrait, see `StructureDialog`, which is where an icon of a building is actually useful.
@@ -167,12 +167,15 @@ const site = (
 ): DistrictSite => ({ kind, shape, ...(labelShift ? { labelShift } : {}) });
 
 /**
- * The twelve structures, as they are painted.
+ * The eleven structures, as they are painted.
  *
  * Read top-left to bottom-right across the plate, which is roughly back to front. Sizes vary
  * enormously and that is the painting's doing rather than a design decision: the Quarters block and
- * the Scrapyard's fenced lot are the two biggest things in the district, and the Cistern is one
- * riveted tank.
+ * the Scrapyard's fenced lot are the two biggest things in the district.
+ *
+ * §A2 removed the Cistern's outline and **nothing else**: the painting is untouched, so the tank
+ * is still drawn on the plate. What went is the tag over it, which is exactly what the board asked
+ * for: a plot that is no longer a plot must not carry a label a player can click.
  */
 export const DISTRICT_SITES: readonly DistrictSite[] = [
   // The tenement stack: storeys of shanty piled round a gabled core with washing strung
@@ -284,25 +287,6 @@ export const DISTRICT_SITES: readonly DistrictSite[] = [
     [66, 64],
     [65, 59],
   ]),
-  // A riveted drum with a domed cap: nine points because a cylinder traced with four is a crate.
-  // Lifted well up the plate, onto the riveted tank itself. Board's placement: the ground line of
-  // this outline is the yard in front of the tank, and a plate hung there reads as labelling the
-  // fence rather than the cistern.
-  site(
-    'cistern',
-    [
-      [12, 60],
-      [14, 61.5],
-      [15, 64],
-      [14.8, 68],
-      [12.8, 71.5],
-      [10.6, 71.5],
-      [9.6, 68],
-      [9.5, 64],
-      [10.5, 61.5],
-    ],
-    { x: -1.3, y: -18.3 },
-  ),
   site('scrapyard', [
     [12, 72],
     [18, 70.5],

@@ -102,12 +102,10 @@ async function makeStack(engine: SkirmishEngine = bloody): Promise<Stack> {
   });
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
 
-  await app.inject({
-    method: 'POST',
-    url: '/api/city/scout',
-    headers: auth(token),
-    payload: { districtId: 'rustyard' },
-  });
+  // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
+  // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
+  // not the trip, so the intel is written directly.
+  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
   return { app, db, token, baseId };
 }
 
@@ -203,12 +201,9 @@ describe('the Statue of the Revolutionist', () => {
     // the whole claim, and is otherwise buried under a kill count that varies by garrison size.
     const stack = await makeStack(bloodless);
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
-    await stack.app.inject({
-      method: 'POST',
-      url: '/api/city/scout',
-      headers: auth(stack.token),
-      payload: { districtId: 'combine-spire' },
-    });
+    // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens ground:
+    // it sends somebody who walks back hours later. A fixture wants the *state*, not the trip.
+    stack.app.repos.city.markScouted(stack.baseId, 'combine-spire', new Date().toISOString());
     // The Spire is held end to end at the start, so its gate is armed. One location off the
     // Combine opens the seam a location fight needs.
     give(stack, 'combine-spire-uplink', 1);
@@ -271,12 +266,10 @@ describe('the Downtown Market', () => {
       projectMarket(stack.app.repos, stack.app.repos.bases.findById(stack.baseId)!, whileHeIsIn);
 
     const before = read();
-    await stack.app.inject({
-      method: 'POST',
-      url: '/api/city/scout',
-      headers: auth(stack.token),
-      payload: { districtId: 'chrome-row' },
-    });
+    // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
+    // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
+    // not the trip, so the intel is written directly.
+    stack.app.repos.city.markScouted(stack.baseId, 'chrome-row', new Date().toISOString());
     give(stack, 'chrome-row-exchange');
     const after = read();
 

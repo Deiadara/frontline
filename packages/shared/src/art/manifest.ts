@@ -7,7 +7,7 @@
  * Resolutions and aspects come from the ART-BIBLE §6 table; prompts come from `./prompts.js`.
  */
 import { z } from 'zod';
-import { BUILDING_KINDS, type BuildingKind } from '../building/index.js';
+import { BUILDING_KINDS, VEHICLE_IDS, type BuildingKind } from '../building/index.js';
 import {
   CITY_DISTRICTS,
   DISTRICT_KINDS,
@@ -23,6 +23,7 @@ import {
   BUILDING_SUBJECTS,
   DISTRICT_KIND_ICON_SUBJECTS,
   LOCATION_ICON_SUBJECTS,
+  VEHICLE_ICON_SUBJECTS,
   DISTRICT_SUBJECTS,
   FRAMING,
   OFFICER_SUBJECTS,
@@ -327,6 +328,7 @@ const SEED_BASE = {
   archetypeIcon: 160010,
   kindIcon: 160020,
   locationIcon: 160030,
+  vehicleIcon: 161000,
 } as const;
 
 const toKebab = (id: string): string => id.replaceAll('_', '-');
@@ -635,6 +637,16 @@ const iconDrafts = [
       prompt: { subject: LOCATION_ICON_SUBJECTS[kind], framing: FRAMING.icon },
     }),
   ),
+  // §C1: one per machine the Garage builds, so a delivered file overrides the interim block with
+  // no TypeScript edit. Appended after the location icons, whose seeds are unaffected by it.
+  ...VEHICLE_IDS.map((id, index) =>
+    draft({
+      key: `icon-vehicle-${toKebab(id)}`,
+      class: 'icon',
+      seed: SEED_BASE.vehicleIcon + index + 1,
+      prompt: { subject: VEHICLE_ICON_SUBJECTS[id], framing: FRAMING.icon },
+    }),
+  ),
 ];
 
 /** Every asset the MVP needs, in ART-PROMPTS §1-§7 order. */
@@ -688,7 +700,9 @@ export type AssetRef =
   | { type: 'plate'; plate: string }
   | { type: 'resource-icon'; resource: ResourceKey }
   | { type: 'archetype-icon'; archetype: OverseerArchetype }
-  | { type: 'district-kind-icon'; districtKind: DistrictKind };
+  | { type: 'district-kind-icon'; districtKind: DistrictKind }
+  /** §C1: a machine the Garage builds. Interim block until the board delivers the file. */
+  | { type: 'vehicle-icon'; vehicleId: string };
 
 function assetKeyFor(ref: AssetRef): AssetKey {
   switch (ref.type) {
@@ -710,6 +724,8 @@ function assetKeyFor(ref: AssetRef): AssetKey {
       return `icon-archetype-${ref.archetype}`;
     case 'district-kind-icon':
       return `icon-kind-${toKebab(ref.districtKind)}`;
+    case 'vehicle-icon':
+      return `icon-vehicle-${toKebab(ref.vehicleId)}`;
   }
 }
 
@@ -795,6 +811,9 @@ function iconSubjectResolves(subject: string): boolean {
   if (locationKind !== null) {
     return (LOCATION_KINDS as readonly string[]).includes(toSnake(locationKind));
   }
+
+  const vehicle = stripPrefix(subject, 'vehicle-');
+  if (vehicle !== null) return (VEHICLE_IDS as readonly string[]).includes(toSnake(vehicle));
 
   return RESOURCE_ICON_IDS.includes(subject);
 }

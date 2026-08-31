@@ -1,4 +1,5 @@
 import {
+  BENCH_LABEL,
   OFFICER_ROLE_LABELS,
   negotiationLine,
   negotiationVoice,
@@ -95,12 +96,16 @@ export interface NegotiationDialogProps {
    */
   openRoles: readonly OfficerRole[];
   /** Signs them at the agreed wage. The Bar owns the mutation; this window owns the moment. */
-  onSign: (role: OfficerRole, wage: number) => void;
+  /** `null` signs them to the bench: on the books, drawing a wage, in no chair yet. */
+  onSign: (role: OfficerRole | null, wage: number) => void;
   signing: boolean;
   /** Why the signature is refused right now: a full roster, the day's one signing already spent. */
   signBlocked: string | null;
   signError: string | null;
 }
+
+/** The select's stand-in for "no chair". See the note on `role` below. */
+const BENCH_VALUE = '__bench';
 
 export function NegotiationDialog({
   recruit,
@@ -136,7 +141,14 @@ export function NegotiationDialog({
       mood: 'opening',
     },
   ]);
-  const [role, setRole] = useState<OfficerRole>(() => openRoles[0] ?? 'head_spy');
+  /*
+   * The chair, or the bench (board request).
+   *
+   * A sentinel string rather than `null`, because the picker is a `<select>` underneath and a
+   * select's value is a string. Defaulted to the first open chair, so the common case is one
+   * press: the bench is the deliberate choice, not the accidental one.
+   */
+  const [role, setRole] = useState<string>(() => openRoles[0] ?? BENCH_VALUE);
   const scroller = useRef<HTMLDivElement>(null);
 
   const proposed = Math.max(0, Math.trunc(offer));
@@ -309,36 +321,43 @@ export function NegotiationDialog({
               caps a week, off a book with {payrollLeft.toLocaleString()} left on it. Put them
               somewhere and it is done.
             </p>
-            {openRoles.length === 0 ? (
-              <p role="alert" className="font-body text-[13px] text-oxblood-300">
-                Every role is filled. Nowhere to put them, whatever they agreed to.
-              </p>
-            ) : (
-              <div className="flex flex-wrap items-end gap-3">
-                <label className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
-                    Sign as
-                  </span>
-                  <Dropdown
-                    label={`Role for ${recruit.name}`}
-                    value={role}
-                    onChange={setRole}
-                    options={openRoles.map((option) => ({
+            {/*
+             * There is always somewhere to put them now.
+             *
+             * This used to refuse the whole signing when every chair was filled: "Nowhere to put
+             * them, whatever they agreed to", after a negotiation the player had just won. The
+             * bench is that somewhere, so a full roster is a reason to think about the wage
+             * rather than a dead end at the last step.
+             */}
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
+                  Sign as
+                </span>
+                <Dropdown
+                  label={`Role for ${recruit.name}`}
+                  value={role}
+                  onChange={setRole}
+                  options={[
+                    ...openRoles.map((option) => ({
                       value: option,
                       label: OFFICER_ROLE_LABELS[option],
-                    }))}
-                    data-testid="negotiation-role"
-                  />
-                </label>
-                <Button
-                  disabled={signing || signBlocked !== null}
-                  onClick={() => onSign(role, state.lastOffer ?? 0)}
-                  data-testid="negotiation-sign-confirm"
-                >
-                  {signing ? 'Signing…' : `Sign ${recruit.name.split(' ')[0] ?? 'them'}`}
-                </Button>
-              </div>
-            )}
+                    })),
+                    { value: BENCH_VALUE, label: BENCH_LABEL },
+                  ]}
+                  data-testid="negotiation-role"
+                />
+              </label>
+              <Button
+                disabled={signing || signBlocked !== null}
+                onClick={() =>
+                  onSign(role === BENCH_VALUE ? null : (role as OfficerRole), state.lastOffer ?? 0)
+                }
+                data-testid="negotiation-sign-confirm"
+              >
+                {signing ? 'Signing…' : `Sign ${recruit.name.split(' ')[0] ?? 'them'}`}
+              </Button>
+            </div>
             {signBlocked !== null && (
               <p role="alert" className="font-body text-[13px] text-warning">
                 {signBlocked}

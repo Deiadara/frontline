@@ -5,6 +5,8 @@ import {
   BuildingKindSchema,
   BUILDING_CATALOG,
   CENTRAL_BUILDING,
+  levelCapForNexus,
+  nexusLevelForUpgrade,
   type BuildingKind,
   type BuildingRequirement,
 } from './kinds.js';
@@ -102,16 +104,35 @@ export function isBuildingUnlocked(
 }
 
 /**
- * The highest level `kind` may currently reach in this district.
+ * The highest level `kind` may currently reach in this district (§B1).
  *
- * The Nexus's own catalogue copy is the rule, so it is enforced rather than left as flavour: every
- * other structure stops at the Nexus's level, and the Nexus itself stops at
- * {@link BUILDING_MAX_LEVEL}. A district with no Nexus standing caps everything else at 0, which is
- * why a new district is minted with one.
+ * Read off the Nexus's per-building permission table rather than off its level directly, which is
+ * the whole of the §B1 change: a Gate and a Lab standing beside each other under the same Nexus no
+ * longer stop at the same rung. A district with no Nexus standing caps everything else at 0, which
+ * is why a new district is minted with one.
  */
 export function structureLevelCap(kind: BuildingKind, buildings: readonly Building[]): number {
   if (kind === CENTRAL_BUILDING) return BUILDING_MAX_LEVEL;
-  return Math.min(BUILDING_MAX_LEVEL, buildingLevel(buildings, CENTRAL_BUILDING));
+  return levelCapForNexus(kind, buildingLevel(buildings, CENTRAL_BUILDING));
+}
+
+/**
+ * The Nexus level this district is short of, for the upgrade it cannot currently order.
+ *
+ * `null` when the Nexus is not what is standing in the way. The number a refusal is written out of:
+ * §B1 says a refused upgrade must name the Nexus level it wants, on the building's own dialog,
+ * before the player spends anything.
+ */
+export function nexusShortfall(
+  kind: BuildingKind,
+  buildings: readonly Building[],
+): { needed: number; at: number } | null {
+  if (kind === CENTRAL_BUILDING) return null;
+  const next = buildingLevel(buildings, kind) + 1;
+  if (next > BUILDING_MAX_LEVEL) return null;
+  const needed = nexusLevelForUpgrade(kind, next);
+  const at = buildingLevel(buildings, CENTRAL_BUILDING);
+  return needed > at ? { needed, at } : null;
 }
 
 /**

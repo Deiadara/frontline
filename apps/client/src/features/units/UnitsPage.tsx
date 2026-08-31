@@ -50,7 +50,13 @@ export function UnitsPage() {
   const train = useTrainUnits(me.data?.base?.id);
   const cancel = useCancelTraining(me.data?.base?.id);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
-  const [tier, setTier] = useState<UnitTier>('rabble');
+  /*
+   * Carriers first (board request).
+   *
+   * The tier a player opens this screen to look at is the one that decides whether a mission comes
+   * home with the loot it earned, and it was four clicks down the list behind the fighting tiers.
+   */
+  const [tier, setTier] = useState<UnitTier>('carrier');
 
   const data = query.data;
 
@@ -133,6 +139,9 @@ export function UnitsPage() {
           </span>
         </HoverCard>
         {data.trainingCostReduction > 0 && <Tag label={`-${data.trainingCostReduction}% cost`} />}
+        {(data.trainingSuppliesReduction ?? 0) > 0 && (
+          <Tag label={`-${Math.round(data.trainingSuppliesReduction ?? 0)}% supplies`} />
+        )}
         {data.trainingSpeedBonus > 0 && (
           <Tag label={`-${data.trainingSpeedBonus}% training time`} />
         )}
@@ -227,6 +236,7 @@ export function UnitsPage() {
               abroad={data.abroad[unit.id] ?? 0}
               spare={Math.max(0, data.supplyCap - data.supplyUsed)}
               discountPercent={data.trainingCostReduction}
+              suppliesPercent={data.trainingSuppliesReduction ?? 0}
               pending={train.isPending}
               onTrain={(count) => train.mutate({ unitId: unit.id, count })}
             />
@@ -249,6 +259,16 @@ interface UnitCardProps {
   spare: number;
   /** §F2, folded in for the same reason: the price Max works against is the price charged. */
   discountPercent: number;
+  /**
+   * §B5: the Greenhouse's cut, which comes off the supplies line and nothing else.
+   *
+   * Separate from `discountPercent` because the two are not the same discount and adding them
+   * would quote scrap and oil too cheap. The route already charged this; the page did not know
+   * about it, so **Max** was computed against a supplies price nobody was paying and the roster
+   * quoted a figure the server disagreed with. A screen that disagrees with the server about a
+   * price is the bug that makes a player think they were overcharged.
+   */
+  suppliesPercent: number;
   pending: boolean;
   onTrain: (count: number) => void;
 }
@@ -344,12 +364,13 @@ function UnitCard({
   abroad,
   spare,
   discountPercent,
+  suppliesPercent,
   pending,
   onTrain,
 }: UnitCardProps) {
   const [count, setCount] = useState(1);
   const spec = findUnit(unit.id);
-  const most = spec ? maxTrainable(spec, resources, spare, discountPercent) : 0;
+  const most = spec ? maxTrainable(spec, resources, spare, discountPercent, suppliesPercent) : 0;
 
   return (
     <section

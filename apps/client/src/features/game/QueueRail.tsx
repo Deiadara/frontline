@@ -162,12 +162,15 @@ const MISSION_PHASE_WORD: Record<string, string> = {
 /**
  * The screens the rail is drawn on.
  *
- * The world ones. A document page fills the frame with a sheet, and a floating panel over the
- * bottom-left corner of a sheet is not chrome. It is something covering the page you are reading.
- * On the map and in the district it floats over artwork and hides nothing, which is exactly what
- * Grepolis does with it.
+ * **Not** the world ones any more (board request). Between the standing bar and the scenery
+ * switcher, the rail is a third horizontal band, and on the city and district screens the only
+ * thing under it is the painting: a crew being out cost the artwork a strip of its height, and the
+ * strip appeared and disappeared as missions came and went, so the picture moved.
+ *
+ * It belongs on the two screens that are *about* things being in flight. There it sits above a
+ * sheet, where a band of chrome is the page's own furniture rather than a lid over the view.
  */
-const WORLD_ROUTES = new Set(['/game', '/game/base']);
+const RAIL_ROUTES = new Set(['/game/missions', '/game/actions']);
 
 export function QueueRail() {
   const { pathname } = useLocation();
@@ -178,7 +181,7 @@ export function QueueRail() {
   const [opened, setOpened] = useState<string | null>(null);
 
   const base = me.data?.base;
-  if (!base || !WORLD_ROUTES.has(pathname)) return null;
+  if (!base || !RAIL_ROUTES.has(pathname)) return null;
 
   const entries = entriesFor(base, research.data, missions.data, now);
   if (entries.length === 0) return null;

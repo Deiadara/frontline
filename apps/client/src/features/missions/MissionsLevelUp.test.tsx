@@ -8,6 +8,8 @@ const launchMutate = vi.hoisted(() => vi.fn());
 vi.mock('../../lib/queries', () => ({
   useMissions,
   useCrew: () => ({ data: undefined }),
+  // §C3: the send dialog reads the yard off the session snapshot. Empty is a crew with no Garage.
+  useMe: () => ({ data: undefined }),
   useLaunchMission: () => ({ mutate: launchMutate, isPending: false, variables: undefined }),
 }));
 

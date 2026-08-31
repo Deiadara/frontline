@@ -1,3 +1,4 @@
+import { BUILDING_KINDS } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import { adminGame, lateGame } from './fixtures';
 import {
@@ -47,8 +48,23 @@ async function open(page: Page, path: string, width: number, height: number): Pr
  * blur has something to sample past its own edges, so it spills its box everywhere in the game and
  * every spec that measures images narrows around it.
  */
+/**
+ * Tall enough that the whole page is laid out at once.
+ *
+ * Not a viewport anybody plays at: it is a measuring device. The guards below look for text cut by
+ * a clipping edge, and in a viewport the page actually scrolls in, the fold *is* a clipping edge,
+ * so every long page would report its last visible row as a defect. Giving the page all the room it
+ * wants turns "is this clipped" back into a question about the layout.
+ *
+ * It has to be raised when the page grows, and it was: adding one row to the notification
+ * preferences (§A4's scouting receipts) pushed the last control on the settings sheet past 2200 and
+ * this went red. Measured before raising it, a real player at 1280x800 can still scroll to that
+ * control and see all of it, so the page was fine and the ruler was short.
+ */
+const LAYOUT_PROBE_HEIGHT = 2600;
+
 async function expectLaidOutWhole(page: Page, width: number, name: string): Promise<void> {
-  await page.setViewportSize({ width, height: 2200 });
+  await page.setViewportSize({ width, height: LAYOUT_PROBE_HEIGHT });
   await settleFonts(page);
   await expectNothingClippedVertically(page, 'main section');
   await expectNoImagesClipped(page, 'main section');
@@ -194,7 +210,19 @@ test.describe('the bench', () => {
       // a broken economy.
       await expect(page.getByTestId('admin-badge')).toContainText('5s');
       await expect(page.getByTestId('admin-presets').locator('> div')).toHaveCount(3);
-      await expect(page.getByTestId('admin-standing').locator('> li')).toHaveCount(12);
+      /*
+       * One row per structure, whatever the catalogue holds.
+       *
+       * Was a hard 12 and went red when the Cistern was removed (§A2), which is the count doing
+       * its job badly: what the bench promises is a knob for *every* structure, not for twelve of
+       * them. Pinned to the catalogue's own length so removing or adding one moves the test with
+       * the game, and separately pinned below so the two cannot drift into agreeing about nothing.
+       */
+      await expect(page.getByTestId('admin-standing').locator('> li')).toHaveCount(
+        BUILDING_KINDS.length,
+      );
+      expect(BUILDING_KINDS, 'the Cistern is gone and nothing replaced it').toHaveLength(11);
+      expect(BUILDING_KINDS).not.toContain('cistern');
       await expect(page.getByTestId('admin-backups').locator('> li')).toHaveCount(3);
 
       expect(await overflowing(page), `something is cut off at ${name}`).toEqual([]);
@@ -275,6 +303,15 @@ test.describe('the scenery switcher with two more doors', () => {
 test.describe('the ambience layer', () => {
   test('puts junk in the corners without eating a click', async ({ page }) => {
     await open(page, '/game/settings', 1280, 720);
+    /*
+     * Waited for, because the assertion below is a raw `evaluate` rather than a locator.
+     *
+     * `open` waits for `document.fonts.ready`, which resolves happily against a shell React has
+     * not mounted into yet. On an idle machine the layer is always there by the time the evaluate
+     * runs; under a full-suite load it sometimes is not, and the test then reports "no ambience
+     * layer" for a layer that appears a frame later. Locators auto-wait; `page.evaluate` does not.
+     */
+    await expect(page.getByTestId('ambience')).toBeAttached();
 
     // Everything in the layer is inert, so the control underneath a sprite is still the thing the
     // pointer finds.

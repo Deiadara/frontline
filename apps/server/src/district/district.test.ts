@@ -1,4 +1,5 @@
 import {
+  territoryEffectsFor,
   BUILDING_MAX_LEVEL,
   MAX_BUILD_QUEUE,
   MODIFICATIONS,
@@ -13,6 +14,14 @@ import {
   trainingCost,
   districtProduction,
   findModification,
+  findBuilding,
+  RESOURCE_KEYS,
+  BUILD_BOOST_MS,
+  BUILD_BOOST_OIL_PER_LEVEL,
+  BUILD_BOOST_PERCENT,
+  buildBoostActive,
+  addonsOf,
+  shelvedModifications,
   queueCompletesAt,
   researchCost,
   startingEconomy,
@@ -30,8 +39,16 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
+import { settleBase } from './settle.js';
 import { queueBuild } from './build.js';
-import { fitModification, modificationBlocker, modificationOptions } from './modifications.js';
+import { buyBuildBoost } from './boost.js';
+import {
+  clearSlot,
+  fitIntoSlot,
+  isModificationDrawn,
+  modificationBlocker,
+  modificationOptions,
+} from './modifications.js';
 import { districtPopulation } from './population.js';
 import { cancelTraining, queueTraining, settleTraining } from '../units/training.js';
 import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
@@ -75,6 +92,7 @@ interface SeedOptions {
   officers?: Base['commanders'];
   level?: number;
   trainingQueue?: Base['trainingQueue'];
+  addons?: Base['addons'];
 }
 
 function seedBase(repos: Repositories, options: SeedOptions = {}): Base {
@@ -106,6 +124,7 @@ function seedBase(repos: Repositories, options: SeedOptions = {}): Base {
     fittedUpgrades: [],
     unitLoadouts: {},
     fleet: {},
+    addons: options.addons,
     commanders: options.officers ?? [],
     createdAt: NOW.toISOString(),
   };
@@ -168,7 +187,19 @@ describe('ordering a level (§A1, §D3)', () => {
 
   it('refuses a level the Nexus is holding down, distinctly from the content ceiling', () => {
     const repos = openStack();
-    const capped = seedBase(repos, { buildings: [build('nexus', 1), build('generator', 1)] });
+    // §B1: the Generator's ladder wants Nexus 3 for level 4, so a Nexus 1 district stops at 3.
+    // Given the materials, so the refusal that comes back is the Nexus's and not the stockpile's.
+    const capped = seedBase(repos, {
+      buildings: [build('nexus', 1), build('generator', 3)],
+      resources: {
+        caps: 99999,
+        supplies: 99999,
+        oil: 99999,
+        scrap: 99999,
+        highQualityMetal: 99999,
+        planks: 99999,
+      },
+    });
     expect(queueBuild(repos, { base: capped, structure: 'generator', id: 'q1', now: NOW })).toEqual(
       {
         kind: 'refused',
@@ -406,22 +437,35 @@ describe('settling the district (§A1)', () => {
       build('greenhouse', 1),
     ]).perHour.supplies;
 
-    const grown = lateSettled.base.resources.supplies - late.resources.supplies;
+    // The carry has to come into it: §A2 folded the Cistern into the Greenhouse's rate, which is
+    // 19.2 an hour, so one hour banks 19 whole units and holds 0.2 back. Comparing the banked
+    // figure alone would be comparing a truncation to a rate.
+    const grown =
+      lateSettled.base.resources.supplies -
+      late.resources.supplies +
+      (lateSettled.base.economy.productionCarry.supplies ?? 0);
     // One hour's worth, not three.
     expect(grown).toBeCloseTo(alwaysThere ?? 0, 4);
     expect(grown).toBeLessThan((alwaysThere ?? 0) * 2);
   });
 
-  it('burns the Generator’s fuel over a long absence', () => {
+  /**
+   * §A1: the grid is gone, so a district left alone does not come back poorer.
+   *
+   * The Generator used to burn oil to hold the grid up, which meant a new crew who put the game
+   * down for three days came back with less fuel than they left. Nothing in the game consumes a
+   * resource on a clock any more, and this is the assertion that says so by name.
+   */
+  it('§A1: takes nothing off the stockpile over a long absence', () => {
     const repos = openStack();
     const start = new Date(NOW.getTime() - 72 * HOUR_MS);
     const base = seedBase(repos, { settledAt: start.toISOString() });
 
     const settled = settleDistrict(repos, base, NOW);
-    expect(settled.base.resources.oil).toBeLessThan(base.resources.oil);
-    // But not to nothing: a new district's Generator is barely loaded, so three days of neglect
-    // must not be what ends the first session.
-    expect(settled.base.resources.oil).toBeGreaterThan(base.resources.oil * 0.5);
+    expect(settled.base.resources.oil).toBe(base.resources.oil);
+    for (const key of RESOURCE_KEYS) {
+      expect(settled.base.resources[key], key).toBeGreaterThanOrEqual(base.resources[key]);
+    }
   });
 
   it('starts the clock rather than back-paying a base that predates production', () => {
@@ -434,7 +478,14 @@ describe('settling the district (§A1)', () => {
 });
 
 describe('population (§A1: one pool)', () => {
-  it('counts officers and soldiers against the same ceiling', () => {
+  /**
+   * §A1, as the board rewrote it: **the army draws on the pool and the officers do not.**
+   *
+   * Officers used to be charged a bed each, which put hiring somebody in competition with training
+   * somebody. That is not a trade the game wants: the crew is who you are, the army is what you can
+   * field. They are still counted and still reported, just not charged.
+   */
+  it('charges the army against the ceiling and the officers against nothing', () => {
     const repos = openStack();
     const officers = [createCommander('o1', 'One', 'head_spy')];
     const base = seedBase(repos, {
@@ -443,14 +494,14 @@ describe('population (§A1: one pool)', () => {
     });
 
     const withOfficer = districtPopulation(repos, base);
-    expect(withOfficer.total).toBe(1);
+    expect(withOfficer.officers, 'still counted').toBe(1);
+    expect(withOfficer.total, 'and still not charged').toBe(0);
 
-    // §A5, and the army draws on the same beds, which is the whole point of merging the pools.
-    // Razors are supply 1 apiece, so five of them is five bodies and not one entry on a roster.
+    // §A5: Razors are supply 1 apiece, so five of them is five bodies rather than one roster entry.
     const withArmy: Base = { ...base, army: { razors: 5 } };
     const fielded = districtPopulation(repos, withArmy);
     expect(fielded.army).toBe(5);
-    expect(fielded.total).toBe(withOfficer.total + 5);
+    expect(fielded.total).toBe(5);
     expect(fielded.spare).toBe(withOfficer.spare - 5);
   });
 
@@ -461,7 +512,7 @@ describe('population (§A1: one pool)', () => {
    * and a crew could fill both pools without either noticing; the only way to see that the merge
    * actually happened is to hire somebody and watch the roster get smaller.
    */
-  it('refuses an order the district has no beds for, and officers make it refuse sooner', () => {
+  it('refuses an order the district has no beds for, and hiring does not make it refuse sooner', () => {
     const repos = openStack();
     const base = seedBase(repos, {
       buildings: [build('nexus', 1), build('generator', 1), build('gauntlet', 4)],
@@ -485,9 +536,9 @@ describe('population (§A1: one pool)', () => {
     const filled = queueTraining(repos, { base, unit: razors, count: room, now: NOW });
     expect(filled.kind).toBe('queued');
 
-    // And the beds an officer is in are beds a soldier is not.
+    // ...and signing somebody takes no bed off the army, which is the board's rule (§A1).
     const withOfficer = { ...base, commanders: [createCommander('o1', 'One', 'head_spy')] };
-    expect(districtPopulation(repos, withOfficer).spare).toBe(room - 1);
+    expect(districtPopulation(repos, withOfficer).spare).toBe(room);
   });
 
   it('houses more people for every location the crew holds', () => {
@@ -534,7 +585,7 @@ describe('modifications (§A1, §C4)', () => {
     expect(options.every((o) => !o.installed)).toBe(true);
   });
 
-  it('walks the gates in order: build it, open a slot, hire an engineer, then pay', () => {
+  it('walks the gates in order: build it, hire an engineer, then pay', () => {
     const spec = findModification('lab_quantum_modeling');
     if (!spec) throw new Error('fixture error: the Lab modification is missing');
 
@@ -552,7 +603,9 @@ describe('modifications (§A1, §C4)', () => {
       ),
     ).toBe('not_built');
 
-    expect(modificationBlocker(withLab(4), spec)).toBe('no_slot');
+    // §B9: no slot gate. A Lab project draws a blueprint now; the Scrapyard builds it and the
+    // structure's dialog fits it, so a Lab with no bracket open is still a Lab worth designing for.
+    expect(modificationBlocker(withLab(4), spec)).toBe('no_lead_engineer');
     expect(modificationBlocker(withLab(5), spec)).toBe('no_lead_engineer');
     expect(modificationBlocker(withLab(5, { officers: engineer() }), spec)).toBe('cannot_afford');
     expect(modificationBlocker(withLab(5, { officers: engineer(), resources: rich }), spec)).toBe(
@@ -560,7 +613,14 @@ describe('modifications (§A1, §C4)', () => {
     );
   });
 
-  it('refuses a fourth modification once all three slots are full', () => {
+  /**
+   * §B9: a full Lab is exactly the crew that wants a fourth drawing.
+   *
+   * This used to refuse the project outright, which was right while a project ended by bolting the
+   * thing in and is wrong now: the brackets are emptiable (§E), so designing a fourth is how a
+   * player buys themselves a choice about which three the Lab is.
+   */
+  it('offers a fourth modification even with all three slots full', () => {
     const spec = findModification('lab_shielded_datacore');
     if (!spec) throw new Error('fixture error: the Lab modification is missing');
 
@@ -577,7 +637,14 @@ describe('modifications (§A1, §C4)', () => {
       officers: engineer(),
       resources: rich,
     });
-    expect(modificationBlocker(full, spec)).toBe('no_slot');
+    expect(modificationBlocker(full, spec)).toBeNull();
+
+    // ...and one already drawn is not sold twice, whether it is on the shelf or in a wall.
+    const fitted = findModification('lab_quantum_modeling');
+    if (!fitted) throw new Error('fixture error: the Lab modification is missing');
+    expect(modificationBlocker(full, fitted)).toBeNull();
+    expect(isModificationDrawn(full, fitted.id)).toBe(true);
+    expect(isModificationDrawn(full, spec.id)).toBe(false);
   });
 
   it('prices modification work in materials as well as caps', () => {
@@ -587,20 +654,165 @@ describe('modifications (§A1, §C4)', () => {
     expect(researchCost('investigation').highQualityMetal).toBeUndefined();
   });
 
-  it('fits a finished modification, and never fits it twice', () => {
-    const lab = [build('lab', 20)];
-    const once = fitModification(lab, 'lab_quantum_modeling');
-    expect(once[0]?.modifications).toEqual(['lab_quantum_modeling']);
+  /**
+   * §E: a slot is filled and emptied from the structure, out of what the Scrapyard has built.
+   *
+   * The whole of the change §B9 made to research is visible here: owning an add-on and having it
+   * installed are two facts now, so a slot can be emptied and the thing is still yours.
+   */
+  it('fits a built add-on, refuses a second copy, and empties the slot again', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: [build('nexus', 20), build('lab', 20)],
+      addons: { researched: ['lab_quantum_modeling'], built: ['lab_quantum_modeling'] },
+    });
 
-    const twice = fitModification(once, 'lab_quantum_modeling');
-    expect(twice[0]?.modifications).toEqual(['lab_quantum_modeling']);
+    const fitted = fitIntoSlot(repos, base, 'lab', 'lab_quantum_modeling');
+    expect(fitted.kind).toBe('fitted');
+    const withMod = fitted.kind === 'fitted' ? fitted.base : base;
+    expect(findBuilding(withMod.buildings, 'lab')?.modifications).toEqual(['lab_quantum_modeling']);
+
+    // One built, one fitted, so there is nothing left on the shelf to fit a second time.
+    const again = fitIntoSlot(repos, withMod, 'lab', 'lab_quantum_modeling');
+    expect(again).toEqual({ kind: 'refused', reason: 'already_fitted' });
+
+    const cleared = clearSlot(repos, withMod, 'lab', 0);
+    expect(cleared.kind).toBe('cleared');
+    const emptied = cleared.kind === 'cleared' ? cleared.base : withMod;
+    expect(findBuilding(emptied.buildings, 'lab')?.modifications).toEqual([]);
+    // ...and it is back on the shelf, which is what makes emptying reversible.
+    expect(shelvedModifications(addonsOf(emptied), emptied.buildings)).toEqual([
+      'lab_quantum_modeling',
+    ]);
+    expect(clearSlot(repos, emptied, 'lab', 0)).toEqual({
+      kind: 'refused',
+      reason: 'already_empty',
+    });
   });
 
-  it('lands harmlessly when the structure it was for is gone', () => {
-    expect(() => fitModification([], 'lab_quantum_modeling')).not.toThrow();
-    expect(fitModification([], 'lab_quantum_modeling')).toEqual([]);
-    // And an id the catalogue no longer knows changes nothing rather than throwing.
-    expect(fitModification([build('lab', 20)], 'lab_retired')[0]?.modifications).toEqual([]);
+  it('says why a slot cannot be filled, before anything is spent', () => {
+    const repos = openStack();
+    const shelved = seedBase(repos, {
+      buildings: [build('nexus', 20), build('lab', 4)],
+      addons: { researched: [], built: ['lab_quantum_modeling'] },
+    });
+    // One seeded crew per stack: `seedBase` inserts the same user row every time.
+    // The Lab is standing but is below the level that opens the first bracket.
+    expect(fitIntoSlot(repos, shelved, 'lab', 'lab_quantum_modeling')).toEqual({
+      kind: 'refused',
+      reason: 'slot_locked',
+    });
+
+    const empty: Base = {
+      ...shelved,
+      buildings: [build('nexus', 20), build('lab', 20)],
+      addons: { researched: [], built: [] },
+    };
+    expect(fitIntoSlot(repos, empty, 'lab', 'lab_quantum_modeling')).toEqual({
+      kind: 'refused',
+      reason: 'not_built',
+    });
+    expect(fitIntoSlot(repos, empty, 'gate', 'lab_quantum_modeling')).toEqual({
+      kind: 'refused',
+      reason: 'no_structure',
+    });
+  });
+});
+
+/**
+ * §B4: the Generator's paid burn.
+ *
+ * Three claims the board made and one it did not have to: it costs oil by Generator level, it runs
+ * for two hours, it reaches work already in the queue, and buying a second one while one runs is
+ * refused rather than stacked.
+ */
+describe('§B4: the Generator’s two-hour burn', () => {
+  const RICH: Resources = {
+    caps: 99999,
+    supplies: 99999,
+    oil: 99999,
+    scrap: 99999,
+    highQualityMetal: 99999,
+    planks: 99999,
+  };
+
+  it('charges 250 oil a Generator level and refuses a second burn', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      resources: RICH,
+      buildings: [build('nexus', 6), build('generator', 4)],
+    });
+
+    const lit = buyBuildBoost(repos, base, NOW);
+    expect(lit.kind).toBe('lit');
+    if (lit.kind !== 'lit') return;
+    expect(lit.paid.oil).toBe(4 * BUILD_BOOST_OIL_PER_LEVEL);
+    expect(lit.base.resources.oil).toBe(RICH.oil - 4 * BUILD_BOOST_OIL_PER_LEVEL);
+    expect(buildBoostActive(lit.base.economy.buildBoostUntil, NOW)).toBe(true);
+
+    expect(buyBuildBoost(repos, lit.base, NOW)).toEqual({
+      kind: 'refused',
+      reason: 'already_running',
+    });
+    // ...and it has run out two hours later, to the second.
+    const after = new Date(NOW.getTime() + BUILD_BOOST_MS);
+    expect(buildBoostActive(lit.base.economy.buildBoostUntil, after)).toBe(false);
+  });
+
+  it('refuses a crew with no Generator, and one that cannot cover the oil', () => {
+    const repos = openStack();
+    const noGenerator = seedBase(repos, { buildings: [build('nexus', 6)] });
+    expect(buyBuildBoost(repos, noGenerator, NOW)).toEqual({
+      kind: 'refused',
+      reason: 'no_generator',
+    });
+
+    const broke: Base = {
+      ...noGenerator,
+      buildings: [build('nexus', 6), build('generator', 4)],
+      resources: { ...RICH, oil: 10 },
+    };
+    expect(buyBuildBoost(repos, broke, NOW)).toEqual({ kind: 'refused', reason: 'cannot_afford' });
+  });
+
+  it('shortens work already in the queue and work ordered during it', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      resources: RICH,
+      buildings: [build('nexus', 6), build('generator', 4)],
+    });
+
+    const first = queueBuild(repos, { base, structure: 'quarters', id: 'q1', now: NOW });
+    expect(first.kind).toBe('queued');
+    if (first.kind !== 'queued') return;
+    const beforeSeconds = first.entry.durationSeconds;
+
+    const lit = buyBuildBoost(repos, first.base, NOW);
+    expect(lit.kind).toBe('lit');
+    if (lit.kind !== 'lit') return;
+    // Nothing has been worked yet, so the whole order shrinks by the burn's percentage.
+    expect(lit.base.buildQueue[0]?.durationSeconds).toBe(
+      Math.round(beforeSeconds * (1 - BUILD_BOOST_PERCENT / 100)),
+    );
+
+    // And an order placed during the burn arrives already short.
+    const during = queueBuild(repos, {
+      base: lit.base,
+      structure: 'greenhouse',
+      id: 'q2',
+      now: NOW,
+    });
+    expect(during.kind).toBe('queued');
+    if (during.kind !== 'queued') return;
+    const unboosted = queueBuild(repos, {
+      base: { ...lit.base, economy: { ...lit.base.economy, buildBoostUntil: null } },
+      structure: 'greenhouse',
+      id: 'q3',
+      now: NOW,
+    });
+    expect(unboosted.kind).toBe('queued');
+    if (unboosted.kind !== 'queued') return;
+    expect(during.entry.durationSeconds).toBeLessThan(unboosted.entry.durationSeconds);
   });
 });
 
@@ -624,10 +836,10 @@ describe('the build clock a player is quoted is the one they get', () => {
     if (result.kind !== 'queued') return;
     expect(result.entry.durationSeconds).toBe(quoted);
 
-    // A Nexus that goes up afterwards discounts the *next* order, not this one.
+    // §B4: a Generator that goes up afterwards shortens the *next* order, not this one.
     const raised: Base = {
       ...result.base,
-      buildings: [build('nexus', 10), build('generator', 1)],
+      buildings: [build('nexus', 10), build('generator', 10)],
     };
     expect(raised.buildQueue[0]?.durationSeconds).toBe(quoted);
     expect(buildingBuildSeconds('quarters', 1, raised.buildings)).toBeLessThan(quoted);
@@ -745,5 +957,104 @@ describe('the bench (§A5)', () => {
       kind: 'refused',
       reason: 'queue_full',
     });
+  });
+});
+
+/**
+ * §A4: the ground pays, and for a long time it did not.
+ *
+ * Every `resource` bonus in `city/locations.ts` folds into `TerritoryEffects.perHour`, and
+ * `combineEffects` merges it with the crew's. Nothing then spent it. `accrueProduction` priced the
+ * window off `districtProduction(buildings)` alone, so a crew that had taken and held **every
+ * location in the city** banked exactly nothing from any of them: the whole map game, which is
+ * what §A4 is, paid zero resources.
+ *
+ * It was invisible because holding ground pays in other ways too (housing, defence, unlocks) and
+ * because a district almost always has structures making the same resources, so the stockpile was
+ * always moving. It was found by settling a crew with **no buildings at all** and a full sweep of
+ * the map, where the only thing that could have paid is the ground.
+ *
+ * That is what the first test does, and it is the shape worth keeping: with nothing built, every
+ * cap in the stockpile came off the map.
+ */
+describe('what the ground makes (§A4)', () => {
+  const HOURS = 10;
+  const noBuildings: Building[] = [];
+
+  function holdingEverything(repos: Repositories): Base {
+    const base = seedBase(repos, {
+      buildings: noBuildings,
+      settledAt: '2026-09-01T00:00:00.000Z',
+    });
+    for (const location of CITY_LOCATIONS) {
+      const control = repos.city.control(location.id);
+      if (control) {
+        repos.city.put({ ...control, holder: { kind: 'crew', baseId: base.id }, garrison: {} });
+      }
+    }
+    return repos.bases.findById(base.id)!;
+  }
+
+  it('pays a crew that holds the city, with nothing built at all', () => {
+    const repos = openStack();
+    const base = holdingEverything(repos);
+    const before = base.resources;
+
+    const after = settleBase(
+      repos,
+      base,
+      new Date(Date.parse(base.economy.productionSettledAt!) + HOURS * 3600_000),
+    ).base;
+
+    // Caps have no storage ceiling, so this is the line that shows the full rate arriving.
+    const territory = territoryEffectsFor(base.id, CITY_LOCATIONS, repos.city.controls());
+    expect(territory.perHour.caps ?? 0).toBeGreaterThan(0);
+    expect(after.resources.caps - before.caps).toBe((territory.perHour.caps ?? 0) * HOURS);
+  });
+
+  it('pays nothing to a crew that holds no ground', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: noBuildings,
+      settledAt: '2026-09-01T00:00:00.000Z',
+    });
+
+    const after = settleBase(
+      repos,
+      base,
+      new Date(Date.parse(base.economy.productionSettledAt!) + HOURS * 3600_000),
+    ).base;
+
+    expect(after.resources.caps).toBe(base.resources.caps);
+  });
+
+  /** And the ground's output is added to what is built rather than replacing it. */
+  it('adds to what the district makes for itself', () => {
+    const bare = openStack();
+    const held = openStack();
+    const withoutGround = seedBase(bare, {
+      buildings: [build('scrapyard', 5)],
+      settledAt: '2026-09-01T00:00:00.000Z',
+    });
+    const withGround = (() => {
+      const base = seedBase(held, {
+        buildings: [build('scrapyard', 5)],
+        settledAt: '2026-09-01T00:00:00.000Z',
+      });
+      for (const location of CITY_LOCATIONS) {
+        const control = held.city.control(location.id);
+        if (control) {
+          held.city.put({ ...control, holder: { kind: 'crew', baseId: base.id }, garrison: {} });
+        }
+      }
+      return held.bases.findById(base.id)!;
+    })();
+
+    const at = (base: Base) =>
+      new Date(Date.parse(base.economy.productionSettledAt!) + HOURS * 3600_000);
+    const plain = settleBase(bare, withoutGround, at(withoutGround)).base;
+    const rich = settleBase(held, withGround, at(withGround)).base;
+
+    expect(rich.resources.caps).toBeGreaterThan(plain.resources.caps);
   });
 });

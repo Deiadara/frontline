@@ -1,4 +1,5 @@
 import {
+  type PartialResources,
   accrueProduction,
   applyQueueEntry,
   BUILDING_CATALOG,
@@ -70,6 +71,8 @@ function walk(
   due: readonly BuildQueueEntry[],
   now: Date,
   crew: CrewYield,
+  /** §A4: the hourly output of the ground this crew holds, on top of what it has built. */
+  groundPerHour: PartialResources = {},
 ): { buildings: Building[]; resources: Resources; carry: ProductionCarry } {
   let buildings: Building[] = base.buildings.map((building) => ({ ...building }));
   let resources = base.resources;
@@ -97,7 +100,14 @@ function walk(
       const halfway = repairedDistrict(buildings, new Date(cursor + (mark - cursor) / 2));
       // The carry threads through every segment of the walk, so cutting the window at a completed
       // build cannot round anything away: three segments owe exactly what one segment would have.
-      const accrued = accrueProduction(resources, halfway, hours * working, crew, carry);
+      const accrued = accrueProduction(
+        resources,
+        halfway,
+        hours * working,
+        crew,
+        carry,
+        groundPerHour,
+      );
       resources = accrued.resources;
       carry = accrued.carry;
       // ...and the state carried out of the segment is the district as it stands at `mark`.
@@ -145,12 +155,26 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
   const { productionPercent, storageCapacityPercent } = crewEffectsFor(repos, base);
   // §A4, and what the ground makes go further (the Abandoned Nuclear Plant). Read from the
   // territory fold rather than the crew one: this is a location's doing, not a person's.
-  const { resourceYieldPercent } = standingEffectsFor(repos, base);
-  const { buildings, resources, carry } = walk(base, due, now, {
-    productionPercent,
-    storageCapacityPercent,
-    resourceYieldPercent,
-  });
+  /*
+   * §A4: what the ground makes, and what it makes go further.
+   *
+   * `perHour` is the half that was doing nothing. Every `resource` bonus in the location catalogue
+   * folds into it, `combineEffects` merges it, and until now nothing spent it: a crew holding
+   * every location in the city banked exactly zero from them. Measured rather than reasoned about,
+   * with a probe that settled ten hours against a full sweep of the map and watched the stockpile
+   * not move.
+   *
+   * Read off the territory fold rather than the crew one, like `resourceYieldPercent` beside it:
+   * both are a location's doing rather than a person's.
+   */
+  const { resourceYieldPercent, perHour } = standingEffectsFor(repos, base);
+  const { buildings, resources, carry } = walk(
+    base,
+    due,
+    now,
+    { productionPercent, storageCapacityPercent, resourceYieldPercent },
+    perHour,
+  );
   const settled: Base = {
     ...base,
     resources,

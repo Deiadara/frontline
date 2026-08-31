@@ -12,6 +12,7 @@ const returned = (id: string, startedAt: string, resolvedAt: string): Mission =>
   payPercent: 0,
   xp: 240,
   force: { razors: 1 },
+  vehicles: {},
   startedAt,
   travelMinutes: 5,
   durationMinutes: 3,
@@ -19,6 +20,7 @@ const returned = (id: string, startedAt: string, resolvedAt: string): Mission =>
   status: 'resolved',
   outcome: 'success',
   rewards: { scrap: 40 },
+  spoils: { scrap: 40 },
   resolvedAt,
 });
 
@@ -27,6 +29,7 @@ const inFlight = (id: string, startedAt: string): Mission => ({
   status: 'active',
   outcome: null,
   rewards: {},
+  spoils: {},
   resolvedAt: null,
   recalledAt: null,
 });

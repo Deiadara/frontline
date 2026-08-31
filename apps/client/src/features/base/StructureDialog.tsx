@@ -7,7 +7,6 @@ import {
   buildingBuildSeconds,
   buildingCost,
   buildingLevel,
-  buildingPowerDraw,
   payrollBonusPercent,
   payrollLedger,
   canAfford,
@@ -16,19 +15,29 @@ import {
   unmetForQueue,
   describeBuildingRequirement,
   modificationCapacity,
-  modificationsFor,
   nextModificationSlotLevel,
   nextQueuedLevel,
   projectedBuildings,
   structureLevelCap,
-  wouldBrownOut,
   buildingNeedsParts,
   buildingParts,
   hasItems,
   ITEM_CATALOG,
+  BUILD_BOOST_HOURS,
+  BUILD_BOOST_PERCENT,
+  addonsOf,
+  buildBoostOilCost,
+  buildBoostRemainingMs,
+  describeSlotRefusal,
+  findModification,
+  fitSlotRefusal,
+  modificationSlots,
+  nexusLevelForUpgrade,
+  shelvedModifications,
   type Base,
   type BuildingKind,
   type ItemId,
+  type ModificationSlot,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
@@ -43,6 +52,7 @@ import { ItemWindow } from '../market/MarketPage';
 import { structureBonus } from './bonus';
 import { formatDuration } from './format';
 import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
+import { useServerClock } from '../missions/useServerClock';
 
 /**
  * One plot's dialog: what stands there, what the next level costs and takes, what it does, and the
@@ -60,6 +70,14 @@ interface StructureDialogProps {
   error: unknown;
   onBuild: () => void;
   onClose: () => void;
+  /** §B4: light the Generator's burn. */
+  onBoost: () => void;
+  boostPending: boolean;
+  /** §E: fill and empty one of the three slots. */
+  onFitSlot: (modificationId: string) => void;
+  onClearSlot: (slot: number) => void;
+  /** §B8/§B9: the two structures whose dialog is a door to a page. */
+  onGo: (path: string) => void;
 }
 
 export function StructureDialog({
@@ -69,6 +87,11 @@ export function StructureDialog({
   error,
   onBuild,
   onClose,
+  onBoost,
+  boostPending,
+  onFitSlot,
+  onClearSlot,
+  onGo,
 }: StructureDialogProps) {
   const { buildings, buildQueue, resources } = base;
   const spec = BUILDING_CATALOG[kind];
@@ -82,7 +105,6 @@ export function StructureDialog({
   const partsInHand =
     nextLevel === null || hasItems(base.inventory, buildingParts(kind, nextLevel));
   const queueFull = buildQueue.length >= MAX_BUILD_QUEUE;
-  const brownout = nextLevel !== null && wouldBrownOut(kind, nextLevel, buildings);
 
   const slots = modificationCapacity(standing);
   const nextSlotAt = nextModificationSlotLevel(standing?.level ?? 0);
@@ -132,7 +154,7 @@ export function StructureDialog({
           what an order costs on the right.
 
           Not decoration: arithmetic. The window carries a portrait, prose, a bonus, a price, a
-          clock, the grid and the modification slots, and stacking all of that in one column ran it
+          clock, the slots and the doors, and stacking all of that in one column ran it
           past `max-h-[calc(100vh-2rem)]` at 720px and 800px tall, which put the modification list
           under the fold with nothing to say it was there. Two columns halve the run. Single column
           below `sm`, where there is no width to split. */}
@@ -244,44 +266,98 @@ export function StructureDialog({
                 )}
               </span>
             </Stat>
-            <Stat label="Power">
-              <span className="font-display text-[12px] tabular-nums text-ink-200">
-                {standing
-                  ? `Draws ${Math.round(buildingPowerDraw(kind, standing.level))}`
-                  : 'Draws nothing yet'}
-                {nextLevel !== null &&
-                  ` → ${Math.round(buildingPowerDraw(kind, nextLevel))} at level ${nextLevel}`}
-              </span>
-            </Stat>
+            {/* §B1: what the Nexus has to be for the *next* level, said before anything is spent
+                rather than after a refused order. The table is per building and per level, so this
+                is the one number a player cannot work out from anywhere else on the screen. */}
+            {kind !== CENTRAL_BUILDING && nextLevel !== null && (
+              <Stat label="The Nexus has to be at">
+                <span
+                  className="font-display text-[12px] tabular-nums text-ink-200"
+                  data-testid="nexus-requirement"
+                >
+                  Level {nexusLevelForUpgrade(kind, nextLevel)}
+                </span>
+              </Stat>
+            )}
           </dl>
-          {brownout && (
-            <p className="mt-2.5 font-body text-xs leading-relaxed text-ember-300">
-              That level would draw more than the Generator supplies. The district will keep
-              working, slower, until the Generator catches up.
-            </p>
-          )}
         </Section>
 
-        <Section title={`Modifications: ${slots.used} of ${slots.slots} slots`}>
-          <ul className="flex flex-col gap-1.5">
-            {modificationsFor(kind).map((mod) => {
-              const fitted = standing?.modifications.includes(mod.id) ?? false;
-              return (
-                <li key={mod.id} className={cnRow(fitted)} data-testid={`modification-${mod.id}`}>
-                  <span className="truncate">{mod.name}</span>
-                  <span className="shrink-0 tabular-nums">
-                    {fitted ? 'FITTED' : `+${mod.magnitude}`}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+        {/* §E: three slots, filled and emptied here rather than on another screen. */}
+        <Section title={`Modifications: ${slots.used} of ${MAX_MODIFICATION_SLOTS} slots`}>
+          <SlotRack kind={kind} base={base} onFit={onFitSlot} onClear={onClearSlot} />
           <p className="mt-2 font-body text-[12px] leading-relaxed text-ink-300">
             {nextSlotAt === null
-              ? `All ${MAX_MODIFICATION_SLOTS} slots are open. Fit them from the Research page.`
-              : `Next slot opens at level ${nextSlotAt}. Fitting one is Research work and needs a Lead Engineer.`}
+              ? `All ${MAX_MODIFICATION_SLOTS} slots are open. The Scrapyard builds what goes in them.`
+              : `The next slot opens at level ${nextSlotAt}. The Scrapyard builds what goes in them.`}
           </p>
         </Section>
+
+        {/* §B4: the Generator's two-hour burn, bought where it is sold. */}
+        {kind === 'generator' && (
+          <Section title="Burn the tanks">
+            <BuildBoost base={base} onBoost={onBoost} pending={boostPending} />
+          </Section>
+        )}
+
+        {/* §B8: the Lab is the door to research, and research is no longer a tab. */}
+        {kind === 'lab' && (
+          <Section title="Research">
+            <p className="font-body text-xs leading-relaxed text-ink-300">
+              Projects are run out of the Lab. Every level here takes time off all of them.
+            </p>
+            <Button
+              size="sm"
+              className="mt-2.5"
+              data-testid="lab-open-research"
+              onClick={() => onGo('/game/research')}
+            >
+              Open research
+            </Button>
+          </Section>
+        )}
+
+        {/*
+         * §B11: the Garage is a door and nothing else.
+         *
+         * It grants nothing passively, so without this section its dialog is a level, a cost and
+         * no reason to have built it. The page existed and was routed before this was added, and
+         * was reachable only by typing the URL: the two halves of the Garage were built either
+         * side of a seam and neither owned the door.
+         */}
+        {kind === 'garage' && (
+          <Section title="The yard">
+            <p className="font-body text-xs leading-relaxed text-ink-300">
+              Machines are built and kept here. They carry a column to the ground faster than it
+              walks, and they are lost with the people riding them.
+            </p>
+            <Button
+              size="sm"
+              className="mt-2.5"
+              data-testid="garage-open"
+              onClick={() => onGo('/game/garage')}
+            >
+              Open the Garage
+            </Button>
+          </Section>
+        )}
+
+        {/* §B9: and the Scrapyard has a page of its own. */}
+        {kind === 'scrapyard' && (
+          <Section title="The yard">
+            <p className="font-body text-xs leading-relaxed text-ink-300">
+              Add-ons are built here: modifications for these three slots, and refits for the
+              roster. Scrap, and good metal for the heavy work.
+            </p>
+            <Button
+              size="sm"
+              className="mt-2.5"
+              data-testid="scrapyard-open"
+              onClick={() => onGo('/game/scrapyard')}
+            >
+              Open the Scrapyard
+            </Button>
+          </Section>
+        )}
 
         <Section title="The place itself">
           <p className="font-body text-xs italic leading-relaxed text-ink-300">
@@ -330,6 +406,184 @@ function cnRow(fitted: boolean): string {
     fitted ? 'border-brass-500/60 text-brass-300' : 'border-surface-700 text-ink-300',
   ].join(' ');
 }
+
+/**
+ * §E: the three brackets, and everything a player can do with them.
+ *
+ * Always three rows, whatever the structure's level, because "three clear slots" is the board's
+ * wording and a slot that is not drawn is a slot a player does not know they are working towards.
+ * A locked one says which level opens it; an empty open one lists what is on the shelf and, when
+ * the shelf is empty, says why in the yard's own words; a filled one has a control that empties it.
+ */
+function SlotRack({
+  kind,
+  base,
+  onFit,
+  onClear,
+}: {
+  kind: BuildingKind;
+  base: Base;
+  onFit: (modificationId: string) => void;
+  onClear: (slot: number) => void;
+}) {
+  const standing = findBuilding(base.buildings, kind);
+  const slots = modificationSlots(standing);
+  const shelf = shelvedModifications(addonsOf(base), base.buildings).filter(
+    (id) => findModification(id)?.building === kind,
+  );
+  // The route's own gate, asked here, so a dead control and a 409 give the same reason.
+  const refusal =
+    shelf[0] === undefined
+      ? null
+      : fitSlotRefusal({
+          kind,
+          modificationId: shelf[0],
+          buildings: base.buildings,
+          addons: addonsOf(base),
+        });
+
+  return (
+    <ul className="flex flex-col gap-1.5" data-testid={`slots-${kind}`}>
+      {slots.map((slot) => (
+        <SlotRow
+          key={slot.index}
+          slot={slot}
+          kind={kind}
+          shelf={shelf}
+          refusal={refusal}
+          onFit={onFit}
+          onClear={onClear}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function SlotRow({
+  slot,
+  kind,
+  shelf,
+  refusal,
+  onFit,
+  onClear,
+}: {
+  slot: ModificationSlot;
+  kind: BuildingKind;
+  shelf: readonly string[];
+  refusal: ReturnType<typeof fitSlotRefusal>;
+  onFit: (modificationId: string) => void;
+  onClear: (slot: number) => void;
+}) {
+  const fitted = slot.modificationId === null ? undefined : findModification(slot.modificationId);
+
+  if (fitted) {
+    return (
+      <li className={cnRow(true)} data-testid={`slot-${kind}-${slot.index}`}>
+        <span className="truncate">{fitted.name}</span>
+        <button
+          type="button"
+          className="shrink-0 text-oxblood-300 underline-offset-2 hover:underline"
+          data-testid={`slot-clear-${kind}-${slot.index}`}
+          onClick={() => onClear(slot.index)}
+        >
+          Empty
+        </button>
+      </li>
+    );
+  }
+
+  if (!slot.open) {
+    return (
+      <li className={cnRow(false)} data-testid={`slot-${kind}-${slot.index}`}>
+        <span className="truncate">Locked</span>
+        <span className="shrink-0 tabular-nums">Level {slot.opensAtLevel}</span>
+      </li>
+    );
+  }
+
+  const offer = shelf[0];
+  const spec = offer === undefined ? undefined : findModification(offer);
+  return (
+    <li className={cnRow(false)} data-testid={`slot-${kind}-${slot.index}`}>
+      <span className="truncate">{spec ? spec.name : 'Empty'}</span>
+      {spec && refusal === null ? (
+        <button
+          type="button"
+          className="shrink-0 text-verdigris-100 underline-offset-2 hover:underline"
+          data-testid={`slot-fit-${kind}-${slot.index}`}
+          onClick={() => onFit(spec.id)}
+        >
+          Fit
+        </button>
+      ) : (
+        <span className="shrink-0 normal-case tracking-normal text-ink-300">
+          {refusal === null ? 'Nothing built for this' : describeSlotRefusal(refusal, kind)}
+        </span>
+      )}
+    </li>
+  );
+}
+
+/**
+ * §B4: the Generator's paid burn, with its countdown.
+ *
+ * The countdown is derived from the district's own stored timestamp on every render rather than
+ * ticked, so it is correct after a reload and after the tab has been asleep: the same reason every
+ * other clock in this game is a timestamp.
+ */
+function BuildBoost({
+  base,
+  onBoost,
+  pending,
+}: {
+  base: Base;
+  onBoost: () => void;
+  pending: boolean;
+}) {
+  // The district's own read carries no `serverNow`, so this is the local clock: the burn is a
+  // two-hour window and a second of skew on the countdown is not a thing a player can perceive.
+  const now = useServerClock(undefined, undefined);
+  const remainingMs = buildBoostRemainingMs(base.economy.buildBoostUntil, now);
+  const oil = buildBoostOilCost(base.buildings);
+  const level = buildingLevel(base.buildings, 'generator');
+
+  if (level <= 0) {
+    return (
+      <p className="font-body text-xs leading-relaxed text-ink-300">
+        Build the Generator first. It is what sells the burn.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2.5" data-testid="build-boost">
+      <p className="font-body text-xs leading-relaxed text-ink-300">{BUILD_BOOST_OIL_LINE(oil)}</p>
+      {remainingMs > 0 ? (
+        <p
+          className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300"
+          data-testid="build-boost-remaining"
+        >
+          Burning:{' '}
+          <span className="tabular-nums text-ink-100">{formatDuration(remainingMs / 1000)}</span>{' '}
+          left
+        </p>
+      ) : (
+        <Button
+          size="sm"
+          disabled={pending || base.resources.oil < oil}
+          data-testid="build-boost-buy"
+          onClick={onBoost}
+        >
+          {pending ? 'Lighting…' : base.resources.oil < oil ? 'Short of oil' : `Burn ${oil} oil`}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** One sentence, so the price and the promise cannot drift apart on the screen. */
+const BUILD_BOOST_OIL_LINE = (oil: number): string =>
+  `${oil} oil buys ${BUILD_BOOST_HOURS} hours at ${BUILD_BOOST_PERCENT}% off every build in the queue, and everything ordered while it runs. One at a time.`;
 
 /**
  * Why there is no next level: locked behind the Nexus, held down by it, or the end of the content.

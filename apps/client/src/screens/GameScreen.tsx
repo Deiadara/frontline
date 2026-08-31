@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { Ambience, Patina } from '../components/ui/Ambience';
-import { useMe } from '../lib/queries';
+import { useLiveEvents } from '../lib/live';
+import { useMe, usePrefetchScreens } from '../lib/queries';
 import { useMeasuredHeight } from '../lib/useMeasuredHeight';
 import { BottomNav } from '../features/game/BottomNav';
 import { QueueRail } from '../features/game/QueueRail';
@@ -20,6 +21,15 @@ import { TopHud } from '../features/game/TopHud';
  */
 export function GameScreen() {
   const me = useMe();
+  // Warm the screens behind the nav so opening one is instant (`usePrefetchScreens`), but only
+  // once there is a district to read them against: every one of those endpoints needs a base, so
+  // firing them during overseer selection is eight requests that can only fail, and a failed
+  // prefetch leaves an error in the cache for the screen's own hook to open on.
+  usePrefetchScreens(Boolean(me.data?.base));
+  // Opened here, once, and left open for the whole session: this is the component every screen is
+  // rendered inside, so the channel outlives navigation. Mounting it on a page instead would drop
+  // and rebuild the connection on every click.
+  const live = useLiveEvents();
   const [hudRef, hudHeight] = useMeasuredHeight();
   const [navRef, navHeight] = useMeasuredHeight();
   const overseer = me.data?.overseer ?? null;
@@ -69,6 +79,7 @@ export function GameScreen() {
             resources={base.resources}
             economy={base.economy}
             buildings={base.buildings}
+            live={live}
             {...(me.data?.unread ? { unread: me.data.unread } : {})}
           />
         </div>

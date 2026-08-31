@@ -35,6 +35,7 @@ import { crewEffectsFor } from '../crew/standing.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
+import { seatedRoles } from '../crew/roster.js';
 
 /**
  * The Bar (GDD §H).
@@ -74,10 +75,6 @@ const REFUSAL_ERRORS: Record<HireRefusal, { code: ErrorCode; message: string }> 
     code: 'DAILY_HIRE_LIMIT',
     message: 'You have already signed somebody today. The room restocks tomorrow',
   },
-  no_housing: {
-    code: 'NO_HOUSING',
-    message: 'Nowhere to put them. Raise the Quarters first',
-  },
   no_slots: { code: 'NO_RECRUIT_SLOTS', message: 'You have no room for another recruit' },
   role_taken: { code: 'ROLE_TAKEN', message: 'Someone already holds that position' },
   requirement: {
@@ -111,12 +108,14 @@ export function registerBarRoutes(app: FastifyInstance): void {
     // §H2: the room scales with the city. Averaged across every base standing in it, so it is the
     // whole city's standing that raises the calibre rather than the reader's own.
     const standoffs = app.repos.bar.standoffs(request.currentUser.id);
+    // §H7: read once for the whole roster. Two calls would be two settles of the same effects.
+    const wageDiscount = crewEffectsFor(app.repos, base).wageDiscountPercent;
 
     return {
       day,
       serverNow: now.toISOString(),
       recruits: barRoster(day, generations, seats, app.repos.bases.averageLevel()).map((recruit) =>
-        projectRecruit(base, recruit, standoffs[recruit.id]),
+        projectRecruit(base, recruit, standoffs[recruit.id], wageDiscount),
       ),
       officers: base.commanders.map((officer) => projectOfficer(base, officer)),
       slotsUsed: base.commanders.length,
@@ -126,7 +125,9 @@ export function registerBarRoutes(app: FastifyInstance): void {
       level: base.level,
       caps: base.resources.caps,
       payroll: ledgerFor(base, crewEffectsFor(app.repos, base).payrollStepDiscountPercent),
-      filledRoles: base.commanders.map((officer) => officer.role),
+      // Chairs that are actually taken. Somebody on the bench fills none of them, which is what
+      // makes the bench worth having: they are signed and every seat is still open to them.
+      filledRoles: seatedRoles(base.commanders),
       hiresLeftToday: Math.max(
         0,
         barHiresPerDay(base.level) - app.repos.bar.hiresBy(request.currentUser.id, day),
@@ -155,7 +156,13 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const day = barDay(now);
 
     const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
-    const recruit = findBarRecruit(day, recruitId, app.repos.bar.generations(day, seats), seats);
+    const recruit = findBarRecruit(
+      day,
+      recruitId,
+      app.repos.bar.generations(day, seats),
+      seats,
+      app.repos.bases.averageLevel(),
+    );
     if (!recruit) throw new AppError('NOT_FOUND', 'They are not at the Bar today');
 
     const { blockers } = assessAgainst(base, recruit);
@@ -176,7 +183,12 @@ export function registerBarRoutes(app: FastifyInstance): void {
       );
     }
 
-    const asking = wageAskedOf(recruit, standoff);
+    // The same discount the roster printed and `hireRecruit` will charge against.
+    const asking = wageAskedOf(
+      recruit,
+      standoff,
+      crewEffectsFor(app.repos, base).wageDiscountPercent,
+    );
     const current =
       app.repos.bar.negotiation(request.currentUser.id, day, recruitId) ??
       openNegotiation(asking, recruit.attributes);
@@ -228,7 +240,13 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const day = barDay(now);
     const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
     const generations = app.repos.bar.generations(day, seats);
-    const recruit = findBarRecruit(day, recruitId, generations, seats);
+    const recruit = findBarRecruit(
+      day,
+      recruitId,
+      generations,
+      seats,
+      app.repos.bases.averageLevel(),
+    );
     const seat = seatOf(day, recruitId);
     const standoff = app.repos.bar.standoff(request.currentUser.id, recruitId);
     if (!recruit || seat === null) {

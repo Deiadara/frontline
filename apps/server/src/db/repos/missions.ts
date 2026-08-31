@@ -15,6 +15,7 @@ interface MissionRow {
   pay_percent: number;
   xp: number;
   force_json: string;
+  vehicles_json: string;
   started_at: string;
   recalled_at: string | null;
   travel_minutes: number;
@@ -25,6 +26,7 @@ interface MissionRow {
   officer_id: string | null;
   outcome: string | null;
   rewards_json: string;
+  spoils_json: string;
   resolved_at: string | null;
 }
 
@@ -42,7 +44,10 @@ export interface StoredMission {
 
 export interface MissionResolution {
   outcome: 'success' | 'failure';
+  /** Banked: the payout after the crew's carrying capacity. */
   rewards: PartialResources;
+  /** Earned: the payout before it. The report draws the difference. */
+  spoils: PartialResources;
   resolvedAt: string;
 }
 
@@ -52,6 +57,15 @@ export interface MissionsRepo {
   listByBaseId(baseId: string): StoredMission[];
   listActiveByBaseId(baseId: string): StoredMission[];
   countActiveByBaseId(baseId: string): number;
+  /**
+   * Every district with a crew still out, for the world clock.
+   *
+   * Deliberately not "every district with a crew that is *due*". Whether a run is home is decided
+   * by `isMissionDue`, off the clock frozen on the row, and expressing that rule a second time in
+   * SQL would be two definitions of the same thing waiting to disagree after the next retune. This
+   * hands back the small set that could possibly be due and lets the one authority decide.
+   */
+  basesWithActiveRuns(): string[];
   markResolved(missionId: string, resolution: MissionResolution): void;
   /** §E: turn a crew around. The return leg is derived from this instant, not stored. */
   markRecalled(missionId: string, recalledAt: string): void;
@@ -68,6 +82,8 @@ function rowToStored(row: MissionRow): StoredMission {
       payPercent: row.pay_percent,
       xp: row.xp,
       force: withoutRetiredUnits(readJson(row.force_json)),
+      // §C3: whatever carried them, frozen at launch like the force and the clock.
+      vehicles: readJson(row.vehicles_json),
       startedAt: row.started_at,
       recalledAt: row.recalled_at,
       travelMinutes: row.travel_minutes,
@@ -76,6 +92,7 @@ function rowToStored(row: MissionRow): StoredMission {
       officerId: row.officer_id,
       outcome: row.outcome,
       rewards: readJson(row.rewards_json),
+      spoils: readJson(row.spoils_json),
       resolvedAt: row.resolved_at,
     }),
     seed: row.seed,
@@ -86,10 +103,10 @@ function rowToStored(row: MissionRow): StoredMission {
 export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   const insertStmt = db.prepare(
     `INSERT INTO missions
-       (id, base_id, template_id, area_id, pay_percent, xp, force_json, started_at,
-        travel_minutes, duration_minutes, success_chance, seed, status, officer_id, outcome,
-        rewards_json, resolved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, base_id, template_id, area_id, pay_percent, xp, force_json, vehicles_json,
+        started_at, travel_minutes, duration_minutes, success_chance, seed, status, officer_id,
+        outcome, rewards_json, resolved_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
   const byIdStmt = db.prepare('SELECT * FROM missions WHERE id = ?');
@@ -102,9 +119,12 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   const countActiveStmt = db.prepare(
     "SELECT COUNT(*) AS count FROM missions WHERE base_id = ? AND status = 'active'",
   );
+  const activeBasesStmt = db.prepare(
+    "SELECT DISTINCT base_id FROM missions WHERE status = 'active'",
+  );
   const resolveStmt = db.prepare(
     `UPDATE missions
-        SET status = 'resolved', outcome = ?, rewards_json = ?, resolved_at = ?
+        SET status = 'resolved', outcome = ?, rewards_json = ?, spoils_json = ?, resolved_at = ?
       WHERE id = ?`,
   );
 
@@ -118,6 +138,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         mission.payPercent,
         mission.xp,
         JSON.stringify(mission.force),
+        JSON.stringify(mission.vehicles),
         mission.startedAt,
         mission.travelMinutes,
         mission.durationMinutes,
@@ -136,6 +157,9 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
     listActiveByBaseId(baseId) {
       return (activeByBaseStmt.all(baseId) as MissionRow[]).map(rowToStored);
     },
+    basesWithActiveRuns() {
+      return (activeBasesStmt.all() as { base_id: string }[]).map((row) => row.base_id);
+    },
     countActiveByBaseId(baseId) {
       return (countActiveStmt.get(baseId) as { count: number }).count;
     },
@@ -146,8 +170,14 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
       const row = byIdStmt.get(missionId) as MissionRow | undefined;
       return row ? rowToStored(row) : undefined;
     },
-    markResolved(missionId, { outcome, rewards, resolvedAt }) {
-      resolveStmt.run(outcome, JSON.stringify(rewards), resolvedAt, missionId);
+    markResolved(missionId, { outcome, rewards, spoils, resolvedAt }) {
+      resolveStmt.run(
+        outcome,
+        JSON.stringify(rewards),
+        JSON.stringify(spoils),
+        resolvedAt,
+        missionId,
+      );
     },
   };
 }

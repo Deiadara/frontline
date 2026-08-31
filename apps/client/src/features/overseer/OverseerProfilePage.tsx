@@ -1,21 +1,10 @@
-import {
-  ATTRIBUTE_EFFECTS,
-  ATTRIBUTE_LABELS,
-  CHANNEL_LABELS,
-  EFFECT_CHANNELS,
-  attributesDriving,
-  type AttributeName,
-  type EffectChannel,
-} from '@frontline/shared';
+import {} from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
-import { cn } from '../../lib/cn';
-import { RATING_TEXT, ratingBand } from '../../lib/rating';
 import { useCrewStanding } from '../../lib/queries';
-import { InfoNote, PageShell } from '../game/PageShell';
-import { AttributeRadar } from './AttributeRadar';
+import { PageShell } from '../game/PageShell';
 import { AttributeSheet } from './AttributeSheet';
 import { OverseerPortrait } from './OverseerPortrait';
 import { PerkTags } from '../../components/PerkTags';
@@ -48,40 +37,6 @@ import { PerkTags } from '../../components/PerkTags';
  * exhaustiveness worth relying on. A `?? 'district'` would have shipped the next one silently in
  * the wrong bucket.
  */
-const CHANNEL_GROUP: Readonly<Record<EffectChannel, 'fight' | 'district' | 'books' | 'intel'>> = {
-  defensePercent: 'fight',
-  unitOffensePercent: 'fight',
-  unitVitalityPercent: 'fight',
-  unitMoraleFlat: 'fight',
-  unitSpeedPercent: 'fight',
-  unitStealthPercent: 'fight',
-  intimidationFlat: 'fight',
-  casualtyRecoveryPercent: 'fight',
-  cohesionPercent: 'fight',
-  lootCapacityPercent: 'fight',
-  travelSpeedPercent: 'fight',
-  researchSpeedPercent: 'district',
-  buildSpeedPercent: 'district',
-  trainingSpeedPercent: 'district',
-  trainingCostPercent: 'district',
-  productionPercent: 'district',
-  storageCapacityPercent: 'district',
-  buildCostPercent: 'district',
-  wageDiscountPercent: 'books',
-  recruitPoolPercent: 'books',
-  intelYieldPercent: 'intel',
-  intelResistancePercent: 'intel',
-};
-
-const GROUP_STYLE: Readonly<
-  Record<(typeof CHANNEL_GROUP)[EffectChannel], { icon: IconName; ink: string; edge: string }>
-> = {
-  fight: { icon: 'sword', ink: 'text-oxblood-300', edge: 'border-oxblood-500/40' },
-  district: { icon: 'district', ink: 'text-verdigris-100', edge: 'border-verdigris-300/40' },
-  books: { icon: 'crew', ink: 'text-brass-300', edge: 'border-brass-500/40' },
-  intel: { icon: 'eye', ink: 'text-iris-100', edge: 'border-iris-300/40' },
-};
-
 /** A section of the file: a plated mark, a name, a drawn rule, and what is under it. */
 function FileSection({
   icon,
@@ -97,7 +52,10 @@ function FileSection({
   children: ReactNode;
 }) {
   return (
-    <section className="flex min-w-0 flex-col gap-2.5">
+    // A drawn sheet rather than a heading over loose content: the file now holds one section, and
+    // a bare rule with a grid under it read as the page having failed to finish loading. Same
+    // frame the faction, standings and training screens use.
+    <section className="ink-frame card-paper washed flex min-w-0 flex-col gap-2.5 p-4">
       <header className="flex flex-col gap-2">
         <div className="flex items-center gap-2.5">
           <span
@@ -135,46 +93,56 @@ export function OverseerProfilePage() {
     );
   }
 
-  const { overseer, crewSheet, effects } = data;
-  const live = EFFECT_CHANNELS.filter((channel) => (effects[channel] ?? 0) > 0);
-  const dormant = EFFECT_CHANNELS.filter((channel) => (effects[channel] ?? 0) <= 0);
+  const { overseer } = data;
 
   return (
     <PageShell wide fills>
-      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[21rem_minmax(0,1fr)]">
         {/* Who. The one block on the screen that is about the person rather than the numbers. */}
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          <Panel className="min-h-0 border border-surface-500/70">
-            <div className="min-h-0 overflow-y-auto">
-              {/* Capped against the viewport, not just the rail's width. A 3:4 portrait at the
-                  rail's full width is 405px tall, which on a 720-tall laptop leaves nothing under
-                  it: the name was cut in half at the panel's scroll edge. Cropped from the bottom,
-                  because that is where a portrait has least to say. */}
-              <div className="painted washed edge-lit max-h-[30vh] shrink-0 overflow-hidden border-b border-surface-600/70">
-                <OverseerPortrait
-                  portraitId={overseer.portraitId}
-                  archetype={overseer.archetype}
-                  showTag={false}
-                />
-              </div>
-              <div className="flex flex-col gap-2.5 p-3.5">
-                <div>
-                  <h1
-                    className="break-words font-stamp text-[20px] leading-tight text-ink-100"
-                    data-testid="overseer-name"
-                  >
-                    {overseer.name}
-                  </h1>
-                  <p className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
-                    Overseer
-                  </p>
-                </div>
-                <span aria-hidden className="ink-rule block w-full" />
-                <p className="font-body text-[13px] italic leading-relaxed text-ink-200">
-                  {overseer.bio}
+          <Panel className="flex min-h-0 flex-1 flex-col border border-surface-500/70">
+            {/*
+             * The portrait takes what the words leave, and the words are never cut.
+             *
+             * Two earlier attempts got this the wrong way round. Capping the portrait at `30vh` and
+             * hiding the overflow cut the bottom third off a painting of a person. Sizing it off
+             * the viewport instead (`33vh` of width for `44vh` of height) showed the whole painting
+             * and pushed the biography into a scroll, where it was bisected mid-sentence at the
+             * panel's edge, which is the same bug wearing different clothes.
+             *
+             * Neither is a layout. The name, the rule, the biography and the perks are `shrink-0`,
+             * so they always get the height they need; the portrait is `flex-1 min-h-0` with
+             * `aspect="fill"`, so it takes exactly what is left and fits the whole image into it.
+             * On a short viewport the picture gets smaller. Nothing gets cut, at any size.
+             */}
+            <div
+              data-testid="profile-portrait"
+              className="painted washed edge-lit flex min-h-0 flex-1 justify-center border-b border-surface-600/70 p-2.5"
+            >
+              <OverseerPortrait
+                portraitId={overseer.portraitId}
+                archetype={overseer.archetype}
+                aspect="fill"
+                showTag={false}
+              />
+            </div>
+            <div data-testid="profile-identity" className="flex shrink-0 flex-col gap-2.5 p-3.5">
+              <div>
+                <h1
+                  className="break-words font-stamp text-[20px] leading-tight text-ink-100"
+                  data-testid="overseer-name"
+                >
+                  {overseer.name}
+                </h1>
+                <p className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
+                  Overseer
                 </p>
-                <PerkTags perks={overseer.perks} tone="profile" />
               </div>
+              <span aria-hidden className="ink-rule block w-full" />
+              <p className="font-body text-[13px] italic leading-relaxed text-ink-200">
+                {overseer.bio}
+              </p>
+              <PerkTags perks={overseer.perks} tone="profile" />
             </div>
           </Panel>
 
@@ -186,7 +154,7 @@ export function OverseerProfilePage() {
             <span aria-hidden className="relative z-[2] [&_svg]:h-4 [&_svg]:w-4">
               <Icon name="training" />
             </span>
-            <span className="relative z-[2]">Go and train</span>
+            <span className="relative z-[2]">Training</span>
           </Link>
         </div>
 
@@ -194,154 +162,24 @@ export function OverseerProfilePage() {
           className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto"
           data-testid="file-body"
         >
+          {/*
+           * Two by two, each group in its own frame (board request).
+           *
+           * Four groups in one row was a 34-number field read left to right, and it left the
+           * bottom half of the screen empty on every viewport taller than about 800px: the sheet
+           * was a strip across the top of a page with nothing under it. Two by two is the shape
+           * the rest of the game uses for four related panels, it fills the space it is given, and
+           * `roomy` puts each group behind its own border so the four read as four things.
+           */}
           <FileSection
             icon="crew"
             title="Your own sheet"
             note="Every attribute you carry, whatever your role"
           >
-            <AttributeSheet attributes={overseer.attributes} columns={4} />
+            <AttributeSheet attributes={overseer.attributes} columns={2} roomy />
           </FileSection>
-
-          <FileSection
-            icon="spark"
-            title="What the crew is buying"
-            note="The best figure anyone on your books has, and what it pays for"
-            action={
-              <InfoNote label="Whose numbers these are">
-                Every number below is the best anyone on your books has, yourself included. Hiring a
-                specialist raises it; so does an hour in the Training tab. Nothing here is about how
-                well somebody suits their job, which is yours to judge.
-              </InfoNote>
-            }
-          >
-            <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_14rem]">
-              <ul
-                className="grid min-w-0 gap-2 md:grid-cols-2 [@media(min-width:1600px)]:grid-cols-3"
-                data-testid="crew-effects"
-              >
-                {live.map((channel) => (
-                  <ChannelCard
-                    key={channel}
-                    channel={channel}
-                    amount={effects[channel] ?? 0}
-                    sheet={crewSheet}
-                  />
-                ))}
-              </ul>
-              {/* The radar gets a frame and a name. It used to float in a column beside the list
-                  with four three-letter labels and nothing to say what it was. */}
-              <div className="card-paper edge-lit flex flex-col gap-1.5 rounded-sm border border-surface-500/70 p-3">
-                <p className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-brass-300">
-                  The shape of the crew
-                </p>
-                <div className="h-44 w-full">
-                  <AttributeRadar attributes={crewSheet} />
-                </div>
-              </div>
-            </div>
-          </FileSection>
-
-          {dormant.length > 0 && (
-            <FileSection
-              icon="lock"
-              title="Nothing there yet"
-              note="Channels no one on the books can open"
-            >
-              <ul className="flex flex-wrap gap-1.5">
-                {dormant.map((channel) => (
-                  <li
-                    key={channel}
-                    className="flex items-center gap-1.5 rounded-sm border border-surface-700 px-2 py-1 font-display text-[11px] uppercase tracking-[0.12em] text-ink-300"
-                  >
-                    <Icon name="lock" className="h-3 w-3" />
-                    {CHANNEL_LABELS[channel].label}
-                  </li>
-                ))}
-              </ul>
-            </FileSection>
-          )}
         </div>
       </div>
     </PageShell>
-  );
-}
-
-/** One outcome, what it is worth, and who on the books is responsible for it. */
-function ChannelCard({
-  channel,
-  amount,
-  sheet,
-}: {
-  channel: EffectChannel;
-  amount: number;
-  sheet: Record<string, number>;
-}) {
-  const { label, unit } = CHANNEL_LABELS[channel];
-  const drivers = attributesDriving(channel);
-  const style = GROUP_STYLE[CHANNEL_GROUP[channel]];
-
-  return (
-    <li
-      data-testid={`channel-${channel}`}
-      /*
-       * `card-paper` and `edge-lit`, never `painted` or `washed`.
-       *
-       * Both of those are `mix-blend-mode: soft-light` layers. One over a panel is the intended
-       * texture; twenty-two of them stacked down this list washed the whole column out to a pale
-       * grey static field with the type barely readable through it. Measured, not guessed: dropping
-       * them from these cards alone restores the page, with the same classes left in place on the
-       * shell and on the portrait. `card-paper` is a plain gradient and `edge-lit` an inset shadow,
-       * so neither blends and neither compounds. There is a gate for this in `visual.spec.ts`
-       * (`expectSheetNotWashedOut`); put `painted` back here and it fails.
-       */
-      className={cn(
-        'card-paper edge-lit flex min-w-0 flex-col gap-2 rounded-sm border p-2.5',
-        style.edge,
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <span
-          aria-hidden
-          className={cn('mt-0.5 shrink-0 [&_svg]:h-4 [&_svg]:w-4', style.ink)}
-          data-tip={CHANNEL_LABELS[channel].label}
-        >
-          <Icon name={style.icon} />
-        </span>
-        <span className="min-w-0 flex-1 break-words font-body text-[13px] leading-tight text-ink-100">
-          {label}
-        </span>
-        {/* The figure on a plate: it is the one number on the card and what two outcomes are
-            compared on. */}
-        <span
-          className={cn(
-            'shrink-0 rounded-sm border px-1.5 py-0.5 font-display text-[12px] font-bold tabular-nums',
-            style.edge,
-            style.ink,
-          )}
-        >
-          +{amount}
-          {unit === 'percent' ? '%' : ''}
-        </span>
-      </div>
-      {/* Who is responsible, as chips carrying their own rating colour rather than a row of grey
-          `Label 15`s. The colour is the same four bands every rating in the game is read on, so
-          "which of these is holding the number down" is answered without reading a digit. */}
-      <div className="flex min-w-0 flex-wrap gap-1">
-        {drivers.map((name: AttributeName) => (
-          <span
-            key={name}
-            data-tip={ATTRIBUTE_EFFECTS[name].summary}
-            className="flex items-center gap-1 rounded-sm border border-surface-600/70 bg-surface-950/40 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.1em] text-ink-300"
-          >
-            {ATTRIBUTE_LABELS[name]}
-            <span
-              className={cn('font-bold tabular-nums', RATING_TEXT[ratingBand(sheet[name] ?? 0)])}
-            >
-              {sheet[name] ?? 0}
-            </span>
-          </span>
-        ))}
-      </div>
-    </li>
   );
 }

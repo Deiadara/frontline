@@ -18,6 +18,7 @@ import {
   useReadMessage,
   useSendMessage,
 } from '../../lib/queries';
+import { LoadFailure } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
 import { InviteCard } from './InviteCard';
 
@@ -66,7 +67,20 @@ export function MessagesPage() {
   const [body, setBody] = useState('');
 
   const data = query.data;
-  if (!data) return null;
+  /*
+   * A failure is said out loud rather than rendered as a blank sheet.
+   *
+   * `return null` here drew *nothing at all* on a failed read: no heading, no text, no way to tell
+   * a broken request from an empty inbox. See `LoadFailure` for the bug that taught us.
+   */
+  if (!data) {
+    if (!query.isError) return null;
+    return (
+      <PageShell title="Messages" wide>
+        <LoadFailure what="Your mail" onRetry={() => void query.refetch()} />
+      </PageShell>
+    );
+  }
 
   const error = send.error ?? read.error ?? remove.error ?? null;
 
@@ -89,7 +103,7 @@ export function MessagesPage() {
     <PageShell title="Messages" fills wide>
       <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          <div className="card-paper washed rivets edge-lit flex flex-col rounded-sm border border-surface-500/70">
+          <div className="ink-frame card-paper washed rivets edge-lit flex flex-col">
             <ul className="divide-y divide-surface-700" data-testid="message-folders">
               {FOLDERS.map((entry) => (
                 <li key={entry.id}>
@@ -151,7 +165,7 @@ export function MessagesPage() {
           )}
 
           <div
-            className="card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto rounded-sm border border-surface-600/70"
+            className="ink-frame card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto"
             data-testid="message-list"
           >
             {folder === 'inbox' ? (

@@ -11,6 +11,7 @@ import {
   OVERSEER_PRESETS,
   RESEARCH_COST_CAPS,
   RESEARCH_MINUTES,
+  addonsOf,
   createCommander,
   developAttribute,
   findMissionTemplate,
@@ -26,6 +27,7 @@ import {
   startingResearch,
   unlocksCrossReference,
   type ActiveResearch,
+  type Addons,
   type Base,
   type Commander,
   type Overseer,
@@ -130,6 +132,7 @@ function fakeRepos(): {
     commanders?: Commander[];
     level?: number;
     xpIntoLevel?: number;
+    addons?: Addons;
   };
 } {
   const written: {
@@ -140,6 +143,7 @@ function fakeRepos(): {
     commanders?: Commander[];
     level?: number;
     xpIntoLevel?: number;
+    addons?: Addons;
   } = {};
   const repos = {
     bases: {
@@ -163,6 +167,11 @@ function fakeRepos(): {
         written.level = level;
         written.xpIntoLevel = progression.xpIntoLevel;
       },
+      // §B9: modification work ends with a blueprint on the shelf, which is a fifth write.
+      updateAddons: (_id: string, addons: Addons) => {
+        written.addons = addons;
+      },
+      updateDistrict: () => undefined,
     },
     overseers: {
       updateAttributes: (_id: string, attributes: unknown) => {
@@ -186,6 +195,51 @@ function runToCompletion(base: Base, overseer: Overseer, project: ResearchProjec
   const after = new Date(NOW.getTime() + RESEARCH_MINUTES[project.kind] * MINUTE_MS);
   return settleResearch(repos, started.base, overseer, after);
 }
+
+/**
+ * §B9: a finished modification project puts a **blueprint** on the shelf and nothing in a wall.
+ *
+ * This is the seam between the Lab and the Scrapyard, and it is the one place the two could come
+ * apart silently: a project that still bolted the thing in would leave the yard with nothing to
+ * build and §E's slots with nothing to empty, and every other research assertion in this file
+ * would stay green.
+ */
+describe('§B9: modification work ends with a blueprint', () => {
+  const engineer = () => createCommander('eng-1', 'Wren', 'lead_engineer');
+  const project: ResearchProject = {
+    kind: 'modification',
+    modificationId: 'lab_quantum_modeling',
+  };
+
+  it('records the drawing and leaves the structure untouched', () => {
+    const { repos, written } = fakeRepos();
+    const base = makeBase({
+      commanders: [engineer()],
+      buildings: [
+        { id: 'b-lab', kind: 'lab', level: 20, modifications: [], damage: 0, fortification: 0 },
+      ],
+      resources: {
+        caps: 99_999,
+        supplies: 99_999,
+        oil: 99_999,
+        scrap: 99_999,
+        highQualityMetal: 99_999,
+        planks: 99_999,
+      },
+    });
+    const overseer = makeOverseer();
+    const started = startResearch(repos, { base, overseer, project, id: 'r-1', now: NOW });
+    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
+
+    const after = new Date(NOW.getTime() + RESEARCH_MINUTES.modification * MINUTE_MS);
+    const settled = settleResearch(repos, started.base, overseer, after);
+
+    expect(addonsOf(settled.base).researched).toEqual(['lab_quantum_modeling']);
+    expect(written.addons?.researched).toEqual(['lab_quantum_modeling']);
+    // Nothing is bolted on: the Scrapyard builds it and the Lab's own dialog fits it.
+    expect(settled.base.buildings.flatMap((building) => building.modifications)).toEqual([]);
+  });
+});
 
 describe('starting a project (§B9, §F2, §F4)', () => {
   const lead = professor('prof-1', 10, 10);

@@ -27,6 +27,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { createRepositories, type Repositories } from '../db/repos/index.js';
+import { crewEffectsFor } from '../crew/standing.js';
+import { projectRecruit } from './project.js';
 import { hireRecruit, releaseOfficer, wageAskedOf } from './hire.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
@@ -399,7 +402,14 @@ describe('§H7/§H8: hiring out of the Bar', () => {
    * crew that cannot hire, which is the whole point of merging the two ceilings: it used to be
    * possible to fill the barracks and the Quarters independently and never notice either.
    */
-  it('refuses a signing the district has no bed for, soldiers included', () => {
+  /**
+   * §A1, as the board rewrote it: an officer needs no bed, so a packed district still hires.
+   *
+   * This test asserted the opposite until the rule changed. It is kept, pointed the other way,
+   * because "a full district can still sign somebody" is exactly the property that would quietly
+   * regress if the housing gate were ever put back for a reason that felt good at the time.
+   */
+  it('signs somebody into a district with no beds left at all', () => {
     const hire = recruit();
     const sign = (base: Base) =>
       hireRecruit(fakeRepos().repos, {
@@ -414,12 +424,12 @@ describe('§H7/§H8: hiring out of the Bar', () => {
     const bare = makeBase();
     expect(sign(bare).kind).toBe('hired');
 
-    // Razors are one body each, so a roster the size of the whole pool leaves nowhere to put an
-    // officer. Nothing about the Bar changed; what changed is who else is sleeping there.
+    // Razors are one body each, so this roster fills the pool to the brim. The crew is who you
+    // are and the army is what you can field: filling one has nothing to say about the other.
     const packed = makeBase({
       army: { razors: districtPopulationCapacity(bare.buildings, noTerritoryEffects()) },
     });
-    expect(sign(packed)).toEqual({ kind: 'refused', reason: 'no_housing' });
+    expect(sign(packed).kind).toBe('hired');
   });
 
   /**
@@ -945,5 +955,249 @@ describe('0006_recruitment.sql', () => {
       weeklyWage: 30,
     });
     db.close();
+  });
+});
+
+/**
+ * §H2a: the person on the card is the person you sign.
+ *
+ * The roster route generates the room at the city's average level (`barCalibre`), which is how a
+ * mature city gets better people through the door. The hire and negotiate routes were resolving the
+ * same id at level 0, so at a grown-up Bar the sheet on the card and the sheet on the contract were
+ * two different people wearing one id. Nothing failed: both are legitimate recruits.
+ */
+describe('§H2a: the Bar gets better as the city does', () => {
+  /** Puts real levels on the map so `averageLevel()` is well above the calibre floor. */
+  const growTheCity = (app: FastifyInstance, level: number) => {
+    for (const summary of app.repos.bases.listSummaries()) {
+      const base = app.repos.bases.findById(summary.id)!;
+      app.repos.bases.updateProgression(base.id, level, base.progression);
+    }
+  };
+
+  it('offers a stronger room once the city has levelled', async () => {
+    const { app } = await makeApp();
+    const token = await makePlayer(app, 'young_city');
+    const before = await readBar(app, token);
+
+    growTheCity(app, 30);
+    const after = await readBar(app, token);
+
+    const mean = (bar: { recruits: { attributes: Record<string, number> }[] }) =>
+      bar.recruits.reduce(
+        (total, recruit) => total + Object.values(recruit.attributes).reduce((a, b) => a + b, 0),
+        0,
+      ) / bar.recruits.length;
+    expect(mean(after)).toBeGreaterThan(mean(before));
+  });
+
+  /**
+   * The bug this exists for: the card and the contract must be the same sheet.
+   *
+   * Asserted against the *hired officer's* attributes rather than against a second read of the
+   * roster, because that is the copy that ends up on the payroll for good.
+   */
+  it('hires the recruit that was on the card, not a level-1 version of them', async () => {
+    const { app } = await makeApp();
+    const token = await makePlayer(app, 'mature_city');
+    growTheCity(app, 30);
+
+    const bar = await readBar(app, token);
+    const target = bar.recruits.find((r) => r.assessment.interested && r.askingWage !== null);
+    if (!target?.askingWage) throw new Error('expected an interested recruit');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/bar/hire',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const after = await readBar(app, token);
+    const signed = after.officers.find((officer) => officer.commander.name === target.name);
+    expect(signed, 'the hired officer should be on the roster').toBeDefined();
+    expect(signed?.commander.attributes).toEqual(target.attributes);
+  });
+});
+
+/**
+ * §C2: signing somebody with no chair in mind (board request).
+ *
+ * The Bar's whole pressure is that the room turns over at midnight, so a sheet you did not sign is
+ * a sheet you will not see again. Before the bench that pressure was doubled by an unrelated one:
+ * you had to have a chair free *and* have decided which, at the last step of a negotiation you had
+ * already won. The bench separates the two decisions without softening the first.
+ */
+describe('signing somebody to the bench', () => {
+  it('puts them on the books with no chair, and fills none', async () => {
+    const { app } = await makeApp();
+    const token = await makePlayer(app, 'bench_operator');
+    const bar = await readBar(app, token);
+    const target = bar.recruits.find((r) => r.assessment.interested && r.askingWage !== null);
+    if (!target?.askingWage) throw new Error('expected an interested recruit');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/bar/hire',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { recruitId: target.id, role: null, offerWage: target.askingWage },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ accepted: boolean }>().accepted).toBe(true);
+
+    const after = await readBar(app, token);
+    // On the books and costing money, which is the half that makes the bench a real decision.
+    expect(after.slotsUsed).toBe(1);
+    expect(after.officers[0]?.commander.name).toBe(target.name);
+    expect(after.officers[0]?.commander.role).toBeNull();
+    // And holding no chair, so every one of the nineteen is still open to them.
+    expect(after.filledRoles).toEqual([]);
+  });
+
+  /**
+   * The bench is not a chair, so it cannot be occupied.
+   *
+   * `role_taken` is checked by comparing roles, and `null === null` is true: without the guard the
+   * second bench signing in a crew's life would be refused as "somebody already holds that
+   * position", which is both wrong and a strange thing to be told about a bench.
+   */
+  it('takes a second person onto it', async () => {
+    const { app } = await makeApp();
+    const token = await makePlayer(app, 'bench_twice');
+    const bar = await readBar(app, token);
+    const targets = bar.recruits
+      .filter((r) => r.assessment.interested && r.askingWage !== null)
+      .slice(0, 2);
+    if (targets.length < 2) throw new Error('expected two interested recruits');
+
+    for (const target of targets) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/bar/hire',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { recruitId: target.id, role: null, offerWage: target.askingWage },
+      });
+      // The daily limit is a separate rule and may stop the second one; what must never happen is
+      // a refusal that says the bench is taken.
+      if (res.statusCode !== 200) {
+        expect(res.json<{ error: { code: string } }>().error.code).not.toBe('ROLE_TAKEN');
+      }
+    }
+
+    const after = await readBar(app, token);
+    expect(after.filledRoles).toEqual([]);
+    expect(after.officers.every((entry) => entry.commander.role === null)).toBe(true);
+  });
+});
+
+/**
+ * §H7: the negotiators the crew already employs.
+ *
+ * `wageDiscountPercent` is fed by four perks, two attributes and a technology, and until this was
+ * wired it was read by nobody: `wageAskedOf` took a discount that all three of its call sites
+ * declined to pass. A player could hire the Union Rep, read "everybody signs for less", and watch
+ * every asking price in the game stay exactly where it was.
+ *
+ * The second test is the one that matters more. Three places quote this number, and if they ever
+ * disagree the player is shown one price and charged another, which the note on `ledgerFor` calls
+ * the worst kind of pricing bug because it looks like a refund.
+ */
+describe('what the crew takes off an asking wage (§H7)', () => {
+  function crewWith(perks: string[]): { repos: Repositories; base: Base } {
+    const db = openDatabase(':memory:');
+    runMigrations(db);
+    const repos = createRepositories(db);
+    repos.users.insert({
+      id: 'user-1',
+      username: 'Haggler',
+      passwordHash: 'x',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    });
+    const base = makeBase({
+      commanders: [createCommander('neg-1', 'Ada Vance', 'consigliere', {}, perks)],
+    });
+    repos.bases.insert(base);
+    return { repos, base };
+  }
+
+  it('lowers what a recruit asks for', () => {
+    const [recruit] = barRoster('2026-08-13');
+    if (!recruit) throw new Error('empty roster');
+
+    expect(wageAskedOf(recruit, undefined, 7)).toBeLessThan(wageAskedOf(recruit, undefined, 0));
+  });
+
+  /** The roster, the window and the signature all quote the same number. */
+  it('quotes the same figure on the roster as it charges at the signature', () => {
+    const { repos, base } = crewWith(['union_rep']);
+    const [recruit] = barRoster('2026-08-13');
+    if (!recruit) throw new Error('empty roster');
+
+    const discount = crewEffectsFor(repos, base).wageDiscountPercent;
+    expect(discount, 'the Union Rep should be worth something').toBeGreaterThan(0);
+
+    const onTheRoster = projectRecruit(base, recruit, undefined, discount).askingWage;
+    const atTheSignature = wageAskedOf(recruit, undefined, discount);
+
+    expect(onTheRoster).toBe(atTheSignature);
+    expect(atTheSignature).toBeLessThan(wageAskedOf(recruit, undefined, 0));
+  });
+
+  /**
+   * And the signature honours it, which the test above cannot see.
+   *
+   * `hireRecruit` computes the discount itself rather than taking it as an argument, so nothing
+   * outside it observes whether it did. Driven through the real call for that reason: a mutation
+   * that made the signature stop applying the discount passed every other test in this block,
+   * because they all assert against `wageAskedOf` directly. Measured, not assumed.
+   *
+   * The probe is an offer at the *discounted* floor. A crew whose negotiator is being honoured
+   * signs it; a crew being quoted the sticker price counters, because the same offer is below
+   * their floor.
+   */
+  it('signs at a price only a crew with a negotiator could have been quoted', () => {
+    const { repos, base } = crewWith(['union_rep']);
+    const [hire] = barRoster('2026-08-13');
+    if (!hire) throw new Error('empty roster');
+
+    const discount = crewEffectsFor(repos, base).wageDiscountPercent;
+    const discounted = reservationWage(wageAskedOf(hire, undefined, discount));
+    const sticker = reservationWage(wageAskedOf(hire, undefined, 0));
+    expect(
+      discounted,
+      'the discount has to move the floor for this to prove anything',
+    ).toBeLessThan(sticker);
+
+    const result = hireRecruit(repos, {
+      base,
+      userId: 'user-1',
+      seat: 0,
+      recruit: hire,
+      role: 'head_spy',
+      offerWage: discounted,
+      now: NOW,
+    });
+
+    expect(result.kind, 'the crew is owed the price their negotiator won').toBe('hired');
+  });
+
+  /**
+   * The perk is worth something *on top of* the sheet.
+   *
+   * Compared against the same officer without it rather than against zero: three attributes feed
+   * this channel as well, so any officer at all already takes something off. Asserting zero for a
+   * crew with a body in it was the first version of this test and it was wrong about the game,
+   * not about the wiring.
+   */
+  it('is worth more with the perk than the same officer without it', () => {
+    const bare = crewWith([]);
+    const rep = crewWith(['union_rep']);
+
+    const without = crewEffectsFor(bare.repos, bare.base).wageDiscountPercent;
+    const with_ = crewEffectsFor(rep.repos, rep.base).wageDiscountPercent;
+
+    expect(with_).toBeGreaterThan(without);
   });
 });

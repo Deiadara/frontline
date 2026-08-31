@@ -47,13 +47,11 @@ describe('a location at a level', () => {
             const value =
               'perHour' in bonus
                 ? bonus.perHour
-                : 'amount' in bonus
-                  ? bonus.amount
-                  : 'districts' in bonus
-                    ? bonus.districts
-                    : 'flat' in bonus
-                      ? bonus.flat
-                      : bonus.percent;
+                : 'districts' in bonus
+                  ? bonus.districts
+                  : 'flat' in bonus
+                    ? bonus.flat
+                    : bonus.percent;
             return sum + value;
           }, 0);
         expect(total(next), `${kind} level ${level + 1}`).toBeGreaterThan(total(now));

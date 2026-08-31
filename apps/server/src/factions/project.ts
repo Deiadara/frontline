@@ -28,6 +28,7 @@ function projectMember(
   userId: string,
   rank: FactionMember['rank'],
   joinedAt: string,
+  infamyEarned: number,
 ): FactionMember | null {
   const user = repos.users.findById(userId);
   const base = repos.bases.findByOwnerId(userId);
@@ -46,6 +47,7 @@ function projectMember(
     joinedAt,
     level: base.level,
     infamy: base.economy.infamy,
+    infamyEarned,
     armySize: Object.values(army).reduce((total, count) => total + count, 0),
     supplyUsed: supplyUsed(army),
     isBot: base.isBot,
@@ -55,7 +57,9 @@ function projectMember(
 export function membersOf(repos: Repositories, factionId: string): FactionMember[] {
   return repos.factions
     .members(factionId)
-    .flatMap((row) => projectMember(repos, row.userId, row.rank, row.joinedAt) ?? []);
+    .flatMap(
+      (row) => projectMember(repos, row.userId, row.rank, row.joinedAt, row.infamyEarned) ?? [],
+    );
 }
 
 function projectInvite(

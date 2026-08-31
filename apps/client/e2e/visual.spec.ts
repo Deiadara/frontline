@@ -1092,12 +1092,12 @@ for (const size of VIEWPORTS) {
       // comparing an inner box to an outer one and failing on a layout that is correct.
       const roster = await box('training-subjects');
       const day = await box('training-day');
-      const note = await box('info-note');
       expect(day.y, 'the day belongs under the roster').toBeGreaterThan(roster.y);
-      expect(note.y, 'the note belongs under the day').toBeGreaterThan(day.y);
-      // All three in the same column, left-aligned with each other rather than merely stacked.
-      expect(Math.abs(note.x - day.x)).toBeLessThan(12);
+      // Both in the same column, left-aligned with each other rather than merely stacked.
       expect(Math.abs(day.x - roster.x)).toBeLessThan(12);
+      // The paragraph explaining the rules is gone (board request): it was read once and then sat
+      // at the foot of the rail for good, and the day's own strokes say what it said.
+      await expect(page.getByTestId('info-note')).toHaveCount(0);
 
       // 2. The rail sits beside the sheet, not above it: one row, two columns.
       const sheet = await box('training-sheet');
@@ -1106,19 +1106,21 @@ for (const size of VIEWPORTS) {
       );
 
       /*
-       * 3. The frame fills the screen, and the note is pinned to the foot of it.
+       * 3. The frame fills the screen, and the rail's last block is pinned to the foot of it.
        *
        * This is the assertion that catches the fixed frame being taken out. Without it the page
        * falls back to stacking at content height: the order above still holds, the page still
        * does not scroll (the sheet's own overflow absorbs it), and every other check here passes
-       * on a layout where the note has floated up into the middle of the screen.
+       * on a layout where the rail has floated up into the middle of the screen.
+       *
+       * The last block is the day now that the rule of the room is gone, which is also what makes
+       * the roster above it grow: it is the one that has to reach the floor.
        */
       const frame = await box('page-sheet');
       const floor = frame.y + frame.height;
-      expect(
-        floor - (note.y + note.height),
-        'the note is not at the foot of the rail',
-      ).toBeLessThan(48);
+      expect(floor - (day.y + day.height), 'the day is not at the foot of the rail').toBeLessThan(
+        48,
+      );
       expect(floor - (sheet.y + sheet.height), 'the sheet does not reach the floor').toBeLessThan(
         48,
       );
@@ -1141,7 +1143,10 @@ for (const size of VIEWPORTS) {
       await installApi(page, lateGame);
       await page.goto('/game');
       await page.getByTestId('hud-overseer').click();
-      await expect(page.getByTestId('crew-effects')).toBeVisible();
+      // "What the crew is buying" is its own screen now (board request), reached from the crew
+      // page. The file is the person: their own sheet, and the door to the bench.
+      await expect(page.getByTestId('file-body')).toBeVisible();
+      await expect(page.getByTestId('crew-effects')).toHaveCount(0);
       await settleFonts(page);
 
       const cut = await page.evaluate<string[]>(() =>
@@ -1253,8 +1258,13 @@ for (const size of VIEWPORTS) {
           }),
         }),
       );
+      // The rail lives on the two screens that are about things being in flight (board request).
+      // On the city and district screens it was a third band of chrome over the artwork, appearing
+      // and disappearing with what the crew was doing, so the painting moved under it.
       await page.goto('/game');
+      await expect(page.getByTestId('queue-rail')).toHaveCount(0);
 
+      await page.goto('/game/missions');
       const rail = page.getByTestId('queue-rail');
       await expect(rail).toBeVisible();
       const row = page.getByTestId('queue-rail-build-live-build');
@@ -1303,7 +1313,13 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/visual/market-${tag}.png` });
     });
 
-    /** The workshop: three ladders and the yard. */
+    /**
+     * The workshop: three ladders, and no yard.
+     *
+     * The vehicle assertion that used to live here moved to the Garage with the vehicles
+     * themselves (§B11). Left in place it would have gone on passing only for as long as the
+     * Workshop kept a page it no longer owns, which is the wrong thing for a test to defend.
+     */
     test(`the workshop at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/workshop');
@@ -1314,12 +1330,52 @@ for (const size of VIEWPORTS) {
       // on this fixture, which is the point of the fixture.
       await expect(page.getByTestId('upgrade-armour_1')).toContainText('Built');
       await expect(page.getByTestId('upgrade-armour_3')).toContainText('Needs the Gauntlet');
-      await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Blueprint');
+      // The yard is gone from here: see the Garage's own test below.
+      await expect(page.getByTestId('vehicle-rotorcraft')).toHaveCount(0);
 
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/workshop-${tag}.png` });
+    });
+
+    /**
+     * §B9: the Scrapyard, where add-ons are built.
+     *
+     * The page, its route and its server handler all landed without a fixture, so under this
+     * harness it fell through to the 404 catch-all: a whole screen that could be walked to and
+     * found empty. This is the test that would have said so.
+     */
+    test(`the scrapyard at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/scrapyard');
+      await expect(page.getByTestId('scrapyard-nexus')).toBeVisible();
+      await settleFonts(page);
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/scrapyard-${tag}.png`, fullPage: true });
+    });
+
+    /**
+     * §C: the Garage, which is where the machines went.
+     *
+     * Carries what the Workshop's yard assertion used to: a machine already in the yard, and one
+     * held behind a blueprint saying so. The page had no screenshot at all when it landed, which
+     * is how a new full-width grid reaches the board unreviewed.
+     */
+    test(`the garage at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/garage');
+      await expect(page.getByTestId('vehicle-motorcycle')).toBeVisible();
+      await settleFonts(page);
+
+      await expect(page.getByTestId('vehicle-motorcycle')).toContainText('in the yard');
+      await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Needs the');
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/garage-${tag}.png`, fullPage: true });
     });
 
     /** The satchel, grouped by what a player would do with the thing. */
@@ -1381,6 +1437,70 @@ for (const size of VIEWPORTS) {
       await expectNoDocumentOverflow(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/faction-${tag}.png` });
+    });
+
+    /*
+     * What the crew is buying: twenty-two channel cards on one screen.
+     *
+     * The paleness check follows the cards here because that is where they live now, but it is a
+     * **smoke check on this page, not a proven guard**. On the overseer's file it fires: the cards
+     * sat inside a `FileSection` inside the sheet, and `soft-light` layers compound through every
+     * ancestor that has one. Putting `painted washed` back on the card here does *not* trip it,
+     * because this page has one fewer blending ancestor. Verified by trying it, rather than
+     * assumed from the fact that the same helper is being called.
+     *
+     * Read `ChannelCard`'s own note before restyling these: the failure mode is real even where
+     * this particular threshold does not catch it.
+     */
+    /**
+     * §C2/§G: the roster, chairs and bench together.
+     *
+     * This page had no screenshot at all, which is how a nineteen-card grid and the screen a
+     * player spends the most time on went unreviewed. The fixture seats three and benches two, so
+     * one run covers a filled chair, an empty one, and the section under them.
+     */
+    test(`the crew at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/crew');
+      await expect(page.getByTestId('crew-books')).toBeVisible();
+      await settleFonts(page);
+
+      await expect(page.getByTestId('crew-bench')).toBeVisible();
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/crew-${tag}.png` });
+    });
+
+    test(`what the crew is buying at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/crew/effects');
+      await expect(page.getByTestId('crew-effects')).toBeVisible();
+      await settleFonts(page);
+
+      await expect(page.getByTestId('back-to-crew')).toBeVisible();
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      // Pointed at the **cards**, not at the default `main section`: the first section on this
+      // page is the radar, and a gate aimed there passes happily with every card washed out. The
+      // first version of this test did exactly that, and only a positive control showed it.
+      await expectSheetNotWashedOut(page, '[data-testid="crew-effects"]');
+      await page.screenshot({ path: `screenshots/visual/crew-effects-${tag}.png` });
+    });
+
+    /** §J9: the standings, both boards, at every supported size. */
+    test(`the standings at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/leaderboard');
+      await expect(page.getByTestId('leaderboard')).toBeVisible();
+      await settleFonts(page);
+
+      await expect(page.getByTestId('board-players')).toBeVisible();
+      await expect(page.getByTestId('local-only')).toBeVisible();
+      await expect(page.getByTestId('your-rank')).toBeInViewport({ ratio: 1 });
+
+      await expectNoDocumentOverflow(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/standings-${tag}.png` });
     });
 
     test(`the satchel at ${tag}`, async ({ page }) => {

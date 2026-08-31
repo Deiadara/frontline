@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { infirmaryRecoveryPercent } from './standing.js';
+import { recoverCasualties } from '../crew/effects.js';
 import { RESOURCE_KEYS, STARTING_RESOURCES, canAfford, type Resources } from '../resources.js';
+import { POPULATION_PER_LOCATION, districtPopulationCapacity } from './population.js';
 import {
   BUILDING_CATALOG,
   BUILDING_KINDS,
@@ -25,26 +28,42 @@ import {
   unmetRequirements,
   modificationCapacity,
   nextStructureLevel,
+  nexusShortfall,
   structureLevelCap,
   type Building,
 } from './state.js';
 import { MAX_EFFECT_REDUCTION, districtEffects, localProductionPercent } from './effects.js';
 import {
   BUILDING_COST_GROWTH,
+  GENERATOR_TIME_DISCOUNT_PER_LEVEL,
   baseBuildSeconds,
   baseBuildingCost,
   buildDiscountFor,
   buildingBuildSeconds,
   buildingCost,
-  nexusDiscountFor,
+  generatorTimeDiscount,
 } from './cost.js';
 import {
-  OIL_BURN_PER_GENERATOR_LEVEL,
-  POWER_SUPPLY_PER_GENERATOR_LEVEL,
-  buildingPowerDraw,
-  powerGrid,
-  wouldBrownOut,
-} from './power.js';
+  BUILD_BOOST_PERCENT,
+  BUILD_BOOST_OIL_PER_LEVEL,
+  boostedQueue,
+  buildBoostActive,
+  buildBoostOilCost,
+  buildBoostPercent,
+} from './boost.js';
+import { NEXUS_LADDERS, levelCapForNexus, nexusLevelForUpgrade } from './kinds.js';
+import {
+  GATE_DEFENSE_PERCENT_PER_LEVEL,
+  MAX_GAUNTLET_TRAINING_BONUS,
+  MAX_GREENHOUSE_SUPPLIES_DISCOUNT,
+  TRAINING_TIME_PER_GAUNTLET_LEVEL,
+  gateDefensePercent,
+  gateIntelResistancePercent,
+  trainingSuppliesReduction,
+  trainingTimeReduction,
+} from './standing.js';
+import { UNIT_CATALOG, findUnit } from '../units/catalog.js';
+import { trainingCost, trainingSeconds } from '../units/training.js';
 import {
   HOUSING_BASE,
   STORAGE_BASE,
@@ -96,17 +115,13 @@ const build = (kind: (typeof BUILDING_KINDS)[number], level: number): Building =
   fortification: 0,
 });
 
-/** A district with everything standing at `level`: the fat case most ceilings are read at. */
-const fullDistrict = (level: number): Building[] =>
-  BUILDING_KINDS.map((kind) => build(kind, level));
-
 /** What `POST /overseer` mints. */
 const NEW_DISTRICT: Building[] = [build('nexus', 1), build('generator', 1)];
 
 describe('the catalogue (§A1)', () => {
-  it('holds the twelve the board still names, each with a spec', () => {
-    expect(BUILDING_KINDS).toHaveLength(12);
-    expect(new Set(BUILDING_KINDS).size).toBe(12);
+  it('holds the eleven the board still names, each with a spec', () => {
+    expect(BUILDING_KINDS).toHaveLength(11);
+    expect(new Set(BUILDING_KINDS).size).toBe(11);
     for (const kind of BUILDING_KINDS) {
       const spec = BUILDING_CATALOG[kind];
       expect(spec.name, kind).toBeTruthy();
@@ -126,14 +141,24 @@ describe('the catalogue (§A1)', () => {
     }
     // Something is available from the very first Nexus level, or a new district has nothing to do.
     expect(buildingsUnlockedAt(1).length).toBeGreaterThan(0);
-    // And the ladder actually spreads out rather than dumping everything at level 1.
-    expect(new Set(gates).size).toBeGreaterThanOrEqual(8);
+    // And the ladder actually spreads out rather than dumping everything at level 1. Six distinct
+    // rungs across eleven structures: §B1 pulled the Gate, the Lab and the Gauntlet down the
+    // ladder, so the *first* level of several now opens together and the difference between them
+    // is in the per-level table above rather than in where they start.
+    expect(new Set(gates).size).toBeGreaterThanOrEqual(6);
   });
 
-  it('only the Generator supplies power; everything else draws', () => {
-    expect(BUILDING_CATALOG.generator.basePowerDraw).toBe(0);
-    for (const kind of BUILDING_KINDS.filter((k) => k !== 'generator')) {
-      expect(BUILDING_CATALOG[kind].basePowerDraw, kind).toBeGreaterThan(0);
+  it('§A2: the Cistern is gone from the catalogue outright', () => {
+    expect(BUILDING_KINDS as readonly string[]).not.toContain('cistern');
+    expect(Object.keys(BUILDING_CATALOG)).not.toContain('cistern');
+  });
+
+  it('§B4: charges for the Generator mainly in oil', () => {
+    const { baseCost } = BUILDING_CATALOG.generator;
+    const oil = baseCost.oil ?? 0;
+    for (const [key, amount] of Object.entries(baseCost)) {
+      if (key === 'oil') continue;
+      expect(oil, `oil vs ${key}`).toBeGreaterThan(amount ?? 0);
     }
   });
 
@@ -147,12 +172,15 @@ describe('the catalogue (§A1)', () => {
 });
 
 describe('level caps and unlocks (§A1)', () => {
-  it('lets nothing outgrow the Nexus, and stops the Nexus at the ceiling', () => {
-    const district = [build('nexus', 3), build('greenhouse', 3)];
+  it('holds each structure where its own ladder says, and stops the Nexus at the ceiling', () => {
+    // §B1: the Greenhouse's ladder wants Nexus 6 for level 9, so a Nexus 5 district stops at 8.
+    const district = [build('nexus', 5), build('greenhouse', 8)];
     expect(structureLevelCap('nexus', district)).toBe(BUILDING_MAX_LEVEL);
-    expect(structureLevelCap('greenhouse', district)).toBe(3);
+    expect(structureLevelCap('greenhouse', district)).toBe(8);
     expect(nextStructureLevel('greenhouse', district)).toBeNull();
-    expect(nextStructureLevel('nexus', district)).toBe(4);
+    expect(nextStructureLevel('nexus', district)).toBe(6);
+    // ...and the Gate's ladder is shallower, so the same Nexus carries it four levels further.
+    expect(structureLevelCap('gate', district)).toBe(12);
   });
 
   it('caps everything at zero when no Nexus is standing', () => {
@@ -272,17 +300,13 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
     }
   });
 
-  it('discounts every *other* structure as the Nexus grows, and never itself', () => {
-    const high = [build('nexus', BUILDING_MAX_LEVEL)];
-    expect(nexusDiscountFor('nexus', high)).toEqual({ costPercent: 0, timePercent: 0 });
+  it('§B4: discounts every *other* structure as the Generator grows, and never itself', () => {
+    const high = [build('nexus', BUILDING_MAX_LEVEL), build('generator', BUILDING_MAX_LEVEL)];
+    expect(generatorTimeDiscount('generator', high)).toBe(0);
+    expect(generatorTimeDiscount('greenhouse', high)).toBeGreaterThan(0);
 
-    const discount = nexusDiscountFor('greenhouse', high);
-    expect(discount.costPercent).toBeGreaterThan(0);
-    expect(discount.timePercent).toBeGreaterThan(discount.costPercent);
-
-    expect(buildingCost('greenhouse', 1, high).oil).toBeLessThan(
-      baseBuildingCost('greenhouse', 1).oil ?? 0,
-    );
+    // Materials are untouched: §B4 moved the *clock* and deleted the cost discount outright.
+    expect(buildingCost('greenhouse', 1, high).oil).toBe(baseBuildingCost('greenhouse', 1).oil);
     expect(buildingBuildSeconds('greenhouse', 1, high)).toBeLessThan(
       baseBuildSeconds('greenhouse', 1),
     );
@@ -317,53 +341,122 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
   });
 });
 
-describe('the power grid (§A1: the Generator)', () => {
-  it('supplies linearly and draws sub-linearly, so the Generator stays a level or two ahead', () => {
-    expect(powerGrid([build('generator', 1)]).supply).toBe(POWER_SUPPLY_PER_GENERATOR_LEVEL);
-    expect(powerGrid([build('generator', 10)]).supply).toBe(POWER_SUPPLY_PER_GENERATOR_LEVEL * 10);
-
-    // A level-20 structure draws well under twenty times its level-1 draw.
-    const one = buildingPowerDraw('lab', 1);
-    const twenty = buildingPowerDraw('lab', BUILDING_MAX_LEVEL);
-    expect(twenty / one).toBeGreaterThan(5);
-    expect(twenty / one).toBeLessThan(15);
+describe('§B1: the Nexus permission table', () => {
+  it('asks a Nexus level of every upgrade, per building and per level', () => {
+    for (const kind of BUILDING_KINDS) {
+      if (kind === CENTRAL_BUILDING) continue;
+      const rungs = Array.from({ length: BUILDING_MAX_LEVEL }, (_, index) =>
+        nexusLevelForUpgrade(kind, index + 1),
+      );
+      // Never steps down: a level being legal while the one below it is not is unplayable.
+      for (let i = 1; i < rungs.length; i += 1) {
+        expect(rungs[i], `${kind} level ${i + 1}`).toBeGreaterThanOrEqual(rungs[i - 1] as number);
+      }
+      // And it actually climbs: a flat ladder is the rule the table replaced.
+      expect(rungs.at(-1), kind).toBeGreaterThan(rungs[0] as number);
+    }
   });
 
-  it('leaves a brand-new district comfortably lit', () => {
-    const grid = powerGrid(NEW_DISTRICT);
-    expect(grid.brownout).toBe(false);
-    expect(grid.headroom).toBeGreaterThan(0);
+  it('is asymmetric: the Gate and the Lab do not want the same Nexus at the same level', () => {
+    expect(nexusLevelForUpgrade('gate', 5)).toBe(2);
+    expect(nexusLevelForUpgrade('lab', 5)).toBe(4);
+    // The board's own example, and the general claim behind it: some pair of structures disagrees
+    // at every level worth reaching.
+    const disagreements = Array.from({ length: BUILDING_MAX_LEVEL }, (_, index) => {
+      const level = index + 1;
+      const wanted = BUILDING_KINDS.filter((kind) => kind !== CENTRAL_BUILDING).map((kind) =>
+        nexusLevelForUpgrade(kind, level),
+      );
+      return new Set(wanted).size;
+    });
+    expect(Math.min(...disagreements)).toBeGreaterThan(1);
   });
 
-  it('browns out when the district outgrows the Generator, without stopping', () => {
-    const starved = [
-      ...fullDistrict(BUILDING_MAX_LEVEL).filter((b) => b.kind !== 'generator'),
-      build('generator', 1),
+  it('caps a structure where its own ladder says, not where the Nexus stands', () => {
+    const nexusAt = (level: number): Building[] => [build(CENTRAL_BUILDING, level)];
+    // The old rule was `cap === nexus level` for everything. It no longer holds for anything.
+    expect(structureLevelCap('gate', nexusAt(2))).toBeGreaterThan(2);
+    expect(structureLevelCap('lab', nexusAt(2))).toBe(0);
+    expect(levelCapForNexus('gate', BUILDING_MAX_LEVEL)).toBe(BUILDING_MAX_LEVEL);
+    // The Nexus answers to nobody.
+    expect(NEXUS_LADDERS[CENTRAL_BUILDING]).toHaveLength(0);
+    expect(structureLevelCap(CENTRAL_BUILDING, nexusAt(1))).toBe(BUILDING_MAX_LEVEL);
+  });
+
+  it('says which Nexus level a refused upgrade wants, before anything is spent', () => {
+    const district = [build(CENTRAL_BUILDING, 2), build('lab', 4)];
+    const short = nexusShortfall('lab', district);
+    expect(short).not.toBeNull();
+    expect(short?.needed).toBe(nexusLevelForUpgrade('lab', 5));
+    expect(short?.at).toBe(2);
+    // ...and says nothing when the Nexus is not what is in the way.
+    expect(nexusShortfall('gate', [build(CENTRAL_BUILDING, 20), build('gate', 1)])).toBeNull();
+  });
+});
+
+describe('§B4: the Generator pays for the clock', () => {
+  it('takes time off every other structure and nothing off its own', () => {
+    const strong = [build(CENTRAL_BUILDING, 10), build('generator', 10)];
+    expect(generatorTimeDiscount('lab', strong)).toBe(10 * GENERATOR_TIME_DISCOUNT_PER_LEVEL);
+    expect(generatorTimeDiscount('generator', strong)).toBe(0);
+    expect(buildingBuildSeconds('lab', 3, strong)).toBeLessThan(baseBuildSeconds('lab', 3));
+  });
+
+  it('takes nothing off materials any more: the Nexus discount is gone, not moved', () => {
+    const bare = [build(CENTRAL_BUILDING, 1)];
+    const grand = [
+      build(CENTRAL_BUILDING, BUILDING_MAX_LEVEL),
+      build('generator', BUILDING_MAX_LEVEL),
     ];
-    const grid = powerGrid(starved);
-    expect(grid.brownout).toBe(true);
-    expect(grid.ratio).toBeGreaterThan(0);
-    expect(grid.ratio).toBeLessThan(1);
+    expect(buildDiscountFor('lab', grand).costPercent).toBe(0);
+    expect(buildingCost('lab', 4, grand)).toEqual(buildingCost('lab', 4, bare));
+    // ...and the Nexus no longer buys a second of anybody's clock on its own.
+    const nexusOnly = [build(CENTRAL_BUILDING, BUILDING_MAX_LEVEL)];
+    expect(buildDiscountFor('lab', nexusOnly).timePercent).toBe(0);
   });
 
-  it('burns fuel for the load it is carrying, not for its nameplate', () => {
-    const idle = powerGrid(NEW_DISTRICT);
-    const loaded = powerGrid([
-      ...fullDistrict(6).filter((b) => b.kind !== 'generator'),
-      build('generator', 6),
-    ]);
+  it('prices the burn off the Generator that sells it, and refuses to stack', () => {
+    expect(buildBoostOilCost([build('generator', 4)])).toBe(4 * BUILD_BOOST_OIL_PER_LEVEL);
+    expect(buildBoostOilCost([])).toBe(0);
 
-    expect(idle.oilPerHour).toBeGreaterThan(0);
-    // A barely-loaded level-1 Generator must not burn its full rate. That is what would starve a
-    // new crew before they could build anything that makes oil.
-    expect(idle.oilPerHour).toBeLessThan(OIL_BURN_PER_GENERATOR_LEVEL);
-    expect(loaded.oilPerHour).toBeGreaterThan(idle.oilPerHour);
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    const running = new Date(now.getTime() + 3_600_000).toISOString();
+    expect(buildBoostActive(running, now)).toBe(true);
+    expect(buildBoostActive(new Date(now.getTime() - 1).toISOString(), now)).toBe(false);
+    expect(buildBoostActive(null, now)).toBe(false);
+    expect(buildBoostPercent(running, now)).toBe(BUILD_BOOST_PERCENT);
+    expect(buildBoostPercent(null, now)).toBe(0);
   });
 
-  it('reports a level that would brown the district out before it is ordered', () => {
-    const tight = [build('nexus', 1), build('generator', 1), build('lab', 1)];
-    expect(wouldBrownOut('greenhouse', 1, NEW_DISTRICT)).toBe(false);
-    expect(wouldBrownOut('nexus', BUILDING_MAX_LEVEL, tight)).toBe(true);
+  it('reaches work already in the queue, keeping the head order’s own progress', () => {
+    const now = new Date('2026-01-01T01:00:00.000Z');
+    const queue = [
+      {
+        id: 'a',
+        kind: 'lab' as const,
+        level: 3,
+        startedAt: new Date(now.getTime() - 1000 * 1000).toISOString(),
+        durationSeconds: 2000,
+      },
+      {
+        id: 'b',
+        kind: 'gate' as const,
+        level: 2,
+        startedAt: new Date(now.getTime() + 1000 * 1000).toISOString(),
+        durationSeconds: 800,
+      },
+    ];
+    const boosted = boostedQueue(queue, now, BUILD_BOOST_PERCENT);
+    // The head has 1000s served and 1000s left; a quarter comes off the part not yet worked.
+    expect(boosted[0]?.durationSeconds).toBe(1750);
+    expect(boosted[0]?.startedAt).toBe(queue[0]?.startedAt);
+    // Everything behind it has not started, so its whole clock shrinks and it re-links.
+    expect(boosted[1]?.durationSeconds).toBe(600);
+    expect(Date.parse(boosted[1]?.startedAt ?? '')).toBe(
+      Date.parse(boosted[0]?.startedAt ?? '') + 1750 * 1000,
+    );
+    // And a queue with no burn on it is handed straight back.
+    expect(boostedQueue(queue, now, 0)).toBe(queue);
   });
 });
 
@@ -374,10 +467,14 @@ describe('what the district makes (§A1)', () => {
     }
   });
 
-  it('grows more supplies with a Cistern than without one', () => {
-    const dry = buildingProduction('greenhouse', [build('greenhouse', 5)]);
-    const wet = buildingProduction('greenhouse', [build('greenhouse', 5), build('cistern', 10)]);
-    expect(wet.supplies ?? 0).toBeGreaterThan(dry.supplies ?? 0);
+  it('§B5: grows more supplies the higher the Greenhouse goes', () => {
+    const small = buildingProduction('greenhouse', [build('greenhouse', 5)]);
+    const large = buildingProduction('greenhouse', [build('greenhouse', 10)]);
+    expect(large.supplies ?? 0).toBeGreaterThan(small.supplies ?? 0);
+    // §A2: a maxed Greenhouse must not be poorer than it was when the Cistern fed it. The old
+    // pairing was 12/level x (1 + 3% x 20), which is the figure this has to clear.
+    const maxed = buildingProduction('greenhouse', [build('greenhouse', BUILDING_MAX_LEVEL)]);
+    expect(maxed.supplies ?? 0).toBeGreaterThanOrEqual(12 * BUILDING_MAX_LEVEL * 1.6);
   });
 
   it('applies a structure’s own production modifications to itself and to nothing else', () => {
@@ -397,22 +494,13 @@ describe('what the district makes (§A1)', () => {
     expect(localProductionPercent(boosted[1])).toBe(0);
   });
 
-  it('nets the Generator’s fuel burn off the oil the district brings in', () => {
-    const burningOnly = districtProduction(NEW_DISTRICT);
-    expect(burningOnly.perHour.oil ?? 0).toBeLessThan(0);
+  it('§A1: nothing burns oil to keep the lights on any more', () => {
+    // A district with a Generator and no salvage line used to be running an oil deficit from its
+    // first second. It produces nothing at all now, which is what "the grid is gone" has to mean.
+    expect(districtProduction(NEW_DISTRICT).perHour.oil ?? 0).toBe(0);
 
-    // The Scrapyard is the first oil source, and it unlocks at Nexus 2, so the loop closes as
-    // soon as a player can reach it, which is what stops a new crew running dry.
     const withSource = districtProduction([...NEW_DISTRICT, build('scrapyard', 1)]);
     expect(withSource.perHour.oil ?? 0).toBeGreaterThan(0);
-  });
-
-  it('scales everything down in a brownout, and says what it would have made', () => {
-    const starved = [build('nexus', 20), build('greenhouse', 20), build('generator', 1)];
-    const { perHour, fullPowerPerHour, grid } = districtProduction(starved);
-    expect(grid.brownout).toBe(true);
-    expect(perHour.supplies ?? 0).toBeLessThan(fullPowerPerHour.supplies ?? 0);
-    expect(perHour.supplies ?? 0).toBeGreaterThan(0);
   });
 
   it('accrues over elapsed hours and banks whole units, carrying the rest', () => {
@@ -461,29 +549,59 @@ describe('what the district makes (§A1)', () => {
     );
   });
 
-  it('does not take a whole barrel off the readout for a fraction of a barrel burned', () => {
-    // A district with nothing but a Nexus and a Generator makes no oil and burns some, so a settle
-    // covering half a minute produces about -0.012 oil. Accumulating the running total and flooring
-    // it debits a whole unit the instant anybody opens the page: arithmetically conserved, because
-    // the carry holds 0.98 of a barrel, and visibly wrong. The live flow caught exactly this.
-    const district = [build('nexus', 1), build('generator', 1)];
+  it('does not bank a whole unit for a fraction of one made', () => {
+    // A level-1 Scrapyard makes a little over one high-quality metal an hour, so a settle covering
+    // half a minute makes about a hundredth of one. Rounding that up is a printing press and
+    // rounding it to zero means a client that polls fast earns nothing at all.
+    const district = [build('nexus', 1), build('scrapyard', 1)];
     const stock: Resources = { ...STARTING_RESOURCES };
     const halfAMinute = 30 / 3600;
 
     const { perHour } = districtProduction(district);
+    /*
+     * The premise is that **the window** makes a fraction, not that the hourly rate is one.
+     *
+     * This used to assert `perHour < 1`, which was a proxy for the same thing and stopped being
+     * true the moment the Scrapyard absorbed the Garage's output (§B11): the rate went to 1.25 and
+     * the test failed while the behaviour it guards was untouched. Asserting the amount actually
+     * made in the window says what the test is about and survives a retune of the rate.
+     */
+    const madeInWindow = (perHour.highQualityMetal ?? 0) * halfAMinute;
     expect(
-      perHour.oil ?? 0,
-      'this test is meaningless unless the district is burning oil',
-    ).toBeLessThan(0);
+      madeInWindow,
+      'this test is meaningless unless the window makes a fraction of something',
+    ).toBeGreaterThan(0);
+    expect(madeInWindow).toBeLessThan(1);
 
     const accrual = accrueProduction(stock, district, halfAMinute);
-    expect(accrual.resources.oil).toBe(stock.oil);
-    expect(accrual.carry.oil ?? 0).toBeLessThan(0);
+    expect(accrual.resources.highQualityMetal).toBe(stock.highQualityMetal);
+    expect(accrual.carry.highQualityMetal ?? 0).toBeGreaterThan(0);
 
-    // And the barrel does leave, once a whole one has actually been burned.
-    const hours = 1 / Math.abs(perHour.oil ?? 1);
+    // And the unit does arrive, once a whole one has actually been made.
+    const hours = 1 / (perHour.highQualityMetal ?? 1);
     const later = accrueProduction(stock, district, hours * 1.01);
-    expect(later.resources.oil).toBe(stock.oil - 1);
+    expect(later.resources.highQualityMetal).toBe(stock.highQualityMetal + 1);
+  });
+
+  /**
+   * The other half of the same arithmetic, which nothing in the game currently drives.
+   *
+   * The Generator's fuel burn used to be the only negative rate, and it is gone with the grid
+   * (§A1). `accrueProduction` still trunc-rounds towards zero on purpose, because a debt carried
+   * into a settle must not move the stockpile until a whole unit is owed, and a rule with no
+   * caller is a rule that silently rots. Driven through the carry, which is the input that can
+   * still be negative on a save written before the grid came out.
+   */
+  it('leaves a stockpile alone while a carried debt is under a whole unit', () => {
+    const district = [build('nexus', 1)];
+    const stock: Resources = { ...STARTING_RESOURCES };
+    const owing = accrueProduction(stock, district, 1, undefined, { oil: -0.4 });
+    expect(owing.resources.oil).toBe(stock.oil);
+    expect(owing.carry.oil).toBe(-0.4);
+
+    const settled = accrueProduction(stock, district, 1, undefined, { oil: -1.4 });
+    expect(settled.resources.oil).toBe(stock.oil - 1);
+    expect(settled.carry.oil).toBeCloseTo(-0.4, 10);
   });
 
   it('stops production at the Apothecary’s ceiling without clawing anything back', () => {
@@ -580,9 +698,26 @@ describe('what the district makes (§A1)', () => {
   it('houses the founding crew with no Quarters, and more with them', () => {
     expect(populationCapacity([])).toBe(HOUSING_BASE);
     expect(populationCapacity([build('quarters', 5)])).toBeGreaterThan(HOUSING_BASE);
-    // Clean water raises the ceiling on the same beds.
-    expect(populationCapacity([build('quarters', 5), build('cistern', 10)])).toBeGreaterThan(
+    expect(populationCapacity([build('quarters', 10)])).toBeGreaterThan(
       populationCapacity([build('quarters', 5)]),
+    );
+  });
+
+  /**
+   * §A2/§B2: the Cistern's housing lands on the Quarters, and the ceiling does not drop.
+   *
+   * Anchored on the arithmetic the Cistern used to do rather than on today's constant: the pair
+   * was `HOUSING_BASE + 5 x L(L+1)/2` beds times `1 + 3% x 20`, so a finished district had 1696.
+   * A test written against `HOUSING_PER_QUARTERS_LEVEL` would agree with whatever the constant is
+   * set to and could not catch the ceiling being quietly halved.
+   */
+  it('§B2: the Quarters absorbs what the Cistern used to house', () => {
+    // Literals, not today's constants: the anchor is what the pair *used to* give, which is
+    // `(16 + 5 x L(L+1)/2) x (1 + 3% x 20)`. Reading either figure off the module under test
+    // would make this agree with whatever it is set to.
+    const before = Math.floor((16 + 5 * ((20 * 21) / 2)) * 1.6);
+    expect(populationCapacity([build('quarters', BUILDING_MAX_LEVEL)])).toBeGreaterThanOrEqual(
+      before,
     );
   });
 });
@@ -687,7 +822,6 @@ describe('modifications (§A1)', () => {
   it('sums district-wide effects and keeps the local one out of them', () => {
     const district: Building[] = [
       { ...build('quarters', 20), modifications: ['quarters_debriefing_room'] },
-      { ...build('cistern', 20), modifications: ['cistern_clean_line_to_the_quarters'] },
       { ...build('greenhouse', 20), modifications: ['greenhouse_insect_farm'] },
     ];
     const effects = districtEffects(district);
@@ -755,10 +889,11 @@ describe('the build queue (§A1)', () => {
   it('refuses to queue past the ceiling, standing or projected', () => {
     const maxed = [build('nexus', BUILDING_MAX_LEVEL)];
     expect(nextQueuedLevel('nexus', maxed, [])).toBeNull();
-    // The Greenhouse is capped by the Nexus, and the queue's projection is what it is measured on.
+    // §B1: the Greenhouse's ladder wants Nexus 3 for level 5, and `NEW_DISTRICT` has a Nexus 1,
+    // so four levels are available and the fifth is not: the projection is what it is measured on.
     expect(nextQueuedLevel('greenhouse', NEW_DISTRICT, [])).toBe(1);
     expect(
-      nextQueuedLevel('greenhouse', NEW_DISTRICT, [entry('greenhouse', 1, NOW, 60)]),
+      nextQueuedLevel('greenhouse', NEW_DISTRICT, [entry('greenhouse', 4, NOW, 60)]),
     ).toBeNull();
   });
 
@@ -797,5 +932,157 @@ describe('the build queue (§A1)', () => {
     const fitted: Building[] = [{ ...build('lab', 10), modifications: ['lab_quantum_modeling'] }];
     const raised = applyQueueEntry(fitted, entry('lab', 11, NOW, 60));
     expect(raised[0]?.modifications).toEqual(['lab_quantum_modeling']);
+  });
+});
+
+/**
+ * §A1: what a finished district can house.
+ *
+ * The board's number is **about two thousand** for a district that is fully built and holding
+ * ground, and it was 345. Pinned here rather than left to the constants, because the figure is the
+ * board's and the constants are two multiplications away from it: `HOUSING_PER_QUARTERS_LEVEL` is
+ * triangular and the ground adds a flat rate per location. A change to either that quietly halves
+ * the ceiling should fail here by name.
+ */
+describe('§B5, §B6, §B7: what the Greenhouse, the Gauntlet and the Gate are worth', () => {
+  it('§B5: takes supplies off a training bill and leaves every other line alone', () => {
+    expect(trainingSuppliesReduction([])).toBe(0);
+    const small = trainingSuppliesReduction([build('greenhouse', 5)]);
+    const large = trainingSuppliesReduction([build('greenhouse', 12)]);
+    expect(small).toBeGreaterThan(0);
+    expect(large).toBeGreaterThan(small);
+    // Capped, so a maxed Greenhouse is not most of a unit's rations.
+    expect(trainingSuppliesReduction([build('greenhouse', BUILDING_MAX_LEVEL)])).toBe(
+      MAX_GREENHOUSE_SUPPLIES_DISCOUNT,
+    );
+
+    // And the discount reaches the supplies line and nothing else.
+    const razors = findUnit('razors');
+    expect(razors).toBeDefined();
+    if (!razors) return;
+    const plain = trainingCost(razors, 4);
+    const fed = trainingCost(razors, 4, 0, MAX_GREENHOUSE_SUPPLIES_DISCOUNT);
+    expect(fed.supplies ?? 0).toBeLessThan(plain.supplies ?? 0);
+    for (const key of RESOURCE_KEYS) {
+      if (key === 'supplies') continue;
+      expect(fed[key], key).toBe(plain[key]);
+    }
+  });
+
+  it('§B6: takes training time off every unit, including the ones it cannot train', () => {
+    expect(trainingTimeReduction([])).toBe(0);
+    const mid = trainingTimeReduction([build('gauntlet', 8)]);
+    expect(mid).toBe(8 * TRAINING_TIME_PER_GAUNTLET_LEVEL);
+    expect(trainingTimeReduction([build('gauntlet', BUILDING_MAX_LEVEL)])).toBe(
+      MAX_GAUNTLET_TRAINING_BONUS,
+    );
+
+    // "Every unit" is the load-bearing half: the Cyber Dogs are made in the Infirmary and the
+    // Colossus in the Garage, and both come off the same clock.
+    const elsewhere = UNIT_CATALOG.filter((unit) => unit.trainedAt !== 'gauntlet');
+    expect(elsewhere.length).toBeGreaterThan(0);
+    for (const unit of elsewhere) {
+      expect(trainingSeconds(unit, 1, mid), unit.id).toBeLessThan(trainingSeconds(unit, 1, 0));
+    }
+  });
+
+  it('§B7: raises defence and cover with the Gate, and both fall when it is wrecked', () => {
+    expect(gateDefensePercent([])).toBe(0);
+    expect(gateIntelResistancePercent([])).toBe(0);
+
+    const low = [build('gate', 4)];
+    const high = [build('gate', 12)];
+    expect(gateDefensePercent(high)).toBeGreaterThan(gateDefensePercent(low));
+    expect(gateIntelResistancePercent(high)).toBeGreaterThan(gateIntelResistancePercent(low));
+    expect(gateDefensePercent(high)).toBe(12 * GATE_DEFENSE_PERCENT_PER_LEVEL);
+
+    // A breached Gate is worth less on both counts until it is put right (§A4).
+    const wrecked: Building[] = [{ ...build('gate', 12), damage: 100 }];
+    expect(gateDefensePercent(wrecked)).toBeLessThan(gateDefensePercent(high));
+    expect(gateIntelResistancePercent(wrecked)).toBeLessThan(gateIntelResistancePercent(high));
+  });
+});
+
+describe('§A1: the population ceiling', () => {
+  const finished: Building[] = BUILDING_KINDS.map((kind) => build(kind, BUILDING_MAX_LEVEL));
+
+  it('houses about two thousand once the district is built and holding ground', () => {
+    // Fifteen locations, which is a crew with a real grip on the map rather than a maximal one.
+    const held = 15 * POPULATION_PER_LOCATION;
+    const capacity = districtPopulationCapacity(finished, { populationBonus: held });
+    expect(capacity).toBeGreaterThan(1_800);
+    expect(capacity).toBeLessThan(2_200);
+  });
+
+  /** ...and the start of the game is still the start of the game. */
+  it('leaves a founding district housing a couple of dozen', () => {
+    const founding: Building[] = [build('nexus', 1), build('quarters', 1)];
+    const capacity = districtPopulationCapacity(founding, { populationBonus: 0 });
+    expect(capacity).toBeGreaterThanOrEqual(HOUSING_BASE);
+    expect(capacity).toBeLessThan(40);
+  });
+});
+
+/**
+ * §B10: what the Infirmary is actually worth, in the board's own numbers.
+ *
+ * Anchored on literals rather than on `CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL`, and that is the
+ * whole point of the test. The existing coverage computes what it expects *from* the constant, so
+ * it proves the Infirmary reaches the settle (which is worth proving, and a mutation that stopped
+ * it recovering anybody was caught by it) but it agrees with any rate at all: the constant was
+ * moved from 1.5 to 4 during integration and the entire suite stayed green.
+ *
+ * The board asked for 4% per level, capped at 40. Both halves are written out here by hand.
+ */
+describe('the Infirmary, at the boardrate', () => {
+  const gate = (level: number): Building[] => [
+    { id: 'i', kind: 'infirmary', level, modifications: [], damage: 0, fortification: 0 },
+  ];
+
+  it('hands back four percent of the dead per level', () => {
+    expect(infirmaryRecoveryPercent(gate(1))).toBe(4);
+    expect(infirmaryRecoveryPercent(gate(5))).toBe(20);
+    expect(infirmaryRecoveryPercent(gate(10))).toBe(40);
+  });
+
+  it('gives nothing without one standing', () => {
+    expect(infirmaryRecoveryPercent([])).toBe(0);
+  });
+
+  /** The ceiling is on the recovery itself, so two sources cannot add past it. */
+  it('never returns more than four in ten, however deep it goes', () => {
+    const deep = recoverCasualties({ razors: 100 }, infirmaryRecoveryPercent(gate(20)));
+    expect(100 - (deep.razors ?? 0)).toBeLessThanOrEqual(40);
+  });
+});
+
+/**
+ * §B11: the Garage gives nothing on its own.
+ *
+ * The board's rule, in their words. It was still producing 4 oil and 1 high-quality metal per
+ * level, which at level 20 was 80% of the metal in the game, so "does not give anything" was true
+ * of the description and false of the building.
+ *
+ * Pinned as a literal zero rather than derived, and pinned beside the thing that made removing it
+ * safe: the output moved to the Scrapyard rather than out of the game, because the Garage is the
+ * one building that *charges* high-quality metal and deleting the supply would have made its own
+ * machines unbuildable.
+ */
+describe('what the Garage makes (§B11)', () => {
+  const at = (kind: Building['kind'], level: number): Building[] => [
+    { id: 'x', kind, level, modifications: [], damage: 0, fortification: 0 },
+  ];
+
+  it('produces nothing at any level', () => {
+    for (const level of [1, 5, 10, 20]) {
+      expect(districtProduction(at('garage', level)).perHour).toEqual({});
+    }
+  });
+
+  it('leaves the metal economy where it was, on the Scrapyard', () => {
+    const yard = districtProduction(at('scrapyard', 20)).perHour;
+    // The two buildings used to make 25 an hour between them at level 20. They still do.
+    expect(yard.highQualityMetal).toBe(25);
+    expect(yard.oil).toBe(120);
   });
 });

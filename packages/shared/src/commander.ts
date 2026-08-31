@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AttributesSchema, DEFAULT_ATTRIBUTES, type Attributes } from './attributes.js';
 import { PerksSchema } from './crew/perks.js';
-import { IdSchema } from './primitives.js';
+import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { OfficerRoleSchema, type OfficerRole } from './roles.js';
 
 /**
@@ -28,7 +28,23 @@ import { OfficerRoleSchema, type OfficerRole } from './roles.js';
 export const CommanderSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
-  role: OfficerRoleSchema,
+  /**
+   * The chair they sit in, or `null` for somebody on the bench (§C2, board request).
+   *
+   * The bench is not a nineteenth kind of job, it is the absence of one: an officer you have signed
+   * and have not decided about yet. They are on the books, they are drawing a wage, and they are
+   * doing no job in particular, which is exactly what `null` says.
+   *
+   * What they are still worth is the interesting half. A seated officer is paid their full rating
+   * in the attributes their chair actually uses and `OFF_DUTY_SHARE` of it everywhere else; a
+   * benched one is paid the off-duty share in *everything*. So hiring somebody you have nowhere to
+   * put is not wasted, and it is not free either: the chair is most of what an officer is worth.
+   *
+   * Nullable rather than a separate list on the base, because an officer is one kind of thing and
+   * which of two arrays they happen to be in is not a fact about them. Every consumer that cares
+   * about the chair had to learn about the empty one anyway.
+   */
+  role: OfficerRoleSchema.nullable(),
   attributes: AttributesSchema,
   /**
    * §B7: nought to three perks, the things this person brings to the whole crew.
@@ -49,6 +65,17 @@ export const CommanderSchema = z.object({
    * they are on the books.
    */
   weeklyWage: z.number().int().nonnegative().default(0),
+  /**
+   * §D4: when this officer is back on their feet, or null while they are fit.
+   *
+   * A stored timestamp settled lazily, like payroll and the build queue: nothing has to run for an
+   * officer to recover, and a crew nobody has looked at for a week is exactly as recovered as one
+   * that was watched. While it is in the future the officer's services and bonuses are off, which
+   * `crewSheetsFor` enforces by leaving them out of the room altogether.
+   *
+   * Defaulted, so every officer written before an officer could be hurt reads as fit.
+   */
+  injuredUntil: IsoDateTimeSchema.nullable().default(null),
 });
 export type Commander = z.infer<typeof CommanderSchema>;
 
@@ -60,7 +87,8 @@ export type Commander = z.infer<typeof CommanderSchema>;
 export function createCommander(
   id: string,
   name: string,
-  role: OfficerRole,
+  /** `null` puts them on the bench: signed, drawing a wage, doing no job in particular. */
+  role: OfficerRole | null,
   attributes: Partial<Attributes> = {},
   perks: readonly string[] = [],
   weeklyWage = 0,
@@ -72,5 +100,6 @@ export function createCommander(
     attributes: { ...DEFAULT_ATTRIBUTES, ...attributes },
     perks: [...perks],
     weeklyWage,
+    injuredUntil: null,
   };
 }

@@ -79,6 +79,11 @@ export function seatedMember(
   return { attributes, role, perks };
 }
 
+/** Somebody signed and unassigned: no seat, so the off-duty share of everything they know. */
+export function benchedMember(attributes: Attributes, perks: readonly string[]): CrewMember {
+  return { attributes, role: null, perks, benched: true };
+}
+
 /** The Overseer: no seat, no discount, everything they know available all the time. */
 export function overseerMember(attributes: Attributes, perks: readonly string[]): CrewMember {
   return { attributes, role: null, perks };

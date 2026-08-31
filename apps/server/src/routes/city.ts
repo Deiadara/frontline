@@ -1,7 +1,9 @@
 import {
+  RaiseGateRequestSchema,
   FortifyRequestSchema,
   GarrisonRequestSchema,
   ScoutRequestSchema,
+  type ScoutRefusal,
   UpgradeLocationRequestSchema,
   findDistrict,
   findLocation,
@@ -22,6 +24,8 @@ import { projectCity, projectDistrict } from '../city/view.js';
 import { UPGRADE_REFUSALS, startUpgrade, type UpgradeRefusal } from '../city/upgrade.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
+import { sendScout, settleScouting } from '../scouting/scouting.js';
+import { raiseCapturedGate, settleCapturedGates } from '../city/gates.js';
 
 /**
  * The city (GDD §A4): the map, what is inside a district, and the four things you can do about it.
@@ -56,6 +60,23 @@ const REFUSAL_ERRORS: Record<CityRefusal, { code: ErrorCode; message: string }> 
   cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the materials' },
 };
 
+/** Why a scouting run was refused, in the player's words. */
+const SCOUT_REFUSAL_ERRORS: Record<ScoutRefusal, { code: ErrorCode; message: string }> = {
+  already_scouted: { code: 'VALIDATION_ERROR', message: 'You have already had eyes on that' },
+  already_out: {
+    code: 'VALIDATION_ERROR',
+    message: 'Somebody is already out. One scout at a time',
+  },
+  no_officer: { code: 'NO_FORCE', message: 'You have nobody to send' },
+  officer_busy: { code: 'VALIDATION_ERROR', message: 'They are already out' },
+  own_district: { code: 'VALIDATION_ERROR', message: 'You live there' },
+};
+
+function refuseScout(reason: ScoutRefusal): never {
+  const { code, message } = SCOUT_REFUSAL_ERRORS[reason];
+  throw new AppError(code, message);
+}
+
 function refuse(reason: CityRefusal): never {
   const { code, message } = REFUSAL_ERRORS[reason];
   throw new AppError(code, message);
@@ -67,6 +88,10 @@ export function registerCityRoutes(app: FastifyInstance): void {
     const owned = app.repos.bases.findByOwnerId(ownerId);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
     settleFortifications(app.repos, now);
+    // Scouts who walked back in while nobody was looking. Cheap, and it keeps a page load from
+    // ever showing fog over ground the clock has already opened.
+    settleScouting(app.repos, now);
+    settleCapturedGates(app.repos, now);
     // Any declared fight whose mark has passed runs here too (§A4). It has to: a battle that went
     // off an hour ago may have changed who holds half this map, and a city read that showed the old
     // answer would be a screen the rules disagree with.
@@ -100,15 +125,67 @@ export function registerCityRoutes(app: FastifyInstance): void {
    * gated on anything: a map you cannot look at is a map you cannot plan against, and the fog is
    * meant to be an invitation rather than a wall.
    */
+  /**
+   * §A4: send somebody to look at a district (board rework).
+   *
+   * This used to open the ground on the spot. It now puts one officer on the road, and the ground
+   * opens when they walk back in: see `scouting/scouting.ts` for what that costs and why.
+   *
+   * Still answers with the district, unchanged in shape, so the client's existing read path is
+   * untouched. What it will show is fog and a countdown rather than the ground, which is the
+   * honest answer to "I have sent somebody".
+   */
   app.post('/city/scout', { preHandler: app.authenticate }, (request): CityMutationResponse => {
-    const { districtId } = parseBody(ScoutRequestSchema, request.body);
+    const body = parseBody(ScoutRequestSchema, request.body);
     const now = new Date();
     const base = settled(app, request.currentUser.id, now);
-    const district = findDistrict(districtId);
+    const district = findDistrict(body.districtId);
     if (!district) throw new AppError('NOT_FOUND', 'No such district');
 
-    app.repos.city.markScouted(base.id, districtId, now.toISOString());
+    const outcome = app.db.transaction(() =>
+      sendScout(app.repos, {
+        base,
+        districtId: body.districtId,
+        ...(body.officerId === undefined ? {} : { officerId: body.officerId }),
+        now,
+      }),
+    )();
+    if (outcome.kind === 'refused') refuseScout(outcome.reason);
+
     return { district: projectDistrict(app.repos, base, district, now), base };
+  });
+
+  /**
+   * §B7: raise the gate on a district this crew has taken whole (board request).
+   *
+   * A separate route rather than a `buildQueue` entry, because a captured gate is not one of this
+   * district's structures: it stands somewhere else, it has no Nexus over it, and it is inherited
+   * by whoever takes the ground rather than owned by whoever built it. Its clock is a timestamp on
+   * the gate, settled by the read above and by the world tick, which is how every other clock in
+   * this server works.
+   *
+   * Paid at the order, like a queued build. A wall somebody is standing in front of is not
+   * refundable.
+   */
+  app.post('/city/gate', { preHandler: app.authenticate }, (request): CityResponse => {
+    const { districtId } = parseBody(RaiseGateRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+
+    const outcome = app.db.transaction(() => raiseCapturedGate(app.repos, base, districtId, now))();
+    if (outcome.kind === 'refused') {
+      const message: Record<typeof outcome.reason, string> = {
+        not_held: 'You do not hold all of that district',
+        already_working: 'Work on that gate is already under way',
+        at_ceiling: 'That gate will not go any higher',
+        cannot_afford: 'You cannot pay for that',
+      };
+      throw new AppError(
+        outcome.reason === 'not_held' ? 'FORBIDDEN' : 'INSUFFICIENT_RESOURCES',
+        message[outcome.reason],
+      );
+    }
+    return projectCity(app.repos, outcome.base, now);
   });
 
   /*

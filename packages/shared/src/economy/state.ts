@@ -67,6 +67,14 @@ export const EconomyStateSchema = z.object({
    * numbers were enforced parses as owing nothing.
    */
   productionCarry: FractionalResourcesSchema.default({}),
+  /**
+   * §B4: when the Generator's paid burn runs out, or null when none is running.
+   *
+   * One timestamp, like every other clock in this game, so it survives a reload and needs no
+   * scheduler to end it. What it buys is described in `building/boost.ts`. Defaulted so a district
+   * written before the Generator sold anything parses as having no burn on.
+   */
+  buildBoostUntil: IsoDateTimeSchema.nullable().default(null),
 });
 export type EconomyState = z.infer<typeof EconomyStateSchema>;
 
@@ -78,5 +86,6 @@ export function startingEconomy(now: string): EconomyState {
     productionSettledAt: now,
     disruption: noDisruption(),
     productionCarry: {},
+    buildBoostUntil: null,
   };
 }

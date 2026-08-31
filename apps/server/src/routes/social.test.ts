@@ -1,8 +1,12 @@
 import {
   DEFAULT_BADGE,
+  DEFAULT_CITY_ID,
+  FOUND_FACTION_NEXUS_LEVEL,
+  FOUND_FACTION_PLAYER_LEVEL,
   MAX_FACTION_MEMBERS,
   randomBadge,
   type FactionResponse,
+  type LeaderboardResponse,
   type MessagesResponse,
   type NotificationsResponse,
 } from '@frontline/shared';
@@ -41,7 +45,14 @@ async function makeApp(): Promise<FastifyInstance> {
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
-/** A registered player who has picked an Overseer, which is what gives them a district. */
+/**
+ * A registered player who has picked an Overseer, which is what gives them a district.
+ *
+ * §B1 put two gates on founding a faction, a crew level and a Nexus level, and a brand-new
+ * district clears neither. Every test in this file is about what happens *after* somebody founds
+ * one, so the crew is established here rather than in each of them: the gate itself is tested by
+ * name in `refuses a founder whose crew and Nexus are not established yet`.
+ */
 async function player(app: FastifyInstance, username: string) {
   const registered = await app.inject({
     method: 'POST',
@@ -56,7 +67,22 @@ async function player(app: FastifyInstance, username: string) {
     payload: { presetId: 'enforcer' },
   });
   const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
-  return { token, username, id: me.json<{ user: { id: string } }>().user.id };
+  const id = me.json<{ user: { id: string } }>().user.id;
+  establish(app, id);
+  return { token, username, id };
+}
+
+/** §B1: gives a crew the level and the Nexus that founding a faction asks for. */
+function establish(app: FastifyInstance, userId: string): void {
+  const base = app.repos.bases.findByOwnerId(userId);
+  if (!base) throw new Error('no base for ' + userId);
+  app.repos.bases.updateProgression(base.id, FOUND_FACTION_PLAYER_LEVEL, base.progression);
+  app.repos.bases.updateBuildings(
+    base.id,
+    base.buildings.map((building) =>
+      building.kind === 'nexus' ? { ...building, level: FOUND_FACTION_NEXUS_LEVEL } : building,
+    ),
+  );
 }
 
 const faction = async (app: FastifyInstance, token: string): Promise<FactionResponse> =>
@@ -84,6 +110,56 @@ beforeEach(async () => {
 });
 
 describe('founding a faction', () => {
+  /**
+   * §B1: two gates, and the refusal names both.
+   *
+   * A crew level says the *person* has seen enough of the city to be worth following; a Nexus
+   * level says the *place* can administer anybody. A brand-new district clears neither, which is
+   * what this asserts: the raw account straight out of `POST /overseer`, before `establish`.
+   */
+  it('refuses a founder whose crew and Nexus are not established yet', async () => {
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'nobody', password: PASSWORD },
+    });
+    const token = registered.json<{ token: string }>().token;
+    await app.inject({
+      method: 'POST',
+      url: '/api/overseer',
+      headers: auth(token),
+      payload: { presetId: 'enforcer' },
+    });
+
+    const refused = await found(app, token, 'The Premature');
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe('not_established');
+
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    const base = app.repos.bases.findByOwnerId(me.json<{ user: { id: string } }>().user.id);
+    if (!base) throw new Error('fixture error: the new player has no district');
+    const raiseNexus = (level: number) =>
+      app.repos.bases.updateBuildings(
+        base.id,
+        base.buildings.map((building) =>
+          building.kind === 'nexus' ? { ...building, level } : building,
+        ),
+      );
+
+    // Either gate alone still refuses, and both legs are checked: a version that only ever tested
+    // "crew too low" would pass with the Nexus clause deleted outright.
+    raiseNexus(FOUND_FACTION_NEXUS_LEVEL);
+    expect((await found(app, token, 'The Premature')).statusCode).toBe(409);
+
+    raiseNexus(1);
+    app.repos.bases.updateProgression(base.id, FOUND_FACTION_PLAYER_LEVEL, base.progression);
+    expect((await found(app, token, 'The Premature')).statusCode).toBe(409);
+
+    // Both, and it goes through.
+    raiseNexus(FOUND_FACTION_NEXUS_LEVEL);
+    expect((await found(app, token, 'The Premature')).statusCode).toBe(200);
+  });
+
   it('makes the founder its leader, and refuses a second one', async () => {
     const one = await player(app, 'founder');
     expect((await found(app, one.token, 'Iron Wolves')).statusCode).toBe(200);
@@ -819,5 +895,149 @@ describe('an invitation in the mailbox', () => {
   it('leaves no sent copy in the inviter’s folder', async () => {
     const { leader } = await invited();
     expect((await messages(app, leader.token)).sent).toHaveLength(0);
+  });
+});
+
+/**
+ * §J9: the standings.
+ *
+ * Two boards and a scope toggle, driven over HTTP. The rules worth pinning are the ones a naive
+ * implementation gets wrong: ties share a place, the faction board ranks *earned* infamy rather
+ * than the sum of its members' wallets, and your own rank is reported even when you are off the
+ * end of the page.
+ */
+describe('the leaderboard', () => {
+  const board = async (token: string, query = '') =>
+    (
+      await app.inject({
+        method: 'GET',
+        url: `/api/leaderboard${query}`,
+        headers: auth(token),
+      })
+    ).json<LeaderboardResponse>();
+
+  /** Gives a player a standing without fighting for it. */
+  const setInfamy = (userId: string, infamy: number) => {
+    const base = app.repos.bases.findByOwnerId(userId)!;
+    app.repos.bases.updateEconomy(base.id, { ...base.economy, infamy });
+  };
+
+  it('ranks the players by infamy, highest first', async () => {
+    const one = await player(app, 'ahead');
+    const two = await player(app, 'behind');
+    setInfamy(one.id, 5000);
+    setInfamy(two.id, 900);
+
+    const standings = await board(one.token);
+    expect(standings.board).toBe('players');
+    const names = standings.entries.map((entry) => ('username' in entry ? entry.username : ''));
+    expect(names.indexOf('ahead')).toBeLessThan(names.indexOf('behind'));
+    expect(standings.yourRank).toBe(1);
+  });
+
+  /** Two on the same score are both second, and the next one down is fourth. */
+  it('gives a tie the same place, and skips the place it used up', async () => {
+    const top = await player(app, 'top');
+    const a = await player(app, 'tied_a');
+    const b = await player(app, 'tied_b');
+    const last = await player(app, 'last');
+    setInfamy(top.id, 9000);
+    setInfamy(a.id, 4000);
+    setInfamy(b.id, 4000);
+    setInfamy(last.id, 10);
+
+    const rows = (await board(top.token)).entries as { username: string; rank: number }[];
+    const rankOf = (name: string) => rows.find((row) => row.username === name)!.rank;
+    expect(rankOf('top')).toBe(1);
+    expect(rankOf('tied_a')).toBe(2);
+    expect(rankOf('tied_b')).toBe(2);
+    expect(rankOf('last')).toBe(4);
+  });
+
+  /**
+   * The faction board ranks what was earned at the table.
+   *
+   * The two factions below are built so a wallet-summing board would order them the other way
+   * round: the one that has earned nothing is full of rich members.
+   */
+  it('ranks factions by what they earned, not by what their members hold', async () => {
+    const earner = await player(app, 'earner');
+    const holder = await player(app, 'holder');
+    await found(app, earner.token, 'Iron Wolves');
+    await found(app, holder.token, 'Rich Idlers');
+
+    setInfamy(holder.id, 90_000);
+    app.repos.factions.addInfamyEarned(earner.id, 1200);
+
+    const rows = (await board(earner.token, '?board=factions')).entries as {
+      name: string;
+      infamy: number;
+      rank: number;
+    }[];
+    expect(rows[0]?.name).toBe('Iron Wolves');
+    expect(rows[0]?.infamy).toBe(1200);
+    // The rich faction is on the board, and on nothing.
+    expect(rows.find((row) => row.name === 'Rich Idlers')?.infamy).toBe(0);
+    expect((await board(earner.token, '?board=factions')).yourRank).toBe(1);
+  });
+
+  /**
+   * The scope is the **city**, and there is one city.
+   *
+   * So both scopes list the same people today, which is the board's call and not an accident: the
+   * filter is written against a city id so that a second city makes it real without a screen
+   * change. What is asserted is that the request is honoured and scoped, rather than that it
+   * removes anybody, because right now there is nobody to remove.
+   */
+  it('scopes the board to your own city when asked', async () => {
+    const mine = await player(app, 'neighbour');
+    const other = await player(app, 'stranger');
+    setInfamy(other.id, 50_000);
+
+    const everywhere = await board(mine.token);
+    expect(everywhere.localOnly).toBe(false);
+    expect(everywhere.scope).toBeNull();
+
+    const local = await board(mine.token, '?localOnly=true');
+    expect(local.localOnly).toBe(true);
+    expect(local.scope).toBe(DEFAULT_CITY_ID);
+    // Everybody in Ashfall, which is currently everybody.
+    const named = (rows: LeaderboardResponse['entries']) =>
+      (rows as { username: string }[]).map((row) => row.username);
+    expect(named(local.entries)).toEqual(named(everywhere.entries));
+    expect(named(local.entries)).toContain('stranger');
+  });
+
+  /** A district nobody authored has no city, so the local board falls back to everybody. */
+  it('scopes by city rather than by district', async () => {
+    const mine = await player(app, 'local');
+    const neighbour = await player(app, 'two_streets_over');
+    setInfamy(neighbour.id, 4_000);
+
+    // Two players in different districts of the same city are on each other's local board.
+    const base = app.repos.bases.findByOwnerId(neighbour.id)!;
+    const home = app.repos.bases.findByOwnerId(mine.id)!.districtId;
+    app.db
+      .prepare('UPDATE bases SET district_id = ? WHERE id = ?')
+      .run(home === 'rustyard' ? 'neon-docks' : 'rustyard', base.id);
+
+    const local = await board(mine.token, '?localOnly=true');
+    expect(
+      (local.entries as { username: string }[]).some((row) => row.username === 'two_streets_over'),
+    ).toBe(true);
+  });
+
+  /** A player with no district has no city, and gets everybody rather than an empty screen. */
+  it('answers a local request with everybody when the caller has no district', async () => {
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'homeless', password: PASSWORD },
+    });
+    const token = registered.json<{ token: string }>().token;
+
+    const local = await board(token, '?localOnly=true');
+    expect(local.localOnly).toBe(false);
+    expect(local.scope).toBeNull();
   });
 });

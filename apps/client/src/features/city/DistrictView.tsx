@@ -1,4 +1,6 @@
 import {
+  type DistrictDetailResponse,
+  formatCountdown,
   districtDisplayName,
   FORTIFY_DIFFICULTY_LABELS,
   LOCATION_CATALOG,
@@ -40,6 +42,7 @@ import { formatDuration, formatRemaining } from '../base/format';
 import { ForcePicker } from './ForcePicker';
 import { DeclareDialog } from '../battle/DeclareDialog';
 import { BattleResultModal } from '../game/BattleResultModal';
+import { useServerClock } from '../missions/useServerClock';
 
 /** What one fight left behind: the only thing that knows it happened is its own response. */
 interface BattleReport {
@@ -175,20 +178,11 @@ export function DistrictView() {
 
         {!data.scouted ? (
           <Panel title="Unscouted">
-            <div className="flex flex-col gap-3 p-4">
-              <p className="font-body text-xs leading-relaxed text-ink-300">
-                Nobody from this crew has been here. Send scouts and the street opens up.
-              </p>
-              <div>
-                <Button
-                  size="sm"
-                  disabled={scout.isPending}
-                  onClick={() => scout.mutate({ districtId: data.district.id })}
-                >
-                  {scout.isPending ? 'Working…' : 'Send scouts'}
-                </Button>
-              </div>
-            </div>
+            <ScoutPanel
+              data={data}
+              pending={scout.isPending}
+              onSend={() => scout.mutate({ districtId: data.district.id })}
+            />
           </Panel>
         ) : data.district.kind === 'residential' ? (
           <>
@@ -622,5 +616,105 @@ function Tag({
     >
       {label}
     </span>
+  );
+}
+
+/**
+ * What it takes to open a district (§A4, board rework).
+ *
+ * Scouting used to be a button that did it. It is a journey now, so this panel has three states
+ * and the middle one is the whole point of the change: **somebody is walking there**, and until
+ * they walk back this ground tells you nothing.
+ *
+ * The price is quoted before the press, like every other price in the game. A run is measured in
+ * hours, so finding out how long it was afterwards is not a decision a player got to make.
+ */
+function ScoutPanel({
+  data,
+  pending,
+  onSend,
+}: {
+  data: DistrictDetailResponse;
+  pending: boolean;
+  onSend: () => void;
+}) {
+  const now = useServerClock(data.serverNow, undefined);
+  const run = data.scoutingRun;
+
+  // Somebody is out, and it is this district: a countdown, and nothing to press.
+  if (run && run.districtId === data.district.id) {
+    return (
+      <div className="flex flex-col gap-2 p-4" data-testid="scout-underway">
+        <p className="font-body text-xs leading-relaxed text-ink-300">
+          <span className="text-ink-100">{run.officerName}</span> is on the road. The street opens
+          when they are back.
+        </p>
+        <Waiting until={run.returnsAt} now={now} />
+      </div>
+    );
+  }
+
+  // Somebody is out, somewhere else. Say where, rather than refusing at the press.
+  if (run) {
+    return (
+      <div className="flex flex-col gap-2 p-4" data-testid="scout-elsewhere">
+        <p className="font-body text-xs leading-relaxed text-ink-300">
+          Nobody from this crew has been here, and{' '}
+          <span className="text-ink-100">{run.officerName}</span> is already out at{' '}
+          <span className="text-ink-100">{run.districtName}</span>. One scout at a time.
+        </p>
+        <Waiting until={run.returnsAt} now={now} />
+      </div>
+    );
+  }
+
+  const plan = data.scoutPlan;
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      <p className="font-body text-xs leading-relaxed text-ink-300">
+        Nobody from this crew has been here. Send somebody to walk it and the street opens up.
+      </p>
+      {plan === null ? (
+        <p
+          className="font-body text-xs leading-relaxed text-oxblood-300"
+          data-testid="scout-nobody"
+        >
+          You have nobody to send. Sign somebody at the Bar first.
+        </p>
+      ) : (
+        <>
+          <p className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-400">
+            <span className="text-brass-300">{plan.officerName}</span> would be gone{' '}
+            <span className="tabular-nums text-brass-300">{formatSpan(plan.minutes)}</span>
+          </p>
+          <div>
+            <Button size="sm" disabled={pending} onClick={onSend} data-testid="send-scout">
+              {pending ? 'Sending…' : 'Send them'}
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Hours and minutes, in the shape a player reads an evening in. */
+function formatSpan(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest}m`;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
+/** The clock on a run under way, ticking against the server's own time. */
+function Waiting({ until, now }: { until: string; now: Date }) {
+  const remaining = Date.parse(until) - now.getTime();
+  return (
+    <p
+      className="font-display text-[15px] font-bold tabular-nums text-brass-300"
+      data-testid="scout-countdown"
+    >
+      {remaining <= 0 ? 'Walking back in' : formatCountdown(remaining)}
+    </p>
   );
 }

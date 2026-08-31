@@ -14,6 +14,10 @@ import {
   canKick,
   canSetRank,
   leavingDisbands,
+  buildingLevel,
+  CENTRAL_BUILDING,
+  FOUND_FACTION_NEXUS_LEVEL,
+  FOUND_FACTION_PLAYER_LEVEL,
   sameFactionName,
   type FactionMutationResponse,
   type FactionRefusal,
@@ -68,6 +72,20 @@ export function registerFactionRoutes(app: FastifyInstance): void {
 
     return app.db.transaction(() => {
       if (app.repos.factions.membershipOf(userId)) refuse('already_in_a_faction');
+      /*
+       * §B1: a faction needs a crew that has been somewhere and a Nexus big enough to run it from.
+       *
+       * Both, not either, and refused with one message that names both numbers: the client shows
+       * the same sentence on the found-a-faction form, so a player never reaches this by surprise.
+       */
+      const founder = app.repos.bases.findByOwnerId(userId);
+      if (
+        !founder ||
+        founder.level < FOUND_FACTION_PLAYER_LEVEL ||
+        buildingLevel(founder.buildings, CENTRAL_BUILDING) < FOUND_FACTION_NEXUS_LEVEL
+      ) {
+        refuse('not_established');
+      }
       // Checked through the domain's own comparison rather than the UNIQUE index, so "Iron  Wolves"
       // and "Iron Wolves" collide here the way they will on screen. The index is the cruder backstop.
       const taken = app.repos.factions.all();

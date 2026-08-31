@@ -51,6 +51,10 @@ interface DeploymentRow {
   army_json: string;
   perimeter_json: string;
   boost_id: string | null;
+  /** §D1: the one officer this crew is sending to lead. Null is nobody, which is most rows. */
+  officer_id: string | null;
+  /** §C3: the machines committed to this fight, out of the Garage. */
+  vehicles_json: string;
   updated_at: string;
 }
 
@@ -89,6 +93,8 @@ function rowToDeployment(row: DeploymentRow): BattleDeployment {
     army: withoutRetiredUnits(readJson(row.army_json)),
     perimeter: withoutRetiredUnits(readJson(row.perimeter_json)),
     boostId: row.boost_id,
+    officerId: row.officer_id,
+    vehicles: readJson(row.vehicles_json),
     updatedAt: row.updated_at,
   });
 }
@@ -129,6 +135,14 @@ export interface SiegeRepo {
   /** Every deployment this crew has standing, across every fight still to come. */
   deploymentsFor(baseId: string): BattleDeployment[];
   putDeployment(deployment: BattleDeployment): void;
+  /**
+   * The coming fights this officer is already named on, other than `exceptBattleId`.
+   *
+   * §D1: one officer, one fight. Nothing stopped the same person being written onto two different
+   * deployments, so a crew with one good leader could put them at the head of every battle it had
+   * declared and collect their sheet and their perks in all of them at once.
+   */
+  leadingElsewhere(officerId: string, exceptBattleId: string): string[];
 
   gate(districtId: string): DistrictGate | undefined;
   breakGate(districtId: string, until: string): void;
@@ -195,13 +209,29 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   );
   const putDeploymentStmt = db.prepare(
     `INSERT INTO battle_deployments
-       (battle_id, base_id, side, army_json, perimeter_json, boost_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+       (battle_id, base_id, side, army_json, perimeter_json, boost_id, officer_id,
+        vehicles_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (battle_id, side, base_id) DO UPDATE SET
        army_json = excluded.army_json,
        perimeter_json = excluded.perimeter_json,
        boost_id = excluded.boost_id,
+       officer_id = excluded.officer_id,
+       vehicles_json = excluded.vehicles_json,
        updated_at = excluded.updated_at`,
+  );
+
+  /*
+   * §D1: the coming fights an officer is already named on.
+   *
+   * Joined to `scheduled_battles` so a leader on a fight that has already run does not block them
+   * from the next one: what is being asked is "are they committed", not "have they ever led".
+   */
+  const leadingElsewhereStmt = db.prepare(
+    `SELECT d.battle_id AS battle_id
+       FROM battle_deployments d
+       JOIN scheduled_battles b ON b.id = d.battle_id
+      WHERE d.officer_id = ? AND d.battle_id != ? AND b.resolved_at IS NULL`,
   );
 
   const gateStmt = db.prepare('SELECT * FROM district_gates WHERE district_id = ?');
@@ -246,12 +276,26 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
     resolvedFor(baseId, limit) {
       return (resolvedStmt.all(baseId, baseId, limit) as BattleRow[]).flatMap((row) => {
         if (row.analysis_json === null) return [];
-        return [
-          {
-            battle: rowToBattle(row),
-            analysis: BattleAnalysisSchema.parse(readJson(row.analysis_json)),
-          },
-        ];
+        /*
+         * Skipped rather than thrown on, and this is why the whole board once went dark.
+         *
+         * `GET /battles` answered 500 for one account for months because a single stored report
+         * carried a field an older build had written under a different name. One unreadable row
+         * took down the entire screen, and the screen drew every non-data state as "Reading the
+         * board...", so it looked like a slow network for ever.
+         *
+         * A report is history. It cannot be repaired from here and nothing else on the board
+         * depends on it, so the honest answer is to leave it out and serve the rest.
+         */
+        const parsed = BattleAnalysisSchema.safeParse(readJson(row.analysis_json));
+        if (!parsed.success) {
+          console.warn(
+            `battle ${row.id}: stored report is not readable by this build, skipping`,
+            parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+          );
+          return [];
+        }
+        return [{ battle: rowToBattle(row), analysis: parsed.data }];
       });
     },
     markResolved(id, at, analysis) {
@@ -279,7 +323,15 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
         JSON.stringify(deployment.army),
         JSON.stringify(deployment.perimeter),
         deployment.boostId,
+        deployment.officerId,
+        JSON.stringify(deployment.vehicles),
         deployment.updatedAt,
+      );
+    },
+
+    leadingElsewhere(officerId, exceptBattleId) {
+      return (leadingElsewhereStmt.all(officerId, exceptBattleId) as { battle_id: string }[]).map(
+        (row) => row.battle_id,
       );
     },
 

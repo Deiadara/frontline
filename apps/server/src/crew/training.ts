@@ -1,4 +1,5 @@
 import {
+  BENCH_LABEL,
   OFFICER_ROLE_LABELS,
   OVERSEER_SUBJECT,
   TRAINING_GAIN,
@@ -111,6 +112,8 @@ export function projectTraining(
       perks: overseer.perks,
       session: sessionFor(state, OVERSEER_SUBJECT) ?? null,
       lastAttribute: state.last[OVERSEER_SUBJECT] ?? null,
+      // The player is never a casualty: §D4 is about officers, and the Overseer leads nothing.
+      injuredUntil: null,
     });
   }
 
@@ -118,7 +121,9 @@ export function projectTraining(
     subjects.push({
       id: officer.id,
       name: officer.name,
-      role: OFFICER_ROLE_LABELS[officer.role],
+      // §C2: somebody on the bench still trains. They are on the books, they are being paid, and
+      // an hour on the bench is the cheapest hour a crew ever buys.
+      role: officer.role === null ? BENCH_LABEL : OFFICER_ROLE_LABELS[officer.role],
       officerRole: officer.role,
       // Derived rather than stored: see `officerPortraits`. Every officer already on a save has a
       // face the moment the pool lands, with no migration and no column.
@@ -127,6 +132,9 @@ export function projectTraining(
       perks: officer.perks,
       session: sessionFor(state, officer.id) ?? null,
       lastAttribute: state.last[officer.id] ?? null,
+      // §D4: an injured officer still trains. What is off is their services to the crew, and an
+      // hour in a bed reading is exactly the hour somebody laid up has going spare.
+      injuredUntil: officer.injuredUntil,
     });
   }
 

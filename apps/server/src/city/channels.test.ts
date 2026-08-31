@@ -43,7 +43,6 @@ const CHANNELS = Object.keys(noTerritoryEffects()) as (keyof TerritoryEffects)[]
 /** What one bonus is worth, whatever shape it is. Enough to tell "moved" from "did not". */
 function magnitude(bonus: HoldBonus): number {
   if ('perHour' in bonus) return bonus.perHour;
-  if ('amount' in bonus) return bonus.amount;
   if ('districts' in bonus) return bonus.districts;
   if ('flat' in bonus) return bonus.flat;
   return bonus.percent;
@@ -105,12 +104,24 @@ describe('every channel a location pays into', () => {
     expect(dead, 'channels nothing in the game pays into').toEqual([]);
   });
 
-  /** And the crew-only half of the struct, which no location can reach at all. */
+  /**
+   * And the crew-only half of the struct, which no location can reach at all.
+   *
+   * `unitEvasionFlat` is the one exemption and it is a *destination* rather than a source: §D5's
+   * `leadEvasionFlat` is the channel a perk pays into, and `leading` moves it here when an officer
+   * actually goes to the fight. A perk that wrote straight into this one would pay out on every
+   * fight, which is exactly what a conditional channel exists not to do. `leading.test.ts` in
+   * `@frontline/shared` is what pins that the spend actually happens.
+   */
+  const SPEND_DESTINATIONS: readonly string[] = ['unitEvasionFlat'];
+
   it('leaves no crew-only channel that the perk book never pays into', () => {
     const effects = noCrewEffects();
     for (const perk of PERK_CATALOG) applyPerkBonus(effects, perk.bonus);
 
-    const crewOnly = Object.keys(noCrewEffects()).filter((key) => !CHANNELS.includes(key as never));
+    const crewOnly = Object.keys(noCrewEffects()).filter(
+      (key) => !CHANNELS.includes(key as never) && !SPEND_DESTINATIONS.includes(key),
+    );
     const dead = crewOnly.filter((key) => effects[key as keyof CrewEffects] === 0);
     expect(dead, 'crew-only channels no perk pays into').toEqual([]);
   });

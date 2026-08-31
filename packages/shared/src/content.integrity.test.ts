@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ATTRIBUTE_LABELS, ATTRIBUTE_NAMES, MAX_ATTRIBUTE } from './attributes.js';
-import { BUILDING_CATALOG, findModification } from './building/index.js';
+import { BUILDING_CATALOG, findModification, findVehicle } from './building/index.js';
 import { ATTRIBUTE_EFFECTS, CHANNEL_LABELS, EFFECT_CHANNELS } from './crew/effects.js';
 import { ROLE_IMPORTANCE } from './crew/importance.js';
 import { TRAINING_DRILLS } from './crew/training.js';
@@ -92,6 +92,8 @@ describe('every id points at something that exists', () => {
             );
           } else if (need.kind === 'building') {
             expect(BUILDING_CATALOG[need.building], unit.id).toBeDefined();
+          } else if (need.kind === 'vehicle') {
+            expect(findVehicle(need.vehicleId), unit.id).toBeDefined();
           } else {
             expect(findModification(need.modificationId), unit.id).toBeDefined();
           }

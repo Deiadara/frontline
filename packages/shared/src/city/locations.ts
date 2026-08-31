@@ -107,7 +107,6 @@ export type LocationKind = z.infer<typeof LocationKindSchema>;
  */
 export type HoldBonus =
   | { kind: 'resource'; resource: ResourceKey; perHour: number }
-  | { kind: 'power_supply'; amount: number }
   | { kind: 'defense_percent'; percent: number }
   | { kind: 'research_speed'; percent: number }
   | { kind: 'build_speed'; percent: number }
@@ -254,17 +253,21 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
   },
   power_station: {
-    label: 'Power Station',
-    blurb: 'A substation off the old grid, still fed by something nobody has switched off.',
-    reward: 'Power for your own district, without burning a drop of oil for it.',
-    bonuses: [{ kind: 'power_supply', amount: 40 }],
+    label: 'Substation',
+    blurb:
+      'A Combine switching yard off the old trunk, with a bunded tank farm behind it for the standby sets.',
+    // §A1 took the district grid out of the game, and a location that fed it would now feed
+    // nothing. Re-pointed at the fuel bunkers behind the yard rather than dropped: this was one of
+    // the strongest holds on the map, and a place worth taking that pays nothing is a dead marker.
+    reward: 'Fuel by the drum, off the standby tanks nobody has come back to meter.',
+    bonuses: [{ kind: 'resource', resource: 'oil', perHour: 20 }],
     baseDefense: 5,
     labels: [L('noisy', 2), L('crammed', 1)],
     upgradeCost: { caps: 500, scrap: 200, highQualityMetal: 15, planks: 80 },
     upgrades: [
-      'The dead transformer bank is rewound and brought back under load.',
-      'Switchgear replaced, so a fault stops taking the whole yard down with it.',
-      'A second feeder tapped off the trunk. Twice the supply and half the outages.',
+      'The cracked tank at the north end is patched and brought back into service.',
+      'Valve gear replaced, so one leak stops taking the whole bund out of use with it.',
+      'A second draw line off the spur. Twice the throughput and half the spills.',
     ],
   },
   water_works: {
@@ -319,7 +322,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb:
       'Two cooling towers, a turbine hall with the roof half off, and a reactor building nobody has opened on purpose.',
     reward:
-      'High-quality metal out of the turbine hall, and enough power on tap that every barrel of oil you burn goes further.',
+      'High-quality metal out of the turbine hall, and a fuelling crew who make every barrel of oil you burn go further.',
     bonuses: [
       { kind: 'resource', resource: 'highQualityMetal', perHour: 5 },
       { kind: 'resource_yield', resource: 'oil', percent: 12 },
@@ -949,8 +952,6 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
   switch (bonus.kind) {
     case 'resource':
       return { ...bonus, perHour: grow(bonus.perHour) };
-    case 'power_supply':
-      return { ...bonus, amount: grow(bonus.amount) };
     case 'vision':
       return { ...bonus, districts: step(bonus.districts) };
     case 'training_sessions':
@@ -1031,7 +1032,6 @@ export type Location = z.infer<typeof LocationSchema>;
 export interface TerritoryEffects {
   /** Added to whatever the district's own structures produce. */
   perHour: PartialResources;
-  powerSupply: number;
   defensePercent: number;
   researchSpeedPercent: number;
   buildSpeedPercent: number;
@@ -1098,7 +1098,6 @@ export interface TerritoryEffects {
 export function noTerritoryEffects(): TerritoryEffects {
   return {
     perHour: {},
-    powerSupply: 0,
     defensePercent: 0,
     researchSpeedPercent: 0,
     buildSpeedPercent: 0,
@@ -1140,9 +1139,6 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
         ...into.perHour,
         [bonus.resource]: (into.perHour[bonus.resource] ?? 0) + bonus.perHour,
       };
-      return into;
-    case 'power_supply':
-      into.powerSupply += bonus.amount;
       return into;
     case 'defense_percent':
       into.defensePercent += bonus.percent;
@@ -1270,8 +1266,6 @@ export function describeHoldBonus(bonus: HoldBonus): string {
   switch (bonus.kind) {
     case 'resource':
       return `+${bonus.perHour} ${RESOURCE_LABELS[bonus.resource]}/h`;
-    case 'power_supply':
-      return `+${bonus.amount} power`;
     case 'defense_percent':
       return `+${bonus.percent}% defence`;
     case 'research_speed':

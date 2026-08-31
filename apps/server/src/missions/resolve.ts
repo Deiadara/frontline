@@ -1,4 +1,5 @@
 import {
+  mergeFleets,
   gainInfamy,
   MISSION_INFAMY_DELTA,
   FAILED_MISSION_XP_SHARE,
@@ -124,10 +125,12 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
         status: 'resolved',
         outcome,
         rewards,
+        spoils: paid,
         resolvedAt,
       } satisfies Mission,
       outcome,
       rewards,
+      spoils: paid,
       found,
       // §D7/§A3: a blow that lands on the state is heard on the street. Keyed off the same
       // retired-template fallback as the rest: a run whose template is gone comes home silent.
@@ -141,6 +144,15 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
        * neither; the risk §E5 prices is the empty bag.
        */
       returning: stored.mission.force,
+      /*
+       * §C3: and so do the machines, every time.
+       *
+       * A vehicle is destroyed when everybody riding it dies, and nobody dies on a mission (see
+       * the note just above): what a failed run costs is the clock and the pay. So the yard gets
+       * them back on a clean run and on a disaster alike, and a recalled crew brings them home
+       * having never reached the site.
+       */
+      returningVehicles: stored.mission.vehicles,
       /*
        * §I1: what the crew learned out there.
        *
@@ -162,13 +174,14 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   // Missions are closed out before the payout lands on purpose. Both writes are synchronous and
   // only a real sqlite failure can split them, but if one does, the failure mode that leaves a
   // player short is far better than the one that pays every mission twice on the next read.
-  for (const { mission, outcome, rewards } of settlements) {
-    repos.missions.markResolved(mission.id, { outcome, rewards, resolvedAt });
+  for (const { mission, outcome, rewards, spoils } of settlements) {
+    repos.missions.markResolved(mission.id, { outcome, rewards, spoils, resolvedAt });
   }
 
   const settled: Base = {
     ...base,
     army: settlements.reduce((army, s) => mergeArmies(army, s.returning), base.army),
+    fleet: settlements.reduce((fleet, s) => mergeFleets(fleet, s.returningVehicles), base.fleet),
     resources: settlements.reduce((acc, s) => addResources(acc, s.rewards), base.resources),
     // What they found goes into the satchel alongside the pay. Folded across every crew that came
     // home on this call, so two runs that both turned up a servo hand over two.
@@ -192,6 +205,10 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   // The crews are home. Written whenever anything came back, which is every settlement that got
   // this far: a run with an empty force is a pre-areas row and merges to the same army.
   repos.bases.updateArmy(settled.id, settled.army, settled.trainingQueue);
+  // And the yard. Separate from the roster because a vehicle is not a unit and lives in its own
+  // column; written unconditionally for the same reason the army is, so a run that took nothing
+  // writes the fleet back unchanged rather than branching.
+  repos.bases.updateFleet(settled.id, settled.fleet);
 
   // INTERFACES R7: §I1 makes a mission completing an XP source. W6 owns the whole XP side, so this
   // only names what happened: one award per crew that came home, success or failure, priced by
@@ -222,6 +239,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       title: 'A crew is home',
       body: findMissionTemplate(settled.mission.templateId)?.name ?? 'The job is finished.',
       link: '/game/missions',
+      subjectId: settled.mission.id,
       now,
     });
   }

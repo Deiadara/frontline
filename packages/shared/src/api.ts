@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { FleetSchema } from './building/vehicles.js';
+import { CapturedGateViewSchema } from './api.district.js';
 import { MissionDifficultySchema } from './delegation/index.js';
 import { MissionStanceSchema } from './allegiance.js';
 import { UnreadCountsSchema } from './api.social.js';
@@ -209,6 +211,13 @@ export type DistrictSummary = z.infer<typeof DistrictSummarySchema>;
 export const CityResponseSchema = z.object({
   districts: z.array(DistrictSummarySchema),
   homeDistrictId: IdSchema,
+  /**
+   * §B7: the gates on districts this crew holds outright, one per district and none otherwise.
+   *
+   * Defaulted so a response written before captured gates existed still parses as a crew that
+   * holds nothing whole, which is what those saves meant.
+   */
+  capturedGates: z.array(CapturedGateViewSchema).default([]),
   serverNow: IsoDateTimeSchema,
 });
 export type CityResponse = z.infer<typeof CityResponseSchema>;
@@ -255,6 +264,23 @@ export const LocationViewSchema = z.object({
 });
 export type LocationView = z.infer<typeof LocationViewSchema>;
 
+/**
+ * A scouting run in flight, as the city screen reads it.
+ *
+ * The whole run is one mark: `returnsAt` is when they are home *and* when the ground opens, because
+ * a scout who has arrived but not reported has told you nothing. Two marks would be two countdowns
+ * on one card for no decision the player can make in between.
+ */
+export const ScoutingRunViewSchema = z.object({
+  districtId: IdSchema,
+  districtName: z.string(),
+  officerId: IdSchema,
+  officerName: z.string(),
+  departedAt: IsoDateTimeSchema,
+  returnsAt: IsoDateTimeSchema,
+});
+export type ScoutingRunView = z.infer<typeof ScoutingRunViewSchema>;
+
 export const DistrictDetailResponseSchema = z.object({
   district: DistrictSchema,
   scouted: z.boolean(),
@@ -278,6 +304,29 @@ export const DistrictDetailResponseSchema = z.object({
    */
   residentBuildings: z.array(BuildingSchema),
   raidable: z.boolean(),
+  /**
+   * The scouting run this crew has out, wherever it is going, or `null`.
+   *
+   * Not scoped to *this* district on purpose. Only one run is allowed at a time, so a player
+   * looking at a second dark district needs to know somebody is already out and where, or the
+   * refusal when they press the button is the first they hear of it.
+   */
+  scoutingRun: ScoutingRunViewSchema.nullable(),
+  /**
+   * What sending somebody here would cost, or `null` when there is nobody to send.
+   *
+   * Quoted before it is committed to, like every other price in the game. A four-hour run is a
+   * decision about the evening, and finding out how long it was after pressing the button is not
+   * a decision.
+   */
+  scoutPlan: z
+    .object({
+      officerId: IdSchema,
+      officerName: z.string(),
+      /** There, on the ground, and back. */
+      minutes: z.number().int().nonnegative(),
+    })
+    .nullable(),
   serverNow: IsoDateTimeSchema,
 });
 export type DistrictDetailResponse = z.infer<typeof DistrictDetailResponseSchema>;
@@ -313,6 +362,13 @@ export type UpgradeLocationRequest = z.infer<typeof UpgradeLocationRequestSchema
 
 export const ScoutRequestSchema = z.object({
   districtId: IdSchema,
+  /**
+   * Who goes. Omitted, the crew sends its Scout, or its best sheet if the chair is empty.
+   *
+   * Optional rather than required because the default is nearly always the right answer and a
+   * required field would make the common case a two-step decision. See `defaultScout`.
+   */
+  officerId: IdSchema.optional(),
 });
 export type ScoutRequest = z.infer<typeof ScoutRequestSchema>;
 
@@ -423,6 +479,18 @@ export const UnitsResponseSchema = z.object({
   /** Everything territory is doing to training right now, so the page can explain a price. */
   trainingCostReduction: z.number(),
   trainingSpeedBonus: z.number(),
+  /**
+   * §B5: the Greenhouse's cut, which lands on the **supplies** line and on no other.
+   *
+   * A second field rather than a bigger `trainingCostReduction`, for the same reason
+   * `trainingCost` takes it as a second argument: folding the two together would quote a Razor's
+   * scrap as cheaper than the route charges for it.
+   *
+   * Optional on the way *out* of the parser, like `Base.addons`: the server always sends it, and
+   * making it required would mean writing a zero into every roster fixture in the tree to say what
+   * "absent" already says. Read it as `?? 0`.
+   */
+  trainingSuppliesReduction: z.number().optional(),
   /**
    * Everything the workshop has built, whether or not it is in a bracket somewhere.
    *
@@ -614,8 +682,25 @@ export const LaunchMissionRequestSchema = z.object({
    * it, slower and with worse odds. A hard one without an officer is refused.
    */
   officerId: IdSchema.optional(),
+  /**
+   * §C3: the machines carrying them, out of the Garage for the run.
+   *
+   * Optional and defaulted, so a client that has never heard of the Garage still launches a run on
+   * foot. Empty is the walk, which is what every mission was before this.
+   */
+  vehicles: FleetSchema.default({}),
 });
 export type LaunchMissionRequest = z.infer<typeof LaunchMissionRequestSchema>;
+/**
+ * The same request as a *caller* writes it, with the defaulted fields optional.
+ *
+ * `z.infer` is the shape after parsing, where `vehicles` has already been filled in with `{}`.
+ * That is the right type for the route, which reads a parsed body, and the wrong one for the
+ * client, which writes an unparsed one: it made every call site that does not send vehicles a type
+ * error, including the ones that predate the Garage. The wire has always accepted a body without
+ * it, and this is the type that says so.
+ */
+export type LaunchMissionInput = z.input<typeof LaunchMissionRequestSchema>;
 
 export const LaunchMissionResponseSchema = z.object({
   mission: MissionSchema,
@@ -749,8 +834,15 @@ export type NegotiateResponse = z.infer<typeof NegotiateResponseSchema>;
 
 export const HireRecruitRequestSchema = z.object({
   recruitId: IdSchema,
-  /** §C2/§C3: a character is hired *into* a role, and a role holds one officer. */
-  role: OfficerRoleSchema,
+  /**
+   * §C2/§C3: a character is hired *into* a role, and a role holds one officer.
+   *
+   * `null` signs them to the bench instead (board request): on the books, drawing a wage, in no
+   * chair. The Bar's whole pressure is that a good sheet walks away at dawn, and before this the
+   * only way to keep one was to have a chair free *and* to have decided which; now the decision
+   * can be made later, at the price of the off-duty share until it is.
+   */
+  role: OfficerRoleSchema.nullable(),
   /** §H7: the weekly wage in caps being offered. */
   offerWage: z.number().int().nonnegative(),
 });
@@ -916,7 +1008,8 @@ export type StartResearchResponse = z.infer<typeof StartResearchResponseSchema>;
 export const CrewOfficerSchema = z.object({
   officerId: IdSchema,
   name: z.string(),
-  role: OfficerRoleSchema,
+  /** `null` for somebody on the bench: signed and unassigned. */
+  role: OfficerRoleSchema.nullable(),
   /**
    * Who this person actually is (§B6, §B7, §H6).
    *
@@ -937,6 +1030,8 @@ export const CrewOfficerSchema = z.object({
    * gets asked.
    */
   weeklyWage: z.number().int().nonnegative(),
+  /** §D4: when they are back on their feet, or null while they are fit. */
+  injuredUntil: IsoDateTimeSchema.nullable().default(null),
 });
 export type CrewOfficer = z.infer<typeof CrewOfficerSchema>;
 
@@ -1002,6 +1097,8 @@ export const TrainingSubjectSchema = z.object({
   session: TrainingSessionSchema.nullable(),
   /** What they did last, which is the one thing they may not do next. */
   lastAttribute: AttributeNameSchema.nullable(),
+  /** §D4: when they are back on their feet, or null while they are fit. Always null for the Overseer. */
+  injuredUntil: IsoDateTimeSchema.nullable().default(null),
 });
 export type TrainingSubject = z.infer<typeof TrainingSubjectSchema>;
 
@@ -1128,33 +1225,17 @@ export const WorkshopUpgradeSchema = z.object({
 });
 export type WorkshopUpgrade = z.infer<typeof WorkshopUpgradeSchema>;
 
-export const WorkshopVehicleSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  cost: PartialResourcesSchema,
-  parts: InventorySchema,
-  owned: z.number().int().nonnegative(),
-  travelSpeedPercent: z.number(),
-  blocker: z.string().nullable(),
-});
-export type WorkshopVehicle = z.infer<typeof WorkshopVehicleSchema>;
-
 export const WorkshopResponseSchema = z.object({
   resources: ResourcesSchema,
   inventory: InventorySchema,
   upgrades: z.array(WorkshopUpgradeSchema),
-  vehicles: z.array(WorkshopVehicleSchema),
-  /** What the fleet is currently taking off the road. */
-  fleetTravelSpeedPercent: z.number(),
 });
 export type WorkshopResponse = z.infer<typeof WorkshopResponseSchema>;
 
 export const FitUpgradeRequestSchema = z.object({ upgradeId: z.string().min(1) });
 export type FitUpgradeRequest = z.infer<typeof FitUpgradeRequestSchema>;
 
-export const BuildVehicleRequestSchema = z.object({ vehicleId: z.string().min(1) });
-export type BuildVehicleRequest = z.infer<typeof BuildVehicleRequestSchema>;
+// The yard's own request lives in `api.garage.ts` now: §B11 gave the Garage a page of its own.
 
 export const WorkshopMutationResponseSchema = z.object({ workshop: WorkshopResponseSchema });
 export type WorkshopMutationResponse = z.infer<typeof WorkshopMutationResponseSchema>;
@@ -1166,6 +1247,7 @@ export type RecallMissionRequest = z.infer<typeof RecallMissionRequestSchema>;
 /** §C2: move an officer into a different position. The Overseer is not a position. */
 export const ReassignOfficerRequestSchema = z.object({
   officerId: IdSchema,
-  role: OfficerRoleSchema,
+  /** `null` takes them out of the chair and puts them on the bench, without ending their job. */
+  role: OfficerRoleSchema.nullable(),
 });
 export type ReassignOfficerRequest = z.infer<typeof ReassignOfficerRequestSchema>;

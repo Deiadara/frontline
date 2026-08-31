@@ -26,6 +26,19 @@ export interface DescribedTagProps {
   side?: 'top' | 'bottom';
   /** Fill the width it is given, for a stacked list rather than a wrapping row of chips. */
   block?: boolean;
+  /**
+   * For a tag that sits **inside** another control.
+   *
+   * `HoverCard`'s trigger is a real `<button>`, which is right for a tag standing on its own: a
+   * tooltip a keyboard cannot reach is a tooltip half the players never see. Inside a button it is
+   * invalid HTML (`<button>` inside `<button>`), the browser's own recovery is unpredictable, and
+   * the nested control competes with the card's click for the same pointer.
+   *
+   * So a nested tag drops to a plain `<span>` carrying `data-tip`, the delegated tooltip the rest
+   * of the game uses. The word still explains itself on hover; the detail is behind the card's own
+   * click, which is where a nested tag's reader was going anyway.
+   */
+  nested?: boolean;
 }
 
 export function DescribedTag({
@@ -35,7 +48,22 @@ export function DescribedTag({
   className = 'border-surface-600 text-ink-300',
   side = 'bottom',
   block = false,
+  nested = false,
 }: DescribedTagProps) {
+  const face = cn(
+    'inline-flex items-center border px-2 py-1 font-display text-[11px] font-semibold uppercase tracking-[0.16em]',
+    block ? 'w-full justify-center' : 'shrink-0',
+    className,
+  );
+
+  if (nested) {
+    return (
+      <span className={face} data-tip={detail ? `${description} ${detail}` : description}>
+        {label}
+      </span>
+    );
+  }
+
   return (
     <HoverCard
       label={label}
@@ -55,15 +83,7 @@ export function DescribedTag({
         </div>
       }
     >
-      <span
-        className={cn(
-          'inline-flex items-center border px-2 py-1 font-display text-[11px] font-semibold uppercase tracking-[0.16em]',
-          block ? 'w-full justify-center' : 'shrink-0',
-          className,
-        )}
-      >
-        {label}
-      </span>
+      <span className={face}>{label}</span>
     </HoverCard>
   );
 }

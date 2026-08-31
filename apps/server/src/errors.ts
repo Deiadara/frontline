@@ -4,6 +4,7 @@ import { z } from 'zod';
 /** Domain error codes from docs/SPEC-server.md: always SCREAMING_SNAKE. */
 export type ErrorCode =
   | 'VALIDATION_ERROR'
+  | 'RATE_LIMITED'
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'FACTION_REFUSED'
@@ -41,6 +42,9 @@ export type ErrorCode =
   | 'STRUCTURE_AT_MAX_LEVEL'
   | 'STRUCTURE_LOCKED'
   | 'NEXUS_CAP'
+  | 'BOOST_REFUSED'
+  | 'SLOT_REFUSED'
+  | 'SCRAPYARD_REFUSED'
   | 'BUILD_QUEUE_FULL'
   | 'MISSING_PARTS'
   | 'MODIFICATION_UNAVAILABLE'
@@ -62,6 +66,7 @@ export type ErrorCode =
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
   VALIDATION_ERROR: 400,
+  RATE_LIMITED: 429,
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   FACTION_REFUSED: 409,
@@ -98,6 +103,9 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   STRUCTURE_AT_MAX_LEVEL: 409,
   STRUCTURE_LOCKED: 409,
   NEXUS_CAP: 409,
+  BOOST_REFUSED: 409,
+  SLOT_REFUSED: 409,
+  SCRAPYARD_REFUSED: 409,
   BUILD_QUEUE_FULL: 409,
   MISSING_PARTS: 409,
   MODIFICATION_UNAVAILABLE: 409,

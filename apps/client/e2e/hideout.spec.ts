@@ -11,6 +11,7 @@
  * Screenshots land in `screenshots/hideout/` so the board can open the whole matrix at once.
  */
 import {
+  levelCapForNexus,
   BUILDING_CATALOG,
   BUILDING_KINDS,
   describeBuildingRequirement,
@@ -562,6 +563,16 @@ test.describe('a district that has been played', () => {
     await installApi(page, districtAt(20));
     await page.goto('/game/base');
     /*
+     * Waited for before anything is measured.
+     *
+     * Everything below goes through `expectNoImagesClipped`, which is a raw `page.evaluate` and
+     * therefore does not auto-wait: with no wait here the baseline runs against a shell that has
+     * not painted the scene yet and throws "no element matched" instead of measuring anything.
+     * Latent since the test was written; it only started losing when the shell began prefetching
+     * the other screens on mount and gave the first paint more to do.
+     */
+    await expect(page.getByTestId('district-scene')).toBeVisible();
+    /*
      * Scoped to the **scene**, not to the frame around it.
      *
      * `visibleBand` walks clipping ancestors and stops at the scope, and the frame is the element
@@ -657,10 +668,36 @@ test.describe('building in the district (§A1, §D3)', () => {
     await page.screenshot({ path: 'screenshots/hideout/after-build.png' });
   });
 
+  /**
+   * §B1: a plot standing on its Nexus ceiling says so instead of offering an upgrade.
+   *
+   * The state is built here rather than taken from the shared fixture, because the ceiling stopped
+   * being "whatever the Nexus is at". `NEXUS_LADDERS` gives every structure its own asymmetric
+   * rungs, so a Generator at 1 under a Nexus at 1 is no longer capped: it may reach 3 before the
+   * Nexus has to move. Pinning the test to the fixture's own levels meant it silently stopped
+   * testing a ceiling the moment the ladder was authored.
+   *
+   * Read off the ladder rather than hard-coded, so a retune moves the fixture with it and this
+   * keeps testing the sentence it is named for.
+   */
   test('a plot the Nexus is holding down says so instead of offering an upgrade', async ({
     page,
   }) => {
-    await installApi(page, me);
+    const nexusLevel = 1;
+    const capped = levelCapForNexus('generator', nexusLevel);
+    expect(capped, 'the Generator must be reachable at all under a level-1 Nexus').toBeGreaterThan(
+      0,
+    );
+
+    await installApi(page, {
+      ...me,
+      base: {
+        ...me.base!,
+        buildings: me.base!.buildings.map((building) =>
+          building.kind === 'generator' ? { ...building, level: capped } : building,
+        ),
+      },
+    });
     await page.goto('/game/base');
 
     await page.getByRole('button', { name: /^The Generator,/ }).click();

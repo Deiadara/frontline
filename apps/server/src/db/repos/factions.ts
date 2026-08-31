@@ -22,6 +22,13 @@ export interface FactionMemberRow {
   factionId: string;
   rank: FactionRank;
   joinedAt: string;
+  /**
+   * Infamy this member has earned **since joining**, which is the faction's rather than theirs.
+   *
+   * Never decreases: spending infamy on notoriety is a thing the player does with what they hold,
+   * and this is a record of what they brought in. See migration `0050`.
+   */
+  infamyEarned: number;
 }
 
 export interface FactionInviteRow {
@@ -33,7 +40,11 @@ export interface FactionInviteRow {
 }
 
 export interface FactionsRepo {
-  insert(faction: Faction): void;
+  /**
+   * Founds one. Deliberately cannot carry `infamyEarned`: a new faction has won nothing, and a
+   * signature that accepted a figure would be a way to mint a record nobody fought for.
+   */
+  insert(faction: Omit<Faction, 'infamyEarned'>): void;
   find(id: string): Faction | undefined;
   findByName(name: string): Faction | undefined;
   all(): Faction[];
@@ -47,9 +58,21 @@ export interface FactionsRepo {
   membershipOf(userId: string): FactionMemberRow | undefined;
   members(factionId: string): FactionMemberRow[];
   memberCount(factionId: string): number;
-  addMember(row: FactionMemberRow): void;
+  /**
+   * Seats somebody. Deliberately cannot carry `infamyEarned`: a new member starts at zero, and a
+   * signature that accepted a figure would be a way to hand a faction a record it did not earn.
+   */
+  addMember(row: Omit<FactionMemberRow, 'infamyEarned'>): void;
   setRank(userId: string, rank: FactionRank): void;
   removeMember(userId: string): void;
+  /**
+   * Credits a fight's infamy to the faction the winner was in, and to their own row in it.
+   *
+   * Two writes, one call, because they are one fact recorded at two grains: the faction's total is
+   * append-only and outlives anybody leaving (`0051`), and the member's figure is their share of it
+   * while they are at the table. Ignores somebody in no faction.
+   */
+  addInfamyEarned(userId: string, amount: number): void;
 
   invite(row: FactionInviteRow): void;
   invitesFor(userId: string): FactionInviteRow[];
@@ -63,6 +86,7 @@ export interface FactionsRepo {
 interface Row {
   id: string;
   name: string;
+  infamy_earned: number;
   /** The badge, as the JSON `BadgeSchema` describes. Re-parsed rather than cast: see `toFaction`. */
   badge: string;
   blurb: string;
@@ -74,6 +98,7 @@ interface MemberRow {
   faction_id: string;
   rank: string;
   joined_at: string;
+  infamy_earned: number;
 }
 
 interface InviteRow {
@@ -97,6 +122,7 @@ const toFaction = (row: Row): Faction => ({
   name: row.name,
   badge: BadgeSchema.parse(readJson(row.badge)),
   blurb: row.blurb,
+  infamyEarned: row.infamy_earned,
   foundedAt: row.founded_at,
 });
 
@@ -109,6 +135,7 @@ const toMember = (row: MemberRow): FactionMemberRow => ({
   factionId: row.faction_id,
   rank: toRank(row.rank),
   joinedAt: row.joined_at,
+  infamyEarned: row.infamy_earned,
 });
 
 const toInvite = (row: InviteRow): FactionInviteRow => ({
@@ -142,6 +169,13 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
   );
   const setRankStmt = db.prepare('UPDATE faction_members SET rank = ? WHERE user_id = ?');
   const removeMemberStmt = db.prepare('DELETE FROM faction_members WHERE user_id = ?');
+  const creditMemberStmt = db.prepare(
+    'UPDATE faction_members SET infamy_earned = infamy_earned + ? WHERE user_id = ?',
+  );
+  const creditFactionStmt = db.prepare(
+    `UPDATE factions SET infamy_earned = infamy_earned + ?
+      WHERE id = (SELECT faction_id FROM faction_members WHERE user_id = ?)`,
+  );
 
   const inviteStmt = db.prepare(
     `INSERT INTO faction_invites (id, faction_id, invited_user_id, invited_by_user_id, sent_at)
@@ -208,6 +242,13 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
     },
     setRank(userId, rank) {
       setRankStmt.run(rank, userId);
+    },
+    addInfamyEarned(userId, amount) {
+      // A player in no faction has no row and the subquery finds no faction, so both statements are
+      // no-ops rather than a branch at every caller.
+      if (amount <= 0) return;
+      creditFactionStmt.run(amount, userId);
+      creditMemberStmt.run(amount, userId);
     },
     removeMember(userId) {
       removeMemberStmt.run(userId);

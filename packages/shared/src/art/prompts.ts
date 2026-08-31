@@ -6,7 +6,7 @@
  * the manifest nor `scripts/gen-art.ts` may restate or paraphrase one. Whitespace is collapsed so
  * the hard wrapping in the doc (and in this file) never reaches a backend.
  */
-import type { BuildingKind } from '../building/index.js';
+import type { BuildingKind, VehicleId } from '../building/index.js';
 import type { DistrictKind, LocationKind } from '../city/index.js';
 import type { OverseerArchetype } from '../overseer.js';
 import type { ResourceKey } from '../resources.js';
@@ -307,6 +307,174 @@ export const OFFICER_SUBJECTS: Readonly<Record<string, string>> = {
     A woman in her thirties with her hair covered, a clipboard held against her chest, a queue of
     figures and a chain-link fence out of focus behind her.
   `),
+  '44': block(`
+    A woman in her forties with dark curls pinned up, layered work coat, a wall of ledgers and files behind her.
+  `),
+  '45': block(`
+    A bald man in his sixties with a heavy jaw and a red-brown work jacket, a lit machine shop behind him.
+  `),
+  '46': block(`
+    A woman in her sixties with silver curls and a deep red coat, warm lamplight on brass fittings behind her.
+  `),
+  '47': block(`
+    A man in his fifties with slicked hair and a moustache, high collar, green bottle-lamps down the wall behind.
+  `),
+  '48': block(`
+    A woman in her sixties with close-cropped grey hair in a braided dark uniform, violet machine light behind.
+  `),
+  '49': block(`
+    A pale woman in her fifties with short platinum hair, a red coat over a check shirt, dim workshop behind.
+  `),
+  '50': block(`
+    A thin smiling man in his fifties with receding red hair, waistcoat and tie, warm interior light.
+  `),
+  '51': block(`
+    A woman in her sixties with a grey bob and a dark collar, a neon window on the wet street behind her.
+  `),
+  '52': block(`
+    A bald man in his sixties with a grey beard and a green work jacket, teal machine light behind him.
+  `),
+  '53': block(`
+    A man in his sixties with a grey beard, mustard coat over blue, a dim corridor behind.
+  `),
+  '54': block(`
+    A young woman with a black bob and a dark jacket, standing in a lamplit alley.
+  `),
+  '55': block(`
+    A man in his seventies with a white beard and a heavy dark coat, grey daylight behind him.
+  `),
+  '56': block(`
+    A thin pale man in his forties with sparse hair and a grey coat, standing in a doorway.
+  `),
+  '57': block(`
+    A woman in her thirties with dark curls and an oxblood leather jacket, warm street light behind.
+  `),
+  '58': block(`
+    A woman in her fifties with grey curls and a brown coat, violet dusk over the rooftops behind her.
+  `),
+  '59': block(`
+    A young man with black hair and a blue work coat, a rain-slick bridge behind him.
+  `),
+  '60': block(`
+    A woman in her fifties with grey hair tied back, plain coat, a street of shutters behind her.
+  `),
+  '61': block(`
+    A man in his fifties with a lined face and a green coat, heavy pipework behind him.
+  `),
+  '62': block(`
+    A man in his seventies with white hair and a brown coat, a quiet pale interior behind him.
+  `),
+  '63': block(`
+    A woman in her thirties with dark hair pinned up and a red-brown coat, chimneys and smoke behind.
+  `),
+  '64': block(`
+    A young man with dark hair and a teal-lined coat, a dim brick passage behind him.
+  `),
+  '65': block(`
+    A woman in her forties with dark curls and a plum scarf, a lit doorway on a night street behind.
+  `),
+  '66': block(`
+    A young man with dark curls and a heavy coat, a rusted stairwell behind him.
+  `),
+  '67': block(`
+    A woman in her fifties with short grey hair and a work coat, blue-lit machinery behind her.
+  `),
+  '68': block(`
+    A man in his fifties with a grey beard and an open collar, bunting over a night street behind him.
+  `),
+  '69': block(`
+    A woman in her forties with dark curls and a brown coat, a weathered wall behind her.
+  `),
+  '70': block(`
+    A young man with short fair hair and a dark coat, a pale courtyard behind him.
+  `),
+  '71': block(`
+    A woman in her thirties with cropped blonde hair and a heavy coat, a bright empty street behind.
+  `),
+  '72': block(`
+    A woman in her forties with dark hair and a brown coat, a canal and a bridge behind her.
+  `),
+  '73': block(`
+    A man in his thirties with a red beard and a heavy coat, a waterway and stonework behind him.
+  `),
+  '74': block(`
+    A man in his forties with dark hair and a moustache, worn jacket, lamplit alley behind him.
+  `),
+  '75': block(`
+    A woman in her forties with fair hair loose, a leather coat, hanging lanterns behind her.
+  `),
+  '76': block(`
+    A man in his forties with dark hair, collar turned up, a narrow lamplit street behind him.
+  `),
+  '77': block(`
+    A woman in her forties with dark curly hair and a long coat, iron railings behind her.
+  `),
+  '78': block(`
+    A man in his forties with short fair hair and a grey coat, a wet street at dusk behind him.
+  `),
+  '79': block(`
+    A woman in her thirties with dark cropped hair and an open coat, pale stone behind her.
+  `),
+  '80': block(`
+    A man in his thirties with short dark hair, shirt and tie under a coat, a dim street behind.
+  `),
+  '81': block(`
+    A man in his fifties with long dark hair and a worn coat, a lamplit lane behind him.
+  `),
+  '82': block(`
+    A woman in her thirties with a dark bob and a work jacket, a stairwell and a lantern behind her.
+  `),
+  '83': block(`
+    A man in his forties with dark hair and a moustache, heavy coat, green-lit alley behind him.
+  `),
+  '84': block(`
+    A person in their thirties with short dark hair and a plain coat, a shuttered street behind them.
+  `),
+  '85': block(`
+    A woman in her thirties with dark wavy hair and a strapped coat, a stone wall behind her.
+  `),
+  '86': block(`
+    A man in his forties with short dark hair and a brown collar, a dim room behind him.
+  `),
+  '87': block(`
+    A man in his forties with black hair and a heavy coat, a lit shopfront behind him.
+  `),
+  '88': block(`
+    A woman in her forties with a long dark braid and a high collar, a bare interior behind her.
+  `),
+  '89': block(`
+    A bald man in his fifties with facial implants and a purple coat, teal machine light behind him.
+  `),
+  '90': block(`
+    A thin man in his thirties with red hair and a buttoned coat, a grey overpass behind him.
+  `),
+  '91': block(`
+    A woman in her forties with dark curls and a red coat with a crest, warm lamps behind her.
+  `),
+  '92': block(`
+    A man in his fifties with fair hair and a tan coat, a green glass dome behind him.
+  `),
+  '93': block(`
+    A gaunt man in his forties with a green coat and a crest, a pale crowded street behind him.
+  `),
+  '94': block(`
+    A woman in her sixties with long grey hair, a yellow coat and a blue scarf, a bright street behind.
+  `),
+  '95': block(`
+    A woman in her thirties with red hair and a dark red coat with a crest, lit shelves behind her.
+  `),
+  '96': block(`
+    A man in his forties with a beard and a patched brown coat, a lamplit quay behind him.
+  `),
+  '97': block(`
+    A heavy-set man in his sixties in a blue coat and red tie, a grey waterfront behind him.
+  `),
+  '98': block(`
+    A man in his thirties with short black hair and a dark leather coat, a dim interior behind him.
+  `),
+  '99': block(`
+    A young woman with cropped fair hair and a pale lilac coat, a bleached-out street behind her.
+  `),
 };
 
 /** ART-PROMPTS §1: keyed by `OverseerPreset.portraitId`. */
@@ -556,12 +724,6 @@ export const BUILDING_SUBJECTS: Readonly<Record<BuildingKind, string>> = {
     flank. Cutting sparks throw #ffd166 light up under the deck. Widest and lowest of the industrial
     group, and the most cluttered silhouette in the district.
   `),
-  cistern: block(`
-    A water treatment stack: two riveted settling tanks of differing heights joined by an
-    external pipe bridge, a sand-filter housing at the base, and a UV stage bolted on last in
-    obviously newer metal. A cold #22d3ee inspection lamp over the outflow. Wet staining down the
-    tank flanks. Cylindrical, paired, immediately unlike anything else on the ground.
-  `),
   apothecary: block(`
     A dispensary-warehouse: a windowless block with one heavy roller shutter half raised,
     deep racking visible in the gap, a small barred serving hatch beside it lit warm #f59e0b, and
@@ -705,6 +867,43 @@ export const DISTRICT_KIND_ICON_SUBJECTS: Readonly<Record<DistrictKind, string>>
 };
 
 /** ART-PROMPTS §6.4: keyed by `LocationKind`. The map markers inside a contested district. */
+/**
+ * §C1: one icon per machine the Garage builds.
+ *
+ * Icons rather than full plates. A vehicle card is a row on a list beside its cost and its
+ * capacity, not a hero image, and an icon is the class the rest of the interface's small pictures
+ * already come from: a delivered `icon-vehicle-<id>.webp` drops straight in with no code change.
+ */
+export const VEHICLE_ICON_SUBJECTS: Readonly<Record<VehicleId, string>> = {
+  motorcycle: block(`
+    A stripped street bike in three-quarter view, no fairing, welded rack over the tail, warm
+    #f59e0b highlight along the tank.
+  `),
+  dirt_runner: block(`
+    A knobble-tyred bike with a raised front mudguard and a strapped fuel can, mud-caked
+    #8a5209 lower half.
+  `),
+  scrap_car: block(`
+    A boxy saloon welded out of three donor bodies, mismatched panels, one headlamp lit
+    #ffd166.
+  `),
+  armoured_car: block(`
+    A plated four-door with slit windows and a rolled bar over the roof, cold #94a3b8 steel.
+  `),
+  flatbed: block(`
+    A flatbed lorry in side view, rail sides and a rolled tarpaulin, deck stacked with crates.
+  `),
+  war_hauler: block(`
+    A six-axle hauler with a slab-sided cab and no visible glass, dust plume at the wheels.
+  `),
+  gas_balloon: block(`
+    A patched gas envelope over a slung basket, mooring lines trailing, pale #7ff0ff sky behind.
+  `),
+  rotorcraft: block(`
+    A light helicopter with an open frame tail boom and a bulbous canopy, rotor blurred.
+  `),
+};
+
 export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
   scrap_press: block(`
     A baling press seen from above with a squared bale on the outfeed and a scatter of loose

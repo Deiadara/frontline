@@ -40,6 +40,7 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     baseId: 'base-1',
     templateId: 'scrap-run',
     areaId: 'misc',
+    vehicles: {},
     payPercent: 0,
     xp: 240,
     force: { razors: 4 },
@@ -50,6 +51,7 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     officerId: null,
     outcome: null,
     rewards: {},
+    spoils: {},
     resolvedAt: null,
     recalledAt: null,
   };
