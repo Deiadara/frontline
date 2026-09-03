@@ -10,6 +10,7 @@ import {
   techEffects,
   gateDefensePercent,
   gateIntelResistancePercent,
+  raidLootBonus,
   liftOfficer,
   peerLift,
   officerIsInjured,
@@ -68,6 +69,17 @@ export function standingEffectsFor(
    */
   total.defensePercent += gateDefensePercent(base.buildings);
   total.intelResistancePercent += gateIntelResistancePercent(base.buildings);
+  /*
+   * §A1: what the district's own modifications add to a haul.
+   *
+   * Same shape as the Gate above, and the same bug it fixes. `raid_loot_percent` is authored on
+   * three modifications (Salvage Drones, Sally Port, Haulage Rigs at +22), summed by
+   * `districtEffects`, and read only by `raidLootBonus`, which nothing called. The raid path sizes
+   * its haul from `lootCapacityPercent` on this fold, so the three cards promised a bigger truck
+   * and handed the raider the same one. Folded into that channel rather than spent at the raid, so
+   * a modification and a hold bonus are one figure on the report rather than two to reconcile.
+   */
+  total.lootCapacityPercent += raidLootBonus(base.buildings);
   return total;
 }
 

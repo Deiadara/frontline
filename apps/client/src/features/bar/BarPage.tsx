@@ -16,6 +16,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { Button } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
+import { LoadFailure } from '../../components/ui/LoadFailure';
 import { Modal } from '../../components/ui/Modal';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { OfficerPortrait } from '../overseer/OfficerPortrait';
@@ -24,6 +25,7 @@ import { cn } from '../../lib/cn';
 import { useBar, useHireRecruit, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote } from '../game/PageShell';
 import { OnArt, OnPlate, PlateRoom } from '../game/PlateRoom';
+import { useServerClock } from '../missions/useServerClock';
 import { NegotiationDialog } from './NegotiationDialog';
 import { PerkTags } from '../../components/PerkTags';
 import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
@@ -185,9 +187,16 @@ export function BarPage() {
     talks[recruitId] ?? data?.negotiations[recruitId];
 
   const talking = recruits.find((recruit) => recruit.id === talkingTo);
-  // The server's clock, so a standoff counts down against the one that enforces it rather than
-  // against a browser that may be minutes off.
-  const serverNow = data ? new Date(data.serverNow) : new Date();
+  /*
+   * The server's clock, and it has to *tick*.
+   *
+   * `new Date(data.serverNow)` is the response's timestamp evaluated once per render, and `useBar`
+   * sets no `refetchInterval`, so on a page left alone it never moved. `coldFor` derives the
+   * walkout standoff from it and `cold !== null` replaces the whole hiring door, so a six-hour
+   * standoff read "Back in 5h 59m" six hours later and still refused a hire the server would have
+   * taken. `useServerClock` keeps the correction and adds the second hand.
+   */
+  const serverNow = useServerClock(data?.serverNow, barQuery.dataUpdatedAt);
 
   // Clamped rather than wrapped on read: the roster can shrink under an open screen when somebody
   // is signed, and an index past the end would render nothing with no way back.
@@ -205,6 +214,27 @@ export function BarPage() {
       const from = Math.min(current, recruits.length - 1);
       return Math.max(0, Math.min(recruits.length - 1, from + by));
     });
+
+  /*
+   * A failed read used to draw the room as an empty one.
+   *
+   * `barQuery.isError` was consulted nowhere: after the retries were spent, `isLoading` was false
+   * and `data` undefined, so the plaque read "Nobody in tonight", the stool was dead and the two
+   * readouts showed a crew of 0 on a payroll of 0. Every one of those is a game state a player can
+   * really be in, so nothing on the screen said the request had failed. That is worse than a stuck
+   * spinner: it is a confident lie in the game's own voice.
+   */
+  if (data === undefined && barQuery.isError) {
+    return (
+      <div className="flex h-full w-full items-center justify-center">
+        <LoadFailure
+          what="The Bar"
+          onRetry={() => void barQuery.refetch()}
+          detail="Nothing has been lost. Whoever is in tonight is still in tonight."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full w-full">
@@ -412,7 +442,7 @@ function SitDown({
           Sit down
         </span>
       </span>
-      <span className="rounded-sm bg-surface-950/70 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.16em] text-brass-200 shadow-panel">
+      <span className="rounded-sm bg-surface-950/70 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.16em] text-brass-300 shadow-panel">
         {count === 0 ? 'Nobody in tonight' : `${count} in tonight`}
       </span>
     </button>

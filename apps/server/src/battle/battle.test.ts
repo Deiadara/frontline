@@ -3,12 +3,15 @@ import {
   findDistrict,
   findLocation,
   startingHolder,
+  CAPTURED_GATE_START_LEVEL,
   GATE_BREACH_HOURS,
+  breachExpiry,
+  capturedGateDefensePercent,
+  gateDefensePercent,
   BATTLE_BOOSTS,
   NOTORIETY_FIRST_COST,
   findBattleBoost,
   NOTORIETY_TO_FIELD,
-  FORTIFY_MAX_LEVEL,
   STARTING_RESOURCES,
   startingEconomy,
   startingProgression,
@@ -17,7 +20,6 @@ import {
   type Base,
   declarationWindow,
   deployedSize,
-  districtDefense,
   garrisonSize,
   findTrap,
   infamyForKill,
@@ -39,6 +41,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { MAX_PENDING_DECLARATIONS } from './declare.js';
 import { settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
+import { gateFor, holdsDistrictWhole } from '../city/gates.js';
 
 /**
  * The declared-battle loop end to end (GDD §A4, battle rework).
@@ -190,32 +193,42 @@ function raiseGate(stack: Stack): { id: string } {
     level: 1,
     modifications: [],
     damage: 0,
-    fortification: 0,
   };
   stack.repos.bases.updateDistrict(base.id, [...base.buildings, gate], base.buildQueue);
   return gate;
 }
 
 /**
- * A rival crew living in the Rustyard, with a Gate they have dug in.
+ * A rival crew living in the Rustyard, with a Gate of their own.
  *
  * `residentOf` finds a district's inhabitant by `districtId` alone, so planting a base there is
  * all it takes to turn an NPC district into somebody's home, which is what a breach needs before
- * it has a Gate to knock the digging out of.
+ * there is a Gate on the ground at all.
  */
-function plantRival(stack: Stack, fortification: number): string {
+function plantRival(
+  stack: Stack,
+  over: {
+    id?: string;
+    userId?: string;
+    username?: string;
+    districtId?: string;
+    army?: Record<string, number>;
+  } = {},
+): string {
+  const userId = over.userId ?? 'rival-user';
+  const baseId = over.id ?? 'rival-base';
   stack.repos.users.insert({
-    id: 'rival-user',
-    username: 'Rival',
+    id: userId,
+    username: over.username ?? 'Rival',
     passwordHash: 'x',
     createdAt: new Date().toISOString(),
   });
   const now = new Date().toISOString();
   const rival: Base = {
-    id: 'rival-base',
-    ownerId: 'rival-user',
+    id: baseId,
+    ownerId: userId,
     name: 'The Other Crew',
-    districtId: 'rustyard',
+    districtId: over.districtId ?? 'rustyard',
     level: 4,
     isBot: false,
     resources: STARTING_RESOURCES,
@@ -229,12 +242,11 @@ function plantRival(stack: Stack, fortification: number): string {
         level: 4,
         modifications: [],
         damage: 0,
-        fortification: 0,
       },
-      { id: 'rival-gate', kind: 'gate', level: 4, modifications: [], damage: 0, fortification },
+      { id: 'rival-gate', kind: 'gate', level: 4, modifications: [], damage: 0 },
     ],
     buildQueue: [],
-    army: {},
+    army: over.army ?? {},
     trainingQueue: [],
     training: startingTraining(now),
     inventory: {},
@@ -518,6 +530,108 @@ describe('resolving it (§A4)', () => {
     expect(stack.repos.sieges.find(battle.id)!.resolvedAt).not.toBeNull();
   });
 
+  /**
+   * §A4: you take the ground as it stands.
+   *
+   * A capture used to put the location back to level 1, which made every level poured into
+   * contested ground a wager on never losing it. It does not any more: banked levels change hands
+   * with the location, and taking a worked one off somebody is now the fastest way to own one.
+   *
+   * The two things that still reset are here as well, because the contrast is the rule: the
+   * diggings go (fortification is the loser's own work on the ground, not the ground) and so does
+   * an upgrade that was paid for and not yet banked.
+   */
+  it('takes a worked location at the level it had been worked to', async () => {
+    const stack = await makeStack('winner', decided('attacker'));
+    const { battle } = await readyFight(stack);
+    const before = stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!;
+    stack.repos.city.put({
+      ...before,
+      level: 7,
+      fortification: 2,
+      upgradingUntil: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+
+    const control = stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!;
+    expect(control.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
+    expect(control.level).toBe(7);
+    expect(control.upgradingUntil).toBeNull();
+    expect(control.fortification).toBe(0);
+    expect(stack.repos.sieges.find(battle.id)!.resolvedAt).not.toBeNull();
+  });
+
+  /**
+   * A column still on the road when the fight is decided comes home, and stays home.
+   *
+   * `recallOvertaken` turns those units round, and it does the right thing: it re-reads the base
+   * and merges the column back into the roster. Then the settlement wrote the roster again from a
+   * snapshot taken before any of that, and the column went with it. The units were not returned,
+   * not killed, and not reported: they were deleted, and the only trace was a stockpile that did
+   * not add up.
+   *
+   * Reachable without doing anything strange: deployment stays open until a second before the
+   * mark (`battle/schedule.ts`) and a march can take up to two hours (`city/geography.ts`), so any
+   * late reinforcement to a distant fight is in exactly this state.
+   */
+  it('does not delete a column that was still marching when the fight was decided', async () => {
+    const stack = await makeStack('overtaken', decided('attacker'));
+    const declared = await declare(stack);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+
+    const before = stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
+    await deploy(stack, battle.id, { razors: 3 });
+    // Out of the roster and onto the road.
+    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before - 3);
+    expect(stack.repos.movements.forBattle(battle.id)).toHaveLength(1);
+
+    // The mark comes forward, and the column does *not* land: it is still walking when the fight
+    // is decided. `bringForward` is deliberately not used here, because landing them is the case
+    // that already works.
+    stack.db
+      .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
+      .run(new Date(Date.now() - 60_000).toISOString(), battle.id);
+
+    expect(settleBattles(stack.repos, stack.app.skirmishEngine, new Date())).toHaveLength(1);
+
+    // Turned round and back on the books: nothing was lost by arriving late.
+    expect(stack.repos.movements.forBattle(battle.id)).toHaveLength(0);
+    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before);
+  });
+
+  /**
+   * A deployment names units, and only units.
+   *
+   * `changes` was `z.record(z.string(), z.number().int())`, so any string was a key. Zod drops
+   * `__proto__`, but `constructor` and `toString` survive as ordinary own properties, and the
+   * withdrawal branch never checked that a key was a unit before reading it: `next['constructor']`
+   * on a plain object is a *function*, `Math.min(-delta, fn)` is `NaN`, and the `back === 0` guard
+   * lets `NaN` straight through. The roster then carried a `NaN` entry, which serialises to `null`
+   * and turns every `forceSize` that touches it into `NaN`.
+   *
+   * Both keys are asserted, and a real unit alongside them, so this fails if the refusal ever comes
+   * from something other than the key being rejected.
+   */
+  it('refuses a deployment naming something that is not a unit', async () => {
+    const stack = await makeStack('junkkeys', decided('attacker'));
+    const declared = await declare(stack);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    const before = stack.repos.bases.findById(stack.baseId)!.army;
+
+    for (const key of ['constructor', 'toString', '__proto__']) {
+      const res = await deploy(stack, battle.id, { [key]: -1 });
+      expect(res.statusCode, `${key} was accepted as a unit`).toBe(400);
+    }
+
+    // And the roster is untouched: no NaN, no new keys, nothing lost.
+    const after = stack.repos.bases.findById(stack.baseId)!.army;
+    expect(after).toEqual(before);
+    for (const [unit, count] of Object.entries(after)) {
+      expect(Number.isFinite(count), `${unit} is not a finite count`).toBe(true);
+    }
+  });
+
   it('runs a fight exactly once, however many times the settler is called', async () => {
     const stack = await makeStack('once', decided('attacker'));
     await readyFight(stack);
@@ -631,17 +745,16 @@ describe('resolving it (§A4)', () => {
   });
 
   /**
-   * §A4: the digging goes with the door.
+   * A breach is a door off its hinges, not a demolition (board request).
    *
-   * A location that changes hands loses its fortification, because nobody inherits the last
-   * holder's work. A Gate is not captured, only broken, so it kept its levels through a breach and
-   * the crew that had dug in three times was still dug in three times while the door lay open.
-   * That is the one case where paying for fortification carried no risk at all.
+   * A gate's strength is its level and nothing else now, so a breach has exactly one thing it can
+   * take: the way in, for {@link GATE_BREACH_HOURS} hours. The level survives it, the way a
+   * location's own level survives until somebody actually stands on the ground.
    */
-  it('knocks the Gate’s fortification out when it is breached', async () => {
+  it('leaves the Gate standing at its level when it is breached', async () => {
     const stack = await makeStack('breaker', decided('attacker'));
     shutTheRustyard(stack);
-    const rivalId = plantRival(stack, FORTIFY_MAX_LEVEL);
+    const rivalId = plantRival(stack);
 
     const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
     expect(declared.statusCode).toBe(200);
@@ -652,25 +765,7 @@ describe('resolving it (§A4)', () => {
     const gate = stack.repos.bases
       .findById(rivalId)!
       .buildings.find((building) => building.kind === 'gate')!;
-    expect(gate.fortification).toBe(0);
-    // The structure itself is still theirs: a breach is a door off its hinges, not a demolition.
     expect(gate.level).toBe(4);
-  });
-
-  it('leaves the Gate’s fortification alone when the breach is beaten off', async () => {
-    const stack = await makeStack('repelled', decided('defender'));
-    shutTheRustyard(stack);
-    const rivalId = plantRival(stack, FORTIFY_MAX_LEVEL);
-
-    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
-    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
-    bringForward(stack, battle, new Date(Date.now() - 60_000));
-    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
-
-    const gate = stack.repos.bases
-      .findById(rivalId)!
-      .buildings.find((building) => building.kind === 'gate')!;
-    expect(gate.fortification).toBe(FORTIFY_MAX_LEVEL);
   });
 
   it('breaks a gate for a day when the way in is what was attacked', async () => {
@@ -689,6 +784,9 @@ describe('resolving it (§A4)', () => {
     expect(Date.parse(gate.brokenUntil!) - now.getTime()).toBeGreaterThan(
       (GATE_BREACH_HOURS - 1) * 3_600_000,
     );
+    // Pinned to the board's number rather than only to the constant: an assertion written against
+    // `GATE_BREACH_HOURS` alone is true whatever the constant says, and the number is the rule.
+    expect(GATE_BREACH_HOURS).toBe(24);
   });
 
   /**
@@ -715,6 +813,82 @@ describe('resolving it (§A4)', () => {
     const reports = (await board(stack)).reports;
     expect(reports[0]!.redacted).toBe(false);
     expect(reports[0]!.analysis).not.toBeNull();
+  });
+});
+
+/**
+ * §A4: the gate rule that only fires while the door is off its hinges (board request).
+ *
+ * Driven through the settler rather than through `resetGateOnDistrictLost` directly, because what
+ * is under test here is the *wiring*: the rule lives in `city/gates.ts` and would pass its own
+ * tests all day with nothing in `resolve.ts` calling it. The unit arms of the rule (an expired
+ * breach, a district that was already split) are in `city/gates.test.ts`.
+ */
+describe('losing a location behind a broken gate (§A4)', () => {
+  /** The whole Rustyard in the rival's hands, with a gate raised on it. */
+  function rivalHoldsItAll(stack: Stack, rivalId: string, gateLevel: number): void {
+    for (const locationId of RUSTYARD_LOCATIONS) {
+      const control = stack.repos.city.control(locationId)!;
+      stack.repos.city.put({
+        ...control,
+        holder: { kind: 'crew', baseId: rivalId },
+        garrison: { razors: 1 },
+      });
+    }
+    stack.repos.capturedGates.put({
+      districtId: 'rustyard',
+      level: gateLevel,
+      upgradingTo: null,
+      upgradingUntil: null,
+    });
+  }
+
+  /**
+   * Take one location off the rival, which is the only way ground changes hands.
+   *
+   * The door has to be open at the moment of the *call*: a district one party holds whole is shut,
+   * and `declare.ts` refuses everything but the gate itself while it is. `breachStillOpen` is what
+   * separates the two arms, because a fight is called eight to twenty-four hours out and a breach
+   * runs for twenty-four: a call made late in the window resolves after the door is back on.
+   */
+  async function takeOneOff(stack: Stack, breachStillOpen: boolean): Promise<void> {
+    stack.repos.sieges.breakGate('rustyard', breachExpiry(new Date()));
+    const declared = await declare(stack, {
+      kind: 'location',
+      districtId: 'rustyard',
+      locationId: RUSTYARD_LOCATIONS[0]!,
+    });
+    expect(declared.statusCode).toBe(200);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    if (!breachStillOpen) {
+      stack.repos.sieges.breakGate('rustyard', new Date(Date.now() - 60_000).toISOString());
+    }
+    bringForward(stack, battle, new Date(Date.now() - 60_000));
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+  }
+
+  it('puts the gate back to level 1 and breaks the district up', async () => {
+    const stack = await makeStack('holder', decided('attacker'));
+    const rivalId = plantRival(stack);
+    rivalHoldsItAll(stack, rivalId, 9);
+    expect(holdsDistrictWhole(stack.repos, rivalId, 'rustyard')).toBe(true);
+
+    await takeOneOff(stack, true);
+
+    expect(gateFor(stack.repos, 'rustyard').level).toBe(CAPTURED_GATE_START_LEVEL);
+    expect(holdsDistrictWhole(stack.repos, rivalId, 'rustyard')).toBe(false);
+  });
+
+  /** The breach is the condition. A gate standing again keeps its levels for whoever holds next. */
+  it('leaves the gate alone when the breach has run out before the fight lands', async () => {
+    const stack = await makeStack('holder', decided('attacker'));
+    const rivalId = plantRival(stack);
+    rivalHoldsItAll(stack, rivalId, 9);
+
+    await takeOneOff(stack, false);
+
+    expect(gateFor(stack.repos, 'rustyard').level).toBe(9);
+    expect(holdsDistrictWhole(stack.repos, rivalId, 'rustyard')).toBe(false);
   });
 });
 
@@ -859,14 +1033,15 @@ describe('what a name buys (§D7)', () => {
 
 describe('holding a district (§A4)', () => {
   /**
-   * §A4: the Gate, in materials, replacing watches.
+   * A gate cannot be dug in at all (board request).
    *
-   * Watches were a count on every structure that bought 5% each and cost nothing at all, so a
-   * crew with an empty roster could click a district 15% harder to enter. What is here now is the
-   * same three levels the city's locations are dug in with, on the one structure that is the way
-   * in, and it is paid for.
+   * Watches came first: a count on every structure that bought 5% each and cost nothing, so an
+   * empty roster could click a district 15% harder to enter. Fortification replaced them and made
+   * the same mistake with a price on it, because it made a gate harder to get through without
+   * making it any higher. A gate's strength is its level, so the route that sold the second number
+   * is gone rather than refusing: there is nothing left for it to sell.
    */
-  it('digs the Gate in for materials, three levels and no further', async () => {
+  it('offers no way to dig a gate in', async () => {
     const stack = await makeStack();
     const gate = raiseGate(stack);
     const base = stack.repos.bases.findById(stack.baseId)!;
@@ -879,73 +1054,41 @@ describe('holding a district (§A4)', () => {
       planks: 900_000,
     });
 
-    const bare = districtDefense(base.buildings);
-    for (let level = 1; level <= FORTIFY_MAX_LEVEL; level += 1) {
-      const res = await stack.app.inject({
-        method: 'POST',
-        url: '/api/battles/fortify',
-        headers: auth(stack.token),
-        payload: { buildingId: gate.id },
-      });
-      expect(res.statusCode, `level ${level}`).toBe(200);
-      const after = res.json<BattleMutationResponse>().base;
-      expect(after.buildings.find((b) => b.id === gate.id)!.fortification).toBe(level);
-    }
-
-    const dug = stack.repos.bases.findById(stack.baseId)!;
-    expect(districtDefense(dug.buildings)).toBeGreaterThan(bare);
-
-    // And that is as far as it goes.
-    const past = await stack.app.inject({
-      method: 'POST',
-      url: '/api/battles/fortify',
-      headers: auth(stack.token),
-      payload: { buildingId: gate.id },
-    });
-    expect(past.statusCode).toBe(409);
-  });
-
-  it('charges for it, and refuses when the materials are not there', async () => {
-    const stack = await makeStack();
-    const gate = raiseGate(stack);
-    const base = stack.repos.bases.findById(stack.baseId)!;
-    stack.repos.bases.updateResources(base.id, {
-      caps: 0,
-      supplies: 0,
-      oil: 0,
-      scrap: 0,
-      highQualityMetal: 0,
-      planks: 0,
-    });
-    const broke = await stack.app.inject({
-      method: 'POST',
-      url: '/api/battles/fortify',
-      headers: auth(stack.token),
-      payload: { buildingId: gate.id },
-    });
-    expect(broke.statusCode).toBe(409);
-    expect(errorCode(broke)).toBe('INSUFFICIENT_RESOURCES');
-  });
-
-  it('will not dig in anything that is not the Gate', async () => {
-    const stack = await makeStack();
-    const base = stack.repos.bases.findById(stack.baseId)!;
-    const nexus = base.buildings.find((building) => building.kind === 'nexus')!;
-    stack.repos.bases.updateResources(base.id, {
-      caps: 900_000,
-      supplies: 900_000,
-      oil: 900_000,
-      scrap: 900_000,
-      highQualityMetal: 9_000,
-      planks: 900_000,
-    });
     const res = await stack.app.inject({
       method: 'POST',
       url: '/api/battles/fortify',
       headers: auth(stack.token),
-      payload: { buildingId: nexus.id },
+      payload: { buildingId: gate.id },
     });
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(404);
+  });
+
+  /** And the defence tab has nothing to offer on it either: level and damage, that is the row. */
+  it('lists a structure by its level and its damage, with nothing to dig', async () => {
+    const stack = await makeStack();
+    const gate = raiseGate(stack);
+
+    const row = (await board(stack)).structures.find((entry) => entry.buildingId === gate.id)!;
+    expect(row.level).toBe(1);
+    expect(Object.keys(row).sort()).toEqual(
+      ['buildingId', 'damage', 'effectiveness', 'kind', 'label', 'level'].sort(),
+    );
+  });
+
+  /**
+   * §B7: what a gate is worth is its level, wherever it stands.
+   *
+   * The same number for a wall raised at home and a wall taken with the district it sits in, which
+   * is the board's rule that the two are on the same footing. Asserted against the captured gate's
+   * own function rather than against a figure typed here, so the two cannot drift apart.
+   */
+  it('is worth the same per level at home as on ground it took', async () => {
+    const stack = await makeStack();
+    raiseGate(stack);
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    const gate = base.buildings.find((building) => building.kind === 'gate')!;
+
+    expect(gateDefensePercent(base.buildings)).toBe(capturedGateDefensePercent(gate.level));
   });
 });
 
@@ -1232,5 +1375,202 @@ describe('reading a battle history written by an older build', () => {
       headers: auth(stack.token),
     });
     expect(board.statusCode).toBe(200);
+  });
+});
+
+/**
+ * Two crews on one district must not have their rosters crossed.
+ *
+ * `resolveOne` looks the defender up twice and by different means: `residentOf(district)` decides
+ * whose army *fights*, and `defendingBaseOf(battle)` decides whose roster is *written back*. They
+ * agree while a district holds one crew, and every human account is planted on the same opening
+ * ground with no unique index on `district_id`, so two is reachable on day one.
+ *
+ * When they disagree the settle consumes one crew's army and overwrites the other's with the
+ * survivors: units destroyed for a player who was not in the fight, and conjured for one who was.
+ * A single write, no report, nothing to trace it by.
+ */
+describe('a district with two crews on it', () => {
+  const bodies = (army: Record<string, number>): number =>
+    Object.values(army).reduce((total, count) => total + count, 0);
+
+  it('never writes one crew the survivors of another crew’s roster', async () => {
+    /*
+     * The defender must *win*, and that is load-bearing rather than incidental.
+     *
+     * On a defeat the defending roster is emptied either way, so the cross-wire is invisible: the
+     * first three versions of this test used an attacker win and passed against the bug. It is the
+     * write-back of survivors that carries the damage.
+     */
+    const stack = await makeStack('crossed', decided('defender'));
+    // A second crew on the same ground as the rival, so `residentOf` and the named defender can
+    // pick different bases.
+    /*
+     * The divergence needs three things at once, and each is reachable on an ordinary board:
+     * a gate (so one party holds the whole district), a *named crew* defending it (so
+     * `defendingBaseOf` answers with that crew), and a second crew living on the same ground that
+     * `residentOf` answers with instead.
+     */
+    // The bystander is planted *first*, so `residentOf` answers with them: it takes the district's
+    // inhabitant by district alone and there is only ever one seat at that table.
+    const bystanderId = plantRival(stack, {
+      id: 'bystander-base',
+      userId: 'bystander-user',
+      username: 'bystander',
+      army: { razors: 9 },
+    });
+    const rivalId = plantRival(stack);
+    // The rival holds every location, so the gate is theirs and the fight names them.
+    for (const locationId of RUSTYARD_LOCATIONS) {
+      const control = stack.repos.city.control(locationId)!;
+      stack.repos.city.put({
+        ...control,
+        holder: { kind: 'crew', baseId: rivalId },
+        garrison: { razors: 2 },
+      });
+    }
+    stack.repos.bases.updateArmy(rivalId, { razors: 4 }, []);
+    const bystanderBefore = stack.repos.bases.findById(bystanderId)!.army;
+    const before = bodies(stack.repos.bases.findById(rivalId)!.army) + bodies(bystanderBefore);
+
+    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    expect(declared.statusCode, declared.body.slice(0, 200)).toBe(200);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    bringForward(stack, battle, new Date(Date.now() - 60_000));
+    expect(settleBattles(stack.repos, stack.app.skirmishEngine, new Date())).toHaveLength(1);
+
+    /*
+     * Conservation, because the damage is duplication rather than deletion.
+     *
+     * Under the cross-wire the bystander's roster is read into the defence and never written back,
+     * so it still reads 9 afterwards, while the *named* defender is handed the survivors of a
+     * force that was never theirs. Asserting "the bystander is untouched" therefore passes against
+     * the bug: it is untouched, and that is precisely the problem. What cannot survive is the sum.
+     */
+    const after =
+      bodies(stack.repos.bases.findById(rivalId)!.army) +
+      bodies(stack.repos.bases.findById(bystanderId)!.army);
+    expect(after, 'the settle minted bodies across the two crews').toBeLessThanOrEqual(before);
+
+    // And the crew that was not named kept exactly what it had: it was never in this fight.
+    expect(stack.repos.bases.findById(bystanderId)!.army).toEqual(bystanderBefore);
+  });
+});
+
+/**
+ * A gate held by a crew who does not live behind it.
+ *
+ * `districtHolder` makes whoever holds every location in a district the defender of its gate, and
+ * it never asks where they sleep. A crew living in the Ashen Terraces can hold the whole Rustyard,
+ * and then the Rustyard has a named crew defender and no resident at all.
+ *
+ * `assemble` takes that crew and folds their **home roster** into the defence, because its third
+ * parameter is the base whose books are settled rather than the district's inhabitant. For a crew
+ * defending their own home that is right and is the point: nobody should have to remember to
+ * defend the room they are standing in. For a crew three districts away it conscripts an army that
+ * never marched, and `fromHomeRoster` then makes the survivors *replace* the roster, so a lost gate
+ * fight in a district they only hold on paper destroys everything they own at home.
+ *
+ * An attacker who wanted a rival's standing army gone did not have to find it. They declared on a
+ * gate.
+ */
+describe('a gate held from a district you do not live in', () => {
+  const bodies = (army: Record<string, number>): number =>
+    Object.values(army).reduce((total, count) => total + count, 0);
+
+  /** A second real account, through the real routes, so the deploy below is a player's own. */
+  async function secondCrew(
+    stack: Stack,
+    username: string,
+  ): Promise<{ token: string; id: string }> {
+    const registered = await stack.app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username, password: 'hunter2pass' },
+    });
+    expect(registered.statusCode, registered.body.slice(0, 200)).toBe(201);
+    const token = registered.json<{ token: string }>().token;
+    const chosen = await stack.app.inject({
+      method: 'POST',
+      url: '/api/overseer',
+      headers: auth(token),
+      payload: { presetId: 'enforcer' },
+    });
+    expect(chosen.statusCode, chosen.body.slice(0, 200)).toBe(201);
+    const base = chosen.json<{ base: { id: string; districtId: string } }>().base;
+    // The whole premise. If a later change plants new crews in the Rustyard this fixture stops
+    // testing anything, and it should say so rather than quietly pass.
+    expect(base.districtId, 'the fixture crew was planted in the district it is holding').not.toBe(
+      'rustyard',
+    );
+    return { token, id: base.id };
+  }
+
+  /** Hands the Rustyard to one crew outright, which is what arms its gate in their name. */
+  function handOver(stack: Stack, baseId: string, garrison: Record<string, number>): void {
+    for (const locationId of RUSTYARD_LOCATIONS) {
+      const control = stack.repos.city.control(locationId)!;
+      stack.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison });
+    }
+  }
+
+  /** Declares on the gate and settles it, after letting the holder send whatever they are sending. */
+  async function fightOverTheGate(
+    stack: Stack,
+    holder: { token: string; id: string },
+    send: Record<string, number> | null,
+  ): Promise<void> {
+    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    expect(declared.statusCode, declared.body.slice(0, 200)).toBe(200);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    expect(battle.defender).toEqual({ kind: 'crew', baseId: holder.id });
+
+    if (send) {
+      const sent = await stack.app.inject({
+        method: 'POST',
+        url: '/api/battles/deploy',
+        headers: auth(holder.token),
+        payload: { battleId: battle.id, changes: send, perimeterChanges: {} },
+      });
+      expect(
+        sent.statusCode,
+        `the holder could not defend their gate: ${sent.body.slice(0, 200)}`,
+      ).toBe(200);
+    }
+
+    bringForward(stack, battle, new Date(Date.now() - 60_000));
+    expect(settleBattles(stack.repos, stack.app.skirmishEngine, new Date())).toHaveLength(1);
+  }
+
+  it('does not spend the home army of a crew that sent nothing to the fight', async () => {
+    const stack = await makeStack('raider', decided('attacker'));
+    const holder = await secondCrew(stack, 'holder');
+    handOver(stack, holder.id, { razors: 2 });
+    stack.repos.bases.updateArmy(holder.id, { razors: 10 }, []);
+
+    // They sent nobody: the gate is defended by what is standing in the district, and their own
+    // crew is at home in another one.
+    await fightOverTheGate(stack, holder, null);
+
+    expect(
+      stack.repos.bases.findById(holder.id)!.army,
+      'a gate fight in a district they only hold destroyed the army at their home',
+    ).toEqual({ razors: 10 });
+  });
+
+  it('sends a winning holder the column they did send back home', async () => {
+    const stack = await makeStack('raider', decided('defender'));
+    const holder = await secondCrew(stack, 'holder');
+    handOver(stack, holder.id, { razors: 2 });
+    stack.repos.bases.updateArmy(holder.id, { razors: 10 }, []);
+
+    await fightOverTheGate(stack, holder, { razors: 6 });
+
+    // Nobody died: `decided` names a winner and no losses. The six that marched are owed back, and
+    // the four that stayed home were never in it.
+    expect(
+      bodies(stack.repos.bases.findById(holder.id)!.army),
+      'the winning holder did not get their column back',
+    ).toBe(10);
   });
 });

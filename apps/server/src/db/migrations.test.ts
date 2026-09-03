@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  ATTRIBUTE_NAMES,
   AttributesSchema,
   BUILDING_KINDS,
   BadgeSchema,
@@ -584,5 +585,167 @@ describe('0054: battle reports written under the old tier names', () => {
     expect(row.analysis_json).toContain('"tier":"heavy"');
     // The other side's tier is untouched: this is a rename, not a rewrite of every report.
     expect(row.analysis_json).toContain('"tier":"rabble"');
+  });
+});
+
+/**
+ * 0075: Signals, Craft and Encyclopedia.
+ *
+ * Two renames and one replacement, and the difference between those two things is the whole test.
+ * A rename carries its rating: somebody rated 51 at Hacking is rated 51 at Signals, because it is
+ * the same trade under a wider name. A replacement does not: Demolition is retired outright and
+ * Encyclopedia takes the slot, so carrying the number across would hand every demolitions expert in
+ * the game a scholar's sheet.
+ *
+ * Written against a sheet as it sat the day before this migration, by hand, exactly as it is in
+ * anybody's database right now. The officer half matters as much as the overseer half and is easy
+ * to forget: a crew's officers carry the same sheet nested inside an array, and `json_remove`
+ * cannot reach into one without knowing its index.
+ */
+/**
+ * Inserts a row naming only the columns the table has at this point in the migration history.
+ *
+ * The schema a legacy save was written by is not the schema today: `overseers` carried
+ * `traits_json` when 0015 was written and does not now, so a hand-written column list in a test
+ * pinned to one migration goes stale the first time a later one drops a column. Everything not
+ * named here takes its own default.
+ */
+function insert(db: AppDatabase, table: string, values: Record<string, unknown>): void {
+  interface ColumnInfo {
+    name: string;
+    type: string;
+    notnull: number;
+    dflt_value: unknown;
+  }
+  const info = db.prepare(`PRAGMA table_info(${table})`).all() as ColumnInfo[];
+  const row: Record<string, unknown> = { ...values };
+  for (const column of info) {
+    if (column.name in row) continue;
+    // A column this test says nothing about still has to satisfy the schema. Anything nullable or
+    // defaulted is left alone; the rest get an empty value of the right shape, so the fixture does
+    // not have to track every column a later migration adds to a table it only cares about one of.
+    if (column.notnull === 0 || column.dflt_value !== null) continue;
+    row[column.name] = column.type.toUpperCase().includes('INT')
+      ? 0
+      : column.name.endsWith('_json')
+        ? '{}'
+        : '';
+  }
+  const named = info.map((column) => column.name).filter((column) => column in row);
+  db.prepare(
+    `INSERT INTO ${table} (${named.join(', ')}) VALUES (${named.map(() => '?').join(', ')})`,
+  ).run(...named.map((column) => row[column]));
+}
+
+describe('0075: signals, craft and encyclopedia', () => {
+  const THEN = '0075_attribute_signals_craft_encyclopedia.sql';
+
+  /** The current sheet with the three old technical names back in place of the new ones. */
+  const oldSheet = (): Record<string, number> => {
+    const sheet: Record<string, number> = {};
+    let next = 20;
+    for (const name of ATTRIBUTE_NAMES) {
+      const legacy =
+        name === 'signals'
+          ? 'hacking'
+          : name === 'craft'
+            ? 'fabrication'
+            : name === 'encyclopedia'
+              ? 'demolition'
+              : name;
+      sheet[legacy] = next;
+      next += 1;
+    }
+    return sheet;
+  };
+
+  const legacy = (): { db: AppDatabase; before: Record<string, number> } => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, THEN);
+    const before = oldSheet();
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u75', 'legacy75', 'x', NOW);
+    insert(db, 'overseers', {
+      id: 'o75',
+      user_id: 'u75',
+      preset_id: 'enforcer',
+      name: 'Legacy',
+      archetype: 'enforcer',
+      portrait_id: 'overseer-1',
+      bio: 'bio',
+      attributes_json: JSON.stringify(before),
+      traits_json: '[]',
+      created_at: NOW,
+    });
+    return { db, before };
+  };
+
+  const overseerSheet = (db: AppDatabase): Record<string, number> => {
+    const row = db.prepare('SELECT attributes_json FROM overseers').get() as {
+      attributes_json: string;
+    };
+    return JSON.parse(row.attributes_json) as Record<string, number>;
+  };
+
+  it('carries a renamed rating across without changing it', () => {
+    const { db, before } = legacy();
+    runMigrations(db);
+    const sheet = overseerSheet(db);
+    expect(sheet.signals).toBe(before.hacking);
+    expect(sheet.craft).toBe(before.fabrication);
+  });
+
+  it('does not carry a retired rating into the attribute that replaced it', () => {
+    const { db, before } = legacy();
+    runMigrations(db);
+    const sheet = overseerSheet(db);
+    // The whole point of the distinction: this is a different skill, not the same one renamed.
+    expect(sheet.encyclopedia).not.toBe(before.demolition);
+    expect(sheet.encyclopedia).toBe(12);
+  });
+
+  it('leaves none of the three old names behind', () => {
+    const { db } = legacy();
+    runMigrations(db);
+    const sheet = overseerSheet(db);
+    for (const gone of ['hacking', 'fabrication', 'demolition']) {
+      expect(sheet, gone).not.toHaveProperty(gone);
+    }
+  });
+
+  it('produces a sheet the current schema accepts', () => {
+    const { db } = legacy();
+    runMigrations(db);
+    expect(() => AttributesSchema.parse(overseerSheet(db))).not.toThrow();
+  });
+
+  it('does the same to an officer, whose sheet is nested inside an array', () => {
+    const { db, before } = legacy();
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u76', 'crew75', 'x', NOW);
+    insert(db, 'bases', {
+      id: 'b75',
+      owner_id: 'u76',
+      name: 'Legacy Crew',
+      district_id: 'rustyard',
+      created_at: NOW,
+      commanders_json: JSON.stringify([{ id: 'c1', role: 'head_spy', attributes: before }]),
+    });
+
+    runMigrations(db);
+    const row = db.prepare('SELECT commanders_json FROM bases WHERE id = ?').get('b75') as {
+      commanders_json: string;
+    };
+    const officer = (
+      JSON.parse(row.commanders_json) as { attributes: Record<string, number> }[]
+    )[0];
+    expect(officer, 'the officer was dropped by the rebuild').toBeDefined();
+    expect(officer!.attributes.signals).toBe(before.hacking);
+    expect(officer!.attributes.craft).toBe(before.fabrication);
+    expect(officer!.attributes.encyclopedia).toBe(12);
+    expect(officer!.attributes).not.toHaveProperty('demolition');
+    expect(() => AttributesSchema.parse(officer!.attributes)).not.toThrow();
   });
 });

@@ -1,4 +1,4 @@
-import { buildingEffectiveness, gateFortifyPercent } from './damage.js';
+import { buildingEffectiveness } from './damage.js';
 import { districtEffects, MAX_EFFECT_REDUCTION } from './effects.js';
 import { buildingLevel, findBuilding, type Building } from './state.js';
 
@@ -99,8 +99,7 @@ export function gateIntelResistancePercent(buildings: readonly Building[]): numb
 export function districtDefense(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
   const gate = workingGateLevel(buildings) * DEFENSE_PER_GATE_LEVEL;
-  // §A4: and how far the Gate itself has been dug in, which is materials rather than bodies.
-  return Math.round(gate * (1 + effects.defense_percent / 100) + gateFortifyPercent(buildings));
+  return Math.round(gate * (1 + effects.defense_percent / 100));
 }
 
 // --- the Lab, the Gauntlet, the Infirmary and the haul ---

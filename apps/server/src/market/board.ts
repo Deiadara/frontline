@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
-  ITEM_CATALOG,
   addItems,
   barterQuote,
   barterRateFor,
+  isReimaginingResearched,
   canAfford,
   canSettle,
   creditResources,
@@ -38,6 +38,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { seatedRoles } from '../crew/roster.js';
 
 /**
  * The market, server side.
@@ -49,28 +50,21 @@ import { standingEffectsFor } from '../crew/standing.js';
  *
  * The Runner's hours and stock are *derived*, never stored: `vendorSessionsFor` and
  * `vendorStockFor` are pure functions of the UTC date, so the server does not have to schedule
- * anything and cannot disagree with the client about what is on the barrow. What *is* stored is
- * what the city has already bought: a shared counter per line, so a sold-out blueprint is sold out
- * for everybody.
+ * anything and cannot disagree with the client about what is on the barrow. What *is* stored, in
+ * `vendor_sales`, is what the city has already bought: a shared counter per line, so a sold-out
+ * blueprint is sold out for everybody and stays sold out across a restart.
  */
 
-/** How many of a vendor line the whole city has taken today. Keyed `day:lineId`. */
-const soldToday = new Map<string, number>();
-
-function soldKey(day: string, lineId: string): string {
-  return `${day}:${lineId}`;
-}
-
-export function vendorSoldCount(day: string, lineId: string): number {
-  return soldToday.get(soldKey(day, lineId)) ?? 0;
-}
-
-function recordSale(day: string, lineId: string, count: number): void {
-  soldToday.set(soldKey(day, lineId), vendorSoldCount(day, lineId) + count);
-  // Yesterday's counters are dead weight; the day is the whole lifetime of a line.
-  for (const key of soldToday.keys()) {
-    if (!key.startsWith(`${day}:`)) soldToday.delete(key);
-  }
+/**
+ * How many of a vendor line the whole city has taken today.
+ *
+ * In the database, not in this module. It was a `Map` here, which meant a sold-out line went back
+ * on the barrow at every restart, crash and deploy inside the same UTC day: a blueprint the
+ * catalogue rations to one could be bought again by the next person through the door, and the
+ * exploit was "wait for a deploy". Yesterday's rows are never read, so nothing sweeps them.
+ */
+export function vendorSoldCount(repos: Repositories, day: string, lineId: string): number {
+  return repos.market.vendorSold(day, lineId);
 }
 
 /** Expire anything that has stood too long, and give the seller their goods back. */
@@ -117,7 +111,7 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
   const open = vendorOpenAt(now);
   const stock = open
     ? vendorStockFor(day).map((line) => {
-        const left = Math.max(0, line.stock - vendorSoldCount(day, line.id));
+        const left = Math.max(0, line.stock - vendorSoldCount(repos, day, line.id));
         const price = discountedCaps(line.price, discount);
         return {
           line: { ...line, stock: left, price },
@@ -151,6 +145,12 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
       (key) => storageCapacityFor(base.buildings, key),
     ),
     barterRate: barterRateFor(base.level),
+    // §G4: the two things the Blueprints screen cannot see for itself. Read from the same base
+    // record the trade route re-reads, so the panel and the refusal never disagree.
+    reimagining: {
+      hasHeadOfResearch: seatedRoles(base.commanders).includes('head_of_research'),
+      hasReimaginingResearch: isReimaginingResearched(base.research.technologies),
+    },
   };
 }
 
@@ -240,7 +240,7 @@ export function buyFromVendor(
   const line = vendorStockFor(day).find((candidate) => candidate.id === lineId);
   if (!line) return { kind: 'refused', reason: 'unknown_line' };
 
-  const left = line.stock - vendorSoldCount(day, lineId);
+  const left = line.stock - vendorSoldCount(repos, day, lineId);
   if (left < count) return { kind: 'refused', reason: 'sold_out' };
 
   // §A4: the Downtown Market. Every price in this city is quoted to whoever holds that floor at
@@ -254,7 +254,7 @@ export function buyFromVendor(
   const resources = spendResources(base.resources, { caps: price });
   const inventory = addItems(base.inventory, { [line.item as ItemId]: count });
   repos.bases.updateHoldings(base.id, resources, inventory);
-  recordSale(day, lineId, count);
+  repos.market.recordVendorSale(day, lineId, count, now.toISOString());
 
   return { kind: 'done', base: { ...base, resources, inventory } };
 }
@@ -357,9 +357,23 @@ export function withdrawOffer(repos: Repositories, base: Base, offerId: string):
  * Any counters standing against the same listing are released, because the thing they were
  * countering is gone.
  */
-export function acceptOffer(repos: Repositories, base: Base, offerId: string): MarketResult {
+export function acceptOffer(
+  repos: Repositories,
+  base: Base,
+  offerId: string,
+  now: Date,
+): MarketResult {
   const offer = repos.market.findById(offerId);
   if (!offer || offer.status !== 'open') return { kind: 'refused', reason: 'unknown_offer' };
+  /*
+   * An offer past its 48 hours is gone, whether or not anybody has swept it yet.
+   *
+   * Expiry was only applied in `sweepExpiredOffers`, which runs on `GET /market`. So on a quiet
+   * board nothing expires: a listing days past its lifetime still traded, and the seller's escrow
+   * went with it. The sweep is a tidy-up, not the rule, and the rule has to be checked where the
+   * goods actually move.
+   */
+  if (offerHasExpired(offer, now)) return { kind: 'refused', reason: 'unknown_offer' };
   if (offer.sellerBaseId === base.id) return { kind: 'refused', reason: 'own_offer' };
   if (offer.directedAt !== null && offer.directedAt !== base.id) {
     return { kind: 'refused', reason: 'not_yours' };
@@ -418,19 +432,14 @@ export const MARKET_REFUSAL_TEXT: Record<MarketRefusal, string> = {
   untradeable: 'That is not something anybody will take off you',
 };
 
-/** Whether a crew holds a blueprint. The shape the upgrade and vehicle gates want. */
-export function holdsBlueprint(base: Base): (item: ItemId) => boolean {
-  return (item) => hasItems(base.inventory, { [item]: 1 });
-}
-
-/** Whether a crew holds a set of parts. */
+/**
+ * Whether a crew holds a set of parts.
+ *
+ * The blueprint sibling that used to sit here went with the flat `blueprint_*` items it was written
+ * for: a document is assembled out of pages now and every gate asks `blueprintGateMet`, so nothing
+ * had called it since. A `describeParts` beside it was dead too, and `routes/workshop.ts` already
+ * carries its own private copy of the same four lines, which is the one that was actually running.
+ */
 export function holdsParts(base: Base): (parts: ItemCost) => boolean {
   return (parts) => hasItems(base.inventory, parts);
-}
-
-/** Human-readable names for a parts list, for a refusal message. */
-export function describeParts(parts: ItemCost): string {
-  return Object.entries(parts)
-    .map(([id, count]) => `${count}× ${ITEM_CATALOG[id as ItemId].name}`)
-    .join(', ');
 }

@@ -115,7 +115,26 @@ export function moraleDelta(shock: MoraleShock, morale: number): number {
   const cascade = ROUT_CASCADE * Math.max(0, shock.alliesBroken);
 
   const damage = (casualties + pressure + outnumbered + cascade) * scale;
-  return damage > 0 ? -damage : MORALE_RECOVERY;
+
+  /*
+   * Whether the round was quiet is about what *happened*, not about how frightening the enemy is.
+   *
+   * This read `damage > 0 ? -damage : MORALE_RECOVERY`, which sounds like "a quiet round steadies
+   * you" and was not: `pressure` is the enemy's average intimidation and it is ambient, present on
+   * every round of every fight, so `damage` was above zero whenever the other side had any
+   * intimidation at all. Measured across the whole 0..100 morale range: against an enemy at
+   * intimidation 0 every morale level recovered, and against an enemy at 10, 30 or 60 none of them
+   * did, at any level. One unit in the roster sits at zero intimidation, so `MORALE_RECOVERY` was a
+   * constant the game could not reach and the doc above described a mechanic that did not exist.
+   *
+   * A quiet round is one where this stack lost nothing it did not give back and nobody beside it
+   * broke. That is reachable and it is the mechanic that was wanted: `casualties` is already zero
+   * whenever {@link WINNING_RELIEF} covers what was lost, so the stack that is *winning* is the one
+   * that steadies. The enemy is still frightening while it does, which is why the ambient pressure
+   * is still subtracted from what it recovers rather than ignored.
+   */
+  const quiet = casualties <= 0 && cascade <= 0 && outnumbered <= 0;
+  return quiet ? MORALE_RECOVERY - pressure * scale : -damage;
 }
 
 /**

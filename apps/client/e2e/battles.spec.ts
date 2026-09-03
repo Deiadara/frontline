@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { battles, lateGame } from './fixtures';
 import {
+  growPastTheFold,
   expectNoImagesClipped,
   expectNothingClippedVertically,
   installApi,
@@ -116,6 +117,10 @@ test('the boost picker prices one fight, and says who has not offered the rest',
   await expect(page.getByTestId('buy-boost')).toBeEnabled();
 
   await settleFonts(page);
+  // Past the fold before sweeping. The Upcoming tab is one fixed frame now, so the detail column
+  // is a scroller and the boost panel sits at the bottom of it: a scroller cutting its last row is
+  // the fold's doing rather than the layout's, exactly as in the gate test below.
+  await growPastTheFold(page);
   await expectNothingClippedVertically(page, '[data-testid="name-buys"]');
   await page.screenshot({ path: 'e2e-out/battles-boost.png', fullPage: true });
 });
@@ -145,14 +150,51 @@ test('a report reads as a document, and a silent one says so instead of showing 
   await page.getByTestId('read-fight-3').click();
   const report = page.getByTestId('battle-report');
   await expect(report).toBeVisible();
-  await expect(report.getByText('Held · Ninth Street Pawn')).toBeVisible();
-  // The four things the board asked a report to answer, on screen at once.
+  // The header states the outcome, the ground and how long it took. The round count was on the
+  // analysis from the start and drawn nowhere, so a one-round rout and a five-round grind read the
+  // same.
+  await expect(report.getByText('Held · Ninth Street Pawn · 5 rounds')).toBeVisible();
+  // The things the board asked a report to answer, on screen at once.
   await expect(page.getByText('Snipers').first()).toBeVisible();
-  await expect(page.getByText('Caught by the ring')).toBeVisible();
-  await expect(page.getByText('Infamy earned')).toBeVisible();
   await expect(page.getByText('61%')).toBeVisible();
 
+  /*
+   * The template: both ledgers carry the same rows, in the same order.
+   *
+   * Each row used to be written `{side.infamy > 0 && <Row/>}`, one condition per side, so the two
+   * columns grew different rows and stopped lining up exactly where a reader wants to compare them.
+   * On this fixture only the attacker banked infamy, took anybody on the ring or was cowed, so under
+   * the old rule this assertion fails on three separate rows.
+   */
+  const dialog = page.getByRole('dialog');
+  const labelsOf = (tone: 'mine' | 'theirs') =>
+    dialog.getByTestId(`report-side-${tone}`).locator('dl dt').allTextContents();
+  const mine = await labelsOf('mine');
+  expect(mine, 'the ledger lost its rows').toContain('Caught by the ring');
+  expect(mine).toContain('Infamy earned');
+  // §D3: intimidation is settled before the first shot and was never drawn anywhere at all.
+  expect(mine, 'the cowed are still invisible').toContain('Too cowed to fire');
+  // A ring is a fight now, so what it paid is a number the report has to carry.
+  expect(mine).toContain('Lost holding the ring');
+  expect(await labelsOf('theirs'), 'the two ledgers do not line up').toEqual(mine);
+
+  // §D1: who led and what came of them. On the analysis since officers could lead, drawn nowhere.
+  await expect(dialog.getByTestId('report-officer-mine')).toContainText('led, and put out 940');
+  // The ring held on this fixture, and that is different information from who it caught.
+  await expect(dialog.getByText('The ring held, and the withdrawal broke on it.')).toBeVisible();
+
   await settleFonts(page);
+  /*
+   * Grown past the fold before the clipping sweep.
+   *
+   * The sweep treats any ancestor with a non-visible `overflow-y` as a clipping edge, and it is
+   * right to: it cannot tell a reader who will scroll from one who will never see the row. The
+   * report's body is a scroller, so on a short window its last table row is legitimately under the
+   * fold and the sweep calls it cut. That made the gate a knife edge on this screen: the report fit
+   * by a few pixels, and adding the round count, the officer line and two ledger rows put it over,
+   * which is a red for growing the document rather than for cutting anything.
+   */
+  await growPastTheFold(page);
   await expectNothingClippedVertically(page, '[role="dialog"]');
   await page.screenshot({ path: 'e2e-out/battles-report.png', fullPage: true });
 
@@ -188,6 +230,11 @@ test('a district that is held end to end offers the gate and nothing else', asyn
   await expect(page.getByTestId('call-gate')).toBeVisible();
 
   await settleFonts(page);
+  // Past the fold before sweeping: seven location cards do not fit a laptop, and the bottom of the
+  // window cutting the last row is the window's doing rather than the layout's. This container was
+  // empty in the fixture until the district paintings landed, so the sweep had nothing to measure
+  // and the fold never came up.
+  await growPastTheFold(page);
   await expectNothingClippedVertically(page, '[data-testid="locations"]');
   await page.screenshot({ path: 'e2e-out/battles-gate.png', fullPage: true });
 });

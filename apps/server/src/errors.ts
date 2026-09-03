@@ -36,6 +36,9 @@ export type ErrorCode =
   | 'BLACK_MARKET_REFUSED'
   | 'MISSION_REFUSED'
   | 'WORKSHOP_REFUSED'
+  /** A blueprint could not be unlocked: unknown, already held, or short of pages (D10). */
+  | 'BLUEPRINT_REFUSED'
+  | 'REIMAGINING_REFUSED'
   | 'MISSION_NEEDS_OFFICER'
   // the district (GDD §A1, §D3)
   | 'INSUFFICIENT_RESOURCES'
@@ -85,6 +88,8 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   ROLE_TAKEN: 409,
   NO_PAYROLL: 409,
   WORKSHOP_REFUSED: 409,
+  BLUEPRINT_REFUSED: 409,
+  REIMAGINING_REFUSED: 409,
   INVALID_TARGET: 400,
   MISSIONS_AT_CAPACITY: 409,
   RECRUIT_UNAVAILABLE: 409,

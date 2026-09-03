@@ -1,8 +1,16 @@
 import { z } from 'zod';
 import type { Building } from '../building/index.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import { MAX_TRAINING_SPEED_BONUS } from '../time/speed.js';
 import { PartialResourcesSchema, RESOURCE_KEYS, type PartialResources } from '../resources.js';
-import { UNIT_CATALOG, UnitIdSchema, findUnit, type UnitSpec } from './catalog.js';
+import type { LocationKind } from '../city/locations.js';
+import {
+  UNIT_CATALOG,
+  UnitIdSchema,
+  findUnit,
+  locationsTraining,
+  type UnitSpec,
+} from './catalog.js';
 
 /**
  * Making units (GDD §A5).
@@ -116,11 +124,23 @@ export function armySize(army: Army): number {
   return Object.values(army).reduce((total, count) => total + count, 0);
 }
 
-/** Supply a queued batch will claim when it lands: counted against the cap at *order* time. */
+/**
+ * Supply a queued batch has still to claim: counted against the cap at *order* time.
+ *
+ * `order.count - order.delivered`, not `order.count`. A batch lands one body at a time
+ * (`splitDueTraining` leaves the order on the bench with `delivered` moved up and `count`
+ * unchanged), and each delivered body joins `base.army`. Reading the whole `count` therefore
+ * counted the delivered part twice, in `army` and again here: nine of ten Razors landed read as
+ * a draw of 19 for ten bodies, and at `TRAINING_MAX_BATCH` a crew was charged up to 99 supply for
+ * 50 units. That total is what gates further orders and what the roster prints as free beds, so a
+ * crew mid-batch was told it had less room than it had, until the batch finished and the phantom
+ * cleared.
+ */
 export function supplyQueued(queue: TrainingQueue): number {
   return queue.reduce((total, order) => {
     const unit = findUnit(order.unitId);
-    return unit ? total + unit.supply * order.count : total;
+    const outstanding = Math.max(0, order.count - order.delivered);
+    return unit ? total + unit.supply * outstanding : total;
   }, 0);
 }
 
@@ -161,6 +181,45 @@ export function trainingCost(
 }
 
 /**
+ * §A4: what the ground a unit comes from does to its bill and its clock, per level above 1.
+ *
+ * The Doghouse is where the Cyberhounds are bred, so working the Doghouse up has to show in the
+ * Cyberhounds and nowhere else. Two points off the price and three off the clock per level, so a
+ * location at the ceiling is 18% cheaper and 27% quicker on its own unit: real, and still well
+ * under {@link MAX_TRAINING_DISCOUNT} and {@link MAX_TRAINING_SPEED_BONUS}, which every other
+ * source of training discount is already competing for.
+ *
+ * Deliberately narrow. A location that trains nothing changes no price at all, and a location
+ * somebody else holds changes no price for you: this is the *held* level or it is nothing.
+ */
+export const TRAINING_COST_PER_LOCATION_LEVEL = 2;
+export const TRAINING_SPEED_PER_LOCATION_LEVEL = 3;
+
+/**
+ * What the crew's own ground takes off this unit, in percentage points.
+ *
+ * `heldLevels` is the best level held *per location kind*, and it is the caller's job to have
+ * built it from locations this crew actually holds. A kind that is missing from it is a kind
+ * somebody else has, or nobody has, and either way it is worth nothing here: a unit whose only
+ * home is a Doghouse the crew does not hold is a unit the crew cannot train at all.
+ *
+ * The best of the kinds rather than the sum of them, for the two units gated on more than one
+ * place: what a unit gets is the best home it has, not one bonus per gate it happens to carry.
+ */
+export function homeTrainingBonus(
+  unit: UnitSpec,
+  heldLevels: ReadonlyMap<LocationKind, number>,
+): { costPercent: number; speedPercent: number } {
+  let best = 0;
+  for (const kind of locationsTraining(unit)) best = Math.max(best, heldLevels.get(kind) ?? 0);
+  const levels = Math.max(0, best - 1);
+  return {
+    costPercent: levels * TRAINING_COST_PER_LOCATION_LEVEL,
+    speedPercent: levels * TRAINING_SPEED_PER_LOCATION_LEVEL,
+  };
+}
+
+/**
  * How long training `count` of `unit` takes, in seconds.
  *
  * Batches are cheaper in time than one-at-a-time: a second Razor does not take a second full
@@ -168,7 +227,7 @@ export function trainingCost(
  * full price and every one after is {@link BATCH_TIME_FACTOR} of it.
  */
 export const BATCH_TIME_FACTOR = 0.6;
-export const MAX_TRAINING_SPEED_BONUS = 60;
+export { MAX_TRAINING_SPEED_BONUS };
 
 export function trainingSeconds(unit: UnitSpec, count: number, speedPercent = 0): number {
   const bonus = Math.min(MAX_TRAINING_SPEED_BONUS, Math.max(0, speedPercent)) / 100;
@@ -321,6 +380,31 @@ export function trainingStartsAt(queue: TrainingQueue, now: Date): Date {
   if (!last) return now;
   const after = trainingCompletesAt(last);
   return after > now ? after : now;
+}
+
+/**
+ * The bench closed up after an order was taken out of the middle of it.
+ *
+ * Every order's `startedAt` is absolute and frozen when it is queued, at the completion time of the
+ * order in front. Removing one therefore left a hole: cancel 50 Razors twenty seconds in and the 5
+ * Wardens behind them sat doing nothing for the remaining twenty-two minutes, because their clock
+ * still pointed at the end of a batch that no longer existed. Nothing stated that cost, and the
+ * module's own doc frames cancelling as exactly two things, the window and the 5%.
+ *
+ * Pull forward only, never push back: `Math.min` against a cursor that only grows. An order that
+ * has already begun keeps its own clock, because bodies have been priced and possibly handed over
+ * against it and re-timing it would re-time deliveries that already happened.
+ */
+export function resequencedTraining(queue: TrainingQueue, now: Date): TrainingQueue {
+  let cursor = now.getTime();
+  return queue.map((order) => {
+    const moved = {
+      ...order,
+      startedAt: new Date(Math.min(Date.parse(order.startedAt), cursor)).toISOString(),
+    };
+    cursor = Math.max(cursor, trainingCompletesAt(moved).getTime());
+    return moved;
+  });
 }
 
 /**

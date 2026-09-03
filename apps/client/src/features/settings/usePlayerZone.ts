@@ -1,4 +1,4 @@
-import { GAME_TIMEZONE } from '@frontline/shared';
+import { GAME_TIMEZONE, formatClock, nextDayBoundary } from '@frontline/shared';
 import { useMe } from '../../lib/queries';
 
 /**
@@ -15,4 +15,20 @@ import { useMe } from '../../lib/queries';
 export function usePlayerZone(): string {
   const me = useMe();
   return me.data?.user.timezone ?? GAME_TIMEZONE;
+}
+
+/**
+ * When today's ration, roster and shelf turn over, on this player's clock.
+ *
+ * The boundary itself is not the player's to choose: every daily reset in the game is keyed on an
+ * *Athens* date (`dayInZone`), because a shared world needs a shared day. What is the player's is
+ * where that instant lands on the clock they are reading, and for anyone outside Athens it is not
+ * midnight. Several screens used to say "midnight" flatly, which was wrong for them by the offset.
+ *
+ * `now` only picks which day's boundary is meant, so the answer is the same string all day and
+ * changes only when a zone moves its clocks. Screens holding a server clock should pass it; the
+ * rest can let it default, because being a few minutes out cannot change the answer.
+ */
+export function useDayResetClock(now: Date = new Date()): string {
+  return formatClock(nextDayBoundary(now), usePlayerZone());
 }

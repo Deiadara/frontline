@@ -32,6 +32,15 @@ export function NotificationFilters() {
         rather than about unpacking what you missed. Two cannot be switched off: a battle report and
         an attack on your district are how you find out something irreversible has happened.
       </p>
+      {/* A refused save left the box exactly as it was, with nothing said: indistinguishable from a
+          click that missed, and the player walks away believing a kind is muted when it is not. The
+          checkbox is not optimistic (`checked` is derived from `settings.muted`, which only moves on
+          the mutation's `onSuccess`), so the message is the only signal there can be. */}
+      {save.error !== null && (
+        <p role="alert" className="font-body text-[13px] text-oxblood-300">
+          {save.error.message}
+        </p>
+      )}
       {NOTIFICATION_GROUPS.map((group) => (
         <section key={group} className="flex flex-col gap-2">
           <h3 className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">

@@ -4,15 +4,27 @@ import {
   createCommander,
   declarationWindow,
   findLocation,
+  findUnit,
+  homeTrainingBonus,
+  trainingCost,
+  trainingSeconds,
   skirmishOutcome,
   weatherAt,
   weatherLabels,
+  type Base,
   type BattlesResponse,
   type BattleTarget,
   type DistrictDetailResponse,
   type MarketResponse,
   type SkirmishEngine,
+  type TrainingOrder,
+  type TrainUnitsResponse,
+  type UnitOption,
+  type UnitsResponse,
+  BUILDING_MAX_LEVEL,
+  MODIFICATIONS,
   marketDay,
+  instantAtHourInZone,
   vendorSessionsFor,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -22,6 +34,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { projectMarket } from '../market/board.js';
 import { settleBattles } from '../battle/resolve.js';
+import { standingEffectsFor } from '../crew/standing.js';
 
 /**
  * §A4: what holding a location is worth, measured where it is meant to arrive.
@@ -261,7 +274,9 @@ describe('the Downtown Market', () => {
     const day = marketDay(new Date());
     const session = vendorSessionsFor(day)[0];
     if (!session) throw new Error('fixture error: the Runner keeps no hours today');
-    const whileHeIsIn = new Date(`${day}T${String(session.startHour).padStart(2, '0')}:30:00.000Z`);
+    const whileHeIsIn = new Date(
+      instantAtHourInZone(day, session.startHour).getTime() + 30 * 60_000,
+    );
     const read = (): MarketResponse =>
       projectMarket(stack.app.repos, stack.app.repos.bases.findById(stack.baseId)!, whileHeIsIn);
 
@@ -387,7 +402,9 @@ describe('the sky a fight happens under', () => {
   it('reads the sky at the scheduled hour rather than at the settle', async () => {
     // A day apart, so two different rolls. The precondition is asserted rather than assumed: if
     // these two moments ever shared a sky the test below would pass without measuring anything.
-    const called = new Date('2026-12-03T23:30:00.000Z');
+    // Two different game days: 23:30 UTC on the 3rd is already the 4th in Athens, so the pair has
+    // to straddle the Athens boundary rather than the UTC one.
+    const called = new Date('2026-12-03T19:30:00.000Z');
     const settled = new Date('2026-12-04T11:00:00.000Z');
     expect(weatherAt(called)).not.toBe(weatherAt(settled));
 
@@ -440,5 +457,178 @@ describe('the sky a fight happens under', () => {
     const sky = weatherLabels(weatherAt(called));
     expect(sky.length, 'the called day must have a sky worth asserting').toBeGreaterThan(0);
     for (const label of sky) expect(ground).toContain(label.id);
+  });
+});
+
+/**
+ * §A4: working up the ground a unit comes from makes that unit cheaper and quicker.
+ *
+ * The Doghouse is the only one in the city and it is what puts Cyberhounds on the roster, so it is
+ * the whole rule in one location. Measured at both ends the player meets it, because they are two
+ * different reads of the same number and either can be wired wrong on its own: the roster's quoted
+ * price, and what the training route actually takes out of the stockpile.
+ */
+describe('the ground a unit is trained on (§A4)', () => {
+  const KENNELS = 'rustyard-kennels';
+  const HOUNDS = findUnit('cyber_dogs')!;
+
+  /** Cyberhounds want an Infirmary at 6 as well as the Doghouse, and a purse to pay with. */
+  function readyToBreed(stack: Stack): void {
+    stack.app.repos.bases.updateBuildings(stack.baseId, [
+      { id: 'b-infirmary', kind: 'infirmary', level: 6, modifications: [], damage: 0 },
+    ]);
+    stack.app.repos.bases.updateHoldings(
+      stack.baseId,
+      {
+        caps: 500_000,
+        supplies: 500_000,
+        oil: 500_000,
+        scrap: 500_000,
+        highQualityMetal: 50_000,
+        planks: 500_000,
+      },
+      // §D12a: Cyberhounds are behind a blueprint document. This suite is about what the *ground*
+      // is worth on their bill, so the document is cleared out of the way rather than measured.
+      { bp_cyberhounds: 1 },
+    );
+  }
+
+  const roster = async (stack: Stack): Promise<UnitsResponse> =>
+    (
+      await stack.app.inject({ method: 'GET', url: '/api/units', headers: auth(stack.token) })
+    ).json<UnitsResponse>();
+
+  const houndsOn = (units: UnitsResponse): UnitOption =>
+    units.units.find((unit) => unit.id === HOUNDS.id)!;
+
+  /**
+   * The level has to be a level *this crew holds*.
+   *
+   * Read off the whole control table rather than off the crew's own ground and the Combine's ten
+   * levels of kennels would breed your hounds for you, which is both wrong and the easier of the
+   * two to write. So the ground is put in somebody else's hands at the ceiling, not left at 1: a
+   * fixture that leaves it fresh cannot tell a missing holder check from a working one.
+   */
+  it('takes nothing off while somebody else has the kennels, however deep they have dug', async () => {
+    const stack = await makeStack();
+    readyToBreed(stack);
+    const control = stack.app.repos.city.control(KENNELS)!;
+    stack.app.repos.city.put({
+      ...control,
+      holder: { kind: 'government' },
+      level: MAX_LOCATION_LEVEL,
+    });
+
+    const row = houndsOn(await roster(stack));
+    expect(row.homeCostReduction ?? 0).toBe(0);
+    expect(row.homeSpeedBonus ?? 0).toBe(0);
+  });
+
+  it('quotes the worked kennels on the hounds and on nothing else', async () => {
+    const stack = await makeStack();
+    readyToBreed(stack);
+    give(stack, KENNELS, MAX_LOCATION_LEVEL);
+
+    const units = await roster(stack);
+    const expected = homeTrainingBonus(HOUNDS, new Map([['doghouse', MAX_LOCATION_LEVEL]]));
+    expect(expected.costPercent).toBeGreaterThan(0);
+    expect(houndsOn(units).homeCostReduction).toBe(expected.costPercent);
+    expect(houndsOn(units).homeSpeedBonus).toBe(expected.speedPercent);
+
+    // A Razor comes out of the Gauntlet, and no location on the map is a Razor's home.
+    const razors = units.units.find((unit) => unit.id === 'razors')!;
+    expect(razors.homeCostReduction ?? 0).toBe(0);
+    expect(razors.homeSpeedBonus ?? 0).toBe(0);
+  });
+
+  it('charges the worked price and runs the shorter clock', async () => {
+    const plain = await makeStack();
+    readyToBreed(plain);
+    give(plain, KENNELS, 1);
+    const fresh = await train(plain, HOUNDS.id, 2);
+
+    const worked = await makeStack();
+    readyToBreed(worked);
+    give(worked, KENNELS, MAX_LOCATION_LEVEL);
+    const deep = await train(worked, HOUNDS.id, 2);
+
+    expect(deep.paid.caps!).toBeLessThan(fresh.paid.caps!);
+    expect(deep.durationSeconds).toBeLessThan(fresh.durationSeconds);
+
+    /*
+     * And it is exactly the price the roster quoted, not merely a smaller one.
+     *
+     * The crew-wide figures come off the roster response and the home bonus off the unit's own
+     * row, which is the sum the page adds up to draw a price. Charging anything else would put the
+     * screen and the till back out of step, which is the defect `hold-effects` exists to catch.
+     */
+    const page = await roster(worked);
+    const quoted = houndsOn(page);
+    expect(quoted.homeCostReduction).toBeGreaterThan(0);
+    expect(deep.paid).toEqual(
+      trainingCost(
+        HOUNDS,
+        2,
+        page.trainingCostReduction + (quoted.homeCostReduction ?? 0),
+        page.trainingSuppliesReduction ?? 0,
+      ),
+    );
+    expect(deep.durationSeconds).toBe(
+      trainingSeconds(HOUNDS, 2, page.trainingSpeedBonus + (quoted.homeSpeedBonus ?? 0)),
+    );
+  });
+
+  /** Orders a batch and answers with the row that went on the bench. */
+  async function train(stack: Stack, unitId: string, count: number): Promise<TrainingOrder> {
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/api/units/train',
+      headers: auth(stack.token),
+      payload: { unitId, count },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const { queue } = res.json<TrainUnitsResponse>();
+    return queue[queue.length - 1]!;
+  }
+});
+
+/**
+ * §A1: a modification whose card promises a bigger haul actually delivers one.
+ *
+ * `raid_loot_percent` is authored on three modifications and summed by `districtEffects`, and its
+ * only reader, `raidLootBonus`, had no caller anywhere in the tree. The raid path sizes its haul
+ * from `lootCapacityPercent` on the standing fold, so Haulage Rigs cost a research slot, materials,
+ * a Lead Engineer and one of the Garage's three brackets, promised "+22% raid loot", and handed the
+ * raider the same truck.
+ *
+ * Measured at the fold rather than through a whole raid: this is a wiring assertion, and the
+ * arithmetic that spends `lootCapacityPercent` is `lootCapacityOf`, which has its own tests.
+ */
+describe('what the yard adds to a haul', () => {
+  it('reaches the channel the raid actually spends', async () => {
+    const stack = await makeStack();
+    const base = stack.app.repos.bases.findById(stack.baseId);
+    if (!base) throw new Error('no base');
+
+    const bare = standingEffectsFor(stack.app.repos, base).lootCapacityPercent;
+    const rigs = MODIFICATIONS.find((spec) => spec.effect === 'raid_loot_percent');
+    if (!rigs) throw new Error('fixture: nothing in the catalogue grants raid loot');
+
+    const kitted: Base = {
+      ...base,
+      buildings: [
+        ...base.buildings,
+        {
+          id: 'b-fitted',
+          kind: rigs.building,
+          level: BUILDING_MAX_LEVEL,
+          modifications: [rigs.id],
+          damage: 0,
+        },
+      ],
+    };
+    expect(standingEffectsFor(stack.app.repos, kitted).lootCapacityPercent).toBe(
+      bare + rigs.magnitude,
+    );
   });
 });

@@ -25,6 +25,9 @@ import {
   buildBoostPercent,
   withReduction,
   type BuildingRequirement,
+  type PartialResources,
+  type CrewEffects,
+  BUILDING_KINDS,
 } from '@frontline/shared';
 import { adminCost, adminSeconds } from '../admin/mode.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -81,11 +84,20 @@ export interface BuildInput {
  * is a third thing again, a structure the Nexus is not yet senior enough to authorise at all. A
  * player who cannot tell the three apart cannot act on any of them.
  */
-function refusalFor({
-  base,
-  structure,
-  admin,
-}: Omit<BuildInput, 'id' | 'now'>): BuildRefusal | null {
+function refusalFor(
+  { base, structure, admin }: Omit<BuildInput, 'id' | 'now'>,
+  /**
+   * The price this order will actually be charged.
+   *
+   * Passed in rather than recomputed, because `queueBuild` charges the *discounted* cost
+   * (`discounted(buildingCost(...), buildCostPercent + buildingCostPercent[structure])`) and this
+   * gate used to read the bare `buildingCost`. A crew with the Bench Sponsor and enough scrap for
+   * the discounted Lab was refused `cannot_afford` for a price nothing would ever have taken off
+   * them, and no client could fix it: the discount is not on the wire and the server refuses on the
+   * raw figure anyway.
+   */
+  price: PartialResources | null,
+): BuildRefusal | null {
   const { buildings, buildQueue } = base;
 
   if (!isUnlockedForQueue(structure, buildings, buildQueue, base.level)) return 'locked';
@@ -103,9 +115,48 @@ function refusalFor({
   // something about today, and "you are short of scrap" fixes itself while they read the message.
   if (!hasItems(base.inventory, buildingParts(structure, level))) return 'missing_parts';
   if (admin) return null;
-  return canAfford(base.resources, buildingCost(structure, level, buildings))
+  return canAfford(base.resources, price ?? buildingCost(structure, level, buildings))
     ? null
     : 'cannot_afford';
+}
+
+/**
+ * What this crew's discounts take off a structure's price, in percentage points.
+ *
+ * Two, added: the one that comes off everything (`buildCostPercent`) and the §B7 perk that names a
+ * single structure. Added rather than compounded, for the reason `combineEffects` gives.
+ */
+function discountFor(effects: CrewEffects, structure: BuildingKind): number {
+  return effects.buildCostPercent + (effects.buildingCostPercent[structure] ?? 0);
+}
+
+/**
+ * The price a crew would actually be charged for the next level of each structure.
+ *
+ * On the wire because the client cannot work it out: `buildingCostPercent` is a per-structure
+ * record and the effects payload carries flat numbers, so the build dialog was quoting the
+ * catalogue price. This is the same shape of bug the Downtown Market had, where the shelf quoted
+ * the catalogue price and the till charged the discounted one, and it is fixed the same way: the
+ * server does the arithmetic once and the screen reads the answer.
+ *
+ * Only structures with a next level to queue appear. Absent means "nothing to quote", which is
+ * what `nextQueuedLevel` returning null already means.
+ */
+export function buildQuotesFor(
+  repos: Repositories,
+  base: Base,
+): Partial<Record<BuildingKind, PartialResources>> {
+  const effects = standingEffectsFor(repos, base);
+  const quotes: Partial<Record<BuildingKind, PartialResources>> = {};
+  for (const structure of BUILDING_KINDS) {
+    const level = nextQueuedLevel(structure, base.buildings, base.buildQueue);
+    if (level === null) continue;
+    quotes[structure] = discounted(
+      buildingCost(structure, level, base.buildings),
+      discountFor(effects, structure),
+    );
+  }
+  return quotes;
 }
 
 /**
@@ -119,7 +170,18 @@ function refusalFor({
  */
 export function queueBuild(repos: Repositories, input: BuildInput): BuildResult {
   const { base, structure, id, now, admin = false } = input;
-  const refusal = refusalFor(input);
+  // The gate reads the same price the charge does. Computed before the refusal, because "can you
+  // afford it" and "what will you be charged" have to be one number.
+  const effects = standingEffectsFor(repos, base);
+  const quotedLevel = nextQueuedLevel(structure, base.buildings, base.buildQueue);
+  const quoted =
+    quotedLevel === null
+      ? null
+      : discounted(
+          buildingCost(structure, quotedLevel, base.buildings),
+          discountFor(effects, structure),
+        );
+  const refusal = refusalFor(input, quoted);
   if (refusal && !adminWaives(refusal, admin)) return { kind: 'refused', reason: refusal };
 
   // The level the order is for.
@@ -133,10 +195,9 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
     nextQueuedLevel(structure, base.buildings, base.buildQueue) ??
     buildingLevel(projected, structure) + 1;
   // §F2: the crew is half of how fast and how cheaply a thing goes up. Organization keeps a long
-  // job moving and Dexterity finishes the fiddly end of it; Fabrication makes the part rather than
+  // job moving and Dexterity finishes the fiddly end of it; Craft makes the part rather than
   // buying it. Frozen onto the entry with the rest, so hiring an engineer mid-build does not
   // retime work already under way.
-  const effects = standingEffectsFor(repos, base);
   /*
    * Two discounts, added: the one that comes off everything, and the one that comes off *this*.
    *
@@ -145,13 +206,13 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
    * they are worth hiring for the district you are actually building. Added rather than compounded,
    * for the reason `combineEffects` gives: two +20% sources are +40%, because a player who cannot
    * explain the number cannot plan against it.
+   *
+   * `quoted` above is this same figure, and it is what the affordability gate now reads. The two
+   * cannot come apart because `discountFor` is the only place the sum is written.
    */
-  const offEverything = effects.buildCostPercent;
-  const offThisOne = effects.buildingCostPercent[structure] ?? 0;
-  const cost = discounted(
-    buildingCost(structure, level, base.buildings),
-    offEverything + offThisOne,
-  );
+  const cost =
+    quoted ??
+    discounted(buildingCost(structure, level, base.buildings), discountFor(effects, structure));
   // §A1: the handful of levels that ask for a part as well as a price. Taken at the moment the
   // order is placed, like the materials: a queued build has already been paid for.
   const parts = buildingParts(structure, level);

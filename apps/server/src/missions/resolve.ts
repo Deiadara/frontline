@@ -1,4 +1,5 @@
 import {
+  pageWonFrom,
   mergeFleets,
   gainInfamy,
   MISSION_INFAMY_DELTA,
@@ -119,6 +120,19 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     const found = recalled
       ? {}
       : rollSalvage(missionTimings(stored.mission).totalMinutes, outcome === 'success', rng);
+    /*
+     * §F1e/§F1f: the page, decided on arrival rather than when the card was drawn.
+     *
+     * Only a run that was carrying one and actually worked. Which page it is comes off the
+     * mission's own seed, so two reads of a finished run cannot disagree about what is in the
+     * satchel, and a card that promised "a Unit Blueprint's Page" cannot be read to predict which.
+     * Duplicates are deliberate (§F1d): a spare page is what Reimagining spends.
+     */
+    const pageWon =
+      stored.mission.pagePrize !== null && outcome === 'success' && !recalled
+        ? pageWonFrom(stored.mission.pagePrize, stored.seed)
+        : null;
+
     return {
       mission: {
         ...stored.mission,
@@ -127,11 +141,12 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
         rewards,
         spoils: paid,
         resolvedAt,
+        pageWon,
       } satisfies Mission,
       outcome,
       rewards,
       spoils: paid,
-      found,
+      found: pageWon === null ? found : { ...found, [pageWon]: (found[pageWon] ?? 0) + 1 },
       // §D7/§A3: a blow that lands on the state is heard on the street. Keyed off the same
       // retired-template fallback as the rest: a run whose template is gone comes home silent.
       infamyDelta: template ? MISSION_INFAMY_DELTA[template.stance][outcome] : 0,
@@ -175,7 +190,13 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   // only a real sqlite failure can split them, but if one does, the failure mode that leaves a
   // player short is far better than the one that pays every mission twice on the next read.
   for (const { mission, outcome, rewards, spoils } of settlements) {
-    repos.missions.markResolved(mission.id, { outcome, rewards, spoils, resolvedAt });
+    repos.missions.markResolved(mission.id, {
+      outcome,
+      rewards,
+      spoils,
+      resolvedAt,
+      pageWon: mission.pageWon,
+    });
   }
 
   const settled: Base = {

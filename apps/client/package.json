@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.e2e.json --noEmit",
     "lint": "eslint . --max-warnings 0",
+    "pretest": "pnpm --filter @frontline/shared build",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },

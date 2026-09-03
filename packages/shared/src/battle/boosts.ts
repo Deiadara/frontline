@@ -231,18 +231,33 @@ export function describeBoostUnlock(unlock: BoostUnlock, techName: (id: string) 
   }
 }
 
-/** Whether this crew may buy this one at all, ignoring what it costs. */
+/**
+ * Whether this crew may buy this one at all, ignoring what it costs.
+ *
+ * §D12e: a boost that is *manufactured* is behind its blueprint as well as behind whoever proposed
+ * it. The document is checked first because it is the harder gate and the one a player can do
+ * something about: a Lab project and a chair are things you already have or do not, and a blueprint
+ * is a thing you are part way through collecting.
+ *
+ * The gate arrives as a predicate rather than as an inventory, for the same reason every other
+ * blueprint gate does: `blueprints/requirements.ts` sits above `battle/` in the import graph, and
+ * reaching back down from here would close the loop at module load. Callers hand in
+ * `(id) => blueprintGateMet(inventory, 'battle_boost', id)`. A boost nothing gates answers true, so
+ * the three boosts that are open to anybody are unaffected.
+ */
 export function boostAvailable(
-  unlock: BoostUnlock,
+  spec: { id: string; unlock: BoostUnlock },
   crew: { technologies: readonly string[]; roles: readonly OfficerRole[] },
+  blueprintUnlocked: (boostId: string) => boolean,
 ): boolean {
-  switch (unlock.kind) {
+  if (!blueprintUnlocked(spec.id)) return false;
+  switch (spec.unlock.kind) {
     case 'open':
       return true;
     case 'tech':
-      return crew.technologies.includes(unlock.techId);
+      return crew.technologies.includes(spec.unlock.techId);
     case 'officer':
-      return crew.roles.includes(unlock.role);
+      return crew.roles.includes(spec.unlock.role);
   }
 }
 

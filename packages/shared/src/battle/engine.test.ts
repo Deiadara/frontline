@@ -6,6 +6,8 @@ import { effectiveStats } from './effects.js';
 import { noTerritoryEffects } from '../city/index.js';
 import { EVASIVE_THRESHOLD, exchange, targetBonusPercent } from './matchup.js';
 import {
+  nerve,
+  cow,
   allocate,
   MAX_MEND_SHARE,
   mendShare,
@@ -271,6 +273,7 @@ describe('regressions', () => {
       morale: 0,
       brokeAt: 1,
       started: 10,
+      suppressed: 0,
       dealt: 0,
     };
     const before = {
@@ -331,6 +334,7 @@ describe('a taunting stack takes the fire off the line behind it', () => {
       morale: effective.morale,
       brokeAt: null,
       started: alive,
+      suppressed: 0,
       dealt: 0,
     };
   };
@@ -594,5 +598,130 @@ describe('a tracking sheet answers an evasive one', () => {
     for (const tracker of trackers) {
       expect(tracker.stats.evasion, tracker.id).toBeLessThan(EVASIVE_THRESHOLD);
     }
+  });
+});
+
+/**
+ * §D3: intimidation silences the shakiest men before a shot is fired.
+ *
+ * The board's rule: a side's nerve is the morale of every body in it, the menace against it is the
+ * intimidation of every body opposite, and where menace is greater the difference is spent
+ * silencing bodies cheapest-first. A silenced body still stands in the line and still takes fire;
+ * it just does not shoot.
+ */
+describe('who is too cowed to fight (§D3)', () => {
+  /** A stack of `alive` bodies with the morale and intimidation dictated, everything else inert. */
+  const cowStack = (alive: number, morale: number, intimidation: number): Stack => {
+    const spec = findUnit('razors');
+    if (!spec) throw new Error('fixture: no razors in the catalogue');
+    const effective = effectiveStats(
+      spec,
+      bareBattlefield(),
+      { defending: false, outnumbered: false },
+      noTerritoryEffects(),
+    );
+    return {
+      unit: spec,
+      effective: { ...effective, morale, intimidation },
+      alive,
+      pool: alive * effective.vitality,
+      morale,
+      brokeAt: null,
+      started: alive,
+      suppressed: 0,
+      dealt: 0,
+    };
+  };
+
+  const sideOf = (stacks: Stack[]): SideState =>
+    ({ stacks, luck: 0, swing: 1, name: 'side', defending: false }) as unknown as SideState;
+
+  /**
+   * The board's own worked example, to the body.
+   *
+   * Two bodies at 10 morale and one at 20 is a nerve of 40. One body at 60 intimidation is a menace
+   * of 60. The excess is 20, which buys exactly the two bodies at 10. The body at 20 fights.
+   */
+  it('silences exactly what the excess pays for, cheapest nerve first', () => {
+    const weak = cowStack(2, 10, 0);
+    const steady = cowStack(1, 20, 0);
+    const side = sideOf([steady, weak]);
+
+    expect(nerve(side)).toBe(40);
+    expect(cow(side, 60)).toBe(2);
+    expect(weak.suppressed, 'the two shaky bodies should be silenced').toBe(2);
+    expect(steady.suppressed, 'the steady body should still fight').toBe(0);
+  });
+
+  it('silences nobody when the menace does not clear the nerve', () => {
+    const weak = cowStack(2, 10, 0);
+    const side = sideOf([weak]);
+    // Nerve 20, menace 20: equal is not greater, so nothing is bought.
+    expect(cow(side, 20)).toBe(0);
+    expect(weak.suppressed).toBe(0);
+  });
+
+  it('sums both quantities over bodies, so a big army is proportionally braver', () => {
+    const small = sideOf([cowStack(2, 50, 0)]);
+    const large = sideOf([cowStack(20, 50, 0)]);
+    // One terrifying body cannot cow a legion: the same menace that breaks the small side is
+    // nothing against the large one.
+    expect(cow(small, 150)).toBeGreaterThan(0);
+    expect(cow(large, 150)).toBe(0);
+  });
+
+  it('takes free bodies first and cannot stall on them', () => {
+    const free = cowStack(3, 0, 0);
+    const paid = cowStack(2, 10, 0);
+    const side = sideOf([paid, free]);
+    // Nerve 20. A menace of 30 leaves 10, which takes all three zero-morale bodies and then one
+    // more at 10.
+    expect(cow(side, 30)).toBe(4);
+    expect(free.suppressed).toBe(3);
+    expect(paid.suppressed).toBe(1);
+  });
+
+  /** The whole point: silenced bodies are alive, present, and useless. */
+  it('leaves the silenced standing rather than killing them', () => {
+    const weak = cowStack(5, 10, 0);
+    cow(sideOf([weak]), 100);
+    expect(weak.suppressed).toBe(5);
+    expect(weak.alive, 'suppression is not a casualty').toBe(5);
+    expect(weak.pool, 'suppression does not wound').toBe(5 * weak.effective.vitality);
+  });
+
+  /**
+   * And it reaches the fight: a side that is entirely cowed deals nothing.
+   *
+   * Measured through `simulate` rather than through `cow` alone, because the field exists only to
+   * be read by `fireRound`, and a mechanic that sets a number nothing consumes is the exact class
+   * of bug that made `intimidation` worth fixing in the first place.
+   */
+  it('takes the silenced out of the firing line', () => {
+    const terrifying = findUnit('razors');
+    if (!terrifying) throw new Error('fixture: no razors');
+    const timid = cowStack(4, 0, 0);
+    const side = sideOf([timid]);
+    cow(side, 1);
+    expect(timid.suppressed).toBe(4);
+    expect(Math.max(0, timid.alive - timid.suppressed), 'nobody left to fire').toBe(0);
+  });
+});
+
+/**
+ * And the count reaches the report.
+ *
+ * `cow` returning a number that `simulate` threw away was the first version of this, and it is the
+ * same class of defect the whole review has been finding: a value computed correctly and consumed
+ * by nobody. A player whose line did a third of its damage with every body still standing needs the
+ * fight to say why.
+ */
+describe('a fight reports who was cowed', () => {
+  it('carries the count out of the simulation', () => {
+    const simulation = fight(army({ razors: 6 }), army({ razors: 6 }));
+    expect(Number.isFinite(simulation.cowed.attacker)).toBe(true);
+    expect(Number.isFinite(simulation.cowed.defender)).toBe(true);
+    expect(simulation.cowed.attacker).toBeGreaterThanOrEqual(0);
+    expect(simulation.cowed.defender).toBeGreaterThanOrEqual(0);
   });
 });

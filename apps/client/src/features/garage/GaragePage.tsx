@@ -157,7 +157,16 @@ function VehicleCard({
     <article
       data-testid={`vehicle-${vehicle.id}`}
       className={cn(
-        'flex flex-col gap-2 rounded-sm border p-3',
+        // The units tab's shape (board request): picture on the left at the card's own height,
+        // the sheet beside it. It was picture *over* sheet, which put a 615px-wide crop of a
+        // square painting across the top of every row and pushed the Build control below the fold.
+        //
+        // A fixed height is what makes the picture resolvable in CSS: with a definite height the
+        // portrait can be `h-full` at its own 1:1 and let the width follow, so the frame is exactly
+        // the shape of the painting and nothing is cropped. 13rem is a little over half the units
+        // card's 25.5rem, which is the size the board asked for: these are machines in a list, not
+        // the twelve-row stat sheets a unit gets.
+        'flex h-[13rem] gap-3 rounded-sm border p-3',
         vehicle.owned > 0
           ? 'border-bile-300/50 bg-bile-300/10'
           : vehicle.refusal === null
@@ -165,34 +174,45 @@ function VehicleCard({
             : 'border-surface-700 bg-surface-900/50 opacity-75',
       )}
     >
-      <header className="flex items-baseline justify-between gap-2">
-        <h3 className="min-w-0 font-display text-[14px] font-bold text-ink-100">{vehicle.name}</h3>
-        <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-          {vehicle.owned > 0 ? `${vehicle.owned} in the yard` : 'none'}
-        </span>
-      </header>
-
       <VehicleGlyph id={vehicle.id} />
 
-      <p className="font-body text-[13px] leading-snug text-ink-200">{vehicle.description}</p>
+      {/* `min-w-0` so a long name wraps inside the column instead of widening it and squeezing
+          the picture: a flex child's default `min-width: auto` refuses to go below its content. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <header className="flex items-baseline justify-between gap-2">
+          <h3 className="min-w-0 font-display text-[14px] font-bold text-ink-100">
+            {vehicle.name}
+          </h3>
+          <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+            {vehicle.owned > 0 ? `${vehicle.owned} in the yard` : 'none'}
+          </span>
+        </header>
 
-      <ul className="flex flex-wrap gap-x-4 gap-y-1 font-display text-[12px] uppercase tracking-[0.12em] text-ink-300">
-        <li>
-          Carries <span className="tabular-nums text-brass-300">{vehicle.capacity}</span>
-        </li>
-        <li>
-          <span className="tabular-nums text-brass-300">{vehicle.speedPercent}%</span> off the road
-        </li>
-      </ul>
+        <p className="font-body text-[13px] leading-snug text-ink-200">{vehicle.description}</p>
 
-      <CostLine cost={vehicle.cost} stock={resources} />
-      <div className="flex flex-wrap items-center gap-2.5">
-        <Button size="sm" disabled={vehicle.refusal !== null || pending} onClick={onBuild}>
-          Build it
-        </Button>
-        {vehicle.refusal !== null && (
-          <span className="font-display text-[12px] text-oxblood-300">{vehicle.refusal}</span>
-        )}
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 font-display text-[12px] uppercase tracking-[0.12em] text-ink-300">
+          <li>
+            Carries <span className="tabular-nums text-brass-300">{vehicle.capacity}</span>
+          </li>
+          <li>
+            <span className="tabular-nums text-brass-300">{vehicle.speedPercent}%</span> off the
+            road
+          </li>
+        </ul>
+
+        {/* Pushed to the bottom of the column, so the cost and the control line up across a row of
+            cards whatever length the descriptions above them run to. */}
+        <div className="mt-auto flex flex-col gap-2">
+          <CostLine cost={vehicle.cost} stock={resources} />
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Button size="sm" disabled={vehicle.refusal !== null || pending} onClick={onBuild}>
+              Build it
+            </Button>
+            {vehicle.refusal !== null && (
+              <span className="font-display text-[12px] text-oxblood-300">{vehicle.refusal}</span>
+            )}
+          </div>
+        </div>
       </div>
     </article>
   );
@@ -206,19 +226,37 @@ function VehicleCard({
  * TypeScript edit here. Until then it is a plate with the machine's initial on it, at a fixed
  * height, so a delivery does not reflow every row on the page.
  */
+/**
+ * The machine, painted (§C1).
+ *
+ * A square portrait once one is delivered, and a lettered plate until then. Both are the card's
+ * full height at 1:1, which is what the board asked for by "have the portraits work as is, with
+ * those dimensions": the delivery is a square painting of a machine standing on wet ground, and
+ * the frame is the shape of the painting rather than a strip cut out of the middle of it.
+ */
 function VehicleGlyph({ id }: { id: string }) {
   const painted = deliveredUrl({ type: 'vehicle-icon', vehicleId: id });
+  // Square, at the card's height, whichever of the two it is: the interim plate holds exactly the
+  // room the painting will take, so a delivery does not reflow the row it lands in.
+  const frame =
+    'painted relative flex aspect-square h-full shrink-0 items-center justify-center overflow-hidden rounded-sm border border-surface-700/80 bg-surface-950/70';
+
+  if (!painted) {
+    return (
+      <span aria-hidden data-vehicle-art={id} className={frame}>
+        <span className="font-stamp text-[40px] uppercase text-ink-100/20">{id.slice(0, 1)}</span>
+      </span>
+    );
+  }
   return (
-    <span
-      aria-hidden
-      data-vehicle-art={id}
-      className="painted relative flex h-16 w-full items-center justify-center overflow-hidden rounded-sm border border-surface-700/80 bg-surface-950/70"
-    >
-      {painted ? (
-        <img src={painted} alt="" className="absolute inset-0 h-full w-full object-contain" />
-      ) : (
-        <span className="font-stamp text-[26px] uppercase text-ink-100/20">{id.slice(0, 1)}</span>
-      )}
+    <span aria-hidden data-vehicle-art={id} className={frame}>
+      {/*
+       * `object-contain`, not `object-cover`: the board paints these at 1:1 with the machine
+       * centred and room over and under it, and the frame is 1:1 too, so there is nothing to crop
+       * and cropping would only cut the ground out from under it. The previous band did exactly
+       * that, and lost the wheels.
+       */}
+      <img src={painted} alt="" className="absolute inset-0 h-full w-full object-contain" />
     </span>
   );
 }

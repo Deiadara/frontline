@@ -7,6 +7,8 @@ import {
   CapturedGateSchema,
   capturedGateCost,
   capturedGateRefusal,
+  buildBoostPercent,
+  gateIsBroken,
   capturedGateSeconds,
   findDistrict,
   spendResources,
@@ -80,6 +82,42 @@ export function gateFor(repos: Repositories, districtId: string): CapturedGate {
   );
 }
 
+/**
+ * §A4: a broken gate does not survive the district being broken up (board request).
+ *
+ * The rule the board asked for, in two halves that only mean anything together. A gate that has
+ * been kicked in is down for {@link GATE_BREACH_HOURS} hours, and for those hours the holder is
+ * playing without a door. If they lose so much as one location inside the district while it is
+ * open, they no longer hold the district outright, and the wall goes back to where a new holder
+ * would find it: **level 1**, with any work in progress abandoned.
+ *
+ * The breach is the whole condition. Losing a location behind a gate that is *standing* changes
+ * nothing about the gate, because the gate belongs to the ground rather than to the crew (see the
+ * module doc above) and whoever takes the district next inherits what the last holder built. It is
+ * only while the door is off its hinges that the wall is on the line with it.
+ *
+ * `heldWholeBefore` has to be taken *before* the write that changes hands: the predicate is about
+ * the state the write destroys, and reading it afterwards always answers false.
+ *
+ * Returns whether the gate was actually put back, so a caller can say so.
+ */
+export function resetGateOnDistrictLost(
+  repos: Repositories,
+  input: { districtId: string; holderBaseId: string; heldWholeBefore: boolean; now: Date },
+): boolean {
+  if (!input.heldWholeBefore) return false;
+  if (!gateIsBroken(repos.sieges.gate(input.districtId), input.now)) return false;
+  if (holdsDistrictWhole(repos, input.holderBaseId, input.districtId)) return false;
+
+  repos.capturedGates.put({
+    districtId: input.districtId,
+    level: CAPTURED_GATE_START_LEVEL,
+    upgradingTo: null,
+    upgradingUntil: null,
+  });
+  return true;
+}
+
 export type RaiseGateResult =
   | { kind: 'refused'; reason: CapturedGateRefusal }
   | { kind: 'started'; gate: CapturedGate; base: Base };
@@ -103,11 +141,24 @@ export function raiseCapturedGate(
   if (refusal) return { kind: 'refused', reason: refusal };
 
   const toLevel = gate.level + 1;
+  /*
+   * §B4: the Generator's burn reaches this gate too (board request).
+   *
+   * "All building upgrades" is what the burn promises, and a captured gate is a building upgrade:
+   * it is raised with the Gate's own cost and clock and it is the same work. It is not in the
+   * district's `buildQueue`, which is what `boostedQueue` re-times, so it has to read the burn
+   * itself or the promise would quietly be "all upgrades except the ones on ground you took".
+   *
+   * Applied at the order like the queue's, not at the settle: the burn buys the clock you start,
+   * so a gate ordered inside the two hours keeps its short clock even if the burn runs out first.
+   */
+  const off = buildBoostPercent(base.economy.buildBoostUntil, now);
+  const seconds = Math.round(capturedGateSeconds(toLevel) * (1 - off / 100));
   const started: CapturedGate = {
     districtId,
     level: gate.level,
     upgradingTo: toLevel,
-    upgradingUntil: new Date(now.getTime() + capturedGateSeconds(toLevel) * 1000).toISOString(),
+    upgradingUntil: new Date(now.getTime() + seconds * 1000).toISOString(),
   };
   const paid = { ...base, resources: spendResources(base.resources, capturedGateCost(toLevel)) };
 

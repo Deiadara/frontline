@@ -11,6 +11,11 @@ import {
   capturedGateCost,
   describeAddonEffect,
   modificationPrice,
+  upgradePrice,
+  isAdvancedModification,
+  isAdvancedUpgrade,
+  blueprintForModification,
+  blueprintForUnitUpgrade,
   type ScrapyardResponse,
   BAR_HIRES_PER_DAY,
   barterRateFor,
@@ -19,8 +24,6 @@ import {
   supplyAllowance,
   supplyBoard,
   BUILDING_CATALOG,
-  fortifyBonusPercent,
-  fortifyCost,
   BATTLE_BOOSTS,
   BLACK_MARKET_GOODS,
   boostCoverage,
@@ -33,8 +36,17 @@ import {
   type BattleView,
   startingTraining,
   VEHICLES,
-  TECHNOLOGIES,
-  describeTechEffect,
+  blueprintForVehicle,
+  describeBlueprintGate,
+  RESEARCH_ITEMS,
+  RESEARCH_TRACK_STEPS,
+  markIndex,
+  describeResearchItemRefusal,
+  describeResearchPayout,
+  researchItemRefusal,
+  type LabTech,
+  type OfficerMark,
+  type ResearchTrackStatus,
   type MarketResponse,
   type WorkshopResponse,
   EFFECT_CHANNELS,
@@ -72,8 +84,11 @@ import {
   trainingCost,
   describeHoldBonus,
   describeRequirement,
+  unitUnlockClauses,
   findDistrict,
   unitsUnlockedByLocation,
+  type Building,
+  type District,
   type DistrictDetailResponse,
   BASE_CONCURRENT_MISSIONS,
   MISC_AREA_ID,
@@ -102,12 +117,12 @@ import {
   researchCompletesAt,
   roleFullyResearched,
   CITY_DISTRICTS,
+  DISTRICT_NAME_MAX,
   createCommander,
   findMissionTemplate,
   makeAttributes,
   officerBattleStats,
   fleetCapacity,
-  ITEM_CATALOG,
   type GarageResponse,
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
@@ -181,11 +196,11 @@ export const base: Base = {
   progression: startingProgression(),
   research: startingResearch(),
   buildings: [
-    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
-    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0, fortification: 0 },
+    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0 },
+    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0 },
     // A Gate, dug in one level: the §A4 fortification the board screen is built around, so the
     // default screenshot shows the meter part-filled rather than empty.
-    { id: 'b3', kind: 'gate', level: 2, modifications: [], damage: 0, fortification: 1 },
+    { id: 'b3', kind: 'gate', level: 2, modifications: [], damage: 0 },
   ],
   buildQueue: [],
   // Fighters and porters both, so the send window and the roster show the support tier (§A5).
@@ -249,13 +264,37 @@ export const lateGameBase: Base = {
   // Something on both clocks, because the in-flight rail is drawn on *every* screen from this
   // payload: a fixture with empty queues screenshots the whole shell without the one piece of
   // chrome that is meant to be always there.
+  /*
+   * §A1: three orders, timed against the *real* clock rather than the fixture's `NOW`.
+   *
+   * The countdowns read from `useServerClock`, which falls back to the browser's clock when no
+   * `serverNow` has arrived. `NOW` is a fixed date well in the past, so a queue pinned to it shows
+   * every order as finished: the rail down the left screenshotted three plates all reading `0s`,
+   * which is the one state it is not for. Relative timestamps make the fixture show what a player
+   * sees. Nothing asserts an exact remaining figure, so the drift costs nothing.
+   */
   buildQueue: [
     {
       id: 'bq-1',
       kind: 'quarters',
       level: 4,
-      startedAt: new Date(Date.parse(NOW) - 5 * 60 * 1000).toISOString(),
+      startedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
       durationSeconds: 20 * 60,
+    },
+    // One being worked and two waiting behind it, because the rail draws those differently.
+    {
+      id: 'bq-2',
+      kind: 'greenhouse',
+      level: 3,
+      startedAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      durationSeconds: 32 * 60,
+    },
+    {
+      id: 'bq-3',
+      kind: 'gate',
+      level: 5,
+      startedAt: new Date(Date.now() + 47 * 60 * 1000).toISOString(),
+      durationSeconds: 55 * 60,
     },
   ],
   trainingQueue: [
@@ -408,7 +447,19 @@ export const districtDetail: DistrictDetailResponse = {
   base: null,
   raidable: false,
   serverNow: NOW,
-  locations: rustyard.locations.map((location, index) => {
+  locations: locationViewsFor(rustyard),
+};
+
+/**
+ * The seven location views for a contested district, in the Rustyard's worked-over shape.
+ *
+ * Lifted out of the Rustyard literal when the two painted districts arrived. A fixture that hands
+ * every district but one an empty location list cannot exercise a screen whose whole subject is
+ * the locations: the Docks drew its painting with nothing on it and the spec passed, because there
+ * was nothing to draw and nothing asserting there should be.
+ */
+function locationViewsFor(district: District): DistrictDetailResponse['locations'] {
+  return district.locations.map((location, index) => {
     const spec = LOCATION_CATALOG[location.kind];
     const mine = index === 0;
     // §A4: the one location this crew holds is part-worked, so the screen has a level to draw,
@@ -435,8 +486,8 @@ export const districtDetail: DistrictDetailResponse = {
       labels: mergeLabels(spec.labels, weatherLabels(weatherAt(new Date(NOW)))),
       unlocks: unitsUnlockedByLocation(location.kind).map((unit) => unit.name),
     };
-  }),
-};
+  });
+}
 
 /**
  * The same district screen, for whichever district was asked for.
@@ -494,9 +545,34 @@ export function districtDetailFor(id: string): DistrictDetailResponse {
     district,
     // The Rustyard's own run bonus does not belong to anywhere else.
     unified: null,
-    locations: [],
+    // Contested ground has locations on it; a residential plot genuinely has none.
+    locations: district.kind === 'contested' ? locationViewsFor(district) : [],
+    /*
+     * And a lived-in plot has buildings standing on it.
+     *
+     * Every district but the Rustyard used to answer with an empty list, which made the neighbour's
+     * district screen untestable in the same way the empty `locations` made the Docks untestable:
+     * the page renders the ground somebody else built on, and with nothing built there is no page.
+     */
+    residentBuildings: district.kind === 'residential' ? NEIGHBOUR_BUILDINGS : [],
   };
 }
+
+/**
+ * What a neighbour has standing, as a passer-by sees it.
+ *
+ * Further along than the player's own three, and deliberately: the visiting screen draws only what
+ * is *built*, so a neighbour with the same opening three would exercise a third of it. Levels
+ * differ so the plates are not all the same reading.
+ */
+const NEIGHBOUR_BUILDINGS: Building[] = [
+  { id: 'n1', kind: 'nexus', level: 6, modifications: [], damage: 0 },
+  { id: 'n2', kind: 'generator', level: 4, modifications: [], damage: 0 },
+  { id: 'n3', kind: 'gate', level: 5, modifications: [], damage: 0 },
+  { id: 'n4', kind: 'quarters', level: 3, modifications: [], damage: 0 },
+  { id: 'n5', kind: 'scrapyard', level: 4, modifications: [], damage: 0 },
+  { id: 'n6', kind: 'apothecary', level: 2, modifications: [], damage: 0 },
+];
 
 /** §A5: the roster as a crew four levels in sees it: some fielded, most still locked. */
 /** The two the crew has paid for. One of them is bolted to the Razors below. */
@@ -563,13 +639,21 @@ export const unitsResponse: UnitsResponse = {
   trainingSpeedBonus: 0,
   // A stock with something in it, and a bracket that is filled. An empty stock screenshots three
   // dashed brackets and a menu with nothing in it, which is the one state the row is *not* for.
-  built: BUILT_UPGRADES.map((spec) => ({
+  built: BUILT_UPGRADES.map((spec, index) => ({
     id: spec.id,
     name: spec.name,
     line: spec.line,
     tier: spec.tier,
     description: spec.description,
     effect: spec.effect as Record<string, number>,
+    /*
+     * §D5c: the first one is already bolted to something, the rest are on the shelf.
+     *
+     * Both states on one fixture on purpose: the picker draws a fitted entry differently and
+     * disables it, and a stock where everything is free screenshots half the screen.
+     */
+    fittedTo: index === 0 ? 'razors' : null,
+    fittedToName: index === 0 ? 'Razors' : '',
   })),
   units: UNIT_CATALOG.map((unit) => {
     const unlocked = unit.tier === 'rabble';
@@ -605,7 +689,9 @@ export const unitsResponse: UnitsResponse = {
       trainSeconds: unit.trainSeconds,
       supply: unit.supply,
       unlocked,
-      missing: unlocked ? [] : unit.requires.map(describeRequirement),
+      // §D12a: `unitUnlockClauses`, not `unit.requires`, so a locked row lists the blueprint
+      // document alongside the levels. The server's roster projection reads the same function.
+      missing: unlocked ? [] : unitUnlockClauses(unit).map(describeRequirement),
       owned: base.army[unit.id] ?? 0,
       // The Razors have one bolted on and room for two more, which is both halves of the row in
       // one card. Everybody else is empty, which is what most of the roster looks like.
@@ -644,7 +730,7 @@ function barRecruit(id: string, name: string, overrides: Partial<BarRecruit> = {
   return {
     id,
     name,
-    attributes: makeAttributes(18, { stealth: 34, logic: 31, hacking: 29, medicine: 9 }),
+    attributes: makeAttributes(18, { stealth: 34, logic: 31, signals: 29, medicine: 9 }),
     perks: ['skim_route', 'quiet_boots'],
     requirement: { minNotoriety: 0, minLevel: 1 },
     assessment: { meetsNotoriety: true, meetsLevel: true, interested: true, blockers: [] },
@@ -667,7 +753,7 @@ function barOfficer(
       id,
       name,
       role,
-      { stealth: 41, logic: 37, hacking: 33 },
+      { stealth: 41, logic: 37, signals: 33 },
       ['skim_route'],
       weeklyWage,
     ),
@@ -776,7 +862,7 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
     payPercent,
     offers:
       activeMissionId === null
-        ? missionOffers(id).map((template) => ({
+        ? missionOffers(id).map((template, index) => ({
             templateId: template.id,
             name: template.name,
             brief: template.brief,
@@ -798,6 +884,9 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
               missionXp(template, templateTimings(template).totalMinutes, lateGameBase.level) *
                 FAILED_MISSION_XP_SHARE,
             ),
+            // §F1b: one card on the board is carrying a page, so the screenshots and the layout
+            // gates see the state. Most offers carry none, which is the ordinary case.
+            pagePrize: index === 0 ? ('unit' as const) : null,
           }))
         : [],
     activeMissionId,
@@ -840,6 +929,9 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     spoils: {},
     resolvedAt: null,
     recalledAt: null,
+    // §F1: no page promised on the fixture runs, which is the ordinary case.
+    pagePrize: null,
+    pageWon: null,
   };
 }
 
@@ -1004,11 +1096,11 @@ const WIDE_ATTRIBUTES = [
   'communication',
   'cryptography',
   'intimidation',
-  'fabrication',
+  'craft',
   'cybernetics',
   'intuition',
   'negotiation',
-  'demolition',
+  'encyclopedia',
   'navigation',
   'engineering',
   'diplomacy',
@@ -1056,6 +1148,122 @@ const wideLeads: ResearchLead[] = [
   },
 ];
 
+/**
+ * §C: who is in each of the nineteen chairs, in `OFFICER_ROLES` order.
+ *
+ * A spread rather than a flat sheet, and two chairs left empty on purpose: a track with nobody on
+ * it is a state the page has to draw, and a fixture where every chair is full would screenshot a
+ * screen the game does not have. The longest track name and the longest mark both appear.
+ */
+const FIXTURE_TRACK_MARKS: readonly (OfficerMark | null)[] = [
+  'B+',
+  'C',
+  'E+',
+  'S',
+  null,
+  'B+',
+  'D',
+  'A',
+  'F+',
+  'C+',
+  null,
+  'E-',
+  'A-',
+  'D+',
+  'F',
+  'B',
+  'C-',
+  'E',
+  'S-',
+];
+
+const fixtureHead: NonNullable<ResearchResponse['head']> = {
+  name: 'Wenqing "Compass" Adebayo-Lindqvist',
+  mark: 'B+',
+  timeCutPercent: 18.4,
+};
+
+/** Real names in `OFFICER_ROLES` order, with the longest of them on a chair that has a mark. */
+const FIXTURE_TRACK_NAMES: readonly string[] = [
+  'Ines Okonkwo-Marchetti',
+  'Bram Ostrowski',
+  'Halima Diallo',
+  'Teodor Vasquez',
+  'Nell Baptiste',
+  'Wenqing "Compass" Adebayo-Lindqvist',
+  'Rue Sandoval',
+  'Otto Krishnamurthy',
+  'Sable Ferreira',
+  'Mirem Adeyemi',
+  'Casimir Nowak',
+  'Priya Lindholm',
+  'Vashti Okoro',
+  'Emrys Tanaka',
+  'Lo Bertrand',
+  'Dagny Achebe',
+  'Kit Salvatore',
+  'Anouk Mbeki',
+  'Iolanthe Petrakis',
+];
+
+const fixtureTrackMark = (role: OfficerRole): OfficerMark | null =>
+  FIXTURE_TRACK_MARKS[OFFICER_ROLES.indexOf(role)] ?? null;
+
+/**
+ * Everything finished, on the rule "as far as the chairs allow, less one".
+ *
+ * Derived rather than listed so the fixture cannot describe a crew that could not exist: a track
+ * standing at `E+` with eight rungs done is not a state the server can produce, and a screenshot of
+ * it certifies nothing. Less one so every reachable track has exactly one startable rung, which is
+ * the control the page is for.
+ */
+const fixtureKnown: string[] = OFFICER_ROLES.flatMap((role) => {
+  const chairs = { trackMark: fixtureTrackMark(role), headMark: fixtureHead.mark };
+  const done: string[] = [];
+  for (let step = 1; step <= RESEARCH_TRACK_STEPS; step += 1) {
+    const spec = RESEARCH_ITEMS.find((item) => item.track === role && item.step === step);
+    if (!spec || researchItemRefusal(spec.id, done, chairs) !== null) break;
+    done.push(spec.id);
+  }
+  return done.slice(0, -1);
+});
+
+const fixtureTechnologies: LabTech[] = RESEARCH_ITEMS.map((spec) => {
+  const known = fixtureKnown.includes(spec.id);
+  const refusal = researchItemRefusal(spec.id, fixtureKnown, {
+    trackMark: fixtureTrackMark(spec.track),
+    headMark: fixtureHead.mark,
+  });
+  return {
+    id: spec.id,
+    track: spec.track,
+    step: spec.step,
+    name: spec.name,
+    description: spec.description,
+    cost: spec.cost,
+    minutes: spec.minutes,
+    // The same words the route sends. This printed the raw channel key for a while, so every
+    // screenshot of the Lab certified `+8% PRODUCTIONPERCENT`: the fixture *is* the contract.
+    effect: describeResearchPayout(spec),
+    requiresMark: spec.requiresMark,
+    requiresHeadMark: spec.requiresHeadMark,
+    known,
+    blocker: known || refusal === null ? null : describeResearchItemRefusal(refusal, spec),
+  };
+});
+
+const fixtureTracks: ResearchTrackStatus[] = OFFICER_ROLES.map((role) => {
+  const mark = fixtureTrackMark(role);
+  return {
+    role,
+    officerName: mark === null ? null : (FIXTURE_TRACK_NAMES[OFFICER_ROLES.indexOf(role)] ?? null),
+    mark,
+    costCutPercent: mark === null ? 0 : Math.round(markIndex(mark) * 15) / 10,
+    done: fixtureKnown.filter((id) => RESEARCH_ITEMS.some((s) => s.id === id && s.track === role))
+      .length,
+  };
+});
+
 const researchBase = {
   serverNow: NOW,
   justDiscovered: [] as DiscoveredFact[],
@@ -1069,22 +1277,10 @@ const researchBase = {
   // §A1: a crew with no Lead Engineer, so every modification reports the same blocker. The
   // structures themselves are unbuilt in this fixture, which is the blocker the player sees first.
   canModify: false,
-  // The Lab's tree: one rung finished per track, one reachable, one locked, so a screenshot shows
-  // all three states rather than a grid of identical cards.
-  technologies: TECHNOLOGIES.map((spec) => ({
-    id: spec.id,
-    track: spec.track,
-    tier: spec.tier,
-    name: spec.name,
-    description: spec.description,
-    cost: spec.cost,
-    parts: spec.parts,
-    // The same words the route sends. This printed the raw channel key for a while, so every
-    // screenshot of the Lab certified `+8% PRODUCTIONPERCENT`: the fixture *is* the contract.
-    effect: describeTechEffect(spec),
-    known: spec.tier === 1,
-    blocker: spec.tier === 3 ? `Needs the Lab at level ${spec.requiresLabLevel}` : null,
-  })),
+  // §C: nineteen tracks, each with finished rungs, one startable rung and locked ones above it.
+  technologies: fixtureTechnologies,
+  tracks: fixtureTracks,
+  head: fixtureHead,
   modifications: MODIFICATIONS.map((mod) => ({
     id: mod.id,
     building: mod.building,
@@ -1137,8 +1333,8 @@ export function settlingResearch(now: Date = new Date()): {
   const pending = activeResearch(now);
   const discovered: DiscoveredFact[] = [
     { kind: 'role_attribute', role: 'raid_boss', attribute: 'intimidation' },
-    { kind: 'role_attribute', role: 'raid_boss', attribute: 'demolition' },
-    makePairing('intimidation', 'demolition'),
+    { kind: 'role_attribute', role: 'raid_boss', attribute: 'improvisation' },
+    makePairing('intimidation', 'improvisation'),
   ];
   return {
     pending,
@@ -1167,15 +1363,18 @@ function crewOfficer(
   weeklyWage: number,
   /** §D6: when they are back on their feet. Null for everybody but the one screenshotted hurt. */
   injuredUntil: string | null = null,
+  /** The stamp on the portrait. Null on the bench, where there is no chair to fit. */
+  mark: CrewOfficer['mark'] = 'C+',
 ): CrewOfficer {
   return {
     officerId,
     name,
     role,
-    attributes: makeAttributes(15, { leadership: 32, composure: 27, empathy: 24, hacking: 8 }),
+    attributes: makeAttributes(15, { leadership: 32, composure: 27, empathy: 24, signals: 8 }),
     perks: [...perks],
     weeklyWage,
     injuredUntil,
+    mark: role === null ? null : mark,
   };
 }
 
@@ -1324,6 +1523,9 @@ export const crewStanding: CrewStandingResponse = {
  * than derived so the fixture reads the same on every run.
  */
 export const market: MarketResponse = {
+  // §G4: this is the late-game crew, so the Lab will do the trade. The locked state is covered by
+  // the unit tests, which can toggle it; a screenshot fixture wants the state with a button in it.
+  reimagining: { hasHeadOfResearch: true, hasReimaginingResearch: true },
   serverNow: NOW,
   caps: lateGameBase.resources.caps,
   resources: lateGameBase.resources,
@@ -1449,12 +1651,12 @@ export const garage: GarageResponse = {
     capacity: spec.capacity,
     speedPercent: spec.speedPercent,
     requiresGarageLevel: spec.requiresGarageLevel,
-    requiresBlueprint:
-      spec.requiresBlueprint === null ? null : ITEM_CATALOG[spec.requiresBlueprint].name,
-    hasBlueprint: spec.requiresBlueprint === null,
+    // §D12c: every machine is behind a document now, and this crew has assembled exactly one.
+    requiresBlueprint: blueprintForVehicle(spec.id)?.name ?? null,
+    hasBlueprint: spec.id === 'motorcycle',
     refusal:
-      spec.requiresBlueprint !== null
-        ? `Needs the ${ITEM_CATALOG[spec.requiresBlueprint].name}`
+      spec.id !== 'motorcycle'
+        ? describeBlueprintGate('vehicle', spec.id)
         : spec.requiresGarageLevel > 5
           ? `Needs the Garage at level ${spec.requiresGarageLevel}`
           : null,
@@ -1573,6 +1775,8 @@ const boardAnalysis: BattleAnalysis = {
   winner: 'attacker',
   rounds: 5,
   decidedOnPower: false,
+  // The ring held, so the card draws that rather than the breakthrough line.
+  brokeThrough: false,
   attacker: {
     name: 'The Ninth Street Reclamation Company',
     committed: 34,
@@ -1581,9 +1785,23 @@ const boardAnalysis: BattleAnalysis = {
     fled: 0,
     perimeter: 4,
     perimeterCaught: 5,
+    // The ring fought for those five and paid for them, which is the half of a perimeter that was
+    // invisible while meeting one was a catch-rate instead of a battle.
+    perimeterLost: 2,
+    // §D3: bodies the enemy's intimidation kept from firing at all. Non-zero here on purpose: the
+    // engine has settled this before every first shot since intimidation landed and no screen drew
+    // it, so the fixture that guards the report has to be one where it is drawn.
+    cowed: 3,
     infamy: 118,
-    // §D1: nobody led this one, which is the ordinary case and the one the card must draw.
-    officer: null,
+    // §D1: somebody led this one, so the card has an officer line to draw. The defender's is null,
+    // which is the ordinary case and also has to render.
+    officer: {
+      officerId: 'off-1',
+      name: 'Wilhelmina Okonkwo-Restrepo',
+      fell: false,
+      damage: 940,
+      injured: false,
+    },
     units: [
       {
         unitId: 'snipers',
@@ -1625,6 +1843,8 @@ const boardAnalysis: BattleAnalysis = {
     fled: 0,
     perimeter: 0,
     perimeterCaught: 0,
+    perimeterLost: 0,
+    cowed: 0,
     infamy: 0,
     officer: null,
     units: [
@@ -1800,6 +2020,17 @@ export const battles: BattlesResponse = {
   infamy: BOARD_INFAMY,
   gates: [
     { districtId: 'rustyard', name: 'The Rustyard', shut: false, brokenUntil: null },
+    /*
+     * The Docks' gate, shut.
+     *
+     * There was no row here at all, so `DistrictView` found no gate for the Docks and the gate sign
+     * was never rendered on either painted district in a shut state. Two things went unmeasured
+     * because of it: the Docks' gate mark, which is placed like the other seven and was the only one
+     * nothing drew, and the *shut* plate, which carries a padlock and is therefore the widest sign
+     * the scene can produce. The sweeps in `painting.spec.ts` are about signs leaving the frame and
+     * signs colliding, and both of those are decided by exactly that width.
+     */
+    { districtId: 'neon-docks', name: 'Neon Docks', shut: true, brokenUntil: null },
     {
       districtId: 'chrome-row',
       name: 'Chrome Row',
@@ -1814,12 +2045,6 @@ export const battles: BattlesResponse = {
     level: building.level,
     damage: index === 0 ? 42 : 0,
     effectiveness: index === 0 ? 0.79 : 1,
-    fortification: building.kind === 'gate' ? 1 : 0,
-    fortifyPercent: building.kind === 'gate' ? fortifyBonusPercent('medium', 1) : 0,
-    nextFortify:
-      building.kind === 'gate'
-        ? { level: 2, cost: fortifyCost(2), bonusPercent: fortifyBonusPercent('medium', 2) }
-        : null,
   })),
   traps: TRAP_CATALOG.map((spec, index) => ({
     trapId: spec.id,
@@ -2214,27 +2439,90 @@ export const leaderboardFactions: LeaderboardResponse = {
 };
 
 /**
- * §B9: the Scrapyard's board of add-ons.
+ * §B9, §E1 to §E4: the Scrapyard's board of add-ons.
  *
  * Built from the real catalogues rather than typed out, so an entry added to the game appears here
  * without anybody remembering to. Three states are forced on purpose: one already owned, one
  * buildable, and one held behind a blueprint, because those are the three the page draws
  * differently and a fixture with only the middle one screenshots a third of the screen.
+ *
+ * The **whole** catalogue rather than a slice of it, because the screen is a menu now: a rail of
+ * benches over a workspace, and a fixture holding nine nexus brackets would draw one door and
+ * certify none of it. Which document an entry wants comes off `blueprints/catalog.ts`, the same
+ * lookup the server projects with, so a locked row here says exactly what a locked row says in the
+ * running game.
  */
+const scrapyardEntry = (
+  spec: (typeof MODIFICATIONS)[number] | (typeof UNIT_UPGRADES)[number],
+  index: number,
+): ScrapyardResponse['entries'][number] => {
+  const modification = 'magnitude' in spec;
+  const advanced = modification ? isAdvancedModification(spec) : isAdvancedUpgrade(spec);
+  const document = modification ? blueprintForModification(spec) : blueprintForUnitUpgrade(spec.id);
+  // Only an advanced entry can be held behind a document, so the locked third is drawn out of the
+  // advanced ones rather than out of every third row.
+  const locked = advanced && index % 3 === 2;
+  return {
+    id: spec.id,
+    kind: modification ? ('modification' as const) : ('upgrade' as const),
+    name: spec.name,
+    description: spec.description,
+    building: modification ? spec.building : null,
+    effect: describeAddonEffect(spec),
+    cost: modification ? modificationPrice(spec) : upgradePrice(spec),
+    advanced,
+    blueprint: document?.name ?? null,
+    owned: index % 3 === 0 ? 1 : 0,
+    blocker: locked ? `Needs the ${document?.name}` : null,
+  };
+};
+
 export const scrapyard: ScrapyardResponse = {
   scrapyardLevel: 6,
   resources: lateGameBase.resources,
-  entries: MODIFICATIONS.slice(0, 9).map((mod, index) => ({
-    id: mod.id,
-    kind: 'modification' as const,
-    name: mod.name,
-    description: mod.description,
-    building: mod.building,
-    effect: describeAddonEffect(mod),
-    cost: modificationPrice(mod),
-    advanced: index % 3 === 2,
-    blueprint: index % 3 === 2 ? 'Blueprint: Composite Armour' : null,
-    owned: index % 3 === 0 ? 1 : 0,
-    blocker: index % 3 === 2 ? 'Needs the Blueprint: Composite Armour' : null,
-  })),
+  entries: [
+    ...MODIFICATIONS.map(scrapyardEntry),
+    ...UNIT_UPGRADES.map((spec, index) => scrapyardEntry(spec, index + MODIFICATIONS.length)),
+  ],
+};
+
+/**
+ * Every readout in the standing bar at its widest legal value.
+ *
+ * The bar is a row of instruments, and the failure it keeps having is that an instrument grows
+ * with its reading: a long rank, a seven-figure stockpile or a maximum-length crew name each used
+ * to widen their own plate and shove everything to the right of them along. The board hit exactly
+ * that and screenshotted a rank overlapping the doors.
+ *
+ * So this fixture is not "a rich crew". It is the worst case of every field at once: the longest
+ * notoriety rank in the ladder, seven digits in every resource, the longest name the schema
+ * accepts, and a level in three figures. Anything that sizes itself off its content fails here.
+ */
+export const hudExtremes: MeResponse = {
+  ...lateGame,
+  base: {
+    ...lateGameBase,
+    // Exactly `DISTRICT_NAME_MAX`, padded to it rather than counted by hand. It was two characters
+    // short once, and those two were the difference between the bar fitting and the stockpile
+    // running straight over the plaque: the board hit that and screenshotted it while this fixture
+    // was calling itself the extreme case. It went short again when the pad was written as
+    // `repeat(DISTRICT_NAME_MAX - 27)` against a 26-character prefix, so the length is no longer
+    // arithmetic on a hand-counted offset: `padEnd` is exact whatever the prefix is edited to.
+    name: 'Wilhelmina Okonkwo-Restrep'.padEnd(DISTRICT_NAME_MAX, 'o'),
+    level: 120,
+    resources: {
+      caps: 9_999_999,
+      supplies: 9_999_999,
+      oil: 9_999_999,
+      scrap: 9_999_999,
+      highQualityMetal: 9_999_999,
+      planks: 9_999_999,
+    },
+    economy: {
+      ...lateGameBase.economy,
+      infamy: 9_999_999,
+      // `Back-Alley Rumored`, the longest rank in the ladder.
+      notoriety: 3,
+    },
+  },
 };

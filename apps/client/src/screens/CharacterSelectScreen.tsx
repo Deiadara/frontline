@@ -90,8 +90,15 @@ export function CharacterSelectScreen() {
     );
   };
 
+  /* Same fallback as the login screen, and for the same reason: a network, CORS or parse failure
+     is not an `ApiRequestError`, and discarding it left this screen looking as though the press
+     had done nothing. This is the one screen a player cannot get past. */
   const serverError =
-    createOverseer.error instanceof ApiRequestError ? createOverseer.error.message : null;
+    createOverseer.error === null
+      ? null
+      : createOverseer.error instanceof ApiRequestError
+        ? createOverseer.error.message
+        : 'Could not reach the server. Check your connection and try again.';
 
   return (
     <main className="relative flex h-screen flex-col overflow-hidden bg-surface-950">

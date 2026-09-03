@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { ItemId } from '../items/catalog.js';
 import type { PartialResources } from '../resources.js';
 
 /**
@@ -20,16 +19,33 @@ import type { PartialResources } from '../resources.js';
  *
  * ## The four classes
  *
- * Ascending, and the ladder is capacity *and* speed rather than one or the other, which is what
- * keeps the choice from being "always the newest thing": a motorbike column is faster per body than
- * a truck column and cannot move an army, and a crew that wants forty people somewhere by dawn is
- * choosing between six trips and one slower one.
+ * The classes trade speed against capacity, and the trade is the whole design: a motorbike column is
+ * faster per body than a truck column and cannot move an army, so a crew that wants forty people
+ * somewhere by dawn is choosing between six trips and one slower one. Every machine in a class
+ * outruns every machine in the class that carries more than it, and `vehicles.test.ts` pins that
+ * rather than trusting the table to stay sorted.
  *
- * Every machine past the first needs a **blueprint** in the satchel (the Black Market's, see
- * `market/blackmarket.ts`) as well as a Garage level. The scrap-welded motorcycle is the one
- * exception and it is deliberate: `road_reavers` are gated on motorcycles being buildable, and a
- * unit whose only gate is a blueprint that turns up on a shelf twice a month is a unit that might
- * never be reachable at all.
+ * It did not stay sorted. The War Hauler was written at 28 and the Motorcycle at 22, so the biggest
+ * truck in the game was faster than the bike this doc used as its example of the opposite, and the
+ * Armoured Car at 32 outran both bikes while carrying twelve. The ladder is a rule now, with a test
+ * under it.
+ *
+ * Within a class the later machine is the upgrade: more seats and a little quicker, gated on a
+ * Garage level, a blueprint and a much larger bill. Across classes it is a trade.
+ *
+ * ## Every machine needs its blueprint, and this module does not know which (§D12c)
+ *
+ * A vehicle used to name a flat `blueprint_*` item off the Black Market's shelf, and the
+ * scrap-welded motorcycle named none at all so that Road Reavers could not be locked behind a
+ * shelf that restocks twice a month. Both of those are gone. Every machine is behind its own
+ * blueprint **document** now, the motorcycle included, and a document is assembled out of pages
+ * that missions drop: a gate a crew works towards rather than one it waits on.
+ *
+ * The mapping from machine to document lives in `blueprints/catalog.ts`, on the document, because
+ * one document can gate more than one thing (§D12b: the motorcycle and the Road Reavers who ride
+ * it). So {@link vehicleRefusal} takes the answer as a predicate rather than importing the
+ * blueprint catalogue: `building/` sits below `blueprints/` in the import graph, and the callers
+ * that have a satchel to hand pass `blueprintGateMet(inventory, 'vehicle', id)` straight in.
  */
 
 export const VEHICLE_CLASSES = ['motorbike', 'car', 'truck', 'flying'] as const;
@@ -71,8 +87,6 @@ export interface VehicleSpec {
   description: string;
   /** Garage level required before the first one can be laid down. */
   requiresGarageLevel: number;
-  /** The blueprint that has to be in the satchel, or null for the one machine that needs none. */
-  requiresBlueprint: ItemId | null;
   /** Scrap, oil and high-quality metal, and nothing else: §C1 prices the yard in three things. */
   cost: PartialResources;
   buildSeconds: number;
@@ -91,15 +105,14 @@ export interface VehicleSpec {
 const SPECS: readonly VehicleSpec[] = [
   {
     id: 'motorcycle',
-    name: 'Motorcycle',
+    name: 'The Scrappy',
     class: 'motorbike',
     description:
       'Two wheels, a rebuilt engine and no lights. Gets a pair across the district before anybody has finished deciding.',
     requiresGarageLevel: 1,
-    requiresBlueprint: null,
     cost: { scrap: 900, oil: 200 },
     buildSeconds: 30 * 60,
-    speedPercent: 22,
+    speedPercent: 34,
     capacity: 2,
   },
   {
@@ -108,23 +121,23 @@ const SPECS: readonly VehicleSpec[] = [
     class: 'motorbike',
     description: 'Knobbled tyres and a welded frame. Goes where the road stopped being a road.',
     requiresGarageLevel: 3,
-    requiresBlueprint: 'blueprint_munitions',
     cost: { scrap: 1600, oil: 420, highQualityMetal: 60 },
     buildSeconds: 55 * 60,
-    speedPercent: 30,
+    speedPercent: 40,
     capacity: 3,
   },
   {
     id: 'scrap_car',
-    name: 'Scrap Car',
+    // The id stays `scrap_car`: it keys every stored fleet and every art asset, and renaming it is a
+    // migration for a label change. What players read is this.
+    name: 'Scar',
     class: 'car',
     description:
       'Three donor bodies and one working engine. Everybody fits and nobody is comfortable.',
     requiresGarageLevel: 4,
-    requiresBlueprint: 'blueprint_munitions',
     cost: { scrap: 2600, oil: 800, highQualityMetal: 180 },
     buildSeconds: 2 * 3600,
-    speedPercent: 26,
+    speedPercent: 24,
     capacity: 8,
   },
   {
@@ -133,10 +146,9 @@ const SPECS: readonly VehicleSpec[] = [
     class: 'car',
     description: 'Plated to the sills. Arrives with the same number of people it left with.',
     requiresGarageLevel: 7,
-    requiresBlueprint: 'blueprint_composite_armour',
     cost: { scrap: 4200, oil: 1400, highQualityMetal: 460 },
     buildSeconds: 3 * 3600,
-    speedPercent: 32,
+    speedPercent: 28,
     capacity: 12,
   },
   {
@@ -146,10 +158,9 @@ const SPECS: readonly VehicleSpec[] = [
     description:
       'A deck, a rail and a tarpaulin. Twenty people sitting down is still twenty people.',
     requiresGarageLevel: 6,
-    requiresBlueprint: 'blueprint_composite_armour',
     cost: { scrap: 5200, oil: 2000, highQualityMetal: 520 },
     buildSeconds: 4 * 3600,
-    speedPercent: 20,
+    speedPercent: 14,
     capacity: 24,
   },
   {
@@ -158,10 +169,9 @@ const SPECS: readonly VehicleSpec[] = [
     class: 'truck',
     description: 'Six axles and a cab nobody can see into. The whole crew, in one thing, at once.',
     requiresGarageLevel: 10,
-    requiresBlueprint: 'blueprint_cybernetics',
     cost: { scrap: 8400, oil: 3200, highQualityMetal: 1250 },
     buildSeconds: 6 * 3600,
-    speedPercent: 28,
+    speedPercent: 18,
     capacity: 40,
   },
   {
@@ -171,10 +181,9 @@ const SPECS: readonly VehicleSpec[] = [
     description:
       'Lifting gas nobody will say the source of, and a basket. Silent, and over the wall rather than through it.',
     requiresGarageLevel: 9,
-    requiresBlueprint: 'blueprint_signal_theory',
     cost: { scrap: 6800, oil: 2600, highQualityMetal: 940 },
     buildSeconds: 5 * 3600,
-    speedPercent: 40,
+    speedPercent: 44,
     capacity: 10,
   },
   {
@@ -184,10 +193,9 @@ const SPECS: readonly VehicleSpec[] = [
     description:
       'It should not fly and everyone who has seen it says so. The map stops being a map with one of these in the yard.',
     requiresGarageLevel: 12,
-    requiresBlueprint: 'blueprint_rotorcraft',
     cost: { scrap: 11000, oil: 4200, highQualityMetal: 2400 },
     buildSeconds: 8 * 3600,
-    speedPercent: 55,
+    speedPercent: 52,
     capacity: 18,
   },
 ];
@@ -357,21 +365,28 @@ export function removeFleet(from: Fleet, taken: Fleet): Fleet {
 export type VehicleRefusal =
   'unknown_vehicle' | 'garage_too_low' | 'needs_blueprint' | 'cannot_afford' | 'fleet_full';
 
+/**
+ * Whether the crew holds the blueprint document that gates a machine, by vehicle id.
+ *
+ * Injected rather than read here for the reason in this module's header: pass
+ * `(vehicleId) => blueprintGateMet(inventory, 'vehicle', vehicleId)`. A machine nothing gates
+ * answers true, so the predicate is total and no caller has to special-case one.
+ */
+export type VehicleBlueprintGate = (vehicleId: string) => boolean;
+
 /** Why the yard will not build this one, in the order a player wants to hear it, or null. */
 export function vehicleRefusal(
   id: string,
   fleet: Fleet,
   garageLevel: number,
-  hasBlueprint: (item: ItemId) => boolean,
+  blueprintUnlocked: VehicleBlueprintGate,
   affordable: (cost: PartialResources) => boolean,
 ): VehicleRefusal | null {
   const spec = findVehicle(id);
   if (!spec) return 'unknown_vehicle';
   if ((fleet[spec.id] ?? 0) >= MAX_PER_VEHICLE) return 'fleet_full';
   if (garageLevel < spec.requiresGarageLevel) return 'garage_too_low';
-  if (spec.requiresBlueprint !== null && !hasBlueprint(spec.requiresBlueprint)) {
-    return 'needs_blueprint';
-  }
+  if (!blueprintUnlocked(spec.id)) return 'needs_blueprint';
   if (!affordable(spec.cost)) return 'cannot_afford';
   return null;
 }
@@ -388,13 +403,11 @@ export const VEHICLE_REFUSAL_MESSAGES: Readonly<Record<VehicleRefusal, string>> 
 /** Which machines the yard could turn out today: what `units/unlocks.ts` asks for (§B6). */
 export function buildableVehicleIds(
   garageLevel: number,
-  hasBlueprint: (item: ItemId) => boolean,
+  blueprintUnlocked: VehicleBlueprintGate,
 ): Set<string> {
   return new Set(
     SPECS.filter(
-      (spec) =>
-        garageLevel >= spec.requiresGarageLevel &&
-        (spec.requiresBlueprint === null || hasBlueprint(spec.requiresBlueprint)),
+      (spec) => garageLevel >= spec.requiresGarageLevel && blueprintUnlocked(spec.id),
     ).map((spec) => spec.id),
   );
 }

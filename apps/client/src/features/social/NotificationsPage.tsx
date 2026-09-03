@@ -79,7 +79,7 @@ function Row({
         </span>
         <span className="flex shrink-0 items-center gap-2">
           {entry.readAt === null && (
-            <span aria-hidden className="h-2 w-2 rounded-full bg-oxblood-400" />
+            <span aria-hidden className="h-2 w-2 rounded-full bg-oxblood-300" />
           )}
           <span className="font-display text-[10px] tabular-nums text-ink-400">
             {ago(entry.createdAt, now)}
@@ -146,7 +146,7 @@ export function NotificationsPage() {
         type="button"
         onClick={() => setPreferences(true)}
         data-testid="notification-preferences"
-        className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-200 transition-colors hover:text-brass-100"
+        className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-300 transition-colors hover:text-brass-100"
       >
         <Icon name="gear" aria-hidden className="h-3.5 w-3.5" />
         Preferences

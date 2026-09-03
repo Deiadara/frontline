@@ -7,6 +7,8 @@ import {
   type Attributes,
   seedFrom,
   type JoinRequirement,
+  GAME_TIMEZONE,
+  dayInZone,
 } from '@frontline/shared';
 import { MAX_CALIBRE, generateCharacter } from '../characters/generate.js';
 import { createRng, randomInt, type Rng } from '../characters/rng.js';
@@ -54,9 +56,9 @@ const BOTH_DOORS_CHANCE = 0.35;
  */
 export const BAR_OPEN_DOOR_FLOOR = 3;
 
-/** §H2a: the UTC date a roster is generated from, `YYYY-MM-DD`. */
-export function barDay(now: Date): string {
-  return now.toISOString().slice(0, 10);
+/** §H2a: the game date a roster is generated from, `YYYY-MM-DD`. Athens, not UTC. */
+export function barDay(now: Date, zone: string = GAME_TIMEZONE): string {
+  return dayInZone(now, zone);
 }
 
 /**

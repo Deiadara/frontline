@@ -121,7 +121,7 @@ function JoinSheet({ data }: { data: FactionResponse }) {
           <Link
             to="/game/messages"
             data-testid="to-messages"
-            className="ink-box mt-auto inline-flex items-center justify-center gap-2 px-4 py-2 font-stamp text-[14px] leading-none text-brass-200 transition-colors hover:text-brass-100"
+            className="ink-box mt-auto inline-flex items-center justify-center gap-2 px-4 py-2 font-stamp text-[14px] leading-none text-brass-300 transition-colors hover:text-brass-100"
           >
             <Icon name="messages" aria-hidden className="h-4 w-4" />
             Check your messages

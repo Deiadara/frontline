@@ -144,10 +144,20 @@ function refusalFor(
   },
   blockers: readonly JoinBlocker[],
 ): HireRefusal | null {
-  if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
-  // §H8: 2 at the start, +1 per level, read off W6's grant table rather than restated here.
-  if (base.commanders.length >= playerLevelGrants(base.level).recruitSlots) return 'no_slots';
   /*
+   * The two that admin mode does **not** waive come first, and that ordering is load-bearing.
+   *
+   * This function returns the *first* reason, and the caller applies the waiver to that single
+   * reason: `if (refusal && !adminWaives(refusal, admin))`. So a waivable gate standing in front of
+   * a non-waivable one hides it completely. `no_slots` is waived and used to sit ahead of
+   * `role_taken`, which is not: on a full roster in admin mode the hire reached `no_slots`, had it
+   * waived, and never evaluated `role_taken`, so two officers were signed into one chair. Nothing
+   * dedupes by role in `crewSheetsFor`, so both were paid as the seated officer, both sets of perks
+   * were summed into the crew's channels, and the row survived the flag being turned off again.
+   *
+   * The list below is still ordered by what a player most wants to be told; it is only these two
+   * that have been lifted, and they are lifted because they are the ones a waiver must never skip.
+   *
    * §C3: a role is either filled or empty, so an occupied one cannot take a second officer.
    *
    * The bench is the exception and it is not really one: `null` is the *absence* of a chair, so
@@ -155,12 +165,16 @@ function refusalFor(
    * there. Without the guard this read `officer.role === null` for a bench hire and refused the
    * second one, which would have made the bench a chair with one seat in it.
    */
+  if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
   if (role !== null && base.commanders.some((officer) => officer.role === role)) {
     return 'role_taken';
   }
 
+  // §H8: 2 at the start, +1 per level, read off W6's grant table rather than restated here.
+  if (base.commanders.length >= playerLevelGrants(base.level).recruitSlots) return 'no_slots';
+
   // The two limits that are about the crew's *capacity* rather than about this request being
-  // nonsense, so they come after the three above: a player asking to fill a post that is already
+  // nonsense, so they come after the ones above: a player asking to fill a post that is already
   // held should be told that, not told to come back tomorrow.
   //
   // §H2b: the shared room's stock is finite, so one signing per player per UTC day. Two from

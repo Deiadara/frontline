@@ -165,9 +165,27 @@ test('the mailbox reads, replies and keeps a sent copy', async ({ page }) => {
   await expect(page.getByTestId('compose-body')).toHaveValue(/Sable_Ninth wrote:/);
   await page.keyboard.press('Escape');
 
-  // The sent folder counts who has opened it.
+  // The sent folder counts who has opened it, and dates it: `sentAt` is on the payload and the row
+  // used to draw a read count and nothing else, so one folder was dated and the other was not.
   await page.getByTestId('folder-sent').click();
-  await expect(page.getByTestId('sent-list').getByText('1/2 read')).toBeVisible();
+  const sent = page.getByTestId('sent-list');
+  await expect(sent.getByText('1/2 read')).toBeVisible();
+
+  /*
+   * And a sent message opens.
+   *
+   * `SentMessage` has carried `body` since the folder existed and the page drew none of it: a
+   * player could see that they had written something and had no way to read it back. It opens into
+   * the same sheet the inbox uses, with the recipient where the sender goes and no Reply or Throw
+   * it away, because neither means anything for a message you wrote.
+   */
+  await sent.getByTestId('sent-thread-3').click();
+  const own = page.getByTestId('message-open');
+  await expect(own).toBeVisible();
+  await expect(own.getByText('Eight Ironsides to the waterfront.')).toBeVisible();
+  await expect(own.getByText('To The Ninth Circle', { exact: false })).toBeVisible();
+  await expect(own.getByTestId('reply'), 'you cannot reply to yourself').toHaveCount(0);
+  await page.keyboard.press('Escape');
 
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/messages.png', fullPage: false });

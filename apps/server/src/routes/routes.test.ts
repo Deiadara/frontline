@@ -460,8 +460,8 @@ describe('GET /api/city', () => {
       progression: startingProgression(),
       research: startingResearch(),
       buildings: [
-        { id: 'r-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0, fortification: 0 },
-        { id: 'r-gate', kind: 'gate', level: 3, modifications: [], damage: 0, fortification: 0 },
+        { id: 'r-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0 },
+        { id: 'r-gate', kind: 'gate', level: 3, modifications: [], damage: 0 },
       ],
       buildQueue: [],
       army: {},

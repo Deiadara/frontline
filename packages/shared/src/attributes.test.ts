@@ -47,9 +47,9 @@ describe('AttributesSchema', () => {
   });
 
   it('rejects out-of-range and non-integer values', () => {
-    expect(AttributesSchema.safeParse({ ...DEFAULT_ATTRIBUTES, hacking: -1 }).success).toBe(false);
-    expect(AttributesSchema.safeParse({ ...DEFAULT_ATTRIBUTES, hacking: 101 }).success).toBe(false);
-    expect(AttributesSchema.safeParse({ ...DEFAULT_ATTRIBUTES, hacking: 10.5 }).success).toBe(
+    expect(AttributesSchema.safeParse({ ...DEFAULT_ATTRIBUTES, signals: -1 }).success).toBe(false);
+    expect(AttributesSchema.safeParse({ ...DEFAULT_ATTRIBUTES, signals: 101 }).success).toBe(false);
+    expect(AttributesSchema.safeParse({ ...DEFAULT_ATTRIBUTES, signals: 10.5 }).success).toBe(
       false,
     );
   });

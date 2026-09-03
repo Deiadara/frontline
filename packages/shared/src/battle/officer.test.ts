@@ -115,7 +115,11 @@ describe('the attribute to battle stat mapping (§D2)', () => {
     expect(stats.armor).toBe(24); // toughness, under the cap of 30
     expect(stats.range).toBe(20); // 0.75 * 30 + 0.25 * 16 = 26.5, held at the cap of 20
     expect(stats.stealth).toBe(46); // 32.5 + 2.4 + 4 + 7 = 45.9 -> 46
-    expect(stats.morale).toBe(45); // 22 + 8 + 15 = 45
+    // The board's table still reads 45 (22 + 8 + 15), and that rating is what is asserted below.
+    // What goes onto the field is that rating placed on the roster's morale scale: see
+    // `officerMorale`. 60 + 45% of the remaining 40 = 78.
+    expect(officerStat('morale', sheet)).toBe(45);
+    expect(stats.morale).toBe(78);
     expect(stats.penetration).toBe(34); // 3 + 20 + 4.5 + 5 + 1 = 33.5 -> 34
     expect(stats.evasion).toBe(54); // 42 + 2 + 9.6 = 53.6 -> 54
     expect(stats.intimidation).toBe(47); // 27 + 20 = 47

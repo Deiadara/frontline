@@ -4,6 +4,7 @@ import {
   OFFICER_ROLES,
   RESEARCH_COST_CAPS,
   StartResearchRequestSchema,
+  StartTechRequestSchema,
   researchCompletesAt,
   roleFullyResearched,
   unlocksCrossReference,
@@ -12,29 +13,15 @@ import {
   type ResearchLead,
   type ResearchResponse,
   type StartResearchResponse,
-  describeTechEffect,
-  ITEM_CATALOG,
-  StartTechRequestSchema,
-  TECHNOLOGIES,
-  TECH_TRACK_BLUEPRINT,
-  buildingLevel,
-  canAfford,
-  findTech,
-  removeItems,
-  spendResources,
-  techInTrack,
-  techRefusal,
-  type ItemId,
-  type LabTech,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { settleBase } from '../district/settle.js';
 import { hasLeadEngineer, modificationOptions } from '../district/modifications.js';
-import { holdsBlueprint, holdsParts } from '../market/board.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { pairingsExhausted } from '../research/discover.js';
 import { settleResearch } from '../research/settle.js';
 import { startResearch, type ResearchRefusal } from '../research/start.js';
+import { labResearchItems, researchHead, trackStatuses } from '../research/tracks.js';
 
 /**
  * Research and discovery (GDD §B9, §F2-§F4).
@@ -104,6 +91,12 @@ function leadsOn(base: Base): ResearchLead[] {
  */
 const REFUSAL_ERRORS: Record<ResearchRefusal, { code: ErrorCode; message: string }> = {
   already_running: { code: 'RESEARCH_BUSY', message: 'Your people are already on something' },
+  unknown_research: { code: 'NOT_FOUND', message: 'No such research' },
+  already_researched: { code: 'RESEARCH_EXHAUSTED', message: 'That is already done' },
+  locked: {
+    code: 'RESEARCH_OPTION_LOCKED',
+    message: 'Your people are not ready for that yet',
+  },
   no_lead: {
     code: 'NO_RESEARCH_LEAD',
     message: 'Only a Professor or a Head of Research can run that',
@@ -135,55 +128,38 @@ const REFUSAL_ERRORS: Record<ResearchRefusal, { code: ErrorCode; message: string
   cannot_afford: { code: 'INSUFFICIENT_CAPS', message: 'You cannot cover the costs' },
 };
 
-/** Why a programme cannot be started, in the player's words, or `null`. */
-function techBlocker(base: Base, id: string): string | null {
-  const spec = findTech(id);
-  if (!spec) return 'No such programme';
-  const reason = techRefusal(
-    id,
-    base.research.technologies,
-    buildingLevel(base.buildings, 'lab'),
-    holdsBlueprint(base),
-    (cost) => canAfford(base.resources, cost),
-    holdsParts(base),
-  );
-  if (reason === null) return null;
-  switch (reason) {
-    case 'unknown_tech':
-      return 'No such programme';
-    case 'already_known':
-      return 'Already running';
-    case 'needs_previous_tier': {
-      const below = techInTrack(spec.track).find((other) => other.tier === spec.tier - 1);
-      return `Finish ${below?.name ?? 'the programme below'} first`;
-    }
-    case 'needs_blueprint':
-      return `Needs the ${ITEM_CATALOG[TECH_TRACK_BLUEPRINT[spec.track]].name}`;
-    case 'lab_too_low':
-      return `Needs the Lab at level ${spec.requiresLabLevel}`;
-    case 'cannot_afford':
-      return 'You cannot cover that';
-    case 'missing_parts':
-      return `Short of parts: ${Object.entries(spec.parts)
-        .map(([itemId, count]) => `${count}× ${ITEM_CATALOG[itemId as ItemId].name}`)
-        .join(', ')}`;
-  }
-}
-
-/** The whole tech tree, with each rung's state worked out for this crew. */
-function labTechnologies(base: Base): LabTech[] {
-  return TECHNOLOGIES.map((spec) => ({
-    id: spec.id,
-    track: spec.track,
-    tier: spec.tier,
-    name: spec.name,
-    description: spec.description,
-    cost: spec.cost,
-    parts: spec.parts,
-    effect: describeTechEffect(spec),
-    known: base.research.technologies.includes(spec.id),
-    blocker: base.research.technologies.includes(spec.id) ? null : techBlocker(base, spec.id),
-  }));
+/**
+ * The whole research screen, for one settled crew.
+ *
+ * One projection rather than two copies: the read and the launch both answer with it, so a field
+ * added to the response cannot reach the page on one path and not the other.
+ */
+function researchScreen(
+  app: FastifyInstance,
+  base: Base,
+  overseer: Overseer,
+  justDiscovered: ResearchResponse['justDiscovered'],
+  now: Date,
+): ResearchResponse {
+  const { active, facts } = base.research;
+  return {
+    serverNow: now.toISOString(),
+    active,
+    completesAt: active ? researchCompletesAt(active).toISOString() : null,
+    justDiscovered,
+    facts,
+    leads: leadsOn(base),
+    openRoles: OFFICER_ROLES.filter((role) => !roleFullyResearched(facts, role)),
+    pairingsExhausted: pairingsExhausted(facts),
+    overseerAttributes: overseer.attributes,
+    caps: base.resources.caps,
+    costs: RESEARCH_COST_CAPS,
+    canModify: hasLeadEngineer(base),
+    modifications: modificationOptions(base),
+    technologies: labResearchItems(app.repos, base),
+    tracks: trackStatuses(base),
+    head: researchHead(base),
+  };
 }
 
 export function registerResearchRoutes(app: FastifyInstance): void {
@@ -191,33 +167,18 @@ export function registerResearchRoutes(app: FastifyInstance): void {
     const now = new Date();
     const user = request.currentUser;
     const { base, overseer, justDiscovered } = settledPlayer(app, user.id, user.overseerId, now);
-    const { active, facts } = base.research;
-
-    return {
-      serverNow: now.toISOString(),
-      active,
-      completesAt: active ? researchCompletesAt(active).toISOString() : null,
-      justDiscovered,
-      facts,
-      leads: leadsOn(base),
-      openRoles: OFFICER_ROLES.filter((role) => !roleFullyResearched(facts, role)),
-      pairingsExhausted: pairingsExhausted(facts),
-      overseerAttributes: overseer.attributes,
-      caps: base.resources.caps,
-      costs: RESEARCH_COST_CAPS,
-      canModify: hasLeadEngineer(base),
-      modifications: modificationOptions(base),
-      technologies: labTechnologies(base),
-    };
+    return researchScreen(app, base, overseer, justDiscovered, now);
   });
 
   /**
-   * Start a standing programme.
+   * §C: put the crew on one rung of one track.
    *
-   * Bought outright rather than queued behind the Professor's one project slot: an investigation is
-   * somebody's *time*, and the Lab only has one of those to give: a technology is money, parts and
-   * a building tall enough to house the work. Putting both through one queue would mean a crew that
-   * wants a fact this week cannot also want a programme, which is a false choice dressed as depth.
+   * On the Lab's one bench rather than bought outright, which reverses the earlier call and is the
+   * point of §C3a: a rung takes *time*, and the Head of Research's own sheet is what shortens it.
+   * A programme that landed the instant it was paid for had nothing for their points to buy.
+   *
+   * Kept on its own route, with its own request body, so the client's `startTech` call and every
+   * fixture built on it still work: the difference is that this now answers with a running clock.
    */
   app.post('/research/tech', { preHandler: app.authenticate }, (request): ResearchResponse => {
     const { techId } = parseBody(StartTechRequestSchema, request.body);
@@ -226,41 +187,19 @@ export function registerResearchRoutes(app: FastifyInstance): void {
 
     return app.db.transaction(() => {
       const { base, overseer, justDiscovered } = settledPlayer(app, user.id, user.overseerId, now);
-      const blocker = techBlocker(base, techId);
-      if (blocker !== null) throw new AppError('RESEARCH_OPTION_LOCKED', blocker);
-
-      const spec = findTech(techId);
-      if (!spec) throw new AppError('NOT_FOUND', 'No such programme');
-
-      const research = {
-        ...base.research,
-        technologies: [...base.research.technologies, spec.id],
-      };
-      app.repos.bases.updateHoldings(
-        base.id,
-        spendResources(base.resources, spec.cost),
-        removeItems(base.inventory, spec.parts),
-      );
-      app.repos.bases.updateResearch(base.id, research);
-
-      const after = { ...base, research, resources: spendResources(base.resources, spec.cost) };
-      const { active, facts } = after.research;
-      return {
-        serverNow: now.toISOString(),
-        active,
-        completesAt: active ? researchCompletesAt(active).toISOString() : null,
-        justDiscovered,
-        facts,
-        leads: leadsOn(after),
-        openRoles: OFFICER_ROLES.filter((role) => !roleFullyResearched(facts, role)),
-        pairingsExhausted: pairingsExhausted(facts),
-        overseerAttributes: overseer.attributes,
-        caps: after.resources.caps,
-        costs: RESEARCH_COST_CAPS,
-        canModify: hasLeadEngineer(after),
-        modifications: modificationOptions(after),
-        technologies: labTechnologies(after),
-      };
+      const result = startResearch(app.repos, {
+        base,
+        overseer,
+        project: { kind: 'technology', techId },
+        id: randomUUID(),
+        now,
+        admin: app.config.admin,
+      });
+      if (result.kind === 'refused') {
+        const { code, message } = REFUSAL_ERRORS[result.reason];
+        throw new AppError(code, message);
+      }
+      return researchScreen(app, result.base, overseer, justDiscovered, now);
     })();
   });
 

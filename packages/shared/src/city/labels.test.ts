@@ -13,7 +13,14 @@ import {
   mergeLabels,
   tierNumeral,
   tierOf,
+  MIN_GROUND_EFFECT_PERCENT,
 } from './labels.js';
+import { CITY_LOCATIONS } from './index.js';
+import { WEATHER_KINDS } from './weather.js';
+import { UNIT_CATALOG } from '../units/index.js';
+import { battlefieldFor } from '../battle/battlefield.js';
+import { effectiveStats } from '../battle/effects.js';
+import { noTerritoryEffects } from './locations.js';
 
 /**
  * Environment labels (§A4): the keywords that decide which units are worth bringing where.
@@ -195,5 +202,82 @@ describe('how much of a force fits', () => {
 
   it('never closes the ground entirely, however tight it is', () => {
     expect(frontageFactor([envLabel('crammed', MAX_LABEL_TIER)])).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The floor under what the ground can take off a unit.
+ *
+ * A label's worth is `(baseline + affinity) x tier`, summed across every label on the ground, and
+ * nothing bounded the sum. Eight labels at once is ordinary content: Snipers at the Abandoned
+ * Nuclear Plant on a stormy day summed to -130.9%, `battle/effects.ts` spends that as
+ * `offense x (1 + percent/100)`, and a sheet of 350 became an effective -108. The only thing
+ * between that and negative damage healing the enemy was an unrelated `damage <= 0` skip in
+ * `applyDamage`, and the negative still accumulated into `stack.dealt`, which put the battle report
+ * outside its own schema and made the whole fight vanish off the player's board.
+ */
+describe('the worst ground in the game', () => {
+  const stormyPlant = () =>
+    battlefieldFor({
+      kind: 'nuclear_plant',
+      locationName: 'The Abandoned Nuclear Plant',
+      fortifyLevel: 0,
+      // Fortification is irrelevant at level 0, and this file is about the labels.
+      fortifyDifficulty: 'medium',
+      weather: 'stormy',
+      at: new Date('2026-08-14T12:00:00.000Z'),
+    });
+
+  it('is still the worst ground, which is what makes the case below real', () => {
+    // The sum before the floor: eight labels, and no unit in the game likes any of them less than
+    // the Snipers do. If content ever softens this the case underneath stops measuring anything.
+    const snipers = findUnit('snipers');
+    if (!snipers) throw new Error('fixture: no snipers');
+    const raw = stormyPlant()
+      .labels.map((label) => labelEffectPercent(snipers.stats, snipers, label))
+      .reduce((total, part) => total + part, 0);
+    expect(raw).toBeLessThan(MIN_GROUND_EFFECT_PERCENT);
+  });
+
+  it('takes at most MIN_GROUND_EFFECT_PERCENT off, however many labels are on it', () => {
+    const snipers = findUnit('snipers');
+    if (!snipers) throw new Error('fixture: no snipers');
+    const verdict = labelVerdict(snipers.stats, snipers, stormyPlant().labels);
+    expect(verdict.percent).toBe(MIN_GROUND_EFFECT_PERCENT);
+    // The reasons are not clamped: the player is still told what each label did to them.
+    expect(verdict.reasons.length).toBeGreaterThan(4);
+  });
+
+  it('leaves no unit with a negative offense anywhere in the city, in any weather', () => {
+    let worst = Infinity;
+    let checked = 0;
+    for (const kind of new Set(CITY_LOCATIONS.map((location) => location.kind))) {
+      for (const weather of WEATHER_KINDS) {
+        const field = battlefieldFor({
+          kind,
+          locationName: kind,
+          fortifyLevel: 0,
+          fortifyDifficulty: 'medium',
+          weather,
+          at: new Date('2026-08-14T12:00:00.000Z'),
+        });
+        for (const unit of UNIT_CATALOG) {
+          for (const defending of [false, true]) {
+            for (const outnumbered of [false, true]) {
+              const effective = effectiveStats(
+                unit,
+                field,
+                { defending, outnumbered },
+                noTerritoryEffects(),
+              );
+              checked += 1;
+              worst = Math.min(worst, effective.offense);
+            }
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(30_000);
+    expect(worst).toBeGreaterThan(0);
   });
 });

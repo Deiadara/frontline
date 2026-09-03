@@ -11,6 +11,7 @@ import {
   type MissionOffer,
   type MissionsResponse,
   makeAttributes,
+  BLUEPRINTS,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -52,6 +53,7 @@ function areaOf(id: string, name: string, payPercent = 0): MissionArea {
       payoutSlots: 40,
       xp: 240,
       failedXp: 48,
+      pagePrize: null,
     })),
     activeMissionId: null,
   };
@@ -78,6 +80,7 @@ const officer = (officerId: string, name: string) => ({
   perks: [],
   weeklyWage: 40,
   injuredUntil: null,
+  mark: 'C' as const,
 });
 
 /** §G: a roster with people on the books, so a hard run has somebody to lead it. */
@@ -120,6 +123,8 @@ const accepted: LaunchMissionResponse = {
     spoils: {},
     resolvedAt: null,
     recalledAt: null,
+    pagePrize: null,
+    pageWon: null,
   },
   serverNow: NOW,
 };
@@ -156,9 +161,11 @@ interface Stubbed {
   launch?: { ok: boolean; status: number; body: unknown };
   /** Hold the roster back this long, so the board renders before the officers arrive. */
   rosterDelayMs?: number;
+  /** How `GET /missions` answers. Defaults to the plain two-area board above. */
+  missions?: MissionsResponse;
 }
 
-function stubApi({ crew, launch, rosterDelayMs = 0 }: Stubbed): void {
+function stubApi({ crew, launch, rosterDelayMs = 0, missions = board }: Stubbed): void {
   const reply = (body: unknown, { ok = true, status = 200, delay = 0 } = {}) =>
     new Promise<Response>((resolve) =>
       setTimeout(
@@ -175,7 +182,7 @@ function stubApi({ crew, launch, rosterDelayMs = 0 }: Stubbed): void {
         ? reply(launch.body, { ok: launch.ok, status: launch.status })
         : reply(accepted);
     }
-    if (path.endsWith('/missions')) return reply(board);
+    if (path.endsWith('/missions')) return reply(missions);
     throw new Error(`unstubbed request: ${path}`);
   });
 }
@@ -438,5 +445,76 @@ describe('the board says which way a job points at the Combine (§A3, §D8)', ()
     for (const spec of Object.values(MISSION_STANCE_SPECS)) {
       expect(card.queryByText(spec.label)).toBeNull();
     }
+  });
+});
+
+/**
+ * §F1b: a job that has a blueprint page on it says so, and says only the category.
+ *
+ * Two separate things go wrong here and only one of them is about the badge. The badge itself is
+ * the deliberate half of the design: which sheet you get is decided when the crew is home, so the
+ * card names a *kind* and the player finds out the rest on the way back.
+ *
+ * The other half is the accident this group exists to keep from coming back. The badge first
+ * shipped with the test id `offer-page-<template>`, which sits under the `offer-` prefix that both
+ * the visual sweep and the layout sweep use to count the cards on a board. Three offers plus one
+ * badge counted as four cards, and the count assertion is on the far side of the repo from the
+ * component that broke it. So the last test here pins the namespace, not the appearance.
+ */
+describe('a job carrying a blueprint page (§F1b)', () => {
+  const withPrize = (): MissionsResponse => {
+    const [first, ...rest] = MISC.offers;
+    if (!first) throw new Error('fixture error: the miscellaneous board is empty');
+    return {
+      ...board,
+      areas: board.areas.map((area) =>
+        area.id === MISC_AREA_ID
+          ? { ...area, offers: [{ ...first, pagePrize: 'consumable' as const }, ...rest] }
+          : area,
+      ),
+    };
+  };
+
+  it('names the category on the card and never the page', async () => {
+    const [first] = MISC.offers;
+    if (!first) throw new Error('fixture error: the miscellaneous board is empty');
+    stubApi({ crew: staffed, missions: withPrize() });
+    renderBoard();
+    await screen.findByTestId('board-area');
+
+    const badge = await screen.findByTestId(`page-prize-${first.templateId}`);
+    expect(badge).toHaveTextContent(/page/i);
+    // The page ids live in the blueprint catalogue. None of their names may reach the card.
+    for (const spec of Object.values(BLUEPRINTS)) {
+      for (const page of spec.pages) {
+        expect(badge.textContent).not.toContain(page.name);
+      }
+    }
+  });
+
+  it('leaves a job with no page on it unbadged', async () => {
+    const rest = MISC.offers.slice(1);
+    expect(
+      rest.length,
+      'fixture error: nothing to compare the badged card against',
+    ).toBeGreaterThan(0);
+    stubApi({ crew: staffed, missions: withPrize() });
+    renderBoard();
+    await screen.findByTestId('board-area');
+
+    for (const offer of rest) {
+      expect(screen.queryByTestId(`page-prize-${offer.templateId}`)).toBeNull();
+    }
+  });
+
+  it('keeps its test id out of the `offer-` namespace the card count reads', async () => {
+    stubApi({ crew: staffed, missions: withPrize() });
+    const { container } = renderBoard();
+    await screen.findByTestId('board-area');
+
+    const cards = container.querySelectorAll('[data-testid^="offer-"]');
+    expect(cards, 'the page badge is being counted as a mission card').toHaveLength(
+      MISC.offers.length,
+    );
   });
 });

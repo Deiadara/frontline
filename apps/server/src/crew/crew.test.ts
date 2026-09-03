@@ -13,6 +13,7 @@ import {
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
   blurredCount,
+  INTEL_PERCENT_PER_GRAIN,
   buildingBuildSeconds,
   buildingCost,
   createCommander,
@@ -325,9 +326,7 @@ describe('an attribute changes an outcome', () => {
       economy: startingEconomy(HOUR),
       progression: startingProgression(),
       research: startingResearch(),
-      buildings: [
-        { id: 'n', kind: 'nexus', level: 3, modifications: [], damage: 0, fortification: 0 },
-      ],
+      buildings: [{ id: 'n', kind: 'nexus', level: 3, modifications: [], damage: 0 }],
       buildQueue: [],
       army: {},
       trainingQueue: [],
@@ -406,7 +405,7 @@ describe('an attribute changes an outcome', () => {
     expect(quick.entry.durationSeconds).toBeLessThan(flat.entry.durationSeconds);
   });
 
-  it('takes caps off a build for Fabrication', () => {
+  it('takes caps off a build for Craft', () => {
     const plain = openStack();
     const maker = openStack();
     const plainBase = seed(plain, {});
@@ -417,7 +416,7 @@ describe('an attribute changes an outcome', () => {
       now: new Date(HOUR),
     });
     const cheap = queueBuild(maker, {
-      base: seed(maker, { fabrication: 80 }),
+      base: seed(maker, { craft: 80 }),
       structure: 'quarters',
       id: 'q2',
       now: new Date(HOUR),
@@ -449,6 +448,47 @@ describe('an attribute changes an outcome', () => {
     expect(blurredCount(43, 24)).not.toBe(43);
     // A reader who has cut through it is back to the exact number.
     expect(blurredCount(43, 0)).toBe(43);
+  });
+
+  /**
+   * The two things a coarsened count must never do.
+   *
+   * Zero is not a coarse number: it is the one value the district screen reads as a fact about the
+   * world rather than as an estimate, and it costs the reader a deployment. And "never
+   * systematically high or low" has to survive the ties, which `Math.round` sends upward every
+   * time.
+   */
+  it('never reports an occupied place as empty', () => {
+    for (const blur of [8, 16, 24, 32, 40, 56, 63, 80]) {
+      for (let standing = 1; standing <= 12; standing++) {
+        expect(blurredCount(standing, blur), `${standing} through ${blur}`).toBeGreaterThan(0);
+      }
+    }
+    // Empty stays empty: the blur must not invent a garrison either.
+    expect(blurredCount(0, 32)).toBe(0);
+  });
+
+  it('is not biased upward across a spread, which rounding every tie up made it', () => {
+    for (const blur of [8, 16, 32]) {
+      let drift = 0;
+      for (let standing = 1; standing <= 200; standing++) {
+        drift += blurredCount(standing, blur) - standing;
+      }
+      // A quarter of a grain is what `Math.round` cost: 0.25, 0.5 and 1.25 for these three blurs.
+      expect(Math.abs(drift / 200), `blur ${blur}`).toBeLessThan(0.1);
+    }
+  });
+
+  it('stays inside half a grain of the truth, which is the promise it is made on', () => {
+    for (const blur of [8, 16, 32, 48]) {
+      const grain = 1 + Math.floor(blur / INTEL_PERCENT_PER_GRAIN);
+      for (let standing = grain; standing <= 200; standing++) {
+        expect(
+          Math.abs(blurredCount(standing, blur) - standing),
+          `${standing} through ${blur}`,
+        ).toBeLessThanOrEqual(grain / 2);
+      }
+    }
   });
 
   it('brings some of the dead back for Medicine', () => {
@@ -738,9 +778,7 @@ describe('the Gate, from the district into a fight', () => {
       progression: startingProgression(),
       research: startingResearch(),
       buildings:
-        level === 0
-          ? []
-          : [{ id: 'g', kind: 'gate', level, modifications: [], damage: 0, fortification: 0 }],
+        level === 0 ? [] : [{ id: 'g', kind: 'gate', level, modifications: [], damage: 0 }],
       buildQueue: [],
       army: {},
       trainingQueue: [],

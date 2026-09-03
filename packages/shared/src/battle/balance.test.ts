@@ -220,6 +220,21 @@ describe('strength tracks what a unit cost you to be able to field', () => {
         );
       }
     }
-    expect(inversions.length, inversions.join('; ')).toBeLessThanOrEqual(6);
+    /*
+     * Seven, and it was six until intimidation started doing something (§D3).
+     *
+     * Raising a tolerance to make a test pass is usually the wrong move, so here is the reasoning.
+     * The invariant that matters is the Spearman check above: gate depth still predicts strength
+     * across the whole roster at better than 0.65, and that did not move. What moved is which
+     * *individual* pairs invert, and it moved in the direction the change intends: the units that
+     * gained are the ones with morale at the ceiling, which are now the ones that cannot be cowed,
+     * and The Condemned (morale 100, intimidation 60) now beats three units gated ten rungs deeper.
+     * A stat that was inert for the whole life of the roster became live, so the roster's ordering
+     * around that stat was never calibrated in the first place.
+     *
+     * If this needs raising again, that is the signal to retune intimidation rather than the
+     * tolerance: two consecutive bumps would mean the mechanic is eating the gate ladder.
+     */
+    expect(inversions.length, inversions.join('; ')).toBeLessThanOrEqual(7);
   });
 });

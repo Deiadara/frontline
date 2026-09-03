@@ -340,11 +340,6 @@
     border-image-repeat: round;
   }
 
-  /** The same sheet, in the colour of a decision rather than of a section. */
-  .ink-frame-brass {
-    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23e6c99a' stroke-opacity='0.7' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M4 4 H12 q24 -1.1 48 0 q24 1.1 48 0 H116'/%3E%3Cpath d='M116 4 V12 q1.1 24 0 48 q-1.1 24 0 48 V116'/%3E%3Cpath d='M116 116 H108 q-24 1.1 -48 0 q-24 -1.1 -48 0 H4'/%3E%3Cpath d='M4 116 V108 q-1.1 -24 0 -48 q1.1 -24 0 -48 V4'/%3E%3C/g%3E%3C/svg%3E");
-  }
-
   /*
    * No ground of its own, deliberately. A framed panel is `ink-frame card-paper washed` at the call
    * site, exactly as a crew card is `card-paper rivets edge-lit`: the frame is the *edge* treatment
@@ -353,9 +348,29 @@
    * violet rectangles with a drawn line round them.
    */
 
-  /** The same sheet, in the colour of a decision rather than of a section. */
+  /**
+   * The same sheet, in the colour of a decision rather than of a section.
+   *
+   * There were two of these, identical but for their amplitude, and the second silently won: the
+   * first was dead CSS from the moment it was written. Removed rather than merged.
+   *
+   * The wave is nearly flat now (board request). It ran at an amplitude of 2.4 on a 120 box, which
+   * on the training screen's selected officer read as a ribbon rather than as a line somebody drew:
+   * the frame is the widest thing on that panel and the eye follows the wobble instead of the name
+   * inside it. At 0.7 it is a straight line a person drew rather than a straight line a machine
+   * drew, which is the whole point of the treatment.
+   *
+   * The four deviations are deliberately unequal. A wave with the same amplitude at every control
+   * point reads as a pattern however small it is; uneven ones read as a hand.
+   *
+   * Thickness matches `.ink-frame` exactly (board request): the brass sheet ran at a 3.6 stroke
+   * against the plain sheet's 2.6, so the selected officer on the training screen was ringed in a
+   * line half again as thick as the roster entries beside it and the faction panels next door. It
+   * is the *colour* that says selected, not the weight. Only the stroke colour and opacity differ
+   * now, so the two frames read as the same hand drawing the same box.
+   */
   .ink-frame-brass {
-    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23f0ad4c' stroke-opacity='0.85' stroke-width='3.6' stroke-linecap='round'%3E%3Cpath d='M4 4 H12 q24 -2.4 48 0 q24 2.4 48 0 H116'/%3E%3Cpath d='M116 4 V12 q2.4 24 0 48 q-2.4 24 0 48 V116'/%3E%3Cpath d='M116 116 H108 q-24 2.4 -48 0 q-24 -2.4 -48 0 H4'/%3E%3Cpath d='M4 116 V108 q-2.4 -24 0 -48 q2.4 -24 0 -48 V4'/%3E%3C/g%3E%3C/svg%3E");
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23f0ad4c' stroke-opacity='0.85' stroke-width='2.6' stroke-linecap='round'%3E%3Cpath d='M4 4 H12 q24 -0.7 48 -0.2 q24 0.5 48 0.1 H116'/%3E%3Cpath d='M116 4 V12 q0.6 24 0.1 48 q-0.7 24 -0.1 48 V116'/%3E%3Cpath d='M116 116 H108 q-24 0.7 -48 0.2 q-24 -0.5 -48 -0.1 H4'/%3E%3Cpath d='M4 116 V108 q-0.6 -24 -0.1 -48 q0.7 -24 0.1 -48 V4'/%3E%3C/g%3E%3C/svg%3E");
   }
 
   /**

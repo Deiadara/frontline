@@ -1,4 +1,5 @@
 import {
+  notorietyTier,
   OVERSEER_PRESETS,
   RESOURCE_KEYS,
   STARTING_RESOURCES,
@@ -51,7 +52,6 @@ const buildings = [
     level: 4,
     modifications: [],
     damage: 0,
-    fortification: 0,
   },
 ];
 
@@ -226,7 +226,7 @@ describe('TopHud', () => {
     renderHud({ infamy: 1200, notoriety: 8 });
 
     expect(screen.getByTestId('notoriety-tier')).toHaveTextContent('Feared');
-    expect(screen.getByTestId('infamy-chip')).toHaveTextContent('1200');
+    expect(screen.getByTestId('infamy-chip')).toHaveTextContent('1,200');
   });
 
   /**
@@ -252,5 +252,127 @@ describe('TopHud', () => {
     renderHud();
     const chip = screen.getByTestId('level-chip');
     expect(chip).toHaveTextContent(String(base.level));
+  });
+});
+
+/**
+ * The standing bar at its widest legal values.
+ *
+ * jsdom has no layout engine, so these cannot answer "do two boxes overlap": that question lives
+ * in `visual.spec.ts`, in a browser, and is the one that actually caught the board's screenshot.
+ * What these pin is the rule underneath it, which a browser test cannot state as clearly: **a
+ * readout is an instrument and must not size itself to its reading.**
+ *
+ * Every figure in the bar is `tabular-nums` inside a fixed-width column, and every plate but the
+ * identity is a fixed width. Those two facts are what make the pixel test pass, so losing either
+ * one should fail here first and cheaply.
+ */
+/** The chain from `el` up to (and including) `root`, so a class can be looked for on either. */
+function ancestorsWithin(root: HTMLElement, el: Element): HTMLElement[] {
+  const chain: HTMLElement[] = [];
+  let cursor = el.parentElement;
+  while (cursor && root.contains(cursor)) {
+    chain.push(cursor);
+    cursor = cursor.parentElement;
+  }
+  return chain;
+}
+
+describe('the standing bar does not size itself to its contents', () => {
+  const HUGE: Resources = {
+    caps: 9_999_999,
+    supplies: 9_999_999,
+    oil: 9_999_999,
+    scrap: 9_999_999,
+    highQualityMetal: 9_999_999,
+    planks: 9_999_999,
+  };
+
+  /** The longest rank in the ladder, found rather than typed, so a retune cannot outdate it. */
+  const worstTier = (() => {
+    let worst = { notoriety: 0, tier: '' };
+    for (let n = 0; n < 60; n += 1) {
+      const tier = notorietyTier(n);
+      if (tier.length > worst.tier.length) worst = { notoriety: n, tier };
+    }
+    return worst;
+  })();
+
+  /**
+   * Six digits in full, and a magnitude above that.
+   *
+   * This asserted the opposite until the board settled it: every figure spelled out, on the
+   * grounds that a chip which switches form at a threshold is a chip whose width depends on its
+   * reading. That reasoning was wrong in its second half. `compactFigure` is bounded, so both
+   * branches fit the same seven-character column, and spelling out seven digits cost the column a
+   * whole rem it did not have: the stockpile was running over the identity plaque.
+   *
+   * So the rule is unchanged and the implementation of it is not: the box does not move, and what
+   * gives is precision rather than width.
+   */
+  it('prints six digits in full and larger figures as a magnitude', () => {
+    const { unmount } = renderHud({}, HUGE);
+    for (const key of RESOURCE_KEYS) {
+      expect(
+        within(screen.getByTestId(`resource-chip-${key}`)).getByText('10M'),
+      ).toBeInTheDocument();
+    }
+    unmount();
+
+    const SIX = Object.fromEntries(
+      RESOURCE_KEYS.map((key) => [key, 999_999]),
+    ) as unknown as Resources;
+    renderHud({}, SIX);
+    for (const key of RESOURCE_KEYS) {
+      expect(
+        within(screen.getByTestId(`resource-chip-${key}`)).getByText('999,999'),
+        `${key} should still be spelled out at six digits`,
+      ).toBeInTheDocument();
+    }
+  });
+
+  it('sets every figure in a fixed column with tabular figures', () => {
+    renderHud({ infamy: 9_999_999 }, HUGE);
+    const figures = [
+      ...RESOURCE_KEYS.map((key) => screen.getByTestId(`resource-chip-${key}`)),
+      screen.getByTestId('level-chip'),
+      screen.getByTestId('infamy-chip'),
+    ];
+    for (const chip of figures) {
+      const numeric = [...chip.querySelectorAll('span')].filter((el) =>
+        el.className.includes('tabular-nums'),
+      );
+      expect(numeric.length, `${chip.dataset.testid} has no tabular figure`).toBeGreaterThan(0);
+      // Each figure sits in a column of reserved width, so the digits cannot push the plate wider
+      // as they grow. The width may sit on the figure or on the wrapper holding it and its label.
+      for (const figure of numeric) {
+        const reserved = [figure, ...ancestorsWithin(chip, figure)].some((el) =>
+          /\bw-\[/.test(el.className),
+        );
+        expect(reserved, `${chip.dataset.testid} lets "${figure.textContent}" size the plate`).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  it('keeps the rank in a fixed plate, however long the rank is', () => {
+    renderHud({ notoriety: worstTier.notoriety });
+    const rank = screen.getByTestId('notoriety-tier');
+
+    expect(rank).toHaveTextContent(worstTier.tier);
+    expect(worstTier.tier.length, 'the ladder should hold a genuinely long rank').toBeGreaterThan(
+      12,
+    );
+    // Fixed width and allowed to wrap: two short lines in a plate that never moves, rather than
+    // one long line in a plate that does.
+    expect(rank.className).toMatch(/\bw-\[/);
+    expect(rank.className).not.toMatch(/\bwhitespace-nowrap\b/);
+  });
+
+  /** The one plate that is allowed to grow, because its content is something the player typed. */
+  it('lets only the identity plaque size itself', () => {
+    renderHud();
+    expect(screen.getByTestId('district-plaque').className).not.toMatch(/\bw-\[/);
   });
 });

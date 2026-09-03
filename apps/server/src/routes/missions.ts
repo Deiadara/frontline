@@ -12,7 +12,6 @@ import {
   missionBoardDay,
   missionOffers,
   leading,
-  officerIsInjured,
   type Base,
   type LaunchMissionResponse,
   type MissionForceRefusal,
@@ -25,6 +24,7 @@ import { areaStatesFor, projectAreas } from '../missions/board.js';
 import { resolveCrew } from '../missions/crew.js';
 import { launchMission } from '../missions/launch.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { OFFICER_DUTY_MESSAGES, officerDuty } from '../crew/duty.js';
 import { resolveDueMissions } from '../missions/resolve.js';
 
 /** Why a crew cannot go, in the player's words. */
@@ -60,12 +60,19 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       justResolved: settlement.resolved,
       resources: settlement.base.resources,
       activeLimit: concurrentMissionSlots(settlement.base.level),
+      // The card quotes what the launch will freeze. Read from the same fold `POST /missions`
+      // reads: a Smuggler's Tunnel shortens the clock and the crew's own fixer widens the cut, and
+      // both used to be invisible to the board and frozen onto the run.
       areas: projectAreas(
         CITY_DISTRICTS,
         areaStatesFor(app.repos, settlement.base),
         active,
         settlement.base.level,
         missionBoardDay(now),
+        (({ missionSpeedPercent, missionSpoilsPercent }) => ({
+          speedPercent: missionSpeedPercent,
+          spoilsPercent: missionSpoilsPercent,
+        }))(standingEffectsFor(app.repos, settlement.base, now)),
       ),
       army: settlement.base.army,
       serverNow: now.toISOString(),
@@ -105,16 +112,20 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     // §D4: an officer who is still recovering is out, and leading is a service like any other.
     // Refused rather than quietly demoted to an unled run: the player picked a person, and a job
     // that silently costs the §G6 penalty is worse than one that says why it will not go.
-    if (officer && officerIsInjured(officer.injuredUntil, now)) {
-      throw new AppError('MISSION_REFUSED', `${officer.name} is still laid up`);
+    // The same check covers the one-job rule: this door used to look at injury and nothing else,
+    // so the same person could be leading a declared fight, walking home from a scouting run and
+    // launching a mission at once. See `crew/duty.ts`.
+    const duty = officer ? officerDuty(app.repos, own, officer, now) : null;
+    if (officer && duty !== null) {
+      throw new AppError('MISSION_REFUSED', `${officer.name} ${OFFICER_DUTY_MESSAGES[duty]}`);
     }
 
     // Settle first: a mission that came home while the player was reading the board frees a slot
     // they should be allowed to use on this very request.
     const { base, levelUp } = resolveDueMissions(app.repos, own, now);
-    const active = app.repos.missions
-      .listByBaseId(base.id)
-      .filter((entry) => entry.mission.status === 'active');
+    // The active runs, not the whole history filtered down to them: the repo has a query for this
+    // and the launch path was loading a month of finished work to count what is out.
+    const active = app.repos.missions.listActiveByBaseId(base.id);
 
     if (active.length >= concurrentMissionSlots(base.level)) {
       throw new AppError(

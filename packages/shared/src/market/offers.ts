@@ -131,7 +131,17 @@ export function offerRefusal(
   if (bundleIsEmpty(give)) return 'nothing_offered';
   if (bundleIsEmpty(want)) return 'nothing_wanted';
   if (openOffers >= MAX_OPEN_OFFERS) return 'too_many_offers';
-  const untradeable = Object.keys(give.items).some((id) => !ITEM_CATALOG[id as ItemId]?.tradeable);
+  /*
+   * Both sides, not just the one being escrowed.
+   *
+   * `give` was the only side checked, and an unlocked blueprint is the one thing in the catalogue
+   * that may never change hands. A listing that *wanted* one settled without complaint: the buyer
+   * pays `want` out of their own satchel in `acceptOffer`, so the document walked from the buyer
+   * to the seller through the half of the trade nobody was looking at.
+   */
+  const untradeable = [...Object.keys(give.items), ...Object.keys(want.items)].some(
+    (id) => !ITEM_CATALOG[id as ItemId]?.tradeable,
+  );
   if (untradeable) return 'untradeable';
   if (!canAfford(stock, give.resources)) return 'cannot_cover';
   if (!hasItems(inventory, give.items)) return 'cannot_cover';

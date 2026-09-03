@@ -1,4 +1,8 @@
 import {
+  type BurnRefusal,
+  burnUpgrade,
+  burnRefusal,
+  BurnUpgradeRequestSchema,
   CancelTrainingRequestSchema,
   FitSlotRequestSchema,
   TrainUnitsRequestSchema,
@@ -43,8 +47,23 @@ const SLOT_ERRORS: Record<SlotRefusal, { code: ErrorCode; message: string }> = {
   bad_slot: { code: 'NOT_FOUND', message: 'There is no bracket there' },
   unknown_upgrade: { code: 'NOT_FOUND', message: 'No such upgrade' },
   not_built: { code: 'WORKSHOP_REFUSED', message: 'The workshop has not built that yet' },
-  already_slotted: { code: 'WORKSHOP_REFUSED', message: 'That is already on this unit' },
-  already_empty: { code: 'WORKSHOP_REFUSED', message: 'That bracket is already empty' },
+  already_slotted: {
+    code: 'WORKSHOP_REFUSED',
+    message: 'You only have the one, and it is already bolted to something',
+  },
+  slot_taken: {
+    code: 'WORKSHOP_REFUSED',
+    message: 'Something is in that bracket. Burn it first',
+  },
+  cannot_unfit: {
+    code: 'WORKSHOP_REFUSED',
+    message: 'It does not come off. It can be burned',
+  },
+};
+
+const BURN_ERRORS: Record<BurnRefusal, { code: ErrorCode; message: string }> = {
+  unknown_upgrade: { code: 'NOT_FOUND', message: 'No such upgrade' },
+  not_fitted: { code: 'WORKSHOP_REFUSED', message: 'That is not bolted to anything' },
 };
 
 const CANCEL_ERRORS: Record<CancelRefusal, { code: ErrorCode; message: string }> = {
@@ -133,6 +152,40 @@ export function registerUnitRoutes(app: FastifyInstance): void {
       const loadouts = withSlot(base.unitLoadouts, unitId, slot, upgradeId);
       app.repos.bases.updateUnitLoadouts(base.id, loadouts);
       return projectUnits(app.repos, { ...base, unitLoadouts: loadouts }, now);
+    })();
+  });
+
+  /**
+   * §D5c: burn a fitted modification (board request).
+   *
+   * The only way one ever comes off, and it destroys the thing: gone from the bracket *and* from
+   * what the crew has built, so putting the same kind of plate on a different unit means building
+   * another one. That is what makes fitting it a decision rather than a loadout screen.
+   *
+   * Both writes in one transaction, because they are one fact. A crash between them would leave a
+   * crew holding a plate that is bolted to nothing, or a bracket pointing at something they no
+   * longer own.
+   */
+  app.post('/units/burn', { preHandler: app.authenticate }, (request): UnitsResponse => {
+    const { upgradeId } = parseBody(BurnUpgradeRequestSchema, request.body);
+    const now = new Date();
+
+    return app.db.transaction(() => {
+      const base = settled(request.currentUser.id, now);
+      const refusal = burnRefusal(base.unitLoadouts, upgradeId);
+      if (refusal !== null) {
+        const { code, message } = BURN_ERRORS[refusal];
+        throw new AppError(code, message);
+      }
+
+      const burnt = burnUpgrade(base.unitLoadouts, base.fittedUpgrades, upgradeId);
+      app.repos.bases.updateUnitLoadouts(base.id, burnt.loadouts);
+      app.repos.bases.updateUpgrades(base.id, [...burnt.built]);
+      return projectUnits(
+        app.repos,
+        { ...base, unitLoadouts: burnt.loadouts, fittedUpgrades: [...burnt.built] },
+        now,
+      );
     })();
   });
 }

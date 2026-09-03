@@ -50,7 +50,7 @@ export function CrewEffectsPage() {
         <Link
           to="/game/crew"
           data-testid="back-to-crew"
-          className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-200 transition-colors hover:text-brass-100"
+          className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-300 transition-colors hover:text-brass-100"
         >
           <Icon name="crew" aria-hidden className="h-3.5 w-3.5" />
           The crew

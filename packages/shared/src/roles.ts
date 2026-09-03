@@ -149,9 +149,30 @@ export function officerPortraitId(commanderId: string): string {
  * probe sequence (double hashing, so two people who want the same face do not then want the same
  * second choice either), and the first free face in it is theirs.
  *
- * Assigned in **sorted id order** for two reasons: the answer cannot depend on the order a caller
- * happens to hold the roster in, and hiring somebody new cannot move the face of anybody already
- * placed, because everyone sorted before them is resolved first and their choice does not change.
+ * Assigned in **roster order**, which is hire order: `hireRecruit` appends
+ * (`apps/server/src/bar/hire.ts`), reassigning maps in place and releasing filters, so a crew's
+ * `commanders` array is the order they were signed in. That is what makes the promise this function
+ * is written for true: **hiring somebody new cannot move the face of anybody already placed**,
+ * because everybody already on the books is resolved before the newcomer and their choice does not
+ * change.
+ *
+ * It used to sort by id instead, for the different property that the answer could not depend on the
+ * order a caller held the roster in. Officer ids are UUIDs, so a new hire sorts *anywhere* in the
+ * list, and when it landed before an existing officer with a colliding probe sequence it took the
+ * face first and the incumbent probed on to a different one: measured at 1.8% of hires on a
+ * four-officer roster, 4.0% at eight, 5.8% at twelve and 11.2% at a full nineteen chairs. A player
+ * who has looked at the same face for a week hires somebody and finds one of their officers is now
+ * a different person, which is the exact failure the distinctness rule exists to avoid, arriving
+ * from the other side.
+ *
+ * The two properties cannot both hold: with a fixed pool and no stored assignment, resolving a
+ * collision has to prefer somebody, and "the incumbent" is only expressible as an order. Stability
+ * is the one a player can see.
+ *
+ * **So the caller must pass the roster in its own order and must not sort it.** Both live callers
+ * do (`apps/server/src/crew/training.ts` maps `base.commanders`, and the crew screen maps the
+ * `officers` array the server projected from it in the same order), and the two sides compute this
+ * independently, so a caller that re-sorted would draw different faces from the same roster.
  *
  * The pool is larger than the nineteen seats, so this always terminates with everybody distinct.
  */
@@ -159,7 +180,7 @@ export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<s
   const size = ASSIGNABLE_OFFICER_PORTRAIT_IDS.length;
   const taken = new Set<string>();
   const assigned = new Map<string, string>();
-  for (const id of [...new Set(commanderIds)].sort()) {
+  for (const id of new Set(commanderIds)) {
     const hash = hashOf(id);
     const stride = (hash % (size - 1)) + 1;
     let pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS[hash % size] as string;

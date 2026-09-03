@@ -9,6 +9,7 @@ import {
 import { simulate, type Simulation } from './engine.js';
 import { LUCK_LIMIT } from './luck.js';
 import { moraleState } from './morale.js';
+import { FINDING_KINDS, FINDING_VISIBILITIES } from './report.js';
 import { TacticalSkirmishEngine, type SkirmishOutcome } from './skirmish.js';
 
 /**
@@ -271,8 +272,13 @@ describe.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))(
       for (const seed of seeds) {
         for (const finding of resolve(scenario, seed).findings) {
           expect(['attacker', 'defender']).toContain(finding.side);
-          expect(['ground', 'engagement', 'resistance', 'morale']).toContain(finding.kind);
-          expect(['shared', 'own', 'implied']).toContain(finding.visibility);
+          // Against the enum rather than a list typed out here. This said `['ground',
+          // 'engagement', 'resistance', 'morale']`, which is four of the five kinds `report.ts`
+          // defines: it was not asserting that findings are well tagged, it was asserting that no
+          // scenario in this file happens to produce a `support` finding, and it went red the first
+          // time one did. The schema is the contract for what a kind may be.
+          expect(FINDING_KINDS).toContain(finding.kind);
+          expect(FINDING_VISIBILITIES).toContain(finding.visibility);
           expect(finding.text.length).toBeGreaterThan(0);
         }
       }

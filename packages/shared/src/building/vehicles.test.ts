@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { blueprintForVehicle, blueprintGateMet } from '../blueprints/index.js';
 import {
   MAX_PER_VEHICLE,
   VEHICLES,
@@ -12,6 +13,7 @@ import {
   removeFleet,
   vehicleInfamy,
   vehicleRefusal,
+  vehiclesOfClass,
   wrecked,
 } from './vehicles.js';
 
@@ -55,10 +57,58 @@ describe('the catalogue', () => {
     }
   });
 
-  it('keeps the one machine `road_reavers` are gated on buildable without a blueprint', () => {
-    // §B6: `units/catalog.ts` gates Road Reavers on motorcycles being buildable. A blueprint that
-    // turns up on a shelf twice a month would make that unit reachable only by luck.
-    expect(findVehicle('motorcycle')?.requiresBlueprint).toBeNull();
+  /*
+   * The class ladder, which is the one thing about these numbers that is a rule and not a taste.
+   *
+   * `vehicles.ts` opens by promising "a motorbike column is faster per body than a truck column",
+   * and for a long time the table said the opposite: the War Hauler was written at 28 against the
+   * Motorcycle's 22, so the biggest truck in the game outran the bike the doc used as its example,
+   * and the Armoured Car at 32 beat both bikes while carrying twelve. Nothing failed, because
+   * nothing asked. Every other test in this file reads its expectation out of `findVehicle`, which
+   * is right for behaviour and useless here: a test derived from the table cannot catch the table
+   * being wrong. These two are the independent anchor.
+   */
+  const fastest = (kind: (typeof VEHICLE_CLASSES)[number]): number =>
+    Math.max(...vehiclesOfClass(kind).map((spec) => spec.speedPercent));
+  const slowest = (kind: (typeof VEHICLE_CLASSES)[number]): number =>
+    Math.min(...vehiclesOfClass(kind).map((spec) => spec.speedPercent));
+  const biggest = (kind: (typeof VEHICLE_CLASSES)[number]): number =>
+    Math.max(...vehiclesOfClass(kind).map((spec) => spec.capacity));
+  const smallest = (kind: (typeof VEHICLE_CLASSES)[number]): number =>
+    Math.min(...vehiclesOfClass(kind).map((spec) => spec.capacity));
+
+  it('keeps every ground class quicker than the class that carries more than it', () => {
+    // The slowest bike beats the fastest car, and the slowest car beats the fastest truck: the
+    // bands do not overlap, so the trade holds whichever two machines a player is choosing between.
+    expect(slowest('motorbike'), 'a car keeps up with a bike').toBeGreaterThan(fastest('car'));
+    expect(slowest('car'), 'a truck keeps up with a car').toBeGreaterThan(fastest('truck'));
+    // Flying is the premium: over the map rather than along it, and quicker than anything on it.
+    expect(slowest('flying'), 'something on the ground outruns a flyer').toBeGreaterThan(
+      fastest('motorbike'),
+    );
+  });
+
+  it('makes each ground class carry more than the class that outruns it', () => {
+    expect(smallest('car'), 'a bike carries as much as a car').toBeGreaterThan(
+      biggest('motorbike'),
+    );
+    expect(smallest('truck'), 'a car carries as much as a truck').toBeGreaterThan(biggest('car'));
+  });
+
+  /**
+   * §D12c: every machine has a document of its own, the first bike included.
+   *
+   * The motorcycle used to be the deliberate exception, because Road Reavers are gated on bikes
+   * being buildable and the old gate was a flat item off a shelf that restocks twice a month. A
+   * document is assembled out of pages a mission drops, so the exception is not needed any more,
+   * and §D12b makes the sharing explicit: one document for the machine and for the crew that
+   * rides it.
+   */
+  it('puts every machine behind a document, the first bike included', () => {
+    for (const spec of VEHICLES) {
+      expect(blueprintForVehicle(spec.id)?.category, spec.id).toBe('unit');
+    }
+    expect(blueprintForVehicle('motorcycle')?.id).toBe('bp_motorcycle');
   });
 });
 
@@ -154,21 +204,30 @@ describe('losing them (§C3)', () => {
 });
 
 describe('building one', () => {
-  it('lets a crew with a Garage lay down a motorcycle', () => {
-    expect(vehicleRefusal('motorcycle', {}, 1, NO, YES)).toBeNull();
+  it('lets a crew with a Garage and the drawings lay down a motorcycle', () => {
+    expect(vehicleRefusal('motorcycle', {}, 1, YES, YES)).toBeNull();
   });
 
-  it('will not build a rotorcraft without the plans, whatever the Garage is at', () => {
+  it('will not build a machine without the plans, whatever the Garage is at', () => {
     expect(vehicleRefusal('rotorcraft', {}, 99, NO, YES)).toBe('needs_blueprint');
+    // §D12c: the first bike is no longer the exception it used to be.
+    expect(vehicleRefusal('motorcycle', {}, 99, NO, YES)).toBe('needs_blueprint');
   });
 
   it('refuses on the yard, the Garage, the plans and the money, in that order', () => {
-    expect(vehicleRefusal('motorcycle', { motorcycle: MAX_PER_VEHICLE }, 99, YES, YES)).toBe(
+    expect(vehicleRefusal('motorcycle', { motorcycle: MAX_PER_VEHICLE }, 99, NO, NO)).toBe(
       'fleet_full',
     );
-    expect(vehicleRefusal('rotorcraft', {}, 1, YES, YES)).toBe('garage_too_low');
-    expect(vehicleRefusal('rotorcraft', {}, 99, NO, YES)).toBe('needs_blueprint');
+    expect(vehicleRefusal('rotorcraft', {}, 1, NO, NO)).toBe('garage_too_low');
+    expect(vehicleRefusal('rotorcraft', {}, 99, NO, NO)).toBe('needs_blueprint');
     expect(vehicleRefusal('motorcycle', {}, 9, YES, NO)).toBe('cannot_afford');
+  });
+
+  it('asks the satchel for the machine\u2019s own document', () => {
+    const held = (vehicleId: string) =>
+      blueprintGateMet({ bp_rotorcraft: 1 }, 'vehicle', vehicleId);
+    expect(vehicleRefusal('rotorcraft', {}, 99, held, YES)).toBeNull();
+    expect(vehicleRefusal('gas_balloon', {}, 99, held, YES)).toBe('needs_blueprint');
   });
 
   it('does not know what a machine outside the catalogue is', () => {
@@ -177,7 +236,8 @@ describe('building one', () => {
 
   it('reports what the yard could turn out today, which is what gates Road Reavers', () => {
     expect(buildableVehicleIds(0, YES).has('motorcycle')).toBe(false);
-    expect(buildableVehicleIds(1, NO).has('motorcycle')).toBe(true);
+    expect(buildableVehicleIds(1, YES).has('motorcycle')).toBe(true);
+    expect(buildableVehicleIds(1, NO).has('motorcycle')).toBe(false);
     expect(buildableVehicleIds(99, NO).has('rotorcraft')).toBe(false);
     expect(buildableVehicleIds(99, YES).has('rotorcraft')).toBe(true);
   });

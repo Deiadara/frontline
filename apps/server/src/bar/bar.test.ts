@@ -8,6 +8,7 @@ import {
   MAX_RECRUITMENT_ATTRIBUTE,
   RECRUIT_MAX_MIN_NOTORIETY,
   askingWage,
+  blackMarketDay,
   assessJoin,
   createCommander,
   playerLevelGrants,
@@ -200,8 +201,8 @@ function fakeRepos(hiresToday = 0): {
 /** The two §H2b fields every `hireRecruit` call needs, defaulted so cases can ignore them. */
 const SIGNER = { userId: 'user-1', seat: 0 };
 
-describe('§H2/§H2a: one global roster, generated from the UTC date', () => {
-  it('serves two different accounts the identical roster on the same UTC day', async () => {
+describe('§H2/§H2a: one global roster, generated from the game date', () => {
+  it('serves two different accounts the identical roster on the same game day', async () => {
     const { app } = await makeApp();
     const first = await readBar(app, await makePlayer(app, 'operator_one'));
     const second = await readBar(app, await makePlayer(app, 'operator_two'));
@@ -215,7 +216,7 @@ describe('§H2/§H2a: one global roster, generated from the UTC date', () => {
     expect(rolled(second)).toEqual(rolled(first));
   });
 
-  it('serves a different roster on the next UTC day', () => {
+  it('serves a different roster on the next game day', () => {
     const today = barRoster('2026-08-13');
     const tomorrow = barRoster('2026-08-14');
     expect(tomorrow).not.toEqual(today);
@@ -224,9 +225,17 @@ describe('§H2/§H2a: one global roster, generated from the UTC date', () => {
     expect(tomorrow.map((r) => r.attributes)).not.toEqual(today.map((r) => r.attributes));
   });
 
-  it('turns over exactly on the UTC midnight boundary, not on local midnight', () => {
-    expect(barDay(new Date('2026-08-13T23:59:59.999Z'))).toBe('2026-08-13');
-    expect(barDay(new Date('2026-08-14T00:00:00.000Z'))).toBe('2026-08-14');
+  it('turns over on Athens midnight, which is the clock every other daily reset uses', () => {
+    // August, so Athens is GMT+3: the room changes at 21:00 UTC. Pinned against the black
+    // market's own day key, because the whole point is that they roll together.
+    expect(barDay(new Date('2026-08-13T20:59:59.999Z'))).toBe('2026-08-13');
+    expect(barDay(new Date('2026-08-13T21:00:00.000Z'))).toBe('2026-08-14');
+    expect(barDay(new Date('2026-08-13T21:00:00.000Z'))).toBe(
+      blackMarketDay(new Date('2026-08-13T21:00:00.000Z')),
+    );
+    // And in winter Athens is GMT+2, so the boundary moves with the zone rather than staying put.
+    expect(barDay(new Date('2026-01-13T21:59:59.999Z'))).toBe('2026-01-13');
+    expect(barDay(new Date('2026-01-13T22:00:00.000Z'))).toBe('2026-01-14');
   });
 
   it('is a pure function of the day: same answer every time it is asked', () => {

@@ -83,6 +83,25 @@ interface DistrictSceneProps {
    * somebody else's lot reads as an invitation.
    */
   readOnly?: boolean;
+  /**
+   * Fill the frame the way your own district does, rather than sitting inline inside a panel.
+   *
+   * Split out from {@link readOnly} because that flag was carrying three different meanings at
+   * once: "not yours to build on", "draw only what is standing", and "this is a thumbnail in a
+   * panel". Visiting a neighbour needs the first two and the *opposite* of the third: the board
+   * asked for another crew's ground to open as a full screen, exactly like your own.
+   *
+   * Defaults to the old behaviour, so the city screen's preview is unchanged.
+   */
+  fill?: boolean;
+  /**
+   * Labels are controls even on ground that is not yours.
+   *
+   * On your own district a plate opens the build dialog. On somebody else's it opens the fight you
+   * could call on that building, which is the only thing you can do to it. Either way it is the
+   * same plate in the same place, which is the point: a player learns one map, not two.
+   */
+  interactive?: boolean;
 }
 
 /** The four states a plot can be in, in the order the label prefers to report them. */
@@ -230,6 +249,8 @@ export function DistrictScene({
   selected,
   onSelect,
   readOnly = false,
+  fill = !readOnly,
+  interactive = !readOnly,
 }: DistrictSceneProps) {
   const plate = deliveredUrl({ type: 'plate', plate: 'district' });
   const [frameRef, room] = useMeasuredSize();
@@ -238,12 +259,12 @@ export function DistrictScene({
   // what the *painting* gets; this is what a *control* gets, and the difference is the district's
   // title row, which the artwork runs under and a name plate may not.
   const [safeRef, safe] = useMeasuredSize();
-  const scene = fitted(room, band, !readOnly);
+  const scene = fitted(room, band, fill);
   // What `plateTop` needs to pull a plate back inside the bars: the picture it is hung on, and the
   // room the chrome left. Zero for the city screen's preview, which has no chrome and no bleed.
-  const pictureHeight = readOnly ? 0 : Number(scene.height) || 0;
-  const clear = readOnly ? 0 : band.height;
-  const insetTop = readOnly ? 0 : Math.max(0, band.height - safe.height);
+  const pictureHeight = fill ? Number(scene.height) || 0 : 0;
+  const clear = fill ? band.height : 0;
+  const insetTop = fill ? Math.max(0, band.height - safe.height) : 0;
 
   const sites = DISTRICT_SITES_BY_DEPTH.map((site) => {
     const level = buildingLevel(buildings, site.kind);
@@ -292,7 +313,7 @@ export function DistrictScene({
     >
       {/* What a *control* is allowed to occupy: the chrome's room, less whatever the screen itself
           floats over the picture. Zero-sized and invisible; it exists to be measured. */}
-      {!readOnly && (
+      {fill && (
         <div
           ref={safeRef}
           aria-hidden
@@ -314,10 +335,10 @@ export function DistrictScene({
         ref={bandRef}
         className={cn(
           'absolute left-0 right-0 flex justify-center',
-          readOnly ? 'items-center' : 'items-start',
+          fill ? 'items-start' : 'items-center',
         )}
         style={
-          readOnly
+          !fill
             ? { top: 0, bottom: 0 }
             : {
                 // `--scene-top`/`--scene-bottom` are what the *screen* adds on top of the shell's
@@ -384,7 +405,7 @@ export function DistrictScene({
                 state={state}
                 unmet={unmet}
                 selected={selected === site.kind}
-                readOnly={readOnly}
+                readOnly={!interactive}
                 topPercent={plateTop(
                   siteDepth(site) + (site.labelShift?.y ?? 0),
                   pictureHeight,

@@ -1,4 +1,4 @@
-import { OverseerSchema, type Attributes, type Overseer } from '@frontline/shared';
+import { OverseerSchema, isPerkId, type Attributes, type Overseer } from '@frontline/shared';
 import { readJson } from '../json.js';
 import type { AppDatabase } from '../index.js';
 
@@ -27,6 +27,22 @@ export interface OverseersRepo {
   updateAttributes(id: string, attributes: Attributes): void;
 }
 
+/**
+ * Drops a perk the catalogue no longer carries.
+ *
+ * The same repair `knownCommanders` does for an officer's sheet in `bases.ts`, and for the same
+ * reason: the perk book is content, `PerkIdSchema` validates against the live catalogue, and the
+ * ids are persisted verbatim. Retire or rename one and every Overseer holding it fails
+ * `OverseerSchema.parse`, so `findById` *throws* rather than returning undefined. That call sits
+ * inside `crewSheetsFor`, which sits inside every settle, every projection and the battle engine's
+ * inputs, so the account loses every screen rather than one bonus. An officer already survives
+ * this; the Overseer did not.
+ */
+function knownPerks(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return (raw as unknown[]).filter((id) => typeof id !== 'string' || isPerkId(id));
+}
+
 function rowToOverseer(row: OverseerRow): Overseer {
   return OverseerSchema.parse({
     id: row.id,
@@ -35,7 +51,7 @@ function rowToOverseer(row: OverseerRow): Overseer {
     portraitId: row.portrait_id,
     bio: row.bio,
     attributes: readJson(row.attributes_json),
-    perks: readJson(row.perks_json),
+    perks: knownPerks(readJson(row.perks_json)),
   });
 }
 

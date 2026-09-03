@@ -402,7 +402,6 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
           level: 8,
           modifications: [],
           damage: 0,
-          fortification: 0,
         },
       ],
       base.buildQueue,

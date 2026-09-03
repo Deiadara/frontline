@@ -73,7 +73,9 @@ export async function buildApp({
   skirmishEngine = defaultSkirmishEngine,
   logger = true,
 }: BuildAppOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger });
+  // `trustProxy` decides what `request.ip` means, and the unauthenticated rate-limit bucket is
+  // keyed on it. Off unless a deployment says which hops are real: see `config.ts`.
+  const app = Fastify({ logger, trustProxy: config.trustProxy });
 
   app.decorate('config', config);
   app.decorate('db', db);

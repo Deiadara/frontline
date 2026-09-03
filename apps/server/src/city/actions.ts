@@ -1,4 +1,5 @@
 import {
+  findUnit,
   FORTIFY_MAX_LEVEL,
   MAX_LOCATION_LEVEL,
   addToArmy,
@@ -134,6 +135,17 @@ export function setGarrison(
 
   for (const [unitId, delta] of Object.entries(changes)) {
     if (delta === 0) continue;
+    /*
+     * A key that does not name a unit is refused, whichever direction it goes.
+     *
+     * The two guards above read `sending`, which is the positive deltas only, so a *withdrawal*
+     * naming `constructor` or `toString` met neither and reached `garrison[unitId]` below. On a
+     * plain object that is a function, not `undefined`: `Math.min(-delta, fn)` is `NaN`, the
+     * `back === 0` guard does not catch `NaN`, and a `NaN` count went into the roster and the
+     * garrison. `GarrisonRequestSchema` now keys on the unit id so nothing like that arrives, and
+     * this is the second lock, matching the one on the deployment path.
+     */
+    if (!findUnit(unitId)) return { kind: 'refused', reason: 'not_a_fighting_force' };
     if (delta > 0) {
       if ((army[unitId] ?? 0) < delta) return { kind: 'refused', reason: 'not_enough_units' };
       army = takeFromArmy(army, unitId, delta);

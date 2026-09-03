@@ -58,7 +58,7 @@ export function modificationBlocker(
 ): ModificationBlocker | null {
   const standing: Building | undefined = findBuilding(base.buildings, spec.building);
   if (!standing) return 'not_built';
-  if (isModificationDrawn(base, spec.id)) return null;
+  if (isModificationDrawn(base, spec.id)) return 'already_drawn';
   if (!hasLeadEngineer(base)) return 'no_lead_engineer';
   if (base.research.active) return 'research_busy';
   return canAfford(base.resources, researchCost('modification')) ? null : 'cannot_afford';

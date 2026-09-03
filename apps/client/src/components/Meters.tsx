@@ -1,4 +1,5 @@
 import {
+  compactFigure,
   notorietyTier,
   notorietyUpgradeCost,
   nextNotorietyTier,
@@ -70,27 +71,29 @@ export function CrewLevelChip({
       <div
         // `px-3` rather than `px-1.5`: the level was set hard against the chip's own edge, which
         // reads as a number that has run out of room rather than as one sitting on a plate.
-        className="resource-chip flex shrink-0 items-center gap-2 rounded-lg px-3 py-1"
+        className="resource-chip flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1"
         data-testid="level-chip"
       >
         <span
           aria-hidden
-          className="resource-well flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-hextech-100 [&_svg]:h-10 [&_svg]:w-10"
+          className="resource-well flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-hextech-100 [&_svg]:h-8 [&_svg]:w-8"
         >
           <Icon name="level" />
         </span>
         <span className="flex flex-col gap-1.5">
           <span
             aria-hidden
-            className="hidden font-display text-[11px] font-bold uppercase leading-none tracking-[0.14em] text-ink-200 [@media(min-width:1700px)]:block"
+            className="hidden font-display text-[11px] font-bold uppercase leading-none tracking-[0.14em] text-ink-200 [@media(min-width:1960px)]:block"
           >
             Level
           </span>
-          <span className="hidden h-1.5 w-full rounded-sm bg-surface-700 [@media(min-width:1700px)]:block">
+          <span className="hidden h-1.5 w-full rounded-sm bg-surface-700 [@media(min-width:1960px)]:block">
             <span className="block h-full rounded-sm bg-hextech-100" style={{ width: `${pct}%` }} />
           </span>
         </span>
-        <span className="font-display text-lg font-bold leading-none tabular-nums text-hextech-100">
+        {/* Same rule as the infamy figure beside it: tabular, one size, room reserved. Two chips
+            whose numbers are set at different widths read as two different instruments. */}
+        <span className="w-[26px] shrink-0 truncate text-center font-display text-base font-bold leading-none tabular-nums text-hextech-100">
           {level}
         </span>
       </div>
@@ -196,28 +199,37 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
       <div
         // Same room as the level beside it, and a little more between the points and the rank:
         // `Nobody` was touching the right edge of the plate.
-        className="resource-chip flex shrink-0 items-center gap-2 rounded-lg px-3 py-1"
+        className="resource-chip flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1"
         data-testid="infamy-chip"
       >
         <span
           aria-hidden
-          className="resource-well flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-oxblood-300 [&_svg]:h-10 [&_svg]:w-10"
+          className="resource-well flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-oxblood-300 [&_svg]:h-8 [&_svg]:w-8"
         >
           <Icon name="infamy" />
         </span>
         <span className="flex flex-col gap-1.5">
           <span
             aria-hidden
-            className="hidden font-display text-[11px] font-bold uppercase leading-none tracking-[0.14em] text-ink-200 [@media(min-width:1700px)]:block"
+            className="hidden font-display text-[11px] font-bold uppercase leading-none tracking-[0.14em] text-ink-200 [@media(min-width:1960px)]:block"
           >
             Infamy
           </span>
-          <span className="hidden h-1.5 w-full rounded-sm bg-surface-700 [@media(min-width:1700px)]:block">
+          <span className="hidden h-1.5 w-full rounded-sm bg-surface-700 [@media(min-width:1960px)]:block">
             <span className="block h-full rounded-sm bg-oxblood-300" style={{ width: `${pct}%` }} />
           </span>
         </span>
-        <span className="font-display text-lg font-bold leading-none tabular-nums text-oxblood-300">
-          {Math.round(infamy)}
+        {/*
+         * Fixed width, tabular figures, one size.
+         *
+         * The standing bar has to be a row of boxes that do not move. A figure that widened with
+         * its own value pushed everything to its right along as infamy grew, and at seven digits
+         * it shoved the identity plaque off the line entirely. `tabular-nums` makes every digit
+         * the same width and `min-w` reserves the room for the largest realistic figure, so the
+         * box is the same size at 0 and at 9,999,999.
+         */}
+        <span className="w-[58px] shrink-0 truncate text-center font-display text-base font-bold leading-none tabular-nums text-oxblood-300">
+          {compactFigure(infamy)}
         </span>
         {/* The rank, beside the points and visibly a different kind of thing: a word on a brass
             plate, not another number.
@@ -227,8 +239,27 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
             one line, and a line that wraps costs fifty pixels of the world underneath it. The hover
             card carries the rank at every width, and it is the only place the ladder and its price
             are legible anyway. */}
+        {/*
+         * The rank, in a box that does not grow with the word in it.
+         *
+         * `Nobody` is six characters and `Back-Alley Rumored` is eighteen, and the plate used to
+         * be as wide as whichever one you had earned: reaching a longer rank silently made the
+         * whole standing bar wider and pushed the district plaque into the doors beside it. The
+         * board hit exactly that and screenshotted it.
+         *
+         * A fixed width with the words allowed to wrap onto a second line. Two short lines inside
+         * a plate that never moves is the right trade against a plate that moves: the bar is a
+         * row of instruments, and an instrument that changes size when its reading changes is
+         * the thing being fixed here.
+         *
+         * The width is measured against the longest *word* rather than the longest rank, because
+         * a space or a hyphen is somewhere the line can break. `Back-Alley Rumored` is eighteen
+         * characters and needs room for `Back-` (five); what actually sets the floor is
+         * `Whispered` and `Nightmare` at nine, which nothing can break. That is the difference
+         * between a 6.25rem plate and a 4.75rem one.
+         */}
         <span
-          className="hidden shrink-0 border-l border-surface-600 pl-2.5 pr-1 font-display text-[12px] font-bold uppercase leading-none tracking-[0.1em] text-brass-300 [@media(min-width:1400px)]:block"
+          className="hidden w-[4.75rem] shrink-0 border-l border-surface-600 pl-2 pr-0.5 text-balance text-center font-display text-[10px] font-bold uppercase leading-tight tracking-[0.06em] text-brass-300 [@media(min-width:1400px)]:block"
           data-testid="notoriety-tier"
         >
           {tier}

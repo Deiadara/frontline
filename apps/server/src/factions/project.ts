@@ -5,6 +5,7 @@ import {
   supplyUsed,
   type AllyArmy,
   type AllyBattle,
+  type Base,
   type Faction,
   type FactionInvite,
   type FactionMember,
@@ -12,6 +13,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { residentOf, targetName } from '../battle/ground.js';
+import { sideOf } from '../battle/deploy.js';
 
 /**
  * What the faction screen is made of.
@@ -101,20 +103,34 @@ function allyBattles(
   now: Date,
 ): AllyBattle[] {
   const out: AllyBattle[] = [];
+  // Queried once rather than per member: it has no base filter, so every member was walking every
+  // unresolved declaration in the city and issuing three queries and a full `bases` scan per pair.
+  const pending = repos.sieges.pending().filter((battle) => battle.resolvedAt === null);
+  // ...and the district's resident is looked up once per district rather than once per pair, which
+  // is where the scan and the whole-base parse actually were.
+  const residents = new Map<string, Base | undefined>();
+  const residentIn = (districtId: string): Base | undefined => {
+    if (!residents.has(districtId)) residents.set(districtId, residentOf(repos, districtId));
+    return residents.get(districtId);
+  };
+
   for (const member of members) {
     if (member.userId === selfUserId) continue;
-    for (const battle of repos.sieges.pending()) {
-      if (battle.resolvedAt !== null) continue;
+    for (const battle of pending) {
+      /*
+       * Which side they are actually on, asked the way the deployment path asks it.
+       *
+       * The side used to be derived from "is this member the declarer", while *membership* was
+       * derived from a row on either side. So an ally who reinforced somebody else's attack, which
+       * is the entire point of the reinforcement feature, was listed as **defending**, and
+       * `committed` was then summed over the enemy's rows: the other side's exact deployed
+       * strength, perimeter included, served as an integer to everybody in the faction. The battle
+       * screen blurs that number through `observedForceSize` with the holder's counter-intel
+       * against the reader's own, and for an NPC defence it is otherwise unobservable at all.
+       */
+      const side = sideOf(repos, battle, member.baseId);
+      if (side === null) continue;
 
-      const rows = [
-        ...repos.sieges.side(battle.id, 'attacker'),
-        ...repos.sieges.side(battle.id, 'defender'),
-      ];
-      const theirs =
-        battle.attackerBaseId === member.baseId || rows.some((row) => row.baseId === member.baseId);
-      if (!theirs) continue;
-
-      const side = battle.attackerBaseId === member.baseId ? 'attacker' : 'defender';
       const sideRows = repos.sieges.side(battle.id, side);
       const committed = sideRows.reduce((total, row) => total + deployedSize(row), 0);
       const mine = sideRows.find((row) => {
@@ -127,7 +143,7 @@ function allyBattles(
         memberUserId: member.userId,
         memberName: member.username,
         districtName: member.districtName,
-        targetName: targetName(battle.target, residentOf(repos, battle.target.districtId)),
+        targetName: targetName(battle.target, residentIn(battle.target.districtId)),
         districtLabel: battle.target.districtId,
         scheduledFor: battle.scheduledFor,
         side,

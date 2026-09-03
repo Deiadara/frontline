@@ -81,14 +81,33 @@ function walk(
   const since = base.economy.productionSettledAt;
   let cursor = since === null ? now.getTime() : Math.min(Date.parse(since), now.getTime());
 
-  // §A4: a district that has just been raided runs at reduced effectiveness for a few hours.
-  // Applied as a *fraction of the window* rather than as a scale on the output, which is exactly
-  // equivalent for a linear accrual and keeps `accrueProduction` a statement about structures.
-  const working = 1 - disruptionPercentAt(base.economy.disruption, now) / 100;
+  /*
+   * §A4: a district that has just been raided runs at reduced effectiveness for a few hours.
+   *
+   * Applied as a *fraction of the window* rather than as a scale on the output, which is exactly
+   * equivalent for a linear accrual and keeps `accrueProduction` a statement about structures.
+   *
+   * Read **per segment**, and the moment it expires is a cut in the walk exactly like a completed
+   * build is. It used to be read once from `now` and multiplied into every segment, which is only
+   * right for a factor that is constant across the window, and `disruptionPercentAt` is a step
+   * function of time: a crew last settled three days ago and raided an hour ago lost 30% of three
+   * days, and the same crew opening the game after the disruption expired banked the disrupted
+   * hours at full rate. Cutting at the expiry makes each segment's factor constant, so the midpoint
+   * reading below is exact rather than an average.
+   */
+  const disruptionEnds = ((): number | null => {
+    const until = base.economy.disruption.until;
+    if (until === null) return null;
+    const at = Date.parse(until);
+    return at > cursor && at < now.getTime() ? at : null;
+  })();
 
   const advanceTo = (mark: number): void => {
     const hours = (mark - cursor) / HOUR_MS;
     if (hours > 0) {
+      const working =
+        1 -
+        disruptionPercentAt(base.economy.disruption, new Date(cursor + (mark - cursor) / 2)) / 100;
       // §A4: the crew put the place right while all this was happening, so the district this
       // segment produced with is not the one it started as.
       //
@@ -117,9 +136,12 @@ function walk(
   };
 
   for (const entry of due) {
-    advanceTo(queueCompletesAt(entry).getTime());
+    const mark = queueCompletesAt(entry).getTime();
+    if (disruptionEnds !== null && disruptionEnds < mark) advanceTo(disruptionEnds);
+    advanceTo(mark);
     buildings = applyQueueEntry(buildings, entry);
   }
+  if (disruptionEnds !== null) advanceTo(disruptionEnds);
   advanceTo(now.getTime());
 
   return { buildings, resources, carry };

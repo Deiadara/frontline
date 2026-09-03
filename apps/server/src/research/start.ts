@@ -4,7 +4,9 @@ import {
   canAfford,
   canDevelop,
   findModification,
+  findResearchItem,
   researchCost,
+  researchItemRefusal,
   researchTimeReduction,
   roleFullyResearched,
   spendResources,
@@ -13,6 +15,7 @@ import {
   type ActiveResearch,
   type Base,
   type Overseer,
+  type PartialResources,
   type ResearchProject,
   speedMultiplier,
 } from '@frontline/shared';
@@ -21,6 +24,7 @@ import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { modificationBlocker } from '../district/modifications.js';
 import { pairingsExhausted } from './discover.js';
+import { chairMarksFor, minutesFor, priceOf } from './tracks.js';
 
 /**
  * Putting the crew onto a research project (GDD §B9, §F2, §F4): every gate between "look into
@@ -51,6 +55,13 @@ export const RESEARCH_REFUSALS = [
   'modification_unavailable',
   'no_modification_slot',
   'no_lead_engineer',
+  // §C adds three: the rung does not exist, the rung is already done, and every other gate on it.
+  // The third is spelled `locked`, which is the vocabulary `admin/mode.ts` already waives for
+  // "behind something you have not reached yet": an empty chair, an officer under the mark and an
+  // unfinished rung below are all that, and the testing build should walk past all three.
+  'unknown_research',
+  'already_researched',
+  'locked',
   'cannot_afford',
 ] as const;
 export type ResearchRefusal = (typeof RESEARCH_REFUSALS)[number];
@@ -86,13 +97,43 @@ function refusalFor(input: StartInput): ResearchRefusal | null {
     }
   } else if (project.kind === 'training') {
     if (!canDevelop(overseer.attributes, project.attribute)) return 'nothing_to_learn';
+  } else if (project.kind === 'technology') {
+    const refusal = trackRefusal(base, project.techId);
+    if (refusal) return refusal;
   } else {
     const refusal = modificationRefusal(base, project.modificationId);
     if (refusal) return refusal;
   }
 
   if (input.admin) return null;
-  return canAfford(base.resources, researchCost(project.kind)) ? null : 'cannot_afford';
+  return canAfford(base.resources, projectCost(base, project)) ? null : 'cannot_afford';
+}
+
+/**
+ * §C2's gates, mapped onto this module's refusal list.
+ *
+ * Three names rather than seven: the page already carries the specific reason per rung
+ * (`itemBlocker`), and this is the honest last word on a stale tab. What it must keep apart is the
+ * refusal admin mode waives (a progress gate) from the one it does not (a statement about reality),
+ * which is exactly the `research_locked` / `already_researched` split.
+ */
+function trackRefusal(base: Base, techId: string): ResearchRefusal | null {
+  const spec = findResearchItem(techId);
+  if (!spec) return 'unknown_research';
+  const refusal = researchItemRefusal(
+    techId,
+    base.research.technologies,
+    chairMarksFor(base, spec.track),
+  );
+  if (refusal === null) return null;
+  return refusal === 'already_known' ? 'already_researched' : 'locked';
+}
+
+/** What this project costs this crew: per rung for §C, off the flat table for the other three. */
+function projectCost(base: Base, project: ResearchProject): PartialResources {
+  if (project.kind !== 'technology') return researchCost(project.kind);
+  const spec = findResearchItem(project.techId);
+  return spec ? priceOf(base, spec) : {};
 }
 
 /**
@@ -109,6 +150,10 @@ function modificationRefusal(base: Base, id: string): ResearchRefusal | null {
       return 'no_modification_slot';
     case 'no_lead_engineer':
       return 'no_lead_engineer';
+    // The crew already holds this drawing. Refused rather than charged: `settleResearch` will not
+    // bank a second copy, so starting it buys an occupied Lab and nothing else.
+    case 'already_drawn':
+      return 'nothing_to_learn';
     // `research_busy` is already refused above as `already_running`, and `cannot_afford` is the
     // shared check below: neither needs a second home here.
     default:
@@ -117,11 +162,33 @@ function modificationRefusal(base: Base, id: string): ResearchRefusal | null {
 }
 
 /**
+ * The catalogue clock with every cut applied.
+ *
+ * §C's rungs take their own duration and the Head of Research's cut from `tracks.ts`; the other
+ * three take the flat table and the same Lab and crew reductions they always did.
+ */
+function projectMinutes(repos: Repositories, input: StartInput): number {
+  const { base, project } = input;
+  if (project.kind === 'technology') {
+    const spec = findResearchItem(project.techId);
+    if (spec) return minutesFor(repos, base, spec);
+  }
+  const kind = project.kind === 'technology' ? 'investigation' : project.kind;
+  return Math.max(
+    1,
+    Math.round(
+      withReduction(RESEARCH_MINUTES[kind], researchTimeReduction(base.buildings)) /
+        speedMultiplier(standingEffectsFor(repos, base).researchSpeedPercent),
+    ),
+  );
+}
+
+/**
  * Charges for the project and starts its clock.
  *
- * `durationMinutes` is copied onto the row here and never re-read from `RESEARCH_MINUTES`, so
- * retuning the catalogue cannot retime a project that is already running: the same freeze
- * `launchMission` applies to a crew already out.
+ * `durationMinutes` is copied onto the row here and never re-read from the catalogue, so retuning
+ * the numbers cannot retime a project that is already running: the same freeze `launchMission`
+ * applies to a crew already out.
  */
 export function startResearch(repos: Repositories, input: StartInput): StartResult {
   const refusal = refusalFor(input);
@@ -135,25 +202,11 @@ export function startResearch(repos: Repositories, input: StartInput): StartResu
     id,
     project,
     startedAt: now.toISOString(),
-    // §A1: the Lab is what makes research quick, and its cut is frozen onto the row with
-    // everything else. Floored at a minute: a project that lands the instant it starts has no
-    // clock, and the whole screen is built around one.
-    // §F2, and the people, on top of the Lab. Analysis reads the failure, Improvisation gets a
-    // result out of the wrong equipment; a crew with neither works at the catalogue rate.
-    durationMinutes: adminMinutes(
-      Math.max(
-        1,
-        Math.round(
-          withReduction(RESEARCH_MINUTES[project.kind], researchTimeReduction(base.buildings)) /
-            speedMultiplier(standingEffectsFor(repos, base).researchSpeedPercent),
-        ),
-      ),
-      admin,
-    ),
+    durationMinutes: adminMinutes(projectMinutes(repos, input), admin),
   };
   const started: Base = {
     ...base,
-    resources: spendResources(base.resources, adminCost(researchCost(project.kind), admin)),
+    resources: spendResources(base.resources, adminCost(projectCost(base, project), admin)),
     research: { ...base.research, active },
   };
 

@@ -1164,9 +1164,9 @@ const CATALOG: Perk[] = [
     flat: 8,
     threshold: 50,
   }),
-  perk('cutters_circle', "Cutter's Circle", 'people', 'Will not waste an evening on a beginner.', {
+  perk('reading_room', 'Reading Room', 'people', 'Will not waste an evening on a beginner.', {
     kind: 'officer_threshold',
-    attribute: 'demolition',
+    attribute: 'encyclopedia',
     flat: 8,
     threshold: 50,
   }),

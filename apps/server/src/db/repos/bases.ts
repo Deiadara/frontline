@@ -7,6 +7,8 @@ import {
   findUnit,
   withoutRetiredUnits,
   findModification,
+  findVehicle,
+  ITEM_CATALOG,
   BaseSchema,
   defaultLoadout,
   BaseSummarySchema,
@@ -293,6 +295,22 @@ function knownBuildings(raw: unknown): unknown {
 }
 
 /**
+ * Keys of a stored map that still name something the catalogue carries.
+ *
+ * `FleetSchema` and `InventorySchema` are `z.partialRecord` over an id enum, so an id the game no
+ * longer has is not a missing bonus: it is `BaseSchema.parse` throwing on the way *out of the
+ * database*, i.e. the account refusing to open and the world tick throwing when it touches that
+ * base. Eight other columns already get this repair; these two did not, and they are also the two
+ * no migration has ever swept, so there was no backstop either.
+ */
+function knownKeys(raw: unknown, known: (id: string) => boolean): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(([id]) => known(id)),
+  );
+}
+
+/**
  * Officers whose chair still exists, each carrying only traits that still exist.
  *
  * Dropping a whole officer is the harshest repair here and it is still the right one: a role that
@@ -340,7 +358,10 @@ function rowToBase(row: BaseRow): Base {
     training: row.training_json === null ? undefined : readJson(row.training_json),
     // Same rule as `training`: an empty column is a district that predates the feature, and the
     // schema's own default is the right answer for it.
-    inventory: row.inventory_json === null ? undefined : readJson(row.inventory_json),
+    inventory:
+      row.inventory_json === null
+        ? undefined
+        : knownKeys(readJson(row.inventory_json), (id) => id in ITEM_CATALOG),
     fittedUpgrades:
       row.fitted_upgrades_json === null ? undefined : readJson(row.fitted_upgrades_json),
     // A district written before slots existed has no column, and the answer for it is not "three
@@ -351,7 +372,10 @@ function rowToBase(row: BaseRow): Base {
       row.unit_loadouts_json === null
         ? loadoutsForPreSlotSave(row.fitted_upgrades_json)
         : readJson(row.unit_loadouts_json),
-    fleet: row.fleet_json === null ? undefined : readJson(row.fleet_json),
+    fleet:
+      row.fleet_json === null
+        ? undefined
+        : knownKeys(readJson(row.fleet_json), (id) => findVehicle(id) !== undefined),
     addons: row.addons_json === null ? undefined : knownAddons(readJson(row.addons_json)),
     createdAt: row.created_at,
   });
@@ -426,8 +450,11 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
   const botByDistrictStmt = db.prepare('SELECT * FROM bases WHERE district_id = ? AND is_bot = 1');
+  // Ordered, because callers ask this for "the crew that lives in district X" and a district holds
+  // more than one. An unordered scan makes that answer depend on the storage engine's mood, so the
+  // map, the battle board and the settler could each name a different crew for the same ground.
   const summariesStmt = db.prepare(
-    'SELECT id, owner_id, name, district_id, level, is_bot FROM bases',
+    'SELECT id, owner_id, name, district_id, level, is_bot FROM bases ORDER BY created_at, id',
   );
   const standingsStmt = db.prepare(
     'SELECT id, owner_id, name, district_id, level, is_bot, economy_json FROM bases',

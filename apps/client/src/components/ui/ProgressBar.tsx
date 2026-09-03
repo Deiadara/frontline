@@ -73,8 +73,15 @@ export function ProgressBar({
             {label}
           </span>
           {/* The number a player is actually waiting on, in the hand face and given the room to be
-              read as a phrase rather than as a field. */}
-          <span className={cn('shrink-0 font-stamp text-[13px] leading-none', TICK[tone])}>
+              read as a phrase rather than as a field.
+              
+              `tabular-nums` because most of what goes here is counting down. In a proportional
+              face `1` is narrower than `0`, so `2m 10s` is a different width from `2m 09s` and the
+              text shuffles left and right once a second for the whole of a build. It costs nothing
+              on the ones that are words: the class only governs digits. */}
+          <span
+            className={cn('shrink-0 font-stamp text-[13px] leading-none tabular-nums', TICK[tone])}
+          >
             {remaining}
           </span>
         </span>

@@ -53,9 +53,7 @@ function seedFreshPlayer(repos: Repositories, username = 'Nikos'): Base {
     economy: startingEconomy(NOW),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [
-      { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
-    ],
+    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0 }],
     buildQueue: [],
     army: {},
     trainingQueue: [],
@@ -146,7 +144,7 @@ describe('UNLOCKED: the end-game sandbox', () => {
     seedFreshPlayer(repos);
     repos.bases.updateDistrict(
       'b1',
-      [{ id: 'n', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 }],
+      [{ id: 'n', kind: 'nexus', level: 1, modifications: [], damage: 0 }],
       [{ id: 'q1', kind: 'quarters', level: 1, startedAt: NOW, durationSeconds: 60 }],
     );
 

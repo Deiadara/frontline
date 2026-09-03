@@ -47,9 +47,7 @@ describe('the stockpile ceiling', () => {
    */
   it('rises with the Apothecary, which is the whole point of the structure', () => {
     const at = (level: number) =>
-      storageCapacity([
-        { id: 'a', kind: 'apothecary', level, modifications: [], damage: 0, fortification: 0 },
-      ]);
+      storageCapacity([{ id: 'a', kind: 'apothecary', level, modifications: [], damage: 0 }]);
     expect(at(1)).toBeGreaterThan(at(0));
     expect(at(10)).toBeGreaterThan(at(5));
     // Compounding, not linear: the late levels have to be worth their price.

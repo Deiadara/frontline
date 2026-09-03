@@ -59,7 +59,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
       toughness: 30,
       organization: 28,
       strength: 27,
-      hacking: 6,
+      signals: 6,
       cybernetics: 8,
       intuition: 9,
     }),
@@ -72,7 +72,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     portraitId: 'overseer-2',
     bio: 'Legendary intrusion specialist who once blacked out three arcology grids in a single night. Wars are won in the datastream before a shot is fired.',
     attributes: makeAttributes(15, {
-      hacking: 36,
+      signals: 36,
       cybernetics: 30,
       analysis: 29,
       stealth: 26,
@@ -107,8 +107,9 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     bio: 'Former arcology infrastructure director who believes the city is a machine that can be repaired, by force if necessary. Builds faster than anyone can destroy.',
     attributes: makeAttributes(15, {
       engineering: 35,
-      fabrication: 30,
+      craft: 30,
       intuition: 29,
+      encyclopedia: 28,
       logistics: 27,
       analysis: 26,
       intimidation: 7,

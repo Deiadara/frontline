@@ -1,6 +1,6 @@
 import { BUILDING_KINDS } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
-import { adminGame, lateGame } from './fixtures';
+import { adminGame, lateGame, me } from './fixtures';
 import {
   expectNoImagesClipped,
   expectNothingClippedVertically,
@@ -335,5 +335,60 @@ test.describe('the ambience layer', () => {
       // Scoped to the ambience layer itself: the backdrop it sits over is over-scaled by design.
       await expectNoImagesClipped(page, '[data-testid="ambience"]');
     }
+  });
+});
+
+/**
+ * The two writes whose fixture answered with the wrong shape.
+ *
+ * `POST /base/boost` returns `{ base, paid }` and `POST /scrapyard/build` returns
+ * `{ scrapyard, base }`. The harness answered `{ base }` and `{ scrapyard }`, so `apiFetch`'s
+ * `schema.parse` threw and both mutations always errored. Every test that pressed the button and
+ * then asserted nothing passed happily against a purchase that never happened, and no test asserted
+ * anything: this is that missing assertion, for both.
+ *
+ * The shape of the check is the point. It is not "the button exists", it is "pressing it does not
+ * put an error on the screen", because a rejected mutation is exactly what the broken fixture
+ * produced and exactly what nothing was looking for.
+ */
+test.describe('a write whose response shape the fixture has to get right', () => {
+  test('buying the build boost lands instead of erroring', async ({ page }) => {
+    // `lateGame`, because the burn is priced per Generator level and the opening crew cannot afford
+    // it: a disabled button proves nothing about the response shape.
+    await installApi(page, lateGame);
+    await page.goto('/game/base');
+    // The burn is sold on the Generator (§B4), which is where the tanks are.
+    await page.getByTestId('plot-generator').click();
+
+    const buy = page.getByTestId('build-boost-buy');
+    await expect(buy).toBeVisible();
+    await expect(page.getByTestId('build-boost-remaining')).toHaveCount(0);
+    await buy.click();
+
+    /*
+     * Asserted on what a *success* looks like, not on the absence of a failure.
+     *
+     * The first version of this checked `getByRole('alert')).toHaveCount(0)` straight after the
+     * click, which passes at t=0 and is therefore green before the error has had time to render:
+     * it survived the broken fixture it was written to catch. The countdown only appears when the
+     * write came back and parsed, so waiting for it cannot pass early.
+     */
+    await expect(page.getByTestId('build-boost-remaining')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('building a scrapyard add-on lands instead of erroring', async ({ page }) => {
+    await installApi(page, me);
+    await page.goto('/game/scrapyard');
+    await expect(page.getByTestId('scrapyard-nexus')).toBeVisible();
+
+    const build = page.locator('[data-testid^="addon-build-"]').first();
+    await expect(build, 'the fixture offers no add-on to build').toBeVisible();
+    await build.click();
+
+    // Same rule as above: wait for the write to have come back before asking whether it failed.
+    // `disabled` while it is in flight, enabled again once the response has parsed.
+    await expect(build).toBeEnabled({ timeout: 5_000 });
+    await expect(page.getByRole('alert')).toHaveCount(0);
   });
 });

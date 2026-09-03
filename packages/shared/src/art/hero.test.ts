@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CITY_DISTRICTS } from '../city/index.js';
 import { OVERSEER_PRESETS } from '../overseer.js';
+import { VEHICLE_IDS } from '../building/vehicles.js';
 import { ART_MANIFEST, type AssetSpec } from './manifest.js';
 import {
   CHATGPT_BASELINE_SIZES,
@@ -12,19 +13,31 @@ import {
 
 describe('the hero set', () => {
   /**
-   * The number the board is given as a single instruction ("do these fourteen"). It is derived, so
-   * this pins the derivation: adding a district must move it, and adding an alpha asset must not.
+   * The list the board is given as a single instruction. It is derived, so this pins the
+   * derivation: adding a district must move it, and adding an alpha asset must not.
+   *
+   * The eight machines joined it when §C1's vehicles stopped being drafted as icons. That is the
+   * derivation working rather than a hole in it: a vehicle is opaque, square, 1024², and needs no
+   * matte or downscale, so the board can drop a plain download straight into `assets/` and the
+   * game shows exactly what they looked at. `vehicle-motorcycle` went in that way, untouched.
    */
-  it('is exactly the 4 overseer portraits and the 10 district illustrations', () => {
-    expect(HERO_ASSETS).toHaveLength(OVERSEER_PRESETS.length + CITY_DISTRICTS.length);
+  it('is the overseer portraits, the district illustrations and the machines', () => {
+    expect(HERO_ASSETS).toHaveLength(
+      OVERSEER_PRESETS.length + CITY_DISTRICTS.length + VEHICLE_IDS.length,
+    );
     expect(HERO_ASSET_KEYS).toEqual([
       ...OVERSEER_PRESETS.map((preset) => `portrait-${preset.portraitId}`),
       ...CITY_DISTRICTS.map((district) => `district-${district.id}`),
+      ...VEHICLE_IDS.map((id) => `vehicle-${id.replaceAll('_', '-')}`),
     ]);
   });
 
-  it('holds only portraits and districts, in manifest order', () => {
-    expect([...new Set(HERO_ASSETS.map((spec) => spec.class))]).toEqual(['portrait', 'district']);
+  it('holds only portraits, districts and machines, in manifest order', () => {
+    expect([...new Set(HERO_ASSETS.map((spec) => spec.class))]).toEqual([
+      'portrait',
+      'district',
+      'vehicle',
+    ]);
     expect(HERO_ASSET_KEYS).toEqual(ART_MANIFEST.filter(isHeroAsset).map((spec) => spec.key));
   });
 

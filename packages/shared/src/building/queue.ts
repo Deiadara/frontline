@@ -108,7 +108,6 @@ export function projectedBuildings(buildings: readonly Building[], queue: BuildQ
         level: entry.level,
         modifications: [],
         damage: 0,
-        fortification: 0,
       });
     }
   }
@@ -186,7 +185,6 @@ export function applyQueueEntry(
         level: entry.level,
         modifications: [],
         damage: 0,
-        fortification: 0,
       },
     ];
   }

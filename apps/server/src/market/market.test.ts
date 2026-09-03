@@ -1,8 +1,13 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
+  type UnitsResponse,
   BARTER_RATE,
-  ITEM_CATALOG,
   UNIT_UPGRADES,
   marketDay,
+  instantAtHourInZone,
+  OFFER_LIFETIME_HOURS,
   vendorSessionsFor,
   vendorStockFor,
   type ItemId,
@@ -11,11 +16,11 @@ import {
   type WorkshopResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { projectMarket } from './board.js';
+import { acceptOffer, buyFromVendor, projectMarket } from './board.js';
 
 /**
  * The market and the workshop, end to end over HTTP.
@@ -25,7 +30,7 @@ import { projectMarket } from './board.js';
  * home. A trade is the one place in this game where a bug takes something off a player that they
  * cannot get back, so every assertion below is about a stockpile before and after.
  *
- * The Runner's hours are derived from the UTC date, so a test that goes over HTTP cannot decide
+ * The Runner's hours are derived from the game date, so a test that goes over HTTP cannot decide
  * whether he is in: it gets whatever hour the suite happens to run at. Anything that needs him
  * open, or needs him shut, calls `projectMarket` with an explicit `now` instead. That is the same
  * function the route calls, one layer down, and it is the layer the hours actually live in: see
@@ -36,7 +41,7 @@ import { projectMarket } from './board.js';
 function anOpenMoment(day = marketDay(new Date())): Date {
   const session = vendorSessionsFor(day)[0];
   if (!session) throw new Error('fixture error: the Runner keeps no hours today');
-  return new Date(`${day}T${String(session.startHour).padStart(2, '0')}:30:00.000Z`);
+  return new Date(instantAtHourInZone(day, session.startHour).getTime() + 30 * 60_000);
 }
 
 function aShutMoment(day = marketDay(new Date())): Date {
@@ -47,7 +52,7 @@ function aShutMoment(day = marketDay(new Date())): Date {
   );
   const free = Array.from({ length: 24 }, (_, hour) => hour).find((hour) => !hours.has(hour));
   if (free === undefined) throw new Error('fixture error: the Runner never leaves today');
-  return new Date(`${day}T${String(free).padStart(2, '0')}:30:00.000Z`);
+  return new Date(instantAtHourInZone(day, free).getTime() + 30 * 60_000);
 }
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -425,10 +430,7 @@ describe('the workshop, over HTTP', () => {
     // A Gauntlet high enough for the whole first tier, and the money to pay for it.
     app.repos.bases.updateDistrict(
       base.id,
-      [
-        ...base.buildings,
-        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0, fortification: 0 },
-      ],
+      [...base.buildings, { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 }],
       [],
     );
     stock(
@@ -541,14 +543,15 @@ describe('the workshop, over HTTP', () => {
       payload: { upgradeId: 'armour_2' },
     });
     expect(without.statusCode).toBe(409);
+    // §D12g: the document out of `blueprints/catalog.ts`, named, not the retired flat item.
     expect(without.json<{ error: { message: string } }>().error.message).toContain(
-      ITEM_CATALOG.blueprint_composite_armour.name,
+      'Composite Armour Blueprint',
     );
 
     const base = baseOf(app, 'smith');
     app.repos.bases.updateHoldings(base.id, base.resources, {
       ...base.inventory,
-      blueprint_composite_armour: 1,
+      bp_composite_armour: 1,
     });
 
     const withOne = await app.inject({
@@ -580,5 +583,270 @@ describe('the barrow is the same for the whole city', () => {
     expect(first.vendor.stock.map((offer) => offer.line.item)).toEqual(
       vendorStockFor(marketDay(new Date())).map((line) => line.item),
     );
+  });
+});
+
+/**
+ * §D5c: a modification is one object, it goes on one unit, and it does not come off (board rule).
+ *
+ * Three rules, and each one closes a hole the old model left open. Before this a single Scrap
+ * Plate could be bolted to every unit type in the game at once, and un-bolted for free, which made
+ * the three brackets a loadout screen a player re-arranges before every fight rather than a
+ * decision they live with.
+ */
+describe('one of a thing is one of a thing (§D5c)', () => {
+  /** A crew with a Gauntlet, money, and the parts to build a modification. */
+  async function armed(): Promise<{ app: FastifyInstance; token: string }> {
+    const app = await makeApp();
+    const token = await signIn(app, 'plater');
+    const base = baseOf(app, 'plater');
+    app.repos.bases.updateDistrict(
+      base.id,
+      [...base.buildings, { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 }],
+      [],
+    );
+    stock(
+      app,
+      'plater',
+      { scrap: 99_999, caps: 99_999, highQualityMetal: 9_999, oil: 9_999 },
+      { scrap_servo: 20, ceramic_plate: 20, optic_cluster: 20, neural_shunt: 20, coolant_cell: 20 },
+    );
+    return { app, token };
+  }
+
+  async function withPlate(): Promise<{ app: FastifyInstance; token: string }> {
+    const { app, token } = await armed();
+    await app.inject({
+      method: 'POST',
+      url: '/api/workshop/fit',
+      headers: auth(token),
+      payload: { upgradeId: 'weapons_1' },
+    });
+    return { app, token };
+  }
+
+  const fit = (app: FastifyInstance, token: string, unitId: string, slot = 0) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/units/loadout',
+      headers: auth(token),
+      payload: { unitId, slot, upgradeId: 'weapons_1' },
+    });
+
+  it('will not put the same one on a second unit', async () => {
+    const { app, token } = await withPlate();
+    const first = await fit(app, token, 'razors');
+    expect(first.statusCode, first.body).toBe(200);
+
+    const second = await fit(app, token, 'sparks');
+    expect(second.statusCode).toBe(409);
+    expect(second.body).toContain('already bolted');
+  });
+
+  it('will not drop one into a bracket that is taken', async () => {
+    const { app, token } = await withPlate();
+    await app.inject({
+      method: 'POST',
+      url: '/api/workshop/fit',
+      headers: auth(token),
+      payload: { upgradeId: 'armour_1' },
+    });
+    expect((await fit(app, token, 'razors', 0)).statusCode).toBe(200);
+
+    const over = await app.inject({
+      method: 'POST',
+      url: '/api/units/loadout',
+      headers: auth(token),
+      payload: { unitId: 'razors', slot: 0, upgradeId: 'armour_1' },
+    });
+    expect(over.statusCode).toBe(409);
+    expect(over.body).toContain('Burn it first');
+  });
+
+  /**
+   * Burning is the only way off, and it destroys the thing.
+   *
+   * Asserted on the *stock* as well as on the bracket, because leaving it in `fittedUpgrades`
+   * would be the free un-fit this replaces wearing a different name: burn it off the Razors, bolt
+   * the same one to the Sparks, nothing spent.
+   */
+  it('burns one off the roster and out of the crew stock', async () => {
+    const { app, token } = await withPlate();
+    await fit(app, token, 'razors');
+
+    const burnt = await app.inject({
+      method: 'POST',
+      url: '/api/units/burn',
+      headers: auth(token),
+      payload: { upgradeId: 'weapons_1' },
+    });
+    expect(burnt.statusCode, burnt.body).toBe(200);
+
+    const after = burnt.json<UnitsResponse>();
+    expect(after.built.map((entry) => entry.id)).not.toContain('weapons_1');
+    const razors = after.units.find((unit) => unit.id === 'razors');
+    expect(razors?.slots.every((slot) => slot.upgradeId !== 'weapons_1')).toBe(true);
+
+    // And it cannot simply be re-fitted: it has to be built again first.
+    expect((await fit(app, token, 'sparks')).statusCode).toBe(409);
+  });
+
+  it('refuses a burn of something that is not bolted to anything', async () => {
+    const { app, token } = await withPlate();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/units/burn',
+      headers: auth(token),
+      payload: { upgradeId: 'weapons_1' },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  /** The payload tells the picker where each one is, so a dead control and a 409 agree. */
+  it('says on the roster which unit each built modification is bolted to', async () => {
+    const { app, token } = await withPlate();
+    await fit(app, token, 'razors');
+
+    const res = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
+    const plate = res.json<UnitsResponse>().built.find((entry) => entry.id === 'weapons_1');
+    expect(plate?.fittedTo).toBe('razors');
+    expect(plate?.fittedToName).toBeTruthy();
+  });
+});
+
+/**
+ * A sold-out line stays sold out across a restart.
+ *
+ * The city's counter was a module-level `Map`, so it lived exactly as long as the process. A
+ * restart, a crash or a deploy put every sold-out line back on the barrow inside the same UTC day,
+ * which turns a blueprint the catalogue rations to `stock: 1` into one that anybody can have: the
+ * exploit is "wait for a deploy". Two app instances over one database file is the smallest thing
+ * that can tell the difference, because an in-memory database dies with the process it is testing.
+ */
+describe('what the city has already bought', () => {
+  it('survives the server being restarted', async () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), 'frontline-market-')), 'world.sqlite');
+    const day = marketDay(new Date());
+    const open = anOpenMoment(day);
+
+    // A line the catalogue rations, so buying it out is buying out the whole city's supply.
+    const rationed = vendorStockFor(day).find((line) => line.stock <= 2);
+    if (!rationed) throw new Error('fixture error: the Runner rations nothing today');
+
+    const boot = async () => {
+      const config = loadConfig({ DATABASE_PATH: file, JWT_SECRET: 'test-secret' });
+      const db = openDatabase(config.databasePath);
+      runMigrations(db);
+      const app = await buildApp({ config, db, logger: false });
+      return { app, db };
+    };
+
+    const first = await boot();
+    const token = await signIn(first.app, 'restarts');
+    const me = await first.app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    const base = first.app.repos.bases.findById(me.json<{ base: { id: string } }>().base.id)!;
+    // Caps enough that affording it is never the reason a purchase is refused.
+    first.app.repos.bases.updateResources(base.id, { ...base.resources, caps: 1_000_000 });
+
+    const bought = buyFromVendor(
+      first.app.repos,
+      first.app.repos.bases.findById(base.id)!,
+      rationed.id,
+      rationed.stock,
+      open,
+    );
+    expect(bought.kind, 'the fixture could not buy the line out').toBe('done');
+    // Sold out for this process, which is the part that always worked.
+    expect(
+      buyFromVendor(first.app.repos, first.app.repos.bases.findById(base.id)!, rationed.id, 1, open)
+        .kind,
+    ).toBe('refused');
+
+    await first.app.close();
+    first.db.close();
+
+    /*
+     * Same day, same database, new *process*.
+     *
+     * `vi.resetModules()` is what makes that claim honest. Two `buildApp` calls in one test process
+     * share module-level state, so a counter kept in a `Map` would survive a plain second boot and
+     * the test would pass against the very bug it exists to catch: it did, until this line. A fresh
+     * module registry is the closest thing in-process to the restart that actually loses it.
+     */
+    vi.resetModules();
+    const { buyFromVendor: afterRestart } = await import('./board.js');
+
+    const second = await boot();
+    try {
+      const after = afterRestart(
+        second.app.repos,
+        second.app.repos.bases.findById(base.id)!,
+        rationed.id,
+        1,
+        open,
+      );
+      expect(after, 'a restart put the sold-out line back on the barrow').toMatchObject({
+        kind: 'refused',
+        reason: 'sold_out',
+      });
+    } finally {
+      await second.app.close();
+      second.db.close();
+      rmSync(path.dirname(file), { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * A listing past its 48 hours does not trade, even if nobody has swept it.
+ *
+ * Expiry was applied only in `sweepExpiredOffers`, which runs on `GET /market`. On a board nobody
+ * has loaded, that means nothing expires: a stale page could settle a listing days out of date, and
+ * the seller's escrow went with it. The sweep is a tidy-up; the rule belongs where the goods move.
+ */
+describe('an offer that has stood too long', () => {
+  it('cannot be accepted, even when nothing has swept it', async () => {
+    const app = await makeApp();
+    const sellerToken = await signIn(app, 'seller');
+    const buyerToken = await signIn(app, 'buyer');
+
+    const listed = await app.inject({
+      method: 'POST',
+      url: '/api/market/offer',
+      headers: auth(sellerToken),
+      payload: {
+        give: { resources: { scrap: 10 }, items: {} },
+        want: { resources: { caps: 10 }, items: {} },
+      },
+    });
+    expect(listed.statusCode, listed.body.slice(0, 200)).toBe(200);
+    const offerId = app.repos.market.listByStatus('open')[0]!.id;
+
+    // Still fresh: it trades. Without this the assertion below passes against an offer that was
+    // never acceptable for some entirely different reason.
+    const buyer = () => {
+      const id = app.repos.bases.listSummaries().find((b) => b.name.includes('buyer'))?.id;
+      return app.repos.bases.findById(id!)!;
+    };
+    expect(acceptOffer(app.repos, buyer(), offerId, new Date()).kind).toBe('done');
+
+    // A second listing, and this time the clock has run out on it.
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/market/offer',
+      headers: auth(sellerToken),
+      payload: {
+        give: { resources: { scrap: 10 }, items: {} },
+        want: { resources: { caps: 10 }, items: {} },
+      },
+    });
+    expect(again.statusCode).toBe(200);
+    const stale = app.repos.market.listByStatus('open')[0]!;
+    const wellPast = new Date(Date.parse(stale.createdAt) + (OFFER_LIFETIME_HOURS + 1) * 3_600_000);
+
+    expect(acceptOffer(app.repos, buyer(), stale.id, wellPast)).toMatchObject({
+      kind: 'refused',
+    });
+    void buyerToken;
   });
 });

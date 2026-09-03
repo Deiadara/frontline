@@ -10,6 +10,7 @@ import {
 } from '@frontline/shared';
 import { Link } from 'react-router-dom';
 import { HoverCard } from '../../components/ui/HoverCard';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { useMarket } from '../../lib/queries';
@@ -34,11 +35,12 @@ export function InventoryPage() {
   const data = query.data;
   if (!data) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Turning out the satchel…
-        </p>
-      </div>
+      <ScreenLoad
+        what="Your satchel"
+        loading="Turning out the satchel…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 
@@ -57,8 +59,10 @@ export function InventoryPage() {
         </InfoNote>
       )}
 
+      <BlueprintsLink pages={held.filter(([id]) => ITEM_CATALOG[id].kind === 'page').length} />
+
       <div className="grid items-start gap-5 xl:grid-cols-3">
-        {ITEM_KINDS.map((kind) => (
+        {SATCHEL_KINDS.map((kind) => (
           <KindPanel
             key={kind}
             kind={kind}
@@ -70,8 +74,38 @@ export function InventoryPage() {
   );
 }
 
+/**
+ * Pages are not listed here, and that is the point of the Blueprints page.
+ *
+ * A page on its own means nothing: what a player wants to know is which document it belongs to and
+ * how many of that document's pages are still out there, which is a row of squares rather than a
+ * satchel line. Listing them twice would also make the satchel mostly pages by the mid game.
+ */
+const SATCHEL_KINDS = ITEM_KINDS.filter((kind) => kind !== 'page');
+
+/** The door to §D4, with the count that says whether it is worth opening today. */
+function BlueprintsLink({ pages }: { pages: number }) {
+  return (
+    <Link
+      to="/game/inventory/blueprints"
+      className="flex items-center justify-between gap-3 rounded-sm border border-surface-600 bg-surface-800/70 px-4 py-3 transition-colors hover:border-brass-500/70"
+    >
+      <span className="min-w-0">
+        <span className="block font-display text-[14px] font-bold text-brass-300">Blueprints</span>
+        <span className="block font-body text-[13px] leading-snug text-ink-300">
+          Pages you are holding, and what they add up to.
+        </span>
+      </span>
+      <span className="shrink-0 font-display text-[12px] uppercase tracking-[0.14em] tabular-nums text-ink-200">
+        {pages === 0 ? 'no pages' : `${pages} ${pages === 1 ? 'page' : 'pages'}`}
+      </span>
+    </Link>
+  );
+}
+
 const EMPTY_COPY: Record<ItemKind, string> = {
   blueprint: 'No blueprints. Everything past the first tier of the workshop is waiting on one.',
+  page: 'No pages. They belong on the Blueprints page rather than in here.',
   component: 'No parts. The Runner carries them, and so does anything you pull apart.',
   relic: 'Nothing worth selling on. That is not the worst problem to have.',
 };
@@ -108,7 +142,11 @@ function KindPanel({ kind, entries }: { kind: ItemKind; entries: [ItemId, number
                     </span>
                     <span className="block font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
                       {ITEM_RARITY_LABELS[ITEM_CATALOG[id].rarity]} ·{' '}
-                      {ITEM_CATALOG[id].capsValue.toLocaleString()} caps each
+                      {/* A price on a thing nobody will buy is a lie. An unlocked blueprint is
+                          knowledge somebody has, and it is the one untradeable kind in here. */}
+                      {ITEM_CATALOG[id].tradeable
+                        ? `${ITEM_CATALOG[id].capsValue.toLocaleString()} caps each`
+                        : 'not for sale'}
                     </span>
                   </span>
                   <span

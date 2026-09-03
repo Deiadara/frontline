@@ -60,6 +60,18 @@ export interface FleeContext {
   lastRound: number;
   /** Whether the losing side was the one that came here. */
   away: boolean;
+  /**
+   * A multiplier on the finished chance, for a withdrawal that is harder than an ordinary one.
+   *
+   * 1, or absent, is a normal break from a lost fight. The ring uses
+   * {@link PERIMETER_FLEE_PENALTY}: getting past a line that is standing there *for* you is not the
+   * same problem as walking away from a fight that has stopped paying attention to you.
+   *
+   * Applied after the clamp rather than inside it, so the floor and the ceiling scale with it. That
+   * keeps both ends of the guarantee: at any hardship above zero nobody is certain to get away and
+   * nobody is doomed, which is the property the clamp exists for.
+   */
+  hardship?: number;
 }
 
 export function fleeChance(stack: Stack, context: FleeContext): number {
@@ -68,7 +80,7 @@ export function fleeChance(stack: Stack, context: FleeContext): number {
   const brokeAt = stack.brokeAt ?? context.lastRound;
   const early = context.lastRound <= 1 ? 0 : 1 - (brokeAt - 1) / Math.max(1, context.lastRound - 1);
 
-  return clamp(
+  const ordinary = clamp(
     BASE_FLEE_CHANCE +
       SPEED_ESCAPE_WEIGHT * speedEdge +
       STEALTH_ESCAPE_WEIGHT * stealth +
@@ -78,6 +90,7 @@ export function fleeChance(stack: Stack, context: FleeContext): number {
     MIN_FLEE_CHANCE,
     MAX_FLEE_CHANCE,
   );
+  return ordinary * (context.hardship ?? 1);
 }
 
 /**

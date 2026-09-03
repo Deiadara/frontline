@@ -1,4 +1,7 @@
 import {
+  BUILD_BOOST_PERCENT,
+  BUILD_BOOST_MS,
+  BUILDING_MAX_LEVEL,
   CAPTURED_GATE_MAX_LEVEL,
   CAPTURED_GATE_START_LEVEL,
   CITY_DISTRICTS,
@@ -9,6 +12,8 @@ import {
   capturedGateDefensePercent,
   capturedGateIntelResistancePercent,
   capturedGateSeconds,
+  GATE_BREACH_HOURS,
+  breachExpiry,
   findDistrict,
   startingEconomy,
   startingProgression,
@@ -25,6 +30,7 @@ import {
   gateFor,
   holdsDistrictWhole,
   raiseCapturedGate,
+  resetGateOnDistrictLost,
   settleCapturedGates,
 } from './gates.js';
 import { cityContextFor } from './view.js';
@@ -208,6 +214,10 @@ describe('raising one', () => {
       kind: 'refused',
       reason: 'at_ceiling',
     });
+    // The same ceiling a Gate at home reaches, which is the board's rule that any gate you fully
+    // hold goes to the same place. Pinned against the structure ceiling rather than against 20, so
+    // moving one moves both.
+    expect(CAPTURED_GATE_MAX_LEVEL).toBe(BUILDING_MAX_LEVEL);
     expect(CAPTURED_GATE_MAX_LEVEL).toBe(20);
   });
 });
@@ -268,6 +278,140 @@ describe('the gate belongs to the ground', () => {
  * this whole area has shipped twice: the home Gate's own defence sat unread until integration, and
  * `officerGroupFlat` sat unread for eight perks.
  */
+/**
+ * §A4: a gate that is down is a gate the holder can still lose (board request).
+ *
+ * A breach opens the district for {@link GATE_BREACH_HOURS} hours. If the holder loses a single
+ * location inside it while that window is open, they no longer hold the district outright and the
+ * wall goes back to level 1: whatever they had raised it to is gone with the ground.
+ *
+ * The negative half is the rule. Losing a location behind a gate that is *standing* takes nothing
+ * off the gate, because a gate belongs to the ground and passes to whoever holds it next. Without
+ * that arm this is a reset with no condition on it.
+ */
+describe('losing a district while the gate is down', () => {
+  /** Puts this district's gate at `level`, as if the holder had raised it there. */
+  function raisedTo(repos: Repositories, districtId: string, level: number): void {
+    repos.capturedGates.put({ districtId, level, upgradingTo: null, upgradingUntil: null });
+  }
+
+  /** Takes one location off the holder, the way a lost fight does. */
+  function loseOne(repos: Repositories, districtId: string): void {
+    const first = findDistrict(districtId)!.locations[0]!;
+    const control = repos.city.control(first.id)!;
+    repos.city.put({ ...control, holder: { kind: 'looters' }, garrison: {} });
+  }
+
+  function brokenSince(repos: Repositories, districtId: string, at: string): void {
+    repos.sieges.breakGate(districtId, breachExpiry(new Date(at)));
+  }
+
+  it('drops the gate to level 1 and takes the district with it', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    raisedTo(repos, DISTRICT.id, 7);
+    brokenSince(repos, DISTRICT.id, HOUR);
+
+    const heldWholeBefore = holdsDistrictWhole(repos, base.id, DISTRICT.id);
+    expect(heldWholeBefore).toBe(true);
+    loseOne(repos, DISTRICT.id);
+
+    const reset = resetGateOnDistrictLost(repos, {
+      districtId: DISTRICT.id,
+      holderBaseId: base.id,
+      heldWholeBefore,
+      now: new Date(HOUR),
+    });
+
+    expect(reset).toBe(true);
+    expect(gateFor(repos, DISTRICT.id).level).toBe(CAPTURED_GATE_START_LEVEL);
+    expect(holdsDistrictWhole(repos, base.id, DISTRICT.id)).toBe(false);
+    expect(districtsHeldWhole(repos, base.id)).not.toContain(DISTRICT.id);
+  });
+
+  it('abandons whatever was being raised on it', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    raisedTo(repos, DISTRICT.id, 7);
+    raiseCapturedGate(repos, base, DISTRICT.id, new Date(HOUR));
+    brokenSince(repos, DISTRICT.id, HOUR);
+
+    const heldWholeBefore = holdsDistrictWhole(repos, base.id, DISTRICT.id);
+    loseOne(repos, DISTRICT.id);
+    resetGateOnDistrictLost(repos, {
+      districtId: DISTRICT.id,
+      holderBaseId: base.id,
+      heldWholeBefore,
+      now: new Date(HOUR),
+    });
+
+    const gate = gateFor(repos, DISTRICT.id);
+    expect(gate.level).toBe(CAPTURED_GATE_START_LEVEL);
+    expect(gate.upgradingTo).toBeNull();
+    expect(gate.upgradingUntil).toBeNull();
+  });
+
+  it('takes nothing off a gate that is standing', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    raisedTo(repos, DISTRICT.id, 7);
+
+    const heldWholeBefore = holdsDistrictWhole(repos, base.id, DISTRICT.id);
+    loseOne(repos, DISTRICT.id);
+
+    const reset = resetGateOnDistrictLost(repos, {
+      districtId: DISTRICT.id,
+      holderBaseId: base.id,
+      heldWholeBefore,
+      now: new Date(HOUR),
+    });
+
+    expect(reset).toBe(false);
+    expect(gateFor(repos, DISTRICT.id).level).toBe(7);
+  });
+
+  /** And nothing at all once the breach has run out: the door is back on its hinges. */
+  it('takes nothing off once the breach has expired', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    raisedTo(repos, DISTRICT.id, 7);
+    brokenSince(repos, DISTRICT.id, HOUR);
+
+    const heldWholeBefore = holdsDistrictWhole(repos, base.id, DISTRICT.id);
+    loseOne(repos, DISTRICT.id);
+    const after = new Date(Date.parse(HOUR) + (GATE_BREACH_HOURS + 1) * 3_600_000);
+
+    expect(
+      resetGateOnDistrictLost(repos, {
+        districtId: DISTRICT.id,
+        holderBaseId: base.id,
+        heldWholeBefore,
+        now: after,
+      }),
+    ).toBe(false);
+    expect(gateFor(repos, DISTRICT.id).level).toBe(7);
+  });
+
+  /** A district that was already split has nothing to lose: the holder had not held it whole. */
+  it('takes nothing off a district the crew did not hold outright', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    raisedTo(repos, DISTRICT.id, 7);
+    brokenSince(repos, DISTRICT.id, HOUR);
+    loseOne(repos, DISTRICT.id);
+
+    expect(
+      resetGateOnDistrictLost(repos, {
+        districtId: DISTRICT.id,
+        holderBaseId: base.id,
+        heldWholeBefore: false,
+        now: new Date(HOUR),
+      }),
+    ).toBe(false);
+    expect(gateFor(repos, DISTRICT.id).level).toBe(7);
+  });
+});
+
 describe('what a captured gate changes', () => {
   it('makes the district it stands on harder to read', () => {
     const { repos, base } = stack();
@@ -318,5 +462,58 @@ describe('what a captured gate changes', () => {
     });
 
     expect(cityContextFor(repos, base).gateBlurOn(DISTRICT.id, 'b2')).toBe(0);
+  });
+});
+
+/**
+ * §B4: the Generator's burn reaches a captured gate (board request).
+ *
+ * The burn promises "all building upgrades", and a captured gate is one: same cost curve, same
+ * clock, same work. It is not in the district's `buildQueue` though, which is the only thing
+ * `boostedQueue` re-times, so without reading the burn here the promise would quietly have meant
+ * "all upgrades except the ones on ground you took".
+ */
+describe('the build burn and a captured gate', () => {
+  it('shortens the clock on a gate ordered while it runs', () => {
+    const plain = stack();
+    takeWhole(plain.repos, plain.base.id, DISTRICT.id);
+    const normal = raiseCapturedGate(plain.repos, plain.base, DISTRICT.id, new Date(HOUR));
+    if (normal.kind !== 'started') throw new Error('expected a start');
+
+    const burning = stack();
+    takeWhole(burning.repos, burning.base.id, DISTRICT.id);
+    const boosted = raiseCapturedGate(
+      burning.repos,
+      {
+        ...burning.base,
+        economy: {
+          ...burning.base.economy,
+          buildBoostUntil: new Date(Date.parse(HOUR) + BUILD_BOOST_MS).toISOString(),
+        },
+      },
+      DISTRICT.id,
+      new Date(HOUR),
+    );
+    if (boosted.kind !== 'started') throw new Error('expected a start');
+
+    const plainMs = Date.parse(normal.gate.upgradingUntil!) - Date.parse(HOUR);
+    const burntMs = Date.parse(boosted.gate.upgradingUntil!) - Date.parse(HOUR);
+    expect(burntMs).toBeLessThan(plainMs);
+    // Exactly the burn's percentage, so the gate and the queue are cut by the same knife.
+    // Rounded to whole seconds by the order, so compare in seconds rather than milliseconds.
+    expect(Math.round(burntMs / 1000)).toBe(
+      Math.round((plainMs / 1000) * (1 - BUILD_BOOST_PERCENT / 100)),
+    );
+  });
+
+  it('leaves the clock alone when no burn is running', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    const started = raiseCapturedGate(repos, base, DISTRICT.id, new Date(HOUR));
+    if (started.kind !== 'started') throw new Error('expected a start');
+
+    expect(Date.parse(started.gate.upgradingUntil!) - Date.parse(HOUR)).toBe(
+      capturedGateSeconds(2) * 1000,
+    );
   });
 });

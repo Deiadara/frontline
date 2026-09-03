@@ -158,6 +158,8 @@ export function NegotiationDialog({
   // Their patience at the start, as far as this window can know it: what is left plus what has
   // been spent. Enough for a bar, and it never claims a maximum the model did not hand over.
   const patienceFloor = Math.max(patienceLeft + state.rounds, 1);
+  /** Closed on a handshake rather than on a walk-out: the one state with nothing left to time. */
+  const signed = state.closed && state.mood !== 'walked';
 
   const send = (): void => {
     if (state.closed || !affordable || negotiateTurn.isPending) return;
@@ -280,13 +282,24 @@ export function NegotiationDialog({
       </div>
 
       <footer className="flex shrink-0 flex-col gap-3 border-t border-surface-700 px-5 py-4">
-        <ProgressBar
-          progress={patienceLeft / patienceFloor}
-          label={`How much longer ${recruit.name} will sit here`}
-          remaining={tone.word}
-          tone={patienceLeft <= 1 ? 'oxblood' : patienceLeft <= 2 ? 'brass' : 'verdigris'}
-          size="md"
-        />
+        {/*
+         * The meter goes away the moment they sign (board request).
+         *
+         * It measures one thing: how much longer they will sit here arguing. Once they have said
+         * yes there is nothing left to measure, and leaving a part-full bar under "They said yes"
+         * read as though the clock were still running on the offer: players hurried the role
+         * picker, or closed the window, thinking the deal could still expire. It cannot. Their
+         * walking out still ends on an empty bar, because there the number is the reason.
+         */}
+        {signed ? null : (
+          <ProgressBar
+            progress={patienceLeft / patienceFloor}
+            label={`How much longer ${recruit.name} will sit here`}
+            remaining={tone.word}
+            tone={patienceLeft <= 1 ? 'oxblood' : patienceLeft <= 2 ? 'brass' : 'verdigris'}
+            size="md"
+          />
+        )}
 
         {state.closed && state.mood === 'walked' ? (
           <div className="flex items-center justify-between gap-3">

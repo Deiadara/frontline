@@ -958,14 +958,16 @@ a single continuous painted illustration, not a tiled texture. No focal subject.
 and the readable action sits on top of it.
 ```
 
-| Key               | Seed     | Alpha                   |
-| ----------------- | -------- | ----------------------- |
-| `plate-city`      | `130001` | opaque                  |
-| `plane-city-sky`  | `130002` | opaque                  |
-| `plane-city-far`  | `130003` | alpha, ≥30% transparent |
-| `plane-city-fore` | `130004` | alpha, ≥55% transparent |
-| `splash-auth`     | `130005` | opaque                  |
-| `plate-bar`       | `130007` | opaque                  |
+| Key                         | Seed     | Alpha                   |
+| --------------------------- | -------- | ----------------------- |
+| `plate-city`                | `130001` | opaque                  |
+| `plane-city-sky`            | `130002` | opaque                  |
+| `plane-city-far`            | `130003` | alpha, ≥30% transparent |
+| `plane-city-fore`           | `130004` | alpha, ≥55% transparent |
+| `splash-auth`               | `130005` | opaque                  |
+| `plate-bar`                 | `130007` | opaque                  |
+| `plate-district-neon-docks` | `130008` | opaque                  |
+| `plate-district-rustyard`   | `130009` | opaque                  |
 
 ### 3.1 `plate-city`: the map base plate (plane 2)
 
@@ -1057,6 +1059,33 @@ over the counter, and corrugated iron and patched brick behind. Four regulars si
 their backs to the viewer, two to the left and two to the right, and **the stool in the dead centre
 of the frame is empty**, lit by the lamp above it: that empty seat is the subject of the painting
 and nothing may occupy or overlap it. Floor of cracked tile and steel plate.
+```
+
+### 3.8 `plate-district-neon-docks`: the Neon Docks, walked into (§A4)
+
+```
+SUBJECT: The Neon Docks from above and slightly forward, the same town-view camera as the compound plate and
+**no sky**: a wet quay running the width of the frame, a flooded dock basin cut into it on the left,
+and a container wall closing the top edge with the stacked city behind it. Seven places a player can
+stand, spread apart and each recognisable at a glance from the others: a red gantry crane on the far
+left quay, a row of striped market awnings along the top, an arched service tunnel in the wall, a
+pumphouse of clustered pipework with a lit magenta window, a lit chandler's shed at lower right,
+moored barges strung with laundry at lower left, and a covered gallery over the water. Value in the
+middle range, cold reflected light off standing water, small sodium lamps at head height. Painted
+signage is part of the street; nothing that reads as a label for a game object.
+```
+
+### 3.9 `plate-district-rustyard`: the Steelbelt, walked into (§A4)
+
+```
+SUBJECT: The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press houses
+and furnace rows closing on all four sides, a hoarding fence along the lower left, and the city
+stacked beyond the top edge. Seven distinguishable places: a long glass-roofed press house at upper
+left, a breaker's yard of stripped machines under a gantry in the middle, a covered market of
+trestles at upper right, a lit pawn shop with an outside stair at mid left, a kennel run at mid
+right, a drained slag pit in the lower middle, and a pump row of fuel stands at lower right. Warm
+furnace light against cold wet stone, emissives small and at ground level. Painted signage is part
+of the street; nothing that reads as a label for a game object.
 ```
 
 ---
@@ -1353,19 +1382,35 @@ One marker per _kind_ of place, not per place: thirty-one places share twenty ki
 
 ### 6.5 Garage machines: ids match `VehicleId`
 
-The Garage's catalogue (`building/vehicles.ts`). Read at card size beside a cost line, so each is
-one machine in silhouette rather than a scene: the card carries the numbers.
+---
 
-| Key                         | Seed     | Prompt                                                                                                                                 |
-| --------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `icon-vehicle-motorcycle`   | `161001` | `SUBJECT: A stripped street bike in three-quarter view, no fairing, welded rack over the tail, warm #f59e0b highlight along the tank.` |
-| `icon-vehicle-dirt-runner`  | `161002` | `SUBJECT: A knobble-tyred bike with a raised front mudguard and a strapped fuel can, mud-caked #8a5209 lower half.`                    |
-| `icon-vehicle-scrap-car`    | `161003` | `SUBJECT: A boxy saloon welded out of three donor bodies, mismatched panels, one headlamp lit #ffd166.`                                |
-| `icon-vehicle-armoured-car` | `161004` | `SUBJECT: A plated four-door with slit windows and a rolled bar over the roof, cold #94a3b8 steel.`                                    |
-| `icon-vehicle-flatbed`      | `161005` | `SUBJECT: A flatbed lorry in side view, rail sides and a rolled tarpaulin, deck stacked with crates.`                                  |
-| `icon-vehicle-war-hauler`   | `161006` | `SUBJECT: A six-axle hauler with a slab-sided cab and no visible glass, dust plume at the wheels.`                                     |
-| `icon-vehicle-gas-balloon`  | `161007` | `SUBJECT: A patched gas envelope over a slung basket, mooring lines trailing, pale #7ff0ff sky behind.`                                |
-| `icon-vehicle-rotorcraft`   | `161008` | `SUBJECT: A light helicopter with an open frame tail boom and a bulbous canopy, rotor blurred.`                                        |
+## 6b. Vehicle portraits: 8 assets
+
+The Garage's catalogue (`building/vehicles.ts`). Its own class rather than an icon: a machine is
+painted whole, on its own ground, and drawn at card width. Square, opaque, 1024x1024 as delivered,
+so a plain download drops straight into `assets/` with nothing between it and the game.
+
+**Class framing:**
+
+```
+A single machine in three-quarter view, side-on to slightly front, standing still on wet ground in
+a workshop or a yard. Painted whole, with its own shallow background: the room is light and grime
+rather than architecture. Square 1:1, the machine filling the central seventy percent, wheels or
+skids on the ground line. Consistent implied light from upper-left. Salvage build throughout, welds
+and mismatched panels visible, one cool accent light on the machine itself. No people, no text, no
+logos.
+```
+
+| Key                    | Seed     | Prompt                                                                                                                                 |
+| ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `vehicle-motorcycle`   | `161001` | `SUBJECT: A stripped street bike in three-quarter view, no fairing, welded rack over the tail, warm #f59e0b highlight along the tank.` |
+| `vehicle-dirt-runner`  | `161002` | `SUBJECT: A knobble-tyred bike with a raised front mudguard and a strapped fuel can, mud-caked #8a5209 lower half.`                    |
+| `vehicle-scrap-car`    | `161003` | `SUBJECT: A boxy saloon welded out of three donor bodies, mismatched panels, one headlamp lit #ffd166.`                                |
+| `vehicle-armoured-car` | `161004` | `SUBJECT: A plated four-door with slit windows and a rolled bar over the roof, cold #94a3b8 steel.`                                    |
+| `vehicle-flatbed`      | `161005` | `SUBJECT: A flatbed lorry in side view, rail sides and a rolled tarpaulin, deck stacked with crates.`                                  |
+| `vehicle-war-hauler`   | `161006` | `SUBJECT: A six-axle hauler with a slab-sided cab and no visible glass, dust plume at the wheels.`                                     |
+| `vehicle-gas-balloon`  | `161007` | `SUBJECT: A patched gas envelope over a slung basket, mooring lines trailing, pale #7ff0ff sky behind.`                                |
+| `vehicle-rotorcraft`   | `161008` | `SUBJECT: A light helicopter with an open frame tail boom and a bulbous canopy, rotor blurred.`                                        |
 
 ---
 
@@ -1405,7 +1450,7 @@ Ids are the kebab-cased `UnitSpec.id` in `@frontline/shared` (`road_reavers` →
 | `unit-sleepers`           | Sleepers           | Specialists            | `145016` |
 | `unit-cyber-dogs`         | Cyberhounds        | Wonders of Engineering | `145017` |
 | `unit-juggernauts`        | Juggernauts        | Heavy                  | `145018` |
-| `unit-hollow-men`         | Hollow Men         | Heavy                  | `145019` |
+| `unit-hollow-men`         | Hollow Men         | Wonders of Engineering | `145019` |
 | `unit-the-condemned`      | The Condemned      | Rabble                 | `145020` |
 | `unit-the-specter`        | The Specter        | Legendary              | `145021` |
 | `unit-the-abomination`    | The Abomination    | Legendary              | `145022` |

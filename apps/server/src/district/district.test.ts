@@ -81,7 +81,6 @@ const build = (kind: Building['kind'], level: number, modifications: string[] = 
   level,
   modifications,
   damage: 0,
-  fortification: 0,
 });
 
 interface SeedOptions {
@@ -640,9 +639,14 @@ describe('modifications (§A1, §C4)', () => {
     expect(modificationBlocker(full, spec)).toBeNull();
 
     // ...and one already drawn is not sold twice, whether it is on the shelf or in a wall.
+    //
+    // This used to assert `null` here, which is what the code did and the opposite of what the
+    // line above it says: `null` means "nothing is in the way", and `research/start.ts` reads it as
+    // permission, so the Lab charged for a second copy of a drawing the crew already owned and
+    // banked nothing at the end of the clock.
     const fitted = findModification('lab_quantum_modeling');
     if (!fitted) throw new Error('fixture error: the Lab modification is missing');
-    expect(modificationBlocker(full, fitted)).toBeNull();
+    expect(modificationBlocker(full, fitted)).toBe('already_drawn');
     expect(isModificationDrawn(full, fitted.id)).toBe(true);
     expect(isModificationDrawn(full, spec.id)).toBe(false);
   });
@@ -915,6 +919,61 @@ describe('the bench (§A5)', () => {
       kind: 'refused',
       reason: 'unknown_order',
     });
+  });
+
+  /**
+   * The bench closes up behind a cancelled order.
+   *
+   * Every order's `startedAt` is absolute and frozen at the completion time of the order in front
+   * of it, so removing one from the middle used to leave the ones behind it waiting out a batch
+   * that no longer existed. Twenty-two idle minutes on the shipped numbers, on top of the 5% the
+   * rules do state.
+   */
+  it('pulls the orders behind a cancelled one forward', () => {
+    const { repos, base } = stack();
+    const razors = findUnit('razors')!;
+    const first = queueTraining(repos, { base, unit: razors, count: 20, now: NOW });
+    if (first.kind !== 'queued') throw new Error('expected the first batch to be queued');
+    const second = queueTraining(repos, { base: first.base, unit: razors, count: 2, now: NOW });
+    if (second.kind !== 'queued') throw new Error('expected the second batch to be queued');
+
+    // The precondition: the second batch really is parked behind the first, or there is no gap to
+    // close and the assertion below would pass on any implementation.
+    expect(Date.parse(second.order.startedAt)).toBeGreaterThan(NOW.getTime());
+
+    const cancelled = cancelTraining(repos, second.base, first.order.id, NOW);
+    if (cancelled.kind !== 'cancelled') throw new Error(`refused: ${cancelled.reason}`);
+
+    const remaining = cancelled.base.trainingQueue;
+    expect(remaining).toHaveLength(1);
+    expect(Date.parse(remaining[0]!.startedAt)).toBe(NOW.getTime());
+    // On the row too, not only in the answer.
+    expect(Date.parse(repos.bases.findById(base.id)!.trainingQueue[0]!.startedAt)).toBe(
+      NOW.getTime(),
+    );
+  });
+
+  it('does not move an order that has already begun', () => {
+    const { repos, base } = stack();
+    const razors = findUnit('razors')!;
+    const first = queueTraining(repos, { base, unit: razors, count: 2, now: NOW });
+    if (first.kind !== 'queued') throw new Error('expected the first batch to be queued');
+    const second = queueTraining(repos, { base: first.base, unit: razors, count: 20, now: NOW });
+    if (second.kind !== 'queued') throw new Error('expected the second batch to be queued');
+    const third = queueTraining(repos, { base: second.base, unit: razors, count: 2, now: NOW });
+    if (third.kind !== 'queued') throw new Error('expected the third batch to be queued');
+
+    // Cancel the middle one while the first is still running.
+    const cancelled = cancelTraining(repos, third.base, second.order.id, NOW);
+    if (cancelled.kind !== 'cancelled') throw new Error(`refused: ${cancelled.reason}`);
+
+    const [running, next] = cancelled.base.trainingQueue;
+    expect(running!.startedAt).toBe(first.order.startedAt);
+    // The one behind now starts when the running batch finishes, not when the cancelled one would
+    // have.
+    expect(Date.parse(next!.startedAt)).toBe(
+      Date.parse(first.order.startedAt) + first.order.durationSeconds * 1000,
+    );
   });
 
   /**

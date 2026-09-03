@@ -23,10 +23,10 @@ import { UPGRADE_SECONDS_SCALE, upgradeSeconds } from './upgrade.js';
 /**
  * §A4: a location is a post you take, work up, and lose.
  *
- * The whole board-game loop in one file, and the last assertion is the one the design turns on:
- * **a capture resets the level to 1.** Nobody inherits the previous holder's work, so a
- * well-developed location is a target worth taking rather than a wall that compounds forever, and
- * pouring three upgrades into ground you cannot hold is a mistake the game lets you make.
+ * The whole board-game loop in one file, and the last assertions are the ones the design turns on:
+ * **a capture keeps the level, and kills the upgrade that was under way.** You take the ground as
+ * it stands, so a well-developed location is a prize rather than a wall that has to be rebuilt
+ * from nothing, and the level somebody poured in is the level you get.
  */
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -88,14 +88,16 @@ async function makeStack(): Promise<Stack> {
   const control = app.repos.city.control(MINE);
   if (control) app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
 
-  // Enough to cover three upgrades of anything on this ground without the test being about money.
+  // Enough to cover the whole ladder on anything on this ground, so no test here is about money.
+  // The nine steps come to about 110x a kind's base price (`UPGRADE_COST_SCALE`), and the
+  // Bonefield is one of the dearest in the catalogue.
   app.repos.bases.updateResources(baseId, {
-    caps: 99_000,
-    supplies: 9_000,
-    oil: 9_000,
-    scrap: 9_000,
-    highQualityMetal: 900,
-    planks: 9_000,
+    caps: 400_000,
+    supplies: 400_000,
+    oil: 400_000,
+    scrap: 400_000,
+    highQualityMetal: 40_000,
+    planks: 400_000,
   });
 
   return { app, db, token, baseId };
@@ -177,7 +179,7 @@ describe('working a location up (§A4)', () => {
     for (const line of after.bonuses) expect(line.length).toBeGreaterThan(2);
   });
 
-  it('takes three upgrades to the ceiling and then stops offering', async () => {
+  it('takes nine upgrades to the ceiling and then stops offering', async () => {
     const stack = await makeStack();
     for (let level = 1; level < MAX_LOCATION_LEVEL; level += 1) {
       expect((await upgrade(stack)).statusCode).toBe(200);
@@ -234,14 +236,13 @@ describe('working a location up (§A4)', () => {
 
 describe('what a capture does to the work', () => {
   /**
-   * The rule the whole level system stands on.
+   * The rule the whole level system stands on, and it is the opposite of what it used to be.
    *
-   * The looters are holding Kessler Press at some level; the crew takes it; it is theirs at **1**,
-   * not at whatever it was. Asserted from a fully-worked location rather than a fresh one, because
-   * the failure mode is "the level came across with the ground" and a location already at 1 cannot
-   * tell the difference.
+   * The looters are holding Kessler Press at the ceiling; the crew takes it; it is theirs **at the
+   * ceiling**. Asserted from a fully-worked location rather than a fresh one, because the failure
+   * mode is "the capture wrote a 1 over it" and a location already at 1 cannot tell the difference.
    */
-  it('resets a captured location to level 1, however far it had been worked up', async () => {
+  it('leaves a captured location at the level it had been worked to', async () => {
     const stack = await makeStack();
 
     // Somebody else's fully-developed location.
@@ -281,11 +282,17 @@ describe('what a capture does to the work', () => {
 
     const taken = stack.app.repos.city.control('rustyard-press');
     expect(taken?.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
-    expect(taken?.level, 'a capture resets the work').toBe(1);
+    expect(taken?.level, 'a capture keeps the work').toBe(MAX_LOCATION_LEVEL);
     expect(taken?.upgradingUntil).toBeNull();
   });
 
-  /** And a capture kills work that was in progress, rather than handing it over half done. */
+  /**
+   * And a capture still kills work *in progress*, rather than handing it over half done.
+   *
+   * The contrast with the test above is the rule: banked levels change hands, an upgrade charged
+   * for and not yet finished does not. The press is at 3 with a fourth under way, and what the
+   * attacker gets is a 3.
+   */
   it('cancels an upgrade that was under way when the ground changed hands', async () => {
     const stack = await makeStack();
     const held = stack.app.repos.city.control('rustyard-press');
@@ -326,7 +333,7 @@ describe('what a capture does to the work', () => {
     settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 
     const taken = stack.app.repos.city.control('rustyard-press');
-    expect(taken?.level).toBe(1);
+    expect(taken?.level).toBe(3);
     expect(taken?.upgradingUntil).toBeNull();
   });
 });
@@ -377,4 +384,47 @@ describe('who will stand on your ground (§D7)', () => {
     expect(res.statusCode).toBe(200);
     expect(stack.app.repos.city.control(MINE)!.garrison.razors).toBe(2);
   });
+});
+
+/**
+ * A garrison order names units, and only units.
+ *
+ * The twin of the deployment bug, at the door the fix for that one did not reach.
+ * `battle/deploy.ts` carries a comment describing exactly this being closed there; this route was
+ * missed, and it is the same shape: both guards above read only the *positive* deltas, so a
+ * withdrawal naming `constructor` or `toString` never meets them. `garrison['constructor']` on a
+ * plain object is a function rather than `undefined`, `Math.min(-delta, fn)` is `NaN`, and the
+ * `back === 0` guard does not catch `NaN`, so the roster took a `NaN` count and the garrison
+ * column took a stringified function.
+ *
+ * That is a lesson about fixes rather than about prototypes: a bug with two call sites needs a
+ * test at each, or the untested one keeps the bug and the passing suite says otherwise.
+ */
+describe('a garrison order names units, and only units', () => {
+  for (const key of ['constructor', 'toString', '__proto__']) {
+    it(`refuses a withdrawal of "${key}"`, async () => {
+      const stack = await makeStack();
+      const base = stack.app.repos.bases.findById(stack.baseId)!;
+      stack.app.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
+      const before = stack.app.repos.bases.findById(stack.baseId)!.army;
+
+      const res = await stack.app.inject({
+        method: 'POST',
+        url: '/api/city/garrison',
+        headers: auth(stack.token),
+        payload: { locationId: MINE, changes: { [key]: -1 } },
+      });
+      expect(res.statusCode, `${key} was accepted as a unit`).toBe(400);
+
+      // And nothing was written: no NaN, no new key, nothing lost off the roster.
+      const after = stack.app.repos.bases.findById(stack.baseId)!.army;
+      expect(after).toEqual(before);
+      for (const [unit, count] of Object.entries(after)) {
+        expect(Number.isFinite(count), `${unit} is not a finite count`).toBe(true);
+      }
+      for (const [unit, count] of Object.entries(stack.app.repos.city.control(MINE)!.garrison)) {
+        expect(Number.isFinite(count), `garrison ${unit} is not a finite count`).toBe(true);
+      }
+    });
+  }
 });

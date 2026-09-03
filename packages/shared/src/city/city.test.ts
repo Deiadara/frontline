@@ -9,6 +9,7 @@ import {
   districtDisplayName,
   sameDistrictName,
   isReservedDistrictName,
+  isPaintableDistrictName,
   BOT_DISTRICT_ID,
   STARTER_DISTRICT_ID,
   UNIFIED_BONUSES,
@@ -19,6 +20,9 @@ import {
   raidTargetOf,
   unifiedBonusFor,
 } from './districts.js';
+import { DistrictNameSchema } from '../base.js';
+import { hastenedMinutes } from '../missions.js';
+import { trainingSeconds } from '../units/training.js';
 import {
   LOCATION_KINDS,
   LOCATION_CATALOG,
@@ -694,5 +698,85 @@ describe('a plot is called after you, or numbered', () => {
     expect(STARTER_DISTRICT_ID).not.toBe(BOT_DISTRICT_ID);
     expect(findDistrict('neon-docks')?.kind).toBe('contested');
     expect(findDistrict('neon-docks')?.locations.length).toBeGreaterThan(0);
+  });
+});
+
+describe('a crew name a reader can actually tell apart', () => {
+  const ZERO_WIDTH = '\u200b';
+  const RTL_OVERRIDE = '\u202e';
+  const FULLWIDTH_N = '\uff2e';
+
+  it('treats a zero-width character as no character at all', () => {
+    // U+200B is not matched by `\s`, survives `trim()`, and paints nothing, so a second crew
+    // called "Ninth Street" is indistinguishable on the map, in every report and in every listing.
+    expect(sameDistrictName('Ninth Street', `N${ZERO_WIDTH}inth Street`)).toBe(true);
+    expect(sameDistrictName('Ninth Street', `${ZERO_WIDTH}Ninth Street${ZERO_WIDTH}`)).toBe(true);
+  });
+
+  it('does not let an invisible character take a reserved plot name', () => {
+    expect(isReservedDistrictName('Player District II')).toBe(true);
+    expect(isReservedDistrictName(`Player${ZERO_WIDTH} District II`)).toBe(true);
+  });
+
+  it('folds compatibility forms, which paint the same word', () => {
+    expect(sameDistrictName('Ninth Street', `${FULLWIDTH_N}inth Street`)).toBe(true);
+  });
+
+  it('refuses a name made of characters that do not paint', () => {
+    expect(isPaintableDistrictName('Ninth Street')).toBe(true);
+    expect(isPaintableDistrictName(`N${ZERO_WIDTH}inth Street`)).toBe(false);
+    expect(isPaintableDistrictName(`${RTL_OVERRIDE}Ninth Street`)).toBe(false);
+    expect(isPaintableDistrictName('A\nB')).toBe(false);
+    expect(isPaintableDistrictName('A B')).toBe(true);
+  });
+
+  it('is refused by the schema every name arrives through', () => {
+    expect(DistrictNameSchema.safeParse('Ninth Street').success).toBe(true);
+    expect(DistrictNameSchema.safeParse(`N${ZERO_WIDTH}inth Street`).success).toBe(false);
+    expect(DistrictNameSchema.safeParse('A\nB').success).toBe(false);
+  });
+});
+
+/**
+ * A card that quotes a time saving has to quote the saving, not the channel.
+ *
+ * Every speed channel is spent as `time / (1 + percent/100)`, and three of the four clamp the input
+ * first. Printing the raw percentage as a reduction in time overstated it at every level and the
+ * error grew with the level a player had paid for: a Smuggler's Tunnel at 10 read "-66% mission
+ * time" against a real saving of 33%.
+ */
+describe('what a card promises against what the clock does', () => {
+  const saving = (minutes: number, after: number) => Math.round((1 - after / minutes) * 100);
+
+  it('quotes the mission saving the launch actually applies', () => {
+    // Level 10 Smuggler's Tunnel: 12 scaled by LEVEL_SCALE[9] to 66, clamped to 50 at the launch.
+    expect(describeHoldBonus({ kind: 'mission_speed', percent: 66 })).toBe('-33% mission time');
+    expect(saving(60, hastenedMinutes(60, 66))).toBe(33);
+  });
+
+  it('quotes the training saving the bench actually applies', () => {
+    const razors = findUnit('razors');
+    if (!razors) throw new Error('fixture: no razors');
+    const card = describeHoldBonus({ kind: 'training_speed', percent: 90 });
+    const real = saving(trainingSeconds(razors, 1, 0), trainingSeconds(razors, 1, 90));
+    expect(card).toBe(`-${real}% training time`);
+  });
+
+  it('quotes a research saving that is a divisor, not a subtraction, even with no clamp', () => {
+    // 1 - 1/1.12 = 10.7%, not 12%.
+    expect(describeHoldBonus({ kind: 'research_speed', percent: 12 })).toBe('-11% research time');
+    expect(describeHoldBonus({ kind: 'build_speed', percent: 12 })).toBe('-11% build time');
+  });
+
+  it('never promises a saving of a hundred percent or more', () => {
+    for (const percent of [50, 100, 200, 500, 1000]) {
+      for (const kind of ['research_speed', 'build_speed', 'training_speed', 'mission_speed']) {
+        const text = describeHoldBonus({ kind, percent } as Parameters<
+          typeof describeHoldBonus
+        >[0]);
+        const quoted = Number(text.replace(/[^0-9]/g, ''));
+        expect(quoted, `${kind} at ${percent}`).toBeLessThan(100);
+      }
+    }
   });
 });

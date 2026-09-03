@@ -33,11 +33,11 @@ export interface RoleRequirement {
 export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
   head_spy: {
     primary: 'stealth',
-    weights: { stealth: 5, deception: 3, hacking: 2, logic: 2, resolve: 1 },
+    weights: { stealth: 5, deception: 3, signals: 2, logic: 2, resolve: 1 },
   },
   lead_engineer: {
     primary: 'engineering',
-    weights: { engineering: 5, analysis: 3, fabrication: 2, logistics: 2, leadership: 1 },
+    weights: { engineering: 5, analysis: 3, craft: 2, logistics: 2, leadership: 1 },
   },
   finance_officer: {
     primary: 'strategy',
@@ -53,19 +53,19 @@ export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
   },
   head_of_research: {
     primary: 'analysis',
-    weights: { analysis: 5, intuition: 3, improvisation: 2, composure: 2, chemistry: 1 },
+    weights: { analysis: 5, intuition: 3, encyclopedia: 2, composure: 2, chemistry: 1 },
   },
   wetware_chief: {
     primary: 'cybernetics',
     weights: { cybernetics: 5, medicine: 3, engineering: 2, analysis: 2, composure: 1 },
   },
   fabricator: {
-    primary: 'fabrication',
-    weights: { fabrication: 5, engineering: 3, chemistry: 2, salvage: 2, strategy: 1 },
+    primary: 'craft',
+    weights: { craft: 5, engineering: 3, chemistry: 2, salvage: 2, strategy: 1 },
   },
   salvager: {
     primary: 'salvage',
-    weights: { salvage: 5, strategy: 3, stamina: 2, navigation: 2, fabrication: 1 },
+    weights: { salvage: 5, strategy: 3, stamina: 2, navigation: 2, craft: 1 },
   },
   right_hand: {
     primary: 'leadership',
@@ -81,7 +81,7 @@ export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
   },
   security_officer: {
     primary: 'resolve',
-    weights: { resolve: 5, reflexes: 3, toughness: 2, speed: 2, intimidation: 1 },
+    weights: { resolve: 5, reflexes: 3, signals: 2, speed: 2, intimidation: 1 },
   },
   chief_medic: {
     primary: 'medicine',
@@ -93,7 +93,7 @@ export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
   },
   raid_boss: {
     primary: 'intimidation',
-    weights: { intimidation: 5, strength: 3, toughness: 2, demolition: 2, leadership: 1 },
+    weights: { intimidation: 5, strength: 3, toughness: 2, improvisation: 2, leadership: 1 },
   },
   scout: {
     primary: 'speed',

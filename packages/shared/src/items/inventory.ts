@@ -74,11 +74,6 @@ export function removeItems(inventory: Inventory, spent: ItemCost): Inventory {
   return next;
 }
 
-/** Nothing held. The starting state, and the answer for a crew that has spent everything. */
-export function emptyInventory(): Inventory {
-  return {};
-}
-
 /** How many distinct kinds of thing are being held: the number the Inventory tab shows. */
 export function inventorySize(inventory: Inventory): number {
   return heldItems(inventory).length;

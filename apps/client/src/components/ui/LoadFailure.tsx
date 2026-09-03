@@ -25,7 +25,7 @@ export function LoadFailure({
   what: string;
   onRetry: () => void;
   /** One line of reassurance where the failure has a consequence worth ruling out. */
-  detail?: string;
+  detail?: string | undefined;
 }) {
   return (
     <div className="flex flex-col items-start gap-3 p-6" data-testid="load-failure">
@@ -38,6 +38,41 @@ export function LoadFailure({
       <Button size="sm" onClick={onRetry} data-testid="load-retry">
         Try again
       </Button>
+    </div>
+  );
+}
+
+/**
+ * The two states a screen is in before it has data, told apart.
+ *
+ * Ten screens shipped the same block: `if (!data) return <p>Opening the archive…</p>`, which draws
+ * the loading line for *every* state that is not data. That is the exact failure `LoadFailure` was
+ * written for, one screen at a time, and it kept coming back because the honest version is six
+ * lines of JSX and the dishonest one is three. So it is one component: a screen that has not
+ * answered says so, and a screen that will not answer says that instead.
+ *
+ * `isError` rather than the query object, so this stays a presentational component and nothing in
+ * `components/ui` has to know what react-query is.
+ */
+export function ScreenLoad({
+  what,
+  loading,
+  isError,
+  onRetry,
+  detail,
+}: {
+  /** What would not load, for the failure: "The market", "your satchel". */
+  what: string;
+  /** The line while it is still coming: "Walking down to the market…". */
+  loading: string;
+  isError: boolean;
+  onRetry: () => void;
+  detail?: string | undefined;
+}) {
+  if (isError) return <LoadFailure what={what} onRetry={onRetry} detail={detail} />;
+  return (
+    <div className="flex flex-1 items-center justify-center p-8">
+      <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">{loading}</p>
     </div>
   );
 }

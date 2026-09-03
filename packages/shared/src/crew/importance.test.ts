@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { ATTRIBUTE_NAMES, MAX_ATTRIBUTE, type Attributes } from '../attributes.js';
 import { OFFICER_ROLES } from '../roles.js';
@@ -144,7 +145,7 @@ describe('the table of what each chair wants', () => {
 
   /** A perfect sheet in a chair scores more than the same sheet in any other. Sanity, end to end. */
   it('scores a specialist highest in the chair they are the specialist for', () => {
-    const spy = sheet({ stealth: MAX_ATTRIBUTE, deception: 80, hacking: 80 });
+    const spy = sheet({ stealth: MAX_ATTRIBUTE, deception: 80, signals: 80 });
     const best = [...OFFICER_ROLES].sort(
       (a, b) => officerScore(spy, b).total - officerScore(spy, a).total,
     )[0];
@@ -232,10 +233,44 @@ describe('who wears which face', () => {
     for (const [id, face] of before) expect(after.get(id), id).toBe(face);
   });
 
-  it('does not depend on the order the roster is handed over in', () => {
+  /**
+   * The same promise against real ids, which is where it used to break.
+   *
+   * `commander--99` sorts after every `commander-N`, so the case above passed while the function
+   * assigned in sorted id order and could not fail. Officer ids are UUIDs and a new hire sorts
+   * *anywhere*: on a four-chair roster 1.8% of hires moved somebody else's face, and 11.2% at a
+   * full nineteen. A newcomer whose id sorts first is the whole of the case, so it is generated
+   * here rather than hoped for.
+   */
+  it('leaves them alone when the newcomer’s id sorts before everybody', () => {
+    for (let size = 2; size <= 19; size += 1) {
+      const existing = Array.from({ length: size }, () => randomUUID());
+      const before = officerPortraits(existing);
+      for (let trial = 0; trial < 60; trial += 1) {
+        const newcomer = randomUUID();
+        const after = officerPortraits([...existing, newcomer]);
+        for (const [id, face] of before) {
+          expect(after.get(id), `${size} officers, hired ${newcomer}`).toBe(face);
+        }
+        expect(new Set(after.values()).size).toBe(size + 1);
+      }
+    }
+  });
+
+  /**
+   * The property that was traded away, recorded so the next reader knows it was a choice.
+   *
+   * Assignment now follows the caller's order, because "the incumbent keeps their face" is only
+   * expressible as an order and roster order is hire order. A caller that sorts the roster before
+   * calling therefore draws different faces from the same crew, and the crew screen and the server
+   * compute this independently, so neither may sort.
+   */
+  it('is a function of the order the roster is handed over in, which is now load-bearing', () => {
     const ids = roster(11);
-    expect([...officerPortraits(ids)].sort()).toEqual(
-      [...officerPortraits([...ids].reverse())].sort(),
-    );
+    const forwards = officerPortraits(ids);
+    const backwards = officerPortraits([...ids].reverse());
+    // Still every face distinct whichever way round, which is the invariant that never moved.
+    expect(new Set(backwards.values()).size).toBe(11);
+    expect([...forwards.keys()].every((id) => backwards.has(id))).toBe(true);
   });
 });

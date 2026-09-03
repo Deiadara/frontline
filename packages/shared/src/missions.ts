@@ -6,6 +6,8 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
 import { effortScale, EFFORT_BASELINE_MINUTES, EFFORT_EXPONENT } from './progression/effort.js';
+import { MAX_MISSION_SPEED_BONUS } from './time/speed.js';
+import { BlueprintCategorySchema, BlueprintPageIdSchema } from './blueprints/catalog.js';
 
 /**
  * Missions, travel and timers: GDD §E.
@@ -453,7 +455,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
  * hard, because a mission that lands the moment it is launched is a mission with no decision in it,
  * and floored at a minute for the same reason a build is.
  */
-export const MAX_MISSION_SPEED_BONUS = 50;
+export { MAX_MISSION_SPEED_BONUS };
 
 export function hastenedMinutes(minutes: number, speedPercent: number): number {
   const bonus = Math.min(MAX_MISSION_SPEED_BONUS, Math.max(0, speedPercent));
@@ -677,6 +679,22 @@ export const MissionSchema = z.object({
    * They come home with nothing. They never reached the site.
    */
   recalledAt: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * §F1b: the category of page this run was offered, frozen at launch.
+   *
+   * Carried on the mission and not re-derived from the board, for the same reason the clock and the
+   * odds are: the board turns over at midnight and a crew that is still out must not have its
+   * promised reward rewritten under it.
+   */
+  pagePrize: BlueprintCategorySchema.nullable().default(null),
+  /**
+   * §F1f: the page the run actually won, or null.
+   *
+   * Written by the settler on arrival and never before: this is the field the mission report reads
+   * to name the page. Null while the crew is out, null on a run that failed, and null on a run that
+   * was never carrying one.
+   */
+  pageWon: BlueprintPageIdSchema.nullable().default(null),
 });
 export type Mission = z.infer<typeof MissionSchema>;
 
@@ -690,14 +708,39 @@ export type MissionPhase = z.infer<typeof MissionPhaseSchema>;
 const MINUTE_MS = 60_000;
 
 export function missionCompletesAt(mission: Mission): Date {
-  // A recalled crew is walking back the way they came: the return leg is exactly as long as the
-  // time they had already been travelling when the order reached them.
+  // A recalled crew turns round where it stands, so the walk home is however far from home it is.
+  //
+  // Which is not the time since launch, and that is the whole subtlety. Time since launch is the
+  // distance only during the outbound leg; a crew standing on the site is one leg out however long
+  // it has been there, and a crew already walking back gets *closer* every minute. Charging time
+  // since launch in all three cases sent a crew further away the longer the job had been running:
+  // recalled a minute from the gate on a two hour job, they turned round and walked two more.
   if (mission.recalledAt !== null) {
-    const out = Date.parse(mission.recalledAt) - Date.parse(mission.startedAt);
-    return new Date(Date.parse(mission.recalledAt) + out);
+    const recalledAt = Date.parse(mission.recalledAt);
+    const elapsed = recalledAt - Date.parse(mission.startedAt);
+    return new Date(recalledAt + minutesFromHome(mission, elapsed));
   }
   const { totalMinutes } = missionTimings(mission);
   return new Date(Date.parse(mission.startedAt) + totalMinutes * MINUTE_MS);
+}
+
+/**
+ * How long the walk home is, in milliseconds, for a crew `elapsed` into its run.
+ *
+ * Clamped at both ends: a recall recorded before the launch (a clock skew, a hand-edited row)
+ * cannot produce a negative leg, and one recorded after the run was already over cannot produce a
+ * crew that arrives before it was told to turn round.
+ */
+function minutesFromHome(
+  leg: { travelMinutes: number; durationMinutes: number },
+  elapsed: number,
+): number {
+  const { travelMinutes, durationMinutes, totalMinutes } = missionTimings(leg);
+  const out = travelMinutes * MINUTE_MS;
+  if (elapsed <= 0) return 0;
+  if (elapsed < out) return elapsed;
+  if (elapsed < (travelMinutes + durationMinutes) * MINUTE_MS) return out;
+  return Math.max(0, totalMinutes * MINUTE_MS - elapsed);
 }
 
 /** Milliseconds until the crew is back at the gate; never negative. */

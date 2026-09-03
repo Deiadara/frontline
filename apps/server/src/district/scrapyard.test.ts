@@ -1,8 +1,10 @@
 import {
+  UNIT_UPGRADES,
   MODIFICATIONS,
   RESOURCE_KEYS,
   STARTING_RESOURCES,
   addonsOf,
+  blueprintForModification,
   findModification,
   findUpgrade,
   isAdvancedModification,
@@ -49,7 +51,6 @@ const build = (kind: Building['kind'], level: number): Building => ({
   level,
   modifications: [],
   damage: 0,
-  fortification: 0,
 });
 
 function openStack(): Repositories {
@@ -137,17 +138,46 @@ describe('§B9: the Scrapyard builds add-ons', () => {
     expect(find('nexus_encrypted_core')?.cost.highQualityMetal ?? 0).toBeGreaterThan(0);
   });
 
-  it('refuses an advanced add-on the Lab has not drawn, and builds it once it has', () => {
+  /**
+   * §D12f: an advanced modification wants the retrofit document *and* the Lab project.
+   *
+   * Both halves are asserted, and separately, because either one on its own is a gate that passes
+   * this test while the other is missing entirely: a build refused for want of pages looks exactly
+   * like a build refused for want of a Lab project from the outside.
+   */
+  it('refuses an advanced add-on until the crew holds the document and the Lab has drawn it', () => {
     const repos = openStack();
     const advanced = MODIFICATIONS.find(isAdvancedModification);
     expect(advanced).toBeDefined();
     if (!advanced) return;
+    const document = blueprintForModification(advanced);
+    expect(document, 'the advanced half of §D12f is not behind a document').toBeDefined();
+    if (!document) return;
 
     const bare = seedBase(repos, { resources: RICH });
-    const refused = buildAddon(repos, bare, 'modification', advanced.id);
-    expect(refused.kind).toBe('refused');
+    expect(buildAddon(repos, bare, 'modification', advanced.id)).toEqual({
+      kind: 'refused',
+      reason: `Needs the ${document.name}`,
+    });
 
-    const drawn: Base = { ...bare, addons: { researched: [advanced.id], built: [] } };
+    // The document alone is not enough: the Lab still has to draw this particular bracket.
+    const read: Base = { ...bare, inventory: { [document.id]: 1 } };
+    const stillRefused = buildAddon(repos, read, 'modification', advanced.id);
+    expect(stillRefused.kind).toBe('refused');
+    if (stillRefused.kind === 'refused') expect(stillRefused.reason).toMatch(/Lab/);
+
+    // And the Lab project alone is not enough either.
+    const drawnOnly: Base = { ...bare, addons: { researched: [advanced.id], built: [] } };
+    expect(buildAddon(repos, drawnOnly, 'modification', advanced.id)).toEqual({
+      kind: 'refused',
+      reason: `Needs the ${document.name}`,
+    });
+
+    const drawn: Base = {
+      ...bare,
+      inventory: { [document.id]: 1 },
+      addons: { researched: [advanced.id], built: [] },
+    };
     const built = buildAddon(repos, drawn, 'modification', advanced.id);
     expect(built.kind).toBe('built');
     if (built.kind !== 'built') return;
@@ -193,6 +223,35 @@ describe('§B9: the Scrapyard builds add-ons', () => {
     });
   });
 
+  /**
+   * §D12g: the yard is the Workshop's second door, and it has to hold the same document gate.
+   *
+   * Tier one is the control. Both rungs are built by the same route with the same crew, so a build
+   * that refused everything would pass the first half of this test and fail the second.
+   */
+  it('refuses a refit past the first rung until its document is in the satchel', () => {
+    const repos = openStack();
+    const tall: Partial<Base> = {
+      resources: RICH,
+      buildings: [build('nexus', 6), build('scrapyard', 4), build('gauntlet', 20)],
+      inventory: { ceramic_plate: 20 },
+    };
+
+    const base = seedBase(repos, tall);
+    const one = buildAddon(repos, base, 'upgrade', 'armour_1');
+    expect(one.kind, 'the open rung is gated too').toBe('built');
+    if (one.kind !== 'built') return;
+
+    const refused = buildAddon(repos, one.base, 'upgrade', 'armour_2');
+    expect(refused).toEqual({ kind: 'refused', reason: 'Needs the Composite Armour Blueprint' });
+
+    const read: Base = {
+      ...one.base,
+      inventory: { ...one.base.inventory, bp_composite_armour: 1 },
+    };
+    expect(buildAddon(repos, read, 'upgrade', 'armour_2').kind).toBe('built');
+  });
+
   it('names a modification the catalogue does not know rather than throwing', () => {
     const repos = openStack();
     const base = seedBase(repos, { resources: RICH });
@@ -201,5 +260,87 @@ describe('§B9: the Scrapyard builds add-ons', () => {
       kind: 'refused',
       reason: 'No such add-on',
     });
+  });
+});
+
+/**
+ * The Scrapyard is a second door to the Workshop's upgrades, and it has to charge the same parts.
+ *
+ * Both write the same `fittedUpgrades` column, which is a permanent, roster-wide effect. The
+ * Workshop requires the crew to hold `spec.parts` and consumes them; the Scrapyard checked neither
+ * and removed nothing, so `POST /scrapyard/build {"kind":"upgrade","id":"armour_2"}` bought the
+ * same upgrade with the four ceramic plates still in the satchel, and the Workshop's refusal for
+ * exactly that upgrade became advice rather than a rule.
+ *
+ * The resource prices are deliberately different and stay different: the board specified the
+ * Scrapyard as scrap and sometimes high-quality metal. It is the *parts*, a designed sink, that
+ * cannot have a free door beside it.
+ */
+describe('the Scrapyard charges the same parts the Workshop does', () => {
+  const NEEDS_PARTS = UNIT_UPGRADES.find(
+    (spec) => Object.keys(spec.parts).length > 0 && spec.tier === 1,
+  );
+
+  it('refuses an upgrade whose parts the crew does not hold', () => {
+    if (!NEEDS_PARTS) throw new Error('fixture: no tier-1 upgrade needs parts');
+    const repos = openStack();
+    const base = seedBase(repos, {
+      resources: {
+        caps: 0,
+        supplies: 0,
+        oil: 0,
+        scrap: 900_000,
+        highQualityMetal: 90_000,
+        planks: 0,
+      },
+      inventory: {},
+      buildings: [
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
+        { id: 's', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+      ],
+    });
+
+    const result = buildAddon(repos, base, 'upgrade', NEEDS_PARTS.id);
+    expect(result, 'the parts were never asked for').toMatchObject({ kind: 'refused' });
+    // And refused *for the parts*, not for some other clause that happens to bite first: this
+    // test passed against the unfixed code until the reason was pinned, because a wrong argument
+    // shape was refusing it as "No such add-on".
+    if (result.kind === 'refused') expect(result.reason).toMatch(/servo|part/i);
+  });
+
+  it('consumes the parts when it does build one', () => {
+    if (!NEEDS_PARTS) throw new Error('fixture: no tier-1 upgrade needs parts');
+    const repos = openStack();
+    const held = Object.fromEntries(
+      Object.entries(NEEDS_PARTS.parts).map(([item, count]) => [item, count + 1]),
+    );
+    const base = seedBase(repos, {
+      resources: {
+        caps: 0,
+        supplies: 0,
+        oil: 0,
+        scrap: 900_000,
+        highQualityMetal: 90_000,
+        planks: 0,
+      },
+      inventory: held,
+      buildings: [
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
+        { id: 's', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+      ],
+    });
+
+    const result = buildAddon(repos, base, 'upgrade', NEEDS_PARTS.id);
+    expect(result).toMatchObject({ kind: 'built' });
+
+    const after = repos.bases.findById(base.id)!;
+    expect(after.fittedUpgrades).toContain(NEEDS_PARTS.id);
+    // Exactly what the spec asks for, no more and no less. Asserting the leftover instead would
+    // pass just as well against a build that spent the whole satchel.
+    for (const [item, count] of Object.entries(NEEDS_PARTS.parts)) {
+      const key = item as keyof typeof after.inventory;
+      const spent = (held[item] ?? 0) - (after.inventory[key] ?? 0);
+      expect(spent, `${item} was not spent`).toBe(count);
+    }
   });
 });

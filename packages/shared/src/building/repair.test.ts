@@ -34,7 +34,6 @@ const structure = (damage: number, damagedAt: string | null = NOON.toISOString()
   modifications: [],
   damage,
   damagedAt,
-  fortification: 0,
 });
 
 describe('a structure putting itself right (§A4)', () => {

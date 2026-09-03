@@ -24,6 +24,7 @@ import {
   type CrewMember,
 } from './effects.js';
 import { findPerk } from './perks.js';
+import { blackMarketDay } from '../market/blackmarket.js';
 import { importanceOf } from './importance.js';
 import type { OfficerRole } from '../roles.js';
 import {
@@ -38,6 +39,7 @@ import {
   drillProgressAt,
   drillRemainingMs,
   rollDay,
+  trainingDay,
   sessionFor,
   settleTraining,
   startingTraining,
@@ -154,7 +156,7 @@ describe('what a crew is worth', () => {
      */
     it('never drops a channel when another person joins', () => {
       const before = crewEffects([overseer({}, 30)]);
-      const after = crewEffects([overseer({}, 30), officer('head_spy', { hacking: 80 }, 4)]);
+      const after = crewEffects([overseer({}, 30), officer('head_spy', { signals: 80 }, 4)]);
       for (const channel of EFFECT_CHANNELS) {
         expect(after[channel], channel).toBeGreaterThanOrEqual(before[channel]);
       }
@@ -194,8 +196,8 @@ describe('what a crew is worth', () => {
 
     /** The Overseer is exempt, and that is the point of being the one who is not an employee. */
     it('never discounts the Overseer, whatever the attribute', () => {
-      const sheet = crewSheet([overseer({ demolition: 80 })]);
-      expect(sheet.demolition).toBe(80);
+      const sheet = crewSheet([overseer({ encyclopedia: 80 })]);
+      expect(sheet.encyclopedia).toBe(80);
     });
   });
 
@@ -342,6 +344,23 @@ describe('drilling', () => {
     const tomorrow = '2026-08-17T01:00:00.000Z';
     expect(trainingsLeft(state, tomorrow)).toBe(TRAININGS_PER_DAY);
     expect(rollDay(state, tomorrow).used).toBe(0);
+  });
+
+  it('rolls the allowance at Athens midnight, not at UTC midnight', () => {
+    // August, so Athens is GMT+3. A crew that spent a session at 20:00 UTC has a fresh allowance
+    // an hour later, and still has the old one at 20:59, because the day turns at 21:00 UTC.
+    let state = startingTraining('2026-08-16T20:00:00.000Z');
+    state = beginTraining(
+      state,
+      session({ startedAt: '2026-08-16T20:00:00.000Z' }),
+      '2026-08-16T20:00:00.000Z',
+    );
+    expect(trainingsLeft(state, '2026-08-16T20:59:00.000Z')).toBe(TRAININGS_PER_DAY - 1);
+    expect(trainingsLeft(state, '2026-08-16T21:00:00.000Z')).toBe(TRAININGS_PER_DAY);
+    // And the day key itself is the same one the black market turns on.
+    expect(trainingDay('2026-08-16T21:00:00.000Z')).toBe(
+      blackMarketDay(new Date('2026-08-16T21:00:00.000Z')),
+    );
   });
 
   describe('the no-repeat rule', () => {
@@ -501,5 +520,41 @@ describe('the sheet best-of hands back', () => {
   /** And the schema agrees, which is the thing that actually broke. */
   it('parses as the schema the wire uses', () => {
     expect(AttributesSchema.safeParse(crewSheet(everyone)).success).toBe(true);
+  });
+});
+
+/**
+ * Vision is a reach, not an amount.
+ *
+ * `applyHoldBonus` takes the best eye within a source, on the field's own doc ("how many of the
+ * nearest districts are visible"), so a Watchtower and a Satellite Uplink give 2 rather than 3.
+ * `combineEffects` used to add across sources, so one location worth 2 plus one perk worth 2 gave
+ * 4, while a second location worth 2 added nothing and a second perk worth 2 added nothing. The
+ * same total bought different sight depending on where it came from.
+ */
+describe('how far a crew can see', () => {
+  const withVision = (territoryRange: number, crewRange: number) =>
+    combineEffects(
+      { ...noTerritoryEffects(), visionRange: territoryRange },
+      { ...noCrewEffects(), visionRange: crewRange },
+    ).visionRange;
+
+  it('takes the best eye across sources, the way it does within one', () => {
+    expect(withVision(2, 2)).toBe(2);
+    expect(withVision(1, 2)).toBe(2);
+    expect(withVision(3, 1)).toBe(3);
+  });
+
+  it('gives one source and two sources the same reach for the same number', () => {
+    // A second Uplink adds nothing (that is `applyHoldBonus`), so a perk worth the same must not.
+    expect(withVision(2, 0)).toBe(withVision(2, 2));
+  });
+
+  it('still adds every other channel, which is what the fold is for', () => {
+    const combined = combineEffects(
+      { ...noTerritoryEffects(), defensePercent: 10 },
+      { ...noCrewEffects(), defensePercent: 15 },
+    );
+    expect(combined.defensePercent).toBe(25);
   });
 });

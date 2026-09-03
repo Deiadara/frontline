@@ -8,6 +8,11 @@ import {
   type UnitTierStat,
 } from '../units/tiers.js';
 import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
+import {
+  MAX_MISSION_SPEED_BONUS,
+  MAX_TRAINING_SPEED_BONUS,
+  timeSavingPercent,
+} from '../time/speed.js';
 
 /**
  * The things inside a district that are worth taking (GDD §A4).
@@ -28,9 +33,10 @@ import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
  *
  *   * **Every location does exactly one thing, and says so.** A location whose reward cannot be
  *     stated in a sentence is a location a player cannot plan around.
- *   * **Levels are the investment, and capture is the risk.** A location is captured at level 1
- *     and can be worked up to {@link MAX_LOCATION_LEVEL} for resources, and the day somebody
- *     takes it off you it goes back to 1 for them. Nobody inherits your work.
+ *   * **Levels are the investment, and capture is the risk.** A location can be worked up to
+ *     {@link MAX_LOCATION_LEVEL} for resources, and the day somebody takes it off you they get it
+ *     at the level you left it at. The risk is not that your work is destroyed, it is that you
+ *     hand it over: the better you have made a location, the more it is worth to somebody else.
  *   * **Ground is not neutral.** Every kind carries environment labels (`labels.ts`) that decide
  *     which units are worth bringing, so taking a smuggler's tunnel is a different problem from
  *     taking a rail yard whatever the two are worth.
@@ -168,18 +174,38 @@ export type HoldBonus =
 /**
  * How far a location can be worked up, and what each level is worth.
  *
- * Captured at 1 and upgraded three times, which is the shape the board asked for: a location is a
- * post on a board, and the interesting question about a post is whether it is worth pouring
- * anything into when somebody could take it tomorrow. `LEVEL_SCALE` is what the pouring buys:
- * level 4 is two and a half times level 1, so a fully worked Gas Station beats two fresh ones and
- * losing it hurts accordingly.
+ * Ten levels, which is the shape the board asked for once holding ground became a progression
+ * track rather than a three-step errand. A location is still a post on a board, and the
+ * interesting question about a post is still whether it is worth pouring anything into when
+ * somebody could take it tomorrow. What changed is the answer: a capture no longer resets the
+ * level, so the work is not destroyed, it changes hands.
+ *
+ * ## Why these two curves
+ *
+ * `LEVEL_SCALE` is linear, and its first four entries are the ones that shipped. Every level adds
+ * half of what the location was worth on the day it was taken, so level 4 is still 2.5x and level
+ * 10 is 5.5x. Linear rather than compounding because the same multiplier lands on resource rates
+ * *and* on percentages: a 25% defence bonus compounded ten times is a location nobody can retake.
+ *
+ * `UPGRADE_COST_SCALE` grows faster than the output does, which is what keeps a high level a
+ * decision instead of a formality. The first three steps are unchanged, roughly a doubling each,
+ * and from level 5 the step settles at a flat 1.4x: the same growth `BUILDING_TIME_GROWTH` uses
+ * for the twenty-level building ladder. Ten levels of the original doubling would have priced the
+ * last upgrade at 256x the base and nobody would ever have bought it. At 1.4x the last one is
+ * 33.7x, and the whole ladder costs about 110x the base price, against a level-20 structure's 100x.
+ *
+ * The late levels are deliberately a long investment. Now that a capture keeps the level, taking a
+ * worked location off somebody is the cheaper way to own one, and that is the point: the map is
+ * meant to be fought over rather than farmed.
  */
-export const MAX_LOCATION_LEVEL = 4;
+export const MAX_LOCATION_LEVEL = 10;
 
-export const LEVEL_SCALE: readonly number[] = [1, 1.5, 2, 2.5];
+export const LEVEL_SCALE: readonly number[] = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5];
 
-/** What the first, second and third upgrade cost, as multiples of the kind's own base price. */
-export const UPGRADE_COST_SCALE: readonly number[] = [1, 2.2, 4.5];
+/** What each upgrade costs, as a multiple of the kind's own base price: one per step, 1 to 10. */
+export const UPGRADE_COST_SCALE: readonly number[] = [
+  1, 2.2, 4.5, 6.3, 8.8, 12.3, 17.2, 24.1, 33.7,
+];
 
 export interface LocationSpec {
   label: string;
@@ -200,14 +226,21 @@ export interface LocationSpec {
   baseDefense: number;
   /** What the ground is like, before the sky gets a say (`labels.ts`). */
   labels: readonly EnvLabel[];
-  /** What the first upgrade costs. The second and third scale by {@link UPGRADE_COST_SCALE}. */
+  /** What the first upgrade costs. Every later one scales by {@link UPGRADE_COST_SCALE}. */
   upgradeCost: PartialResources;
   /**
-   * What each upgrade actually *is*, in three short lines: one for level 2, 3 and 4.
+   * What the first three upgrades actually *are*, in three short lines: level 2, 3 and 4.
    *
    * Authored rather than generated, and it is the difference between a build order and a place:
    * "+50% oil" is a number going up, and "you get the underground tanks pumping again" is a thing
    * that happened to a petrol station you own.
+   *
+   * Three, not nine. Levels 5 to 10 read {@link LATE_UPGRADE_NOTES} instead. Nine place-specific
+   * lines across forty-three kinds is 387 sentences, and the 258 of them nobody has a real idea
+   * for would read worse than a shared ladder does. What the shared lines describe is true of any
+   * ground somebody has held a long time: a standing crew, its own stores, its own power. The
+   * place-specific writing stays where a player meets it, on the three upgrades most locations
+   * ever actually see.
    */
   upgrades: readonly [string, string, string];
   /** A one-off infamy payment the moment it changes hands. Almost nothing has one. */
@@ -992,11 +1025,38 @@ export function upgradeCost(kind: LocationKind, level: number): PartialResources
   return cost;
 }
 
+/**
+ * Levels 5 to 10, for every kind, in the player's words.
+ *
+ * Shared rather than authored per location: see {@link LocationSpec.upgrades} for why. Each line
+ * is about the *holding* rather than the machinery, which is the only way one sentence can be
+ * honest about a Gas Station and a Planetarium at the same time. A player who has taken a location
+ * this far has stopped thinking about what the building does and started thinking about who works
+ * there.
+ */
+export const LATE_UPGRADE_NOTES: readonly [string, string, string, string, string, string] = [
+  'A standing crew on a rota, instead of whoever you can spare. Nobody has to be told twice.',
+  'Stores, spares and a bench on site. Nothing waits three days on a part from somewhere else.',
+  'The approach is cleared, lit and watched. What arrives here arrives because you let it.',
+  'Its own power and its own water. The place stops going quiet every time the district does.',
+  'Word gets round. People bring work here rather than waiting to be asked for it.',
+  'It runs whether anybody is watching or not. This is as far as this ground goes.',
+];
+
+/**
+ * How many of the notes on a spec are place-specific: levels 2, 3 and 4.
+ *
+ * Widened to `number` rather than left as the literal `3`, so the guard at the bottom of this file
+ * is a runtime check rather than a comparison TypeScript folds away to `never`.
+ */
+export const AUTHORED_UPGRADE_NOTES: number = 3;
+
 /** What the next level actually *is*, in the player's words, or `null` at the ceiling. */
 export function upgradeNote(kind: LocationKind, level: number): string | null {
   const from = clampLevel(level);
   if (from >= MAX_LOCATION_LEVEL) return null;
-  return LOCATION_CATALOG[kind].upgrades[from - 1] as string;
+  const authored = LOCATION_CATALOG[kind].upgrades[from - 1];
+  return authored ?? (LATE_UPGRADE_NOTES[from - 1 - AUTHORED_UPGRADE_NOTES] as string);
 }
 
 /**
@@ -1268,12 +1328,14 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `+${bonus.perHour} ${RESOURCE_LABELS[bonus.resource]}/h`;
     case 'defense_percent':
       return `+${bonus.percent}% defence`;
+    // Every speed channel is spent as `time / (1 + percent/100)`, so the card has to say what
+    // that removes rather than repeating the channel's own number. See `time/speed.ts`.
     case 'research_speed':
-      return `-${bonus.percent}% research time`;
+      return `-${timeSavingPercent(bonus.percent)}% research time`;
     case 'build_speed':
-      return `-${bonus.percent}% build time`;
+      return `-${timeSavingPercent(bonus.percent)}% build time`;
     case 'training_speed':
-      return `-${bonus.percent}% training time`;
+      return `-${timeSavingPercent(bonus.percent, MAX_TRAINING_SPEED_BONUS)}% training time`;
     case 'training_cost':
       return `-${bonus.percent}% training cost`;
     case 'unit_offense':
@@ -1299,7 +1361,7 @@ export function describeHoldBonus(bonus: HoldBonus): string {
     case 'resource_yield':
       return `${RESOURCE_LABELS[bonus.resource]} goes ${bonus.percent}% further`;
     case 'mission_speed':
-      return `-${bonus.percent}% mission time`;
+      return `-${timeSavingPercent(bonus.percent, MAX_MISSION_SPEED_BONUS)}% mission time`;
     case 'market_discount':
       return `-${bonus.percent}% market prices`;
     case 'black_market_discount':
@@ -1339,14 +1401,23 @@ for (const group of ATTRIBUTE_GROUPS) {
 
 /**
  * Guards the catalogue at module load: every kind is authored, pays something, and says what its
- * three upgrades are. A location that pays nothing is a location nobody has a reason to take.
+ * three place-specific upgrades are. A location that pays nothing is a location nobody has a
+ * reason to take. The rest of the ladder comes from {@link LATE_UPGRADE_NOTES}, and the two counts
+ * are asserted to cover every step so no level can ever come up without a sentence.
  */
+if (AUTHORED_UPGRADE_NOTES + LATE_UPGRADE_NOTES.length !== MAX_LOCATION_LEVEL - 1) {
+  throw new Error(`the upgrade notes do not cover ${MAX_LOCATION_LEVEL - 1} steps`);
+}
+if (LEVEL_SCALE.length !== MAX_LOCATION_LEVEL) throw new Error('LEVEL_SCALE is the wrong length');
+if (UPGRADE_COST_SCALE.length !== MAX_LOCATION_LEVEL - 1) {
+  throw new Error('UPGRADE_COST_SCALE is the wrong length');
+}
 for (const kind of LOCATION_KINDS) {
   const spec = LOCATION_CATALOG[kind];
   if (!spec) throw new Error(`${kind} has no entry in the location catalogue`);
   if (spec.bonuses.length === 0) throw new Error(`${kind} is worth nothing to hold`);
-  if (spec.upgrades.length !== MAX_LOCATION_LEVEL - 1) {
-    throw new Error(`${kind} needs ${MAX_LOCATION_LEVEL - 1} upgrade notes`);
+  if (spec.upgrades.length !== AUTHORED_UPGRADE_NOTES) {
+    throw new Error(`${kind} needs ${AUTHORED_UPGRADE_NOTES} upgrade notes`);
   }
   if (Object.keys(spec.upgradeCost).length === 0) {
     throw new Error(`${kind} has no upgrade price, so it can never be worked up`);

@@ -59,7 +59,7 @@ export function LeaderboardPage() {
                   'ink-box px-5 py-2 font-stamp text-[15px] leading-none transition-colors',
                   board === entry
                     ? 'text-brass-100 brightness-125'
-                    : 'text-ink-300 opacity-70 hover:text-brass-200 hover:opacity-100',
+                    : 'text-ink-300 opacity-70 hover:text-brass-300 hover:opacity-100',
                 )}
               >
                 {LEADERBOARD_BOARD_LABELS[entry]}

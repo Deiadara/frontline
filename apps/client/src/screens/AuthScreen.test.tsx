@@ -135,3 +135,64 @@ describe('AuthScreen', () => {
     await waitFor(() => expect(useSession.getState().token).toBe('tok'));
   });
 });
+
+/**
+ * The prefill is a development convenience, and a deployed build must not carry it.
+ *
+ * The seeded operator is created on every boot of the server, so its passphrase is not a secret
+ * that only the database knows: typing it into the form for every visitor and printing it
+ * underneath hands the account to anyone who loads the page. `import.meta.env.DEV` is what tells
+ * the two apart, and Vite replaces it with a literal at build time, so the branch and the constant
+ * both leave a `vite build`.
+ *
+ * Re-imported under a stubbed env rather than asserted against the bundle, because the flag is read
+ * once at module scope: `vi.resetModules()` is the only way to get the other side of it.
+ */
+describe('AuthScreen in a production build', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('offers neither the prefilled credentials nor the notice naming them', async () => {
+    vi.stubEnv('DEV', false);
+    vi.resetModules();
+    const { AuthScreen: Built } = await import('./AuthScreen');
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Built />
+      </QueryClientProvider>,
+    );
+
+    // The form is up, so the absences below are absences rather than an unmounted screen.
+    expect(screen.getByRole('button', { name: 'Jack In' })).toBeInTheDocument();
+    expect(screen.getByLabelText<HTMLInputElement>(/Operator ID/).value).toBe('');
+    expect(screen.getByLabelText<HTMLInputElement>(/Passphrase/).value).toBe('');
+    expect(screen.queryByText(/MVP build/)).toBeNull();
+    expect(screen.queryByText(new RegExp(MVP_DEV_CREDENTIALS.password))).toBeNull();
+  });
+});
+
+/**
+ * A login that fails for any reason other than a refusal from the API used to show nothing at all.
+ *
+ * `mutation.error instanceof ApiRequestError ? … : null` discarded every network-shaped failure:
+ * unreachable host, DNS, CORS, timeout, a parse failure. The button came back to "Jack In" over a
+ * form that looked untouched, on the one screen where a player has no other evidence.
+ */
+describe('AuthScreen when the API cannot be reached', () => {
+  it('says so rather than looking as though the press did nothing', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    renderAuth();
+    fireEvent.click(screen.getByRole('button', { name: 'Jack In' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Could not reach/));
+    // ...and not the browser's own wording, which tells a player nothing.
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Failed to fetch');
+  });
+});

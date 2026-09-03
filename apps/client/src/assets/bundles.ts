@@ -44,6 +44,12 @@ export function bundleFor(spec: AssetSpec): AssetBundleName {
     // Twenty-seven 768×1024 roster portraits, reached only from the units screen.
     case 'unit':
       return 'units';
+    // §C1: the Garage's machines ride with the roster rather than in a bundle of their own. They
+    // are eight square pictures reached from a screen a player opens in the same breath as the
+    // units page, and a bundle per screen would cost a request to save a few hundred kilobytes on
+    // a route almost nobody lands on cold.
+    case 'vehicle':
+      return 'units';
     case 'ui':
       return 'ui';
     case 'icon':

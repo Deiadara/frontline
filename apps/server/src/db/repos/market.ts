@@ -39,6 +39,10 @@ export interface MarketRepo {
   supplyUsed(baseId: string, day: string): number;
   /** Adds to it. Upserts, because the first purchase of a day has no row to increment. */
   recordSupply(baseId: string, day: string, units: number, at: string): void;
+  /** How many of a vendor line the whole city has taken on `day`. */
+  vendorSold(day: string, lineId: string): number;
+  /** Books `count` more of a line against the day's stock. */
+  recordVendorSale(day: string, lineId: string, count: number, at: string): void;
 }
 
 function rowToOffer(row: OfferRow): MarketOffer {
@@ -75,6 +79,13 @@ export function createMarketRepo(db: AppDatabase): MarketRepo {
   );
   const supplyUsedStmt = db.prepare(
     'SELECT units FROM market_supply_runs WHERE base_id = ? AND day = ?',
+  );
+  const vendorSoldStmt = db.prepare('SELECT sold FROM vendor_sales WHERE day = ? AND line_id = ?');
+  const recordVendorSaleStmt = db.prepare(
+    `INSERT INTO vendor_sales (day, line_id, sold, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (day, line_id) DO UPDATE SET
+       sold = sold + excluded.sold,
+       updated_at = excluded.updated_at`,
   );
   const recordSupplyStmt = db.prepare(
     `INSERT INTO market_supply_runs (base_id, day, units, updated_at) VALUES (?, ?, ?, ?)
@@ -119,6 +130,13 @@ export function createMarketRepo(db: AppDatabase): MarketRepo {
     },
     recordSupply(baseId, day, units, at) {
       recordSupplyStmt.run(baseId, day, units, at);
+    },
+    vendorSold(day, lineId) {
+      const row = vendorSoldStmt.get(day, lineId) as { sold: number } | undefined;
+      return row?.sold ?? 0;
+    },
+    recordVendorSale(day, lineId, count, at) {
+      recordVendorSaleStmt.run(day, lineId, count, at);
     },
   };
 }

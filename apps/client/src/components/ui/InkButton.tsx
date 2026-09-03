@@ -30,7 +30,7 @@ export function InkButton({
       to={to}
       className={cn(
         'ink-box group/ink inline-flex items-center justify-center gap-2 px-5 py-2.5',
-        'font-stamp text-[15px] leading-none text-brass-200',
+        'font-stamp text-[15px] leading-none text-brass-300',
         'transition-all duration-200 hover:text-brass-100 hover:brightness-125',
         className,
       )}

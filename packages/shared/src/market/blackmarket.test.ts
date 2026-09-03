@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BLACK_MARKET_GOOD_IDS,
   BLACK_MARKET_GOODS,
+  BLACK_MARKET_KINDS,
   BLACK_MARKET_SLOTS,
   BLACK_MARKET_TAKES_PER_DAY,
   addToStash,
@@ -13,6 +14,7 @@ import {
   blackMarketEffect,
   blackMarketPotency,
   blackMarketPrice,
+  discountedInfamy,
   MAX_BLACK_MARKET_POTENCY,
   stashCount,
   takeFromStash,
@@ -107,7 +109,10 @@ describe('the shelf', () => {
         }
       }
     }
-    expect([...seen].sort()).toEqual(['battle_boost', 'blueprint', 'contraband', 'unit_upgrade']);
+    // Against the enum rather than a list typed here, so a kind added to the shop has to actually
+    // reach the shelf: the hardcoded version passed by describing what the shop happened to sell,
+    // and went red when pages were added rather than checking that they arrived.
+    expect([...seen].sort()).toEqual([...BLACK_MARKET_KINDS].sort());
   });
 
   it('only ever stocks things the catalogue answers to', () => {
@@ -338,5 +343,82 @@ describe('what the city’s average level does to the back room', () => {
     expect(
       takeRefusal({ ...request, infamy: blackMarketPrice(spec, 25), cityLevel: 25 }),
     ).toBeNull();
+  });
+});
+
+/**
+ * §A4: the guard and the door must ask for the same number.
+ *
+ * `takeFromBlackMarket` spends the discounted price and the shelf marks a slot affordable against
+ * the discounted price, but `takeRefusal` compared the crew's infamy against the *undiscounted*
+ * one. The window where that shows is narrow and entirely real: hold the Statue of the
+ * Revolutionist, stand between 85% and 100% of a price, and the button is lit, the dealer has the
+ * goods, the crew can afford them, and pressing it says "He has heard of you, but not enough."
+ *
+ * Written as a sweep over the window rather than one number, because the bug is the *shape* of the
+ * disagreement and a single sample sits wherever the author happened to put it.
+ */
+describe('a crew with a standing discount (§A4)', () => {
+  const DISCOUNT = 15;
+
+  it('is refused only below what the door would actually charge', () => {
+    const day = '2026-04-11';
+    const board = blackMarketBoard(day, []);
+    const slot = board[0];
+    if (!slot) throw new Error('fixture error: the shelf is empty');
+    const spec = findBlackMarketGood(slot.goodId);
+    if (!spec) throw new Error('fixture error: the slot holds nothing');
+
+    const full = blackMarketPrice(spec, 10);
+    const asking = discountedInfamy(full, DISCOUNT);
+    expect(
+      asking,
+      'the fixture discount does not move this price, so nothing is proved',
+    ).toBeLessThan(full);
+
+    const ask = (infamy: number) =>
+      takeRefusal({
+        slotIndex: 0,
+        goodId: slot.goodId,
+        board,
+        infamy,
+        takenToday: 0,
+        level: 20,
+        cityLevel: 10,
+        discountPercent: DISCOUNT,
+      });
+
+    // Every point of infamy across the window the discount opens up.
+    for (let infamy = asking; infamy < full; infamy += 1) {
+      expect(
+        ask(infamy),
+        `refused at ${infamy} infamy while the door charges ${asking}`,
+      ).toBeNull();
+    }
+    // And it still refuses below the discounted price, which is the half a permissive fix loses.
+    expect(ask(asking - 1)).toBe('not_enough_infamy');
+  });
+
+  it('charges a crew with no discount the full price, as before', () => {
+    const day = '2026-04-11';
+    const board = blackMarketBoard(day, []);
+    const slot = board[0];
+    if (!slot) throw new Error('fixture error: the shelf is empty');
+    const spec = findBlackMarketGood(slot.goodId);
+    if (!spec) throw new Error('fixture error: the slot holds nothing');
+    const full = blackMarketPrice(spec, 10);
+
+    const ask = (infamy: number) =>
+      takeRefusal({
+        slotIndex: 0,
+        goodId: slot.goodId,
+        board,
+        infamy,
+        takenToday: 0,
+        level: 20,
+        cityLevel: 10,
+      });
+    expect(ask(full)).toBeNull();
+    expect(ask(full - 1)).toBe('not_enough_infamy');
   });
 });

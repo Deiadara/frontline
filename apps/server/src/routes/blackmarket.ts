@@ -22,15 +22,25 @@ import { ownBase } from './own-base.js';
  * player's read and their click, somebody else in the city may have emptied the slot they were
  * aiming at. A delta would leave the screen showing a thing that is no longer there.
  *
- * The player's own timezone decides which day they are shopping on, because the day boundary is a
- * wall clock and the wall clock is theirs. A player who has not changed it is on Athens time, which
- * is the house clock and the default.
+ * The **house clock** decides which day they are shopping on, and that is deliberate rather than a
+ * shrug at internationalisation. `time/zone.ts` states the rule: a player may move the display to
+ * their own timezone, and the day boundary the rules use does not move with them.
+ *
+ * This route used to read `currentUser.timezone`, which is a value the player sets with one
+ * `PATCH /settings/profile`. The day string is both the once-a-day limit's key and the shelf's
+ * seed, so take, change timezone, take again: at the right hour three distinct days are reachable,
+ * which makes a once-a-day good a three-a-day good and lets you reroll the shelf until the one you
+ * want is on it. A limit keyed to something the limited party controls is not a limit.
  */
 
 export function registerBlackMarketRoutes(app: FastifyInstance): void {
   app.get('/black-market', { preHandler: app.authenticate }, (request): BlackMarketResponse => {
-    const zone = request.currentUser.timezone || GAME_TIMEZONE;
-    return projectBlackMarket(app.repos, ownBase(app, request.currentUser.id), new Date(), zone);
+    return projectBlackMarket(
+      app.repos,
+      ownBase(app, request.currentUser.id),
+      new Date(),
+      GAME_TIMEZONE,
+    );
   });
 
   app.post(
@@ -39,11 +49,10 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
     (request): BlackMarketMutationResponse => {
       const { slotIndex, goodId } = parseBody(TakeBlackMarketRequestSchema, request.body);
       const now = new Date();
-      const zone = request.currentUser.timezone || GAME_TIMEZONE;
 
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
-        const result = takeFromBlackMarket(app.repos, base, slotIndex, goodId, now, zone);
+        const result = takeFromBlackMarket(app.repos, base, slotIndex, goodId, now, GAME_TIMEZONE);
         if (result.kind === 'refused') {
           throw new AppError('BLACK_MARKET_REFUSED', BLACK_MARKET_REFUSAL_TEXT[result.reason]);
         }
@@ -53,7 +62,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
           kind: 'blackmarket.taken',
           payload: { goodId: result.goodId, slotIndex },
         });
-        return { blackMarket: projectBlackMarket(app.repos, result.base, now, zone) };
+        return { blackMarket: projectBlackMarket(app.repos, result.base, now, GAME_TIMEZONE) };
       })();
     },
   );

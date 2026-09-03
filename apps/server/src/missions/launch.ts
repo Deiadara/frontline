@@ -1,5 +1,7 @@
 import { randomInt } from 'node:crypto';
 import {
+  missionBoardDay,
+  pagePrizeFor,
   carriedSpeedPercent,
   type Fleet,
   TRAVEL_BAND_MINUTES,
@@ -177,6 +179,15 @@ export function launchMission(args: {
       rewards: {},
       spoils: {},
       resolvedAt: null,
+      /*
+       * §F1b: the page category frozen with everything else the card promised.
+       *
+       * Read off the board this run was taken from, at the day it was taken on, rather than at the
+       * day it comes home: boards turn over at midnight and a crew that is out overnight must keep
+       * the terms it left under. Which page it turns out to be is decided on arrival (§F1c).
+       */
+      pagePrize: pagePrizeFor(areaId, missionBoardDay(now), template.id, template.difficulty),
+      pageWon: null,
     },
     seed,
     successChance: terms ? delegatedSuccessChance(afterOverseer, terms) : afterOverseer,

@@ -106,6 +106,8 @@ export function useLiveEvents(): LiveStatus {
     let cancelled = false;
     let attempt = 0;
     const controllers = new Set<AbortController>();
+    /** The backoff sleep in flight, so unmounting does not leave up to 39s of timer behind. */
+    let retry: ReturnType<typeof setTimeout> | undefined;
 
     async function connect(): Promise<void> {
       while (!cancelled) {
@@ -124,18 +126,41 @@ export function useLiveEvents(): LiveStatus {
 
           if (cancelled) throw new Error('cancelled');
           setStatus('live');
-          attempt = 0;
-          // Anything that happened while this tab was disconnected is already in the database and
-          // was never pushed. Refetching on connect is what makes a dropped connection cost
-          // latency and not a stale screen.
-          void clientRef.current.invalidateQueries();
 
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let buffer = '';
+          /*
+           * Nothing counts as a connection until a byte of it arrives.
+           *
+           * The backoff used to reset here, on the response *headers*, which is a weaker claim than
+           * it looks: a proxy that accepts the request and then closes the body immediately, an LB
+           * idle timeout, or a server in a crash loop all produce `res.ok` with a stream that ends
+           * at once. Every one of those iterations counted as a success, so `attempt` never grew
+           * past zero and the tab reconnected roughly once a second, forever, taking a full cache
+           * invalidation with it each time.
+           *
+           * The server writes a `ready` frame before anything else precisely so this is cheap to
+           * check: on a healthy connection the first read arrives immediately, and on the broken
+           * ones above it never arrives at all.
+           */
+          let delivered = false;
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
+            if (!delivered) {
+              delivered = true;
+              attempt = 0;
+              // Anything that happened while this tab was disconnected is already in the database
+              // and was never pushed. Refetching on connect is what makes a dropped connection cost
+              // latency and not a stale screen.
+              //
+              // `refetchType: 'active'` rather than everything: the shell prefetches around eight
+              // screens, and refetching all of them on a reconnect turns a wifi handover into a
+              // burst of requests for screens nobody is looking at. The inactive ones are still
+              // marked stale, so they refetch the moment they mount.
+              void clientRef.current.invalidateQueries({ refetchType: 'active' });
+            }
             clearTimeout(silence);
             silence = setTimeout(() => controller.abort(), LIVE_SILENCE_TIMEOUT_MS);
             buffer += decoder.decode(value, { stream: true });
@@ -157,13 +182,16 @@ export function useLiveEvents(): LiveStatus {
 
         if (cancelled) return;
         setStatus('offline');
-        await new Promise((resolve) => setTimeout(resolve, retryDelay(attempt++)));
+        await new Promise<void>((resolve) => {
+          retry = setTimeout(resolve, retryDelay(attempt++));
+        });
       }
     }
 
     void connect();
     return () => {
       cancelled = true;
+      clearTimeout(retry);
       for (const controller of controllers) controller.abort();
     };
   }, [token]);

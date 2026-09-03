@@ -113,9 +113,10 @@ function ProfilePanel({
     save.mutate(
       {
         username: name,
-        // An empty box means "call me by my username again", which the schema spells as omitting
-        // the field, so it is sent only when there is something in it.
-        ...(shown.trim() === '' ? {} : { displayName: shown.trim() }),
+        // An empty box means "call me by my username again", and that is `null`, not an omitted
+        // field: omitting it means "leave it alone", so clearing the box used to save nothing and
+        // the sync effect above put the old name straight back while the panel said "Saved."
+        displayName: shown.trim() === '' ? null : shown.trim(),
         icon: glyph,
       },
       { onSuccess: () => setDone('Saved.') },

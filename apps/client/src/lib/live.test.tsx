@@ -98,7 +98,7 @@ describe('the live channel', () => {
     expect(keys).not.toContain(JSON.stringify(['bar']));
   });
 
-  it('refetches everything on connect, since it heard nothing while it was down', async () => {
+  it('refetches the screen on connect, since it heard nothing while it was down', async () => {
     const stream = fakeStream();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(stream.body, { status: 200 }));
     const invalidate = vi.spyOn(client, 'invalidateQueries');
@@ -106,8 +106,47 @@ describe('the live channel', () => {
     const { result } = renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });
     await waitFor(() => expect(result.current).toBe('live'));
 
-    // No key at all: the blanket invalidation that closes the gap a disconnection opened.
-    expect(invalidate.mock.calls.some((call) => call[0] === undefined)).toBe(true);
+    // Nothing yet: response headers are not a connection. A proxy that accepts the request and
+    // closes the body produces exactly this state, and it is not one to refetch the game on.
+    expect(invalidate).not.toHaveBeenCalled();
+
+    // The server's `ready` frame, which is the first thing it writes.
+    stream.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+
+    // No key, so everything is stale, but only what is mounted refetches now: the shell prefetches
+    // around eight screens and a wifi handover should not fire all of them.
+    expect(invalidate.mock.calls.some((call) => call[0]?.refetchType === 'active')).toBe(true);
+  });
+
+  /**
+   * A connection that never delivers a byte must not reset the backoff.
+   *
+   * The reset used to happen on `res.ok`, which is a claim about *headers*. An nginx with
+   * `proxy_buffering on`, a load balancer idle timeout, or a server in a crash loop all answer 200
+   * and then close the body, so every attempt looked like a success: the backoff never grew past
+   * its first step and the tab reconnected roughly once a second, forever, taking a full cache
+   * invalidation with it each time. This measures the thing that goes wrong, which is the *rate*.
+   */
+  it('backs off when the body closes without delivering anything', async () => {
+    vi.useFakeTimers();
+    // Jitter pinned to 1.0, so the delays are exactly 1s, 2s, 4s, 8s and the count is not a coin toss.
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      const dead = fakeStream();
+      dead.close();
+      return Promise.resolve(new Response(dead.body, { status: 200 }));
+    });
+
+    try {
+      renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });
+      // Ten seconds of virtual time. Backing off correctly that is attempts at 0, 1, 3 and 7
+      // seconds; resetting every time it is one a second.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(5);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   /** The heartbeat is a comment line. Treating it as an event would refetch the game every 20s. */
@@ -118,6 +157,10 @@ describe('the live channel', () => {
 
     const { result } = renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });
     await waitFor(() => expect(result.current).toBe('live'));
+    // The catch-up refetch fires on the first frame the connection delivers, whatever that frame
+    // is, so it is spent here before the heartbeat is measured.
+    stream.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
     invalidate.mockClear();
 
     stream.push(': beat\n\n');

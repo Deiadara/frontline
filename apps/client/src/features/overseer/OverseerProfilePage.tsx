@@ -2,6 +2,7 @@ import {} from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon, type IconName } from '../../components/ui/Icon';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { useCrewStanding } from '../../lib/queries';
 import { PageShell } from '../game/PageShell';
@@ -85,11 +86,12 @@ export function OverseerProfilePage() {
   const data = query.data;
   if (!data) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Reading the file…
-        </p>
-      </div>
+      <ScreenLoad
+        what="Your file"
+        loading="Reading the file…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 

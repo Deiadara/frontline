@@ -852,7 +852,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   {
     id: 'hollow_men',
     name: 'Hollow Men',
-    tier: 'heavy',
+    // §D12i: a wonder of engineering rather than a heavy. What is on this sheet is not a big
+    // soldier, it is a person a gene clinic and a Lab at 13 turned into something else, which is
+    // the same class of work as a Cyberhound or a Twin. It also moves the unit out of the reach of
+    // `boost_plated_overnight`, which buys the heavy line defence: shock troops with the fear cut
+    // out are not what a night of welding plate helps.
+    tier: 'wonder',
     blurb: 'Shock troops with the fear surgically removed. It took the rest of it with it.',
     trainedAt: 'gauntlet',
     unique: false,
@@ -1398,6 +1403,20 @@ export function unitsUnlockedByLocation(locationKind: LocationKind): UnitSpec[] 
   return UNIT_CATALOG.filter((unit) =>
     unit.requires.some((need) => need.kind === 'location' && need.locationKind === locationKind),
   );
+}
+
+/**
+ * The other direction: the ground that turns this unit out, if any does.
+ *
+ * The Doghouse to the Cyberhounds. Read off the same one authored list `unitsUnlockedByLocation`
+ * reads, so the gate and the place a unit comes from cannot drift apart. Most units answer with
+ * nothing: they come out of a building at home and no location on the map is their home.
+ *
+ * A list rather than one kind because a unit is allowed more than one location clause, and the
+ * caller decides what to do with two (`homeTrainingBonus` takes the best held).
+ */
+export function locationsTraining(unit: UnitSpec): LocationKind[] {
+  return unit.requires.flatMap((need) => (need.kind === 'location' ? [need.locationKind] : []));
 }
 
 /**

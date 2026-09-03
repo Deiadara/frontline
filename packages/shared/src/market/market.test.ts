@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
+import { hourInZone, instantAtHourInZone } from '../time/zone.js';
 import { addItems, hasItems, heldItems, removeItems } from '../items/inventory.js';
 import { STARTING_RESOURCES, type ResourceKey } from '../resources.js';
 import { STORAGE_SHARES } from '../building/production.js';
@@ -51,8 +53,9 @@ const DAYS = Array.from({ length: 60 }, (_, index) => {
   return marketDay(date);
 });
 
+/** Half past `hour` on `day`, on the game's clock: the same clock the Runner's hours are drawn on. */
 const at = (day: string, hour: number): Date =>
-  new Date(`${day}T${String(hour).padStart(2, '0')}:30:00.000Z`);
+  new Date(instantAtHourInZone(day, hour).getTime() + 30 * 60_000);
 
 describe('the Runner', () => {
   it('is in twice a day, for two hours each time', () => {
@@ -112,7 +115,9 @@ describe('the Runner', () => {
     if (!session) throw new Error('expected a session');
     const inside = at(day, session.startHour);
     expect(currentVendorSession(inside)).toEqual(session);
-    expect(vendorClosesAt(inside)?.getUTCHours()).toBe(session.startHour + session.hours);
+    expect(hourInZone(vendorClosesAt(inside) ?? new Date(0))).toBe(
+      (session.startHour + session.hours) % 24,
+    );
   });
 
   it('always has a next opening, and it is in the future', () => {
@@ -244,6 +249,58 @@ describe('listings', () => {
         0,
       ),
     ).toBe('cannot_cover');
+  });
+
+  /*
+   * An unlocked blueprint is the one thing in the catalogue that may never change hands, and a
+   * listing has two sides. `give` is escrowed at posting and was checked; `want` is paid out of the
+   * *buyer's* satchel at settlement and was not, so a document walked out of a crew that never
+   * agreed a document could be traded at all.
+   */
+  it('refuses a listing that moves an untradeable document, whichever side it is on', () => {
+    const document = BLUEPRINTS[0].id;
+    expect(ITEM_CATALOG[document].tradeable, 'the fixture is not untradeable after all').toBe(
+      false,
+    );
+    expect(
+      offerRefusal(
+        bundle({ items: { [document]: 1 } }),
+        bundle({ resources: { caps: 1 } }),
+        stock,
+        { [document]: 1 },
+        0,
+      ),
+    ).toBe('untradeable');
+    expect(
+      offerRefusal(
+        bundle({ resources: { caps: 1 } }),
+        bundle({ items: { [document]: 1 } }),
+        stock,
+        {},
+        0,
+      ),
+    ).toBe('untradeable');
+    // A page of the same document is the tradeable half, and it stays postable on both sides.
+    const page = BLUEPRINTS[0].pages[0].id;
+    expect(ITEM_CATALOG[page].tradeable).toBe(true);
+    expect(
+      offerRefusal(
+        bundle({ items: { [page]: 1 } }),
+        bundle({ resources: { caps: 1 } }),
+        stock,
+        { [page]: 1 },
+        0,
+      ),
+    ).toBeNull();
+    expect(
+      offerRefusal(
+        bundle({ resources: { caps: 1 } }),
+        bundle({ items: { [page]: 1 } }),
+        stock,
+        {},
+        0,
+      ),
+    ).toBeNull();
   });
 
   it('caps how many one crew may have standing', () => {

@@ -54,7 +54,7 @@ export function BadgeBuilder({
           type="button"
           onClick={() => onChange(randomBadge(Math.floor(Math.random() * 1e9) + 1))}
           data-testid="badge-roll"
-          className="ink-box inline-flex items-center gap-1.5 px-3 py-1.5 font-stamp text-[13px] leading-none text-brass-200 transition-colors hover:text-brass-100"
+          className="ink-box inline-flex items-center gap-1.5 px-3 py-1.5 font-stamp text-[13px] leading-none text-brass-300 transition-colors hover:text-brass-100"
         >
           <Icon name="spark" aria-hidden className="h-3.5 w-3.5" />
           Roll one

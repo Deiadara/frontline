@@ -1,4 +1,6 @@
 import {
+  BUILD_BOOST_MS,
+  buildBoostOilCost,
   createCommander,
   negotiate,
   reservationWage,
@@ -94,6 +96,142 @@ export async function settleFonts(page: Page): Promise<void> {
  * ordinary scrolling as a defect. Clipping ancestors are still walked to the top of the document,
  * so narrowing the sweep never weakens what it measures about the elements it does look at.
  */
+/**
+ * Grow the window until the whole page fits in it, then settle.
+ *
+ * The vertical clip sweep asks "is any text cut by an edge", and the *fold* is an edge: a page
+ * taller than the window has its last row cut by definition, and that is correct behaviour rather
+ * than a layout bug. Every caller therefore has to clear the fold before sweeping, and the way that
+ * was done was a hand-picked viewport height per test.
+ *
+ * Which makes the whole suite a knife edge. Adding a panel anywhere pushes some unrelated screen
+ * past its hard-coded number and reddens a test that has nothing to do with the change: adding the
+ * district paintings did exactly that to two specs at once. Measuring the page instead means the
+ * height is always right by construction, and the check goes back to being about layout.
+ *
+ * Capped, because a runaway page (an infinite scroller, a layout loop) should fail the test rather
+ * than allocate a 200,000px window.
+ */
+/**
+ * Nothing on the screen is wider or taller than the screen.
+ *
+ * This replaces a `document.documentElement.scrollWidth > clientWidth` check that **could not
+ * fail**. Every screen root in this app is `h-screen w-screen overflow-hidden` over a
+ * `html,body,#root{height:100%}` base, so the document is pinned to the viewport by construction:
+ * a 4000px block dropped inside a screen moves `documentElement.scrollWidth` by exactly zero. It
+ * was measured that way, not reasoned about. Four call sites were asserting it, and on the base,
+ * queue and missions screens it was the *only* overflow assertion they had.
+ *
+ * The screen root is where the signal actually is: it is the box that does the clipping, so content
+ * that does not fit shows up as its `scrollWidth` exceeding its `clientWidth`. Measured only on that
+ * box, deliberately: a blanket sweep of everything with `overflow: hidden` also flags every
+ * `truncate` and every `object-cover` backdrop, which are clipping *on purpose*, and a gate that
+ * cries wolf gets switched off.
+ *
+ * `screenOverflows` is exported so a positive control can call it directly. See
+ * `visual.spec.ts`'s "the overflow gate can fail" test: without one, the version this replaces
+ * looked healthy for months.
+ */
+export interface ScreenOverflow {
+  readonly selector: string;
+  readonly scrollWidth: number;
+  readonly clientWidth: number;
+  readonly scrollHeight: number;
+  readonly clientHeight: number;
+}
+
+export async function screenOverflows(page: Page, slack = 1): Promise<ScreenOverflow[]> {
+  return page.evaluate((allowed) => {
+    const root = document.querySelector('#root');
+    // Every screen renders exactly one full-height root. Taking children rather than a class
+    // selector so a Tailwind rename cannot quietly empty this list.
+    const screens = root === null ? [] : [...root.children];
+    return screens
+      .map((el) => ({
+        selector: `${el.tagName.toLowerCase()}.${el.className.toString().split(/\s+/).slice(0, 3).join('.')}`,
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      }))
+      .filter(
+        (m) =>
+          m.clientWidth > 0 &&
+          (m.scrollWidth > m.clientWidth + allowed || m.scrollHeight > m.clientHeight + allowed),
+      );
+  }, slack);
+}
+
+export async function expectNothingOverflowsTheScreen(page: Page): Promise<void> {
+  await settleFonts(page);
+  const over = await screenOverflows(page);
+  expect(
+    over.map(
+      (m) =>
+        `${m.selector} needs ${m.scrollWidth}x${m.scrollHeight}, has ${m.clientWidth}x${m.clientHeight}`,
+    ),
+    'content is larger than the screen that clips it',
+  ).toEqual([]);
+}
+
+export async function growPastTheFold(page: Page, width?: number): Promise<void> {
+  const MAX = 12_000;
+  const size = page.viewportSize();
+  /*
+   * The overflow this app actually has is **inside** the page, not on it.
+   *
+   * `PageShell` puts the world in a `h-full overflow-y-auto` div between the two fixed bars, so
+   * `document.scrollHeight` is the window height whatever the content is doing: the document never
+   * scrolls, that div does. Measuring the document therefore reports "already fits" and grows the
+   * window by nothing, which is what the first version of this did: it changed no test's result and
+   * looked like it had.
+   *
+   * So the measurement is how much every scroller is *over* its own box, and the window grows by
+   * the worst of them. Two loops rather than one, because growing the window reflows the content
+   * and a scroller can still be short by a little afterwards.
+   */
+  const overflowBy = async (): Promise<number> =>
+    page.evaluate(() => {
+      let worst = 0;
+      const boxes: Element[] = [document.documentElement, ...document.querySelectorAll('*')];
+      for (const el of boxes) {
+        const style = getComputedStyle(el);
+        if (el !== document.documentElement && !/auto|scroll/.test(style.overflowY)) continue;
+        worst = Math.max(worst, el.scrollHeight - el.clientHeight);
+      }
+      return Math.ceil(worst);
+    });
+
+  // Measured only once the screen has actually arrived. The scroller this is looking for is
+  // rendered by the page, not by the shell, so calling this straight after `goto` measures a
+  // loading state: it finds no overflow, grows nothing, and returns as though it had worked. That
+  // is the failure mode to design against, because the caller cannot see it: the sweep afterwards
+  // fails on the fold and reads as a layout bug in whatever was last changed.
+  //
+  // Waiting for the scroller rather than for `networkidle`, deliberately. The client holds an SSE
+  // connection open for live updates, so the network is never idle and that wait only ever expires:
+  // it turned a fifteen-test run into two and a half minutes of nothing happening.
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('*')].some((el) =>
+      /auto|scroll/.test(getComputedStyle(el).overflowY),
+    ),
+  );
+  await settleFonts(page);
+
+  let height = size?.height ?? 720;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const over = await overflowBy();
+    if (over <= 0) break;
+    height += over;
+    expect(
+      height,
+      'the page is too tall to sweep: is something growing without bound?',
+    ).toBeLessThan(MAX);
+    await page.setViewportSize({ width: width ?? size?.width ?? 1280, height });
+    await settleFonts(page);
+  }
+}
+
 export async function expectNothingClippedVertically(page: Page, root = 'body'): Promise<void> {
   await settleFonts(page);
   const offenders = await page.evaluate<string[], string>((selector) => {
@@ -344,6 +482,31 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // The base screen reads `GET /base/:id`, not `/me`. Serving one fixed base regardless of the
     // session made `installApi(page, lateGame)` a half-fixture: a late-game HUD over a starting
     // base, so the detail follows whichever session was installed.
+    /*
+     * `POST /base/boost` answers with a receipt, not just the base.
+     *
+     * It has to be matched *before* the `/api/base/` catch-all below, which was swallowing it and
+     * answering `{ base }` where `BuildBoostResponseSchema` wants `{ base, paid }`. That makes
+     * `apiFetch`'s `schema.parse` throw, so the mutation always errored: any test that pressed the
+     * button and did not assert the outcome passed against a boost that never happened, and none of
+     * them asserted the outcome.
+     */
+    if (pathname.endsWith('/api/base/boost')) {
+      const burning = session.base ?? baseDetail.base;
+      return json({
+        base: {
+          ...burning,
+          // The burn is *running* now. Answering with the base unchanged made a successful boost
+          // and a rejected one look identical on screen, so nothing could assert the difference:
+          // the countdown appearing is the only positive signal this write has.
+          economy: {
+            ...burning.economy,
+            buildBoostUntil: new Date(Date.now() + BUILD_BOOST_MS).toISOString(),
+          },
+        },
+        paid: { oil: buildBoostOilCost(burning.buildings) },
+      });
+    }
     if (pathname.includes('/api/base/')) return json({ base: session.base ?? baseDetail.base });
     if (pathname.endsWith('/api/battle')) return json(battle);
     // §A4: the board. Every write answers with the whole board plus the crew, so one handler
@@ -643,7 +806,14 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
      * screen a test could walk to and find empty, exactly as a player would.
      */
     if (pathname.includes('/api/scrapyard')) {
-      return json(route.request().method() === 'GET' ? scrapyard : { scrapyard });
+      // A build answers with the yard *and* the crew, because it spends from the stockpile:
+      // `BuildAddonResponseSchema` is `{ scrapyard, base }`. Answering `{ scrapyard }` alone made
+      // every add-on build throw in `schema.parse` rather than land.
+      return json(
+        route.request().method() === 'GET'
+          ? scrapyard
+          : { scrapyard, base: session.base ?? baseDetail.base },
+      );
     }
     if (pathname.includes('/api/garage')) {
       return json(route.request().method() === 'GET' ? garage : { garage });

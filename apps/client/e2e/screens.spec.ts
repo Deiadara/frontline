@@ -496,15 +496,46 @@ test('a district named in initials spells itself out on its own screen', async (
   await expect(page.getByTestId('district-formal-name')).toHaveCount(0);
 });
 
+/** The Steelbelt's own locations, read off the map rather than typed. */
+const RUSTYARD_LOCATIONS =
+  CITY_DISTRICTS.find((district) => district.id === 'rustyard')?.locations ?? [];
+
 test('the district view shows what is inside a scouted district (§A4)', async ({ page }) => {
   await installApi(page, me);
   await page.goto('/game');
   await enterDistrict(page, 'rustyard');
-  await expect(page.getByTestId('locations')).toBeVisible();
-  // Ground this crew holds reads differently from ground it does not, and offers different moves.
+  /*
+   * The district is a screen now, not a column of cards (board request), so what is inside it is a
+   * sign on the painting for each location and a window behind each sign. Both halves are asserted:
+   * every location is named on the ground, and opening one gives the moves for *that* location.
+   */
+  for (const location of RUSTYARD_LOCATIONS) {
+    await expect(page.getByTestId(`site-${location.id}`), location.id).toBeVisible();
+  }
+
+  /*
+   * Ground this crew holds reads differently from ground it does not, and offers different moves.
+   *
+   * Which now takes two windows rather than one grid. The old version asserted all three against
+   * the whole column at once and passed on `.first()` matching whichever card happened to carry
+   * each control; with one window open at a time the two cases have to be named. The fixture holds
+   * the first location and nobody the second, so this also pins that the *right* controls follow
+   * the *right* ground rather than appearing on everything.
+   */
+  const mine = RUSTYARD_LOCATIONS[0]!;
+  const theirs = RUSTYARD_LOCATIONS[1]!;
+
+  await page.getByTestId(`site-${mine.id}`).click();
+  await expect(page.getByTestId('location-window')).toBeVisible();
   await expect(page.getByText('Yours').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Call a fight' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Dig in' })).toBeVisible();
+  // You cannot call a fight on ground you already hold.
+  await expect(page.getByRole('button', { name: 'Call a fight' })).toHaveCount(0);
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('location-window')).toHaveCount(0);
+  await page.getByTestId(`site-${theirs.id}`).click();
+  await expect(page.getByRole('button', { name: 'Call a fight' }).first()).toBeVisible();
 
   await page.screenshot({ path: 'screenshots/district-locations.png', fullPage: false });
 });
@@ -670,7 +701,10 @@ test('a project that lands while the page is open shows what it found', async ({
   const raidBossFacts = page.getByRole('listitem').filter({ hasText: 'Raid Boss' }).first();
   await expect(raidBossFacts).toBeVisible();
   await expect(raidBossFacts).toContainText('Intimidation');
-  await expect(raidBossFacts).toContainText('Demolition');
+  // The Raid Boss chair reads on Improvisation since Demolition was retired for Encyclopedia:
+  // a raid runs on what you do when the plan stops working, and a raid boss has no use for a
+  // reference library.
+  await expect(raidBossFacts).toContainText('Improvisation');
   await expect(raidBossFacts, 'both facts count against the §B9 cap').toContainText('2 / 3 leads');
 
   await settleFonts(page);

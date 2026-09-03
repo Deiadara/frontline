@@ -10,7 +10,9 @@ import {
   findBattleBoost,
   type BattleBoostSpec,
   type BoostEffect,
+  type BoostUnlock,
 } from './boosts.js';
+import { blueprintForBattleBoost, blueprintGateMet } from '../blueprints/requirements.js';
 import { findTech } from '../research/tech.js';
 import { infamyForKill } from '../economy/infamy.js';
 
@@ -60,11 +62,59 @@ describe('what a name buys (§D7)', () => {
   it('opens a boost only for the crew that has the technology or the officer', () => {
     const bare = { technologies: [], roles: [] } as const;
     const kitted = { technologies: ['tech_shaped_charges'], roles: ['raid_boss'] } as const;
-    expect(boostAvailable({ kind: 'open' }, bare)).toBe(true);
-    expect(boostAvailable({ kind: 'tech', techId: 'tech_shaped_charges' }, bare)).toBe(false);
-    expect(boostAvailable({ kind: 'tech', techId: 'tech_shaped_charges' }, kitted)).toBe(true);
-    expect(boostAvailable({ kind: 'officer', role: 'raid_boss' }, bare)).toBe(false);
-    expect(boostAvailable({ kind: 'officer', role: 'raid_boss' }, kitted)).toBe(true);
+    // Nothing behind a blueprint here: this case is about who proposed the boost.
+    const drawn = () => true;
+    const at = (unlock: BoostUnlock) => ({ id: 'b', unlock });
+    expect(boostAvailable(at({ kind: 'open' }), bare, drawn)).toBe(true);
+    expect(boostAvailable(at({ kind: 'tech', techId: 'tech_shaped_charges' }), bare, drawn)).toBe(
+      false,
+    );
+    expect(boostAvailable(at({ kind: 'tech', techId: 'tech_shaped_charges' }), kitted, drawn)).toBe(
+      true,
+    );
+    expect(boostAvailable(at({ kind: 'officer', role: 'raid_boss' }), bare, drawn)).toBe(false);
+    expect(boostAvailable(at({ kind: 'officer', role: 'raid_boss' }), kitted, drawn)).toBe(true);
+  });
+
+  /**
+   * §D12e: and the four that are manufactured are behind their drawings too.
+   *
+   * Checked before the proposer, because a crew that has the Lab project and the chair still cannot
+   * make a thing nobody has the plans for. The three boosts open to anybody are unaffected, which
+   * the second half asserts: a blueprint gate that answered false for everything would pass the
+   * first half on its own.
+   */
+  it('keeps a manufactured boost shut until its blueprint is drawn', () => {
+    const kitted = { technologies: ['tech_shaped_charges'], roles: ['raid_boss'] } as const;
+    const gated = BATTLE_BOOSTS.filter((spec) => blueprintForBattleBoost(spec.id) !== undefined);
+    const open = BATTLE_BOOSTS.filter((spec) => blueprintForBattleBoost(spec.id) === undefined);
+    expect(gated.length, 'no boost is behind a blueprint at all').toBeGreaterThan(0);
+    expect(open.length, 'every boost is behind a blueprint').toBeGreaterThan(0);
+
+    /*
+     * The property is that the drawings **change the answer**, and only for the four that are made.
+     *
+     * Asserting availability outright does not work and is how the first version of this was wrong:
+     * a boost is also behind whoever proposed it, so an ungated boost the fixture crew has no chair
+     * for reads false for a reason that has nothing to do with blueprints.
+     */
+    // The real predicate against an empty satchel, not a stub that answers false to everything:
+    // `blueprintGateMet` answers **true** for anything nothing gates, and a stub that did not would
+    // have made the second loop below assert the opposite of the rule.
+    const nothingHeld = (boostId: string) => blueprintGateMet({}, 'battle_boost', boostId);
+
+    for (const spec of gated) {
+      expect(
+        boostAvailable(spec, kitted, nothingHeld),
+        `${spec.id} is bought without its blueprint`,
+      ).toBe(false);
+    }
+    for (const spec of open) {
+      expect(
+        boostAvailable(spec, kitted, nothingHeld),
+        `${spec.id} is gated on a blueprint it does not need`,
+      ).toBe(boostAvailable(spec, kitted, () => true));
+    }
   });
 });
 

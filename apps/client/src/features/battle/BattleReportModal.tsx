@@ -22,6 +22,20 @@ import { cn } from '../../lib/cn';
  *
  * Nothing here is optional decoration. Every column answers a question the board asked for by name:
  * what fled, what the casualties were, which units did the most damage, and how the legends did.
+ *
+ * ## The template
+ *
+ * Every report is the same document in the same order, so a player who has read one can read any of
+ * them without hunting: **outcome and ground**, then **what happened** in sentences, then **the
+ * legends**, then **the two ledgers side by side**, each with the same rows in the same order and
+ * the same five-column unit table under it.
+ *
+ * "The same rows" is the part that needs enforcing rather than intending. The ledger rows used to be
+ * written `{side.infamy > 0 && <Row .../>}`, one condition per side, so the two columns grew
+ * different rows: a fight where only the winner banked infamy put "Infamy earned" on one side and
+ * not the other, and the two ledgers stopped lining up at exactly the moment a reader wanted to
+ * compare them. {@link ledgerRows} decides the row set once, for the report, from both sides at
+ * once: a row is on both columns or on neither.
  */
 
 interface BattleReportModalProps {
@@ -56,6 +70,12 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
   const mine = side === 'attacker' ? analysis.attacker : analysis.defender;
   const theirs = side === 'attacker' ? analysis.defender : analysis.attacker;
   const won = analysis.winner === side;
+  const rows = ledgerRows(mine, theirs);
+  // A ring that anybody actually met, rather than one that was merely set: a perimeter nobody ran
+  // into neither caught anyone nor paid anything, and has nothing to report.
+  const ringFought = [mine, theirs].some(
+    (each) => each.perimeterCaught > 0 || each.perimeterLost > 0,
+  );
 
   return (
     <Modal
@@ -74,7 +94,8 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
             won ? 'text-brass-300' : 'text-oxblood-300',
           )}
         >
-          {won ? 'Held' : 'Lost'} · {analysis.locationName}
+          {won ? 'Held' : 'Lost'} · {analysis.locationName} ·{' '}
+          {analysis.rounds === 1 ? '1 round' : `${analysis.rounds} rounds`}
         </p>
         <h2
           id="report-title"
@@ -120,6 +141,16 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
               Called on who was left standing.
             </p>
           )}
+          {/* The ring, when one was there to be met. Meeting it is a second fight now, so it has a
+              result of its own: the same handful of runners getting home means one thing when the
+              ring held and quite another when it was ridden through. */}
+          {ringFought && (
+            <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+              {analysis.brokeThrough
+                ? 'The withdrawal came through the ring.'
+                : 'The ring held, and the withdrawal broke on it.'}
+            </p>
+          )}
         </section>
 
         {analysis.legends.length > 0 && (
@@ -136,8 +167,8 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
         )}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <SideTable side={mine} heading="Yours" tone="mine" />
-          <SideTable side={theirs} heading="Theirs" tone="theirs" />
+          <SideTable side={mine} heading="Yours" tone="mine" rows={rows} />
+          <SideTable side={theirs} heading="Theirs" tone="theirs" rows={rows} />
         </div>
       </div>
 
@@ -150,14 +181,47 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
   );
 }
 
+interface LedgerRow {
+  label: string;
+  of: (side: SideAnalysis) => number;
+}
+
+/**
+ * The ledger rows for this report, decided once from both sides.
+ *
+ * The first four are always drawn, because every fight has them and a reader looking for "what did
+ * this cost" should find it in the same place every time. The rest are drawn when *either* side has
+ * something to say, which is what keeps the two columns aligned: a row is on both or on neither.
+ * Drawing a row only where its own number is non-zero, which is what this replaced, produced two
+ * ledgers of different heights whose rows did not correspond.
+ */
+function ledgerRows(mine: SideAnalysis, theirs: SideAnalysis): LedgerRow[] {
+  const always: LedgerRow[] = [
+    { label: 'Lost', of: (side) => side.lost },
+    { label: 'Came back', of: (side) => side.survived },
+    { label: 'Broke and ran', of: (side) => side.fled },
+  ];
+  const whenAnybodyHas: LedgerRow[] = [
+    // §D3: the intimidation the engine has always settled before the first shot and never showed.
+    { label: 'Too cowed to fire', of: (side) => side.cowed },
+    { label: 'On the ring', of: (side) => side.perimeter },
+    { label: 'Caught by the ring', of: (side) => side.perimeterCaught },
+    { label: 'Lost holding the ring', of: (side) => side.perimeterLost },
+    { label: 'Infamy earned', of: (side) => side.infamy },
+  ];
+  return [...always, ...whenAnybodyHas.filter((row) => row.of(mine) > 0 || row.of(theirs) > 0)];
+}
+
 function SideTable({
   side,
   heading,
   tone,
+  rows,
 }: {
   side: SideAnalysis;
   heading: string;
   tone: 'mine' | 'theirs';
+  rows: LedgerRow[];
 }) {
   return (
     <section
@@ -165,6 +229,7 @@ function SideTable({
         'flex flex-col gap-2 border p-3',
         tone === 'mine' ? 'border-brass-500/40 bg-brass-300/5' : 'border-surface-700',
       )}
+      data-testid={`report-side-${tone}`}
     >
       <header className="flex items-baseline justify-between gap-2">
         <h3 className="min-w-0 truncate font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
@@ -176,15 +241,25 @@ function SideTable({
       </header>
 
       <dl className="flex flex-col divide-y divide-surface-700 border-y border-surface-700">
-        <Row label="Lost" value={String(side.lost)} />
-        <Row label="Came back" value={String(side.survived)} />
-        <Row label="Broke and ran" value={String(side.fled)} />
-        {side.perimeter > 0 && <Row label="On the ring" value={String(side.perimeter)} />}
-        {side.perimeterCaught > 0 && (
-          <Row label="Caught by the ring" value={String(side.perimeterCaught)} />
-        )}
-        {side.infamy > 0 && <Row label="Infamy earned" value={String(side.infamy)} />}
+        {rows.map((row) => (
+          <Row key={row.label} label={row.label} value={String(row.of(side))} />
+        ))}
       </dl>
+
+      {/* §D1: who led, and what it came to. On the analysis since officers could lead a fight and
+          drawn nowhere: a player could field a legend, have them fall, and read a report that did
+          not mention it. Beside the unit rows rather than in them, because an officer is one person
+          who was there rather than a body count the settler writes back to a roster. */}
+      {side.officer && (
+        <p
+          className="font-body text-[11px] leading-relaxed text-ink-300"
+          data-testid={`report-officer-${tone}`}
+        >
+          <span className="font-display tracking-[0.06em] text-brass-300">{side.officer.name}</span>{' '}
+          led, and put out {Math.round(side.officer.damage)}.{' '}
+          {side.officer.fell ? 'Taken off the field.' : 'Walked off it.'}
+        </p>
+      )}
 
       {side.units.length === 0 ? (
         <p className="font-body text-xs leading-relaxed text-ink-300">Nobody was on the ground.</p>

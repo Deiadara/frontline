@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { envLabel, mergeLabels, type EnvLabel } from './labels.js';
+import { GAME_TIMEZONE, dayInZone } from '../time/zone.js';
 
 /**
  * The weather (GDD §A4).
  *
- * One roll a day, at midnight UTC, for the whole city. Everybody fighting anywhere on the map that
+ * One roll a day, at game midnight, for the whole city. Everybody fighting anywhere on the map that
  * day is fighting in the same sky, which is the point: weather is a *shared* condition, so "the
  * week it would not stop raining" is a thing two crews can talk about, and a player planning a
  * push at 23:50 knows the ground is about to change under them.
@@ -18,7 +19,7 @@ import { envLabel, mergeLabels, type EnvLabel } from './labels.js';
  *
  * ## Deterministic, like the Bar's roster
  *
- * A pure function of the UTC date, hashed, with no state anywhere. Two players asking on the same
+ * A pure function of the game date, hashed, with no state anywhere. Two players asking on the same
  * day get the same sky; a server restart does not re-roll it; and a test can ask what 2031-04-04
  * looks like without moving a clock. The alternative, rolling and storing, puts the one piece of
  * world state everybody reads behind a write that can fail.
@@ -109,9 +110,9 @@ export function isPlainDay(kind: WeatherKind): boolean {
   return kind === 'normal';
 }
 
-/** `2026-08-17`: the day a moment belongs to, UTC, the same key the Bar's roster turns on. */
-export function weatherDay(at: Date): string {
-  return at.toISOString().slice(0, 10);
+/** `2026-08-17`: the game day a moment belongs to, the same key the Bar's roster turns on. */
+export function weatherDay(at: Date, zone: string = GAME_TIMEZONE): string {
+  return dayInZone(at, zone);
 }
 
 /**

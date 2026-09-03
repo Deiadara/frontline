@@ -5,10 +5,13 @@ import {
   MISSION_STANCE_SPECS,
   findUnit,
   formatDuration,
+  hastenedMinutes,
+  missionTimings,
   isCombatUnit,
   missionCarry,
   requiresOfficer,
   type Army,
+  type BlueprintCategory,
   type CrewOfficer,
   type MissionArea,
   type MissionKind,
@@ -25,6 +28,18 @@ import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
 import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
+
+/**
+ * §F1b: how a promised page reads on the card, by category and no further.
+ *
+ * Keyed on `BlueprintCategory` rather than on a hand-written copy of the same three strings, so a
+ * fourth category is a compile error here rather than an `undefined` on a card.
+ */
+const PAGE_PRIZE_LABELS: Readonly<Record<BlueprintCategory, string>> = {
+  unit: "A unit blueprint's page",
+  upgrade: "An upgrade blueprint's page",
+  consumable: "A consumable blueprint's page",
+};
 
 /**
  * The mission board, one area at a time (GDD §E4, §A4).
@@ -168,7 +183,7 @@ function Quick({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
-      className="ink-box px-2 py-1 font-stamp text-[11px] leading-none text-brass-200 transition-colors hover:text-brass-100 disabled:opacity-40"
+      className="ink-box px-2 py-1 font-stamp text-[11px] leading-none text-brass-300 transition-colors hover:text-brass-100 disabled:opacity-40"
     >
       {label}
     </button>
@@ -376,6 +391,18 @@ function OfferCard({
         >
           <span className="tabular-nums text-ink-200">{offer.payoutSlots}</span> to carry
         </span>
+        {/* §F1b: the category, and never the page. Which sheet it turns out to be is not decided
+            until the crew is home, so a card that named it would turn a run into a shopping trip
+            and the anticipation is most of what the reward is. */}
+        {offer.pagePrize !== null && (
+          <span
+            className="font-display text-[10px] uppercase tracking-[0.14em] text-brass-300"
+            data-testid={`page-prize-${offer.templateId}`}
+            data-tip="Which page it is, you find out when they get back"
+          >
+            {PAGE_PRIZE_LABELS[offer.pagePrize]}
+          </span>
+        )}
       </div>
 
       {/* §I1: what the crew learns from it, which is half of what a job is worth and was on no
@@ -499,6 +526,23 @@ function SendDialog({
   const carry = missionCarry(force);
   // What the machines picked are worth against the crew picked: see `carriedSpeedPercent`.
   const ridingSpeed = Math.round(carriedSpeedPercent(riding, going));
+  /*
+   * The clock, with the machines two sections below already taken off it.
+   *
+   * `offer.totalMinutes` is the bare template: `missions/board.ts` builds the board with
+   * `templateTimings`. The launch runs `hastenedMinutes(TRAVEL_BAND_MINUTES[band],
+   * missionSpeedPercent + carried)` on the road, so the dialog was printing "3h 20m there and back"
+   * beside "-55% off the road" and neither number described the run.
+   *
+   * The road only, exactly as the launch does it: a van gets a crew to the site sooner and does not
+   * make the work go faster. This is an **upper bound**, and says so: the crew's own
+   * `missionSpeedPercent` and any delegation terms come off it as well, and neither is on this
+   * payload. Both only ever shorten it, so the run is this or quicker, never longer.
+   */
+  const clockMinutes = missionTimings({
+    travelMinutes: hastenedMinutes(offer.travelMinutes, ridingSpeed),
+    durationMinutes: offer.durationMinutes,
+  }).totalMinutes;
   const fighters = Object.entries(force).some(
     ([unitId, count]) => count > 0 && isCombatUnit(unitId),
   );
@@ -530,7 +574,7 @@ function SendDialog({
             {offer.name}
           </h2>
           <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
-            {areaName} · {formatDuration(offer.totalMinutes)} there and back. Pick who goes.
+            {areaName} · {formatDuration(clockMinutes)} there and back at most. Pick who goes.
           </p>
         </div>
 

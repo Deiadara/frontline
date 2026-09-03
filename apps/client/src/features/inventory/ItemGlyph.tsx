@@ -15,8 +15,10 @@ import { cn } from '../../lib/cn';
  * manifest as `item-<id>` and this component grows the same `deliveredUrl` lookup every other
  * asset-backed component already has: one function call, no other change.
  *
- * The three kinds are drawn to be distinguishable in silhouette, not in colour, so they still read
- * at 24px and for a player who cannot separate the palette's greens from its purples.
+ * The four kinds are drawn to be distinguishable in silhouette, not in colour, so they still read
+ * at 24px and for a player who cannot separate the palette's greens from its purples. A page and a
+ * blueprint share a tint on purpose: they are the same object at two stages, and the torn edge is
+ * what separates them.
  */
 
 const GLYPHS: Record<ItemKind, JSX.Element> = {
@@ -34,7 +36,27 @@ const GLYPHS: Record<ItemKind, JSX.Element> = {
       <path d="M5.8 8.4h5M5.8 10.3h5" stroke="currentColor" strokeWidth="1" />
     </>
   ),
-  // A cog: a part, and the only round silhouette of the three.
+  // A single sheet with a torn edge down one side: one page out of a document, and the only
+  // silhouette here that is incomplete on purpose.
+  page: (
+    <>
+      <path
+        d="M4.6 3.4h4.9l2.9 2.9v6.3H4.6z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <path
+        d="M4.6 3.4l1.1 1.4-1.1 1.4 1.1 1.4-1.1 1.4 1.1 1.4-1.1 1.4"
+        stroke="currentColor"
+        strokeWidth="1"
+        fill="none"
+      />
+      <path d="M7.4 8.2h3.2M7.4 10.1h3.2" stroke="currentColor" strokeWidth="1" />
+    </>
+  ),
+  // A cog: a part, and the only round silhouette of the four.
   component: (
     <>
       <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3" fill="none" />
@@ -64,6 +86,7 @@ const GLYPHS: Record<ItemKind, JSX.Element> = {
 
 const TINT: Record<ItemKind, string> = {
   blueprint: 'text-iris-100',
+  page: 'text-iris-300',
   component: 'text-verdigris-100',
   relic: 'text-brass-300',
 };

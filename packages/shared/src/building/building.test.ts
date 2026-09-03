@@ -12,6 +12,9 @@ import {
   describeBuildingRequirement,
   nexusLevelFor,
 } from './kinds.js';
+import { blueprintForModification, modificationGateMet } from '../blueprints/index.js';
+import type { Inventory } from '../items/inventory.js';
+import { isAdvancedModification, modificationBuildRefusal, noAddons } from './addons.js';
 import {
   MAX_MODIFICATION_SLOTS,
   MODIFICATIONS,
@@ -21,6 +24,7 @@ import {
   modificationSlotsAt,
   modificationsFor,
   nextModificationSlotLevel,
+  type ModificationSpec,
 } from './modifications.js';
 import {
   buildingLevel,
@@ -112,7 +116,6 @@ const build = (kind: (typeof BUILDING_KINDS)[number], level: number): Building =
   level,
   modifications: [],
   damage: 0,
-  fortification: 0,
 });
 
 /** What `POST /overseer` mints. */
@@ -1036,7 +1039,7 @@ describe('§A1: the population ceiling', () => {
  */
 describe('the Infirmary, at the boardrate', () => {
   const gate = (level: number): Building[] => [
-    { id: 'i', kind: 'infirmary', level, modifications: [], damage: 0, fortification: 0 },
+    { id: 'i', kind: 'infirmary', level, modifications: [], damage: 0 },
   ];
 
   it('hands back four percent of the dead per level', () => {
@@ -1070,7 +1073,7 @@ describe('the Infirmary, at the boardrate', () => {
  */
 describe('what the Garage makes (§B11)', () => {
   const at = (kind: Building['kind'], level: number): Building[] => [
-    { id: 'x', kind, level, modifications: [], damage: 0, fortification: 0 },
+    { id: 'x', kind, level, modifications: [], damage: 0 },
   ];
 
   it('produces nothing at any level', () => {
@@ -1084,5 +1087,66 @@ describe('what the Garage makes (§B11)', () => {
     // The two buildings used to make 25 an hour between them at level 20. They still do.
     expect(yard.highQualityMetal).toBe(25);
     expect(yard.oil).toBe(120);
+  });
+});
+
+/**
+ * §D12f: the two drawings an advanced modification wants, and the order they are named in.
+ *
+ * The order is the load-bearing part. Both gates can be shut at once, and the retrofit **document**
+ * opens all five of a structure's advanced brackets while a Lab project opens one, so a crew short
+ * of pages that is told about the project first is sent to the wrong building. Anchored on two
+ * named modifications rather than on the magnitude threshold, so a rebalance of the threshold
+ * cannot quietly make this test agree with whatever it is set to.
+ *
+ * The document predicate is the real `modificationGateMet` over a real satchel rather than a
+ * blanket `false`: the rule that a cheap bolt-on is gated by nothing lives in
+ * `blueprints/catalog.ts`, and asserting it through a stub would be asserting the stub.
+ */
+describe('§D12f: what the Scrapyard will not cut yet', () => {
+  const RICH = () => true;
+  const BROKE = () => false;
+
+  const advanced = findModification('nexus_encrypted_core')!;
+  const cheap = findModification('nexus_priority_bus')!;
+  const document = blueprintForModification(advanced)!;
+
+  /** What the crew's satchel says about a modification, the way the Scrapyard route asks it. */
+  const holding = (inventory: Inventory) => (spec: ModificationSpec) =>
+    modificationGateMet(inventory, spec);
+
+  it('leaves a bolt-on open with an empty satchel: no document, no project, just the bill', () => {
+    expect(isAdvancedModification(cheap)).toBe(false);
+    expect(blueprintForModification(cheap)).toBeUndefined();
+    expect(
+      modificationBuildRefusal({
+        spec: cheap,
+        addons: noAddons(),
+        blueprintUnlocked: holding({}),
+        affordable: RICH,
+      }),
+    ).toBeNull();
+  });
+
+  it('names the document first, then the Lab project, then the money', () => {
+    expect(isAdvancedModification(advanced)).toBe(true);
+    expect(document.id).toBe('bp_nexus_retrofit');
+
+    const refuse = (inventory: Inventory, researched: string[], afford: () => boolean) =>
+      modificationBuildRefusal({
+        spec: advanced,
+        addons: { researched, built: [] },
+        blueprintUnlocked: holding(inventory),
+        affordable: afford,
+      });
+    const read: Inventory = { [document.id]: 1 };
+
+    // Everything shut: the document is what it says.
+    expect(refuse({}, [], BROKE)).toBe('needs_blueprint');
+    // Document in hand, project not run: the project, even though the crew is also broke.
+    expect(refuse(read, [], BROKE)).toBe('needs_research');
+    // Both drawings in hand: now the price is the only thing left.
+    expect(refuse(read, [advanced.id], BROKE)).toBe('cannot_afford');
+    expect(refuse(read, [advanced.id], RICH)).toBeNull();
   });
 });

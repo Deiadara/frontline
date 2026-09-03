@@ -62,15 +62,14 @@ export const MVP_BOT: BotBlueprint = {
    * seeding a rival with structures at all.
    */
   buildings: [
-    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0, fortification: 0 },
-    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [], damage: 0, fortification: 0 },
+    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0 },
+    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [], damage: 0 },
     {
       id: 'vex-gauntlet',
       kind: 'gauntlet',
       level: 3,
       modifications: [],
       damage: 0,
-      fortification: 0,
     },
     {
       id: 'vex-generator',
@@ -78,7 +77,6 @@ export const MVP_BOT: BotBlueprint = {
       level: 3,
       modifications: [],
       damage: 0,
-      fortification: 0,
     },
     {
       id: 'vex-scrapyard',
@@ -86,7 +84,6 @@ export const MVP_BOT: BotBlueprint = {
       level: 2,
       modifications: [],
       damage: 0,
-      fortification: 0,
     },
     {
       id: 'vex-quarters',
@@ -94,7 +91,6 @@ export const MVP_BOT: BotBlueprint = {
       level: 2,
       modifications: [],
       damage: 0,
-      fortification: 0,
     },
   ],
   army: { razors: 12, wardens: 6, breakers: 4 },
@@ -121,7 +117,7 @@ export const MVP_BOT: BotBlueprint = {
       'vex-commander-spy',
       'The Ghost of Sector Nine',
       'head_spy',
-      { stealth: 37, deception: 29, hacking: 26 },
+      { stealth: 37, deception: 29, signals: 26 },
       ['quiet_boots'],
     ),
   ],
@@ -152,15 +148,14 @@ export const MVP_ALLY: BotBlueprint = {
     highQualityMetal: 700,
   },
   buildings: [
-    { id: 'ally-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0, fortification: 0 },
-    { id: 'ally-gate', kind: 'gate', level: 3, modifications: [], damage: 0, fortification: 0 },
+    { id: 'ally-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0 },
+    { id: 'ally-gate', kind: 'gate', level: 3, modifications: [], damage: 0 },
     {
       id: 'ally-gauntlet',
       kind: 'gauntlet',
       level: 4,
       modifications: [],
       damage: 0,
-      fortification: 0,
     },
     {
       id: 'ally-quarters',
@@ -168,7 +163,6 @@ export const MVP_ALLY: BotBlueprint = {
       level: 4,
       modifications: [],
       damage: 0,
-      fortification: 0,
     },
   ],
   // Deliberately a different shape from the player's opening roster: an ally worth having is one
@@ -188,7 +182,7 @@ export const MVP_ALLY: BotBlueprint = {
       'ally-commander-engineer',
       'Petra Vance',
       'lead_engineer',
-      { engineering: 34, fabrication: 29, salvage: 24 },
+      { engineering: 34, craft: 29, salvage: 24 },
       ['site_foreman'],
       95,
     ),

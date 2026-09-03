@@ -305,3 +305,48 @@ describe('POST /api/black-market/take', () => {
     );
   });
 });
+
+/**
+ * The daily limit is the game's day, not the player's.
+ *
+ * `zone.ts` states the rule outright: a player may move the *display* to their timezone, and "the
+ * day boundary the rules use does not move with them". The black market did the opposite: it keyed
+ * both the once-a-day limit and the shelf seed to `currentUser.timezone`, which is a value the
+ * player sets with a single `PATCH /settings/profile`. Take, change timezone, take again. At the
+ * right hour there are three distinct day strings reachable, so the once-a-day good is a
+ * three-a-day good, and the shelf reseeds each time so you can shop for the one you want.
+ */
+describe('the black market day is the house clock', () => {
+  it('does not hand out a second take when the player changes timezone', async () => {
+    const { app } = await makeApp();
+    const { token } = await crew(app, 'zonehopper');
+    await giveInfamy(app, token, 50_000);
+
+    const before = await shelf(app, token);
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/black-market/take',
+      headers: auth(token),
+      payload: { slotIndex: 0, goodId: before.offers[0]!.slot.goodId },
+    });
+    expect(first.statusCode, first.body.slice(0, 200)).toBe(200);
+
+    // The whole exploit, in one request.
+    const moved = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/profile',
+      headers: auth(token),
+      payload: { timezone: 'Pacific/Kiritimati' },
+    });
+    expect(moved.statusCode, moved.body.slice(0, 200)).toBe(200);
+
+    const after = await shelf(app, token);
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/black-market/take',
+      headers: auth(token),
+      payload: { slotIndex: 0, goodId: after.offers[0]!.slot.goodId },
+    });
+    expect(second.statusCode, 'a timezone change bought a second take').not.toBe(200);
+  });
+});

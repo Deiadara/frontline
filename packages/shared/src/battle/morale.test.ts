@@ -160,6 +160,7 @@ describe('who gets away', () => {
       morale: unit.stats.morale,
       brokeAt,
       started: alive,
+      suppressed: 0,
       dealt: 0,
     };
   };

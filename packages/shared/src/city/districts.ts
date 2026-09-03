@@ -161,8 +161,49 @@ export function districtDisplayName(
  * pixels on the same tag while comparing as two different strings. A rule that only trimmed the
  * ends let the second crew through and put two identical tags on the map.
  */
+/**
+ * Characters that take up no space on a painted tag.
+ *
+ * The zero-width set (U+200B..U+200D, U+FEFF) plus the bidi controls (U+200E, U+200F, U+202A..
+ * U+202E, U+2066..U+2069) and the soft hyphen. None of them has a glyph, so `N<U+200B>inth Street`
+ * and `Ninth Street` paint the same pixels while comparing as two different strings, which is the
+ * same failure the inner-whitespace collapse above exists to stop, arriving through a character
+ * `\s` does not match. The bidi ones also reorder everything after them, which is a layout bug on
+ * every screen the name appears on.
+ */
+const INVISIBLE_CHARACTERS = /[\u00ad\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
+
 function districtNameKey(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  return name
+    .normalize('NFKC')
+    .replace(INVISIBLE_CHARACTERS, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase();
+}
+
+/**
+ * Whether a name is made only of characters a reader can see and lay out.
+ *
+ * Applied at the schema rather than in the key, because the two questions are different: the key
+ * decides whether two names are the *same*, and this decides whether a name is one a screen can
+ * draw at all. A control character, a newline in the middle of a plaque or a right-to-left override
+ * is not a name somebody chose to be told apart by.
+ */
+export function isPaintableDistrictName(name: string): boolean {
+  if (INVISIBLE_CHARACTERS.test(name)) {
+    INVISIBLE_CHARACTERS.lastIndex = 0;
+    return false;
+  }
+  INVISIBLE_CHARACTERS.lastIndex = 0;
+  // C0 and C1 controls, which includes the newline and the NUL. Read off the code point rather than
+  // written as a character class: a regex literal holding raw control characters is exactly what
+  // `no-control-regex` is for, and this reads as what it means anyway.
+  for (const character of name) {
+    const point = character.codePointAt(0) ?? 0;
+    if (point <= 0x1f || (point >= 0x7f && point <= 0x9f)) return false;
+  }
+  return true;
 }
 
 /**
@@ -356,7 +397,10 @@ export const CITY_DISTRICTS: readonly District[] = [
       // People have been living on the moored barges longer than anybody has been calling it a slum.
       ['barges', 'The Moored Barges', 'refugee_camp', 'easy'],
       // A gantry crane with a cabin at the top of it. Whoever is up there sees the whole waterfront.
-      ['cranegate', 'Crane Gate', 'watchtower', 'medium'],
+      // Named a Site rather than a Gate (board request): a district's *gate* is a real mechanic
+      // three files over, and a location whose name claimed to be one had players calling fights
+      // at it expecting the district to open.
+      ['cranegate', 'Crane Site', 'watchtower', 'medium'],
       ['chandler', 'The Chandlery', 'pawn_shop', 'easy'],
     ]),
   },

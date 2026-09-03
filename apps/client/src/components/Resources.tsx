@@ -1,4 +1,5 @@
 import {
+  compactFigure,
   RESOURCE_ORDER as DOMAIN_RESOURCE_ORDER,
   type PartialResources,
   type ResourceKey,
@@ -291,20 +292,50 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
         (§D5b's planks) pushed the row over its width, the identity wrapped to a second line, and
         the 50px that cost came straight out of the screen below: district cards were sliced by
         the bottom nav at 1280.
-        The width comes out of the padding rather than the glyph, deliberately. The icons are
-        painted masters and the reason the bar is worth looking at, and shrinking them would also
-        shorten the chip: an 8px change in the bar's height moves every screen under it past a
-        fold, which is its own class of bug. The figure is not a source of width either any more:
-        it is spelled out in full, and the row pays for that out of the overseer's nameplate.
+        The glyph gives width now, and that is a reversal. The old note said to take it out of the
+        padding instead, on the grounds that a shorter chip is a shorter bar and an 8px change in
+        the bar's height moves every screen under it past a fold. That was right while the row
+        fitted. It stopped fitting: at a full 28-character district name and the longest rank, the
+        three groups wanted 2075px inside a 1693px bar, and the stockpile ran straight over the
+        identity plaque. The padding had nothing left to give, so the glyph pays. `--hud-h` is
+        published from the measured bar, so the screens below follow it down rather than being
+        cut by it.
       */}
-      <span className="resource-well flex h-12 w-12 shrink-0 items-center justify-center rounded-lg">
-        <ResourceIcon kind={kind} className="resource-art h-11 w-11" />
+      <span className="resource-well flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
+        <ResourceIcon kind={kind} className="resource-art h-8 w-8" />
       </span>
-      <span className="flex min-w-0 flex-col gap-1.5">
+      {/*
+       * A fixed column, so six chips are six boxes that never move.
+       *
+       * The figure used to size the chip, so a district that banked a million caps pushed the
+       * whole standing bar wider and the identity plaque into the doors beside it. `min-w`
+       * reserves the room a seven-digit figure needs and `tabular-nums` keeps every digit the
+       * same width, so the chip is the same size at 0 and at 9,999,999.
+       */}
+      {/*
+       * A column measured for the widest thing `compactFigure` can return, which is seven
+       * characters: `999,999` in full, or `999.99M` once a stockpile passes a million. The board's
+       * rule is that six digits are worth reading in full and anything above that is worth reading
+       * as a magnitude, which is what lets this column be 3.5rem instead of the 4.5rem a
+       * spelled-out seven-digit figure needed.
+       */}
+      {/*
+       * 50px, which is what the widest reading actually draws, measured rather than chosen.
+       *
+       * `999,999` is 46px in this face and `999.99M`, the widest `compactFigure` can return, is 50.
+       * The column was 3.5rem, so the shelf under the figure ran six pixels past the longest number
+       * it will ever sit under, and a shorter reading left it hanging further still. The figure is
+       * centred over it for the same reason: a left-aligned number above a full-width bar reads as
+       * two things that do not belong to each other.
+       */}
+      <span className="flex w-[50px] min-w-0 flex-col gap-1">
         <span
-          className={cn('font-display text-base font-bold leading-none tabular-nums', meta.color)}
+          className={cn(
+            'truncate text-center font-display text-sm font-bold leading-none tabular-nums',
+            meta.color,
+          )}
         >
-          {amount.toLocaleString()}
+          {compactFigure(amount)}
         </span>
         {/* Thinner and rounder than it was, and the track is a shadow in the glass rather than a
             black slot: the bar is a reading *on* the chip, not a second component inside it. */}

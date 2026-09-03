@@ -149,3 +149,43 @@ describe('apiFetch', () => {
     expect(useSession.getState().user).toBeNull();
   });
 });
+
+/**
+ * What arrives is not always JSON, even on a 200.
+ *
+ * A captive portal, a proxy error page, or a dev server routing `/api` to the SPA all answer with
+ * HTML and a success status. `res.json()` throws a bare `SyntaxError` on that, and nothing in the
+ * client catches `SyntaxError`: every screen's error branch is written for `ApiRequestError`, so
+ * the player was shown "Unexpected token < in JSON at position 0" and we were shown nothing at all.
+ */
+describe('a success that is not JSON', () => {
+  beforeEach(() => useSession.setState({ token: 'tok', user: null }));
+
+  it('is an ApiRequestError naming the status, not a raw SyntaxError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('<!doctype html><title>Sign in to the wifi</title>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }),
+        ),
+      ),
+    );
+
+    await expect(getMe()).rejects.toBeInstanceOf(ApiRequestError);
+    await expect(getMe()).rejects.toMatchObject({ status: 200, code: 'BAD_RESPONSE' });
+    // And it names the route, because "something is not JSON" is not a bug report.
+    await expect(getMe()).rejects.toThrow(/\/me/);
+  });
+
+  /** An error body that is not JSON already worked, and must keep working. */
+  it('still reports the status when a failure body is not JSON either', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('<html>502</html>', { status: 502 }))),
+    );
+    await expect(getMe()).rejects.toMatchObject({ status: 502 });
+  });
+});

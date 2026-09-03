@@ -143,10 +143,25 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
   const passwordHash = await bcrypt.hash(randomUUID(), BCRYPT_COST);
 
   return seedStep(db, () => {
-    if (repos.bases.findBotByDistrictId(BOT_DISTRICT_ID)) return false;
-
     const now = new Date().toISOString();
     const existing = repos.users.findByUsername(MVP_BOT.username);
+    /*
+     * Keyed on the *account*, not on the district.
+     *
+     * The guard was `findBotByDistrictId(BOT_DISTRICT_ID)`, which asks "is the rival standing
+     * here", and the answer is no the moment `BOT_DISTRICT_ID` changes or the rival is moved. Every
+     * boot after such a change minted a second base for the same user: a real database had three,
+     * in three districts, dated to the three occasions the constant moved. Each ghost sat on the
+     * leaderboard, counted in the city-level average that prices the Bar and the black market, held
+     * a name against the uniqueness scan and occupied ground, while `findByOwnerId` returned only
+     * one of them so nothing could ever settle the others.
+     *
+     * One base per account is the rule the database now enforces with a unique index, and this is
+     * the same rule said once, before the insert. Deleting the base row still restores the rival on
+     * the next boot, which is what the district-keyed version was reaching for.
+     */
+    if (existing && repos.bases.findByOwnerId(existing.id)) return false;
+
     const userId = existing?.id ?? randomUUID();
     if (!existing) {
       repos.users.insert({ id: userId, username: MVP_BOT.username, passwordHash, createdAt: now });

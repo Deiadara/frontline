@@ -477,7 +477,7 @@ function Table({
             type="button"
             data-testid="open-invite"
             onClick={onInvite}
-            className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-200 transition-colors hover:text-brass-100"
+            className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-300 transition-colors hover:text-brass-100"
           >
             <Icon name="crew" aria-hidden className="h-3.5 w-3.5" />
             Invite somebody
@@ -711,9 +711,28 @@ function FightRow({
     const unit = findUnit(unitId);
     return count > 0 && unit !== undefined && unit.tier !== 'carrier';
   });
-  const [unitId, setUnitId] = useState<string>(fieldable[0]?.[0] ?? '');
-  const [count, setCount] = useState(1);
+  /*
+   * The choice is *derived*, not seeded, because the roster arrives after the first render.
+   *
+   * `useState(fieldable[0]?.[0] ?? '')` runs once, and on that render `units.data` is undefined:
+   * `fieldable` is empty and the id is `''`. The query resolving re-renders with a full list and
+   * nothing resets the id, so `held` stayed 0 and the button stayed dead over a `<select>` with
+   * nothing selected. The units query really is cold here: the shell's `QueueRail` subscribes to
+   * `/me`, `/missions` and `/research`, not to `/units`, so a player who follows a notification
+   * straight to this page has never fetched an army.
+   */
+  const [picked, setPicked] = useState<string | null>(null);
+  const unitId = picked !== null && (army[picked] ?? 0) > 0 ? picked : (fieldable[0]?.[0] ?? '');
   const held = army[unitId] ?? 0;
+  /*
+   * ...and the count follows the unit rather than outliving it.
+   *
+   * `NumberField` clamps inside its own handlers and renders whatever `value` it is given, so
+   * setting 40 of something the crew holds 40 of and then switching to one they hold 2 of left
+   * **40** in the field over a live button, and sent it.
+   */
+  const [wanted, setWanted] = useState(1);
+  const count = Math.max(1, Math.min(wanted, Math.max(1, held)));
 
   return (
     <li className="flex min-w-0 flex-col gap-2 border-b border-surface-700/70 px-4 py-3 last:border-b-0">
@@ -749,7 +768,7 @@ function FightRow({
             </span>
             <select
               value={unitId}
-              onChange={(event) => setUnitId(event.target.value)}
+              onChange={(event) => setPicked(event.target.value)}
               data-testid={`reinforce-unit-${battle.battleId}`}
               className="min-w-0 rounded-sm border border-surface-500 bg-surface-900 px-2 py-1.5 font-body text-[13px] text-ink-100"
             >
@@ -765,7 +784,7 @@ function FightRow({
             value={count}
             min={1}
             max={Math.max(1, held)}
-            onChange={setCount}
+            onChange={setWanted}
           />
           <Button
             size="sm"

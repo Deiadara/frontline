@@ -152,6 +152,31 @@ export function visibleDistricts(
   return visible;
 }
 
+/**
+ * The crew a residential district page is about, from the viewer's side of the fog.
+ *
+ * **Your own front door is always you.** Every human account is created in `STARTER_DISTRICT_ID`
+ * (`routes/overseer.ts`), the `bases` table carries no unique index on `district_id` and no writer
+ * for the column, and the map has four residential districts, so a district holds as many crews as
+ * have registered. Answering "the resident" with the first row of a `SELECT ... FROM bases` served
+ * the earliest-registered player's whole structure list, damage and all, to every other player on
+ * the one screen nobody has to scout.
+ *
+ * For somebody else's ground it is still the first row, but a stably ordered one
+ * (`db/repos/bases.ts` orders the summary scan), so at least the map and the battle board name the
+ * same crew from one request to the next.
+ */
+function residentSummary(
+  summaries: DistrictSummary['base'][],
+  districtId: string,
+  base: Base,
+): DistrictSummary['base'] {
+  if (districtId === base.districtId) {
+    return summaries.find((summary) => summary?.id === base.id) ?? null;
+  }
+  return summaries.find((summary) => summary?.districtId === districtId) ?? null;
+}
+
 function summarise(
   district: District,
   context: CityContext,
@@ -189,11 +214,7 @@ export function projectCity(repos: Repositories, base: Base, now: Date): CityRes
 
   return {
     districts: CITY_DISTRICTS.map((district) =>
-      summarise(
-        district,
-        context,
-        summaries.find((candidate) => candidate.districtId === district.id) ?? null,
-      ),
+      summarise(district, context, residentSummary(summaries, district.id, base)),
     ),
     // §B7: the gates on ground this crew holds outright. Empty for a crew that holds none.
     capturedGates: capturedGatesFor(repos, base, now),
@@ -332,9 +353,7 @@ export function projectDistrict(
   const scouted = context.visible.has(district.id);
   const home = CITY_DISTRICTS.find((candidate) => candidate.id === base.districtId);
   const unified = unifiedBonusFor(district.id);
-  const resident = repos.bases
-    .listSummaries()
-    .find((summary) => summary.districtId === district.id);
+  const resident = residentSummary(repos.bases.listSummaries(), district.id, base);
   /*
    * What is standing on their ground. Read behind the fog like everything else: you cannot describe
    * a street you have never walked down.
@@ -368,10 +387,10 @@ export function projectDistrict(
       : [],
     holder: scouted ? districtHolder(district, context.controls) : null,
     unified: unified ? { title: unified.title, effect: describeHoldBonus(unified.bonus) } : null,
-    base: district.kind === 'residential' ? (resident ?? null) : null,
+    base: district.kind === 'residential' ? resident : null,
     residentBuildings: district.kind === 'residential' ? residentBuildings : [],
     raidable:
-      resident !== undefined &&
+      resident !== null &&
       resident.id !== base.id &&
       isDistrictRaidable(district, district.id === base.districtId),
     scoutingRun: scoutingRunView(repos, base),

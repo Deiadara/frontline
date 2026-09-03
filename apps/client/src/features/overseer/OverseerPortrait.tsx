@@ -28,7 +28,8 @@ interface OverseerPortraitProps {
    *
    * `fill` is the other kind of placement. The box is whatever height the parent has left, and the
    * whole painting is fitted inside it rather than cropped to it, so nothing is ever cut off. For
-   * the one screen that is *about* the portrait rather than using it as a label.
+   * the one screen that is *about* the portrait rather than using it as a label. Its box is the
+   * *delivery's* shape rather than the layout's, which is what makes that true: see below.
    */
   aspect?: 'portrait' | 'square' | 'fill';
   /** Hide the archetype tag on tiny avatars. */
@@ -72,15 +73,21 @@ export function OverseerPortrait({
         aspect === 'portrait' && 'aspect-[3/4]',
         aspect === 'square' && 'aspect-square',
         /*
-         * Height from the parent, width from the picture.
+         * Height from the parent, width from the picture, and **2:3 because that is the picture**.
          *
-         * `h-full w-auto` on a 3:4 box means the leftover height decides how big the portrait is
-         * and the width follows from it, so the frame is exactly the shape of the painting. The
-         * first version filled the parent's width and fitted the image inside with
-         * `object-contain`, which showed the whole picture but left a bar of panel down each side
-         * of it: a framed picture in a frame the wrong shape.
+         * The leftover height decides how big the portrait is and the width follows from it, so the
+         * frame is exactly the shape of the painting. The first version filled the parent's width
+         * and fitted the image inside with `object-contain`, which showed the whole picture but
+         * left a bar of panel down each side of it: a framed picture in a frame the wrong shape.
+         *
+         * The second version had the right idea and the wrong number. The box was `aspect-[3/4]`
+         * and the delivered portraits are 928x1392, which is 2:3 (`ASSET_CLASS_SPECS.portrait` is
+         * 1024x1536, the same ratio, mislabelled `'3:4'` beside its own numbers). Covering a 0.75
+         * box with a 0.667 picture scales it by 1.125, so 11% of the height went: 5.6% off the top
+         * of the head and 5.6% off the bottom, on the one screen whose comment promises nothing is
+         * cut at any size.
          */
-        aspect === 'fill' && 'aspect-[3/4] h-full max-w-full',
+        aspect === 'fill' && 'aspect-[2/3] h-full max-w-full',
         gradientFor(portraitId),
         className,
       )}

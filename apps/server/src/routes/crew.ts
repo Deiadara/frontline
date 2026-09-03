@@ -7,6 +7,7 @@ import {
 import { AppError, parseBody } from '../errors.js';
 import { projectCrew } from '../crew/roster.js';
 import { ownBase } from './own-base.js';
+import { settleBase } from '../district/settle.js';
 
 /**
  * The crew (GDD §C2, §G).
@@ -33,8 +34,18 @@ export function registerCrewRoutes(app: FastifyInstance): void {
    */
   app.post('/crew/reassign', { preHandler: app.authenticate }, (request): CrewMutationResponse => {
     const { officerId, role } = parseBody(ReassignOfficerRequestSchema, request.body);
+    const now = new Date();
     return app.db.transaction(() => {
-      const base = ownBase(app, request.currentUser.id);
+      /*
+       * Settle before the reseat, like every other write route.
+       *
+       * `settleDistrict` reads the crew's `productionPercent` once and spends it across the whole
+       * elapsed window, on the stated grounds that a crew does not change halfway through a settle.
+       * This route was the one that made that false: seat an officer where their best attribute
+       * pays, and the *unsettled* hours behind you are then banked at the new rate. A day of
+       * production for two HTTP calls and a third to put them back.
+       */
+      const base = settleBase(app.repos, ownBase(app, request.currentUser.id), now).base;
       const officer = base.commanders.find((candidate) => candidate.id === officerId);
       if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
       if (officer.role === role) return { crew: projectCrew(app.repos, base) };

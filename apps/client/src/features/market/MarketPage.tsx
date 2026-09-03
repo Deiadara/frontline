@@ -8,7 +8,7 @@ import {
   supplyPrice,
   bundleValue,
   marketDay,
-  utcHourInZone,
+  gameHourInZone,
   heldItems,
   type ItemId,
   type ItemRarity,
@@ -21,6 +21,7 @@ import {
 import { useState, type ReactNode } from 'react';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { NumberField } from '../../components/ui/NumberField';
@@ -44,7 +45,7 @@ import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { InfoNote, PageShell } from '../game/PageShell';
 import { MarketTabs } from './BlackMarketPage';
-import { usePlayerZone } from '../settings/usePlayerZone';
+import { useDayResetClock, usePlayerZone } from '../settings/usePlayerZone';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 
 /**
@@ -69,11 +70,12 @@ export function MarketPage() {
   const data = query.data;
   if (!data) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Walking down to the market…
-        </p>
-      </div>
+      <ScreenLoad
+        what="The market"
+        loading="Walking down to the market…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 
@@ -92,7 +94,7 @@ export function MarketPage() {
         <BrokerPanel market={data} />
       </div>
 
-      <SupplyPanel market={data} />
+      <SupplyPanel market={data} now={now} />
 
       <BoardPanel market={data} now={now} />
     </PageShell>
@@ -203,7 +205,7 @@ function VendorPanel({ market, now }: { market: MarketResponse; now: Date }) {
       <p className="px-4 pt-3 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
         Today he is in at{' '}
         {vendor.sessions
-          .map((session) => utcHourInZone(marketDay(now), session.startHour, zone))
+          .map((session) => gameHourInZone(marketDay(now), session.startHour, zone))
           .join(' and ')}
         , two hours each.
       </p>
@@ -372,7 +374,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
                     'font-display text-[17px] font-bold leading-none tracking-[0.04em] transition-all duration-150',
                     value < BARTER_MINIMUM
                       ? 'cursor-not-allowed border-surface-600/60 text-ink-500'
-                      : 'border-brass-500/60 text-brass-200 hover:-translate-y-0.5 hover:border-brass-300 hover:text-brass-100',
+                      : 'border-brass-500/60 text-brass-300 hover:-translate-y-0.5 hover:border-brass-300 hover:text-brass-100',
                   )}
                 >
                   <span className="relative z-[2]">{label}</span>
@@ -451,17 +453,31 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
  * A zero here has three quite different cures: come back tomorrow, build a store, or go and earn.
  * "More than you can pay for or store" covered all three and pointed at none of them.
  */
-function supplyStall(key: SupplyLine['key'], market: MarketResponse, left: number): string {
-  if (left === 0) return "Today's ration is spent, back at midnight";
+function supplyStall(
+  key: SupplyLine['key'],
+  market: MarketResponse,
+  left: number,
+  resetsAt: string,
+): string {
+  if (left === 0) return `Today's ration is spent, back at ${resetsAt}`;
   if ((market.resources[key] ?? 0) >= market.supply.storageCapacity) {
     return `Your store of ${RESOURCE_LABELS[key].toLowerCase()} is full`;
   }
   return 'Not enough caps for a single unit';
 }
 
-function SupplyPanel({ market }: { market: MarketResponse }) {
+function SupplyPanel({ market, now }: { market: MarketResponse; now: Date }) {
   const buy = useBuySupply();
   const { supply } = market;
+  /*
+   * The clock, not the word "midnight".
+   *
+   * The ration is keyed on `marketDay`, which is an *Athens* date (`market/vendor.ts`), so
+   * "midnight" was only true for a player reading the game on the house clock. Rendered the way the
+   * black market's shelf renders its own refresh: the boundary instant, formatted in whatever zone
+   * this player picked in Settings.
+   */
+  const resetsAt = useDayResetClock(now);
   const [key, setKey] = useState<SupplyLine['key']>('scrap');
   const [wanted, setWanted] = useState(100);
 
@@ -473,14 +489,15 @@ function SupplyPanel({ market }: { market: MarketResponse }) {
   // over the ration on a full warehouse: a first impression of a counter that refuses to serve you.
   const units = Math.min(wanted, most);
   const price = supplyPrice(key, units);
-  const blocked = most === 0 ? supplyStall(key, market, left) : units <= 0 ? 'Say how much' : null;
+  const blocked =
+    most === 0 ? supplyStall(key, market, left, resetsAt) : units <= 0 ? 'Say how much' : null;
 
   return (
     <Panel
       title="The supply run"
       action={
         <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-          {supply.percent}% of a full store · resets at midnight
+          {supply.percent}% of a full store · resets at {resetsAt}
         </span>
       }
     >
@@ -744,12 +761,40 @@ function OfferComposer({
   const [giveItem, setGiveItem] = useState<ItemId | ''>('');
   const [giveItemCount, setGiveItemCount] = useState(1);
 
+  /*
+   * Emptied on a successful post, and this is not tidiness.
+   *
+   * `postOffer` spends `give` out of the stockpile the moment the listing goes up, deliberately: a
+   * board of listings that cannot be honoured is worse than no board. The form used to keep the
+   * pile with the button live, so a second press escrowed a second copy of it, up to
+   * `MAX_OPEN_OFFERS`. A player who did not notice the first one land could put eight copies of
+   * the same 500 scrap on the board.
+   *
+   * The counter case was quieter and worse: the parent's `onDone` cleared `counterTo` but not the
+   * bundle, so an identical-looking form changed from "counter that listing" to "public listing"
+   * with nothing but the button's own label to say so.
+   */
+  const clear = () => {
+    setGiveRes({});
+    setWantRes({});
+    setGiveItem('');
+    setGiveItemCount(1);
+  };
+
   const give = {
     resources: giveRes,
     items: giveItem === '' ? {} : { [giveItem]: giveItemCount },
   };
   const want = { resources: wantRes, items: {} };
-  const held = heldItems(market.inventory);
+  /*
+   * Only what somebody will actually take.
+   *
+   * An unlocked blueprint is knowledge, and `offerRefusal` turns a listing that moves one down flat.
+   * It was still on this dropdown, so the one item on the screen a player cannot trade was offered
+   * to them alongside the ones they can, and the only way to find out was to fill in the whole form
+   * and read "That is not something anybody will take off you".
+   */
+  const held = heldItems(market.inventory).filter(([id]) => ITEM_CATALOG[id].tradeable);
   const empty = bundleValue(give) === 0 && bundleValue(want) === 0;
 
   return (
@@ -821,7 +866,10 @@ function OfferComposer({
             disabled={post.isPending || empty}
             onClick={() =>
               post.mutate(counterTo === null ? { give, want } : { give, want, counterTo }, {
-                onSuccess: onDone,
+                onSuccess: () => {
+                  clear();
+                  onDone();
+                },
               })
             }
           >

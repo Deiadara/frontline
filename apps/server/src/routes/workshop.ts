@@ -2,9 +2,10 @@ import {
   FitUpgradeRequestSchema,
   ITEM_CATALOG,
   UNIT_UPGRADES,
-  UPGRADE_LINE_BLUEPRINT,
+  blueprintGateMet,
   buildingLevel,
   canAfford,
+  describeBlueprintGate,
   findUpgrade,
   removeItems,
   spendResources,
@@ -19,7 +20,7 @@ import {
   type PartialResources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { holdsBlueprint, holdsParts } from '../market/board.js';
+import { holdsParts } from '../market/board.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from './own-base.js';
@@ -77,7 +78,7 @@ function upgradeBlocker(app: FastifyInstance, base: Base, id: string): string | 
     id,
     base.fittedUpgrades,
     gauntlet,
-    holdsBlueprint(base),
+    (upgradeId) => blueprintGateMet(base.inventory, 'unit_upgrade', upgradeId),
     (cost) => canAfford(base.resources, refitPrice(app, base, cost)),
     holdsParts(base),
   );
@@ -90,7 +91,9 @@ function upgradeBlocker(app: FastifyInstance, base: Base, id: string): string | 
     return UPGRADE_TEXT.needs_previous_tier(previous?.name ?? 'the tier below');
   }
   if (reason === 'needs_blueprint') {
-    return UPGRADE_TEXT.needs_blueprint(ITEM_CATALOG[UPGRADE_LINE_BLUEPRINT[spec.line]].name);
+    // §D12g: the document, named. `describeBlueprintGate` already writes the whole sentence, so
+    // the template here would double the "Needs the".
+    return describeBlueprintGate('unit_upgrade', spec.id) ?? UPGRADE_TEXT.needs_blueprint('plans');
   }
   if (reason === 'gauntlet_too_low') {
     return UPGRADE_TEXT.gauntlet_too_low(String(spec.requiresGauntletLevel));

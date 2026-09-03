@@ -41,12 +41,23 @@ interface FieldErrors {
 }
 
 /**
- * MVP ONLY: the login form starts prefilled with the seeded dev operator so the build can
- * be picked up and played. Register mode starts blank: the dev passphrase is 5 characters
- * and would fail `RegisterRequestSchema`'s 8-character minimum.
+ * MVP ONLY, **and only in a development build**: the login form starts prefilled with the seeded
+ * dev operator so the build can be picked up and played, and says so underneath.
+ *
+ * Gated on `import.meta.env.DEV`, which Vite replaces with a literal at build time, so a
+ * `vite build` drops both the prefill and the notice and the constant with them. Ungated, every
+ * visitor to a deployed build got the seeded account's passphrase typed into the form and spelled
+ * out below it: a credential that is seeded on every boot of the server is not a secret the
+ * interface may also publish.
+ *
+ * `pnpm dev` and the Playwright stack both run the dev server, so the convenience survives where
+ * it is for. Register mode starts blank either way: the dev passphrase is 5 characters and would
+ * fail `RegisterRequestSchema`'s 8-character minimum.
  */
+const DEV_PREFILL = import.meta.env.DEV;
+
 const prefillFor = (mode: Mode) =>
-  mode === 'login'
+  DEV_PREFILL && mode === 'login'
     ? { username: MVP_DEV_CREDENTIALS.username, password: MVP_DEV_CREDENTIALS.password }
     : { username: '', password: '' };
 
@@ -104,7 +115,21 @@ export function AuthScreen() {
     mutation.mutate();
   };
 
-  const serverError = mutation.error instanceof ApiRequestError ? mutation.error.message : null;
+  /*
+   * Anything that is not an `ApiRequestError` still has to reach the player.
+   *
+   * A network failure, a DNS failure, a CORS rejection, a timeout or a parse failure all arrive as
+   * something else, and discarding them left the button back on "Jack In" over a form that had
+   * visibly done nothing. This is the first screen of the game and the one place a player has no
+   * other evidence about what is happening, so an unrecognised failure gets a sentence rather than
+   * the raw message: a `TypeError: Failed to fetch` tells them less than nothing.
+   */
+  const serverError =
+    mutation.error === null
+      ? null
+      : mutation.error instanceof ApiRequestError
+        ? mutation.error.message
+        : 'Could not reach the server. Check your connection and try again.';
   const now = new Date();
 
   return (
@@ -220,7 +245,7 @@ export function AuthScreen() {
                 error={fieldErrors.password}
               />
 
-              {mode === 'login' && (
+              {DEV_PREFILL && mode === 'login' && (
                 <p className="border border-dashed border-warning/40 bg-warning/5 px-3 py-2 font-body text-[12px] leading-relaxed text-warning/90">
                   MVP build. Dev login prefilled ({MVP_DEV_CREDENTIALS.username} /{' '}
                   {MVP_DEV_CREDENTIALS.password})

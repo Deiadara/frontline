@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BUILDING_MAX_LEVEL,
   MAX_DAMAGE_PENALTY,
   MIN_STRIKE_DAMAGE,
   MAX_STRIKE_DAMAGE,
@@ -7,12 +8,18 @@ import {
   buildingEffectiveness,
   buildingProduction,
   damageBuilding,
-  gateFortifyPercent,
+  districtDefense,
+  gateDefensePercent,
+  gateIntelResistancePercent,
   repairedByBuilding,
   strikeDamage,
   type Building,
 } from '../building/index.js';
-import { FORTIFY_MAX_LEVEL, fortifyBonusPercent, noTerritoryEffects } from '../city/index.js';
+import {
+  capturedGateDefensePercent,
+  capturedGateIntelResistancePercent,
+  noTerritoryEffects,
+} from '../city/index.js';
 import { blurredCount } from '../crew/index.js';
 import { analyseBattle, reportReaches } from './analysis.js';
 import { bareBattlefield } from './battlefield.js';
@@ -31,7 +38,8 @@ import {
   intelQualityLine,
   observedForceSize,
 } from './intel.js';
-import { catchChance, perimeterFights, perimeterToll, ringCoverage } from './perimeter.js';
+import { PERIMETER_FLEE_PENALTY, breakOut, perimeterFights } from './perimeter.js';
+import { pursuitSpeed, routSurvivors } from './rout.js';
 import { mulberry32, seedFrom } from '../rng.js';
 import {
   BATTLE_SLOT_MINUTES,
@@ -204,6 +212,35 @@ describe('a declared battle', () => {
 
 describe('the ring outside the fight (§A4)', () => {
   const stream = () => mulberry32(seedFrom('ring'));
+  // No `battlefield`: omitted is open ground, and `exactOptionalPropertyTypes` refuses an explicit
+  // `undefined` for an optional property.
+  const bare = {
+    seed: 'ring-test',
+    context: { pursuit: 0, lastRound: 3, away: true },
+  };
+  const bodies = (army: Record<string, number>): number =>
+    Object.values(army).reduce((sum, count) => sum + count, 0);
+
+  /**
+   * One real lost fight, routed at a given hardship.
+   *
+   * A real simulation rather than a hand-built `SideState`, so the stacks carry the sheets the
+   * chance is computed from. The fight is the same every call: only the stream and the multiplier
+   * move, which is what makes the two totals comparable.
+   */
+  const routSurvivorsAt = (hardship: number, next: () => number) => {
+    const fight = simulate({
+      seed: 'penalty-fight',
+      attacker: { name: 'a', army: { razors: 30 }, defending: false },
+      defender: { name: 'b', army: { wardens: 40 }, defending: true },
+    });
+    const loser = fight.winner === 'attacker' ? fight.defender : fight.attacker;
+    return routSurvivors(
+      loser,
+      { pursuit: 0, lastRound: fight.rounds.length, away: true, hardship },
+      next,
+    );
+  };
 
   it('does nothing at all when nobody set one, and draws nothing either', () => {
     const used = stream();
@@ -211,29 +248,126 @@ describe('the ring outside the fight (§A4)', () => {
     used();
     untouched();
 
-    const toll = perimeterToll({ razors: 20 }, {}, used);
-    expect(toll.caught).toEqual({});
-    expect(toll.escaped).toEqual({ razors: 20 });
-    // An absent ring must not consume a draw. `perimeterToll` sits inside the rout now, so a ring
+    const out = breakOut({ ...bare, fleeing: { razors: 20 }, ring: {} }, used);
+    expect(out.caught).toEqual({});
+    expect(out.escaped).toEqual({ razors: 20 });
+    expect(out.ringLosses).toEqual({});
+    expect(out.rounds, 'a fight happened with nobody to fight').toBe(0);
+    // An absent ring must not consume a draw. The breakout sits inside the rout stream, so a ring
     // nobody set would otherwise shift every historical fight's survivors by one draw.
     expect(used()).toBe(untouched());
   });
 
-  it('covers more runners the thicker it is, and never more than all of them', () => {
-    expect(ringCoverage({ razors: 2 }, 20)).toBeCloseTo(0.15, 6);
-    expect(ringCoverage({ razors: 100 }, 20)).toBe(1);
-    expect(ringCoverage({ razors: 10 }, 0)).toBe(0);
+  it('does nothing when there is a ring and nobody running into it', () => {
+    const out = breakOut({ ...bare, fleeing: {}, ring: { wardens: 40 } }, stream());
+    expect(out.escaped).toEqual({});
+    expect(out.caught).toEqual({});
+    expect(out.rounds).toBe(0);
   });
 
-  it('catches a slow, loud unit more often than a fast, quiet one', () => {
-    expect(catchChance('juggernauts', 1)).toBeGreaterThan(catchChance('ghosts', 1));
+  it('stops some of a withdrawal it is thick enough to hold, and pays for it', () => {
+    const out = breakOut({ ...bare, fleeing: { razors: 40 }, ring: { wardens: 60 } }, stream());
+    // Everybody is accounted for: a runner either got clear or did not, and nobody is invented.
+    expect(bodies(out.escaped) + bodies(out.caught)).toBe(40);
+    expect(bodies(out.caught), 'a ring this thick stopped nobody').toBeGreaterThan(0);
+    expect(out.rounds).toBeGreaterThan(0);
+    // The thing a toll could never do: standing in front of them costs the ring bodies.
+    expect(bodies(out.ringLosses), 'the ring held sixty people off for free').toBeGreaterThan(0);
   });
 
-  it('takes a real share of a withdrawal when it is thick enough to', () => {
-    const toll = perimeterToll({ razors: 40 }, { wardens: 40 }, stream());
-    const stopped = toll.caught.razors ?? 0;
-    expect(stopped).toBeGreaterThan(0);
-    expect(stopped + (toll.escaped.razors ?? 0)).toBe(40);
+  /*
+   * The other thing a toll could never do.
+   *
+   * The old model was a per-runner catch rate against ring thickness, so four bodies in front of
+   * two hundred still collected their share and took nothing back. A ring is a fight now, so a thin
+   * one in front of a mass breakout is ridden through.
+   */
+  it('is ridden through when it is thin and the withdrawal is not', () => {
+    const out = breakOut({ ...bare, fleeing: { razors: 200 }, ring: { razors: 2 } }, stream());
+    expect(out.brokeThrough, 'two bodies turned two hundred back').toBe(true);
+    expect(bodies(out.escaped)).toBeGreaterThan(0);
+    expect(bodies(out.ringLosses), 'the ring was ridden through and lost nobody').toBeGreaterThan(
+      0,
+    );
+  });
+
+  /**
+   * The one rule that is not the first fight's, and the one the board asked for by name.
+   *
+   * Measured as a rate over many withdrawals rather than on one, because a single roll of a halved
+   * chance can still come up. Both runs are the same fleeing force against the same ring, so the
+   * only thing between them is the multiplier.
+   */
+  it('makes getting away half as likely at the ring as it is in the fight', () => {
+    expect(PERIMETER_FLEE_PENALTY).toBe(0.5);
+
+    const escapedOver = (hardship: number): number => {
+      let got = 0;
+      for (let seed = 0; seed < 60; seed += 1) {
+        const next = mulberry32(seedFrom(`penalty:${seed}`));
+        const { fled } = routSurvivorsAt(hardship, next);
+        got += bodies(fled);
+      }
+      return got;
+    };
+    const ordinary = escapedOver(1);
+    const atTheRing = escapedOver(PERIMETER_FLEE_PENALTY);
+    expect(ordinary, 'nobody got away under either rule, so this measures nothing').toBeGreaterThan(
+      0,
+    );
+    // Halved odds over sixty withdrawals: the gap is a rate, not a coin flip.
+    expect(atTheRing).toBeLessThan(ordinary * 0.75);
+  });
+
+  /**
+   * That the penalty is *applied*, and not merely defined and exported.
+   *
+   * The test above proves `fleeChance` honours a hardship it is handed. It says nothing about
+   * whether `breakOut` hands it one, and that gap was real: deleting `hardship:
+   * PERIMETER_FLEE_PENALTY` from the breakout left all 329 battle tests green. A rule nothing
+   * applies is a constant with a good name.
+   *
+   * Rebuilt from the outside rather than toggled with a test-only knob: `breakOut` seeds its second
+   * battle on `${seed}:ring`, so re-running that exact simulation and routing it at the ordinary
+   * chance gives the counterfactual. The two runs share a rout stream, so the multiplier is the only
+   * thing between them. It does couple this test to that seed suffix, which is deliberate: change
+   * the suffix and this fails loudly rather than going quietly green.
+   */
+  it('applies the halved chance at the ring rather than only defining it', () => {
+    const fleeing = { razors: 30 };
+    const ring = { wardens: 40 };
+    const context = { pursuit: 0, lastRound: 3, away: true };
+    let halved = 0;
+    let ordinary = 0;
+    let held = 0;
+
+    for (let i = 0; i < 40; i += 1) {
+      const seed = `wiring:${i}`;
+      const second = simulate({
+        seed: `${seed}:ring`,
+        attacker: { name: 'the withdrawal', army: fleeing, defending: false },
+        defender: { name: 'the ring', army: ring, defending: true },
+      });
+      // Only a ring that held produces a second rout roll at all.
+      if (second.winner !== 'defender') continue;
+      held += 1;
+
+      halved += bodies(
+        breakOut({ ...bare, seed, fleeing, ring }, mulberry32(seedFrom(`${seed}:stream`))).escaped,
+      );
+      const { fled } = routSurvivors(
+        second.attacker,
+        { ...context, pursuit: pursuitSpeed(second.defender), lastRound: second.rounds.length },
+        mulberry32(seedFrom(`${seed}:stream`)),
+      );
+      ordinary += bodies(fled);
+    }
+
+    expect(held, 'the ring never held, so no second rout was ever rolled').toBeGreaterThan(0);
+    expect(ordinary, 'nobody got away under either rule, so this measures nothing').toBeGreaterThan(
+      0,
+    );
+    expect(halved, 'the ring rolled the ordinary chance').toBeLessThan(ordinary * 0.75);
   });
 
   /** The board's rule, and the whole gamble: a beaten side's ring never fights. */
@@ -519,7 +653,6 @@ describe('what a breach does to a district (§A4)', () => {
     level: 10,
     modifications: [],
     damage,
-    fortification: 0,
   });
 
   it('costs a wrecked structure up to half its job, and never more', () => {
@@ -555,25 +688,26 @@ describe('what a breach does to a district (§A4)', () => {
   });
 
   /**
-   * The Gate, and only the Gate.
+   * A gate's strength is its level, and nothing else (board request).
    *
-   * Watches used to sit on every structure and cost nothing; what replaced them is the same three
-   * levels the city's locations are dug in with, paid for in materials, on the one structure that
-   * *is* the way in. A dug-in Greenhouse is worth nothing, which is the whole point of moving it.
+   * Watches sat on every structure and cost nothing; digging replaced them and was the same
+   * mistake wearing a price tag, because it made a gate harder to get through without making it
+   * any higher. Both are gone. Locations keep the digging (`city/fortification.ts`), where the
+   * ground varies and the choice is a real one.
+   *
+   * Pinned as an equality against the *captured* gate's formula rather than against a number
+   * typed here, because the rule is that the two are on the same footing: a wall you raised at
+   * home and a wall you took are worth the same per level.
    */
-  it('reads the Gate’s fortification and no other structure’s', () => {
-    const dug = (kind: Building['kind'], fortification: number): Building => ({
-      ...structure(0),
-      kind,
-      fortification,
-    });
-    expect(gateFortifyPercent([])).toBe(0);
-    expect(gateFortifyPercent([dug('gate', 0)])).toBe(0);
-    expect(gateFortifyPercent([dug('gate', 3)])).toBe(fortifyBonusPercent('medium', 3));
-    expect(gateFortifyPercent([dug('greenhouse', 3)])).toBe(0);
-    // The schema caps it; the reader caps it again so a hand-written row cannot buy more.
-    expect(gateFortifyPercent([dug('gate', 99)])).toBe(
-      fortifyBonusPercent('medium', FORTIFY_MAX_LEVEL),
-    );
+  it('is worth its level and nothing else, at home and on ground it took', () => {
+    const gateAt = (level: number): Building => ({ ...structure(0), kind: 'gate', level });
+    for (const level of [1, 4, 12, BUILDING_MAX_LEVEL]) {
+      expect(gateDefensePercent([gateAt(level)])).toBe(capturedGateDefensePercent(level));
+      expect(gateIntelResistancePercent([gateAt(level)])).toBe(
+        capturedGateIntelResistancePercent(level),
+      );
+    }
+    // The flat rating moves with the level too, and with nothing a player can buy separately.
+    expect(districtDefense([gateAt(2)])).toBeGreaterThan(districtDefense([gateAt(1)]));
   });
 });

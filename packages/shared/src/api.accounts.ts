@@ -28,7 +28,15 @@ import { PLAYER_ICONS, PlayerIconSchema, UserSchema } from './user.js';
 export const UpdateProfileRequestSchema = z
   .object({
     username: UsernameSchema.optional(),
-    displayName: z.string().trim().min(1).max(32).optional(),
+    /**
+     * `null` is a real value here, and it is the only way to take a display name off.
+     *
+     * `undefined` means "leave it" (`db/repos/users.ts` loops with `if (value === undefined)
+     * continue`), so a client that cleared the box and omitted the field got the old name written
+     * straight back into it on the next `/me`. `.nullable()` gives that instruction somewhere to
+     * live on the wire; the repo already understood it.
+     */
+    displayName: z.string().trim().min(1).max(32).nullable().optional(),
     icon: PlayerIconSchema.optional(),
     timezone: TimezoneSchema.optional(),
   })

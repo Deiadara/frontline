@@ -1,4 +1,6 @@
 import {
+  findUnit,
+  fittedOn,
   CITY_LOCATIONS,
   COMBAT_CONTEXT_LABELS,
   UNIT_CATALOG,
@@ -18,6 +20,7 @@ import {
   type UpgradeSpec,
   fittedFor,
   findUpgrade,
+  homeTrainingBonus,
   slotsFor,
   ENV_LABEL_CATALOG,
   ENV_LABEL_IDS,
@@ -93,34 +96,40 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   const abroad = unitsAbroad(repos, base);
   const population = districtPopulation(repos, base, garrisoned);
 
-  const units: UnitOption[] = UNIT_CATALOG.map((unit) => ({
-    id: unit.id,
-    name: unit.name,
-    tier: unit.tier,
-    blurb: unit.blurb,
-    trainedAt: unit.trainedAt,
-    unique: unit.unique,
-    // The workshop's fitted upgrades, folded in at read time.
-    //
-    // Not written into the roster when an upgrade is bought: folding here is what makes a refit
-    // reach the units trained last week as well as the ones trained tomorrow, which is what
-    // "the workshop refits everybody" has to mean for a player not to find it maddening.
-    stats: upgradedStats(unit.stats, fittedFor(base.unitLoadouts, unit.id)),
-    modifiers: unit.modifiers.map((id) => ({
-      label: UNIT_MODIFIERS[id].label,
-      description: UNIT_MODIFIERS[id].description,
-      when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
-    })),
-    rules: unitRules(unit),
-    affinities: groundAffinities(unit),
-    cost: unit.cost,
-    trainSeconds: unit.trainSeconds,
-    supply: unit.supply,
-    unlocked: isUnitUnlocked(unit, context),
-    missing: missingRequirements(unit, context).map(describeRequirement),
-    owned: base.army[unit.id] ?? 0,
-    slots: slotsFor(base.unitLoadouts, unit.id).map(describeSlot),
-  }));
+  const units: UnitOption[] = UNIT_CATALOG.map((unit) => {
+    // §A4: what the ground that trains this one takes off it, on top of the crew-wide figures.
+    const home = homeTrainingBonus(unit, rates.locationLevels);
+    return {
+      id: unit.id,
+      name: unit.name,
+      tier: unit.tier,
+      blurb: unit.blurb,
+      trainedAt: unit.trainedAt,
+      unique: unit.unique,
+      // The workshop's fitted upgrades, folded in at read time.
+      //
+      // Not written into the roster when an upgrade is bought: folding here is what makes a refit
+      // reach the units trained last week as well as the ones trained tomorrow, which is what
+      // "the workshop refits everybody" has to mean for a player not to find it maddening.
+      stats: upgradedStats(unit.stats, fittedFor(base.unitLoadouts, unit.id)),
+      modifiers: unit.modifiers.map((id) => ({
+        label: UNIT_MODIFIERS[id].label,
+        description: UNIT_MODIFIERS[id].description,
+        when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
+      })),
+      rules: unitRules(unit),
+      affinities: groundAffinities(unit),
+      cost: unit.cost,
+      trainSeconds: unit.trainSeconds,
+      supply: unit.supply,
+      homeCostReduction: home.costPercent,
+      homeSpeedBonus: home.speedPercent,
+      unlocked: isUnitUnlocked(unit, context),
+      missing: missingRequirements(unit, context).map(describeRequirement),
+      owned: base.army[unit.id] ?? 0,
+      slots: slotsFor(base.unitLoadouts, unit.id).map(describeSlot),
+    };
+  });
 
   return {
     serverNow: now.toISOString(),
@@ -154,14 +163,20 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     built: base.fittedUpgrades
       .map((id) => findUpgrade(id))
       .filter((spec): spec is UpgradeSpec => spec !== undefined)
-      .map((spec) => ({
-        id: spec.id,
-        name: spec.name,
-        line: spec.line,
-        tier: spec.tier,
-        description: spec.description,
-        effect: spec.effect as Record<string, number>,
-      })),
+      .map((spec) => {
+        // §D5c: one of a thing is one of a thing, so this is a unit id or nothing.
+        const [wearing] = fittedOn(base.unitLoadouts, spec.id);
+        return {
+          id: spec.id,
+          name: spec.name,
+          line: spec.line,
+          tier: spec.tier,
+          description: spec.description,
+          effect: spec.effect as Record<string, number>,
+          fittedTo: wearing ?? null,
+          fittedToName: wearing ? (findUnit(wearing)?.name ?? wearing) : '',
+        };
+      }),
     trainingSpeedBonus: rates.speedPercent,
   };
 }

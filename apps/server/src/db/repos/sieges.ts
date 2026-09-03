@@ -1,5 +1,6 @@
 import {
   withoutRetiredUnits,
+  findVehicle,
   ArmedTrapSchema,
   BattleAnalysisSchema,
   BattleDeploymentSchema,
@@ -85,6 +86,14 @@ function rowToBattle(row: BattleRow): ScheduledBattle {
   });
 }
 
+/** Vehicle counts for a vehicle the catalogue still carries. See `db/repos/bases.ts`. */
+function knownVehicles(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(([id]) => findVehicle(id) !== undefined),
+  );
+}
+
 function rowToDeployment(row: DeploymentRow): BattleDeployment {
   return BattleDeploymentSchema.parse({
     battleId: row.battle_id,
@@ -94,7 +103,10 @@ function rowToDeployment(row: DeploymentRow): BattleDeployment {
     perimeter: withoutRetiredUnits(readJson(row.perimeter_json)),
     boostId: row.boost_id,
     officerId: row.officer_id,
-    vehicles: readJson(row.vehicles_json),
+    // Same repair the army and the perimeter get above, and it matters more here: this row is read
+    // by the global settler, so a retired vehicle id does not brick one save, it throws inside
+    // `settleBattles` and takes the world tick down for everybody.
+    vehicles: knownVehicles(readJson(row.vehicles_json)),
     updatedAt: row.updated_at,
   });
 }

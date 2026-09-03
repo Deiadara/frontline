@@ -10,6 +10,7 @@ import {
 } from '@frontline/shared';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
@@ -36,11 +37,12 @@ export function WorkshopPage() {
   const data = query.data;
   if (!data) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Opening the workshop…
-        </p>
-      </div>
+      <ScreenLoad
+        what="The workshop"
+        loading="Opening the workshop…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 

@@ -291,3 +291,56 @@ describe('seeded dev login', () => {
  * all still tested. It happens through the declared path now: break the gate, then hit a structure
  * behind it. `battle/siege.test.ts` covers the loot bound and `battle/battle.test.ts` the settle.
  */
+
+/**
+ * The rival is one account with one base, wherever that base happens to stand.
+ *
+ * The guard used to be "is the rival standing in `BOT_DISTRICT_ID`", which answers no as soon as
+ * the rival moves or the constant changes, and the next boot minted a second base for the same
+ * user. A real database had three, in three districts, dated to the three occasions the constant
+ * moved. Each was a ghost: `findByOwnerId` returns one row, so nothing could settle the others,
+ * while they sat on the leaderboard, held a name and occupied ground.
+ *
+ * Idempotence-when-nothing-changes was already covered. This is idempotence when the world moves
+ * underneath the seed, which is the case that actually broke.
+ *
+ * What enforces it is the unique index in `0074_one_base_per_account.sql`, not the guard above the
+ * insert: `seedStep` swallows `SQLITE_CONSTRAINT_UNIQUE` and returns false, so with the index in
+ * place a district-keyed guard would attempt the insert, be refused by the database, and report
+ * nothing created. This test therefore pins the *invariant* and cannot tell the two apart, which is
+ * worth saying out loud because it looks like a test of the guard. The guard is still worth having:
+ * relying on a swallowed constraint violation as control flow means the seed cannot distinguish
+ * "already correct" from "tried to corrupt the database and was stopped".
+ */
+describe('the rival, when the ground moves under it', () => {
+  it('does not mint a second base when the rival is no longer where it was seeded', async () => {
+    const { db, repos } = await openStack(':memory:');
+    await seedMvpWorld({ db, repos });
+
+    const bot = repos.users.findByUsername(MVP_BOT.username);
+    expect(bot, 'the rival account should exist after seeding').toBeDefined();
+    const seeded = repos.bases.findByOwnerId(bot!.id);
+    expect(seeded, 'the rival should have a base after seeding').toBeDefined();
+
+    /*
+     * Move the rival *off* `BOT_DISTRICT_ID`, the way a settled fight or a retuned constant would.
+     *
+     * Somewhere else, deliberately, and asserted: the first version of this moved it to
+     * `upper-roofs`, which is where the seed already puts it, so the district-keyed guard still
+     * found it and the test passed against the bug it was written for.
+     */
+    const elsewhere = 'kettle-row';
+    expect(elsewhere, 'the test must move the rival somewhere it was not seeded').not.toBe(
+      BOT_DISTRICT_ID,
+    );
+    db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(elsewhere, seeded!.id);
+
+    const again = await seedMvpWorld({ db, repos });
+
+    expect(again.createdBot, 'the seed minted a second rival').toBe(false);
+    expect(countBotBases(db), 'the rival ended up with more than one base').toBe(SEEDED_BOTS);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bases WHERE owner_id = ?').get(bot!.id)).toEqual({
+      n: 1,
+    });
+  });
+});

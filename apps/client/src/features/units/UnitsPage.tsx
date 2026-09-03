@@ -24,6 +24,7 @@ import {
 import { useEffect, useState } from 'react';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { NumberField } from '../../components/ui/NumberField';
@@ -81,17 +82,23 @@ export function UnitsPage() {
    * Re-read now rather than waiting out the poll: without this the roster's count is the one
    * number on screen that is visibly behind, for up to a full interval.
    */
+  /* `query.refetch` rather than `query`: the result object is new on every render, so the array
+     never matched and the body ran after every one of them. `settled` is derived from a clock that
+     ticks every second, so once it flipped true this refetched in a burst until the response
+     shrank the bench. `refetch` is a stable reference in react-query v5. */
+  const refetchUnits = query.refetch;
   useEffect(() => {
-    if (settled) void query.refetch();
-  }, [settled, query]);
+    if (settled) void refetchUnits();
+  }, [settled, refetchUnits]);
 
   if (!data) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Counting heads…
-        </p>
-      </div>
+      <ScreenLoad
+        what="Your units"
+        loading="Counting heads…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 
@@ -162,6 +169,15 @@ export function UnitsPage() {
           </span>
         </header>
 
+        {/* §A5: the cancel window is short and shuts the moment the first body walks out, so
+            `window_closed` is the refusal a player is most likely to meet. It used to be silent:
+            the button un-dimmed, the order stayed, and nothing said why. */}
+        {cancel.error && (
+          <p role="alert" className="font-body text-[12px] leading-snug text-oxblood-300">
+            {cancel.error.message}
+          </p>
+        )}
+
         {bench.length === 0 ? (
           <p className="font-body text-[13px] leading-snug text-ink-300">
             Nobody on the bench. Pick somebody from the roster.
@@ -222,6 +238,16 @@ export function UnitsPage() {
             portrait puts 47% of that into the picture: the sheet beside it is then 271px, which
             is where `Penetration` started crossing its own bar. The roster's own layout gate
             already calls that ratio the defect, in those words. */}
+        {/* The count field is bounded by `TRAINING_MAX_BATCH` rather than by what the crew can pay
+            for and house (that figure is only the **Max** button's target), so a refused batch is
+            an ordinary thing to do rather than an edge case. Named against the unit that was
+            pressed, the way the mission board attributes a refused launch. */}
+        {train.error && (
+          <p role="alert" className="font-body text-[12px] leading-snug text-oxblood-300">
+            {findUnit(train.variables?.unitId ?? '')?.name ?? 'That order'}: {train.error.message}
+          </p>
+        )}
+
         <div
           className="grid gap-4 [@media(min-width:1440px)]:grid-cols-2"
           data-testid="unit-catalogue"
@@ -235,7 +261,10 @@ export function UnitsPage() {
               garrisoned={data.garrisoned[unit.id] ?? 0}
               abroad={data.abroad[unit.id] ?? 0}
               spare={Math.max(0, data.supplyCap - data.supplyUsed)}
-              discountPercent={data.trainingCostReduction}
+              // §A4: the crew-wide cut plus what this unit's own ground takes off it, which is
+              // the same sum the training route charges with. Quoting only the crew-wide figure
+              // would have **Max** offering a batch at a price the server does not charge.
+              discountPercent={data.trainingCostReduction + (unit.homeCostReduction ?? 0)}
               suppliesPercent={data.trainingSuppliesReduction ?? 0}
               pending={train.isPending}
               onTrain={(count) => train.mutate({ unitId: unit.id, count })}

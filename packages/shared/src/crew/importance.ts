@@ -106,14 +106,14 @@ export const ROLE_IMPORTANCE: Readonly<
   head_spy: {
     stealth: 'irreplaceable',
     deception: 'essential',
-    hacking: 'essential',
+    signals: 'essential',
     logic: 'useful',
     intuition: 'useful',
     cryptography: 'useful',
   },
   lead_engineer: {
     engineering: 'irreplaceable',
-    fabrication: 'essential',
+    craft: 'essential',
     analysis: 'essential',
     cybernetics: 'useful',
     improvisation: 'useful',
@@ -146,7 +146,7 @@ export const ROLE_IMPORTANCE: Readonly<
   head_of_research: {
     analysis: 'irreplaceable',
     intuition: 'essential',
-    improvisation: 'essential',
+    encyclopedia: 'essential',
     chemistry: 'useful',
     logic: 'useful',
     cryptography: 'useful',
@@ -160,7 +160,7 @@ export const ROLE_IMPORTANCE: Readonly<
     composure: 'useful',
   },
   fabricator: {
-    fabrication: 'irreplaceable',
+    craft: 'irreplaceable',
     engineering: 'essential',
     salvage: 'essential',
     dexterity: 'useful',
@@ -202,7 +202,7 @@ export const ROLE_IMPORTANCE: Readonly<
   security_officer: {
     resolve: 'irreplaceable',
     reflexes: 'essential',
-    toughness: 'essential',
+    signals: 'essential',
     speed: 'useful',
     intimidation: 'useful',
     composure: 'useful',
@@ -227,7 +227,7 @@ export const ROLE_IMPORTANCE: Readonly<
     intimidation: 'irreplaceable',
     strength: 'essential',
     toughness: 'essential',
-    demolition: 'useful',
+    improvisation: 'useful',
     resolve: 'useful',
     leadership: 'useful',
   },

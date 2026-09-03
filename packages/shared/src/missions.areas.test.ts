@@ -141,10 +141,13 @@ describe('finding a board a job is on', () => {
     }
   });
 
-  it('turns the board over at midnight UTC, and not before', () => {
-    const monday = missionBoardDay(new Date('2026-08-24T23:59:59.000Z'));
-    const alsoMonday = missionBoardDay(new Date('2026-08-24T00:00:00.000Z'));
-    const tuesday = missionBoardDay(new Date('2026-08-25T00:00:00.000Z'));
+  it('turns the board over at Athens midnight, and not before', () => {
+    // August, so Athens is GMT+3 and the board turns at 21:00 UTC.
+    const monday = missionBoardDay(new Date('2026-08-24T20:59:00.000Z'));
+    const alsoMonday = missionBoardDay(new Date('2026-08-24T05:00:00.000Z'));
+    const tuesday = missionBoardDay(new Date('2026-08-24T21:00:00.000Z'));
+    expect(monday).toBe('2026-08-24');
+    expect(tuesday).toBe('2026-08-25');
     expect(monday).toBe(alsoMonday);
     const ids = (day: string) =>
       missionOffers(MISC_AREA_ID, day)

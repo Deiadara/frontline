@@ -24,6 +24,7 @@ import { base, lateGame, lateGameBase, me } from './fixtures';
 import {
   expectNoImagesClipped,
   expectNothingClippedVertically,
+  expectNothingOverflowsTheScreen,
   installApi,
   settleFonts,
 } from './harness';
@@ -43,7 +44,6 @@ function districtAt(level: number): typeof lateGame {
     level,
     modifications: [],
     damage: 0,
-    fortification: 0,
   }));
   // The crew's level as well as the district's (§I3): half the ladder is gated on it, so a
   // fixture that maxed the buildings and left the crew at 1 would draw a district full of locks.
@@ -58,8 +58,8 @@ function districtAt(level: number): typeof lateGame {
  */
 function freshDistrict(): typeof lateGame {
   const buildings: Building[] = [
-    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
-    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0, fortification: 0 },
+    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0 },
+    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0 },
   ];
   return { ...lateGame, base: { ...lateGameBase, level: 1, buildings, buildQueue: [] } };
 }
@@ -331,18 +331,6 @@ async function expectPlatesDoNotCollide(page: Page): Promise<void> {
   expect(overlaps, `name plates on top of each other: ${overlaps.join(' | ')}`).toEqual([]);
 }
 
-async function expectNoDocumentOverflow(page: Page): Promise<void> {
-  await settleFonts(page);
-  const metrics = await page.evaluate(() => {
-    const { scrollWidth, clientWidth } = document.documentElement;
-    return { scrollWidth, clientWidth };
-  });
-  expect(
-    metrics.scrollWidth,
-    `horizontal overflow: ${metrics.scrollWidth} > ${metrics.clientWidth}`,
-  ).toBeLessThanOrEqual(metrics.clientWidth + SLACK_PX);
-}
-
 for (const size of VIEWPORTS) {
   const tag = `${size.width}x${size.height}`;
 
@@ -355,7 +343,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('district-plaque')).toContainText('The Ninth Street Crew');
 
       await expectDistrictLaidOutCleanly(page);
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       // The HUD's resource glyphs and the nav's icons, at the width that squeezes them hardest.
       // Both are fixed bars rather than scrollers, so nothing here is cut by design.
       //
@@ -391,7 +379,7 @@ for (const size of VIEWPORTS) {
       await expect(dialog.getByRole('button', { name: 'Queue upgrade' })).toBeInViewport({
         ratio: 1,
       });
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedVertically(page, '[role="dialog"]');
       await page.screenshot({ path: `screenshots/hideout/dialog-${tag}.png` });
     });

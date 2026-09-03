@@ -43,6 +43,7 @@ export const ASSET_CLASSES = [
   'plane',
   'building',
   'unit',
+  'vehicle',
   'ui',
   'icon',
   'splash',
@@ -284,6 +285,16 @@ export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
   // A roster card, not a hero shot: half the linear resolution of an overseer portrait, because
   // twenty-seven of these render in one grid and none of them is ever shown full-bleed.
   unit: { width: 768, height: 1024, aspect: '3:4', ext: 'webp', quality: 90, alpha: false },
+  /*
+   * §C1: a machine, painted whole, on a card.
+   *
+   * Its own class rather than an override on `icon`, which was the first attempt and was wrong:
+   * the icon class holds a real invariant (512² with alpha, rendered at 1024² and downscaled, one
+   * backend) and a per-key exception to it is a rule that quietly stops meaning anything. A
+   * vehicle is not an icon. It is a square portrait of an object with its own ground under it,
+   * the same shape a district plate is, and it is drawn at card width rather than at 24 pixels.
+   */
+  vehicle: { width: 1024, height: 1024, aspect: '1:1', ext: 'webp', quality: 90, alpha: false },
   ui: { width: 1024, height: 1024, aspect: '1:1', ext: 'png', quality: null, alpha: true },
   // No backend does 512×512 with alpha (fal has no alpha, gpt-image-1 has no size below 1024), so
   // icons are rendered transparent at 1024² and downscaled by the encode step.
@@ -525,13 +536,74 @@ const CITY_PLATE_DELIVERY = {
   aspect: '21:10',
 } as const satisfies Partial<AssetSpec>;
 
+/**
+ * The Steelbelt, at the size the board painted it.
+ *
+ * Same reasoning as {@link DISTRICT_PLATE_DELIVERY} one class up: this is a *map*. Seven location
+ * plates are positioned against features in the picture, in fractions of the picture, so a crop or
+ * an upscale slides all seven off the buildings they name. 1584×672 is the master's own size and is
+ * written down rather than resampled to the plate class's 2048×1152: an upscale would produce a
+ * bigger file carrying exactly this much painting.
+ *
+ * The first delivery was 1672×941 at 16:9 and was being letterboxed in a band that runs about 2.1
+ * wide-to-tall. This one is 2.36, which the band no longer has to fight, and it is the shape the
+ * Bar plate is already on. What it costs is sharpness above a 1584px frame: this is the smallest
+ * master of the four plates, and every district screen wider than that upscales it. A re-export at
+ * 3780×1604, the same shape, would put the Steelbelt on the Docks' and the city's footing.
+ */
+const STEELBELT_PLATE_DELIVERY = {
+  width: 1584,
+  height: 672,
+  aspect: '2.36:1',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * The Neon Docks, redelivered at the shape the screen actually is.
+ *
+ * The first delivery was 1672x941, and the district screen draws a plate full-bleed between the
+ * standing bar and the nav: that band runs about 2.1 wide-to-tall on an ordinary desktop, so a
+ * 16:9 painting was being letterboxed or cropped at every width. 3780x1800 is the same 21:10 the
+ * city and the home district are on, and at the same width, so all three are sharp at 1x out to a
+ * 3780px window and none of them is the odd one out.
+ *
+ * The Steelbelt has since been repainted too, to {@link STEELBELT_PLATE_DELIVERY}, and landed on a
+ * third shape again. They stay separate entries rather than one shared constant for exactly that
+ * reason: a size table that quietly averages two different deliveries is how a plate ends up
+ * stretched.
+ */
+const NEON_DOCKS_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
 const SIZE_EXCEPTIONS: Readonly<
   Partial<Record<AssetKey, Pick<AssetSpec, 'width' | 'height' | 'aspect'>>>
 > = {
   'plate-district': DISTRICT_PLATE_DELIVERY,
   'plate-bar': BAR_PLATE_DELIVERY,
   'plate-city': CITY_PLATE_DELIVERY,
+  'plate-district-neon-docks': NEON_DOCKS_PLATE_DELIVERY,
+  'plate-district-rustyard': STEELBELT_PLATE_DELIVERY,
 };
+
+/**
+ * Is this asset delivered at the size it was painted, rather than at its class's §6 size?
+ *
+ * One question, asked of the table above rather than inferred from the numbers. The order sheet
+ * needs it: an asset in this set must never be listed under "only if your download measures at
+ * least 2048×1152", because there is nothing to download. It is already here, at a size chosen
+ * because things are positioned on it, and asking for a bigger render is asking the board to
+ * repaint a picture the client has already pinned controls to.
+ *
+ * The sheet used to answer it by reading `spec.aspect !== '16:9'`, which got the right answer for
+ * the first three by accident: they happen to be 21:10 and 2.36:1. The two contested-district
+ * plates were then 16:9 *and* delivered at their painted 1672×941, and they went straight into the
+ * repaint pile. Both have since been repainted, but the lesson is the table, not the sizes.
+ */
+export function deliveredAtPaintedSize(key: AssetKey): boolean {
+  return key in SIZE_EXCEPTIONS;
+}
 
 /** ART-BIBLE §6: "the fore plane must be ≥55% transparent or it smothers the map". */
 const FORE_PLANE_MIN_TRANSPARENCY = 0.55;
@@ -554,6 +626,9 @@ const plateDrafts = (
     // the middle would re-roll every plate after it.
     ['plate-district', 'plate'],
     ['plate-bar', 'plate'],
+    // Appended for the same reason the two above it were: the seed is the index.
+    ['plate-district-neon-docks', 'plate'],
+    ['plate-district-rustyard', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -571,6 +646,8 @@ const plateDrafts = (
     ...(key === 'plate-district' ? DISTRICT_PLATE_DELIVERY : {}),
     ...(key === 'plate-bar' ? BAR_PLATE_DELIVERY : {}),
     ...(key === 'plate-city' ? CITY_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-neon-docks' ? NEON_DOCKS_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-rustyard' ? STEELBELT_PLATE_DELIVERY : {}),
   }),
 );
 
@@ -639,12 +716,25 @@ const iconDrafts = [
   ),
   // §C1: one per machine the Garage builds, so a delivered file overrides the interim block with
   // no TypeScript edit. Appended after the location icons, whose seeds are unaffected by it.
+  /*
+   * §C1: one per machine the Garage builds.
+   *
+   * `alpha: false`, which is the whole difference from the icons above it. These were drafted as
+   * icons: keyed to transparency and framed to read at 24 pixels. What the board actually paints
+   * for a machine is a *portrait*, a whole square picture with its own ground under it, and the
+   * Garage draws it as one. Pushing that through the icon path would have asked the matte to key
+   * a hand-painted wall out from behind a bike, which is the case `keyBackground` is documented to
+   * refuse rather than guess at.
+   *
+   * Still 1:1 and still 1024, so the only thing that changed is that the picture keeps its
+   * background.
+   */
   ...VEHICLE_IDS.map((id, index) =>
     draft({
-      key: `icon-vehicle-${toKebab(id)}`,
-      class: 'icon',
+      key: `vehicle-${toKebab(id)}`,
+      class: 'vehicle',
       seed: SEED_BASE.vehicleIcon + index + 1,
-      prompt: { subject: VEHICLE_ICON_SUBJECTS[id], framing: FRAMING.icon },
+      prompt: { subject: VEHICLE_ICON_SUBJECTS[id], framing: FRAMING.vehicle },
     }),
   ),
 ];
@@ -725,7 +815,7 @@ function assetKeyFor(ref: AssetRef): AssetKey {
     case 'district-kind-icon':
       return `icon-kind-${toKebab(ref.districtKind)}`;
     case 'vehicle-icon':
-      return `icon-vehicle-${toKebab(ref.vehicleId)}`;
+      return `vehicle-${toKebab(ref.vehicleId)}`;
   }
 }
 

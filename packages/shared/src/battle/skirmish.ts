@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { TerritoryEffects } from '../city/index.js';
 import type { Army, UnitLoadouts } from '../units/index.js';
 import { analyseBattle, BattleAnalysisSchema } from './analysis.js';
-import { perimeterToll } from './perimeter.js';
+import { breakOut, type Breakout } from './perimeter.js';
 import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
 import { officerOutcomeOf, simulate, type Simulation } from './engine.js';
 import { OfficerOutcomeSchema, type BattleOfficer } from './officer.js';
@@ -99,6 +99,21 @@ export const SkirmishOutcomeSchema = z.object({
    * {@link SkirmishOutcome.killed}. This is the breakdown, not a second set of casualties.
    */
   perimeterCaught: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  /**
+   * What the winner's ring paid to stop them.
+   *
+   * A ring is a fight now rather than a toll, so it is no longer free to have set one: these come
+   * off the perimeter that marches home. Nothing was ever deducted before, because nothing could
+   * kill a ring.
+   */
+  perimeterLosses: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  /**
+   * Whether the withdrawal came through the ring rather than being turned back by it.
+   *
+   * True when there was no ring at all, which is the honest answer to "were they stopped": nobody
+   * was. Reports read it to tell a ring that held from a ring that was ridden through.
+   */
+  brokeThrough: z.boolean().default(true),
   battlefield: BattlefieldSchema.optional(),
   /**
    * §D1: what each side's officer did, and whether they were taken off the field.
@@ -147,6 +162,8 @@ export function skirmishOutcome(partial: Partial<SkirmishOutcome> = {}): Skirmis
     findings: [],
     standing: { attacker: [], defender: [] },
     perimeterCaught: {},
+    perimeterLosses: {},
+    brokeThrough: true,
     officers: { attacker: null, defender: null },
     ...partial,
   };
@@ -211,31 +228,42 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
   const loserSide = simulation.winner === 'attacker' ? simulation.defender : simulation.attacker;
   const lastRound = simulation.rounds.length;
 
-  const { fled, killed } = routSurvivors(
-    loserSide,
+  const routContext = {
+    pursuit: pursuitSpeed(winnerSide),
+    lastRound,
+    away: simulation.winner === 'defender',
+    luck: loserSide.luck,
+  };
+  const { fled, killed } = routSurvivors(loserSide, routContext, next);
+
+  // The ring, and only the winner's: a beaten side's perimeter walks away without fighting, which
+  // is the board's rule and the whole gamble of setting one. Meeting it is a second battle on the
+  // same ground (`perimeter.ts`), drawn from the rout's stream after the rout itself, so a battle
+  // nobody ringed produces the exact stream it always did.
+  const winnerRing =
+    (simulation.winner === 'attacker' ? input.attackerPerimeter : input.defenderPerimeter) ?? {};
+  const breakout = breakOut(
     {
-      pursuit: pursuitSpeed(winnerSide),
-      lastRound,
-      away: simulation.winner === 'defender',
-      luck: loserSide.luck,
+      fleeing: fled,
+      ring: winnerRing,
+      battlefield: simulation.battlefield,
+      seed: input.seed,
+      context: routContext,
     },
     next,
   );
-
-  // The ring, and only the winner's: a beaten side's perimeter walks away without fighting, which
-  // is the board's rule and the whole gamble of setting one. Drawn from the rout's stream after the
-  // rout itself, so a battle nobody ringed produces the exact stream it always did.
-  const winnerRing =
-    (simulation.winner === 'attacker' ? input.attackerPerimeter : input.defenderPerimeter) ?? {};
-  const { caught, escaped } = perimeterToll(fled, winnerRing, next);
-  const gotHome = escaped;
-  const dead = mergeArmies(killed, caught);
+  const gotHome = breakout.escaped;
+  const dead = mergeArmies(killed, breakout.caught);
 
   const findings: BattleFinding[] = findingsFor(simulation);
   const winnerLosses = winnerCasualties(winnerSide);
+  // One narrative, two readers: the battle log and the report's prose section are the same lines.
+  // They were not, and the report was the shorter of the two: it ended where the fight did and said
+  // nothing about the withdrawal or the ring.
+  const log = [...narrate(simulation, findings), lossLine(gotHome, dead), ...ringLines(breakout)];
   return {
     winner: simulation.winner,
-    log: [...narrate(simulation, findings), lossLine(gotHome, dead), ...ringLine(caught)],
+    log,
     fled: gotHome,
     killed: dead,
     winnerLosses,
@@ -245,7 +273,9 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
       attacker: standingReport(simulation.attacker),
       defender: standingReport(simulation.defender),
     },
-    perimeterCaught: caught,
+    perimeterCaught: breakout.caught,
+    perimeterLosses: breakout.ringLosses,
+    brokeThrough: breakout.brokeThrough,
     officers: {
       attacker: officerOutcomeOf(simulation.attacker),
       defender: officerOutcomeOf(simulation.defender),
@@ -255,13 +285,16 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
       battleId: input.battleId ?? input.seed,
       locationName: input.locationName,
       simulation,
+      log,
       fled: gotHome,
       winnerLosses,
       perimeter: {
         attacker: input.attackerPerimeter ?? {},
         defender: input.defenderPerimeter ?? {},
       },
-      perimeterCaught: caught,
+      perimeterCaught: breakout.caught,
+      perimeterLosses: breakout.ringLosses,
+      brokeThrough: breakout.brokeThrough,
       trap: null,
       infamy: { attacker: 0, defender: 0 },
     }),
@@ -277,11 +310,26 @@ function mergeArmies(into: Army, extra: Army): Army {
 }
 
 /** One line, and only when a ring actually caught somebody. Silence is the usual case. */
-function ringLine(caught: Army): string[] {
-  const stopped = total(caught);
-  return stopped === 0
-    ? []
-    : [`${stopped} got out of the fight and no further. The ring was waiting.`];
+/**
+ * What happened at the ring, when there was one.
+ *
+ * Two lines rather than one, because the second fight has two outcomes worth telling apart: a ring
+ * that held and a ring that was ridden through are the same number of casualties and completely
+ * different information about whether to set one again.
+ */
+function ringLines(breakout: Breakout): string[] {
+  if (breakout.rounds === 0) return [];
+  const stopped = total(breakout.caught);
+  const ringDead = total(breakout.ringLosses);
+  const lines = [
+    breakout.brokeThrough
+      ? 'The withdrawal came through the ring rather than stopping at it.'
+      : 'The ring held, and the withdrawal broke against it.',
+  ];
+  if (stopped > 0)
+    lines.push(`${stopped} got out of the fight and no further. The ring was waiting.`);
+  if (ringDead > 0) lines.push(`Holding the ring cost ${ringDead}.`);
+  return lines;
 }
 
 function lossLine(fled: Army, killed: Army): string {
@@ -327,7 +375,12 @@ export class CoinFlipSkirmishEngine implements SkirmishEngine {
       rounds: 1,
       findings: [],
       standing: { attacker: [], defender: [] },
+      // The coin flip has no ring: it reads no sheet, so there is nothing for a second fight to be
+      // fought with. Nobody is stopped, nothing is paid for stopping them, and everybody who ran got
+      // through, which is what `brokeThrough` means when there was no ring in the way.
       perimeterCaught: {},
+      perimeterLosses: {},
+      brokeThrough: true,
       // The coin flip reads no sheet, so it has no officer to report on either.
       officers: { attacker: null, defender: null },
     };

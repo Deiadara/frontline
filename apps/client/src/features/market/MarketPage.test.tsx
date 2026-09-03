@@ -1,4 +1,6 @@
 import {
+  BLUEPRINTS,
+  ITEM_CATALOG,
   RESOURCE_CAP_VALUE,
   RESOURCE_KEYS,
   STORAGE_SHARES,
@@ -34,6 +36,7 @@ const resources = Object.fromEntries(
 ) as Resources;
 
 const market: MarketResponse = {
+  reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: false },
   serverNow: NOW,
   caps: resources.caps,
   resources,
@@ -62,6 +65,22 @@ const market: MarketResponse = {
 
 const fetchMock = vi.fn();
 
+/** `GET /me`, which is where `usePlayerZone` reads the clock the player set in Settings. */
+const meIn = (timezone: string) => ({
+  admin: false,
+  user: {
+    id: 'user-1',
+    username: 'operator',
+    overseerId: 'ov-1',
+    createdAt: NOW,
+    displayName: null,
+    icon: 'shield',
+    timezone,
+  },
+  overseer: null,
+  base: null,
+});
+
 const reply = (body: unknown) =>
   Promise.resolve({
     ok: true,
@@ -69,6 +88,16 @@ const reply = (body: unknown) =>
     statusText: '',
     json: () => Promise.resolve(body),
   } as Response);
+
+/** The market as this player's browser gets it, with the Runner keeping the given game hours. */
+function stubMarket(timezone: string, sessions: { startHour: number; hours: number }[] = []): void {
+  fetchMock.mockImplementation((path: string) => {
+    if (path.endsWith('/me')) return reply(meIn(timezone));
+    if (path.endsWith('/market'))
+      return reply({ ...market, vendor: { ...market.vendor, sessions } });
+    throw new Error(`unstubbed request: ${path}`);
+  });
+}
 
 function renderMarket() {
   const client = new QueryClient({
@@ -97,6 +126,42 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+/**
+ * The composer's item picker only offers what a listing may actually move.
+ *
+ * `offerRefusal` refuses a listing that moves an untradeable item, and an unlocked blueprint is the
+ * one kind in the catalogue that is. The picker listed the whole satchel, so the single item a
+ * player cannot trade was offered to them beside the ones they can, and the only way to learn that
+ * was to fill in the rest of the form and be turned down.
+ */
+describe('the offer composer', () => {
+  const document = BLUEPRINTS[0];
+  const page = document.pages[0];
+
+  beforeEach(() => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market'))
+        return reply({ ...market, inventory: { [document.id]: 1, [page.id]: 2 } });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+  });
+
+  it('offers a page and not the document it belongs to', async () => {
+    renderMarket();
+    fireEvent.click(await screen.findByTestId('offer-item'));
+
+    const options = (await screen.findAllByRole('option')).map((node) => node.textContent ?? '');
+    // A page is named "<document>: <page>", so a substring match on the document's own name would
+    // be satisfied by the page. Count instead: "Nothing", plus the one item that may be traded.
+    expect(
+      options,
+      `expected Nothing and the page only, got ${JSON.stringify(options)}`,
+    ).toHaveLength(2);
+    expect(options[0]).toContain('Nothing');
+    expect(options[1]).toContain(ITEM_CATALOG[page.id].name);
+  });
 });
 
 describe('the fairness verdict', () => {
@@ -187,5 +252,90 @@ describe('the Runner\u2019s barrow', () => {
     await screen.findByTestId('vendor-stock');
     expect(screen.queryByTestId('vendor-shut')).toBeNull();
     expect(screen.getByText('Neural Shunt')).toBeVisible();
+  });
+});
+
+/**
+ * The day turns over on the house clock, and the screen says so in the player's own.
+ *
+ * Every daily reset in the game is keyed on an *Athens* date (`marketDay` -> `dayInZone`), which is
+ * what makes "the ration is back at midnight" a shared fact rather than four hundred different
+ * ones. Two things followed from the copy not knowing that. The ration line said "midnight" flatly,
+ * which is 17:00 for a player reading the game in New York. And the Runner's hours, which the rules
+ * author in game hours, were rendered through `utcHourInZone`, which reads an Athens hour as if it
+ * were a UTC one and puts him in three hours late for everybody, the house clock included.
+ *
+ * The expected clock times below are worked out by hand rather than taken from the same helpers the
+ * page uses, or the test would agree with the page however wrong both were. On 2026-08-26 Athens is
+ * UTC+3 and New York is UTC-4:
+ *
+ * - the next Athens midnight is 2026-08-27 00:00 +03:00 = 2026-08-26T21:00Z = 17:00 in New York
+ * - the Runner's 14:00 game hour is 11:00Z, which is 14:00 in Athens and 07:00 in New York
+ */
+describe('the day boundary is the house clock, quoted on the player’s own', () => {
+  it('names the reset as a time rather than as the word midnight', async () => {
+    stubMarket('America/New_York');
+    renderMarket();
+
+    await waitFor(() => expect(screen.getByText(/resets at/)).toHaveTextContent('resets at 17:00'));
+    expect(screen.queryByText(/midnight/i)).toBeNull();
+  });
+
+  it('gives the house clock its own midnight', async () => {
+    stubMarket('Europe/Athens');
+    renderMarket();
+
+    await waitFor(() => expect(screen.getByText(/resets at/)).toHaveTextContent('resets at 00:00'));
+  });
+
+  it('reads the Runner’s hours as game hours, not as UTC hours', async () => {
+    stubMarket('Europe/Athens', [{ startHour: 14, hours: 2 }]);
+    renderMarket();
+
+    // 17:00 is what the same hour renders as if it is mistaken for a UTC one.
+    await waitFor(() => expect(screen.getByText(/Today he is in at/)).toHaveTextContent('14:00'));
+    expect(screen.getByText(/Today he is in at/)).not.toHaveTextContent('17:00');
+  });
+});
+
+/**
+ * A posted offer leaves the composer, because posting it spent the goods.
+ *
+ * `market/board.ts`'s `postOffer` escrows `give` out of the stockpile the moment the listing goes
+ * up, on purpose: a board of listings that cannot be honoured is worse than no board. The form kept
+ * the pile and re-enabled its button, so a second press escrowed a second copy, up to
+ * `MAX_OPEN_OFFERS = 8` of them. The counter case was quieter: `onDone` cleared `counterTo` and not
+ * the bundle, so the same-looking form turned from "counter that listing" into "public listing".
+ */
+describe('after a listing is posted', () => {
+  it('empties the composer rather than leaving a second press armed', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market/offer')) return reply({ market });
+      if (path.endsWith('/me')) return reply(meIn('Europe/Athens'));
+      if (path.endsWith('/market')) return reply(market);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+
+    renderMarket();
+    await screen.findByTestId('offer-give');
+
+    fireEvent.click(screen.getByTestId('offer-give-oil'));
+    fireEvent.change(screen.getByTestId('offer-give-amount-oil'), { target: { value: '400' } });
+    fireEvent.click(screen.getByTestId('offer-want-scrap'));
+    fireEvent.change(screen.getByTestId('offer-want-amount-scrap'), { target: { value: '400' } });
+
+    // The precondition: the pile really is in the form, so the emptiness asserted below is the
+    // post's doing rather than a form that was never filled.
+    const post = screen.getByRole('button', { name: 'Post it' });
+    expect(post).toBeEnabled();
+    expect(screen.getByTestId('offer-give-oil')).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(post);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('offer-give-oil')).toHaveAttribute('aria-pressed', 'false'),
+    );
+    expect(screen.getByTestId('offer-want-scrap')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Post it' })).toBeDisabled();
   });
 });

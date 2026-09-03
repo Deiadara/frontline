@@ -42,6 +42,27 @@ import { populationCapacity, type Building } from './index.js';
 export const POPULATION_PER_LOCATION = 20;
 
 /**
+ * §A4: beds each *upgrade* adds, on top of the flat {@link POPULATION_PER_LOCATION}.
+ *
+ * Three separate population terms, and they are separate because they answer separate questions.
+ *
+ *   1. {@link POPULATION_PER_LOCATION}, flat 20, for holding the block at all. Not scaled by
+ *      level, deliberately: what houses people is the block, not how well the press in it runs.
+ *   2. This, 3 a level above the first, because a place that has been worked up is a place more
+ *      people can live and work. Charged per level rather than per location, so it is the ladder
+ *      that pays it and holding forty fresh locations does not.
+ *   3. Whatever the handful of locations that *are* housing give on their own
+ *      (`{ kind: 'population' }` in the catalogue: the Soup Kitchen's 15, the Fence Camp's 50).
+ *      That one scales with `LEVEL_SCALE` like every other hold bonus, so a Fence Camp worked to
+ *      the ceiling houses five and a half times what a fresh one does.
+ *
+ * Counted from the *second* level, so a location walked into today is worth exactly what it was
+ * worth before the ladder went to ten. Every level after that is 3 more beds whatever else the
+ * upgrade bought.
+ */
+export const POPULATION_PER_LOCATION_LEVEL = 3;
+
+/**
  * What the district can house: the structures, plus the ground.
  *
  * `populationCapacity` is the Quarters; `effects.populationBonus` is what the map adds, which is

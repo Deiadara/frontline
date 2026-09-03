@@ -1,10 +1,6 @@
 import type { SkirmishEngine } from '@frontline/shared';
-import { settleBattles } from '../battle/resolve.js';
-import { settleMovements } from '../battle/movement.js';
-import { settleFortifications } from '../city/actions.js';
 import { resolveDueMissions } from '../missions/resolve.js';
-import { settleCapturedGates } from '../city/gates.js';
-import { settleScouting } from '../scouting/scouting.js';
+import { settleWorld } from '../world/settle.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -78,22 +74,14 @@ export interface WorldClockOptions {
  * it does is a write to the database the caller can go and read.
  */
 export function tickWorld(repos: Repositories, engine: SkirmishEngine, now: Date): number {
-  // The same order the read paths use (`battle/routes.ts`, `routes/city.ts`), and it is an order
-  // rather than a list: a column whose march ended this second is *in* the district, and the fight
-  // it was sent to join is marked for the same second. Settling the fight first would resolve it
-  // without those bodies and land the reinforcements in a finished battle.
-  settleFortifications(repos, now);
-  settleMovements(repos, now);
-  const fights = settleBattles(repos, engine, now).length;
-  settleCrewsComingHome(repos, now);
-  // §A4: and the scouts. Same argument as missions: what a finished run writes is a receipt, and a
-  // receipt only matters when it arrives. A player who sent somebody out and closed the tab should
-  // come back to open ground and a rung bell, not cause both by opening the city screen.
-  settleScouting(repos, now);
-  // §B7: a captured gate finishing changes how hard that ground is for *somebody else* to take,
-  // so it has to land on its mark whether or not its owner is looking.
-  settleCapturedGates(repos, now);
-  return fights;
+  // One order, shared with every read path that settles the world: see `world/settle.ts` for why
+  // each step is where it is. It used to be spelled out here and separately in `routes/city.ts` and
+  // `battle/routes.ts`, and this comment used to claim the three agreed. They did not.
+  //
+  // §A4: the scouts and the crews coming home are settled inside it. What a finished run writes is
+  // a receipt, and a receipt only matters when it arrives. A player who sent somebody out and closed
+  // the tab should come back to open ground and a rung bell, not cause both by opening a screen.
+  return settleWorld(repos, engine, now, settleCrewsComingHome);
 }
 
 /**

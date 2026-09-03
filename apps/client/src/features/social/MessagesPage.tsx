@@ -2,9 +2,11 @@ import {
   MESSAGE_BODY_MAX,
   MESSAGE_REFUSAL_TEXT,
   MESSAGE_SUBJECT_MAX,
+  formatDayClock,
   quoted,
   replySubject,
   type Message,
+  type SentMessage,
 } from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
@@ -20,6 +22,7 @@ import {
 } from '../../lib/queries';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
+import { usePlayerZone } from '../settings/usePlayerZone';
 import { InviteCard } from './InviteCard';
 
 /**
@@ -46,10 +49,29 @@ function refusalText(message: string): string {
   return (MESSAGE_REFUSAL_TEXT as Record<string, string>)[message] ?? message;
 }
 
-/** `2026-08-30 14:05`, trimmed to what a row can carry. */
-function stamp(iso: string): string {
-  return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+/**
+ * A message's time, on the player's own clock.
+ *
+ * It used to be `iso.slice(0, 10)` and `iso.slice(11, 16)`, which is the UTC instant with its
+ * punctuation rearranged. Every other clock in the game is drawn in the player's zone, Athens by
+ * default (`time/zone.ts`), so the mailbox was the one screen quietly two or three hours behind the
+ * rest of the game: a message sent at nine in the evening Athens time read as `18:00`, and a player
+ * comparing it against a battle mark on the same screen had no way to know why they disagreed.
+ */
+function stamp(iso: string, zone: string): string {
+  return formatDayClock(new Date(iso), zone);
 }
+
+/**
+ * Which folder's message is open, because the two are different shapes.
+ *
+ * A received message has a sender, a read mark and possibly an invitation. A sent one has a
+ * recipient and a read count. Both have a subject, a body and a time, which is the part the sheet
+ * below actually draws, and the sent folder used to draw none of it: `SentMessage` has carried
+ * `body` and `sentAt` all along and the page showed neither, so a player could see that they had
+ * written something and never read it back.
+ */
+type Opened = { folder: 'inbox'; message: Message } | { folder: 'sent'; message: SentMessage };
 
 export function MessagesPage() {
   const query = useMessages();
@@ -59,7 +81,8 @@ export function MessagesPage() {
   const remove = useDeleteMessage();
 
   const [folder, setFolder] = useState<FolderId>('inbox');
-  const [open, setOpen] = useState<Message | null>(null);
+  const [open, setOpen] = useState<Opened | null>(null);
+  const zone = usePlayerZone();
   const [composing, setComposing] = useState(false);
   const [to, setTo] = useState('');
   const [toFaction, setToFaction] = useState(false);
@@ -86,7 +109,7 @@ export function MessagesPage() {
 
   /** Opens a message and marks it read in the same gesture, which is what a mailbox does. */
   const openMessage = (message: Message) => {
-    setOpen(message);
+    setOpen({ folder: 'inbox', message });
     if (message.readAt === null) read.mutate({ id: message.id });
   };
 
@@ -188,7 +211,7 @@ export function MessagesPage() {
                           aria-hidden
                           className={cn(
                             'h-2 w-2 shrink-0 rounded-full',
-                            message.readAt === null ? 'bg-oxblood-400' : 'bg-surface-600',
+                            message.readAt === null ? 'bg-oxblood-300' : 'bg-surface-600',
                           )}
                         />
                         <span className="flex min-w-0 flex-1 flex-col">
@@ -209,7 +232,7 @@ export function MessagesPage() {
                           </span>
                         </span>
                         <span className="shrink-0 font-display text-[10px] tabular-nums text-ink-400">
-                          {stamp(message.sentAt)}
+                          {stamp(message.sentAt, zone)}
                         </span>
                       </button>
                     </li>
@@ -225,20 +248,37 @@ export function MessagesPage() {
                 {data.sent.map((message) => (
                   <li
                     key={message.threadId}
-                    className="flex min-w-0 items-center gap-3 border-b border-surface-700/70 px-3 py-2.5 last:border-b-0"
+                    className="border-b border-surface-700/70 last:border-b-0"
                   >
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate font-body text-[14px] leading-tight text-ink-200">
-                        {message.subject}
+                    {/* Openable, like an inbox row. `SentMessage` carries the body and nothing drew
+                        it, so the sent folder was a list of things you could see you had written
+                        and could not read back. */}
+                    <button
+                      type="button"
+                      onClick={() => setOpen({ folder: 'sent', message })}
+                      data-testid={`sent-${message.threadId}`}
+                      className="flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-700/40"
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate font-body text-[14px] leading-tight text-ink-200">
+                          {message.subject}
+                        </span>
+                        <span className="truncate font-body text-[11px] leading-tight text-ink-400">
+                          to {message.addressedTo}
+                          {message.audience === 'faction' && ' (the faction)'}
+                        </span>
                       </span>
-                      <span className="truncate font-body text-[11px] leading-tight text-ink-400">
-                        to {message.addressedTo}
-                        {message.audience === 'faction' && ' (the faction)'}
+                      <span className="flex shrink-0 flex-col items-end gap-0.5">
+                        <span className="font-display text-[10px] tabular-nums text-ink-400">
+                          {message.readBy}/{message.recipients} read
+                        </span>
+                        {/* The same stamp the inbox draws, in the same place. It was on the payload
+                            and missing here, so one folder was dated and the other was not. */}
+                        <span className="font-display text-[10px] tabular-nums text-ink-400">
+                          {stamp(message.sentAt, zone)}
+                        </span>
                       </span>
-                    </span>
-                    <span className="shrink-0 font-display text-[10px] tabular-nums text-ink-400">
-                      {message.readBy}/{message.recipients} read
-                    </span>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -247,38 +287,61 @@ export function MessagesPage() {
         </div>
       </div>
 
+      {/*
+        One sheet for both folders, because a message is a message: same frame, same title, same
+        meta line in the same place, same body. Only the line under the title and the buttons under
+        the body differ, because only those are actually different facts. Two separate modals would
+        drift, and the sent one would be the one that got less care.
+      */}
       {open && (
         <Modal onClose={() => setOpen(null)} labelledBy="message-title" size="wide">
           <div className="flex min-h-0 flex-col" data-testid="message-open">
             <div className="shrink-0 border-b border-surface-600/60 px-5 py-4">
               <h2 id="message-title" className="font-stamp text-xl leading-tight text-ink-100">
-                {open.subject}
+                {open.message.subject}
               </h2>
               <p className="mt-1 font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
-                {open.senderName}
-                {open.senderFaction && ` · ${open.senderFaction}`} · {stamp(open.sentAt)}
+                {open.folder === 'inbox' ? (
+                  <>
+                    {open.message.senderName}
+                    {open.message.senderFaction && ` · ${open.message.senderFaction}`}
+                  </>
+                ) : (
+                  <>
+                    To {open.message.addressedTo}
+                    {open.message.audience === 'faction' && ' · the faction'} ·{' '}
+                    {open.message.readBy}/{open.message.recipients} read
+                  </>
+                )}{' '}
+                · {stamp(open.message.sentAt, zone)}
               </p>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <p className="whitespace-pre-wrap font-body text-[14px] leading-relaxed text-ink-200">
-                {open.body}
+                {open.message.body}
               </p>
-              {open.invite && <InviteCard invite={open.invite} />}
+              {open.folder === 'inbox' && open.message.invite && (
+                <InviteCard invite={open.message.invite} />
+              )}
             </div>
             <div className="flex shrink-0 gap-2 border-t border-surface-600/60 px-5 py-3">
-              <Button size="sm" data-testid="reply" onClick={() => startReply(open)}>
-                Reply
-              </Button>
-              <Button
-                size="sm"
-                variant="danger"
-                onClick={() => {
-                  remove.mutate({ id: open.id });
-                  setOpen(null);
-                }}
-              >
-                Throw it away
-              </Button>
+              {open.folder === 'inbox' && (
+                <>
+                  <Button size="sm" data-testid="reply" onClick={() => startReply(open.message)}>
+                    Reply
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => {
+                      remove.mutate({ id: open.message.id });
+                      setOpen(null);
+                    }}
+                  >
+                    Throw it away
+                  </Button>
+                </>
+              )}
               <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setOpen(null)}>
                 Close
               </Button>

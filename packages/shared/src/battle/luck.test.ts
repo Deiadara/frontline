@@ -164,6 +164,7 @@ describe('luck makes a losing side likelier to get away', () => {
       morale: spec.stats.morale,
       brokeAt: null,
       started: 10,
+      suppressed: 0,
       dealt: 0,
     };
   };

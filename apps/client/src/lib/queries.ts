@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { useEffect, useRef } from 'react';
 import type { ApiRequestError } from './api';
 import {
+  burnUpgrade,
   raiseGate,
   answerFactionInvite,
   createFaction,
@@ -76,6 +77,8 @@ import {
   getCrewStanding,
   getMarket,
   buyFromVendor,
+  unlockBlueprint,
+  reimagine,
   barterResources,
   buySupply,
   postOffer,
@@ -100,7 +103,6 @@ import {
   recallColumn,
   deployToBattle,
   layTrap,
-  fortifyStructure,
   buyBattleBoost,
   getGarage,
   leadBattle,
@@ -387,6 +389,15 @@ export function useHireRecruit() {
                     weeklyWage: officer.weeklyWage,
                     // §D4: nobody is hired hurt.
                     injuredUntil: null,
+                    /*
+                     * Null until the server says otherwise, even when the officer arrives seated.
+                     *
+                     * The mark is computed from the role requirement table, which is server-side
+                     * only, so this is the one field of the optimistic entry the client genuinely
+                     * cannot invent. The invalidation on the next line fills it in; guessing one
+                     * here would put a wrong stamp on a portrait for a round trip.
+                     */
+                    mark: null,
                   },
                 ],
               }
@@ -742,6 +753,32 @@ function marketMutation<TArgs>(mutationFn: (args: TArgs) => Promise<MarketMutati
 }
 
 export const useBuyFromVendor = marketMutation(buyFromVendor);
+/**
+ * §D10: assemble a blueprint out of the pages the satchel is holding.
+ *
+ * A market mutation like the rest, because a blueprint is assembled *out of the satchel*: the same
+ * payload carries the pages that were spent and the document that arrived, so the Blueprints page
+ * and the satchel behind it cannot disagree about what happened.
+ */
+export const useUnlockBlueprint = marketMutation(unlockBlueprint);
+/**
+ * §G2: three spare pages to the Lab for one you do not have.
+ *
+ * Not folded into `marketMutation` because the answer carries more than the board: the panel says
+ * what went and what came back, and that report is the only place a player ever learns which page
+ * they got. Dropping it would leave the satchel silently one page richer.
+ */
+export function useReimagine() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: reimagine,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.market, response.market);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}
+
 export const useBarter = marketMutation(barterResources);
 /** The supply run: caps into materials, inside the day's ration. */
 export const useBuySupply = marketMutation(buySupply);
@@ -958,7 +995,6 @@ export function useRecallColumn() {
 export const useDeclareBattle = battleMutation(declareBattle);
 export const useDeployToBattle = battleMutation(deployToBattle);
 export const useLayTrap = battleMutation(layTrap);
-export const useFortifyStructure = battleMutation(fortifyStructure);
 export const useBuyBattleBoost = battleMutation(buyBattleBoost);
 export const useLeadBattle = battleMutation(leadBattle);
 export const useUpgradeNotoriety = battleMutation(upgradeNotoriety);
@@ -1051,7 +1087,14 @@ export function useBuildAddon() {
       queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(response.base.id), {
         base: response.base,
       });
+    },
+    // `onSettled`: "settle first, refuse second", at the top of this file. `POST /scrapyard/build`
+    // calls `settled()` on its first line and refuses on its third, so a "you cannot cover that"
+    // has already banked production and wages: the stockpile the player is being measured against
+    // is not the one on their screen.
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
       // A built refit changes every unit's sheet, and the roster is where a player looks for it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
       void queryClient.invalidateQueries({ queryKey: queryKeys.workshop });
@@ -1157,7 +1200,13 @@ export function useStartTech() {
     mutationFn: startTech,
     onSuccess: (research) => {
       queryClient.setQueryData(queryKeys.research, research);
+    },
+    // `onSettled`, same rule: `POST /research/tech` settles the player and only then throws
+    // `RESEARCH_OPTION_LOCKED`, so a refusal can have finished the previous project and crossed a
+    // level on the way past.
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.research });
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
       void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
     },
@@ -1304,6 +1353,23 @@ export function useRaiseGate() {
     mutationFn: raiseGate,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.city });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}
+
+/**
+ * §D5c: burn a fitted modification.
+ *
+ * Invalidates the units screen, which holds both the brackets and the shelf, and `/me`, whose
+ * `fittedUpgrades` is the same fact from the district's side.
+ */
+export function useBurnUpgrade() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: burnUpgrade,
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });

@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
-import { useFitSlot } from '../../lib/queries';
+import { useBurnUpgrade, useFitSlot } from '../../lib/queries';
 
 /**
  * Three brackets on every unit, and the menu that fills one (GDD §A5, workshop extension).
@@ -51,6 +51,7 @@ function describeEffect(effect: Record<string, number>): string {
 export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUpgrade[] }) {
   const [open, setOpen] = useState<number | null>(null);
   const fit = useFitSlot();
+  const burn = useBurnUpgrade();
 
   /*
    * Nothing bolts onto a porter, so they are told so rather than offered three brackets.
@@ -100,8 +101,9 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
                 {unit.name} · bracket {open + 1}
               </h2>
               <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
-                Anything the workshop has built goes here, and it can go on more than one unit. It
-                stays yours if you take it out.
+                You have one of each, and bolting it on is permanent: every one of these already
+                trained gets it, and so does every one after. It does not come off. It can be
+                burned, and then built again for somebody else.
               </p>
             </div>
 
@@ -113,9 +115,14 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
               <ul className="flex max-h-[22rem] flex-col gap-1.5 overflow-y-auto">
                 {built.map((upgrade) => {
                   const here = unit.slots[open]?.upgradeId === upgrade.id;
-                  const elsewhere = unit.slots.some(
-                    (slot, index) => index !== open && slot.upgradeId === upgrade.id,
-                  );
+                  /*
+                   * §D5c: fitted anywhere at all, not just in another bracket on this unit.
+                   *
+                   * One of a thing is one of a thing. The picker used to disable only the brackets
+                   * on the unit in front of you, so a plate already bolted to the Breakers looked
+                   * available here and the server refused the press.
+                   */
+                  const elsewhere = upgrade.fittedTo !== null && !here;
                   return (
                     <li key={upgrade.id}>
                       <button
@@ -157,7 +164,7 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
                           </span>
                           <span className="mt-0.5 block font-body text-[12px] leading-snug text-ink-300">
                             {elsewhere
-                              ? 'Already in another bracket on this unit.'
+                              ? `Bolted to your ${upgrade.fittedToName}. Burn it to free it up.`
                               : upgrade.description}
                           </span>
                         </span>
@@ -171,20 +178,31 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
             {fit.isError && (
               <p className="font-body text-[12px] text-oxblood-300">{fit.error.message}</p>
             )}
+            {burn.isError && (
+              <p className="font-body text-[12px] text-oxblood-300">{burn.error.message}</p>
+            )}
 
             <div className="flex justify-between gap-2">
+              {/*
+               * §D5c: the only way one ever comes off, and it destroys the thing.
+               *
+               * This was "Empty it", which handed the modification back and made the whole
+               * decision free: a crew could walk one plate around the roster to suit whatever
+               * they were about to field. Burning it costs the plate, so choosing where it goes
+               * is worth thinking about and changing your mind is worth something.
+               */}
               <button
                 type="button"
-                disabled={unit.slots[open]?.upgradeId === null || fit.isPending}
+                disabled={unit.slots[open]?.upgradeId === null || burn.isPending}
                 onClick={() => {
-                  fit.mutate(
-                    { unitId: unit.id, slot: open, upgradeId: null },
-                    { onSuccess: () => setOpen(null) },
-                  );
+                  const fitted = unit.slots[open]?.upgradeId;
+                  if (!fitted) return;
+                  burn.mutate({ upgradeId: fitted }, { onSuccess: () => setOpen(null) });
                 }}
+                data-testid={`burn-${unit.id}`}
                 className="rounded-sm border border-surface-600/70 px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-ink-300 transition-colors hover:border-oxblood-300/70 hover:text-oxblood-300 disabled:opacity-40"
               >
-                Empty it
+                {burn.isPending ? 'Burning…' : 'Burn it'}
               </button>
               <button
                 type="button"

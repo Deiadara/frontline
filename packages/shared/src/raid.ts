@@ -57,6 +57,12 @@ export const PLUNDER_PRIORITY: readonly ResourceKey[] = [
   'highQualityMetal',
   'oil',
   'scrap',
+  // Beside scrap, which is what it is: a kilogram of salvaged building material. It was missing
+  // from this list entirely while being priced in `RESOURCE_KG` and stocked by every base, so no
+  // raid in the game had ever taken a plank and a defender could bank them behind a broken gate
+  // for nothing. `raid.test.ts` now derives this list from `RESOURCE_KEYS` so a seventh resource
+  // cannot arrive un-lootable the same way.
+  'planks',
   'supplies',
 ];
 

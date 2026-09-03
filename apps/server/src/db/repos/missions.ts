@@ -18,6 +18,8 @@ interface MissionRow {
   vehicles_json: string;
   started_at: string;
   recalled_at: string | null;
+  page_prize: string | null;
+  page_won: string | null;
   travel_minutes: number;
   duration_minutes: number;
   success_chance: number;
@@ -42,6 +44,15 @@ export interface StoredMission {
   successChance: number;
 }
 
+/**
+ * How much of a crew's mission history a screen carries.
+ *
+ * Two hundred is roughly a month of play for a level-40 crew running eight a day, which is more
+ * than the missions screen has ever shown at once and enough that "what did I do this month" is
+ * still answerable. It is not a retention policy: the rows stay, this is what one response carries.
+ */
+export const MISSION_HISTORY_LIMIT = 200;
+
 export interface MissionResolution {
   outcome: 'success' | 'failure';
   /** Banked: the payout after the crew's carrying capacity. */
@@ -49,11 +60,13 @@ export interface MissionResolution {
   /** Earned: the payout before it. The report draws the difference. */
   spoils: PartialResources;
   resolvedAt: string;
+  /** §F1f: the page this run won, or null. Named by the mission report. */
+  pageWon?: string | null;
 }
 
 export interface MissionsRepo {
   insert(stored: StoredMission): void;
-  /** Every mission this base has ever run, newest launch first. */
+  /** The most recent {@link MISSION_HISTORY_LIMIT} this base has run, newest launch first. */
   listByBaseId(baseId: string): StoredMission[];
   listActiveByBaseId(baseId: string): StoredMission[];
   countActiveByBaseId(baseId: string): number;
@@ -94,6 +107,8 @@ function rowToStored(row: MissionRow): StoredMission {
       rewards: readJson(row.rewards_json),
       spoils: readJson(row.spoils_json),
       resolvedAt: row.resolved_at,
+      pagePrize: row.page_prize as Mission['pagePrize'],
+      pageWon: row.page_won,
     }),
     seed: row.seed,
     successChance: row.success_chance,
@@ -105,13 +120,26 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
     `INSERT INTO missions
        (id, base_id, template_id, area_id, pay_percent, xp, force_json, vehicles_json,
         started_at, travel_minutes, duration_minutes, success_chance, seed, status, officer_id,
-        outcome, rewards_json, resolved_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        outcome, rewards_json, resolved_at, page_prize)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
   const byIdStmt = db.prepare('SELECT * FROM missions WHERE id = ?');
+  /*
+   * Bounded, because nothing ever deletes a mission.
+   *
+   * `GET /missions` mapped the whole result into its response and this query had no `LIMIT`. Eight
+   * runs a day is about 2,900 rows after a year, each carrying its force, vehicles, rewards,
+   * spoils, timings and outcome, and every read of a daily screen serialised all of them on the
+   * 600/min read bucket. The screen got slower every week it was played.
+   *
+   * `MISSION_HISTORY_LIMIT` is a *history* bound, not a cap on what is running: everything active
+   * is newest-first by `started_at`, so an active run cannot fall off the end while there are fewer
+   * concurrent slots than this. `listActiveByBaseId` is the unbounded one, and it is bounded by the
+   * game instead.
+   */
   const byBaseStmt = db.prepare(
-    'SELECT * FROM missions WHERE base_id = ? ORDER BY started_at DESC, id DESC',
+    'SELECT * FROM missions WHERE base_id = ? ORDER BY started_at DESC, id DESC LIMIT ?',
   );
   const activeByBaseStmt = db.prepare(
     "SELECT * FROM missions WHERE base_id = ? AND status = 'active' ORDER BY started_at ASC, id ASC",
@@ -124,7 +152,8 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   );
   const resolveStmt = db.prepare(
     `UPDATE missions
-        SET status = 'resolved', outcome = ?, rewards_json = ?, spoils_json = ?, resolved_at = ?
+        SET status = 'resolved', outcome = ?, rewards_json = ?, spoils_json = ?, resolved_at = ?,
+            page_won = ?
       WHERE id = ?`,
   );
 
@@ -149,10 +178,11 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         mission.outcome,
         JSON.stringify(mission.rewards),
         mission.resolvedAt,
+        mission.pagePrize,
       );
     },
     listByBaseId(baseId) {
-      return (byBaseStmt.all(baseId) as MissionRow[]).map(rowToStored);
+      return (byBaseStmt.all(baseId, MISSION_HISTORY_LIMIT) as MissionRow[]).map(rowToStored);
     },
     listActiveByBaseId(baseId) {
       return (activeByBaseStmt.all(baseId) as MissionRow[]).map(rowToStored);
@@ -170,12 +200,13 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
       const row = byIdStmt.get(missionId) as MissionRow | undefined;
       return row ? rowToStored(row) : undefined;
     },
-    markResolved(missionId, { outcome, rewards, spoils, resolvedAt }) {
+    markResolved(missionId, { outcome, rewards, spoils, resolvedAt, pageWon }) {
       resolveStmt.run(
         outcome,
         JSON.stringify(rewards),
         JSON.stringify(spoils),
         resolvedAt,
+        pageWon ?? null,
         missionId,
       );
     },

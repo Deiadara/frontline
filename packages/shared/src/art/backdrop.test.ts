@@ -19,12 +19,18 @@ describe('the backdrop stack', () => {
      * Derived rather than listed, so a parallax plane cannot be added without joining the stack.
      *
      * `plate` is the class with members outside this scene: `plate-district` is the ground of the
-     * player's own compound (§A1) and `plate-bar` is the room the Bar is set in (§H). Both are
-     * drawn by their own page and neither is ever composited into the map. They are named here
+     * player's own compound (§A1), `plate-bar` is the room the Bar is set in (§H), and the two
+     * `plate-district-<id>` paintings are the contested districts a player walks into (§A4). Each
+     * is drawn by its own page and none is ever composited into the map. They are named here
      * rather than filtered by a pattern so that deleting one from the manifest fails loudly
      * instead of quietly making this derivation vacuous.
      */
-    const elsewhere = ['plate-district', 'plate-bar'];
+    const elsewhere = [
+      'plate-district',
+      'plate-bar',
+      'plate-district-neon-docks',
+      'plate-district-rustyard',
+    ];
     for (const key of elsewhere) expect(findAssetSpec(key), key).toBeDefined();
 
     const mapLayers = ART_MANIFEST.filter(

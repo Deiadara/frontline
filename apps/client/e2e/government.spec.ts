@@ -86,6 +86,30 @@ async function escaping(page: Page, container: string): Promise<string[]> {
   }, container);
 }
 
+/**
+ * Reveals the garrison line, wherever this district keeps it.
+ *
+ * A painted district is a screen rather than a column now, and what is true of the *whole* place
+ * sits behind a toggle: floated open over the painting it covered a location's sign, and a panel
+ * over a sign stops that sign being clickable. Districts without a painting still print the line
+ * straight onto the page, so this is a no-op there rather than a failure.
+ */
+async function showGarrison(page: Page): Promise<void> {
+  const toggle = page.getByTestId('district-standing-toggle');
+  /*
+   * Waited for, not counted.
+   *
+   * `count()` is a one-shot read with no auto-waiting, so on the painted districts it was taken
+   * before React had rendered the strip, reported zero, and this returned having done nothing: the
+   * assertion that followed then failed on a panel that was merely still shut. The short wait is
+   * the difference between "there is no toggle here" and "there is not one *yet*".
+   */
+  await toggle
+    .waitFor({ state: 'visible', timeout: 2_000 })
+    .then(() => toggle.click())
+    .catch(() => undefined);
+}
+
 test.describe('the mission board badges the Combine (§A3, §D8)', () => {
   for (const { name, width, height } of WIDTHS) {
     test(`keeps both card tags inside the card at ${name}`, async ({ page }) => {
@@ -203,7 +227,7 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
       await page.goto('/game');
       await select(page, seat.id);
 
-      await expect(page.getByRole('heading', { name: seat.name })).toBeVisible();
+      await expect(page.getByRole('heading', { name: seat.name, exact: true })).toBeVisible();
       // §A3: a seat of the Combine's power says so, and names what is standing on it.
       await expect(page.getByText('Seat of power')).toBeInViewport();
       await expect(page.getByText(new RegExp(garrisonOf(seat)))).toBeInViewport();
@@ -224,13 +248,15 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
     await page.goto('/game');
 
     await select(page, outpost.id);
+    await showGarrison(page);
     await expect(page.getByText(new RegExp(garrisonOf(outpost)))).toBeInViewport();
     // An outpost is Combine ground but not a seat of its power: the two must read apart.
     await expect(page.getByText('Seat of power')).toHaveCount(0);
 
     await page.goBack();
     await select(page, street.id);
-    await expect(page.getByRole('heading', { name: street.name })).toBeVisible();
+    await showGarrison(page);
+    await expect(page.getByRole('heading', { name: street.name, exact: true })).toBeVisible();
     await expect(page.getByText(new RegExp(garrisonOf(street)))).toBeInViewport();
     await expect(page.getByText('Seat of power')).toHaveCount(0);
   });

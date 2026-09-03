@@ -298,6 +298,29 @@ export interface LabelVerdict {
   reasons: readonly string[];
 }
 
+/**
+ * The most the ground can take off a unit, in percentage points.
+ *
+ * There was no floor at all, and eight labels at once is ordinary content: Snipers at the Abandoned
+ * Nuclear Plant (`toxic 4, dark 3, crammed 2, eerie 2`) on a stormy day (`wet 3, windy 2, noisy 2,
+ * cold 1`) summed to **-130.9%**, which `battle/effects.ts` spends as
+ * `offense x (1 + percent/100)` and turned a sheet of 350 into an effective **-108**. The only
+ * thing between that and negative damage healing the enemy was `applyDamage`'s unrelated
+ * `damage <= 0` skip, and the negative still accumulated into `stack.dealt`, which put the battle
+ * report outside its own schema and made the fight disappear off the board (see `analysis.ts`).
+ *
+ * -90 rather than -100, because a multiplier of exactly zero is "this unit is not here", which is
+ * not what any label says: at -90 the worst ground in the game leaves a tenth of the sheet. It is
+ * chosen against the shipped content rather than picked round: swept all 9,331
+ * location x weather x unit combinations, the verdict runs -130.9 to +96.1, the median is -18.3,
+ * and -90 clips 74 of them (0.79%). So the ground the designers actually authored is untouched and
+ * only the stacked worst case is caught.
+ *
+ * One-sided on purpose. The positive tail tops out at +96.1 by content and causes no defect; a
+ * symmetric cap would be a balance change nobody asked for.
+ */
+export const MIN_GROUND_EFFECT_PERCENT = -90;
+
 export function labelVerdict(
   stats: UnitStats,
   sensitivity: LabelSensitivity,
@@ -311,7 +334,10 @@ export function labelVerdict(
     .sort((a, b) => Math.abs(b.percent) - Math.abs(a.percent));
 
   return {
-    percent: scored.reduce((total, entry) => total + entry.percent, 0),
+    percent: Math.max(
+      MIN_GROUND_EFFECT_PERCENT,
+      scored.reduce((total, entry) => total + entry.percent, 0),
+    ),
     reasons: scored.map(
       (entry) =>
         `${labelText(entry.label)} ${entry.percent >= 0 ? '+' : ''}${Math.round(entry.percent)}%`,

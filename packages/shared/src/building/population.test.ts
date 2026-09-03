@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CITY_LOCATIONS,
   LOCATION_CATALOG,
+  MAX_LOCATION_LEVEL,
+  bonusesAt,
   noTerritoryEffects,
   territoryEffectsFor,
 } from '../city/index.js';
@@ -9,6 +11,7 @@ import { UNIT_CATALOG, findUnit } from '../units/index.js';
 import { HOUSING_BASE, populationCapacity } from './production.js';
 import {
   POPULATION_PER_LOCATION,
+  POPULATION_PER_LOCATION_LEVEL,
   districtPopulationCapacity,
   populationCostOf,
   populationDraw,
@@ -21,7 +24,6 @@ const build = (kind: Building['kind'], level: number): Building => ({
   level,
   modifications: [],
   damage: 0,
-  fortification: 0,
 });
 
 const noGround = noTerritoryEffects();
@@ -58,35 +60,78 @@ describe('what a district can house (§A1)', () => {
    * a few locations are worth a good deal more on top.
    */
   it('pays twenty for any location held, and more for the ones people live on', () => {
-    const camp = CITY_LOCATIONS.find((location) => location.kind === 'refugee_camp')!;
-    const plain = CITY_LOCATIONS.find(
-      (location) =>
-        !LOCATION_CATALOG[location.kind].bonuses.some((bonus) => bonus.kind === 'population'),
-    )!;
-    const held = (locationId: string) =>
-      territoryEffectsFor(
-        'mine',
-        CITY_LOCATIONS,
-        new Map([
-          [
-            locationId,
-            {
-              locationId,
-              holder: { kind: 'crew' as const, baseId: 'mine' },
-              level: 1,
-              upgradingUntil: null,
-              fortification: 0,
-              fortifyingUntil: null,
-              garrison: {},
-            },
-          ],
-        ]),
-      ).populationBonus;
+    expect(held(PLAIN.id)).toBe(POPULATION_PER_LOCATION);
+    expect(held(CAMP.id)).toBeGreaterThan(POPULATION_PER_LOCATION);
+  });
 
-    expect(held(plain.id)).toBe(POPULATION_PER_LOCATION);
-    expect(held(camp.id)).toBeGreaterThan(POPULATION_PER_LOCATION);
+  /**
+   * §A4: the flat twenty is for the block, and every level above the first adds three beds.
+   *
+   * The two are separate terms on purpose. If the twenty scaled, holding a fresh location would be
+   * worth less than it is today and every existing crew's ceiling would move under them; if the
+   * per-level beds were folded into the twenty, forty fresh locations would house as many people
+   * as one worked one. Written as literals so a retune of either constant has to come past here.
+   */
+  it('adds three beds a level on top of the flat twenty, and nothing at level one', () => {
+    expect(POPULATION_PER_LOCATION_LEVEL).toBe(3);
+    expect(held(PLAIN.id, 1)).toBe(20);
+    expect(held(PLAIN.id, 2)).toBe(23);
+    expect(held(PLAIN.id, 4)).toBe(29);
+    expect(held(PLAIN.id, MAX_LOCATION_LEVEL)).toBe(47);
+  });
+
+  /**
+   * §A4: a location that houses people scales *that* separately, on the ordinary bonus curve.
+   *
+   * The Fence Camp's own 50 is a hold bonus like any other and goes up with `LEVEL_SCALE`, so at
+   * the ceiling it is 275. The flat 20 underneath it does not move, and the per-level beds are the
+   * same three a Scrap Press gets. Three terms, three curves, and the sum is checked against the
+   * parts so a change to any one of them cannot hide inside the total.
+   */
+  it('scales a housing location on its own curve, over and above the other two terms', () => {
+    const own = (level: number): number =>
+      bonusesAt('refugee_camp', level).reduce(
+        (sum, bonus) => sum + (bonus.kind === 'population' ? bonus.flat : 0),
+        0,
+      );
+    expect([own(1), own(4), own(MAX_LOCATION_LEVEL)]).toEqual([50, 125, 275]);
+
+    expect(held(CAMP.id, 1)).toBe(70);
+    expect(held(CAMP.id, 4)).toBe(154);
+    expect(held(CAMP.id, MAX_LOCATION_LEVEL)).toBe(322);
+    for (const level of [1, 4, MAX_LOCATION_LEVEL]) {
+      expect(held(CAMP.id, level), `level ${level}`).toBe(held(PLAIN.id, level) + own(level));
+    }
   });
 });
+
+const CAMP = CITY_LOCATIONS.find((location) => location.kind === 'refugee_camp')!;
+/** A location the catalogue gives no beds of its own, so only the two flat terms are in play. */
+const PLAIN = CITY_LOCATIONS.find(
+  (location) =>
+    !LOCATION_CATALOG[location.kind].bonuses.some((bonus) => bonus.kind === 'population'),
+)!;
+
+/** What one location held at `level`, and nothing else, is worth in beds. */
+const held = (locationId: string, level = 1): number =>
+  territoryEffectsFor(
+    'mine',
+    CITY_LOCATIONS,
+    new Map([
+      [
+        locationId,
+        {
+          locationId,
+          holder: { kind: 'crew' as const, baseId: 'mine' },
+          level,
+          upgradingUntil: null,
+          fortification: 0,
+          fortifyingUntil: null,
+          garrison: {},
+        },
+      ],
+    ]),
+  ).populationBonus;
 
 describe('who is drawing on it', () => {
   const crew = {
@@ -152,5 +197,56 @@ describe('what a body costs against the pool (§A1)', () => {
     const mean = (units: typeof UNIT_CATALOG) =>
       units.reduce((total, unit) => total + perBed(unit.id), 0) / units.length;
     expect(mean(legends)).toBeGreaterThan(mean(rabble));
+  });
+});
+
+/**
+ * A batch that is halfway home is counted once, not twice.
+ *
+ * `splitDueTraining` hands a batch over one body at a time and leaves the order on the bench with
+ * `delivered` moved up and `count` unchanged. Each delivered body joins `base.army`, so reading the
+ * whole `count` here counted the delivered part in both places. The peak over-count is one body
+ * short of the whole batch, and the total is what gates further orders and what the roster prints
+ * as free beds.
+ */
+describe('a training batch that is part way home', () => {
+  const razors = findUnit('razors');
+  if (!razors) throw new Error('fixture: no razors');
+
+  const order = (count: number, delivered: number) => ({
+    id: 'order-1',
+    unitId: 'razors',
+    count,
+    delivered,
+    startedAt: '2026-08-14T12:00:00.000Z',
+    durationSeconds: 1000,
+    paid: {},
+  });
+
+  it('counts only what has still to arrive', () => {
+    const draw = (delivered: number, arrived: number) =>
+      populationDraw({
+        commanders: [],
+        army: arrived === 0 ? {} : { razors: arrived },
+        trainingQueue: [order(10, delivered)],
+      });
+
+    // Nothing delivered: the whole batch is still owed.
+    expect(draw(0, 0).total).toBe(10 * razors.supply);
+    // Four landed: four in the army, six still owed, and the total has not moved.
+    expect(draw(4, 4).total).toBe(10 * razors.supply);
+    // Nine landed, which is where the old expression peaked at 19 for ten bodies.
+    expect(draw(9, 9).total).toBe(10 * razors.supply);
+  });
+
+  it('never charges a crew more than the batch it ordered', () => {
+    for (let delivered = 0; delivered <= 50; delivered++) {
+      const draw = populationDraw({
+        commanders: [],
+        army: delivered === 0 ? {} : { razors: delivered },
+        trainingQueue: [order(50, delivered)],
+      });
+      expect(draw.total, `${delivered} delivered`).toBe(50 * razors.supply);
+    }
   });
 });

@@ -3,6 +3,7 @@ import {
   extraFactsFrom,
   isResearchDue,
   factionXpFromLeadership,
+  findResearchItem,
   recordFacts,
   xpForClock,
   addonsOf,
@@ -109,10 +110,21 @@ export function settleResearch(
       ? { ...shelf, researched: [...shelf.researched, active.project.modificationId] }
       : shelf;
 
+  /*
+   * §C: a track rung lands as an id on `technologies`, the same list the older programmes were
+   * granted into. Guarded against a second copy for the same reason the modification shelf is:
+   * two rows for one rung would double whatever channel it pays into.
+   */
+  const known = base.research.technologies;
+  const technologies =
+    active.project.kind === 'technology' && !known.includes(active.project.techId)
+      ? [...known, active.project.techId]
+      : known;
+
   const settled: Base = {
     ...base,
     addons,
-    research: { ...recordFacts(base.research, discovered), active: null },
+    research: { ...recordFacts(base.research, discovered), active: null, technologies },
   };
 
   repos.bases.updateResearch(settled.id, settled.research);
@@ -136,7 +148,9 @@ export function settleResearch(
         ? 'An investigation has turned something up.'
         : active.project.kind === 'training'
           ? 'An hour on the training floor is done.'
-          : 'A modification is fitted.',
+          : active.project.kind === 'technology'
+            ? `${findResearchItem(active.project.techId)?.name ?? 'A programme'} is finished.`
+            : 'A modification is drawn up and ready to fit.',
     link: '/game/research',
     now,
   });

@@ -1,4 +1,5 @@
 import {
+  describeAddonEffect,
   BUILDING_CATALOG,
   BUILDING_MAX_LEVEL,
   CENTRAL_BUILDING,
@@ -39,10 +40,10 @@ import {
   type ItemId,
   type ModificationSlot,
 } from '@frontline/shared';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
 import { CostLine } from '../../components/Resources';
-import { useIncreasePayroll } from '../../lib/queries';
+import { useCrewStanding, useIncreasePayroll } from '../../lib/queries';
 import { Button } from '../../components/ui/Button';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Modal } from '../../components/ui/Modal';
@@ -359,12 +360,6 @@ export function StructureDialog({
           </Section>
         )}
 
-        <Section title="The place itself">
-          <p className="font-body text-xs italic leading-relaxed text-ink-300">
-            {spec.description}
-          </p>
-        </Section>
-
         {error !== null && error !== undefined && (
           <p
             role="alert"
@@ -442,20 +437,82 @@ function SlotRack({
           addons: addonsOf(base),
         });
 
+  const [picking, setPicking] = useState<number | null>(null);
+
   return (
-    <ul className="flex flex-col gap-1.5" data-testid={`slots-${kind}`}>
-      {slots.map((slot) => (
-        <SlotRow
-          key={slot.index}
-          slot={slot}
-          kind={kind}
-          shelf={shelf}
-          refusal={refusal}
-          onFit={onFit}
-          onClear={onClear}
-        />
-      ))}
-    </ul>
+    <>
+      <ul className="flex flex-col gap-1.5" data-testid={`slots-${kind}`}>
+        {slots.map((slot) => (
+          <SlotRow
+            key={slot.index}
+            slot={slot}
+            kind={kind}
+            shelf={shelf}
+            refusal={refusal}
+            onClear={onClear}
+            onPick={setPicking}
+          />
+        ))}
+      </ul>
+
+      {/*
+       * §E: what could go in this bracket (board request).
+       *
+       * Everything on the shelf for this structure, which is everything the crew has researched
+       * and built and not yet bolted somewhere. A list rather than the one-item offer this
+       * replaced: a bracket is a choice, and a control that silently picks for you is not one.
+       */}
+      {picking !== null && (
+        <Modal onClose={() => setPicking(null)} labelledBy={`slot-picker-${kind}`}>
+          <div className="flex flex-col gap-3 p-4">
+            <div>
+              <h2
+                id={`slot-picker-${kind}`}
+                className="font-display text-[15px] font-bold uppercase tracking-[0.16em] text-brass-300"
+              >
+                {BUILDING_CATALOG[kind].name} · bracket {picking + 1}
+              </h2>
+              <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
+                Everything the yard has built for this structure and not yet bolted anywhere.
+              </p>
+            </div>
+
+            <ul
+              className="flex max-h-[22rem] flex-col gap-1.5 overflow-y-auto"
+              data-testid={`slot-options-${kind}`}
+            >
+              {shelf.map((id) => {
+                const spec = findModification(id);
+                if (!spec) return null;
+                return (
+                  <li key={id}>
+                    <button
+                      type="button"
+                      data-testid={`slot-option-${id}`}
+                      onClick={() => {
+                        onFit(id);
+                        setPicking(null);
+                      }}
+                      className="flex w-full flex-col gap-0.5 rounded-sm border border-surface-600/70 bg-surface-950/40 px-3 py-2 text-left transition-colors hover:border-brass-300/60"
+                    >
+                      <span className="font-display text-[13px] font-bold text-ink-100">
+                        {spec.name}
+                      </span>
+                      <span className="font-display text-[12px] tabular-nums text-brass-300">
+                        {describeAddonEffect(spec)}
+                      </span>
+                      <span className="font-body text-[12px] leading-snug text-ink-300">
+                        {spec.description}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -464,15 +521,16 @@ function SlotRow({
   kind,
   shelf,
   refusal,
-  onFit,
   onClear,
+  onPick,
 }: {
   slot: ModificationSlot;
   kind: BuildingKind;
   shelf: readonly string[];
   refusal: ReturnType<typeof fitSlotRefusal>;
-  onFit: (modificationId: string) => void;
   onClear: (slot: number) => void;
+  /** §E: open the picker for this bracket. Fitting itself happens in there, off a list. */
+  onPick: (slot: number) => void;
 }) {
   const fitted = slot.modificationId === null ? undefined : findModification(slot.modificationId);
 
@@ -501,19 +559,25 @@ function SlotRow({
     );
   }
 
-  const offer = shelf[0];
-  const spec = offer === undefined ? undefined : findModification(offer);
+  /*
+   * §E: the whole shelf, not the first thing on it (board request).
+   *
+   * This offered `shelf[0]` and a single Fit button, so a crew holding four things they could bolt
+   * to the Nexus could only ever see one of them and had no way to choose. An empty bracket is a
+   * *decision*, and a decision needs the options in front of it.
+   */
+  const open = shelf.length > 0 && refusal === null;
   return (
     <li className={cnRow(false)} data-testid={`slot-${kind}-${slot.index}`}>
-      <span className="truncate">{spec ? spec.name : 'Empty'}</span>
-      {spec && refusal === null ? (
+      <span className="truncate">Empty</span>
+      {open ? (
         <button
           type="button"
           className="shrink-0 text-verdigris-100 underline-offset-2 hover:underline"
           data-testid={`slot-fit-${kind}-${slot.index}`}
-          onClick={() => onFit(spec.id)}
+          onClick={() => onPick(slot.index)}
         >
-          Fit
+          Fit one ({shelf.length})
         </button>
       ) : (
         <span className="shrink-0 normal-case tracking-normal text-ink-300">
@@ -583,7 +647,7 @@ function BuildBoost({
 
 /** One sentence, so the price and the promise cannot drift apart on the screen. */
 const BUILD_BOOST_OIL_LINE = (oil: number): string =>
-  `${oil} oil buys ${BUILD_BOOST_HOURS} hours at ${BUILD_BOOST_PERCENT}% off every build in the queue, and everything ordered while it runs. One at a time.`;
+  `${oil} oil makes all building upgrades ${BUILD_BOOST_PERCENT}% faster for ${BUILD_BOOST_HOURS} hours.`;
 
 /**
  * Why there is no next level: locked behind the Nexus, held down by it, or the end of the content.
@@ -631,16 +695,33 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 /**
  * What the crew may promise officers, and the one control that raises it (§H7).
  *
- * Read straight off the base rather than fetched: the ceiling is `payrollCapacity` of the Nexus
- * level, what has been bought and the district's own bonus, and every one of those is already on
- * the base this dialog was handed. A second read would be a second answer.
+ * The ceiling comes straight off the base: `payrollCapacity` of the Nexus level, what has been
+ * bought and the district's own bonus are all on the base this dialog was handed, and a second read
+ * of those would be a second answer. The step *price* is the exception, and the reason is below.
  */
 function PayrollBook({ base }: { base: Base }) {
   const raise = useIncreasePayroll();
+  /*
+   * The step discount is the one figure in this ledger that is not on the base.
+   *
+   * `payrollStepDiscountPercent` (§B7) is a crew channel, not a district one, so the base this
+   * dialog was handed cannot answer it and the default of 0 quoted full price. `POST /bar/payroll`
+   * charges `payrollStepCost(steps, payrollStepDiscountPercent)`, so a crew holding `ledger_hand`
+   * and `bank_contact` (13% between them) saw "500 caps, once" and a disabled button on 450 caps
+   * while the route would have taken 435: the panel refused a purchase the server accepts, and the
+   * Bar's copy of this same control showed the right price all along.
+   *
+   * Read off `/overseer/me`, which is where the client already gets the whole `CrewEffects` struct.
+   * Before it answers the panel quotes full price, which is the behaviour this replaces rather than
+   * a new one; gating the button on the query instead would turn a request that fails into a
+   * permanent refusal, which is the harm this is fixing.
+   */
+  const effects = useCrewStanding().data?.effects;
   const ledger = payrollLedger(
     base.economy.payroll,
     buildingLevel(base.buildings, CENTRAL_BUILDING),
     payrollBonusPercent(base.buildings),
+    effects?.['payrollStepDiscountPercent'],
   );
 
   return (

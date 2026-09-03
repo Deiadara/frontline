@@ -7,6 +7,7 @@ import {
   type Addons,
 } from './building/index.js';
 import { CommanderSchema } from './commander.js';
+import { isPaintableDistrictName } from './city/districts.js';
 import { TrainingStateSchema, startingTraining } from './crew/training.js';
 import { InventorySchema } from './items/inventory.js';
 import { FittedUpgradesSchema } from './units/upgrades.js';
@@ -39,7 +40,14 @@ import { ResourcesSchema } from './resources.js';
  * 28 is what the bar can carry at readable size. See `plaqueType` in `FactionPlaque`.
  */
 export const DISTRICT_NAME_MAX = 28;
-export const DistrictNameSchema = z.string().trim().min(2).max(DISTRICT_NAME_MAX);
+export const DistrictNameSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(DISTRICT_NAME_MAX)
+  // A name has to be made of characters that paint. See `isPaintableDistrictName`: the uniqueness
+  // rule collapses case and space, and a zero-width character walks straight through it.
+  .refine(isPaintableDistrictName, 'That name uses characters that do not show on a plaque');
 
 /** A player's allegiance and the district it holds (GDD §A1). */
 export const BaseSchema = z.object({

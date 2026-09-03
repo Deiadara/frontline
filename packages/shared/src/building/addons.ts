@@ -11,12 +11,7 @@ import {
 } from './modifications.js';
 import type { BuildingKind } from './kinds.js';
 import { buildingLevel, findBuilding, type Building } from './state.js';
-import {
-  UNIT_UPGRADES,
-  UPGRADE_LINE_BLUEPRINT,
-  findUpgrade,
-  type UpgradeSpec,
-} from '../units/upgrades.js';
+import { UNIT_UPGRADES, findUpgrade, type UpgradeSpec } from '../units/upgrades.js';
 
 /**
  * The Scrapyard's add-ons (§B9) and the slots they go in (§E).
@@ -35,13 +30,18 @@ import {
  * has taken out of a wall has to go somewhere. So the crew's stock lives here, and a structure's
  * `modifications` array is now a statement about what is *fitted* out of that stock.
  *
- * ## What a blueprint is
+ * ## Two different drawings, and an advanced add-on wants both
  *
- * For a building modification it is the Lab project for that modification, recorded in
- * {@link Addons.researched} when it completes. For a unit upgrade it is the line's blueprint item,
- * which the Runner sells and which `units/upgrades.ts` already names. Two different objects, one
- * word on screen, because to a player they are the same thing: the drawing you need before the
- * yard can cut metal.
+ * A modification has a **Lab project** of its own, recorded in {@link Addons.researched} when it
+ * completes: this district worked out how to fit this bracket to this structure. §D12f adds a
+ * second, coarser gate on top of it: the structure's **retrofit blueprint**, one document per
+ * structure, assembled out of pages that come off the mission board. The project is the design and
+ * the document is the manual, and the advanced half of every structure's modifications wants both.
+ *
+ * The document half is not read here. `blueprints/requirements.ts` imports this module for
+ * {@link ADVANCED_MODIFICATION_MAGNITUDE}, so reaching back the other way would close the loop at
+ * module-load time; the answer comes in as a predicate instead, and a caller with a satchel to
+ * hand passes `(spec) => modificationGateMet(inventory, spec)`.
  */
 
 export const AddonsSchema = z.object({
@@ -285,10 +285,17 @@ export function clearSlotRefusal(
 
 // --- §B9: what the Scrapyard shows ------------------------------------------------------------
 
-/** Why an add-on cannot be built right now. */
+/**
+ * Why an add-on cannot be built right now.
+ *
+ * `needs_blueprint` and `needs_research` are two different missing drawings and are deliberately
+ * two reasons: one is a document to be collected page by page, the other is a project to be run in
+ * the Lab, and a single word for both would send a player to the wrong building.
+ */
 export const ADDON_REFUSALS = [
   'unknown_addon',
   'needs_blueprint',
+  'needs_research',
   'needs_previous_tier',
   'gauntlet_too_low',
   'already_built',
@@ -320,7 +327,21 @@ export function addonCatalogue(): { modifications: ModificationSpec[]; upgrades:
 }
 
 /**
+ * Whether the crew holds the retrofit blueprint that gates a modification.
+ *
+ * Takes the whole spec rather than an id because {@link blueprintForModification} reads the
+ * magnitude: the cheap bolt-ons §D12f leaves open share a structure with the advanced ones, and an
+ * id alone cannot tell them apart. Pass `(spec) => modificationGateMet(inventory, spec)`.
+ */
+export type ModificationBlueprintGate = (spec: ModificationSpec) => boolean;
+
+/**
  * Whether the crew may build this modification, and why not.
+ *
+ * The document before the Lab project, and both before the money. A player short of pages cannot
+ * get anywhere by running the project, so the document is the earlier fact and the one worth
+ * saying first; the price is last for the reason `upgradeRefusal` gives, that it is the one gate
+ * which fixes itself.
  *
  * `affordable` is passed in rather than computed, because the price a crew actually pays depends
  * on discounts this module has no business knowing about: the same shape `vehicleRefusal` and
@@ -329,21 +350,15 @@ export function addonCatalogue(): { modifications: ModificationSpec[]; upgrades:
 export function modificationBuildRefusal(input: {
   spec: ModificationSpec;
   addons: Addons;
+  blueprintUnlocked: ModificationBlueprintGate;
   affordable: (cost: PartialResources) => boolean;
 }): AddonRefusal | null {
-  const { spec, addons, affordable } = input;
+  const { spec, addons, blueprintUnlocked, affordable } = input;
+  if (!blueprintUnlocked(spec)) return 'needs_blueprint';
   if (isAdvancedModification(spec) && !addons.researched.includes(spec.id)) {
-    return 'needs_blueprint';
+    return 'needs_research';
   }
   return affordable(modificationPrice(spec)) ? null : 'cannot_afford';
-}
-
-/** The blueprint an entry wants, in the player's words, or null. */
-export function addonBlueprintName(spec: ModificationSpec | UpgradeSpec): string | null {
-  if ('magnitude' in spec) {
-    return isAdvancedModification(spec) ? `${spec.name} research` : null;
-  }
-  return isAdvancedUpgrade(spec) ? UPGRADE_LINE_BLUEPRINT[spec.line] : null;
 }
 
 /**

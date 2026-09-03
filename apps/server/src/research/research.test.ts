@@ -1,4 +1,5 @@
 import {
+  findModification,
   MISC_AREA_ID,
   OFFICER_ROLES,
   CROSS_REFERENCE_IMPROVISATION,
@@ -45,6 +46,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { launchMission } from '../missions/launch.js';
 import { settleResearch } from './settle.js';
 import { startResearch } from './start.js';
+import { modificationBlocker } from '../district/modifications.js';
 
 const NOW = new Date('2026-08-13T09:00:00.000Z');
 const MINUTE_MS = 60_000;
@@ -69,18 +71,19 @@ function makeOverseer(overrides: Partial<Overseer> = {}): Overseer {
 /**
  * What an investigation actually takes once `professor('…', 10, …)` is on the books.
  *
- * §F2 cuts a project's clock by the crew's Analysis and Improvisation, so the catalogue number is
- * no longer the number that lands on the row. Written out rather than recomputed from the same
- * functions the code under test uses: an expectation derived from the implementation agrees with
- * it however badly either one is broken.
+ * §F2 cuts a project's clock by the crew's Analysis, Improvisation and Encyclopedia, so the
+ * catalogue number is no longer the number that lands on the row. Written out rather than
+ * recomputed from the same functions the code under test uses: an expectation derived from the
+ * implementation agrees with it however badly either one is broken.
  *
- * 45 catalogue minutes, a little under 5% off, is 43. It used to be 42, and the two minutes are
- * §C2 arriving: a Professor's seat puts Improvisation to work and does **not** put Analysis to
- * work, so their Analysis 15 now counts at the off-duty share instead of in full. The crew is
- * genuinely slightly worse at this than it was, because the person doing the reading was hired to
- * do something else with most of their day.
+ * 45 catalogue minutes, a little over 6% off, is 42. It has moved twice and both times for a
+ * content reason rather than a tuning one. It went 42 to 43 when §C2 landed, because a Professor's
+ * seat puts Improvisation to work and does **not** put Analysis to work, so their Analysis 15
+ * started counting at the off-duty share. It is back to 42 now that Encyclopedia has replaced
+ * Demolition and drives research alongside those two: the crew reads a third thing, so a project
+ * takes a minute less.
  */
-const INVESTIGATION_MINUTES = 43;
+const INVESTIGATION_MINUTES = 42;
 
 /** A Professor whose sheet is set exactly where the §F3/§F4 gates are being probed. */
 function professor(id: string, improvisation: number, communication: number): Commander {
@@ -192,7 +195,7 @@ function runToCompletion(base: Base, overseer: Overseer, project: ResearchProjec
   const { repos } = fakeRepos();
   const started = startResearch(repos, { base, overseer, project, id: 'r-1', now: NOW });
   if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
-  const after = new Date(NOW.getTime() + RESEARCH_MINUTES[project.kind] * MINUTE_MS);
+  const after = new Date(NOW.getTime() + started.active.durationMinutes * MINUTE_MS);
   return settleResearch(repos, started.base, overseer, after);
 }
 
@@ -215,9 +218,7 @@ describe('§B9: modification work ends with a blueprint', () => {
     const { repos, written } = fakeRepos();
     const base = makeBase({
       commanders: [engineer()],
-      buildings: [
-        { id: 'b-lab', kind: 'lab', level: 20, modifications: [], damage: 0, fortification: 0 },
-      ],
+      buildings: [{ id: 'b-lab', kind: 'lab', level: 20, modifications: [], damage: 0 }],
       resources: {
         caps: 99_999,
         supplies: 99_999,
@@ -238,6 +239,50 @@ describe('§B9: modification work ends with a blueprint', () => {
     expect(written.addons?.researched).toEqual(['lab_quantum_modeling']);
     // Nothing is bolted on: the Scrapyard builds it and the Lab's own dialog fits it.
     expect(settled.base.buildings.flatMap((building) => building.modifications)).toEqual([]);
+  });
+
+  /**
+   * A drawing the crew already owns cannot be bought twice.
+   *
+   * `settleResearch` will not bank a second copy, so a project that starts anyway buys an occupied
+   * Lab, the fee, and nothing at all at the end of it. `modificationBlocker` used to answer "no
+   * blocker" for an already-drawn modification, which the display path never reached (it
+   * short-circuits on `installed`) and which the gate read as permission.
+   */
+  it('refuses a second project for a drawing the crew already holds', () => {
+    const { repos } = fakeRepos();
+    const stocked = {
+      caps: 99_999,
+      supplies: 99_999,
+      oil: 99_999,
+      scrap: 99_999,
+      highQualityMetal: 99_999,
+      planks: 99_999,
+    };
+    const base = makeBase({
+      commanders: [engineer()],
+      buildings: [{ id: 'b-lab', kind: 'lab', level: 20, modifications: [], damage: 0 }],
+      resources: stocked,
+    });
+    const overseer = makeOverseer();
+    const first = startResearch(repos, { base, overseer, project, id: 'r-1', now: NOW });
+    if (first.kind !== 'started') throw new Error(`refused: ${first.reason}`);
+    const after = new Date(NOW.getTime() + RESEARCH_MINUTES.modification * MINUTE_MS);
+    const owned = settleResearch(repos, first.base, overseer, after).base;
+    expect(addonsOf(owned).researched).toEqual(['lab_quantum_modeling']);
+
+    // They take it out of the wall again, which is allowed and does not un-own the paper.
+    const again = startResearch(repos, {
+      base: { ...owned, resources: stocked },
+      overseer,
+      project,
+      id: 'r-2',
+      now: after,
+    });
+    expect(again).toEqual({ kind: 'refused', reason: 'nothing_to_learn' });
+    expect(modificationBlocker(owned, findModification('lab_quantum_modeling')!)).toBe(
+      'already_drawn',
+    );
   });
 });
 
@@ -682,7 +727,7 @@ describe('GET /research and POST /research', () => {
     const app = await makeApp();
     const token = await makePlayer(app, 'trainee');
     const before = await read(app, token);
-    const target = 'demolition';
+    const target = 'encyclopedia';
 
     const started = await app.inject({
       method: 'POST',

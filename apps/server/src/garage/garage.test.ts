@@ -58,10 +58,24 @@ function raiseGarage(app: FastifyInstance, baseId: string, level: number): void 
     base.id,
     [
       ...base.buildings.filter((building) => building.kind !== 'garage'),
-      { id: 'gar', kind: 'garage', level, modifications: [], damage: 0, fortification: 0 },
+      { id: 'gar', kind: 'garage', level, modifications: [], damage: 0 },
     ],
     base.buildQueue,
   );
+}
+
+/**
+ * §D12c: put a finished blueprint document in the satchel.
+ *
+ * Every machine is behind one now, the first bike included, so a test about the Garage's *other*
+ * gates has to clear this one first or it passes for the wrong reason.
+ */
+function grantBlueprint(app: FastifyInstance, baseId: string, blueprintId: string): void {
+  const base = app.repos.bases.findById(baseId)!;
+  app.repos.bases.updateHoldings(base.id, base.resources, {
+    ...base.inventory,
+    [blueprintId]: 1,
+  });
 }
 
 function stock(app: FastifyInstance, baseId: string): void {
@@ -102,13 +116,14 @@ describe('the Garage page (§B11)', () => {
     const page = await garage(app, token);
     const rotor = page.vehicles.find((row) => row.id === 'rotorcraft')!;
     expect(rotor.hasBlueprint).toBe(false);
-    expect(rotor.refusal).toBe('Needs the Blueprint: Rotorcraft');
+    expect(rotor.refusal).toBe('Needs the Rotorcraft Blueprint');
   });
 
   it('builds a machine, takes it out of the stockpile and parks it in the yard', async () => {
     const { app, token, baseId } = await makeStack();
     raiseGarage(app, baseId, 2);
     stock(app, baseId);
+    grantBlueprint(app, baseId, 'bp_motorcycle');
     const before = app.repos.bases.findById(baseId)!.resources;
 
     const res = await build(app, token, 'motorcycle');
@@ -141,15 +156,44 @@ describe('the Garage page (§B11)', () => {
   it('refuses a machine the crew cannot pay for', async () => {
     const { app, token, baseId } = await makeStack();
     raiseGarage(app, baseId, 4);
+    grantBlueprint(app, baseId, 'bp_motorcycle');
     const base = app.repos.bases.findById(baseId)!;
     app.repos.bases.updateResources(base.id, { ...base.resources, scrap: 0, oil: 0 });
     expect((await build(app, token, 'motorcycle')).statusCode).toBe(409);
+  });
+
+  /**
+   * §D12c/§D12h: the document is a gate on the write, not only a line on the page.
+   *
+   * The refusal string on the row was there before the gate was, so a test that only read the page
+   * would have passed against a door that took the scrap anyway. This one presses the button with
+   * the Garage tall enough and the stockpile full, so the document is the only thing left.
+   */
+  it('refuses a machine whose blueprint the crew has not assembled, and banks nothing', async () => {
+    const { app, token, baseId } = await makeStack();
+    raiseGarage(app, baseId, 2);
+    stock(app, baseId);
+    const before = app.repos.bases.findById(baseId)!.resources;
+
+    const refused = await build(app, token, 'motorcycle');
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe(
+      'Needs the Motorbike Blueprint',
+    );
+    expect(app.repos.bases.findById(baseId)!.resources).toEqual(before);
+    expect(app.repos.bases.findById(baseId)!.fleet).toEqual({});
+
+    // The positive control: the same request, with the document in the satchel.
+    grantBlueprint(app, baseId, 'bp_motorcycle');
+    expect((await build(app, token, 'motorcycle')).statusCode).toBe(200);
+    expect(app.repos.bases.findById(baseId)!.fleet.motorcycle).toBe(1);
   });
 
   it('reports seats across the whole yard, which is what a column can be loaded into', async () => {
     const { app, token, baseId } = await makeStack();
     raiseGarage(app, baseId, 2);
     stock(app, baseId);
+    grantBlueprint(app, baseId, 'bp_motorcycle');
     await build(app, token, 'motorcycle');
     await build(app, token, 'motorcycle');
     const page = await garage(app, token);

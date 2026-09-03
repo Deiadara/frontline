@@ -153,11 +153,39 @@ export function officerStat(stat: OfficerStatKey, attributes: Attributes): numbe
  * nothing in particular, and carries nothing home. Loot is a truck's job and the officer is not
  * counted in the force that fills one.
  */
+/**
+ * The floor an officer's morale sits on, in the roster's units.
+ *
+ * `OFFICER_STAT_FORMULAS.morale` is the board's table and it is right as a *rating*: half resolve,
+ * a quarter composure, a quarter leadership, 0..100. What was wrong was spending that rating
+ * directly as battle morale, because the two numbers are not on the same scale.
+ *
+ * Attributes are recruited around a mean of 15. Roster morale runs 30 to 100 with a median of 70,
+ * and `MORALE_THRESHOLDS` puts `wavering` at 15 and `routed` below it. So an officer of ordinary
+ * attributes walked onto the field at morale 15: below the steadiest thing in the game by 85 points,
+ * below the *shakiest* by 15, and one bad round from breaking. An officer who breaks is a broken
+ * ally, and a broken ally is `ROUT_CASCADE` morale off every stack they were leading. Measured on a
+ * 40-v-40 mirror once targeting stopped hiding it: attaching an average officer took the side they
+ * led from winning 51.5% of the time to winning **none**.
+ *
+ * So the rating is mapped onto the band the roster occupies rather than read as if it were already
+ * there. A leader of no particular distinction is steady, and the table's rating buys the rest of
+ * the way to 100. Nothing about the board's weights changes; what changes is the unit they are
+ * spent in.
+ */
+export const OFFICER_BASE_MORALE = 60;
+
+/** The board's 0..100 rating, placed on the roster's morale scale. */
+export function officerMorale(rating: number): number {
+  const within = Math.min(100, Math.max(0, rating));
+  return Math.round(OFFICER_BASE_MORALE + (within / 100) * (100 - OFFICER_BASE_MORALE));
+}
+
 export function officerBattleStats(attributes: Attributes): UnitStats {
   return {
     speed: officerStat('speed', attributes),
     vitality: officerStat('vitality', attributes),
-    morale: officerStat('morale', attributes),
+    morale: officerMorale(officerStat('morale', attributes)),
     armor: officerStat('armor', attributes),
     damageType: 'ballistic',
     resistances: {},

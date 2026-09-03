@@ -8,6 +8,7 @@ import {
   type Attributes,
 } from '../attributes.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import { GAME_TIMEZONE, dayInZone } from '../time/zone.js';
 
 /**
  * Deliberate practice (GDD §F2).
@@ -82,7 +83,7 @@ export const TrainingSessionSchema = z.object({
 export type TrainingSession = z.infer<typeof TrainingSessionSchema>;
 
 export const TrainingStateSchema = z.object({
-  /** The UTC day `used` is counted against. */
+  /** The game day `used` is counted against. */
   day: z.string(),
   /** Sessions started today. Reset when the day rolls, never carried. */
   used: z.number().int().min(0),
@@ -101,9 +102,9 @@ export function startingTraining(now: string): TrainingState {
   return { day: trainingDay(now), used: 0, sessions: [], last: {} };
 }
 
-/** The UTC calendar day an instant belongs to. */
-export function trainingDay(now: string): string {
-  return new Date(now).toISOString().slice(0, 10);
+/** The game calendar day an instant belongs to. Athens, like every other daily reset. */
+export function trainingDay(now: string, zone: string = GAME_TIMEZONE): string {
+  return dayInZone(new Date(now), zone);
 }
 
 /** The state with today's allowance in it. Idempotent, and safe to call on every read. */
@@ -350,13 +351,15 @@ export const TRAINING_DRILLS: Readonly<Record<AttributeName, Drill>> = {
     title: 'Teardown',
     detail: 'Strip a generator to its plates and have it running before the shift ends.',
   },
-  hacking: {
+  signals: {
     title: 'Combine traffic',
-    detail: 'A day of intercepts, most of it weather reports, one of it not.',
+    detail:
+      'A day of intercepts, most of it weather reports, one of it not. Then the same pass over your own net, looking for what a stranger would have found.',
   },
-  fabrication: {
+  craft: {
     title: 'Bench fit',
-    detail: 'Make the part twice. Keep the one that seats without persuasion.',
+    detail:
+      'Make the part twice. Keep the one that seats without persuasion, and mend the one that did not.',
   },
   medicine: {
     title: 'Triage round',
@@ -370,9 +373,10 @@ export const TRAINING_DRILLS: Readonly<Record<AttributeName, Drill>> = {
     title: 'Wreck walk',
     detail: 'An hour in the yard deciding what is worth the trip and what is scenery.',
   },
-  demolition: {
-    title: 'Charge placement',
-    detail: 'Chalk marks on a condemned wall, then an argument about the marks.',
+  encyclopedia: {
+    title: 'Reading week',
+    detail:
+      'Half a shelf of somebody else\u2019s trade, at speed. Nobody is examined on it and everybody is, later, without warning.',
   },
   navigation: {
     title: 'Undergrid route',

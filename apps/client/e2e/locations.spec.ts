@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { MAX_LOCATION_LEVEL, findDistrict } from '@frontline/shared';
 import { districtDetail, me } from './fixtures';
 import {
+  growPastTheFold,
   expectNoImagesClipped,
   expectNothingClippedVertically,
   installApi,
@@ -40,11 +41,44 @@ async function openDistrict(page: Page, serverNow?: string): Promise<void> {
   await settleFonts(page);
 }
 
+/**
+ * Opens one location's window from the painting.
+ *
+ * The district is a screen rather than a column of cards (board request), so a location's card is
+ * behind the sign that names it. One is open at a time, which is why the sweeps below open each in
+ * turn instead of iterating a grid.
+ */
+async function openLocation(page: Page, locationId: string): Promise<void> {
+  const open = page.getByTestId('location-window');
+  if ((await open.count()) > 0) {
+    await page.keyboard.press('Escape');
+    await expect(open).toHaveCount(0);
+  }
+  await page.getByTestId(`site-${locationId}`).click();
+  await expect(open).toBeVisible();
+}
+
+/**
+ * Opens the district's standing panel, which is where the sky lives.
+ *
+ * Shut by default: the painting is covered in signs and a panel floating over one stops it being
+ * clickable, so nothing sits on the picture unless the player asks. The weather is still a fact
+ * about this ground rather than about one thing on it, which is why it is here and not in a card.
+ */
+async function openStanding(page: Page): Promise<void> {
+  await page.getByTestId('district-standing-toggle').click();
+  await expect(page.getByTestId('district-standing')).toBeVisible();
+}
+
 test.describe('a district full of locations', () => {
-  test('calls them locations, and lists every one', async ({ page }) => {
+  test('puts every location on the painting, and opens each one', async ({ page }) => {
     await openDistrict(page);
-    await expect(page.getByText(`${RUSTYARD.locations.length} locations`)).toBeVisible();
     for (const location of RUSTYARD.locations) {
+      await expect(page.getByTestId(`site-${location.id}`), location.id).toBeVisible();
+    }
+    // And a sign is a door: opening one shows that location's card, not somebody else's.
+    for (const location of RUSTYARD.locations.slice(0, 3)) {
+      await openLocation(page, location.id);
       await expect(page.getByTestId(`location-${location.id}`)).toBeVisible();
     }
   });
@@ -61,6 +95,7 @@ test.describe('a district full of locations', () => {
 
     const signatures = new Set<string>();
     for (const location of RUSTYARD.locations) {
+      await openLocation(page, location.id);
       const card = page.getByTestId(`location-${location.id}`);
       const chips = card.getByTestId('labels').locator('[data-tier]');
       // `expect(...).not.toHaveCount(0)` before `count()`, and the order matters: `count()` is a
@@ -83,6 +118,7 @@ test.describe('a district full of locations', () => {
 
   test('shows how far each location has been worked up', async ({ page }) => {
     await openDistrict(page);
+    await openLocation(page, MINE.id);
     const pips = page.getByTestId(`level-${MINE.id}`);
     await expect(pips).toHaveAttribute('data-level', '2');
     await expect(pips).toHaveAccessibleName(`Level 2 of ${MAX_LOCATION_LEVEL}`);
@@ -96,6 +132,7 @@ test.describe('a district full of locations', () => {
    */
   test('offers the next level, says what it buys, and sends the order', async ({ page }) => {
     await openDistrict(page);
+    await openLocation(page, MINE.id);
     const card = page.getByTestId(`location-${MINE.id}`);
     await expect(card.getByText(/^Level 3 · /)).toBeVisible();
 
@@ -132,6 +169,7 @@ test.describe('the weather over the city', () => {
 
   test('names the storm and spells out what it puts on the ground', async ({ page }) => {
     await openDistrict(page, '2026-12-04T23:30:00.000Z');
+    await openStanding(page);
     const banner = page.getByTestId('weather');
     await expect(banner).toBeVisible();
     await expect(banner).toHaveAttribute('data-weather', 'stormy');
@@ -153,9 +191,11 @@ test.describe('the weather over the city', () => {
   /** The same storm, twelve hours earlier, reads exactly the same. */
   test('puts the same labels on the ground at noon as at midnight', async ({ page }) => {
     await openDistrict(page, '2026-12-04T23:30:00.000Z');
+    await openStanding(page);
     const atNight = await page.getByTestId('weather').innerText();
 
     await openDistrict(page, '2026-12-04T11:30:00.000Z');
+    await openStanding(page);
     expect(await page.getByTestId('weather').innerText()).toBe(atNight);
   });
 
@@ -170,7 +210,11 @@ test.describe('the weather over the city', () => {
    */
   test('lays out cleanly with a full sky over a full district', async ({ page }) => {
     await openDistrict(page, '2026-12-04T23:30:00.000Z');
-    await page.setViewportSize({ width: 1280, height: 2600 });
+    // Everything the screen can show at once, which is the state worth sweeping: the painting, the
+    // standing panel over it, and a location's card open on top.
+    await openStanding(page);
+    await openLocation(page, MINE.id);
+    await growPastTheFold(page, 1280);
     await expectNothingClippedVertically(page);
     await expectNoImagesClipped(page);
   });

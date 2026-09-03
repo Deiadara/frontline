@@ -587,6 +587,16 @@ export const MODIFICATION_BLOCKERS = [
   /** Another project is already on the bench (§B9: one at a time). */
   'research_busy',
   'cannot_afford',
+  /**
+   * The crew already owns the drawing, whether it is on the shelf or bolted on.
+   *
+   * A real blocker rather than "nothing is in the way". It used to be spelled as an early `return
+   * null`, which the display path never reached (it short-circuits on `installed`) and the one
+   * caller that treats the blocker as a *gate* read as permission: the Lab charged for a second
+   * copy of the same paper, ran its clock, and banked nothing at the end because the id was
+   * already in `addons.researched`.
+   */
+  'already_drawn',
 ] as const;
 export const ModificationBlockerSchema = z.enum(MODIFICATION_BLOCKERS);
 export type ModificationBlocker = z.infer<typeof ModificationBlockerSchema>;

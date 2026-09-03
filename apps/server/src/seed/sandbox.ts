@@ -43,7 +43,6 @@ export function maxedBuildings(): Building[] {
     // Intact and ungarrisoned. The sandbox shows the end-game, and a district that opens
     // pre-damaged would be showing a siege nobody laid.
     damage: 0,
-    fortification: 0,
   }));
 }
 

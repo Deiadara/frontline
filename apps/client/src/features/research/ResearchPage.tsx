@@ -31,10 +31,11 @@ import {
   type DiscoveredFact,
   type OfficerRole,
   type ResearchResponse,
-  TECH_TRACKS,
-  TECH_TRACK_BLURBS,
-  TECH_TRACK_LABELS,
+  RESEARCH_TRACK_BLURBS,
+  RESEARCH_TRACK_STEPS,
+  findResearchItem,
   type LabTech,
+  type ResearchTrackStatus,
 } from '@frontline/shared';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -43,10 +44,13 @@ import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
+import { LoadFailure } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
-import { useBar, useResearch, useStartResearch } from '../../lib/queries';
+import { useBar, useMe, useResearch, useStartResearch } from '../../lib/queries';
 import { PageShell } from '../game/PageShell';
 import { useStartTech } from '../../lib/queries';
+import { MarkStamp } from '../../components/ui/MarkStamp';
+import { TrackSigil } from './TrackSigil';
 
 /**
  * Research & discovery (GDD §B9, §F2-§F4).
@@ -93,7 +97,7 @@ function useTick(active: boolean): number {
   return now;
 }
 
-/** What the crew is on, in one line: the three project kinds each read differently. */
+/** What the crew is on, in one line: the four project kinds each read differently. */
 function titleOf(project: ActiveResearch['project']): string {
   switch (project.kind) {
     case 'investigation':
@@ -102,6 +106,10 @@ function titleOf(project: ActiveResearch['project']): string {
       return `Training: ${labelOf(project.attribute)}`;
     case 'modification':
       return `Fitting: ${findModification(project.modificationId)?.name ?? 'a modification'}`;
+    case 'technology': {
+      const spec = findResearchItem(project.techId);
+      return spec ? `${OFFICER_ROLE_LABELS[spec.track]}: ${spec.name}` : 'A research programme';
+    }
   }
 }
 
@@ -386,6 +394,8 @@ const BLOCKER_TEXT: Record<ModificationBlocker, string> = {
   no_lead_engineer: 'Needs a Lead Engineer',
   research_busy: 'Bench busy',
   cannot_afford: 'Cannot afford',
+  // The drawing is already the crew's, on the shelf or bolted on. Not a cost, so not "cannot afford".
+  already_drawn: 'Already drawn',
 };
 
 /**
@@ -397,19 +407,35 @@ const BLOCKER_TEXT: Record<ModificationBlocker, string> = {
  * dead is by construction the reason the route would give.
  */
 function ModificationsSection({ data, pending, onStart }: StartFormProps) {
+  const me = useMe();
   const [kind, setKind] = useState<BuildingKind>('nexus');
   const shown = data.modifications.filter((option) => option.building === kind);
 
-  const fitted = shown.filter((option) => option.installed).length;
+  /*
+   * Drawn and fitted are two different things, and this counter used to print one under the other's
+   * name.
+   *
+   * A Lab project produces a **blueprint** (§B9): the Scrapyard builds it and the structure's own
+   * dialog bolts it in. `ModificationOption.installed` is the server's `isModificationDrawn`, which
+   * is "the crew owns the drawing", so counting it against `MAX_MODIFICATION_SLOTS` read
+   * "3 of 3 fitted" for a crew that had fitted nothing, and "5 of 3 fitted" once they had drawn the
+   * whole of a structure's five, which is not a state the game has.
+   *
+   * What is actually in the brackets is on the district, so it is read from there.
+   */
+  const fittedHere = me.data?.base?.buildings.find((building) => building.kind === kind);
+  const fitted = fittedHere?.modifications.length ?? 0;
+  const drawn = shown.filter((option) => option.installed).length;
 
   return (
     <Bench>
       <BenchHead
         icon="workshop"
-        title="Fit a modification"
+        title="Draw a modification"
         cost={`${data.costs.modification}c + materials · ${formatDuration(RESEARCH_MINUTES.modification)}`}
       >
-        Permanent, and limited to {MAX_MODIFICATION_SLOTS} per structure. Slots open at levels{' '}
+        The Lab draws it; the Scrapyard builds it and the structure&rsquo;s own window fits it, up
+        to {MAX_MODIFICATION_SLOTS} per structure. Slots open at levels{' '}
         {MODIFICATION_SLOT_LEVELS.join(', ')}. Your Lead Engineer does the work.
       </BenchHead>
 
@@ -427,8 +453,11 @@ function ModificationsSection({ data, pending, onStart }: StartFormProps) {
           {/* What is already in it, against what it will ever hold. The list below is sixty-five
               rows across twelve structures, and "how full is this one" is the question a player
               is actually asking before they read any of them. */}
-          <span className="font-display text-[11px] uppercase tracking-[0.12em] tabular-nums text-ink-300">
-            {fitted} of {MAX_MODIFICATION_SLOTS} fitted
+          <span
+            className="font-display text-[11px] uppercase tracking-[0.12em] tabular-nums text-ink-300"
+            data-testid="modification-tally"
+          >
+            {fitted} of {MAX_MODIFICATION_SLOTS} fitted · {drawn} of {shown.length} drawn
           </span>
         </span>
         <Dropdown
@@ -473,9 +502,11 @@ function ModificationsSection({ data, pending, onStart }: StartFormProps) {
               {option.description}
             </p>
             {option.installed ? (
+              /* Owning the paper and having the thing in the wall are different states, and a card
+                 that says "Fitted" for the first is why the counter above it was wrong. */
               <span className="flex items-center gap-1.5 font-display text-[10px] uppercase tracking-[0.16em] text-brass-300">
                 <Icon name="check" className="h-3.5 w-3.5" />
-                Fitted
+                {fittedHere?.modifications.includes(option.id) ? 'Fitted' : 'Drawn'}
               </span>
             ) : (
               <Button
@@ -483,7 +514,7 @@ function ModificationsSection({ data, pending, onStart }: StartFormProps) {
                 disabled={pending || option.blocker !== null}
                 onClick={() => onStart({ kind: 'modification', modificationId: option.id })}
               >
-                {option.blocker === null ? 'Fit it' : BLOCKER_TEXT[option.blocker]}
+                {option.blocker === null ? 'Draw it' : BLOCKER_TEXT[option.blocker]}
               </Button>
             )}
           </li>
@@ -627,74 +658,324 @@ function ConsultPanel({ facts }: { facts: readonly DiscoveredFact[] }) {
   );
 }
 
-/** One rung of the Lab's tree: what it does, what it costs, and why it is shut. */
-function TechCard({
-  tech,
-  caps,
+/**
+ * §C: the nineteen tracks, and what standing on one costs.
+ *
+ * A track is an officer's trade. It only moves while that officer is in their chair (§C1b) and
+ * while somebody holds the Head of Research post (§C1c), and each rung wants the track's officer at
+ * a mark (§C2a). What is not a threshold is a *number*: the Head of Research's own sheet takes a
+ * percentage off every clock and the track officer's takes a percentage off every price, and both
+ * read the points behind the letter rather than the letter (§C3b), so an afternoon of training
+ * moves them.
+ */
+
+/** One row on the track rail: the sigil, the trade, how far up it the crew is. */
+function TrackRow({
+  status,
+  selected,
+  onSelect,
+}: {
+  status: ResearchTrackStatus;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      data-testid={`research-track-${status.role}`}
+      className={cn(
+        'flex w-full items-center gap-2.5 border-l-[3px] py-2 pl-2 pr-2.5 text-left transition-all duration-150',
+        selected
+          ? 'border-brass-300 bg-brass-300/10'
+          : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm',
+          selected ? 'text-brass-300' : status.mark === null ? 'text-ink-400' : 'text-ink-200',
+        )}
+      >
+        <TrackSigil role={status.role} className="h-6 w-6" ringed={false} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block break-words font-stamp text-[13px] leading-[1.15] text-ink-100">
+          {OFFICER_ROLE_LABELS[status.role]}
+        </span>
+        <span
+          className={cn(
+            'block break-words font-body text-[11px] leading-snug',
+            status.mark === null ? 'text-oxblood-300' : 'text-ink-300',
+          )}
+        >
+          {status.mark === null ? 'Chair empty' : `${status.officerName ?? ''} · ${status.mark}`}
+        </span>
+      </span>
+      <span className="shrink-0 font-display text-[11px] tabular-nums text-ink-200">
+        {status.done}/{RESEARCH_TRACK_STEPS}
+      </span>
+    </button>
+  );
+}
+
+/** The head of the chosen track: whose trade it is, who is on it, and what the two chairs buy. */
+function TrackHeader({
+  status,
+  head,
+}: {
+  status: ResearchTrackStatus;
+  head: ResearchResponse['head'];
+}) {
+  return (
+    <header className="flex flex-col gap-3 border-b border-surface-600/70 pb-3">
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden
+          className="icon-plate relative flex h-14 w-14 shrink-0 items-center justify-center rounded-sm text-brass-300"
+        >
+          <TrackSigil role={status.role} className="h-11 w-11" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="break-words font-stamp text-[19px] leading-tight text-ink-100">
+            {OFFICER_ROLE_LABELS[status.role]}
+          </h3>
+          <p className="break-words font-body text-[13px] leading-relaxed text-ink-300">
+            {RESEARCH_TRACK_BLURBS[status.role]}
+          </p>
+        </div>
+        {status.mark !== null && (
+          <span className="relative h-14 w-14 shrink-0 text-oxblood-300">
+            <MarkStamp
+              mark={status.mark}
+              className="inset-0 h-full w-full"
+              title={`${status.officerName ?? 'Your officer'} in this chair: ${status.mark}`}
+            />
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <ChairNote
+          label={OFFICER_ROLE_LABELS[status.role]}
+          who={status.officerName}
+          note={
+            status.officerName === null
+              ? 'Nothing on this track moves until somebody is in the chair.'
+              : `${status.costCutPercent.toFixed(1)}% off every price on this track.`
+          }
+        />
+        <ChairNote
+          label={OFFICER_ROLE_LABELS.head_of_research}
+          who={head?.name ?? null}
+          note={
+            head === null
+              ? 'Every track on every trade is shut without one.'
+              : `${head.timeCutPercent.toFixed(1)}% off every research clock.`
+          }
+        />
+      </div>
+    </header>
+  );
+}
+
+/** One of the two chairs a track is standing on, and what that person's sheet is worth. */
+function ChairNote({ label, who, note }: { label: string; who: string | null; note: string }) {
+  return (
+    <span
+      className={cn(
+        'flex min-w-0 flex-1 basis-64 flex-col gap-0.5 rounded-sm border px-2.5 py-1.5',
+        who === null ? 'border-oxblood-500/50 bg-oxblood-700/15' : 'border-surface-600/70',
+      )}
+    >
+      <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
+        {label}
+      </span>
+      <span className="break-words font-display text-[12px] text-ink-100">{who ?? 'Nobody'}</span>
+      <span
+        className={cn(
+          'break-words font-body text-[11px] leading-snug',
+          who === null ? 'text-oxblood-100' : 'text-brass-300',
+        )}
+      >
+        {note}
+      </span>
+    </span>
+  );
+}
+
+/** One rung: what it does, what the two chairs have to be, what it costs, and why it is shut. */
+function RungCard({
+  item,
+  running,
   pending,
   onStart,
 }: {
-  tech: LabTech;
-  /** The Archive only knows the crew's caps, so the price reads as caps and materials in words. */
-  caps: number;
+  item: LabTech;
+  /** True while this very rung is the project on the bench. */
+  running: boolean;
   pending: boolean;
   onStart: () => void;
 }) {
   return (
-    <article
-      data-testid={`tech-${tech.id}`}
+    <li
+      data-testid={`tech-${item.id}`}
       className={cn(
-        'flex flex-col gap-2 rounded-sm border p-3',
-        tech.known
+        'relative flex min-w-0 gap-3 rounded-sm border p-3 transition-colors',
+        item.known
           ? 'border-bile-300/50 bg-bile-300/10'
-          : tech.blocker === null
-            ? 'border-surface-600 bg-surface-800/60'
-            : 'border-surface-700 bg-surface-900/50 opacity-75',
+          : running
+            ? 'border-brass-300/70 bg-brass-300/10'
+            : item.blocker === null
+              ? 'border-surface-600 bg-surface-800/60'
+              : 'border-surface-700 bg-surface-900/50 opacity-80',
       )}
     >
-      <h4 className="font-display text-[13px] font-bold text-ink-100">{tech.name}</h4>
-      <p className="font-body text-[12px] leading-snug text-ink-200">{tech.description}</p>
-      <p className="font-display text-[12px] uppercase tracking-[0.08em] text-brass-300">
-        {tech.effect}
-      </p>
-      {tech.known ? (
-        <p className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-bile-300">
-          Running
+      <span
+        aria-hidden
+        className={cn(
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border font-display text-[13px] font-bold tabular-nums',
+          item.known
+            ? 'border-bile-300/60 text-bile-300'
+            : item.blocker === null
+              ? 'border-brass-300/70 text-brass-300'
+              : 'border-surface-600 text-ink-400',
+        )}
+      >
+        {item.step}
+      </span>
+
+      {/*
+       * Three lines, not six. Every rung carries a name, two marks, a sentence, a payout, a price
+       * and a control, and stacked one per line that is a 150px card on a 1200px column: ten of
+       * them and the tenth rung is three screens down. The price rides the title line and the
+       * control rides the payout line, both pushed right, so the width does the work.
+       */}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h4 className="min-w-0 break-words font-display text-[13px] font-bold text-ink-100">
+            {item.name}
+          </h4>
+          <span className="shrink-0 rounded-sm border border-oxblood-300/50 px-1.5 py-0.5 font-display text-[10px] font-bold tabular-nums text-oxblood-100">
+            {item.requiresMark}
+          </span>
+          {item.requiresHeadMark !== null && (
+            <span className="shrink-0 rounded-sm border border-iris-300/50 px-1.5 py-0.5 font-display text-[10px] tabular-nums text-iris-100">
+              Head {item.requiresHeadMark}
+            </span>
+          )}
+          {!item.known && !running && (
+            <span className="ml-auto break-words text-right font-display text-[12px] tabular-nums text-ink-300">
+              {RESOURCE_ORDER.filter((key) => (item.cost[key] ?? 0) > 0)
+                .map(
+                  (key) =>
+                    `${(item.cost[key] ?? 0).toLocaleString()} ${RESOURCE_LABELS[key].toLowerCase()}`,
+                )
+                .join(' · ')}
+              {' · '}
+              {formatDuration(item.minutes)}
+            </span>
+          )}
+        </div>
+        <p className="break-words font-body text-[12px] leading-snug text-ink-200">
+          {item.description}
         </p>
-      ) : (
-        <>
-          <p
-            className={cn(
-              'font-display text-[12px] tabular-nums',
-              (tech.cost.caps ?? 0) > caps ? 'text-oxblood-300' : 'text-ink-200',
-            )}
-          >
-            {/* Named off the shared table, not printed raw. This read `140 highQualityMetal`,
-                which is a field name rather than the words on a crate, and the same table is what
-                the market and the stockpile use. */}
-            {RESOURCE_ORDER.filter((key) => (tech.cost[key] ?? 0) > 0)
-              .map(
-                (key) =>
-                  `${(tech.cost[key] ?? 0).toLocaleString()} ${RESOURCE_LABELS[key].toLowerCase()}`,
-              )
-              .join(' · ')}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <p className="min-w-0 flex-1 break-words font-display text-[12px] uppercase tracking-[0.08em] text-brass-300">
+            {item.effect}
           </p>
-          <button
-            type="button"
-            disabled={tech.blocker !== null || pending}
-            onClick={onStart}
-            className={cn(
-              'rounded-sm border px-2 py-1.5 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
-              tech.blocker === null
-                ? 'border-brass-300/70 text-brass-300 hover:bg-brass-300/10'
-                : 'cursor-not-allowed border-surface-700 text-ink-400',
-            )}
-          >
-            {tech.blocker ?? 'Start it'}
-          </button>
-        </>
-      )}
-    </article>
+          {item.known ? (
+            <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.16em] text-bile-300">
+              Done
+            </span>
+          ) : running ? (
+            <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.16em] text-brass-300">
+              On the bench
+            </span>
+          ) : (
+            <button
+              type="button"
+              disabled={item.blocker !== null || pending}
+              onClick={onStart}
+              className={cn(
+                'shrink-0 rounded-sm border px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
+                item.blocker === null
+                  ? 'border-brass-300/70 text-brass-300 hover:bg-brass-300/10'
+                  : 'cursor-not-allowed border-surface-700 text-ink-400',
+              )}
+            >
+              {item.blocker ?? 'Put them on it'}
+            </button>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/** The whole §C section: the rail of nineteen trades, and the ten rungs of the one chosen. */
+function TracksSection({
+  data,
+  pending,
+  onStart,
+}: {
+  data: ResearchResponse;
+  pending: boolean;
+  onStart: (techId: string) => void;
+}) {
+  const statuses = data.tracks;
+  const [track, setTrack] = useState<OfficerRole | null>(null);
+  const status = statuses.find((entry) => entry.role === track) ?? statuses[0];
+  const running = data.active?.project.kind === 'technology' ? data.active.project.techId : null;
+
+  if (!status) return <EmptyRow text="The archive has no tracks on file." />;
+
+  return (
+    <div className="grid min-h-0 items-start gap-3 lg:grid-cols-[15rem_minmax(0,1fr)]">
+      {/*
+       * One scroller for both columns, which is the workspace's own.
+       *
+       * A sticky rail with a scroller of its own was tried and reverted: pinned to the top of the
+       * workspace it sat 31px above the sheet's visible edge, so its heading was clipped away and
+       * the top row was cut in half. Two nested scrollers to save a page scroll is not worth a
+       * heading that disappears.
+       */}
+      <Panel title="Trades" className="min-h-0 border border-surface-500/70">
+        <ul className="min-h-0 divide-y divide-surface-700" data-testid="research-tracks">
+          {statuses.map((entry) => (
+            <li key={entry.role}>
+              <TrackRow
+                status={entry}
+                selected={entry.role === track}
+                onSelect={() => setTrack(entry.role)}
+              />
+            </li>
+          ))}
+        </ul>
+      </Panel>
+
+      <section
+        data-testid={`tech-track-${status.role}`}
+        className="card-paper washed rivets edge-lit flex min-w-0 flex-col gap-3 rounded-sm border border-surface-500/70 p-4 shadow-panel"
+      >
+        <TrackHeader status={status} head={data.head} />
+        <ul className="flex flex-col gap-2">
+          {data.technologies
+            .filter((item) => item.track === status.role)
+            .map((item) => (
+              <RungCard
+                key={item.id}
+                item={item}
+                running={running === item.id}
+                pending={pending}
+                onStart={() => onStart(item.id)}
+              />
+            ))}
+        </ul>
+      </section>
+    </div>
   );
 }
 
@@ -719,7 +1000,7 @@ type BenchId = (typeof BENCHES)[number]['id'];
 /** The sections of the archive, and what each one is for. */
 const SECTIONS = [
   { id: 'desk', label: 'The desk', icon: 'desk', blurb: 'Put somebody on something' },
-  { id: 'programmes', label: 'Programmes', icon: 'flask', blurb: 'The Lab’s standing tracks' },
+  { id: 'programmes', label: 'Programmes', icon: 'flask', blurb: 'One track per trade, ten deep' },
   { id: 'files', label: 'The files', icon: 'archive', blurb: 'What the crew has learned' },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]['id'];
@@ -921,8 +1202,16 @@ export function ResearchPage() {
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto" data-testid="research-workspace">
-            {researchQuery.isLoading || !data ? (
+            {researchQuery.isLoading ? (
               <EmptyRow text="Opening the archive…" />
+            ) : !data ? (
+              /* Not the same state as "still opening". This drew the loading line for a spent
+                 retry too, so a 500 looked like a slow network and looked like it for ever. */
+              <LoadFailure
+                what="The archive"
+                onRetry={() => void researchQuery.refetch()}
+                detail="Nothing has been lost. Whatever is on the bench is still on it."
+              />
             ) : section === 'desk' ? (
               <div className="flex flex-col gap-3">
                 {bench === 'investigate' && (
@@ -948,44 +1237,11 @@ export function ResearchPage() {
                 )}
               </div>
             ) : section === 'programmes' ? (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {TECH_TRACKS.map((track) => (
-                  <section
-                    key={track}
-                    className="card-paper washed edge-lit flex min-w-0 flex-col gap-2 rounded-sm border border-surface-500/70 p-3 shadow-panel"
-                    data-testid={`tech-track-${track}`}
-                  >
-                    <header className="flex flex-col gap-1.5">
-                      <div className="flex items-center gap-2">
-                        <span
-                          aria-hidden
-                          className="icon-plate flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-[18px] [&_svg]:w-[18px]"
-                        >
-                          <Icon name="flask" />
-                        </span>
-                        <h3 className="min-w-0 flex-1 font-display text-[12px] font-bold uppercase tracking-[0.16em] text-brass-300">
-                          {TECH_TRACK_LABELS[track]}
-                        </h3>
-                      </div>
-                      <span aria-hidden className="ink-rule block w-full" />
-                      <p className="font-body text-[12px] leading-snug text-ink-300">
-                        {TECH_TRACK_BLURBS[track]}
-                      </p>
-                    </header>
-                    {technologies
-                      .filter((tech) => tech.track === track)
-                      .map((tech) => (
-                        <TechCard
-                          key={tech.id}
-                          tech={tech}
-                          caps={data.caps}
-                          pending={startTechMutation.isPending}
-                          onStart={() => startTechMutation.mutate({ techId: tech.id })}
-                        />
-                      ))}
-                  </section>
-                ))}
-              </div>
+              <TracksSection
+                data={data}
+                pending={startTechMutation.isPending}
+                onStart={(techId) => startTechMutation.mutate({ techId })}
+              />
             ) : (
               <div className="grid items-start gap-3 xl:grid-cols-2">
                 <Panel

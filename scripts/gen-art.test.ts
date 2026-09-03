@@ -262,7 +262,13 @@ describe('backend selection', () => {
    *
    * A list rather than a skip on the whole test: anything else drifting out of bounds still fails.
    */
-  const HAND_PAINTED: readonly string[] = ['plate-district', 'plate-city', 'plate-bar'];
+  const HAND_PAINTED: readonly string[] = [
+    'plate-district',
+    'plate-city',
+    'plate-bar',
+    'plate-district-neon-docks',
+    'plate-district-rustyard',
+  ];
 
   /**
    * `BACKEND_CAPABILITIES.fal.sizes` is `null`, "any size", but FLUX.2 [pro]'s published

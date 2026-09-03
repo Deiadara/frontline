@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canRecall,
   FAILURE_REWARD_SHARE,
   GOVERNMENT,
   KIND_REWARD_MULTIPLIER,
@@ -54,6 +55,8 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     spoils: {},
     resolvedAt: null,
     recalledAt: null,
+    pagePrize: null,
+    pageWon: null,
   };
 }
 
@@ -236,6 +239,58 @@ describe('mission phase (§E2)', () => {
 
   it('completes at start + 2×travel + duration', () => {
     expect(missionCompletesAt(mission).toISOString()).toBe(at(85).toISOString());
+  });
+
+  /**
+   * A recall turns them round where they stand, so the way home is how far from home they are.
+   *
+   * The three phases give three different answers and only one of them is "time since launch":
+   * a crew still walking out is exactly as far along as it has been travelling, a crew on site is
+   * one full leg out however long it has been standing there, and a crew already walking back is
+   * as far out as the leg it has left. Charging time-since-launch in all three cases sends the
+   * crew *further away* the longer the job has been running, which is worst precisely where a
+   * player is most likely to press it: one minute from the gate.
+   */
+  describe('recalling a crew (§E2)', () => {
+    const recalledAt = (minutes: number): Mission => ({
+      ...mission,
+      recalledAt: at(minutes).toISOString(),
+    });
+
+    it('walks back the distance already covered when caught on the way out', () => {
+      // 8 minutes out of a 20 minute leg: 8 minutes home, arriving at 16.
+      expect(missionCompletesAt(recalledAt(8)).toISOString()).toBe(at(16).toISOString());
+    });
+
+    it('walks one full leg when caught on site, however long they have been there', () => {
+      // On site from 20 to 65, and the distance home is 20 minutes throughout.
+      expect(missionCompletesAt(recalledAt(20)).toISOString()).toBe(at(40).toISOString());
+      expect(missionCompletesAt(recalledAt(64)).toISOString()).toBe(at(84).toISOString());
+    });
+
+    it('finishes the leg it is on when caught on the way home', () => {
+      // At 80 they are 5 minutes from the gate, so a recall changes nothing about the arrival.
+      expect(missionCompletesAt(recalledAt(80)).toISOString()).toBe(at(85).toISOString());
+    });
+
+    /**
+     * The failure the board would have seen: `canRecall` is true until the last millisecond, so
+     * this is a button a player can press one minute from home.
+     */
+    it('never sends a crew further away than it already is', () => {
+      for (const minute of [1, 10, 20, 40, 64, 65, 70, 80, 84]) {
+        const home = missionCompletesAt(recalledAt(minute)).getTime();
+        const wouldHaveBeen = missionCompletesAt(mission).getTime();
+        expect(canRecall(mission, at(minute)), `recall is offered at ${minute}m`).toBe(true);
+        expect(
+          home,
+          `recalled at ${minute}m and got home later than by finishing the job`,
+        ).toBeLessThanOrEqual(wouldHaveBeen);
+        expect(home, `recalled at ${minute}m and arrived before the order`).toBeGreaterThanOrEqual(
+          at(minute).getTime(),
+        );
+      }
+    });
   });
 
   it('counts down to zero and never below', () => {

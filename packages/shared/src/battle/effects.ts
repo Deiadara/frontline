@@ -223,7 +223,16 @@ export function effectiveStats(
     evasion: clamp(sheet.evasion + (territory.unitEvasionFlat ?? 0), 0, 100),
     penetration: sheet.penetration,
     stealth: Math.min(100, Math.round(sheet.stealth * (1 + territory.unitStealthPercent / 100))),
-    intimidation: sheet.intimidation,
+    /*
+     * §A4: the ground's own menace, which until now was accumulated and read by nobody.
+     *
+     * `intimidationFlat` has always been summed out of the hold bonuses and never reached an
+     * engine, so the Broadcast Tower, whose *only* bonus is intimidation, was worth exactly nothing
+     * to hold. It has a consumer now: `cow` in the engine spends a side's total intimidation
+     * against the enemy's total morale before the first shot. Clamped like morale beside it, and
+     * for the same reason: no stack of bonuses may put a body past the sheet's own ceiling.
+     */
+    intimidation: clamp(sheet.intimidation + territory.intimidationFlat, 0, 100),
     morale: clamp(sheet.morale + territory.unitMoraleFlat, 0, 100),
     damageType: sheet.damageType,
     resistances: sheet.resistances,

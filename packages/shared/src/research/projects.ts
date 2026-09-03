@@ -55,6 +55,21 @@ export const ModificationProjectSchema = z.object({
 export type ModificationProject = z.infer<typeof ModificationProjectSchema>;
 
 /**
+ * §C: one rung of one of the nineteen role tracks (`tracks.ts`).
+ *
+ * On the same bench as the other three rather than bought outright, which reverses the earlier
+ * call. A programme used to be money and a building tall enough to house the work, so queueing it
+ * behind the Professor would have been a false choice; a rung of a track is two named officers'
+ * *time*, and the Lab has one bench. What it costs and how long it takes are per rung and come
+ * from the catalogue, so neither is in the tables below.
+ */
+export const TechnologyProjectSchema = z.object({
+  kind: z.literal('technology'),
+  techId: z.string().min(1),
+});
+export type TechnologyProject = z.infer<typeof TechnologyProjectSchema>;
+
+/**
  * A discriminated union rather than one wide object with nullable fields: an investigation always
  * has a lead and never an attribute, and a training project is the other way round. Neither state
  * can be written down wrong.
@@ -63,12 +78,22 @@ export const ResearchProjectSchema = z.discriminatedUnion('kind', [
   InvestigationProjectSchema,
   TrainingProjectSchema,
   ModificationProjectSchema,
+  TechnologyProjectSchema,
 ]);
 export type ResearchProject = z.infer<typeof ResearchProjectSchema>;
 export type ResearchProjectKind = ResearchProject['kind'];
 
+/**
+ * The three projects with one flat price and one flat clock.
+ *
+ * A track rung has neither: its bill and its duration are properties of the rung, so it is not in
+ * {@link RESEARCH_MINUTES} or {@link RESEARCH_COST_CAPS} and a caller reaching for those with a
+ * rung in hand does not compile.
+ */
+export type DeskProjectKind = Exclude<ResearchProjectKind, 'technology'>;
+
 /** How long each kind takes, inside §E7's band so it reads as the same game as the mission board. */
-export const RESEARCH_MINUTES: Record<ResearchProjectKind, number> = {
+export const RESEARCH_MINUTES: Record<DeskProjectKind, number> = {
   investigation: 45,
   training: 90,
   /** The longest of the three: a modification is permanent, and permanence is priced in hours. */
@@ -76,7 +101,7 @@ export const RESEARCH_MINUTES: Record<ResearchProjectKind, number> = {
 };
 
 /** What each kind costs up front, in caps (§D2). Charged at launch, never refunded. */
-export const RESEARCH_COST_CAPS: Record<ResearchProjectKind, number> = {
+export const RESEARCH_COST_CAPS: Record<DeskProjectKind, number> = {
   investigation: 120,
   training: 200,
   modification: 350,
@@ -92,8 +117,8 @@ export const MODIFICATION_MATERIALS: PartialResources = {
   highQualityMetal: 45,
 };
 
-/** The whole bill for a project, caps and materials together. */
-export function researchCost(kind: ResearchProjectKind): PartialResources {
+/** The whole bill for a desk project, caps and materials together. */
+export function researchCost(kind: DeskProjectKind): PartialResources {
   return kind === 'modification'
     ? { ...MODIFICATION_MATERIALS, caps: RESEARCH_COST_CAPS[kind] }
     : { caps: RESEARCH_COST_CAPS[kind] };
@@ -116,22 +141,34 @@ export type ActiveResearch = z.infer<typeof ActiveResearchSchema>;
 
 const MINUTE_MS = 60_000;
 
-export function researchCompletesAt(active: ActiveResearch): Date {
+/**
+ * Anything the Lab is running on a frozen clock.
+ *
+ * Structural rather than {@link ActiveResearch} itself, because §C's track rung is a second row
+ * with the same two fields and no project on it. One set of clock helpers for both, so a countdown
+ * cannot be right on one screen and wrong on the other.
+ */
+export interface ResearchClock {
+  startedAt: string;
+  durationMinutes: number;
+}
+
+export function researchCompletesAt(active: ResearchClock): Date {
   return new Date(Date.parse(active.startedAt) + active.durationMinutes * MINUTE_MS);
 }
 
 /** Milliseconds until the result lands; never negative. */
-export function researchRemainingMs(active: ActiveResearch, now: Date): number {
+export function researchRemainingMs(active: ResearchClock, now: Date): number {
   return Math.max(0, researchCompletesAt(active).getTime() - now.getTime());
 }
 
 /** Fraction of the project completed, clamped to 0..1: the progress bar on the research page. */
-export function researchProgressAt(active: ActiveResearch, now: Date): number {
+export function researchProgressAt(active: ResearchClock, now: Date): number {
   const elapsedMs = now.getTime() - Date.parse(active.startedAt);
   return Math.min(1, Math.max(0, elapsedMs / (active.durationMinutes * MINUTE_MS)));
 }
 
 /** True once the clock is up but the result has not been banked: what the settler looks for. */
-export function isResearchDue(active: ActiveResearch, now: Date): boolean {
+export function isResearchDue(active: ResearchClock, now: Date): boolean {
   return researchRemainingMs(active, now) === 0;
 }

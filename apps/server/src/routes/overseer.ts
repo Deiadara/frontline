@@ -139,7 +139,6 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
             level: 1,
             modifications: [],
             damage: 0,
-            fortification: 0,
           },
           {
             id: randomUUID(),
@@ -147,7 +146,6 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
             level: 1,
             modifications: [],
             damage: 0,
-            fortification: 0,
           },
         ],
         buildQueue: [],
@@ -172,6 +170,19 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
       };
 
       app.db.transaction(() => {
+        /*
+         * Re-read inside the transaction, the way every other once-per-account rule in this server
+         * is.
+         *
+         * The check at the top of the handler is against `request.currentUser`, which the
+         * `authenticate` preHandler filled in *before* an await, so it is a snapshot from outside
+         * this transaction. `/factions` re-reads its membership inside its own transaction and says
+         * why; this route did not. Migration 0074 puts a unique index behind both columns as well,
+         * because a rule that lives only in a `!==` is a rule with nothing durable underneath it.
+         */
+        if (app.repos.users.findById(user.id)?.overseerId != null) {
+          throw new AppError('OVERSEER_ALREADY_CHOSEN', 'You have already chosen an overseer');
+        }
         app.repos.overseers.insert({
           overseer,
           userId: user.id,

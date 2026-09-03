@@ -1,7 +1,7 @@
 import {
+  blueprintGateMet,
   DeclareBattleRequestSchema,
   DeployRequestSchema,
-  FortifyStructureRequestSchema,
   LayTrapRequestSchema,
   BuyBattleBoostRequestSchema,
   LeadBattleRequestSchema,
@@ -11,7 +11,6 @@ import {
   removeFleet,
   RecallColumnRequestSchema,
   canAfford,
-  fortifyCost,
   boostAvailable,
   findBattleBoost,
   findBlackMarketGood,
@@ -22,7 +21,6 @@ import {
   isHeldBy,
   notorietyUpgradeCost,
   spendInfamy,
-  nextFortifyLevel,
   spendResources,
   type BattleMutationResponse,
   type ActionsResponse,
@@ -30,15 +28,15 @@ import {
   type Base,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { settleFortifications } from '../city/actions.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { declareBattle, type DeclareRefusal } from './declare.js';
 import { adjustDeployment, sideOf, type DeployRefusal } from './deploy.js';
-import { recallColumn, settleMovements, type RecallRefusal } from './movement.js';
-import { settleBattles } from './resolve.js';
+import { recallColumn, type RecallRefusal } from './movement.js';
 import { projectActions, projectBattles } from './view.js';
 import { seatedRoles } from '../crew/roster.js';
+import { settleWorld } from '../world/settle.js';
+import { OFFICER_DUTY_MESSAGES, officerDuty } from '../crew/duty.js';
 
 /**
  * The battle board (GDD §A4, battle rework): what is coming, what you have moved up for it, what
@@ -92,11 +90,12 @@ export function registerBattleRoutes(app: FastifyInstance): void {
   function settled(ownerId: string, now: Date): Base {
     const owned = app.repos.bases.findByOwnerId(ownerId);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
-    settleFortifications(app.repos, now);
-    // Columns that landed while nobody was looking, *before* the fights: a force that arrived at
-    // 14:59 for a 15:00 battle has to be on the ground when that battle is resolved.
-    settleMovements(app.repos, now);
-    settleBattles(app.repos, app.skirmishEngine, now);
+    // Every clock the shared world runs on, in the one order there is (`world/settle.ts`). Columns
+    // that landed while nobody was looking are folded in *before* the fights, a force that arrived
+    // at 14:59 for a 15:00 battle has to be on the ground when that battle is resolved, and a
+    // captured gate that finished before the mark has to be standing: this path used to settle
+    // neither gates nor scouting.
+    settleWorld(app.repos, app.skirmishEngine, now);
     // Read *after* the fights, because a resolution writes to this crew's roster and stockpile.
     const fresh = app.repos.bases.findByOwnerId(ownerId) ?? owned;
     return settleBase(app.repos, fresh, now).base;
@@ -198,52 +197,6 @@ export function registerBattleRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * §A4: dig the Gate in one more level.
-   *
-   * This replaced watches, which were a count on every structure that bought defence and cost
-   * nothing at all: three clicks per building and the district was 15% harder to enter, for free,
-   * with an empty roster. What is here instead is the same three levels the city's locations are
-   * fortified with, on the one structure that is actually the way in, paid for in materials.
-   *
-   * No dig clock, unlike a location's. A location is contested ground somebody can watch you work
-   * on; your own Gate is inside your walls, and the wait there would be a wait with no decision in
-   * it. The price is the whole of the cost.
-   */
-  app.post(
-    '/battles/fortify',
-    { preHandler: app.authenticate },
-    (request): BattleMutationResponse => {
-      const body = parseBody(FortifyStructureRequestSchema, request.body);
-      const now = new Date();
-      const base = settled(request.currentUser.id, now);
-
-      const building = base.buildings.find((candidate) => candidate.id === body.buildingId);
-      if (!building) throw new AppError('NOT_FOUND', 'Nothing of yours by that name');
-      if (building.kind !== 'gate') {
-        throw new AppError('PLACE_UNAVAILABLE', 'Only the Gate is worth digging in');
-      }
-
-      const level = nextFortifyLevel(building.fortification);
-      if (level === null) throw new AppError('PLACE_UNAVAILABLE', 'It is as dug in as it goes');
-
-      const cost = fortifyCost(level);
-      if (!canAfford(base.resources, cost)) {
-        throw new AppError('INSUFFICIENT_RESOURCES', 'You cannot cover the materials');
-      }
-
-      const buildings = base.buildings.map((candidate) =>
-        candidate.id === building.id ? { ...candidate, fortification: level } : candidate,
-      );
-      const resources = spendResources(base.resources, cost);
-      app.db.transaction(() => {
-        app.repos.bases.updateDistrict(base.id, buildings, base.buildQueue);
-        app.repos.bases.updateResources(base.id, resources);
-      })();
-      return respond({ ...base, buildings, resources }, now);
-    },
-  );
-
-  /**
    * §D7: buy the one boost a declared fight is allowed.
    *
    * Paid at the moment it is chosen and never refunded, so changing your mind costs the name twice.
@@ -276,11 +229,16 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       }
 
       if (spec !== undefined) {
-        const allowed = boostAvailable(spec.unlock, {
-          technologies: base.research.technologies,
-          // A benched officer is in no chair, so they unlock nothing a chair unlocks.
-          roles: seatedRoles(base.commanders),
-        });
+        const allowed = boostAvailable(
+          spec,
+          {
+            technologies: base.research.technologies,
+            // A benched officer is in no chair, so they unlock nothing a chair unlocks.
+            roles: seatedRoles(base.commanders),
+          },
+          // §D12e: and the drawings, for the ones that are made rather than proposed.
+          (boostId) => blueprintGateMet(base.inventory, 'battle_boost', boostId),
+        );
         if (!allowed) throw new AppError('FORBIDDEN', 'Nobody has put that on the table for you');
       } else {
         /*
@@ -382,12 +340,16 @@ export function registerBattleRoutes(app: FastifyInstance): void {
        * Refused rather than silently moved. A player who has forgotten where they put somebody is
        * better told than quietly un-led somewhere they are not looking.
        */
-      const elsewhere = app.repos.sieges.leadingElsewhere(officerId, battle.id);
-      if (elsewhere.length > 0) {
-        throw new AppError(
-          'FORBIDDEN',
-          `${officer.name} is already leading another fight. Stand them down there first`,
-        );
+      /*
+       * ...and one job, not one fight. The clause above was applied only within this system, so an
+       * officer already out on a six-hour mission or walking home from a scouting run could still
+       * be named to lead: at the mark `leaderFor` finds them on the books and not injured, and puts
+       * their sheet and their leading perks into a fight they are nowhere near. `officerDuty` asks
+       * the question once for all three doors.
+       */
+      const duty = officerDuty(app.repos, base, officer, now, battle.id);
+      if (duty !== null) {
+        throw new AppError('FORBIDDEN', `${officer.name} ${OFFICER_DUTY_MESSAGES[duty]}`);
       }
     }
 

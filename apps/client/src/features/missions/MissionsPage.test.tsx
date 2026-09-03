@@ -6,6 +6,8 @@ import { recentlyReturned } from './MissionsPage';
 const returned = (id: string, startedAt: string, resolvedAt: string): Mission => ({
   id,
   recalledAt: null,
+  pagePrize: null,
+  pageWon: null,
   baseId: 'base-1',
   templateId: 'scrap-run',
   areaId: 'misc',
@@ -32,6 +34,8 @@ const inFlight = (id: string, startedAt: string): Mission => ({
   spoils: {},
   resolvedAt: null,
   recalledAt: null,
+  pagePrize: null,
+  pageWon: null,
 });
 
 /** The board as the server hands it back: newest launch first. */

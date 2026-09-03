@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  burnRefusal,
+  burnUpgrade,
+  fittedOn,
   UNIT_UPGRADE_SLOTS,
   defaultLoadout,
   fittedFor,
@@ -28,24 +31,54 @@ describe('unit upgrade slots', () => {
     expect(fittedFor({ razors: ['armour_1', 'ghost_9'] }, 'razors')).toEqual(['armour_1']);
   });
 
-  it('refuses what the crew has not built, and what is already on the unit', () => {
+  it('refuses what the crew has not built, and a bracket that is taken', () => {
     const loadouts = { razors: ['armour_1', null, null] };
     expect(slotRefusal(loadouts, 'razors', 1, 'armour_3', BUILT)).toBe('not_built');
     expect(slotRefusal(loadouts, 'razors', 1, 'nonsense', BUILT)).toBe('unknown_upgrade');
-    expect(slotRefusal(loadouts, 'razors', 1, 'armour_1', BUILT)).toBe('already_slotted');
-    expect(slotRefusal(loadouts, 'razors', 0, 'armour_1', BUILT)).toBeNull();
+    expect(slotRefusal(loadouts, 'razors', 1, 'weapons_1', BUILT)).toBeNull();
+    // Slot 0 already holds something, and the only way it comes out is a burn.
+    expect(slotRefusal(loadouts, 'razors', 0, 'weapons_1', BUILT)).toBe('slot_taken');
     expect(slotRefusal(loadouts, 'razors', UNIT_UPGRADE_SLOTS, 'weapons_1', BUILT)).toBe(
       'bad_slot',
     );
     expect(slotRefusal(loadouts, 'razors', -1, 'weapons_1', BUILT)).toBe('bad_slot');
-    expect(slotRefusal(loadouts, 'razors', 1, null, BUILT)).toBe('already_empty');
-    expect(slotRefusal(loadouts, 'razors', 0, null, BUILT)).toBeNull();
   });
 
-  it('lets the same built upgrade go on two different units', () => {
-    const loadouts = withSlot(withSlot({}, 'razors', 0, 'armour_1'), 'sparks', 0, 'armour_1');
-    expect(fittedFor(loadouts, 'razors')).toEqual(['armour_1']);
-    expect(fittedFor(loadouts, 'sparks')).toEqual(['armour_1']);
+  /**
+   * §D5c: one of a thing is one of a thing (board rule).
+   *
+   * This test used to assert the opposite, and it was right about the code: `already_slotted` only
+   * looked at the unit being fitted, so a single Scrap Plate could be bolted to the Razors, the
+   * Breakers, the Wardens and the Ironsides at once. A modification is an object the crew owns, so
+   * where it goes is a decision rather than a broadcast.
+   */
+  it('refuses the same upgrade on a second unit', () => {
+    const loadouts = withSlot({}, 'razors', 0, 'armour_1');
+    expect(slotRefusal(loadouts, 'sparks', 0, 'armour_1', BUILT)).toBe('already_slotted');
+    expect(fittedOn(loadouts, 'armour_1')).toEqual(['razors']);
+  });
+
+  /**
+   * §D5c: and it never comes off, it burns.
+   *
+   * Both halves move together. Leaving it in `built` would be the un-fit this replaces wearing a
+   * different name: burn it off the Razors, bolt the same one to the Breakers, nothing spent.
+   */
+  it('burns an upgrade off the roster and out of the crew\u2019s stock', () => {
+    const loadouts = withSlot(withSlot({}, 'razors', 0, 'armour_1'), 'razors', 1, 'weapons_1');
+    const after = burnUpgrade(loadouts, BUILT, 'armour_1');
+
+    expect(fittedOn(after.loadouts, 'armour_1')).toEqual([]);
+    expect(after.built).not.toContain('armour_1');
+    // Everything else on that unit is untouched, and keeps its bracket.
+    expect(after.loadouts.razors).toEqual([null, 'weapons_1', null]);
+    expect(after.built).toContain('weapons_1');
+  });
+
+  it('refuses a burn of something that is not fitted', () => {
+    expect(burnRefusal({}, 'armour_1')).toBe('not_fitted');
+    expect(burnRefusal({ razors: ['armour_1'] }, 'nonsense')).toBe('unknown_upgrade');
+    expect(burnRefusal({ razors: ['armour_1'] }, 'armour_1')).toBeNull();
   });
 
   it('clears a bracket without shifting the ones after it', () => {

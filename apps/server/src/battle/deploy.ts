@@ -133,8 +133,18 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     let next = { ...force };
     for (const [unitId, delta] of Object.entries(changes)) {
       if (delta === 0) continue;
+      /*
+       * A key that does not name a fighting unit is refused, whichever direction it goes.
+       *
+       * The check used to sit inside the `delta > 0` branch only, so a *withdrawal* naming
+       * `constructor` or `toString` reached `force[unitId]`, which on a plain object is a function
+       * rather than `undefined`: `Math.min(-delta, fn)` is `NaN`, the `back === 0` guard does not
+       * catch `NaN`, and the roster took a `NaN` count. `DeployRequestSchema` now keys on the unit
+       * id so nothing like that arrives, and this is the second lock: a handler that reads a key
+       * off an object should be the one deciding which keys it will read.
+       */
+      if (!isCombatUnit(unitId)) return 'not_a_fighting_force';
       if (delta > 0) {
-        if (!isCombatUnit(unitId)) return 'not_a_fighting_force';
         if ((army[unitId] ?? 0) < delta) return 'not_enough_units';
         army = removeForce(army, { [unitId]: delta });
         departing[outbound] = mergeArmies(departing[outbound], { [unitId]: delta });
@@ -202,8 +212,19 @@ export function sideOf(
   baseId: string,
 ): BattleSide | null {
   if (battle.attackerBaseId === baseId) return 'attacker';
-  // Anybody with a row on the defending side is defending, which now includes an ally who came to
-  // help hold the ground rather than only the holder themselves.
+  /*
+   * Anybody with a row on a side is on that side, which includes an ally who came to help rather
+   * than only the two crews the declaration names.
+   *
+   * The defending half of this was here; the attacking half was not, and `/factions/reinforce`
+   * puts an ally on *either* side. So a crew that sent units to a friend's attack was told "You are
+   * not in that fight" by `/battles/deploy` and `/battles/withdraw`, could not take those units
+   * back out through the ordinary screen (which is the route the reinforce endpoint's own comment
+   * says is the way to do it), and the fight did not appear on their battle board at all.
+   */
+  if (repos.sieges.side(battle.id, 'attacker').some((row) => row.baseId === baseId)) {
+    return 'attacker';
+  }
   if (repos.sieges.side(battle.id, 'defender').some((row) => row.baseId === baseId)) {
     return 'defender';
   }

@@ -6,6 +6,7 @@ import {
   type MissionTemplate,
 } from './missions.js';
 import { PLAYER_XP_AWARDS } from './progression/state.js';
+import { GAME_TIMEZONE, dayInZone } from './time/zone.js';
 import { MILESTONE_THIRD_CREW, isPlayerUnlockActive } from './progression/unlocks.js';
 import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from './resources.js';
 import { seedFrom } from './rng.js';
@@ -108,9 +109,9 @@ export function areasOffering(templateId: string, day = ''): string[] {
   );
 }
 
-/** The UTC date a board is generated from, `YYYY-MM-DD`: the same grammar the Bar's roster uses. */
-export function missionBoardDay(now: Date): string {
-  return now.toISOString().slice(0, 10);
+/** The game date a board is generated from, `YYYY-MM-DD`: the same grammar the Bar's roster uses. */
+export function missionBoardDay(now: Date, zone: string = GAME_TIMEZONE): string {
+  return dayInZone(now, zone);
 }
 
 /**

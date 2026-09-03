@@ -1,6 +1,7 @@
 import {
   BUILDING_KINDS,
   storageCapacity,
+  storageCapacityFor,
   type Building,
   type BuildingKind,
 } from '@frontline/shared';
@@ -22,7 +23,6 @@ const at = (kind: BuildingKind, level: number): Building => ({
   level,
   modifications: [],
   damage: 0,
-  fortification: 0,
 });
 
 /** A district with a bit of everything, so the cross-structure bonuses have something to read. */
@@ -62,9 +62,35 @@ describe('what a structure is worth', () => {
    */
   it('quotes the shared formula rather than an approximation of it', () => {
     for (const level of [1, 20]) {
-      const expected = storageCapacity(districtWith(DISTRICT, 'apothecary', level));
-      expect(structureBonus('apothecary', DISTRICT, level).value).toBe(expected.toLocaleString());
+      const projected = districtWith(DISTRICT, 'apothecary', level);
+      const bulk = storageCapacity(projected);
+      expect(structureBonus('apothecary', DISTRICT, level).value).toBe(
+        [
+          bulk,
+          storageCapacityFor(projected, 'oil', bulk),
+          storageCapacityFor(projected, 'highQualityMetal', bulk),
+        ]
+          .map((figure) => figure.toLocaleString())
+          .join(' \u00b7 '),
+      );
     }
+  });
+
+  /**
+   * The shelf is not flat, and the line has to say so.
+   *
+   * One number under a label reading "of each material" was wrong for four of the five capped
+   * resources: `STORAGE_SHARES` gives oil and supplies two thirds of the bulk and HQ metal a third,
+   * so an Apothecary 5 that quoted 2,162 was overstating the metal ceiling (721) threefold. Pinned
+   * to the *smallest* shelf rather than the bulk, because that is the one a player loses goods to.
+   */
+  it('quotes the metal shelf, not the bulk one, as the low figure', () => {
+    const projected = districtWith(DISTRICT, 'apothecary', 5);
+    const metal = storageCapacityFor(projected, 'highQualityMetal');
+    expect(metal).toBeLessThan(storageCapacity(projected));
+    const { label, value } = structureBonus('apothecary', DISTRICT, 5);
+    expect(value.split(' \u00b7 ').at(-1)).toBe(metal.toLocaleString());
+    expect(label).not.toContain('each material');
   });
 
   describe('the district it is measured against', () => {

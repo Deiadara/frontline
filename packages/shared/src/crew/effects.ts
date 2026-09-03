@@ -427,8 +427,9 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     summary: 'Knows which of the things a scout brought back is the one that matters.',
   },
   strategy: {
-    channel: 'unitOffensePercent',
-    summary: 'Picks the fight that was already won before anyone walked into it.',
+    channel: 'defensePercent',
+    summary:
+      'Picks the ground that was already held before anyone walked onto it. Mined, cratered and awkward, and attacking it is a decision.',
   },
   authority: {
     channel: 'wageDiscountPercent',
@@ -478,13 +479,15 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     channel: 'productionPercent',
     summary: 'The line runs at the rate it was rated for instead of the rate it settled into.',
   },
-  hacking: {
+  signals: {
     channel: 'intelYieldPercent',
-    summary: 'The Combine keeps better records about a place than anyone standing in it.',
+    summary:
+      'Runs the net, and reads the traffic on everybody else\u2019s. The Combine keeps better records about a place than anyone standing in it.',
   },
-  fabrication: {
+  craft: {
     channel: 'buildCostPercent',
-    summary: 'Makes the part rather than buying it. The stockpile notices.',
+    summary:
+      'Makes the part rather than buying it, and mends the one that broke. The stockpile notices.',
   },
   medicine: {
     channel: 'casualtyRecoveryPercent',
@@ -498,9 +501,10 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
     channel: 'lootCapacityPercent',
     summary: 'Knows what in the wreck is worth the trip back, and gets it on the truck.',
   },
-  demolition: {
-    channel: 'defensePercent',
-    summary: 'Your ground is mined, cratered and awkward. Attacking it is a decision.',
+  encyclopedia: {
+    channel: 'researchSpeedPercent',
+    summary:
+      'Has read about this before, in something that was about something else. Knows which of the dead ends is not one.',
   },
   navigation: {
     channel: 'travelSpeedPercent',
@@ -960,7 +964,19 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     // here in silence. It works: `unitTierPercent` was added later and this loop is what refused
     // to compile until it had been given a merge of its own.
     if (isRecordChannel(key)) continue;
-    total[key] = territory[key] + crew[key];
+    /*
+     * Vision is the one channel that is a *reach*, not an amount, so it takes the best eye rather
+     * than the sum, on both sides of the fold.
+     *
+     * `applyHoldBonus` already does that within a source: a Watchtower (1) and a Satellite Uplink
+     * (2) give 2, not 3, because the field's own doc is "how many of the nearest districts are
+     * visible". This loop added across sources, so a location worth 2 plus a Survey Hand worth 2
+     * gave 4, while a second Uplink added nothing and two Survey Hands added nothing. The same
+     * total bought different sight depending on where it came from, which is unpredictable from
+     * either side.
+     */
+    total[key] =
+      key === 'visionRange' ? Math.max(territory[key], crew[key]) : territory[key] + crew[key];
   }
   return total;
 }
@@ -1040,7 +1056,7 @@ export function discounted(cost: PartialResources, percent: number): PartialReso
  * A count as somebody else's counter-intelligence lets you see it.
  *
  * The holder's Cryptography and Deception blur what a scout brings back; the reader's Logic,
- * Intuition and Hacking cut through it. Only the difference matters, so a crew that has invested
+ * Intuition and Signals cut through it. Only the difference matters, so a crew that has invested
  * in reading sees a well-protected place the way an unprotected one looks to everybody.
  *
  * Coarsening rather than lying: the number reported is the true count rounded to a grain, so it is
@@ -1050,10 +1066,39 @@ export function discounted(cost: PartialResources, percent: number): PartialReso
  */
 export const INTEL_PERCENT_PER_GRAIN = 8;
 
+/**
+ * Rounds to the nearest multiple of `grain`, splitting exact ties evenly.
+ *
+ * `Math.round` breaks every tie upward, which at grain 2 turns 1, 3, 5 into 2, 4, 6 and makes the
+ * blur biased high by a quarter of a grain across a uniform spread. Half-to-even sends alternate
+ * ties in alternate directions, which is what "never systematically high or low" has to mean.
+ */
+function toGrain(exact: number, grain: number): number {
+  const quotient = exact / grain;
+  const below = Math.floor(quotient);
+  const part = quotient - below;
+  if (part > 0.5) return (below + 1) * grain;
+  if (part < 0.5) return below * grain;
+  return (below % 2 === 0 ? below : below + 1) * grain;
+}
+
 export function blurredCount(exact: number, blurPercent: number): number {
   const grain = 1 + Math.floor(Math.max(0, blurPercent) / INTEL_PERCENT_PER_GRAIN);
   if (grain <= 1) return exact;
-  return Math.round(exact / grain) * grain;
+  /*
+   * Zero is not a coarse number. It is a different claim.
+   *
+   * Every count below half a grain used to round to it: one unit standing on a location, read
+   * through a blur of 16 (a rival's Cryptography 64 on its own), reported as "Standing there: 0",
+   * and a player sent a token force at ground that looked empty. The whole point of coarsening is
+   * that it is never *further* from the truth than half a grain, and "nobody" against "somebody" is
+   * a different kind of error from "about six" against five. So an occupied place reports at least
+   * one grain. That biases the smallest counts upward and it is the right direction: it is the
+   * defender's counter-intelligence doing what it is paid for, and it costs the reader caution
+   * rather than a column.
+   */
+  const rounded = toGrain(exact, grain);
+  return exact > 0 ? Math.max(grain, rounded) : rounded;
 }
 
 /**

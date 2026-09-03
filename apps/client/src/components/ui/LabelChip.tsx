@@ -40,7 +40,7 @@ const WEIGHTS: readonly string[] = [
   'opacity-80',
   '',
   'font-bold shadow-lifted',
-  'font-bold shadow-lifted ring-1 ring-inset ring-current/30',
+  'font-bold shadow-lifted ring-1 ring-inset ring-current',
 ];
 
 export function LabelChip({ label, size = 'md' }: { label: EnvLabel; size?: 'sm' | 'md' }) {

@@ -13,19 +13,14 @@ import {
   type DistrictDetailResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import {
-  setGarrison,
-  settleFortifications,
-  startFortifying,
-  type CityRefusal,
-} from '../city/actions.js';
-import { settleBattles } from '../battle/resolve.js';
+import { setGarrison, startFortifying, type CityRefusal } from '../city/actions.js';
 import { projectCity, projectDistrict } from '../city/view.js';
 import { UPGRADE_REFUSALS, startUpgrade, type UpgradeRefusal } from '../city/upgrade.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
-import { sendScout, settleScouting } from '../scouting/scouting.js';
-import { raiseCapturedGate, settleCapturedGates } from '../city/gates.js';
+import { sendScout } from '../scouting/scouting.js';
+import { raiseCapturedGate } from '../city/gates.js';
+import { settleWorld } from '../world/settle.js';
 
 /**
  * The city (GDD §A4): the map, what is inside a district, and the four things you can do about it.
@@ -69,6 +64,7 @@ const SCOUT_REFUSAL_ERRORS: Record<ScoutRefusal, { code: ErrorCode; message: str
   },
   no_officer: { code: 'NO_FORCE', message: 'You have nobody to send' },
   officer_busy: { code: 'VALIDATION_ERROR', message: 'They are already out' },
+  officer_injured: { code: 'VALIDATION_ERROR', message: 'They are still laid up' },
   own_district: { code: 'VALIDATION_ERROR', message: 'You live there' },
 };
 
@@ -87,15 +83,13 @@ export function registerCityRoutes(app: FastifyInstance): void {
   function settled(app: FastifyInstance, ownerId: string, now: Date): Base {
     const owned = app.repos.bases.findByOwnerId(ownerId);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
-    settleFortifications(app.repos, now);
-    // Scouts who walked back in while nobody was looking. Cheap, and it keeps a page load from
-    // ever showing fog over ground the clock has already opened.
-    settleScouting(app.repos, now);
-    settleCapturedGates(app.repos, now);
-    // Any declared fight whose mark has passed runs here too (§A4). It has to: a battle that went
-    // off an hour ago may have changed who holds half this map, and a city read that showed the old
-    // answer would be a screen the rules disagree with.
-    settleBattles(app.repos, app.skirmishEngine, now);
+    // Every clock the shared world runs on, in the one order there is (`world/settle.ts`). A
+    // declared fight whose mark has passed runs here too (§A4): a battle that went off an hour ago
+    // may have changed who holds half this map, and a city read showing the old answer would be a
+    // screen the rules disagree with. This path used to settle scouting and gates but *not*
+    // movements, so which screen a player happened to open first decided whether a column that
+    // arrived before the mark was in the fight.
+    settleWorld(app.repos, app.skirmishEngine, now);
     const fresh = app.repos.bases.findByOwnerId(ownerId) ?? owned;
     return settleBase(app.repos, fresh, now).base;
   }

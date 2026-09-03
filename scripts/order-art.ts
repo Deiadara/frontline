@@ -20,6 +20,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
   ART_MANIFEST,
+  deliveredAtPaintedSize,
   HERO_ASSETS,
   NEGATIVE,
   isHeroAsset,
@@ -81,7 +82,11 @@ export const SECTIONS: readonly Section[] = [
       'correctly. Upscaling invents detail, so the answer is a bigger render, not a bigger resample.',
     ].join('\n'),
     includes: (spec) =>
-      spec.aspect === '16:9' && !spec.alpha && !isHeroAsset(spec) && !isOccludedBackdropAsset(spec),
+      spec.aspect === '16:9' &&
+      !spec.alpha &&
+      !deliveredAtPaintedSize(spec.key) &&
+      !isHeroAsset(spec) &&
+      !isOccludedBackdropAsset(spec),
   },
   {
     title: 'Roster set: any download at or above the listed minimum works',
@@ -93,7 +98,10 @@ export const SECTIONS: readonly Section[] = [
       'What it will never do is upscale, so a small download is rejected by name rather than blurred.',
     ].join('\n'),
     includes: (spec) =>
-      spec.aspect !== '16:9' && !spec.alpha && !isHeroAsset(spec) && !isOccludedBackdropAsset(spec),
+      (spec.aspect !== '16:9' || deliveredAtPaintedSize(spec.key)) &&
+      !spec.alpha &&
+      !isHeroAsset(spec) &&
+      !isOccludedBackdropAsset(spec),
   },
   {
     title: 'Alpha set, not requested yet',

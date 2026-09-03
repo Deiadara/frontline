@@ -15,6 +15,7 @@ import { BaseSchema, BaseSummarySchema, DistrictNameSchema } from './base.js';
 import { PayrollLedgerSchema } from './economy/payroll.js';
 import { BattleResultSchema } from './battle/types.js';
 import {
+  UnitIdSchema,
   ArmySchema,
   TrainingQueueSchema,
   UnitStatsSchema,
@@ -34,7 +35,9 @@ import {
   LocationHolderSchema,
   LocationSchema,
 } from './city/index.js';
+import { BlueprintCategorySchema } from './blueprints/catalog.js';
 import { CommanderSchema } from './commander.js';
+import { OfficerMarkSchema } from './crew/marks.js';
 import { MissionAreaIdSchema, MissionKindSchema, MissionSchema } from './missions.js';
 import { OverseerSchema } from './overseer.js';
 import { TrainingSessionSchema } from './crew/training.js';
@@ -44,7 +47,6 @@ import { MarketOfferSchema, TradeBundleSchema } from './market/offers.js';
 import { SupplyBoardSchema, SupplyResourceSchema } from './market/supply.js';
 import { VendorLineSchema, VendorSessionSchema } from './market/vendor.js';
 import { UpgradeLineSchema } from './units/upgrades.js';
-import { TechTrackSchema } from './research/tech.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { PlayerLevelGrantsSchema, PlayerLevelUnlockSchema } from './progression/index.js';
 import {
@@ -133,6 +135,22 @@ export const AuthResponseSchema = z.object({
 export type AuthResponse = z.infer<typeof AuthResponseSchema>;
 
 // --- session ---
+/**
+ * What the next level of each structure will actually cost this crew.
+ *
+ * On the wire because the client cannot work it out. The build dialog quoted
+ * `buildingCost(kind, level, buildings)` off the catalogue, while the server charges that price
+ * with two discounts taken off it: `buildCostPercent` (everything) and `buildingCostPercent[kind]`
+ * (the §B7 perks that name a single structure). The second is a per-structure record and the
+ * effects on the wire are flat numbers, so no client-side fix existed. Same shape as the Downtown
+ * Market bug, where the shelf quoted the catalogue price and the till charged the discounted one,
+ * and fixed the same way: the server does the arithmetic once and the screen reads the answer.
+ *
+ * A structure with nothing left to queue is absent rather than present and empty.
+ */
+export const BuildQuotesSchema = z.partialRecord(BuildingKindSchema, PartialResourcesSchema);
+export type BuildQuotes = z.infer<typeof BuildQuotesSchema>;
+
 export const MeResponseSchema = z.object({
   user: UserSchema,
   overseer: OverseerSchema.nullable(),
@@ -146,6 +164,13 @@ export const MeResponseSchema = z.object({
    * announces has no second chance to.
    */
   levelUp: LevelUpSchema.optional(),
+  /**
+   * The discounted price of each structure's next level. See {@link BuildQuotesSchema}.
+   *
+   * Optional so a response written before this existed still parses; a client with no quote falls
+   * back to the catalogue price, which is what it drew before.
+   */
+  buildQuotes: BuildQuotesSchema.optional(),
   /**
    * The two badges the HUD draws, on every screen.
    *
@@ -344,8 +369,20 @@ export type DistrictDetailResponse = z.infer<typeof DistrictDetailResponseSchema
 /** Leave units on a place you hold, or take them home again. */
 export const GarrisonRequestSchema = z.object({
   locationId: z.string().min(1),
-  /** Positive leaves units there; negative brings them back. */
-  changes: z.record(z.string(), z.number().int()),
+  /**
+   * Positive leaves units there; negative brings them back.
+   *
+   * Keyed by {@link UnitIdSchema}, the same way {@link ArmySchema} and the deployment request are.
+   * With a plain string key, `constructor` and `toString` arrive as ordinary own properties (Zod
+   * drops `__proto__`, but not those), and the withdrawal branch in `city/actions.ts` read
+   * `garrison[key]` before checking that the key named a unit: on a plain object that is a
+   * *function*, `Math.min(-delta, fn)` is `NaN`, and a `NaN` count went into both the roster and
+   * the garrison column.
+   *
+   * This is the twin of the same bug in `DeployRequestSchema`. That one was found and fixed first;
+   * this door was missed, which is the usual way a two-site fix leaves one site broken.
+   */
+  changes: z.record(UnitIdSchema, z.number().int()),
 });
 export type GarrisonRequest = z.infer<typeof GarrisonRequestSchema>;
 
@@ -432,6 +469,19 @@ export const UnitOptionSchema = z.object({
   cost: PartialResourcesSchema,
   trainSeconds: z.number().int().positive(),
   supply: z.number().int().positive(),
+  /**
+   * §A4: percentage points this unit's *own* ground takes off, on top of `trainingCostReduction`.
+   *
+   * Per unit rather than on the response, because that is what the rule is: working the Doghouse
+   * up makes Cyberhounds cheaper and quicker and does nothing at all for a Razor. The crew-wide
+   * figures stay where they are; these two are added to them for this row and no other.
+   *
+   * Optional out of the parser like `trainingSuppliesReduction`: the server always sends them, and
+   * requiring them would mean writing two zeroes into every roster fixture in the tree. Read as
+   * `?? 0`.
+   */
+  homeCostReduction: z.number().optional(),
+  homeSpeedBonus: z.number().optional(),
   unlocked: z.boolean(),
   /** The clauses this crew has not met, in the player's words. Empty when unlocked. */
   missing: z.array(z.string()),
@@ -455,6 +505,19 @@ export const BuiltUpgradeSchema = z.object({
   tier: z.number().int().positive(),
   description: z.string().min(1),
   effect: z.record(z.string(), z.number()),
+  /**
+   * §D5c: the unit this one is bolted to, or null while it is still on the shelf.
+   *
+   * On the payload rather than derived on the client, because "is it fitted" is a fact about the
+   * whole roster and the units page only ever holds one unit's brackets at a time. Without it the
+   * picker could tell a player an upgrade was free when it was already on the Breakers, and the
+   * server would refuse the press.
+   *
+   * Defaulted so a response written before the one-of-each rule still parses.
+   */
+  fittedTo: z.string().nullable().default(null),
+  /** Its name, for the line the picker prints. Empty while it is on the shelf. */
+  fittedToName: z.string().default(''),
 });
 export type BuiltUpgrade = z.infer<typeof BuiltUpgradeSchema>;
 
@@ -510,9 +573,19 @@ export const FitSlotRequestSchema = z.object({
     .int()
     .min(0)
     .max(UNIT_UPGRADE_SLOTS - 1),
-  upgradeId: z.string().min(1).nullable(),
+  /**
+   * §D5c: not nullable any more.
+   *
+   * `null` used to empty a bracket and hand the modification back, which made fitting free and
+   * reversible. The only way one comes off now is `POST /units/burn`, which destroys it.
+   */
+  upgradeId: z.string().min(1),
 });
 export type FitSlotRequest = z.infer<typeof FitSlotRequestSchema>;
+
+/** §D5c: burn a fitted modification off the roster. It is destroyed, not returned. */
+export const BurnUpgradeRequestSchema = z.object({ upgradeId: z.string().min(1) });
+export type BurnUpgradeRequest = z.infer<typeof BurnUpgradeRequestSchema>;
 
 export const TrainUnitsRequestSchema = z.object({
   unitId: z.string().min(1),
@@ -580,11 +653,10 @@ export const RenameDistrictResponseSchema = z.object({
 export type RenameDistrictResponse = z.infer<typeof RenameDistrictResponseSchema>;
 
 // --- battle ---
-export const BattleRequestSchema = z.object({
-  targetDistrictId: IdSchema,
-});
-export type BattleRequest = z.infer<typeof BattleRequestSchema>;
-
+// `BattleRequestSchema` used to live here: one field, `targetDistrictId`, and no reader on either
+// side. A fight is declared through `DeclareBattleRequestSchema` in `api.battle.ts`, which takes a
+// `BattleTarget` and can name a location rather than a whole district. Removed rather than left as
+// a second, wrong way to ask for the same thing.
 export const BattleResponseSchema = z.object({
   result: BattleResultSchema,
   /** Attacker base resources AFTER rewards were applied. */
@@ -630,6 +702,15 @@ export const MissionOfferSchema = z.object({
   xp: z.number().int().positive(),
   /** And what a run that came home empty still pays: `FAILED_MISSION_XP_SHARE` of it. */
   failedXp: z.number().int().nonnegative(),
+  /**
+   * §F1b: a blueprint page on the table, as a **category and nothing more**.
+   *
+   * Null on most offers. When it is set the card may say "a Unit Blueprint's Page" and may not say
+   * which one: which page it turns out to be is not decided until the crew is home (§F1c), so a
+   * player sizing a run knows there is something worth having on it and cannot shop for a specific
+   * document.
+   */
+  pagePrize: BlueprintCategorySchema.nullable().default(null),
 });
 export type MissionOffer = z.infer<typeof MissionOfferSchema>;
 
@@ -940,21 +1021,60 @@ export type ModificationOption = z.infer<typeof ModificationOptionSchema>;
  * scrap of role knowledge in this body is a `DiscoveredFact` the crew paid for (§B9, INTERFACES
  * R4), and `apps/server/src/research/discovery.leak.test.ts` asserts it over the real response.
  */
-/** One standing programme at the Lab, as the screen shows it. */
+/**
+ * One rung of one of §C's nineteen role tracks, as the screen shows it.
+ *
+ * `cost` is what this crew would actually pay: the catalogue price with the track officer's own cut
+ * already taken off (§C1d, §C3b), so the number on the card is the number that leaves the
+ * stockpile. The two marks are the thresholds (§C2a, §C2e); `blocker` is the first of them this
+ * crew fails, in words.
+ */
 export const LabTechSchema = z.object({
   id: z.string(),
-  track: TechTrackSchema,
-  tier: z.number().int().positive(),
+  track: OfficerRoleSchema,
+  /** 1 to 10, bottom rung first. */
+  step: z.number().int().positive(),
   name: z.string(),
   description: z.string(),
   cost: PartialResourcesSchema,
-  parts: InventorySchema,
+  /** The clock this crew would get, after the Lab, the crew and the Head of Research. */
+  minutes: z.number().int().positive(),
   /** What it lands on, and how much, in the player's words. */
   effect: z.string(),
+  requiresMark: OfficerMarkSchema,
+  requiresHeadMark: OfficerMarkSchema.nullable(),
   known: z.boolean(),
   blocker: z.string().nullable(),
 });
 export type LabTech = z.infer<typeof LabTechSchema>;
+
+/**
+ * One track, and who is standing on it.
+ *
+ * An array on the response rather than a record keyed by role: role-keyed structured data is a fit
+ * hint by shape (§B8a) and the leak guard refuses it wholesale. Nothing here is the score itself.
+ * `costCutPercent` is derived from it, which is the point of §C3b: a bonus that reads the points
+ * has to be visible or the player cannot tell training worked.
+ */
+export const ResearchTrackStatusSchema = z.object({
+  role: OfficerRoleSchema,
+  /** The officer in that chair, or null when it is empty. */
+  officerName: z.string().nullable(),
+  mark: OfficerMarkSchema.nullable(),
+  /** §C1d: what that officer's own sheet takes off every price on their track. */
+  costCutPercent: z.number(),
+  /** How many of the ten are finished. */
+  done: z.number().int().nonnegative(),
+});
+export type ResearchTrackStatus = z.infer<typeof ResearchTrackStatusSchema>;
+
+/** §C1c/§C3a: the one officer every track needs, and what their sheet is worth to the clock. */
+export const ResearchHeadSchema = z.object({
+  name: z.string(),
+  mark: OfficerMarkSchema,
+  timeCutPercent: z.number(),
+});
+export type ResearchHead = z.infer<typeof ResearchHeadSchema>;
 
 export const StartTechRequestSchema = z.object({ techId: z.string().min(1) });
 export type StartTechRequest = z.infer<typeof StartTechRequestSchema>;
@@ -975,8 +1095,12 @@ export const ResearchResponseSchema = z.object({
   pairingsExhausted: z.boolean(),
   /** §F2: the Overseer's sheet, which is what a training project moves. */
   overseerAttributes: AttributesSchema,
-  /** The Lab's standing programmes: what is finished, what is reachable, and why not. */
+  /** §C: every rung of every track, with what is finished, what is reachable and why not. */
   technologies: z.array(LabTechSchema).default([]),
+  /** §C1b: the nineteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
+  tracks: z.array(ResearchTrackStatusSchema).default([]),
+  /** §C1c: null when nobody holds the post, which shuts every track at once. */
+  head: ResearchHeadSchema.nullable().default(null),
   caps: z.number(),
   costs: z.object({
     investigation: z.number().int().nonnegative(),
@@ -1022,6 +1146,15 @@ export const CrewOfficerSchema = z.object({
   attributes: AttributesSchema,
   /** §B7: the nought-to-three bonuses they bring, which is what the card leads with. */
   perks: PerksSchema,
+  /**
+   * How well they fit the chair they are in, as a mark (board brief, 2026-09-03).
+   *
+   * `null` on the bench, because a mark is about a *fit* and somebody with no chair has nothing to
+   * fit: the same person reads differently in two different roles, which is the whole point of
+   * showing it. Computed by the server, because the weights behind the score are
+   * server-side only (B8/B8a) and a client that could compute this could reconstruct the table.
+   */
+  mark: OfficerMarkSchema.nullable(),
   /**
    * §H7: the weekly fee agreed when they signed, in caps.
    *
@@ -1165,6 +1298,18 @@ export const MarketResponseSchema = z.object({
   supply: SupplyBoardSchema,
   /** What the Broker gives back, at this crew's level. Quoted so the client cannot guess wrong. */
   barterRate: z.number().positive(),
+  /*
+   * §G4: whether the Lab will do the Reimagining trade for this crew, decided on the server.
+   *
+   * Both halves live somewhere the Blueprints screen cannot see: the seat is on the crew and the
+   * research is on the base. Sending the booleans rather than the raw sheets keeps the panel from
+   * having to load two more screens' worth of payload to draw one lock icon, and keeps the answer
+   * to "is it open" in one place, since the route re-checks the same predicate before trading.
+   */
+  reimagining: z.object({
+    hasHeadOfResearch: z.boolean(),
+    hasReimaginingResearch: z.boolean(),
+  }),
 });
 export type MarketResponse = z.infer<typeof MarketResponseSchema>;
 
@@ -1203,6 +1348,23 @@ export type OfferActionRequest = z.infer<typeof OfferActionRequestSchema>;
 
 /** Every market write answers with the refreshed board, so the client never re-derives it. */
 export const MarketMutationResponseSchema = z.object({ market: MarketResponseSchema });
+
+/**
+ * §G2/§G3: the Reimagining trade.
+ *
+ * The request names nothing. Which pages go is not the player's choice (the Lab takes the most
+ * duplicated first, `reimagine`), and which page comes back is not either: letting the client name
+ * either one would turn a guaranteed trade into a shopping trip, and would let a refused request
+ * be retried until it offered something better.
+ */
+export const ReimagineResponseSchema = z.object({
+  market: MarketResponseSchema,
+  /** The page ids spent, so the report can name them. Three of them, possibly the same one thrice. */
+  spent: z.array(z.string()),
+  /** ...and the one that came back. */
+  gained: z.string(),
+});
+export type ReimagineResponse = z.infer<typeof ReimagineResponseSchema>;
 export type MarketMutationResponse = z.infer<typeof MarketMutationResponseSchema>;
 
 /** The workshop screen: what the crew has built, what it could build, and why not. */
@@ -1234,6 +1396,16 @@ export type WorkshopResponse = z.infer<typeof WorkshopResponseSchema>;
 
 export const FitUpgradeRequestSchema = z.object({ upgradeId: z.string().min(1) });
 export type FitUpgradeRequest = z.infer<typeof FitUpgradeRequestSchema>;
+
+/**
+ * §D10: turn a complete set of pages into the blueprint itself.
+ *
+ * Answers with the refreshed market board, the same as every other write that moves the satchel.
+ * The Blueprints page reads its pages off `MarketResponse.inventory`, so one payload puts the row
+ * in its unlocked state, empties the pages it spent and updates the satchel behind it.
+ */
+export const UnlockBlueprintRequestSchema = z.object({ blueprintId: z.string().min(1) });
+export type UnlockBlueprintRequest = z.infer<typeof UnlockBlueprintRequestSchema>;
 
 // The yard's own request lives in `api.garage.ts` now: §B11 gave the Garage a page of its own.
 

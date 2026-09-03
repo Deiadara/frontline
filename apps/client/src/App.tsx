@@ -28,6 +28,7 @@ import { BlackMarketPage } from './features/market/BlackMarketPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { AdminPage } from './features/admin/AdminPage';
 import { InventoryPage } from './features/inventory/InventoryPage';
+import { BlueprintsPage } from './features/satchel/BlueprintsPage';
 import { WorkshopPage } from './features/workshop/WorkshopPage';
 import { ScrapyardPage } from './features/scrapyard/ScrapyardPage';
 import { GaragePage } from './features/garage/GaragePage';
@@ -161,6 +162,7 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="inventory" element={<InventoryPage />} />
+          <Route path="inventory/blueprints" element={<BlueprintsPage />} />
           <Route path="workshop" element={<WorkshopPage />} />
           {/* §B9: the Scrapyard's own page, reached from the plot's dialog rather than the nav. */}
           <Route path="scrapyard" element={<ScrapyardPage />} />

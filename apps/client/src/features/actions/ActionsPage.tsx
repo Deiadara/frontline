@@ -1,6 +1,7 @@
 import { movementCancelWindowMs, type ActionsResponse, type MovementView } from '@frontline/shared';
 import { Button } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { useActions, useRecallColumn } from '../../lib/queries';
@@ -31,9 +32,13 @@ export function ActionsPage() {
   return (
     <PageShell title="On the road" icon="actions" action={data ? <Counts data={data} /> : null}>
       {!data ? (
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Counting heads…
-        </p>
+        <ScreenLoad
+          what="The road"
+          loading="Counting heads…"
+          isError={query.isError}
+          onRetry={() => void query.refetch()}
+          detail="Nothing has been lost. Every column still gets where it was going."
+        />
       ) : data.movements.length === 0 ? (
         <Panel>
           <p className="p-6 font-body text-[13px] leading-relaxed text-ink-300">
@@ -43,6 +48,17 @@ export function ActionsPage() {
         </Panel>
       ) : (
         <ul className="flex flex-col gap-3" data-testid="movements">
+          {/* A recall the server refuses. `movement.recallable` is computed when the response is
+              built and `/actions` polls at 5s, while the row's own `canRecall` is recomputed every
+              second: for up to five seconds after the window shuts the row reads "0s left to
+              decide" beside a live button. Pressing it was silent, and the only visible consequence
+              was the button disappearing a moment later. `DeclareDialog` renders this same
+              mutation's error. */}
+          {recall.error !== null && (
+            <li role="alert" className="font-body text-[13px] text-oxblood-300">
+              {recall.error.message}
+            </li>
+          )}
           {data.movements.map((movement) => (
             <Column
               key={movement.id}

@@ -154,6 +154,15 @@ export interface Stack {
   /** Bodies that started the fight: the denominator for every casualty figure. */
   started: number;
   /**
+   * Bodies too cowed to fight, set once before the first shot and never revisited (§D3).
+   *
+   * See {@link cow}. They are still *present*: they stand in the line, they take their share of
+   * incoming fire, they count for frontage and for the roster that walks home. What they do not do
+   * is shoot. That is the whole of the mechanic, and it is deliberately not a morale penalty or a
+   * damage multiplier: those already exist and this is meant to read as men who would not advance.
+   */
+  suppressed: number;
+  /**
    * Damage this stack has put out across the whole fight, opening strike included.
    *
    * Accumulated rather than derived, because there is nowhere to derive it from: fire is split
@@ -275,6 +284,77 @@ function intimidation(side: SideState): number {
   return total === 0 ? 0 : weighted / total;
 }
 
+/**
+ * §D3: the men who will not advance, decided before a shot is fired.
+ *
+ * A side's total nerve is the morale of every body in it; the pressure against it is the
+ * intimidation of every body opposite. Where the pressure is the greater, the difference is spent
+ * buying silence, cheapest first: the steadiest troops hold, and it is the ones who were already
+ * wavering who put their heads down.
+ *
+ * Worked example, which is the board's own. One side fields two bodies at 10 morale and one at 20,
+ * so its nerve is 40. The other side fields one body at 60 intimidation. The excess is 20, and 20
+ * buys exactly the two bodies at 10: they do not fire. The body at 20 would cost the whole
+ * remaining budget and there is none left, so it fights.
+ *
+ * Three things this is not, each of them a thing it was tempting to make it:
+ *
+ *   * Not a *rate*. Both quantities are sums over bodies, so a big army has proportionally more
+ *     nerve and a big army projects proportionally more menace. Averaging either would make one
+ *     terrifying body cow a legion.
+ *   * Not per round. It is settled once, from the opening rosters, so it cannot spiral: a side
+ *     that loses bodies does not become progressively easier to cow by the same enemy.
+ *   * Not symmetric-in-sequence. Both sides are measured against the *starting* numbers before
+ *     either is silenced, so the order the two are computed in cannot change the answer.
+ *
+ * Bodies are silenced whole. Fractional suppression would be a damage multiplier wearing a
+ * costume, and the board asked for men who do not attack.
+ */
+export function nerve(side: SideState): number {
+  return side.stacks.reduce(
+    (total, stack) => total + stack.alive * Math.max(0, stack.effective.morale),
+    0,
+  );
+}
+
+/** The menace a side projects: the intimidation of every body in it. See {@link cow}. */
+export function menace(side: SideState): number {
+  return side.stacks.reduce(
+    (total, stack) => total + stack.alive * Math.max(0, stack.effective.intimidation),
+    0,
+  );
+}
+
+/**
+ * Silences the shakiest bodies on `side`, given the menace opposite it.
+ *
+ * Returns how many bodies were silenced, which is what the report needs to explain the round to a
+ * player who is wondering why half their line did nothing.
+ */
+export function cow(side: SideState, against: number): number {
+  let budget = against - nerve(side);
+  if (budget <= 0) return 0;
+
+  // Cheapest nerve first. A body with no morale at all costs nothing to silence, so it is taken
+  // before anything that has to be paid for, and the loop cannot stall on it.
+  const order = [...side.stacks]
+    .filter((stack) => stack.alive > 0)
+    .sort((a, b) => a.effective.morale - b.effective.morale);
+
+  let silenced = 0;
+  for (const stack of order) {
+    const each = Math.max(0, stack.effective.morale);
+    // How many of this stack's bodies the remaining budget covers.
+    const affordable = each === 0 ? stack.alive : Math.floor(budget / each);
+    const take = Math.min(stack.alive, affordable);
+    if (take <= 0) break;
+    stack.suppressed = take;
+    silenced += take;
+    budget -= take * each;
+  }
+  return silenced;
+}
+
 function buildStacks(
   army: Army,
   battlefield: Battlefield,
@@ -319,6 +399,7 @@ function buildStacks(
       morale: effective.morale,
       brokeAt: null,
       started: count,
+      suppressed: 0,
       dealt: 0,
     });
   }
@@ -342,6 +423,7 @@ function buildStacks(
       morale: effective.morale,
       brokeAt: null,
       started: 1,
+      suppressed: 0,
       dealt: 0,
       officer,
     });
@@ -418,6 +500,7 @@ export function allocate(
       Math.max(
         0,
         threatWeight(attacker.effective, attacker.unit.modifiers, enemy.effective, enemy.morale) *
+          enemy.alive *
           (cover && enemy.officer !== undefined ? OFFICER_TARGET_SHARE : 1),
       ),
     );
@@ -530,6 +613,15 @@ function fireRound(
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
     if (only && !only(stack)) continue;
+    /*
+     * §D3: the cowed do not shoot, but they are still here.
+     *
+     * Taken off the *firing* count only. They keep their place in `frontageShare`, they soak their
+     * share of what is incoming, and they walk home if the side wins. Removing them from `alive`
+     * instead would have made intimidation quietly lethal, which is not what it is for.
+     */
+    const firing = Math.max(0, stack.alive - stack.suppressed);
+    if (firing <= 0) continue;
     for (const { target, share } of allocate(stack, enemy.stacks)) {
       const { perBody } = exchange(
         stack.effective,
@@ -539,7 +631,7 @@ function fireRound(
         side.luck,
       );
       const damage =
-        perBody * stack.alive * deployed * share * ROUND_DAMAGE_SCALE * concentration * swing;
+        perBody * firing * deployed * share * ROUND_DAMAGE_SCALE * concentration * swing;
       incoming.set(target, (incoming.get(target) ?? 0) + damage);
       stack.dealt += damage;
     }
@@ -640,6 +732,15 @@ export interface Simulation {
   openingStrike: number;
   /** The day's luck each side drew, −5.0 … +5.0. */
   luck: { attacker: number; defender: number };
+  /**
+   * §D3: bodies on each side too cowed to fire, settled before the first shot. See {@link cow}.
+   *
+   * Reported rather than kept private, because a mechanic the player cannot see reads as a bug: a
+   * line that did a third of the damage it should have, with every body still standing and no
+   * casualties to explain it, is indistinguishable from a broken engine. The report is what turns
+   * it into a thing that happened.
+   */
+  cowed: { attacker: number; defender: number };
   battlefield: Battlefield;
 }
 
@@ -698,6 +799,19 @@ export function simulate(input: SimulateInput): Simulation {
   attacker.luck = drawLuck(next);
   defender.luck = drawLuck(next);
   const rounds: RoundRecord[] = [];
+
+  /*
+   * §D3: who is too cowed to fight, settled before anything is fired.
+   *
+   * Both budgets are computed before either is spent, so the two sides are measured against each
+   * other's *opening* rosters. Doing it in sequence would let the first side's silencing shrink the
+   * second side's menace, and the answer would then depend on which of them we happened to look at
+   * first, which is not a property a battle should have.
+   */
+  const onAttacker = menace(defender);
+  const onDefender = menace(attacker);
+  const attackerCowed = cow(attacker, onAttacker);
+  const defenderCowed = cow(defender, onDefender);
 
   // The opening strike, before either side is in position. Only the attacker can take one: an
   // ambush is something you set, and the side standing on the ground it already holds is not
@@ -808,6 +922,7 @@ export function simulate(input: SimulateInput): Simulation {
     battlefield,
     openingStrike: ambush,
     luck: { attacker: attacker.luck, defender: defender.luck },
+    cowed: { attacker: attackerCowed, defender: defenderCowed },
   };
 }
 
@@ -852,12 +967,6 @@ function watchfulness(side: SideState): number {
   return total === 0 ? 0 : weighted / total;
 }
 
-/**
- * The numbers advantage, weighted by how much of the side can bring it to bear.
- *
- * A shield wall gets nothing for being twice as many; a firing line gets most of the square law.
- * Clamped so a large enough force can never simply delete a small one before it acts.
- */
 /**
  * Two rounds' worth of losses on one stack, combined the way the survivors experienced them.
  *
@@ -905,6 +1014,23 @@ export function residualPower(side: SideState): number {
   return Math.sqrt(Math.max(0, offense) * Math.max(0, durability));
 }
 
+/**
+ * The numbers advantage, weighted by how much of the side can bring it to bear.
+ *
+ * This doc had come adrift and was sitting above `mergeLosses`, which is a paragraph about
+ * something else entirely and already had one of its own; the function it describes had none.
+ *
+ * A shield wall gets nothing for being twice as many, because {@link rangedShare} is what buys the
+ * exponent and a melee line has none of it. A firing line gets a *fraction* of Lanchester's square
+ * law rather than most of it, which is what this used to claim: the square law says the per-body
+ * multiplier scales as n, so a force at two-to-one would fire at twice the rate, and
+ * {@link CONCENTRATION_EDGE} at 0.28 gives it 2^0.28, which is 1.21. About a fifth of the way.
+ *
+ * That is deliberate and the clamp is the reason. Under the real square law a small edge compounds
+ * into annihilation, and this engine already has a morale cascade doing that job; stacking an
+ * undamped concentration term on top of it would let a large enough force simply delete a small one
+ * before it acts.
+ */
 export function concentrationFor(side: SideState, enemy: SideState, frontage: number): number {
   const own = engagedBodies(side, frontage);
   const other = engagedBodies(enemy, frontage);

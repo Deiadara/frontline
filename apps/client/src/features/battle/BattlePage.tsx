@@ -1,6 +1,6 @@
 import {
   VEHICLES,
-  canAfford,
+  type Army,
   carriedSpeedPercent,
   mergeFleets,
   type VehicleId,
@@ -8,8 +8,8 @@ import {
   type BattleReportView,
   type BattleView,
   type BattlesResponse,
+  type MovementView,
   type StructureDefence,
-  type Resources,
   estimatedForce,
   forecast,
 } from '@frontline/shared';
@@ -20,16 +20,14 @@ import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
 import { PanelSection } from '../../components/ui/PanelSection';
-import { FortifyMeter } from '../../components/ui/FortifyMeter';
-import { CostLine } from '../../components/Resources';
 import { cn } from '../../lib/cn';
 import {
+  useActions,
   useBattles,
   useBuyBattleBoost,
   useLeadBattle,
   useTakeVehicles,
   useDeployToBattle,
-  useFortifyStructure,
   useMe,
 } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
@@ -72,19 +70,10 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'ground', label: 'Your ground' },
 ];
 
-/** An empty stockpile, for the frame before `me` has landed. Nothing is affordable against it. */
-const NOTHING_IN_STORE: Resources = {
-  caps: 0,
-  supplies: 0,
-  oil: 0,
-  scrap: 0,
-  highQualityMetal: 0,
-  planks: 0,
-};
-
 export function BattlePage() {
   const battles = useBattles();
   const me = useMe();
+  const road = useActions();
   const deploy = useDeployToBattle();
 
   const [tab, setTab] = useState<Tab>('coming');
@@ -95,10 +84,6 @@ export function BattlePage() {
   const data = battles.data;
   const army = me.data?.base?.army ?? {};
   const notoriety = me.data?.base?.economy.notoriety ?? 0;
-  // The stockpile the Gate's dig is priced against. Read off `me` rather than added to the board's
-  // own payload: every battle write already folds its post-write crew into that cache, so this is
-  // the same number the HUD is showing and it lands without a second round trip.
-  const resources = me.data?.base?.resources ?? NOTHING_IN_STORE;
 
   // The fight the detail is showing. Falls back to the first one so the page never opens on an
   // empty right-hand column with a full list beside it.
@@ -110,6 +95,8 @@ export function BattlePage() {
       icon="battles"
       lede="Fights are called for a time, and everybody gets to see them coming."
       action={data ? <Counts data={data} /> : null}
+      wide
+      fills
     >
       {battles.isError ? (
         /*
@@ -129,7 +116,7 @@ export function BattlePage() {
           Reading the board…
         </p>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           <Tabs tab={tab} onPick={setTab} data={data} />
 
           {tab === 'coming' &&
@@ -139,32 +126,70 @@ export function BattlePage() {
                 hour.
               </Empty>
             ) : (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-                <ul className="flex flex-col gap-2" data-testid="coming-battles">
-                  {data.coming.map((view) => (
-                    <ComingRow
-                      key={view.battle.id}
-                      view={view}
-                      now={Date.parse(data.serverNow)}
-                      open={view.battle.id === open?.battle.id}
-                      onOpen={() => setOpenId(view.battle.id)}
-                    />
-                  ))}
-                </ul>
+              /*
+               * One frame, two columns, and the rail is what moves (the Training tab's shape).
+               *
+               * The board asked for this screen to be built the way the gym is, and the reason is
+               * the same: picking the fourth fight out of a list must not move the fight you were
+               * reading. So the frame is fixed, the rail scrolls inside its own panel, and the
+               * detail beside it keeps its top edge wherever the rail is scrolled to.
+               *
+               * `items-stretch` and `min-h-0` on both columns are what hold the two sides level at
+               * every height. Without `min-h-0` a flex child will not shrink below its content and
+               * the whole sheet grows a scrollbar, which is the failure this layout exists to end.
+               */
+              <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
+                <Panel title="Called" className="ink-frame min-h-0 flex-1">
+                  {/* The one scrolling region on the screen. Twenty fights have to be reachable
+                      without the detail beside them moving a pixel. */}
+                  <ul
+                    className="min-h-0 flex-1 divide-y divide-surface-700 overflow-y-auto"
+                    data-testid="coming-battles"
+                  >
+                    {data.coming.map((view) => (
+                      <li key={view.battle.id}>
+                        <ComingRow
+                          view={view}
+                          now={Date.parse(data.serverNow)}
+                          open={view.battle.id === open?.battle.id}
+                          onOpen={() => setOpenId(view.battle.id)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </Panel>
+
                 {open && (
-                  <BattleDetail
-                    view={open}
-                    infamy={data.infamy}
-                    now={Date.parse(data.serverNow)}
-                    onDeploy={() => setDeploying(open)}
-                    deploying={deploy.isPending && deploying?.battle.id === open.battle.id}
-                  />
+                  /*
+                   * The detail takes whatever height is left, and only scrolls when a viewport
+                   * genuinely cannot hold it. A fight carries four panels (the ground, the leader,
+                   * the machines and the boost), which no 768-tall laptop fits, and cut content is
+                   * the one thing the board's bar rules out outright.
+                   */
+                  <div className="min-h-0 min-w-0 overflow-y-auto" data-testid="battle-detail-pane">
+                    <BattleDetail
+                      view={open}
+                      infamy={data.infamy}
+                      now={Date.parse(data.serverNow)}
+                      walking={columnsTo(road.data?.movements, open.battle.id)}
+                      onDeploy={() => setDeploying(open)}
+                      deploying={deploy.isPending && deploying?.battle.id === open.battle.id}
+                    />
+                  </div>
                 )}
               </div>
             ))}
 
-          {tab === 'reports' && <Reports reports={data.reports} onRead={setReading} />}
-          {tab === 'ground' && <Defences structures={data.structures} resources={resources} />}
+          {tab === 'reports' && (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <Reports reports={data.reports} onRead={setReading} />
+            </div>
+          )}
+          {tab === 'ground' && (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <Defences structures={data.structures} />
+            </div>
+          )}
         </div>
       )}
 
@@ -225,7 +250,7 @@ function Tabs({
     ground: data.structures.length,
   };
   return (
-    <div role="tablist" aria-label="Battles" className="flex flex-wrap gap-1.5">
+    <div role="tablist" aria-label="Battles" className="flex shrink-0 flex-wrap gap-1.5">
       {TABS.map((entry) => (
         <button
           key={entry.id}
@@ -267,11 +292,19 @@ const ROLE_TONE: Record<BattleView['role'], string> = {
 };
 
 /**
- * One coming fight, as a row.
+ * One coming fight, as a rail entry.
  *
- * The clock leads, in the largest type on the row, because it is the only thing here a player can
- * be late for. Under it the ground and who is on the other side of it; to the right the side you
- * are on. Three facts, no sentences.
+ * Built the way the gym's roster rail is: a lit left edge and a wash in the same brass on the one
+ * that is open, rather than a heavier outline. The weight of a border is how a list says "this is
+ * a different kind of thing"; **colour** is how it says "this is the one you are looking at", and
+ * `.ink-frame-brass` is the same stroke width as `.ink-frame` for exactly that reason.
+ *
+ * The clock leads, because it is the only thing here a player can be late for, and it sits in a
+ * fixed-width column set in `tabular-nums` so twenty of them read as one column of figures rather
+ * than as twenty rows that each start somewhere slightly different.
+ *
+ * The name wraps rather than truncating. A cut label is the thing the layout gate is for, and a
+ * rail is a list rather than a table with an aligned column, so a row growing a line is free.
  */
 function ComingRow({
   view,
@@ -287,74 +320,94 @@ function ComingRow({
   const left = Date.parse(view.battle.scheduledFor) - now;
   const urgent = left <= 60 * 60 * 1000;
   return (
-    <li>
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-current={open ? 'true' : undefined}
-        data-testid={`battle-${view.battle.id}`}
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-pressed={open}
+      aria-current={open ? 'true' : undefined}
+      data-testid={`battle-${view.battle.id}`}
+      className={cn(
+        'relative flex w-full items-center gap-2.5 border-l-[3px] py-2.5 pl-2.5 pr-3 text-left transition-all duration-150',
+        open
+          ? 'border-brass-300 bg-brass-300/10'
+          : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
+      )}
+    >
+      <span
         className={cn(
-          'edge-lit flex w-full items-center gap-3 rounded-sm border p-2.5 text-left transition-colors duration-150',
-          open
-            ? 'border-brass-300/80 bg-brass-300/10'
-            : 'border-surface-700 bg-surface-900/70 hover:border-iris-300/60',
+          'w-[3.75rem] shrink-0 text-center font-display text-[13px] font-bold leading-none tabular-nums',
+          urgent ? 'text-oxblood-300' : 'text-brass-300',
         )}
       >
-        <span
-          className={cn(
-            'flex h-11 w-[4.5rem] shrink-0 flex-col items-center justify-center rounded-sm border',
-            urgent
-              ? 'border-oxblood-500/70 bg-oxblood-300/10'
-              : 'border-surface-600 bg-surface-950',
-          )}
-        >
-          <span
-            className={cn(
-              'font-display text-[13px] font-bold leading-none tabular-nums',
-              urgent ? 'text-oxblood-300' : 'text-ink-100',
-            )}
-          >
-            {formatRemaining(left)}
-          </span>
+        {formatRemaining(left)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block break-words font-stamp text-[13px] leading-[1.15] text-ink-100">
+          {view.targetName}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-display text-[13px] font-bold tracking-[0.06em] text-ink-100">
-            {view.targetName}
-          </span>
-          <span className="block truncate font-body text-[11px] text-ink-300">
-            {view.districtName} · {view.opponentName}
-          </span>
+        <span className="block break-words font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
+          {view.districtName} · {view.opponentName}
         </span>
-        <span
-          className={cn(
-            'shrink-0 rounded-sm border px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.14em]',
-            ROLE_TONE[view.role],
-          )}
-        >
-          {view.role}
-        </span>
-      </button>
-    </li>
+      </span>
+      <span
+        className={cn(
+          'shrink-0 rounded-sm border px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.14em]',
+          ROLE_TONE[view.role],
+        )}
+      >
+        {view.role}
+      </span>
+    </button>
   );
 }
 
 /** The one fight the player has opened: the ground, who is on it, and what a name would buy. */
+/**
+ * Everything this crew has walking to one fight.
+ *
+ * Read off the Actions screen's own payload rather than off the board's: a column is a
+ * `troop_movements` row and `BattleView.muster` is only what has *landed*, so the two screens
+ * would otherwise be quoting different halves of the same force.
+ */
+function columnsTo(movements: readonly MovementView[] | undefined, battleId: string): Army {
+  return (movements ?? [])
+    .filter((movement) => movement.battleId === battleId)
+    .reduce<Army>(
+      (total, movement) => mergeCounts(mergeCounts(total, movement.army), movement.perimeter),
+      {},
+    );
+}
+
+function mergeCounts(into: Army, force: Army): Army {
+  const next = { ...into };
+  for (const [unitId, count] of Object.entries(force)) {
+    next[unitId] = (next[unitId] ?? 0) + count;
+  }
+  return next;
+}
+
 function BattleDetail({
   view,
   infamy,
   now,
+  walking,
   onDeploy,
   deploying,
 }: {
   view: BattleView;
   infamy: number;
   now: number;
+  /** What is still on the road to this fight: nobody has arrived yet, but they have left. */
+  walking: Army;
   onDeploy: () => void;
   deploying: boolean;
 }) {
   return (
     <div className="flex flex-col gap-4" data-testid={`battle-detail-${view.battle.id}`}>
+      {/* The one the rail has open, said again in colour rather than in weight: `.ink-frame-brass`
+          is the same stroke as `.ink-frame`, so what marks it is the brass and nothing else. */}
       <Panel
+        className="ink-frame ink-frame-brass"
         title={view.targetName}
         action={
           <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
@@ -375,7 +428,7 @@ function BattleDetail({
           />
         </div>
 
-        <Forces view={view} />
+        <Forces view={view} walking={walking} />
 
         <Odds view={view} />
 
@@ -420,8 +473,24 @@ function VehiclePicker({ view }: { view: BattleView }) {
   const take = useTakeVehicles();
   const shut = !view.deploymentOpen;
   const owned = mergeFleets(view.yard, view.vehicles);
-  const bodies = view.muster?.size ?? 0;
-  const speed = carriedSpeedPercent(view.vehicles, bodies);
+  /*
+   * The seats, and what a column that fills them rides at.
+   *
+   * There is no column at the moment this renders, so it cannot quote one. It used to try:
+   * `carriedSpeedPercent(view.vehicles, view.muster.size)`, where `muster.size` is the *whole
+   * side's* folded deployment, allies and everything already on the ground included. The server
+   * computes the same function per column, over `input.army + input.perimeter`
+   * (`battle/movement.ts:76-83`), and the two are never the same number: three War Haulers seated
+   * among 200 standing bodies printed 17% next to a six-Razor deploy the server gives 28%.
+   *
+   * `DeployDialog` is where a column exists; `MissionBoard.tsx:501` does the same sum against the
+   * force actually picked. What this panel can say honestly is a fact about the machines.
+   */
+  const seats = VEHICLES.reduce(
+    (total, spec) => total + spec.capacity * (view.vehicles[spec.id] ?? 0),
+    0,
+  );
+  const speed = carriedSpeedPercent(view.vehicles, seats);
 
   const set = (id: VehicleId, count: number) =>
     take.mutate({
@@ -441,7 +510,7 @@ function VehiclePicker({ view }: { view: BattleView }) {
             lines.length === 0
               ? 'Nothing in the yard'
               : speed > 0
-                ? `${speed}% off the road for this column`
+                ? `${seats} seats · ${speed}% off the road at a full load`
                 : 'Nothing loaded, so everybody walks'
           }
         >
@@ -668,11 +737,12 @@ function Odds({ view }: { view: BattleView }) {
   );
 }
 
-function Forces({ view }: { view: BattleView }) {
+function Forces({ view, walking }: { view: BattleView; walking: Army }) {
   const muster = view.muster;
   if (!muster) return null;
   const rows = Object.entries(muster.army).filter(([, count]) => count > 0);
   const ring = Object.entries(muster.perimeter).filter(([, count]) => count > 0);
+  const road = Object.entries(walking).filter(([, count]) => count > 0);
 
   return (
     <div className="border-t border-surface-700 p-4" data-testid="battle-forces">
@@ -681,7 +751,9 @@ function Forces({ view }: { view: BattleView }) {
       </p>
       {rows.length === 0 ? (
         <p className="mt-1 font-body text-[12px] text-ink-300">
-          Nobody yet. An empty field is a loss you called yourself.
+          {road.length > 0
+            ? 'Nobody yet. They are still walking.'
+            : 'Nobody yet. An empty field is a loss you called yourself.'}
         </p>
       ) : (
         // Wraps, and the box grows with it: a force of nine kinds is a real state and it used to
@@ -693,6 +765,32 @@ function Forces({ view }: { view: BattleView }) {
             </li>
           ))}
         </ul>
+      )}
+      {/*
+       * §A4: what has left but not arrived.
+       *
+       * Sending people starts a column (`battle/movement.ts`); they join the muster when it lands.
+       * Without this the screen a player is returned to after pressing "Move them" says "Nobody
+       * yet" while the units are gone off the roster, which reads as a button that did nothing.
+       */}
+      {road.length > 0 && (
+        <>
+          <p className="mt-3 font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">
+            On the road
+          </p>
+          <ul className="mt-2 flex flex-wrap gap-1.5" data-testid="battle-walking">
+            {road.map(([unitId, count]) => (
+              <li key={`road-${unitId}`}>
+                <UnitChip
+                  unitId={unitId}
+                  count={count}
+                  muted
+                  data-testid={`battle-walking-${unitId}`}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {ring.length > 0 && (
         <>
@@ -887,14 +985,7 @@ function Reports({
 }
 
 /** Your own ground: the way in, and what is standing behind it. */
-function Defences({
-  structures,
-  resources,
-}: {
-  structures: readonly StructureDefence[];
-  resources: Resources;
-}) {
-  const fortify = useFortifyStructure();
+function Defences({ structures }: { structures: readonly StructureDefence[] }) {
   const gate = structures.find((structure) => structure.kind === 'gate') ?? null;
   const rest = structures.filter((structure) => structure.kind !== 'gate');
 
@@ -903,20 +994,8 @@ function Defences({
       <div className="flex flex-col gap-2.5 p-4" data-testid="structures">
         <PanelSection
           label="The way in"
-          note="Digging the Gate in is the one defence you buy with materials"
+          note="A gate is worth its level. There is nothing else to buy on it"
           data-testid="gate-defence"
-          action={
-            gate?.nextFortify ? (
-              <Button
-                size="sm"
-                disabled={fortify.isPending || !canAfford(resources, gate.nextFortify.cost)}
-                onClick={() => fortify.mutate({ buildingId: gate.buildingId })}
-                data-testid="fortify-gate"
-              >
-                {fortify.isPending ? 'Digging…' : `Dig in to ${gate.nextFortify.level}`}
-              </Button>
-            ) : undefined
-          }
         >
           {gate === null ? (
             <p className="font-body text-[12px] leading-relaxed text-ink-300">
@@ -924,27 +1003,15 @@ function Defences({
               to get through.
             </p>
           ) : (
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <FortifyMeter level={gate.fortification} percent={gate.fortifyPercent} />
-                <span className="font-body text-[11px] text-ink-300">
-                  {gate.damage > 0
-                    ? `Wrecked ${Math.round(gate.damage)}% · running at ${Math.round(gate.effectiveness * 100)}%`
-                    : `Gate ${gate.level} · intact`}
-                </span>
-              </div>
-              {gate.nextFortify ? (
-                <div className="flex flex-col gap-1.5">
-                  <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-                    Level {gate.nextFortify.level} takes it to +{gate.nextFortify.bonusPercent}%
-                  </span>
-                  <CostLine cost={gate.nextFortify.cost} stock={resources} />
-                </div>
-              ) : (
-                <span className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300">
-                  As dug in as it goes
-                </span>
-              )}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
+                {gate.label} <span className="tabular-nums text-brass-300">{gate.level}</span>
+              </span>
+              <span className="font-body text-[11px] text-ink-300">
+                {gate.damage > 0
+                  ? `Wrecked ${Math.round(gate.damage)}% · running at ${Math.round(gate.effectiveness * 100)}%`
+                  : 'Intact'}
+              </span>
             </div>
           )}
         </PanelSection>

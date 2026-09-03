@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import type { ItemCost } from '../items/inventory.js';
-import type { ItemId } from '../items/catalog.js';
 import type { PartialResources } from '../resources.js';
 import { UNIT_FIGURE_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
 
@@ -19,9 +18,15 @@ import { UNIT_FIGURE_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
  * reflex and speed and stealth, and the only line whose top tier asks for a Neural Shunt per
  * upgrade rather than per unit.
  *
- * Each line's first tier is open to anybody. The second and third want the line's blueprint, which
- * is what puts the Runner's barrow on the critical path: a crew that never trades tops out at tier
- * one on everything.
+ * Each line's first tier is open to anybody. The second and third want the line's blueprint
+ * **document** (§D12g), assembled out of pages, which is what puts the mission board on the
+ * critical path: a crew that never goes looking tops out at tier one on everything.
+ *
+ * Which document that is lives in `blueprints/catalog.ts` and not here, on the document rather
+ * than on the upgrade, because one document gates both tiers of a line. {@link upgradeRefusal}
+ * therefore takes the answer as a predicate: this module sits below `blueprints/` in the import
+ * graph, and a caller with a satchel to hand passes
+ * `blueprintGateMet(inventory, 'unit_upgrade', id)` straight in.
  *
  * ## Everything costs scrap
  *
@@ -46,13 +51,6 @@ export const UPGRADE_LINE_BLURBS: Readonly<Record<UpgradeLine, string>> = {
   armour: 'Plate, padding and whatever else stops a round. Heavier people move slower.',
   weapons: 'What they are carrying, and how far it reaches.',
   cybernetics: 'Wet-side work. Faster than a body has any business being, and it costs.',
-};
-
-/** The blueprint each line needs past its first tier. */
-export const UPGRADE_LINE_BLUEPRINT: Readonly<Record<UpgradeLine, ItemId>> = {
-  armour: 'blueprint_composite_armour',
-  weapons: 'blueprint_munitions',
-  cybernetics: 'blueprint_cybernetics',
 };
 
 export const UPGRADE_MAX_TIER = 3;
@@ -222,6 +220,16 @@ export const UPGRADE_REFUSALS = [
 export type UpgradeRefusal = (typeof UPGRADE_REFUSALS)[number];
 
 /**
+ * Whether the crew holds the blueprint document that gates an upgrade, by upgrade id.
+ *
+ * Pass `(upgradeId) => blueprintGateMet(inventory, 'unit_upgrade', upgradeId)`. An upgrade nothing
+ * gates answers true, which is how tier one stays open to anybody without this module owning a
+ * copy of the tier rule: `blueprints/catalog.ts` names tiers two and three as targets and says
+ * nothing about tier one.
+ */
+export type UpgradeBlueprintGate = (upgradeId: string) => boolean;
+
+/**
  * The order the checks run in is the order a player wants to hear them.
  *
  * "You need the blueprint" is more useful than "you cannot afford it" when both are true, because
@@ -232,7 +240,7 @@ export function upgradeRefusal(
   id: string,
   fitted: FittedUpgrades,
   gauntletLevel: number,
-  hasBlueprint: (item: ItemId) => boolean,
+  blueprintUnlocked: UpgradeBlueprintGate,
   affordable: (cost: PartialResources) => boolean,
   hasParts: (parts: ItemCost) => boolean,
 ): UpgradeRefusal | null {
@@ -242,7 +250,7 @@ export function upgradeRefusal(
 
   const previous = upgradesInLine(spec.line).find((other) => other.tier === spec.tier - 1);
   if (previous && !fitted.includes(previous.id)) return 'needs_previous_tier';
-  if (spec.tier > 1 && !hasBlueprint(UPGRADE_LINE_BLUEPRINT[spec.line])) return 'needs_blueprint';
+  if (!blueprintUnlocked(spec.id)) return 'needs_blueprint';
   if (gauntletLevel < spec.requiresGauntletLevel) return 'gauntlet_too_low';
   if (!affordable(spec.cost)) return 'cannot_afford';
   if (!hasParts(spec.parts)) return 'missing_parts';
@@ -257,31 +265,50 @@ export function upgradeRefusal(
  * version a player will not find infuriating. Clamped to each stat's own range on the way out.
  */
 export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStats {
-  const next: UnitStats = { ...base };
+  /*
+   * Summed first, clamped once, and that ordering is the whole of the fix here.
+   *
+   * The clamp used to run inside the loop, so a rating that touched the ceiling lost the headroom a
+   * later negative delta would have given back, and the answer depended on the *order* the upgrades
+   * happened to be fitted in. Cyberhounds (speed 92) with Hardshell Rig (-3), Neural Lace (+12) and
+   * Machined Barrels: cybernetics first is 92 -> 104 -> clamp 100 -> 97; armour first is
+   * 92 -> 89 -> 101 -> clamp 100. Three points of speed decided by which bracket the player dropped
+   * a refit into, with nothing on the screen saying bracket order means anything and this module's
+   * own doc saying the opposite ("Order does not matter; the set does"). Speed feeds
+   * `engagementMultiplier` and the concentration term, so those points are real.
+   */
+  const totals: Partial<Record<(typeof UNIT_STAT_KEYS)[number], number>> = {};
   for (const id of fitted) {
     const spec = findUpgrade(id);
     if (!spec) continue;
     for (const key of UNIT_STAT_KEYS) {
       const delta = spec.effect[key];
       if (delta === undefined) continue;
-      /*
-       * The ceiling applies to **ratings only**, and which stats those are is read off
-       * `UNIT_FIGURE_KEYS` rather than listed here.
-       *
-       * It used to name `lootCapacity` as the single exception, and that quietly became wrong the
-       * day damage and hit points stopped being ratings: a Razor on 160 damage fitted with Machined
-       * Barrels came out on 100, so the workshop's cheapest refit *halved* the unit it was bolted
-       * to, and every sheet in the game converged on 100 the moment anything was slotted onto it.
-       *
-       * `range` is not an exception and must not become one. Both of its readers treat it as a
-       * rating: `matchup.ts` clamps `range - speed` into 0..100, and `rangedShare` divides it by
-       * 100 to produce a share it documents as 0..1. Slaved Optics put a Sniper on 109, which drew
-       * a bar past the end of its own track on the roster and handed the engine a share of 1.09.
-       */
-      const raw = next[key] + delta;
-      const rating = !(UNIT_FIGURE_KEYS as readonly string[]).includes(key);
-      next[key] = Math.max(0, Math.round(rating ? Math.min(100, raw) : raw));
+      totals[key] = (totals[key] ?? 0) + delta;
     }
+  }
+
+  const next: UnitStats = { ...base };
+  for (const key of UNIT_STAT_KEYS) {
+    const delta = totals[key];
+    if (delta === undefined) continue;
+    /*
+     * The ceiling applies to **ratings only**, and which stats those are is read off
+     * `UNIT_FIGURE_KEYS` rather than listed here.
+     *
+     * It used to name `lootCapacity` as the single exception, and that quietly became wrong the
+     * day damage and hit points stopped being ratings: a Razor on 160 damage fitted with Machined
+     * Barrels came out on 100, so the workshop's cheapest refit *halved* the unit it was bolted
+     * to, and every sheet in the game converged on 100 the moment anything was slotted onto it.
+     *
+     * `range` is not an exception and must not become one. Both of its readers treat it as a
+     * rating: `matchup.ts` clamps `range - speed` into 0..100, and `rangedShare` divides it by
+     * 100 to produce a share it documents as 0..1. Slaved Optics put a Sniper on 109, which drew
+     * a bar past the end of its own track on the roster and handed the engine a share of 1.09.
+     */
+    const raw = next[key] + delta;
+    const rating = !(UNIT_FIGURE_KEYS as readonly string[]).includes(key);
+    next[key] = Math.max(0, Math.round(rating ? Math.min(100, raw) : raw));
   }
   return next;
 }

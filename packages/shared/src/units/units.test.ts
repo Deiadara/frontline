@@ -6,7 +6,9 @@ import {
   VEHICLE_IDS,
   type Building,
 } from '../building/index.js';
+import { BLUEPRINTS, blueprintForUnit } from '../blueprints/index.js';
 import { CITY_LOCATIONS, LOCATION_KINDS } from '../city/index.js';
+import type { Inventory } from '../items/inventory.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import {
   GAUNTLET_UNLOCKED_UNITS,
@@ -19,6 +21,7 @@ import {
   isCombatUnit,
   isSupportUnit,
   unitsInTier,
+  locationsTraining,
   unitRules,
   unitsUnlockedByLocation,
   type UnitSpec,
@@ -38,11 +41,17 @@ import {
   isUnitUnlocked,
   missingRequirements,
   requirementMet,
+  unitUnlockClauses,
   unlockedUnits,
 } from './unlocks.js';
 import {
   BATCH_TIME_FACTOR,
+  MAX_TRAINING_DISCOUNT,
   MAX_TRAINING_QUEUE,
+  MAX_TRAINING_SPEED_BONUS,
+  TRAINING_COST_PER_LOCATION_LEVEL,
+  TRAINING_SPEED_PER_LOCATION_LEVEL,
+  homeTrainingBonus,
   TRAINING_CANCEL_WINDOW,
   TRAINING_MAX_BATCH,
   TrainingQueueSchema,
@@ -67,7 +76,7 @@ import {
 } from './training.js';
 import { BuildQueueSchema } from '../building/queue.js';
 import { POPULATION_PER_LOCATION, districtPopulationCapacity } from '../building/population.js';
-import { noTerritoryEffects } from '../city/locations.js';
+import { MAX_LOCATION_LEVEL, noTerritoryEffects, type LocationKind } from '../city/locations.js';
 
 /**
  * The units (GDD §A5).
@@ -81,7 +90,11 @@ const NOTHING = {
   buildings: [] as Building[],
   heldPlaceKinds: new Set<never>(),
   buildableVehicles: new Set<string>(),
+  inventory: {} as Inventory,
 };
+
+/** Every finished blueprint document, so the "everything is reachable" fixture really is. */
+const ALL_BLUEPRINTS: Inventory = Object.fromEntries(BLUEPRINTS.map((spec) => [spec.id, 1]));
 
 const building = (
   kind: Building['kind'],
@@ -93,7 +106,6 @@ const building = (
   level,
   modifications,
   damage: 0,
-  fortification: 0,
 });
 
 /** A crew at the top of every tree, holding one of every kind of location. */
@@ -108,6 +120,7 @@ const EVERYTHING = {
   ),
   heldPlaceKinds: new Set(LOCATION_KINDS),
   buildableVehicles: new Set(VEHICLE_IDS),
+  inventory: ALL_BLUEPRINTS,
 };
 
 describe('the catalogue (§A5)', () => {
@@ -148,12 +161,17 @@ describe('the catalogue (§A5)', () => {
    * carries three times as much, and neither fact says anything about where they stand in a battle
    * line, because they are never in one.
    *
-   * Specialists and Wonders of Engineering share a rung, and asserting otherwise would be asserting
-   * something untrue about the roster. A Wonder takes longer to build and eats about the same
-   * supply while hitting slightly softer: Cyberhounds are supply 1, Netrunners are 3, and the two
-   * tiers overlap on every axis. They are two *kinds* of middle unit, not a better and a worse one,
-   * and a test that forced one above the other would be answered by editing content until an
-   * arbitrary ordering came out.
+   * Specialists, Wonders of Engineering and Heavies share a rung, and asserting otherwise would be
+   * asserting something untrue about the roster. They are three *kinds* of middle unit, not a
+   * better and a worse one, and a test that forced one above the others would be answered by
+   * editing content until an arbitrary ordering came out.
+   *
+   * Specialists and Wonders overlap on every axis: a Wonder takes longer to build and eats about
+   * the same supply while hitting slightly softer. Heavy joined them when §D12i moved the Hollow
+   * Men into the wonders: the Heavy tier's own mean is held down by four line-infantry sheets a
+   * crew trains off a Gauntlet 4 (Breakers, Wardens, Sluggers, Ironsides), so with 840 seconds of
+   * Hollow Man on the other rung the training-time axis inverted by 11%. That inversion is a fact
+   * about a tier that runs from line infantry to Juggernauts, not a fault in either sheet.
    */
   it('makes power, price and time all climb with the rungs of the ladder', () => {
     const meanOfRung = (rung: readonly UnitTier[], pick: (unit: UnitSpec) => number) => {
@@ -162,8 +180,7 @@ describe('the catalogue (§A5)', () => {
     };
     const RUNGS: readonly (readonly UnitTier[])[] = [
       ['rabble'],
-      ['specialist', 'wonder'],
-      ['heavy'],
+      ['specialist', 'wonder', 'heavy'],
       ['legendary'],
     ];
     // Every fighting tier is on exactly one rung, so a tier added later fails here rather than
@@ -378,7 +395,8 @@ describe('unlocking them (§A5)', () => {
     const colossus = findUnit('the_colossus');
     expect(colossus).toBeDefined();
     const missing = missingRequirements(colossus!, NOTHING);
-    expect(missing).toHaveLength(colossus!.requires.length);
+    // The catalogue's own clauses, plus the blueprint document §D12d puts it behind.
+    expect(missing).toHaveLength(colossus!.requires.length + 1);
     for (const clause of missing) expect(describeRequirement(clause).length).toBeGreaterThan(4);
 
     // Meeting one does not silence the others.
@@ -386,8 +404,68 @@ describe('unlocking them (§A5)', () => {
       ...NOTHING,
       buildings: [building('garage', 20)],
     });
-    expect(partway.length).toBe(colossus!.requires.length - 1);
+    expect(partway.length).toBe(colossus!.requires.length);
     expect(isUnitUnlocked(colossus!, partway.length === 0 ? EVERYTHING : NOTHING)).toBe(false);
+  });
+
+  /**
+   * §D12a/§D12d: the blueprint document is a clause like any other.
+   *
+   * Measured against a crew that has everything else, so the only thing being tested is the
+   * document: the same crew that cannot field a Sniper can field a Razor, which nothing gates.
+   * Without that second half the test passes against a build that locked the whole roster.
+   */
+  describe('the blueprint clause (§D12)', () => {
+    const RICH_BUT_UNREAD = { ...EVERYTHING, inventory: {} as Inventory };
+
+    it('locks a unit whose document the crew has not assembled, and nothing else', () => {
+      const snipers = findUnit('snipers');
+      const razors = findUnit('razors');
+      expect(snipers).toBeDefined();
+      expect(razors).toBeDefined();
+
+      expect(blueprintForUnit('snipers')?.id).toBe('bp_snipers');
+      expect(blueprintForUnit('razors'), 'the control unit is gated after all').toBeUndefined();
+
+      expect(isUnitUnlocked(snipers!, RICH_BUT_UNREAD)).toBe(false);
+      expect(isUnitUnlocked(razors!, RICH_BUT_UNREAD)).toBe(true);
+
+      const read = { ...RICH_BUT_UNREAD, inventory: { bp_snipers: 1 } as Inventory };
+      expect(isUnitUnlocked(snipers!, read)).toBe(true);
+    });
+
+    it('names the document on the missing list, so a locked row says what to go and find', () => {
+      const snipers = findUnit('snipers');
+      const missing = missingRequirements(snipers!, RICH_BUT_UNREAD);
+      expect(missing.map(describeRequirement)).toEqual(['The Sniper Blueprint']);
+    });
+
+    it('puts the document at the head of the clauses, ahead of the levels', () => {
+      const colossus = findUnit('the_colossus');
+      expect(unitUnlockClauses(colossus!)[0]).toEqual({
+        kind: 'blueprint',
+        blueprintId: 'bp_the_colossus',
+      });
+      expect(unitUnlockClauses(colossus!)).toHaveLength(colossus!.requires.length + 1);
+    });
+
+    it('§D12b: the Road Reavers read the motorbike\u2019s own document, not one of their own', () => {
+      const reavers = findUnit('road_reavers');
+      expect(blueprintForUnit('road_reavers')?.id).toBe('bp_motorcycle');
+      // Everything else in place, the bike buildable, and still locked without the drawings.
+      expect(isUnitUnlocked(reavers!, RICH_BUT_UNREAD)).toBe(false);
+      expect(
+        isUnitUnlocked(reavers!, { ...RICH_BUT_UNREAD, inventory: { bp_motorcycle: 1 } }),
+      ).toBe(true);
+    });
+
+    it('leaves a unit nothing gates with exactly the clauses its catalogue entry declares', () => {
+      const ungated = UNIT_CATALOG.filter((unit) => blueprintForUnit(unit.id) === undefined);
+      expect(ungated.length).toBeGreaterThan(0);
+      for (const unit of ungated) {
+        expect(unitUnlockClauses(unit), unit.id).toEqual([...unit.requires]);
+      }
+    });
   });
 
   it('reads back which units a location would open up', () => {
@@ -885,5 +963,63 @@ describe('the rule flags are visible content, not engine trivia', () => {
   it('leaves most of the roster carrying none, so a rule stays a distinction', () => {
     const carrying = UNIT_CATALOG.filter((unit) => unitRules(unit).length > 0);
     expect(carrying.length).toBeLessThan(UNIT_CATALOG.length / 3);
+  });
+});
+
+/**
+ * §A4: the ground a unit comes from, and what working it up is worth.
+ *
+ * The Doghouse is the only one of its kind in the city and it is what puts Cyberhounds on the
+ * roster, so it is the case this reads best on. The rule is narrow on purpose: it is the *held*
+ * level of the place that trains this unit, and nothing else on the map touches this unit's bill.
+ */
+describe('what a unit-producing location does to its own unit', () => {
+  const hounds = findUnit('cyber_dogs')!;
+  const levels = (level: number): ReadonlyMap<LocationKind, number> =>
+    new Map([['doghouse', level]]);
+
+  it('is worth nothing while nobody holds the place that breeds them', () => {
+    // The map is built from locations the crew holds, so "nobody holds it" is an absent key.
+    expect(homeTrainingBonus(hounds, new Map())).toEqual({ costPercent: 0, speedPercent: 0 });
+    // Held, but at the level it is walked into at: an upgrade nobody has bought is worth nothing.
+    expect(homeTrainingBonus(hounds, levels(1))).toEqual({ costPercent: 0, speedPercent: 0 });
+  });
+
+  it('takes more off the further the place has been worked up', () => {
+    expect(homeTrainingBonus(hounds, levels(4))).toEqual({
+      costPercent: 3 * TRAINING_COST_PER_LOCATION_LEVEL,
+      speedPercent: 3 * TRAINING_SPEED_PER_LOCATION_LEVEL,
+    });
+    const top = homeTrainingBonus(hounds, levels(MAX_LOCATION_LEVEL));
+    expect(top).toEqual({ costPercent: 18, speedPercent: 27 });
+    // And still inside the ceilings every other discount is competing for.
+    expect(top.costPercent).toBeLessThan(MAX_TRAINING_DISCOUNT);
+    expect(top.speedPercent).toBeLessThan(MAX_TRAINING_SPEED_BONUS);
+  });
+
+  it('does nothing at all for a unit no location on the map trains', () => {
+    const razors = findUnit('razors')!;
+    expect(locationsTraining(razors)).toEqual([]);
+    expect(homeTrainingBonus(razors, levels(MAX_LOCATION_LEVEL))).toEqual({
+      costPercent: 0,
+      speedPercent: 0,
+    });
+  });
+
+  it('shows up on the bill and on the clock', () => {
+    const home = homeTrainingBonus(hounds, levels(MAX_LOCATION_LEVEL));
+    expect(trainingCost(hounds, 2, home.costPercent).caps!).toBeLessThan(
+      trainingCost(hounds, 2).caps!,
+    );
+    expect(trainingSeconds(hounds, 2, home.speedPercent)).toBeLessThan(trainingSeconds(hounds, 2));
+  });
+
+  /** The gate and the home are read off one authored list, so they cannot come apart. */
+  it('reads the same link the unlock reads, in both directions', () => {
+    for (const kind of LOCATION_KINDS) {
+      for (const unit of unitsUnlockedByLocation(kind)) {
+        expect(locationsTraining(unit), unit.id).toContain(kind);
+      }
+    }
   });
 });

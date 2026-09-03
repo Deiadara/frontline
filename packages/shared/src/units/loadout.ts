@@ -53,25 +53,85 @@ export function fittedFor(loadouts: UnitLoadouts, unitId: string): FittedUpgrade
 }
 
 export type SlotRefusal =
-  'bad_slot' | 'unknown_upgrade' | 'not_built' | 'already_slotted' | 'already_empty';
+  'bad_slot' | 'unknown_upgrade' | 'not_built' | 'already_slotted' | 'slot_taken' | 'cannot_unfit';
 
 /**
- * Checked in the order a player wants to hear it: "you have not built that yet" is a thing to go
- * and do, "it is already in slot 2" is a thing to look at.
+ * Every unit id this crew has bolted `upgradeId` to. Empty when it is still on the shelf.
+ *
+ * The whole roster, not one unit, and that is the rule: a modification is **one object**. A crew
+ * that has built one Scrap Plate has one Scrap Plate, and it is bolted to the Razors or it is not
+ * bolted to anything.
+ */
+export function fittedOn(loadouts: UnitLoadouts, upgradeId: string): string[] {
+  return Object.entries(loadouts)
+    .filter(([, slots]) => slots.includes(upgradeId))
+    .map(([unitId]) => unitId);
+}
+
+/**
+ * Why this cannot be bolted on, checked in the order a player wants to hear it (§D5c).
+ *
+ * ## One of a thing is one of a thing
+ *
+ * `already_slotted` used to mean "already in another bracket **on this unit**", so the same
+ * upgrade could be fitted to every unit type in the game off a single build: one Scrap Plate on
+ * the Razors, the Breakers, the Wardens and the Ironsides at once. It now means fitted anywhere,
+ * which is the board's rule ("you can only have each modification once") and the thing that makes
+ * choosing *which* unit gets it a decision at all.
+ *
+ * ## And it does not come off
+ *
+ * There is no un-fit. Passing `null` used to empty a bracket and hand the upgrade back, which made
+ * the choice free and reversible: a crew could move one plate around the roster to suit whatever
+ * they were about to field. What replaces it is `burnUpgrade`, which destroys the thing. The
+ * decision costs something, and changing your mind costs building it again.
  */
 export function slotRefusal(
   loadouts: UnitLoadouts,
   unitId: string,
   slot: number,
-  upgradeId: string | null,
+  upgradeId: string,
   built: FittedUpgrades,
 ): SlotRefusal | null {
   if (!Number.isInteger(slot) || slot < 0 || slot >= UNIT_UPGRADE_SLOTS) return 'bad_slot';
-  const slots = slotsFor(loadouts, unitId);
-  if (upgradeId === null) return slots[slot] === null ? 'already_empty' : null;
   if (!findUpgrade(upgradeId)) return 'unknown_upgrade';
   if (!built.includes(upgradeId)) return 'not_built';
-  if (slots.some((id, index) => id === upgradeId && index !== slot)) return 'already_slotted';
+  if (fittedOn(loadouts, upgradeId).length > 0) return 'already_slotted';
+  // A bracket holds one thing, and taking the old one out means burning it.
+  if (slotsFor(loadouts, unitId)[slot] !== null) return 'slot_taken';
+  return null;
+}
+
+export type BurnRefusal = 'unknown_upgrade' | 'not_fitted';
+
+/**
+ * Burns a fitted modification off the roster (§D5c, board request).
+ *
+ * The only way one ever comes off. It is destroyed rather than returned: gone from the bracket it
+ * was in *and* from what the crew has built, so getting it back means building or finding another.
+ * That is what stops the three brackets being a free loadout screen a player re-arranges before
+ * every fight, and it is why fitting one is worth thinking about.
+ *
+ * Returns both halves because they have to move together: leaving it in `built` would let a crew
+ * burn a plate off the Razors and immediately bolt the same plate to the Breakers, which is the
+ * un-fit this replaces wearing a different name.
+ */
+export function burnUpgrade(
+  loadouts: UnitLoadouts,
+  built: FittedUpgrades,
+  upgradeId: string,
+): { loadouts: UnitLoadouts; built: FittedUpgrades } {
+  const stripped: UnitLoadouts = {};
+  for (const [unitId, slots] of Object.entries(loadouts)) {
+    const kept = slots.map((id) => (id === upgradeId ? null : id));
+    if (kept.some((id) => id !== null)) stripped[unitId] = kept;
+  }
+  return { loadouts: stripped, built: built.filter((id) => id !== upgradeId) };
+}
+
+export function burnRefusal(loadouts: UnitLoadouts, upgradeId: string): BurnRefusal | null {
+  if (!findUpgrade(upgradeId)) return 'unknown_upgrade';
+  if (fittedOn(loadouts, upgradeId).length === 0) return 'not_fitted';
   return null;
 }
 

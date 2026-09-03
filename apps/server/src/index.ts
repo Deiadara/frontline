@@ -1,5 +1,5 @@
 import { buildApp } from './app.js';
-import { loadConfig } from './config.js';
+import { assertDeployable, loadConfig } from './config.js';
 import { BACKUP_INTERVAL_MS, startBackupSchedule } from './db/backup.js';
 import { openDatabase, runMigrations } from './db/index.js';
 import { WORLD_TICK_MS, startWorldClock } from './live/clock.js';
@@ -9,6 +9,10 @@ import { applyUnlockedSandbox } from './seed/sandbox.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  // Before anything is opened or served: a production boot with the repository's own signing key
+  // is not a server with a warning on it, it is a server anybody can log into as anybody.
+  assertDeployable(config);
+
   const db = openDatabase(config.databasePath);
   const applied = runMigrations(db);
 

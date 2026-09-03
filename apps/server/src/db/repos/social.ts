@@ -231,8 +231,21 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
   const readAllNotificationsStmt = db.prepare(
     'UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL',
   );
+  /*
+   * Counted over the kinds the list will actually show.
+   *
+   * `notifications()` drops a row whose kind the catalogue no longer carries, which is the right
+   * repair: a retired kind is not a reason to take a player's bell down. This count did not, so a
+   * retirement left a badge saying 3 over a list showing nothing, and nothing could clear it:
+   * `markNotificationRead` needs an id and the list never returned one. Kinds have been retired
+   * before (`0054_battle_report_tiers.sql` exists to rewrite one).
+   *
+   * The list is built in SQL rather than filtered in JS so the badge stays one query.
+   */
   const unreadNotificationsStmt = db.prepare(
-    'SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL',
+    `SELECT COUNT(*) AS n FROM notifications
+      WHERE user_id = ? AND read_at IS NULL
+        AND kind IN (${NOTIFICATION_KINDS.map(() => '?').join(', ')})`,
   );
   const trimStmt = db.prepare(
     `DELETE FROM notifications
@@ -337,7 +350,7 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
       readAllNotificationsStmt.run(at, userId);
     },
     unreadNotifications(userId) {
-      return (unreadNotificationsStmt.get(userId) as { n: number }).n;
+      return (unreadNotificationsStmt.get(userId, ...NOTIFICATION_KINDS) as { n: number }).n;
     },
     trimNotifications(userId, keep) {
       trimStmt.run(userId, userId, keep);

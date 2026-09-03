@@ -1,13 +1,11 @@
 import {
+  blueprintGateMet,
+  describeBlueprintGate,
   BUILDING_CATALOG,
   CITY_DISTRICTS,
   BATTLE_BOOSTS,
   TRAP_CATALOG,
   buildingEffectiveness,
-  fortifyBonusPercent,
-  fortifyCost,
-  nextFortifyLevel,
-  type Building,
   declarableSlots,
   deploymentBlurPercent,
   districtHolder,
@@ -251,23 +249,13 @@ function reportsFor(repos: Repositories, base: Base): BattleReportView[] {
 }
 
 /**
- * What digging this structure one more level would cost, or null when there is nothing to buy.
+ * The crew's own structures, as the defence tab lists them.
  *
- * Null off the Gate as well as at the ceiling: the two are different sentences on screen ("only
- * the Gate is worth it" against "as dug in as it goes") but they are the same absence of an offer,
- * and the route refuses both.
+ * Level and damage, and nothing to buy: a gate's strength is the level it has been raised to
+ * (board request), which is bought in the district's own build queue like every other level. The
+ * digging that used to sit here bought defence without buying height and is gone; locations keep
+ * theirs, where the ground varies and the choice is real.
  */
-function nextGateFortify(building: Building): StructureDefence['nextFortify'] {
-  if (building.kind !== 'gate') return null;
-  const level = nextFortifyLevel(building.fortification);
-  if (level === null) return null;
-  return {
-    level,
-    cost: fortifyCost(level),
-    bonusPercent: fortifyBonusPercent('medium', level),
-  };
-}
-
 function structuresOf(base: Base): StructureDefence[] {
   return base.buildings.map((building) => ({
     buildingId: building.id,
@@ -276,13 +264,6 @@ function structuresOf(base: Base): StructureDefence[] {
     level: building.level,
     damage: building.damage,
     effectiveness: buildingEffectiveness(building),
-    fortification: building.fortification,
-    // Only the Gate's digging is worth anything, and the screen says so by quoting zero on the
-    // rest rather than by hiding the row: a player who has just spent on the wrong structure
-    // needs to see that it bought nothing.
-    fortifyPercent:
-      building.kind === 'gate' ? fortifyBonusPercent('medium', building.fortification) : 0,
-    nextFortify: nextGateFortify(building),
   }));
 }
 
@@ -318,16 +299,35 @@ function boostsFor(
     // signed one and left them on the bench.
     roles: seatedRoles(base.commanders),
   };
+  // §D12e: the four manufactured boosts are behind their blueprint as well as behind whoever
+  // proposed them. Bound once here rather than per row: the satchel does not change mid-list.
+  const boostGate = (boostId: string): boolean =>
+    blueprintGateMet(base.inventory, 'battle_boost', boostId);
   const names = BATTLE_BOOSTS.map((spec) => ({
     id: spec.id,
     name: spec.name,
     description: spec.description,
     cost: spec.cost,
     effect: describeBoostEffect(spec.effect),
-    source: describeBoostUnlock(spec.unlock, (id) => findTech(id)?.name ?? id),
+    /*
+     * Why it is shut, and the blueprint is the half a player can act on.
+     *
+     * Without this a manufactured boost reads as unavailable with a line about who proposed it,
+     * which is a reason the player has already satisfied. The document line comes first for the
+     * same reason it is checked first: it is the gate they are part way through.
+     */
+    // The blueprint line wins while the drawings are what is missing, because that is the half the
+    // player can act on. The `??` is not reachable today (the gate only shuts when a document
+    // exists to shut it), and it falls back to the proposer rather than to an empty string so that
+    // a future boost gated some other way cannot put a blank line on the card.
+    source:
+      boostGate(spec.id) === false
+        ? (describeBlueprintGate('battle_boost', spec.id) ??
+          describeBoostUnlock(spec.unlock, (id) => findTech(id)?.name ?? id))
+        : describeBoostUnlock(spec.unlock, (id) => findTech(id)?.name ?? id),
     reach: Math.round(boostCoverage(spec.effect, force) * 100),
     affordable: hasInfamy(base.economy.infamy, spec.cost),
-    available: boostAvailable(spec.unlock, crew),
+    available: boostAvailable(spec, crew, boostGate),
     held: false,
   }));
 

@@ -7,6 +7,7 @@ import {
 } from '@frontline/shared';
 import { NavLink } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Icon } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
@@ -78,18 +79,21 @@ export function MarketTabs({ active }: { active: 'market' | 'black' }) {
 }
 
 /**
- * Four kinds, one palette.
+ * Every kind, one palette.
  *
  * Everywhere else in the game a category badge picks a colour off the whole chrome ramp. Here they
  * are all tangerine and differ only in weight, because the room's whole read is that it has two
- * colours: four hues on a shelf would put the market's rainbow back on the wrong side of the door.
- * The glyph is what tells the kinds apart, which is what a glyph is for.
+ * colours: a hue per kind would put the market's rainbow back on the wrong side of the door. The
+ * glyph is what tells the kinds apart, which is what a glyph is for.
  */
 const KIND_TONE: Record<BlackMarketKind, string> = {
   contraband: 'border-tangerine-700 text-tangerine-300/85',
   unit_upgrade: 'border-tangerine-500/70 text-tangerine-300',
   blueprint: 'border-tangerine-300/70 text-tangerine-100',
   battle_boost: 'border-tangerine-300 bg-tangerine-300/15 text-tangerine-100',
+  // §F2: a single sheet, so the lightest weight on the shelf. It is the cheapest thing here and
+  // the one a player is most often after.
+  blueprint_page: 'border-tangerine-700/70 text-tangerine-300/85',
 };
 
 const KIND_ICON: Record<BlackMarketKind, 'crew' | 'units' | 'research' | 'sword'> = {
@@ -97,6 +101,7 @@ const KIND_ICON: Record<BlackMarketKind, 'crew' | 'units' | 'research' | 'sword'
   unit_upgrade: 'units',
   blueprint: 'research',
   battle_boost: 'sword',
+  blueprint_page: 'research',
 };
 
 /** One slot on the shelf. */
@@ -185,11 +190,12 @@ export function BlackMarketPage() {
   const data = query.data;
   if (!data) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Knocking on the back door…
-        </p>
-      </div>
+      <ScreenLoad
+        what="The back room"
+        loading="Knocking on the back door…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 

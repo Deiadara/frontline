@@ -61,6 +61,7 @@ const board: MissionsResponse = {
         payoutSlots: 40,
         xp: 240,
         failedXp: 48,
+        pagePrize: null,
       })),
       activeMissionId: null,
     },
@@ -94,6 +95,7 @@ const staffed: CrewResponse = {
       perks: [],
       weeklyWage: 40,
       injuredUntil: null,
+      mark: 'C' as const,
     },
   ],
 };

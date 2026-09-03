@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { blueprintForUnitUpgrade, blueprintGateMet } from '../blueprints/index.js';
 import { ITEM_CATALOG } from '../items/catalog.js';
 import {
   UNIT_UPGRADES,
   UPGRADE_LINES,
-  UPGRADE_LINE_BLUEPRINT,
   UPGRADE_MAX_TIER,
   upgradeRefusal,
   upgradedStats,
   upgradesInLine,
 } from './upgrades.js';
-import { UNIT_CATALOG } from './catalog.js';
+import { UNIT_CATALOG, findUnit } from './catalog.js';
 import { UNIT_RATING_KEYS, UNIT_STAT_KEYS } from './stats.js';
 
 const YES = () => true;
@@ -53,10 +53,37 @@ describe('the workshop catalogue', () => {
     }
   });
 
-  it('names a real blueprint for every line, and a real part in every recipe', () => {
-    for (const line of UPGRADE_LINES) {
-      expect(ITEM_CATALOG[UPGRADE_LINE_BLUEPRINT[line]].kind, line).toBe('blueprint');
+  /**
+   * §D12g: tiers two and three are behind a document, tier one is open.
+   *
+   * Read off `blueprints/catalog.ts` rather than off a table here, which is the whole point of the
+   * move: the upgrade catalogue no longer names a blueprint, so there is nothing left to disagree
+   * with the Blueprints page about.
+   */
+  it('puts every rung past the first behind a document, and leaves the first open', () => {
+    for (const spec of UNIT_UPGRADES) {
+      const document = blueprintForUnitUpgrade(spec.id);
+      if (spec.tier === 1) expect(document, spec.id).toBeUndefined();
+      else expect(document?.category, spec.id).toBe('upgrade');
     }
+    // One document per line, shared by both of its gated rungs, not one per rung.
+    for (const line of UPGRADE_LINES) {
+      const gated = upgradesInLine(line).filter((spec) => spec.tier > 1);
+      const documents = new Set(gated.map((spec) => blueprintForUnitUpgrade(spec.id)?.id));
+      expect(documents.size, line).toBe(1);
+    }
+  });
+
+  it('reads the gate out of the satchel, per rung', () => {
+    const [tierOne, tierTwo] = upgradesInLine('armour');
+    if (!tierOne || !tierTwo) throw new Error('expected a full armour ladder');
+    expect(blueprintGateMet({}, 'unit_upgrade', tierOne.id)).toBe(true);
+    expect(blueprintGateMet({}, 'unit_upgrade', tierTwo.id)).toBe(false);
+    const document = blueprintForUnitUpgrade(tierTwo.id)!;
+    expect(blueprintGateMet({ [document.id]: 1 }, 'unit_upgrade', tierTwo.id)).toBe(true);
+  });
+
+  it('names a real part in every recipe', () => {
     for (const spec of UNIT_UPGRADES) {
       for (const id of Object.keys(spec.parts)) {
         expect(ITEM_CATALOG[id as keyof typeof ITEM_CATALOG], `${spec.id}: ${id}`).toBeDefined();
@@ -78,8 +105,20 @@ describe('fitting an upgrade', () => {
   const [one, two, three] = armour;
   if (!one || !two || !three) throw new Error('expected three rungs');
 
+  /**
+   * An empty satchel, asked through the real mapping rather than through a flat `NO`.
+   *
+   * The tier rule moved out of `upgradeRefusal` and into `blueprints/catalog.ts`, so a blanket
+   * "holds nothing" predicate would now refuse tier one as well and this suite would be asserting
+   * the gate against itself. Reading the answer off `blueprintGateMet` is what keeps "tier one is
+   * open to anybody" a measurement of the shipped catalogue.
+   */
+  const NO_DOCUMENTS = (id: string) => blueprintGateMet({}, 'unit_upgrade', id);
+
   it('takes the first rung with nothing but a Gauntlet and the money', () => {
-    expect(upgradeRefusal(one.id, [], one.requiresGauntletLevel, NO, YES, YES)).toBeNull();
+    expect(
+      upgradeRefusal(one.id, [], one.requiresGauntletLevel, NO_DOCUMENTS, YES, YES),
+    ).toBeNull();
   });
 
   it('refuses a rung whose predecessor is not fitted', () => {
@@ -93,7 +132,16 @@ describe('fitting an upgrade', () => {
    * the caps will fix themselves.
    */
   it('names the blueprint before it names the price', () => {
-    expect(upgradeRefusal(two.id, [one.id], 99, NO, NO, YES)).toBe('needs_blueprint');
+    expect(upgradeRefusal(two.id, [one.id], 99, NO_DOCUMENTS, NO, YES)).toBe('needs_blueprint');
+  });
+
+  it('opens the second rung the moment the document is in the satchel', () => {
+    const document = blueprintForUnitUpgrade(two.id)!;
+    const held = (id: string) => blueprintGateMet({ [document.id]: 1 }, 'unit_upgrade', id);
+    expect(upgradeRefusal(two.id, [one.id], two.requiresGauntletLevel, held, YES, YES)).toBeNull();
+    expect(
+      upgradeRefusal(two.id, [one.id], two.requiresGauntletLevel, NO_DOCUMENTS, YES, YES),
+    ).toBe('needs_blueprint');
   });
 
   it('refuses a Gauntlet that is too low even with everything else in hand', () => {
@@ -170,5 +218,53 @@ describe('what a refit does to a sheet', () => {
 
   it('ignores an upgrade id it does not recognise rather than throwing', () => {
     expect(upgradedStats(razors.stats, ['nonsense'])).toEqual(razors.stats);
+  });
+});
+
+/**
+ * Which bracket a refit was dropped into must not change the sheet.
+ *
+ * The clamp used to run per upgrade, so a rating that touched the ceiling lost the headroom a later
+ * negative delta would have given back, and the result depended on the order of `fittedUpgrades`.
+ * That array is positional and the player chooses the slot (`FitSlotRequestSchema`), while this
+ * module's own doc says "Order does not matter; the set does".
+ */
+describe('the order upgrades were fitted in', () => {
+  it('makes no difference to the sheet, on the case that used to differ', () => {
+    const hound = findUnit('cyber_dogs');
+    if (!hound) throw new Error('fixture: no cyber dogs');
+    const set = ['armour_3', 'cybernetics_3', 'weapons_3'];
+    // The precondition: this set really does cross the ceiling on speed, or the case is vacuous.
+    expect(hound.stats.speed).toBeGreaterThan(85);
+
+    const forwards = upgradedStats(hound.stats, set);
+    const backwards = upgradedStats(hound.stats, [...set].reverse());
+    const shuffled = upgradedStats(hound.stats, [set[1]!, set[2]!, set[0]!]);
+    expect(backwards).toEqual(forwards);
+    expect(shuffled).toEqual(forwards);
+  });
+
+  it('makes no difference for any unit and any permutation of the three lines', () => {
+    const set = ['armour_3', 'cybernetics_3', 'weapons_3'];
+    const permutations = [
+      [0, 1, 2],
+      [0, 2, 1],
+      [1, 0, 2],
+      [1, 2, 0],
+      [2, 0, 1],
+      [2, 1, 0],
+    ];
+    for (const unit of UNIT_CATALOG) {
+      const first = upgradedStats(unit.stats, set);
+      for (const order of permutations) {
+        expect(
+          upgradedStats(
+            unit.stats,
+            order.map((index) => set[index]!),
+          ),
+          unit.id,
+        ).toEqual(first);
+      }
+    }
   });
 });

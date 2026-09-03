@@ -1,4 +1,5 @@
 import {
+  BUILDING_CATALOG,
   type DistrictDetailResponse,
   formatCountdown,
   districtDisplayName,
@@ -13,20 +14,24 @@ import {
   type Army,
   type BattleResult,
   type BattleTarget,
+  type Building,
+  type BuildingKind,
   type LevelUp,
   type LocationView,
   type Resources,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { Modal } from '../../components/ui/Modal';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { FortifyMeter } from '../../components/ui/FortifyMeter';
 import { LabelRow } from '../../components/ui/LabelChip';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
+import { ContestedScene, hasPainting } from './ContestedScene';
 import { DistrictScene } from '../base/DistrictScene';
-import { DISTRICT_ASPECT } from '../base/plots';
 import { cn } from '../../lib/cn';
 import {
   useBattles,
@@ -80,6 +85,8 @@ export function DistrictView() {
   const battles = useBattles();
   const declare = useDeclareBattle();
   const [calling, setCalling] = useState<BattleTarget | null>(null);
+  /** The location whose sign was last clicked on the painting, ringed until the next click. */
+  const [picked, setPicked] = useState<string | null>(null);
   /** The last fight's report. The mutation response is the only thing that knows what happened. */
   const [report, setReport] = useState<BattleReport | null>(null);
 
@@ -102,12 +109,78 @@ export function DistrictView() {
   const gate = battles.data?.gates.find((candidate) => candidate.districtId === districtId);
 
   if (!data) {
+    /*
+     * A failed read has to say so, not sit on "Reading the street" for ever.
+     *
+     * Queries do not retry (`main.tsx` sets `retry: false`), so one refused request left this
+     * screen showing a loading line with nothing behind it and no way back except the browser's
+     * own reload. The same shape was on thirteen other screens and is one component now.
+     */
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Reading the street…
-        </p>
-      </div>
+      <ScreenLoad
+        what="This district"
+        loading="Reading the street…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
+    );
+  }
+
+  /*
+   * Another crew's ground opens as a screen, not as a thumbnail in a column (board request).
+   *
+   * It used to be a small preview inside a panel, which made a neighbour's district a picture of a
+   * place rather than a place: you could see the roofs and there was nothing to do with them. It is
+   * the same scene your own district is, at the same size, with the same name plate under each
+   * building, and the plates are controls. What clicking one offers is the only thing you can
+   * offer somebody else's building, which is a fight.
+   */
+  /*
+   * Contested ground opens as a screen too (board request).
+   *
+   * It was the painting in a panel with a column of cards scrolling under it, which is the shape
+   * the board rejected: "not a scrollable box with info, the entire screen is the district". Same
+   * rule as a lived-in district and as your own, so all three are one screen with one painting and
+   * a plate under each thing on it, and clicking a plate opens what you can do about that thing.
+   */
+  if (data.scouted && data.district.kind === 'contested' && hasPainting(data.district.id)) {
+    return (
+      <ContestedDistrict
+        data={data}
+        viewer={viewer}
+        gate={gate}
+        baseId={baseId}
+        army={army}
+        resources={me.data?.base?.resources ?? EMPTY_STOCK}
+        onLeave={() => void navigate('/game')}
+        onCall={setCalling}
+        calling={calling}
+        slots={slots}
+        declare={declare}
+        onDone={() => setCalling(null)}
+      />
+    );
+  }
+
+  if (
+    data.scouted &&
+    data.district.kind === 'residential' &&
+    data.residentBuildings.length > 0 &&
+    data.base?.id !== baseId
+  ) {
+    return (
+      <VisitedDistrict
+        data={data}
+        viewer={viewer}
+        gate={gate}
+        playerLevel={me.data?.base?.level ?? 1}
+        onLeave={() => void navigate('/game')}
+        onCall={setCalling}
+        calling={calling}
+        slots={slots}
+        declare={declare}
+        onDone={() => setCalling(null)}
+      />
     );
   }
 
@@ -180,45 +253,16 @@ export function DistrictView() {
           <Panel title="Unscouted">
             <ScoutPanel
               data={data}
+              receivedAt={query.dataUpdatedAt}
               pending={scout.isPending}
               onSend={() => scout.mutate({ districtId: data.district.id })}
             />
           </Panel>
         ) : data.district.kind === 'residential' ? (
           <>
-            {/* Their district, drawn the same way yours is.
-                
-                Another crew's ground used to be a paragraph of text saying somebody lived there,
-                which is a strange thing for a game whose whole district screen is a location you look
-                at. A structure is a building on a street: anyone walking past can see how far it
-                has been built up, so it is drawn. What stays behind the fog is everything a crew
-                *knows*: their roles, their discovered facts, their stockpile. None of that is here.
-                
-                Read-only: the plots do not open a dialog, because there is nothing on somebody
-                else's ground for you to build. */}
-            {data.residentBuildings.length > 0 && (
-              <Panel title={`${districtDisplayName(data.district, viewer)}`}>
-                {/* The plate's own shape, read from the asset rather than typed: a hard-coded
-                    ratio here letterboxed the painting inside the panel the day it was
-                    redelivered at a different size, and every outline in it moved with the
-                    letterbox. */}
-                <div
-                  className="relative w-full overflow-hidden"
-                  style={{ aspectRatio: DISTRICT_ASPECT }}
-                >
-                  <DistrictScene
-                    buildings={data.residentBuildings}
-                    queue={[]}
-                    // Their ground, read-only: nothing here is gated on *your* level, but the
-                    // prop is required and the honest answer is the level you actually are.
-                    playerLevel={me.data?.base?.level ?? 1}
-                    selected={null}
-                    onSelect={() => undefined}
-                    readOnly
-                  />
-                </div>
-              </Panel>
-            )}
+            {/* The painting itself is not here: a district another crew lives on opens as a full
+                screen of its own (`VisitedDistrict`, above), the same way yours does. What is left
+                in this column is the paperwork that has no place on a painting. */}
             <Panel title={data.base ? 'A crew lives here' : 'Nobody lives here yet'}>
               <div className="flex flex-col gap-3 p-4">
                 {/* Two states, and the empty one is not an error. Every plot is the same ground;
@@ -281,10 +325,35 @@ export function DistrictView() {
               </Panel>
             )}
 
+            {/* Titled for what the panel *is*, not for the district: the district's own name is
+                already the page heading two inches above this, and repeating it put the same words
+                in an `h1` and an `h2` on one screen. */}
+            {hasPainting(data.district.id) && (
+              <Panel title="The ground">
+                {/* Clicking a sign scrolls its card into view and rings it for a moment: the
+                    painting answers "where is it and what is it", the card answers "what do I do
+                    about it", and the two are a long way apart on a narrow window. */}
+                <ContestedScene
+                  district={data.district}
+                  locations={data.locations}
+                  baseId={baseId}
+                  gate={gate ?? null}
+                  onPick={(locationId) => {
+                    setPicked(locationId);
+                    document
+                      .getElementById(cardId(locationId))
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}
+                />
+              </Panel>
+            )}
+
             <div className="grid gap-4 lg:grid-cols-2" data-testid="locations">
               {data.locations.map((view) => (
                 <LocationCard
                   key={view.location.id}
+                  id={cardId(view.location.id)}
+                  picked={picked === view.location.id}
                   view={view}
                   mine={view.holder.kind === 'crew' && view.holder.baseId === baseId}
                   districtId={data.district.id}
@@ -342,6 +411,10 @@ export function DistrictView() {
 }
 
 interface PlaceCardProps {
+  /** Anchor for the painting's signs to scroll to. */
+  id: string;
+  /** Just arrived here from a sign, so say so for a beat. */
+  picked: boolean;
   view: LocationView;
   mine: boolean;
   districtId: string;
@@ -353,7 +426,14 @@ interface PlaceCardProps {
   onCall: () => void;
 }
 
+/** One id scheme, used by the sign that scrolls and the card that is scrolled to. */
+function cardId(locationId: string): string {
+  return `location-card-${locationId}`;
+}
+
 function LocationCard({
+  id,
+  picked,
   view,
   mine,
   districtId,
@@ -375,10 +455,14 @@ function LocationCard({
 
   return (
     <section
+      id={id}
       data-testid={`location-${view.location.id}`}
+      // `scroll-mt` clears the standing bar, which is fixed: without it the browser scrolls the
+      // card to the top of the *document* and the bar covers the header the sign was pointing at.
       className={cn(
-        'flex flex-col gap-3 border p-4',
+        'flex scroll-mt-24 flex-col gap-3 border p-4 transition-colors duration-300',
         mine ? 'border-brass-500/60 bg-brass-300/5' : 'border-surface-700 bg-surface-900',
+        picked && 'ring-1 ring-inset ring-brass-300',
       )}
     >
       <header className="flex items-start justify-between gap-3">
@@ -631,14 +715,25 @@ function Tag({
  */
 function ScoutPanel({
   data,
+  receivedAt,
   pending,
   onSend,
 }: {
   data: DistrictDetailResponse;
+  /**
+   * When this payload arrived, so the countdown can be corrected to the server's clock.
+   *
+   * It was `undefined`, which is the hook's documented way of saying "no response yet" and makes it
+   * fall back to `Date.now()`. Passing it for a payload we *have* threw the correction away, so the
+   * one countdown on this screen ran on the browser's clock: skewed machines saw the wrong time
+   * remaining, and nudging the system clock forward made a scouting run look closer to home. Every
+   * other caller of this hook passes `dataUpdatedAt`, which is the whole reason the hook takes it.
+   */
+  receivedAt: number;
   pending: boolean;
   onSend: () => void;
 }) {
-  const now = useServerClock(data.serverNow, undefined);
+  const now = useServerClock(data.serverNow, receivedAt);
   const run = data.scoutingRun;
 
   // Somebody is out, and it is this district: a countdown, and nothing to press.
@@ -716,5 +811,436 @@ function Waiting({ until, now }: { until: string; now: Date }) {
     >
       {remaining <= 0 ? 'Walking back in' : formatCountdown(remaining)}
     </p>
+  );
+}
+
+/**
+ * A district somebody else lives on, drawn as the place it is.
+ *
+ * Deliberately the same shell as `BasePanel`: full bleed under the HUD, the scene edge to edge,
+ * and everything written about it floating over the top rather than pushing it off screen. A player
+ * who has learned where the Nexus sits on their own street knows where it sits on this one, because
+ * it is the same painting with the same plates in the same places.
+ *
+ * The one difference is what a plate does. On your ground it opens the build dialog; here it opens
+ * the only thing you can do to a building that is not yours.
+ */
+function VisitedDistrict({
+  data,
+  viewer,
+  gate,
+  playerLevel,
+  onLeave,
+  onCall,
+  calling,
+  slots,
+  declare,
+  onDone,
+}: {
+  data: DistrictDetailResponse;
+  viewer: { ownDistrictId: string | null; ownName: string | null };
+  gate: { districtId: string; shut: boolean; brokenUntil: string | null } | undefined;
+  playerLevel: number;
+  onLeave: () => void;
+  onCall: (target: BattleTarget) => void;
+  calling: BattleTarget | null;
+  slots: readonly string[];
+  declare: ReturnType<typeof useDeclareBattle>;
+  onDone: () => void;
+}) {
+  const [picked, setPicked] = useState<BuildingKind | null>(null);
+  const standing =
+    picked === null ? undefined : data.residentBuildings.find((b) => b.kind === picked);
+
+  // The way in, in the server's words rather than this screen's. A gate that is shut and unbroken
+  // is why a fight cannot be called, and it is the only reason worth spelling out here.
+  const shut = gate?.shut === true && gate.brokenUntil === null;
+
+  return (
+    <div
+      className="relative h-full w-full"
+      style={{ '--scene-top': 'var(--hud-h, 0px)' } as CSSProperties}
+    >
+      <DistrictScene
+        buildings={data.residentBuildings}
+        queue={[]}
+        // Their ground: nothing here is gated on *your* level, but the prop is required and the
+        // honest answer is the level you actually are.
+        playerLevel={playerLevel}
+        selected={picked}
+        onSelect={setPicked}
+        readOnly
+        fill
+        interactive
+      />
+
+      {/* Over the painting, top left, where the same control sits on every other screen. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 z-20 flex justify-start px-4"
+        style={{ top: 'calc(var(--hud-h, 64px) + 12px)' }}
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-sm bg-surface-950/70 px-3 py-1.5 backdrop-blur-sm">
+          <button
+            type="button"
+            onClick={onLeave}
+            data-testid="back-to-city"
+            className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300 hover:underline"
+          >
+            ← Back to the city
+          </button>
+          <span className="font-display text-[13px] font-bold tracking-[0.1em] text-ink-100">
+            {districtDisplayName(data.district, viewer)}
+          </span>
+          {data.raidable && (
+            <Button
+              size="sm"
+              variant="danger"
+              data-testid="call-gate"
+              onClick={() => onCall({ kind: 'gate', districtId: data.district.id })}
+            >
+              Call a fight at the gate
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {picked !== null && (
+        <VisitedBuildingDialog
+          kind={picked}
+          standing={standing}
+          districtName={districtDisplayName(data.district, viewer)}
+          shut={shut}
+          onClose={() => setPicked(null)}
+          onCall={() => {
+            if (standing === undefined) return;
+            onCall({
+              kind: 'building',
+              districtId: data.district.id,
+              buildingId: standing.id,
+            });
+            setPicked(null);
+          }}
+        />
+      )}
+
+      {calling && (
+        <DeclareDialog
+          target={calling}
+          targetName={
+            calling.kind === 'building'
+              ? `${BUILDING_CATALOG[data.residentBuildings.find((b) => b.id === calling.buildingId)?.kind ?? 'nexus'].name} at ${districtDisplayName(data.district, viewer)}`
+              : `the gate at ${districtDisplayName(data.district, viewer)}`
+          }
+          slots={slots}
+          pending={declare.isPending}
+          error={declare.error}
+          onClose={onDone}
+          onConfirm={(scheduledFor, holdAfterCapture) =>
+            declare.mutate(
+              { target: calling, scheduledFor, holdAfterCapture },
+              { onSuccess: onDone },
+            )
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * What one of their buildings is, and the one thing you can do about it.
+ *
+ * The mirror of `StructureDialog` on your own ground, and the difference is the whole point of the
+ * screen: there it says what the next level costs, and here it says what breaking into this one
+ * would take. A building behind a standing gate says so rather than offering a control that the
+ * server would refuse, because a refusal after a confirmation is a worse answer than a reason.
+ */
+function VisitedBuildingDialog({
+  kind,
+  standing,
+  districtName,
+  shut,
+  onClose,
+  onCall,
+}: {
+  kind: BuildingKind;
+  standing: Building | undefined;
+  districtName: string;
+  shut: boolean;
+  onClose: () => void;
+  onCall: () => void;
+}) {
+  const spec = BUILDING_CATALOG[kind];
+  return (
+    <Modal onClose={onClose} data-testid="visited-building">
+      <div className="flex flex-col gap-3 p-5">
+        <div>
+          <p className="font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">
+            {districtName}
+          </p>
+          <h2 className="font-display text-lg font-bold tracking-[0.08em] text-ink-100">
+            {spec.name}
+          </h2>
+        </div>
+        <p className="font-body text-[13px] leading-relaxed text-ink-200">{spec.description}</p>
+        {standing !== undefined && (
+          <p className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300">
+            Standing at level <span className="tabular-nums">{standing.level}</span>
+          </p>
+        )}
+
+        {shut ? (
+          <p className="font-body text-[13px] leading-relaxed text-oxblood-300">
+            The gate is standing, so nothing behind it can be reached. Break the gate first and
+            everything in here is open for a day.
+          </p>
+        ) : (
+          <p className="font-body text-[13px] leading-relaxed text-ink-300">
+            Breaking in damages the building and takes whatever your people can carry out of the
+            stockpile behind it.
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={shut || standing === undefined}
+            data-testid="call-building"
+            onClick={onCall}
+          >
+            Call a fight here
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Contested ground, drawn as the place it is.
+ *
+ * Same shell as `VisitedDistrict` and as your own district: full bleed under the HUD, the painting
+ * edge to edge, and everything written about it floating over the top rather than pushing it off
+ * the screen. It replaced the painting-in-a-panel with a column of cards scrolling underneath, on
+ * the board's instruction: a district is a place you are standing in, not a document about a place.
+ *
+ * Clicking a sign opens that location's card in a window, and the card is the *same component* the
+ * column used. That is deliberate: fortifying, garrisoning, upgrading and calling a fight are a
+ * screen's worth of controls that already work and are already tested, and re-authoring them for a
+ * dialog would be a second implementation of the one thing on this screen that can lose a player
+ * their army.
+ */
+function ContestedDistrict({
+  data,
+  viewer,
+  gate,
+  baseId,
+  army,
+  resources,
+  onLeave,
+  onCall,
+  calling,
+  slots,
+  declare,
+  onDone,
+}: {
+  data: DistrictDetailResponse;
+  viewer: { ownDistrictId: string | null; ownName: string | null };
+  gate: { districtId: string; shut: boolean; brokenUntil: string | null } | undefined;
+  baseId: string | undefined;
+  army: Army;
+  resources: Resources;
+  onLeave: () => void;
+  onCall: (target: BattleTarget) => void;
+  calling: BattleTarget | null;
+  slots: readonly string[];
+  declare: ReturnType<typeof useDeclareBattle>;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [standing, setStanding] = useState(false);
+  const picked = data.locations.find((view) => view.location.id === open);
+  const shut = gate?.shut === true && gate.brokenUntil === null;
+
+  return (
+    <div
+      /*
+       * Inset below the standing bar and above the nav, rather than run under them.
+       *
+       * The painting is the screen, so the temptation is to let it fill the frame edge to edge and
+       * float the chrome over it. The signs make that wrong: they are positioned in fractions of
+       * the *painting*, so any part of the painting that sits under the bar takes its signs with
+       * it, and the topmost one ends up behind the identity plaque. It is not merely hidden, it is
+       * unclickable, because the plaque is a real control and eats the pointer. Playwright reported
+       * it as `subtree intercepts pointer events`, which is exactly what a player would experience
+       * as a plate that does nothing.
+       *
+       * Both bars publish their measured height, so the clear band is the two variables.
+       */
+      className="relative h-full w-full"
+      style={
+        {
+          '--scene-top': 'var(--hud-h, 0px)',
+          paddingTop: 'var(--hud-h, 0px)',
+          paddingBottom: 'var(--nav-h, 0px)',
+        } as CSSProperties
+      }
+    >
+      <ContestedScene
+        district={data.district}
+        locations={data.locations}
+        baseId={baseId}
+        gate={gate ?? null}
+        onPick={(locationId) => {
+          // The gate is not a location and has no card: it is the one plate that calls its fight
+          // straight from the painting.
+          if (locationId === 'gate') onCall({ kind: 'gate', districtId: data.district.id });
+          else setOpen(locationId);
+        }}
+      />
+
+      {/* Over the painting, top left, where the same control sits on every other screen. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 z-20 flex justify-start px-4"
+        style={{ top: 'calc(var(--hud-h, 64px) + 12px)' }}
+      >
+        <div className="pointer-events-auto flex items-center gap-3 rounded-sm bg-surface-950/70 px-3 py-1.5 backdrop-blur-sm">
+          <button
+            type="button"
+            onClick={onLeave}
+            data-testid="back-to-city"
+            className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300 hover:underline"
+          >
+            ← Back to the city
+          </button>
+          {/*
+           * The district's name, as the page's heading.
+           *
+           * An `h1`, not a styled span: this screen *is* the district, so the name of it is the
+           * heading of the document, and a screen whose only heading is decorative reads as a
+           * fragment to anything that navigates by structure. It carried an `h1` while it was a
+           * column of panels and lost one when it became a painting, which is the kind of thing a
+           * rewrite drops silently.
+           */}
+          <h1 className="font-display text-[13px] font-bold tracking-[0.1em] text-ink-100">
+            {districtDisplayName(data.district, viewer)}
+          </h1>
+          {/* What the initials stand for. `CCS` is a tag on a painting; this is the paperwork. */}
+          {data.district.formalName !== null && (
+            <span
+              className="font-display text-[11px] uppercase tracking-[0.18em] text-brass-300"
+              data-testid="district-formal-name"
+            >
+              {data.district.formalName}
+            </span>
+          )}
+          {shut && (
+            <span className="font-display text-[11px] uppercase tracking-[0.16em] text-oxblood-300">
+              The gate is armed
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setStanding((open) => !open)}
+            data-testid="district-standing-toggle"
+            aria-expanded={standing}
+            className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300 hover:underline"
+          >
+            {standing ? 'Hide the ground' : 'The ground'}
+          </button>
+        </div>
+      </div>
+
+      {/*
+       * What is true of the whole district rather than of one thing on it, behind a toggle.
+       *
+       * The sky, who is standing here, and what holding the whole place pays. These were panels in
+       * the column this screen replaced, and dropping them with the column would have been a quiet
+       * feature loss: the weather changes what a fight on this ground costs, so it belongs on the
+       * ground rather than one screen away.
+       *
+       * **Shut by default, and that is the whole design.** Floated open in a corner it covered the
+       * Bone Market, and a panel over a sign does not merely hide it: the panel is a real box and
+       * eats the pointer, so the plate underneath stops working. There is no free corner to move it
+       * to either, because the signs are spread across the whole painting by construction. So
+       * nothing sits on the picture unless the player asks for it, and asking is one press in the
+       * strip that is already there.
+       */}
+      {standing && (
+        <div
+          className="absolute right-4 z-20 flex w-[16rem] max-w-[38vw] flex-col gap-2"
+          style={{ top: 'calc(var(--hud-h, 64px) + 56px)' }}
+          data-testid="district-standing"
+        >
+          <WeatherBanner at={new Date(data.serverNow)} />
+          <div className="rounded-sm bg-surface-950/85 px-3 py-2 backdrop-blur-sm">
+            <p className="font-body text-[12px] leading-relaxed text-ink-300">
+              Garrison: {garrisonOf(data.district)}.
+            </p>
+            {data.unified && (
+              <p className="mt-1.5 font-body text-[12px] leading-relaxed text-ink-300">
+                <span className="font-display uppercase tracking-[0.15em] text-brass-300">
+                  {data.unified.title}
+                </span>{' '}
+                {data.unified.effect}, on top of what the locations themselves pay. Take every
+                location here to earn it.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {picked && (
+        <Modal onClose={() => setOpen(null)} size="wide" data-testid="location-window">
+          <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-4">
+            <LocationCard
+              id={cardId(picked.location.id)}
+              picked={false}
+              view={picked}
+              mine={picked.holder.kind === 'crew' && picked.holder.baseId === baseId}
+              districtId={data.district.id}
+              baseId={baseId}
+              army={army}
+              resources={resources}
+              shut={shut}
+              onCall={() => {
+                onCall({
+                  kind: 'location',
+                  districtId: data.district.id,
+                  locationId: picked.location.id,
+                });
+                setOpen(null);
+              }}
+            />
+          </div>
+        </Modal>
+      )}
+
+      {calling && (
+        <DeclareDialog
+          target={calling}
+          targetName={
+            calling.kind === 'location'
+              ? (data.locations.find((view) => view.location.id === calling.locationId)?.location
+                  .name ?? districtDisplayName(data.district, viewer))
+              : `the gate at ${districtDisplayName(data.district, viewer)}`
+          }
+          slots={slots}
+          pending={declare.isPending}
+          error={declare.error}
+          onClose={onDone}
+          onConfirm={(scheduledFor, holdAfterCapture) =>
+            declare.mutate(
+              { target: calling, scheduledFor, holdAfterCapture },
+              { onSuccess: onDone },
+            )
+          }
+        />
+      )}
+    </div>
   );
 }

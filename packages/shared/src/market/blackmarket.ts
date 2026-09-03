@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BLUEPRINTS } from '../blueprints/catalog.js';
 import type { ItemCost } from '../items/inventory.js';
 import { MILESTONE_STANDING_INVITATION, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { dayInZone, GAME_TIMEZONE } from '../time/zone.js';
@@ -47,6 +48,7 @@ export const BLACK_MARKET_KINDS = [
   'unit_upgrade',
   'blueprint',
   'battle_boost',
+  'blueprint_page',
 ] as const;
 export const BlackMarketKindSchema = z.enum(BLACK_MARKET_KINDS);
 export type BlackMarketKind = z.infer<typeof BlackMarketKindSchema>;
@@ -56,6 +58,7 @@ export const BLACK_MARKET_KIND_LABELS: Readonly<Record<BlackMarketKind, string>>
   unit_upgrade: 'Off-book refit',
   blueprint: 'Blueprint',
   battle_boost: 'Battle boost',
+  blueprint_page: 'Blueprint page',
 };
 
 /** How many slots stand at once, and how many a crew may empty in a day. */
@@ -288,9 +291,48 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
   },
 ];
 
-export const BLACK_MARKET_GOODS: Readonly<Record<string, BlackMarketGoodSpec>> = Object.freeze(
-  Object.fromEntries(SPECS.map((spec) => [spec.id, spec])),
+/** The shelf id for a page. Distinct from the item id, which is what the purchase actually grants. */
+export function pageGoodId(pageId: string): string {
+  return `page_${pageId}`;
+}
+
+/**
+ * §F2: every page, as something the fence can be holding.
+ *
+ * Generated rather than written out: 157 hand-written shelf entries would be 157 chances to spell a
+ * page id wrong, and the price is a rule rather than a judgement. Unlike a mission, the fence tells
+ * you exactly which page you are buying, which is what makes infamy worth spending here: the Market
+ * is where you go when you need the *one* page you are short of, and the price is the tax on
+ * skipping the wait.
+ *
+ * Priced off how many pages the document takes. An eight page blueprint is the rarest thing in the
+ * game and its pages cost accordingly, so completing a Colossus by shopping is possible and never
+ * cheap.
+ */
+const PAGE_INFAMY_BASE = 55;
+const PAGE_INFAMY_PER_PAGE = 22;
+
+const PAGE_GOODS: Record<string, BlackMarketGoodSpec> = Object.fromEntries(
+  BLUEPRINTS.flatMap((blueprint) =>
+    blueprint.pages.map((page): [string, BlackMarketGoodSpec] => [
+      pageGoodId(page.id),
+      {
+        id: pageGoodId(page.id),
+        kind: 'blueprint_page',
+        name: page.name,
+        description: `One page of the ${blueprint.name}.`,
+        effect: `Goes into the ${blueprint.name}, which takes ${blueprint.pages.length} pages in all.`,
+        infamy: PAGE_INFAMY_BASE + PAGE_INFAMY_PER_PAGE * blueprint.pages.length,
+        grants: { [page.id]: 1 },
+      },
+    ]),
+  ),
 );
+
+export const BLACK_MARKET_GOODS: Readonly<Record<string, BlackMarketGoodSpec>> = Object.freeze({
+  ...Object.fromEntries(SPECS.map((spec) => [spec.id, spec])),
+  ...PAGE_GOODS,
+});
 
 export const BLACK_MARKET_GOOD_IDS: readonly string[] = SPECS.map((spec) => spec.id);
 
@@ -309,6 +351,14 @@ const KIND_WEIGHT: Readonly<Record<BlackMarketKind, number>> = {
   contraband: 4,
   unit_upgrade: 2,
   blueprint: 1,
+  /*
+   * §F2: rarest on the shelf, and rarer still than a whole blueprint.
+   *
+   * A page is the cheapest thing here and the one a player most wants to see, so weight is the only
+   * brake on it. `PAGES_ON_THE_SHELF` is the other half: the deck carries a handful of pages a day
+   * rather than all 157, or the Black Market stops being a black market and becomes a page shop.
+   */
+  blueprint_page: 1,
 };
 
 /** FNV-1a then an LCG: the same derivation the Runner's barrow uses, kept local for the same reason. */
@@ -340,9 +390,32 @@ function rngFrom(seed: string): () => number {
  * a slot's contents depend on nothing but `(day, slot, generation)`. The deal is reshuffled daily,
  * so no item is stuck in one slot.
  */
+/**
+ * §F2: how many of the 157 pages the fence has on any given day.
+ *
+ * Four. The deck is dealt across the slots and worked through in order, so putting every page in it
+ * would make roughly nine tenths of everything the Black Market ever shows a page, and the crates
+ * and refits it exists for would stop appearing. Four is enough that a player who checks most days
+ * sees pages regularly and never sees the one they are hunting on demand.
+ */
+export const PAGES_ON_THE_SHELF = 4;
+
+/** Which pages the fence has today, drawn from the day alone so every player sees the same shelf. */
+export function pagesOnShelf(day: string): string[] {
+  const rng = rngFrom(`${day}:black:pages`);
+  const pages = BLUEPRINTS.flatMap((blueprint) =>
+    blueprint.pages.map((page) => pageGoodId(page.id)),
+  );
+  for (let index = pages.length - 1; index > 0; index--) {
+    const swap = Math.floor(rng() * (index + 1));
+    [pages[index], pages[swap]] = [pages[swap]!, pages[index]!];
+  }
+  return pages.slice(0, PAGES_ON_THE_SHELF);
+}
+
 function decksFor(day: string): string[][] {
   const rng = rngFrom(`${day}:black:deal`);
-  const shuffled = [...BLACK_MARKET_GOOD_IDS];
+  const shuffled = [...BLACK_MARKET_GOOD_IDS, ...pagesOnShelf(day)];
   // Fisher-Yates, drawn from the same stream so the deal is reproducible from the date alone.
   for (let index = shuffled.length - 1; index > 0; index--) {
     const swap = Math.floor(rng() * (index + 1));
@@ -549,6 +622,26 @@ export const BLACK_MARKET_REFUSAL_TEXT: Readonly<Record<BlackMarketRefusal, stri
   daily_limit: 'One a day. He is not greedy and he is not stupid.',
 };
 
+/**
+ * §A4: the Statue of the Revolutionist takes infamy off what the dealer asks.
+ *
+ * Capped and floored: standing under nine metres of bronze does not make contraband free, and a
+ * price of zero would turn the daily limit into the only gate the black market has.
+ *
+ * This lives beside `blackMarketPrice` rather than on the server because three places need the same
+ * answer: the shelf that quotes it, the door that charges it, and `takeRefusal` that decides
+ * whether the door opens. It used to live only next to the first two, and the third compared
+ * against the undiscounted figure: a crew holding the Statue with infamy between 85% and 100% of a
+ * price saw an affordable button, pressed it, and was told the dealer had not heard enough of them.
+ */
+export const MAX_BLACK_MARKET_DISCOUNT = 50;
+
+export function discountedInfamy(price: number, percent: number): number {
+  if (!Number.isFinite(price)) return price;
+  const off = Math.min(MAX_BLACK_MARKET_DISCOUNT, Math.max(0, percent));
+  return Math.max(1, Math.round(price * (1 - off / 100)));
+}
+
 export interface TakeRequest {
   /** Which slot, and what the player believed was in it. Both, so a race is refused rather than
    *  silently charged for something else. */
@@ -563,6 +656,8 @@ export interface TakeRequest {
   level: number;
   /** The city's average player level, which is what the price is weighted by. */
   cityLevel: number;
+  /** §A4: this crew's standing discount, so the guard tests the price the door will charge. */
+  discountPercent?: number;
 }
 
 /** The first reason this cannot be taken, or `null`. Nothing here writes anything. */
@@ -575,8 +670,13 @@ export function takeRefusal(request: TakeRequest): BlackMarketRefusal | null {
   const spec = findBlackMarketGood(slot.goodId);
   if (!spec) return 'unknown_slot';
   if (request.takenToday >= blackMarketTakesPerDay(request.level)) return 'daily_limit';
-  // The weighted price, not the catalogue's: what the dealer is asking in *this* city.
-  if (request.infamy < blackMarketPrice(spec, request.cityLevel)) return 'not_enough_infamy';
+  // The weighted price, discounted, which is exactly what `takeFromBlackMarket` will spend. Any
+  // other figure here refuses a purchase the door would have allowed.
+  const asking = discountedInfamy(
+    blackMarketPrice(spec, request.cityLevel),
+    request.discountPercent ?? 0,
+  );
+  if (request.infamy < asking) return 'not_enough_infamy';
   return null;
 }
 

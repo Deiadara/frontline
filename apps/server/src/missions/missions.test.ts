@@ -3,6 +3,7 @@ import {
   CITY_DISTRICTS,
   MISC_AREA_ID,
   MISSION_TEMPLATES,
+  type MissionsResponse,
   FAILED_MISSION_XP_SHARE,
   areaPayPercent,
   areasOffering,
@@ -35,6 +36,7 @@ import { launchMission } from './launch.js';
 import { projectUnits } from '../units/roster.js';
 import { removeForce } from '../battle/forces.js';
 import { resolveDueMissions } from './resolve.js';
+import { MISSION_HISTORY_LIMIT } from '../db/repos/missions.js';
 
 /**
  * A launch payload for `POST /api/missions`.
@@ -248,6 +250,21 @@ function withOfficer(stack: Stack): string {
   const officer = createCommander('off-1', 'Halvard Nyx', 'field_commander');
   stack.repos.bases.updateCommanders(stack.base.id, [officer]);
   return officer.id;
+}
+
+/**
+ * A whole bench, one officer per concurrent run.
+ *
+ * One officer cannot lead several runs at once any more (`crew/duty.ts`): a person out on a job is
+ * out. A test about the *crew* cap therefore needs a person per crew, or it measures the officer
+ * rule instead of the one it is named for.
+ */
+function withOfficers(stack: Stack, count: number): string[] {
+  const officers = Array.from({ length: count }, (_, index) =>
+    createCommander(`off-${index + 1}`, `Officer ${index + 1}`, null),
+  );
+  stack.repos.bases.updateCommanders(stack.base.id, officers);
+  return officers.map((officer) => officer.id);
 }
 
 /** Puts a mission on the board with a pinned seed and launch time. */
@@ -651,14 +668,14 @@ describe('the mission routes', () => {
     const stack = await makeStack();
     const { app, token } = stack;
 
-    const officerId = withOfficer(stack);
+    const bench = withOfficers(stack, BASE_CONCURRENT_MISSIONS + 1);
     // One per area: two crews out means two boards, which is half of what the limit is *for*.
     for (let i = 0; i < BASE_CONCURRENT_MISSIONS; i += 1) {
       const res = await app.inject({
         method: 'POST',
         url: '/api/missions',
         headers: auth(token),
-        payload: launchInArea(i, { officerId }),
+        payload: launchInArea(i, { officerId: bench[i] }),
       });
       expect(res.statusCode, res.body).toBe(200);
     }
@@ -667,7 +684,9 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: launchInArea(BASE_CONCURRENT_MISSIONS, { officerId }),
+      payload: launchInArea(BASE_CONCURRENT_MISSIONS, {
+        officerId: bench[BASE_CONCURRENT_MISSIONS],
+      }),
     });
     expect(overflow.statusCode).toBe(409);
     expect(overflow.json<{ error: { code: string } }>().error.code).toBe('MISSIONS_AT_CAPACITY');
@@ -685,7 +704,9 @@ describe('the mission routes', () => {
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: launchInArea(BASE_CONCURRENT_MISSIONS, { officerId }),
+      payload: launchInArea(BASE_CONCURRENT_MISSIONS, {
+        officerId: bench[BASE_CONCURRENT_MISSIONS],
+      }),
     });
     expect(afterReturn.statusCode, afterReturn.body).toBe(200);
   });
@@ -1341,5 +1362,58 @@ describe('vehicles on a mission (§C3)', () => {
     const yard = stack.repos.bases.findById(stack.base.id)!.fleet;
     expect(yard.motorcycle).toBe(2);
     expect(yard.scrap_car).toBe(1);
+  });
+});
+
+/**
+ * A screen that has to open at speed cannot carry a year of history.
+ *
+ * Nothing deletes a mission. `listByBaseId` had no `LIMIT`, and `GET /missions` mapped the whole
+ * result into its response on the 600/min read bucket, so a crew running eight a day was
+ * serialising ~2,900 rows a year later and the screen got slower every week it was played. The
+ * launch path was loading the same history to count how many runs were out, with
+ * `listActiveByBaseId` sitting unused on the same repo.
+ */
+describe('how much history a mission screen carries', () => {
+  it('stops at the history limit, and keeps the newest', async () => {
+    const stack = await makeStack();
+    const { app, repos, base } = stack;
+
+    const overflow = MISSION_HISTORY_LIMIT + 25;
+    const template = MISSION_TEMPLATES[0];
+    if (!template) throw new Error('fixture: no templates');
+    // One real run to copy the shape from, then a year of finished ones written straight to the
+    // table: `launchMission` takes units off the roster, and this is about the read, not the launch.
+    const shape = planted(stack, template, 0);
+    for (let index = 0; index < overflow; index += 1) {
+      const startedAt = new Date(T0.getTime() + (index + 1) * 60_000);
+      repos.missions.insert({
+        mission: {
+          ...shape,
+          id: `history-${String(index).padStart(4, '0')}`,
+          startedAt: startedAt.toISOString(),
+          status: 'resolved',
+          outcome: 'success',
+          resolvedAt: new Date(startedAt.getTime() + 60_000).toISOString(),
+        },
+        seed: index,
+        successChance: 0.5,
+      });
+    }
+
+    const listed = repos.missions.listByBaseId(base.id);
+    expect(listed).toHaveLength(MISSION_HISTORY_LIMIT);
+    // Newest first, so what falls off the end is the oldest.
+    const ids = listed.map((entry) => entry.mission.id);
+    expect(ids[0]).toBe(`history-${String(overflow - 1).padStart(4, '0')}`);
+    expect(ids).not.toContain('history-0000');
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: { authorization: `Bearer ${stack.token}` },
+    });
+    expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+    expect(res.json<MissionsResponse>().missions.length).toBeLessThanOrEqual(MISSION_HISTORY_LIMIT);
   });
 });

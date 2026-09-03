@@ -1,4 +1,5 @@
 import {
+  type BurnUpgradeRequest,
   type RaiseGateRequest,
   FactionResponseSchema,
   FactionMutationResponseSchema,
@@ -23,7 +24,6 @@ import {
   BattleMutationResponseSchema,
   type DeclareBattleRequest,
   type DeployRequest,
-  type FortifyStructureRequest,
   type LayTrapRequest,
   type BuyBattleBoostRequest,
   type LeadBattleRequest,
@@ -62,6 +62,7 @@ import {
   CrewStandingResponseSchema,
   MarketResponseSchema,
   MarketMutationResponseSchema,
+  ReimagineResponseSchema,
   BlackMarketResponseSchema,
   BlackMarketMutationResponseSchema,
   SettingsResponseSchema,
@@ -95,6 +96,7 @@ import {
   type StartTrainingRequest,
   type StartTechRequest,
   type BuyFromVendorRequest,
+  type UnlockBlueprintRequest,
   type BarterRequest,
   type PostOfferRequest,
   type OfferActionRequest,
@@ -156,7 +158,28 @@ export async function apiFetch<Schema extends z.ZodType>(
     throw new ApiRequestError(res.status, code, message, parsed.data?.levelUp);
   }
 
-  return schema.parse(await res.json());
+  return schema.parse(await readJson(res, path));
+}
+
+/**
+ * The body of a 2xx, or an `ApiRequestError` explaining what arrived instead.
+ *
+ * `res.json()` throws a bare `SyntaxError` on anything that is not JSON, and every screen's error
+ * branch is written for `ApiRequestError`: a captive portal, a proxy error page or a dev-server
+ * misroute answering 200 with HTML therefore surfaced to the player as
+ * "Unexpected token < in JSON at position 0", which tells them nothing and tells us less. The
+ * status is the useful fact and it is already in hand, so it is kept.
+ */
+async function readJson(res: Response, path: string): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    throw new ApiRequestError(
+      res.status,
+      'BAD_RESPONSE',
+      `${path} answered ${res.status} with something that is not JSON.`,
+    );
+  }
 }
 
 const jsonBody = (body: unknown): RequestInit => ({
@@ -232,9 +255,6 @@ export const deployToBattle = (body: DeployRequest) =>
 export const layTrap = (body: LayTrapRequest) =>
   apiFetch('/battles/trap', BattleMutationResponseSchema, jsonBody(body));
 
-export const fortifyStructure = (body: FortifyStructureRequest) =>
-  apiFetch('/battles/fortify', BattleMutationResponseSchema, jsonBody(body));
-
 export const buyBattleBoost = (body: BuyBattleBoostRequest) =>
   apiFetch('/battles/boost', BattleMutationResponseSchema, jsonBody(body));
 
@@ -299,6 +319,16 @@ export const getMarket = () => apiFetch('/market', MarketResponseSchema);
 
 export const buyFromVendor = (body: BuyFromVendorRequest) =>
   apiFetch('/market/buy', MarketMutationResponseSchema, jsonBody(body));
+
+/** §D10: spend one of every page and take the finished document. Answers with the satchel. */
+export const unlockBlueprint = (body: UnlockBlueprintRequest) =>
+  apiFetch('/blueprints/unlock', MarketMutationResponseSchema, jsonBody(body));
+
+/**
+ * §G2: the Reimagining trade. No body, because nothing about it is the player's to choose.
+ */
+export const reimagine = () =>
+  apiFetch('/blueprints/reimagine', ReimagineResponseSchema, { method: 'POST' });
 
 export const buySupply = (body: BuySupplyRequest) =>
   apiFetch('/market/supply', MarketMutationResponseSchema, jsonBody(body));
@@ -433,6 +463,13 @@ export const setNotificationSettings = (body: NotificationSettingsRequest) =>
 /** §B7: raise the gate on a district this crew has taken whole. */
 export const raiseGate = (body: RaiseGateRequest) =>
   apiFetch<typeof CityResponseSchema>('/city/gate', CityResponseSchema, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/** §D5c: burn a fitted modification. It is destroyed, not returned to the shelf. */
+export const burnUpgrade = (body: BurnUpgradeRequest) =>
+  apiFetch<typeof UnitsResponseSchema>('/units/burn', UnitsResponseSchema, {
     method: 'POST',
     body: JSON.stringify(body),
   });

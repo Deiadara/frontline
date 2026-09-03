@@ -1,8 +1,10 @@
 import { z } from 'zod';
+import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
 import { MILESTONE_BROKERS_RESPECT, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { seedFrom } from '../rng.js';
+import { GAME_TIMEZONE, dayInZone, hourInZone, instantAtHourInZone } from '../time/zone.js';
 
 /**
  * The market's two traders (GDD §D, market extension).
@@ -11,13 +13,13 @@ import { seedFrom } from '../rng.js';
  *
  * A vendor who is always there is a shop, and a shop is a menu: a player buys what they need when
  * they need it and the market stops being a place. The Runner is in the district for two two-hour
- * sessions each UTC day, and *which* hours changes every day. That does three things at once. It
+ * sessions each game day, and *which* hours changes every day. That does three things at once. It
  * gives the day a shape, it makes a blueprint you wanted and missed sting, and it gives players a
  * reason to tell each other when he is in.
  *
  * **The same for the whole city.** Everyone sees the same hours and the same stock on the same
  * day, because a market where two players are looking at different shops cannot be talked about.
- * Both are derived from the UTC date alone: no table, no scheduler, no row anybody has to write.
+ * Both are derived from the game date alone: no table, no scheduler, no row anybody has to write.
  * Two servers, two months apart, agree about what he was selling on any given day.
  *
  * ## The Broker: always open, and always taking half
@@ -61,13 +63,19 @@ function pick<T>(rng: () => number, items: readonly T[]): T {
   return chosen;
 }
 
-/** The UTC day an instant belongs to, `YYYY-MM-DD`. The market's unit of time. */
-export function marketDay(now: Date): string {
-  return now.toISOString().slice(0, 10);
+/**
+ * The game day an instant belongs to, `YYYY-MM-DD`. The market's unit of time.
+ *
+ * Athens, like every other daily reset in the game. The Runner's hours, his stock and the supply
+ * ration are all keyed on this, so they turn over together with the black market's shelf rather
+ * than three hours apart for half the year.
+ */
+export function marketDay(now: Date, zone: string = GAME_TIMEZONE): string {
+  return dayInZone(now, zone);
 }
 
 export const VendorSessionSchema = z.object({
-  /** Hour of the UTC day the session opens, 0..23. */
+  /** Hour of the game day the session opens, 0..23. Athens, not UTC. */
   startHour: z.number().int().min(0).max(23),
   /** Hours it runs for. */
   hours: z.number().int().positive(),
@@ -99,15 +107,18 @@ export function vendorSessionsFor(day: string): VendorSession[] {
 }
 
 /** Whether the Runner is in the district at this instant. */
-export function vendorOpenAt(now: Date): boolean {
-  return currentVendorSession(now) !== null;
+export function vendorOpenAt(now: Date, zone: string = GAME_TIMEZONE): boolean {
+  return currentVendorSession(now, zone) !== null;
 }
 
 /** The session currently running, if any. */
-export function currentVendorSession(now: Date): VendorSession | null {
-  const hour = now.getUTCHours();
+export function currentVendorSession(
+  now: Date,
+  zone: string = GAME_TIMEZONE,
+): VendorSession | null {
+  const hour = hourInZone(now, zone);
   return (
-    vendorSessionsFor(marketDay(now)).find(
+    vendorSessionsFor(marketDay(now, zone)).find(
       (session) => hour >= session.startHour && hour < session.startHour + session.hours,
     ) ?? null
   );
@@ -119,19 +130,17 @@ export function currentVendorSession(now: Date): VendorSession | null {
  * Looks into tomorrow as well as today, because "next" at 23:00 is almost always tomorrow, and a
  * countdown that says "in -4 hours" is worse than no countdown.
  */
-export function nextVendorOpening(now: Date): Date {
-  const hours = [
-    ...vendorSessionsFor(marketDay(now)).map((session) => ({ session, dayOffset: 0 })),
-    ...vendorSessionsFor(marketDay(new Date(now.getTime() + 86_400_000))).map((session) => ({
-      session,
-      dayOffset: 1,
-    })),
-  ];
-  for (const { session, dayOffset } of hours) {
-    const opens = new Date(now);
-    opens.setUTCDate(opens.getUTCDate() + dayOffset);
-    opens.setUTCHours(session.startHour, 0, 0, 0);
-    if (opens.getTime() > now.getTime()) return opens;
+export function nextVendorOpening(now: Date, zone: string = GAME_TIMEZONE): Date {
+  const today = marketDay(now, zone);
+  // A whole day on, then read back through the zone, so the "tomorrow" this looks at is tomorrow
+  // in the game's calendar rather than 24 hours of wall clock that a summer-time night shortens.
+  const tomorrow = marketDay(new Date(now.getTime() + 86_400_000), zone);
+  const days = today === tomorrow ? [today] : [today, tomorrow];
+  for (const day of days) {
+    for (const session of vendorSessionsFor(day)) {
+      const opens = instantAtHourInZone(day, session.startHour, zone);
+      if (opens.getTime() > now.getTime()) return opens;
+    }
   }
   // Unreachable while there is at least one session a day, but a total function beats a throw on
   // a clock edge nobody will ever reproduce.
@@ -139,12 +148,11 @@ export function nextVendorOpening(now: Date): Date {
 }
 
 /** When the running session closes. `null` when he is not in. */
-export function vendorClosesAt(now: Date): Date | null {
-  const session = currentVendorSession(now);
+export function vendorClosesAt(now: Date, zone: string = GAME_TIMEZONE): Date | null {
+  const session = currentVendorSession(now, zone);
   if (!session) return null;
-  const closes = new Date(now);
-  closes.setUTCHours(session.startHour + session.hours, 0, 0, 0);
-  return closes;
+  // `startHour + hours` can reach 24, which `instantAtHourInZone` reads as midnight tomorrow.
+  return instantAtHourInZone(marketDay(now, zone), session.startHour + session.hours, zone);
 }
 
 export const VendorLineSchema = z.object({
@@ -160,6 +168,19 @@ export type VendorLine = z.infer<typeof VendorLineSchema>;
 /** How much the Runner marks up, at worst and at best. He is not a charity and not a robbery. */
 const MARKUP_MIN = 1.15;
 const MARKUP_MAX = 1.6;
+
+/**
+ * §F3: how often the Runner has a page on the barrow, and what he charges over the odds for it.
+ *
+ * Rare and dear, which is the brief. At 0.15 a page turns up on roughly one barrow in six, so a
+ * player who checks every day sees a handful a month and can never count on one.
+ *
+ * Dear without a special markup: a page's `capsValue` already scales with how many pages its
+ * document takes, from 360 for a two page blueprint to 1440 for an eight, against ordinary goods
+ * that run from 120. Giving pages their own multiplier on top bought nothing except an exception to
+ * the one rule the barrow has, and broke the invariant that every line is inside the markup band.
+ */
+export const VENDOR_PAGE_ODDS = 0.15;
 
 /**
  * What the Runner is carrying today.
@@ -196,11 +217,30 @@ export function vendorStockFor(day: string): VendorLine[] {
     chosen.push(id);
   }
 
+  /*
+   * §F3: and once in a while, a page.
+   *
+   * Off the goods list on purpose. `ITEM_IDS` is what every shop draws from and pages are not on
+   * it, so the Runner carries one only because this says so, at odds low enough that a player
+   * cannot plan a barrow around it. Caps rather than infamy: the Black Market is where infamy buys
+   * the page you are short of and this is the lucky find, so the two never compete for the same
+   * currency.
+   */
+  if (rng() < VENDOR_PAGE_ODDS) {
+    const pages = BLUEPRINTS.flatMap((blueprint) => blueprint.pages.map((page) => page.id));
+    const page = pick(rng, pages) as ItemId;
+    // Substituted for the last line rather than appended. The barrow is `VENDOR_STOCK_SIZE` wide,
+    // and a seventh line on exactly the days a page is on it would tell a player what they had
+    // before they read a word of it.
+    if (!chosen.includes(page) && chosen.length > 0) chosen[chosen.length - 1] = page;
+  }
+
   return chosen.map((id, index) => {
     const spec = ITEM_CATALOG[id];
     const markup = MARKUP_MIN + rng() * (MARKUP_MAX - MARKUP_MIN);
-    // One of a blueprint, a handful of anything else. A blueprint is knowledge; two is nothing.
-    const stock = spec.kind === 'blueprint' ? 1 : 1 + Math.floor(rng() * 4);
+    // One of a blueprint, one of a page, a handful of anything else. A blueprint is knowledge and
+    // two is nothing; a page is one particular sheet of paper and there is only ever one of it.
+    const stock = spec.kind === 'blueprint' || spec.kind === 'page' ? 1 : 1 + Math.floor(rng() * 4);
     return {
       id: `${day}-${index}-${id}`,
       item: id,

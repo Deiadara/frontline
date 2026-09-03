@@ -1,4 +1,12 @@
 import {
+  UnlockBlueprintRequestSchema,
+  unlockBlueprint,
+  unlockRefusal,
+  reimagine,
+  reimaginingRefusal,
+  isReimaginingResearched,
+  type ReimaginingContext,
+  type ReimagineResponse,
   BARTER_MINIMUM,
   BarterRequestSchema,
   BuyFromVendorRequestSchema,
@@ -24,6 +32,7 @@ import {
 } from '../market/board.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from './own-base.js';
+import { seatedRoles } from '../crew/roster.js';
 
 /**
  * The market (market extension).
@@ -67,6 +76,84 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       return { market: board(result.base, now) };
     })();
   });
+
+  /**
+   * §D10: turning a complete set of pages into the blueprint.
+   *
+   * On the market routes rather than on a blueprints controller of its own, because a blueprint and
+   * its pages are items: they live in `inventory_json` beside every other thing a crew holds, and
+   * this answers with the same board every other holdings mutation answers with, so the satchel
+   * updates from the response instead of racing a refetch.
+   *
+   * The whole rule is in `unlockBlueprint`, which is pure and tested in shared. This route is the
+   * transaction around it and nothing else: refuse, spend, write, answer.
+   */
+  app.post(
+    '/blueprints/unlock',
+    { preHandler: app.authenticate },
+    (request): MarketMutationResponse => {
+      const { blueprintId } = parseBody(UnlockBlueprintRequestSchema, request.body);
+      const now = new Date();
+      return app.db.transaction(() => {
+        const base = ownBase(app, request.currentUser.id);
+        const refusal = unlockRefusal(base.inventory, blueprintId);
+        if (refusal !== null) throw new AppError('BLUEPRINT_REFUSED', refusal);
+
+        const inventory = unlockBlueprint(base.inventory, blueprintId);
+        // `unlockRefusal` already cleared every reason this can be null, so a null here is the two
+        // of them disagreeing rather than a state a player can reach.
+        if (inventory === null) throw new AppError('BLUEPRINT_REFUSED', 'missing_pages');
+
+        app.repos.bases.updateHoldings(base.id, base.resources, inventory);
+        return { market: board({ ...base, inventory }, now) };
+      })();
+    },
+  );
+
+  /**
+   * §G2/§G3: three spare pages to the Lab, one page you do not have back.
+   *
+   * Everything a player could try to steer is decided here rather than sent: which pages go, and
+   * which one comes back. The seed is the base and the moment, so a request that is retried
+   * because the connection dropped cannot be retried until the Lab offers something better.
+   *
+   * The availability check is re-run off the base record rather than trusted from the board that
+   * drew the button. A client holding a stale payload is the ordinary case, not an attack, and it
+   * is the same predicate either way.
+   */
+  app.post(
+    '/blueprints/reimagine',
+    { preHandler: app.authenticate },
+    (request): ReimagineResponse => {
+      const now = new Date();
+      return app.db.transaction(() => {
+        const base = ownBase(app, request.currentUser.id);
+        const context: ReimaginingContext = {
+          hasHeadOfResearch: seatedRoles(base.commanders).includes('head_of_research'),
+          hasReimaginingResearch: isReimaginingResearched(base.research.technologies),
+        };
+        const input = {
+          inventory: base.inventory,
+          context,
+          seed: `${base.id}:${now.toISOString()}`,
+        };
+        const refusal = reimaginingRefusal(input);
+        if (refusal !== null) throw new AppError('REIMAGINING_REFUSED', refusal);
+
+        const traded = reimagine(input);
+        // `reimaginingRefusal` cleared every reason this returns null, so a null here is the two of
+        // them disagreeing rather than a state a player can reach.
+        if (traded === null) throw new AppError('REIMAGINING_REFUSED', 'not_available');
+
+        app.repos.bases.updateHoldings(base.id, base.resources, traded.inventory);
+        return {
+          market: board({ ...base, inventory: traded.inventory }, now),
+          spent: traded.spent,
+          gained: traded.gained,
+        };
+      })();
+    },
+  );
 
   /** The Broker, who is always in and always takes half. */
   app.post(
@@ -144,7 +231,12 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       const { offerId } = parseBody(OfferActionRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
-        const result = acceptOffer(app.repos, ownBase(app, request.currentUser.id), offerId);
+        const result = acceptOffer(
+          app.repos,
+          ownBase(app, request.currentUser.id),
+          offerId,
+          new Date(),
+        );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
       })();

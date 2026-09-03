@@ -68,6 +68,25 @@ export const SideAnalysisSchema = z.object({
   perimeter: z.number().int().nonnegative(),
   /** ...and how many of the enemy's runners it stopped. */
   perimeterCaught: z.number().int().nonnegative(),
+  /**
+   * ...and what the ring paid to stop them.
+   *
+   * Meeting a withdrawal is a second battle now (`battle/perimeter.ts`) rather than a catch-rate, so
+   * a ring has casualties. Reported because it is the number that decides whether setting one again
+   * is worth it: a ring that held and a ring that was ridden through can catch the same few people
+   * and cost wildly different amounts.
+   */
+  perimeterLost: z.number().int().nonnegative().default(0),
+  /**
+   * §D3: bodies on this side too cowed to fire, settled before the first shot.
+   *
+   * The engine has reported this on {@link Simulation} since intimidation landed, with a doc saying
+   * in as many words that a mechanic the player cannot see reads as a bug. It then stopped here: the
+   * analysis never carried it and the report never drew it, so a line that did a third of its damage
+   * with every body still standing looked exactly like a broken engine. This is the rest of that
+   * sentence.
+   */
+  cowed: z.number().int().nonnegative().default(0),
   /** Infamy this side banked for what it killed (§D7). */
   infamy: z.number().int().nonnegative(),
   units: z.array(UnitPerformanceSchema),
@@ -104,6 +123,13 @@ export const BattleAnalysisSchema = z.object({
   /** The one sentence at the top. Everything else is detail under it. */
   headline: z.string(),
   /**
+   * Whether the beaten side's withdrawal came through the winner's ring rather than breaking on it.
+   *
+   * True when there was no ring, which is the honest answer to "were they stopped": nobody was.
+   * Defaulted so a report written before the ring became a fight still reads.
+   */
+  brokeThrough: z.boolean().default(true),
+  /**
    * §A4: the sky the fight actually happened under, and what the ground was like.
    *
    * The labels decide a real share of the outcome: Anodics at +46% in a press hall, a Colossus
@@ -131,6 +157,20 @@ export interface AnalysisInput {
   perimeter: Record<BattleSide, Army>;
   /** Enemy runners the winner's ring stopped. Empty when nobody set one. */
   perimeterCaught: Army;
+  /** What the winner's ring paid stopping them. Empty when nobody set one. */
+  perimeterLosses?: Army;
+  /** Whether the withdrawal came through the ring. True when there was no ring. */
+  brokeThrough?: boolean;
+  /**
+   * The narrative, when the caller has already composed it.
+   *
+   * `narrate()` writes what happened *in* the fight; the resolver adds what happened on the way out
+   * of it, which is the loss line and whatever the ring did. Those lines were on `SkirmishOutcome`
+   * and not on the analysis, so the battle log and the report told different stories about the same
+   * fight: the report simply stopped before the withdrawal. Passed in rather than recomposed here,
+   * because there is one narrative and two readers of it.
+   */
+  log?: readonly string[];
   trap: { name: string; killed: number } | null;
   infamy: Record<BattleSide, number>;
 }
@@ -145,7 +185,24 @@ function performanceFor(
   winnerLosses: Army,
   caught: Army,
 ): UnitPerformance[] {
-  const dealt = side.stacks.reduce((sum, stack) => sum + stack.dealt, 0);
+  /*
+   * Clamped at zero per stack, not only in the total.
+   *
+   * `damage` is `z.number().nonnegative()` and `damageShare` is `z.number().min(0).max(1)` on this
+   * module's own schema, and nothing validates an analysis before `db/repos/sieges.ts` stores it.
+   * The read path *does* validate, and on a failure it logs "stored report is not readable by this
+   * build, skipping" and returns nothing for that row: the player wins a fight and it never appears
+   * on their board, with a server warning as the only trace. One negative `dealt` was enough, and
+   * it also pushed every other stack's share past 1 by shrinking the divisor.
+   *
+   * A negative `dealt` is not reachable today (`MIN_GROUND_EFFECT_PERCENT` in `city/labels.ts` is
+   * the floor that closed it, and a sweep of all 37,324 shipped location x weather x unit x side
+   * combinations finds no negative effective offense). This is the boundary guard behind it: a
+   * report is the record of something that already happened, and it must be storable whatever the
+   * engine hands it.
+   */
+  const contribution = (stack: SideState['stacks'][number]): number => Math.max(0, stack.dealt);
+  const dealt = side.stacks.reduce((sum, stack) => sum + contribution(stack), 0);
 
   return (
     side.stacks
@@ -171,8 +228,8 @@ function performanceFor(
           fled: ranHome,
           caught: stopped,
           survived: Math.max(0, survived),
-          damage: Math.round(stack.dealt),
-          damageShare: dealt <= 0 ? 0 : stack.dealt / dealt,
+          damage: Math.round(contribution(stack)),
+          damageShare: dealt <= 0 ? 0 : contribution(stack) / dealt,
           brokeAtRound: stack.brokeAt,
           state: MORALE_STATE_LABELS[stack.brokeAt === null ? moraleState(stack.morale) : 'routed'],
         };
@@ -181,25 +238,32 @@ function performanceFor(
   );
 }
 
-function sideAnalysis(
-  name: string,
-  units: readonly UnitPerformance[],
-  perimeter: Army,
-  perimeterCaught: number,
-  infamy: number,
-  officer: SideAnalysis['officer'],
-): SideAnalysis {
+interface SideAnalysisInput {
+  name: string;
+  units: readonly UnitPerformance[];
+  perimeter: Army;
+  perimeterCaught: number;
+  perimeterLost: number;
+  cowed: number;
+  infamy: number;
+  officer: SideAnalysis['officer'];
+}
+
+function sideAnalysis(input: SideAnalysisInput): SideAnalysis {
+  const { units } = input;
   return {
-    name,
+    name: input.name,
     committed: units.reduce((sum, unit) => sum + unit.started, 0),
     lost: units.reduce((sum, unit) => sum + unit.lost, 0),
     survived: units.reduce((sum, unit) => sum + unit.survived, 0),
     fled: units.reduce((sum, unit) => sum + unit.fled, 0),
-    perimeter: total(perimeter),
-    perimeterCaught,
-    infamy,
+    perimeter: total(input.perimeter),
+    perimeterCaught: input.perimeterCaught,
+    perimeterLost: input.perimeterLost,
+    cowed: input.cowed,
+    infamy: input.infamy,
     units: [...units],
-    officer,
+    officer: input.officer,
   };
 }
 
@@ -274,22 +338,28 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
   );
 
   const stopped = total(input.perimeterCaught);
-  const attacker = sideAnalysis(
-    simulation.attacker.name,
-    attackerUnits,
-    input.perimeter.attacker,
-    attackerWon ? stopped : 0,
-    input.infamy.attacker,
-    officerReportFor(simulation.attacker),
-  );
-  const defender = sideAnalysis(
-    simulation.defender.name,
-    defenderUnits,
-    input.perimeter.defender,
-    attackerWon ? 0 : stopped,
-    input.infamy.defender,
-    officerReportFor(simulation.defender),
-  );
+  // Only the winner's ring fought, so only the winner's has casualties to report.
+  const ringPaid = total(input.perimeterLosses ?? {});
+  const attacker = sideAnalysis({
+    name: simulation.attacker.name,
+    units: attackerUnits,
+    perimeter: input.perimeter.attacker,
+    perimeterCaught: attackerWon ? stopped : 0,
+    perimeterLost: attackerWon ? ringPaid : 0,
+    cowed: simulation.cowed.attacker,
+    infamy: input.infamy.attacker,
+    officer: officerReportFor(simulation.attacker),
+  });
+  const defender = sideAnalysis({
+    name: simulation.defender.name,
+    units: defenderUnits,
+    perimeter: input.perimeter.defender,
+    perimeterCaught: attackerWon ? 0 : stopped,
+    perimeterLost: attackerWon ? 0 : ringPaid,
+    cowed: simulation.cowed.defender,
+    infamy: input.infamy.defender,
+    officer: officerReportFor(simulation.defender),
+  });
 
   const findings: BattleFinding[] = findingsFor(simulation);
   return {
@@ -300,11 +370,12 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     decidedOnPower: simulation.decidedOnPower,
     attacker,
     defender,
-    log: narrate(simulation, findings),
+    log: [...(input.log ?? narrate(simulation, findings))],
     findings,
     trap: input.trap,
     legends: legendLines([attacker, defender]),
     headline: headlineFor(simulation, attacker, defender),
+    brokeThrough: input.brokeThrough ?? true,
     // Copied off the battlefield the engine actually fought on, so the card and the fight cannot
     // disagree about the weather.
     weather: simulation.battlefield.weather as BattleAnalysis['weather'],

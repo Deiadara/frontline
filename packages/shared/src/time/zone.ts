@@ -183,10 +183,72 @@ export function nextDayBoundary(instant: Date, zone: string = GAME_TIMEZONE): Da
 /**
  * An hour-of-the-UTC-day, rendered as a wall clock in another zone.
  *
- * The Runner's sessions are drawn as UTC hours because they have to be derivable from the date
- * alone on both sides of the wire. What a player is *shown* is that hour in their own clock, which
- * needs an actual instant to resolve summer time against, so the caller passes the day it falls on.
+ * Kept for anything that genuinely holds a UTC hour. Nothing in the rules does any more: the
+ * schedules that used to be drawn in UTC hours are drawn in game hours now, and those render
+ * through {@link gameHourInZone}.
  */
 export function utcHourInZone(day: string, utcHour: number, zone: string = GAME_TIMEZONE): string {
   return formatClock(new Date(`${day}T${String(utcHour).padStart(2, '0')}:00:00.000Z`), zone);
+}
+
+/**
+ * The same wall clock, read back as an instant.
+ *
+ * `Date.UTC` of the parts a zone formatter produced is the wall clock pretending to be UTC, so the
+ * difference between that and the instant it came from is the zone's offset at that instant. Two
+ * passes, because the offset has to be sampled somewhere and the first sample can land on the
+ * wrong side of a summer-time boundary: the second sample is taken at the answer the first one
+ * gave, which is inside the correct offset in every case except a wall clock that does not exist.
+ */
+function offsetMsAt(instant: Date, zone: string): number {
+  const parts = formatter(zone, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(instant);
+  const at = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? '0');
+  // `hour12: false` still renders midnight as 24 in some ICU versions; Date.UTC normalises it.
+  return (
+    Date.UTC(at('year'), at('month') - 1, at('day'), at('hour'), at('minute'), at('second')) -
+    instant.getTime()
+  );
+}
+
+/**
+ * The instant at which it is `hour:00` on `day` in `zone`.
+ *
+ * The inverse of {@link dayInZone} plus {@link hourInZone}, and the thing any schedule authored in
+ * game hours needs to turn itself into an absolute instant. `hour` may run past 23, which is how a
+ * session that closes at the end of the day says "midnight tomorrow" without the caller doing date
+ * arithmetic of its own.
+ *
+ * On the one hour a year that a spring-forward deletes, the wall clock asked for does not exist and
+ * this returns the instant the clock jumped to. That is the only sane answer and it is an hour
+ * nothing in the game is scheduled against twice.
+ */
+export function instantAtHourInZone(day: string, hour: number, zone: string = GAME_TIMEZONE): Date {
+  const asIfUtc = Date.parse(`${day}T00:00:00.000Z`) + hour * 3_600_000;
+  const first = asIfUtc - offsetMsAt(new Date(asIfUtc), zone);
+  return new Date(asIfUtc - offsetMsAt(new Date(first), zone));
+}
+
+/**
+ * An hour of the *game* day, rendered as a wall clock in another zone.
+ *
+ * The rules' schedules are authored in game hours (§ the house clock above), and a player who has
+ * moved their display to Tokyo still has to be told when the Runner is in, in Tokyo. The day is
+ * passed rather than derived because an hour on its own cannot say which side of a summer-time
+ * boundary it falls.
+ */
+export function gameHourInZone(
+  day: string,
+  gameHour: number,
+  zone: string = GAME_TIMEZONE,
+): string {
+  return formatClock(instantAtHourInZone(day, gameHour, GAME_TIMEZONE), zone);
 }

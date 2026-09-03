@@ -61,8 +61,10 @@ describe('the daily roll', () => {
     );
   });
 
-  it('turns over on the UTC boundary, like everything else keyed on a day', () => {
-    expect(weatherDay(new Date('2026-08-13T23:59:59.999Z'))).toBe('2026-08-13');
+  it('turns over at Athens midnight, like everything else keyed on a day', () => {
+    // August, so Athens is GMT+3: the sky changes at 21:00 UTC, not at 00:00 UTC.
+    expect(weatherDay(new Date('2026-08-13T20:59:59.999Z'))).toBe('2026-08-13');
+    expect(weatherDay(new Date('2026-08-13T21:00:00.000Z'))).toBe('2026-08-14');
     expect(weatherDay(new Date('2026-08-14T00:00:00.000Z'))).toBe('2026-08-14');
   });
 

@@ -36,6 +36,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useServerClock } from '../missions/useServerClock';
 import { StructureDialog } from './StructureDialog';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { DistrictScene } from './DistrictScene';
 import { formatRate, formatRemaining } from './format';
 
@@ -61,12 +62,18 @@ export function BasePanel() {
   const [selectedPlot, setSelectedPlot] = useState<BuildingKind | null>(null);
 
   if (!base) {
+    /* Either read can be the one that failed: the district falls back to the session's own copy,
+       so a player only sees nothing when both are gone. Retry asks for both. */
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Loading district…
-        </p>
-      </div>
+      <ScreenLoad
+        what="Your district"
+        loading="Loading district…"
+        isError={baseQuery.isError || me.isError}
+        onRetry={() => {
+          void me.refetch();
+          void baseQuery.refetch();
+        }}
+      />
     );
   }
 
@@ -112,6 +119,19 @@ export function BasePanel() {
         selected={selectedPlot}
         onSelect={selectPlot}
       />
+
+      {/*
+       * §A1: what is under way, down the left of the district (board request).
+       *
+       * It was inside the Reports drawer, which is a button at the bottom of the screen: the one
+       * thing on this page that is *happening* was the one thing you had to go and open a panel to
+       * see. A build is a clock, and a clock belongs where it can be glanced at.
+       *
+       * Over the painting rather than beside it, because the district is edge-to-edge by design
+       * (see `DistrictScene`) and giving the rail its own column would take a fifth of the
+       * artwork on every viewport for something that is empty most of the time.
+       */}
+      <BuildQueueRail base={base} />
 
       {/* §I1 pays for building things, and the response is the only thing that knows this build is
           what crossed the threshold (MOU-227), so the banner lives with the district, over it, and
@@ -243,6 +263,82 @@ function BuildQueue({ base }: { base: Base }) {
         );
       })}
     </ol>
+  );
+}
+
+/**
+ * The build queue as a rail down the left of the district (§A1, board request).
+ *
+ * One rectangle per order, top-left downwards, each carrying the structure it is raising and how
+ * long it has left. Collapsible, because a full queue is six plates and a player reading the map
+ * wants the map: the header stays so the count is legible even when it is folded away.
+ *
+ * Drawn only when there is something in it. An empty rail is a label for a thing that is not
+ * happening, and the district screen already says where orders are placed.
+ */
+function BuildQueueRail({ base }: { base: Base }) {
+  const now = useServerClock(undefined, undefined);
+  const [open, setOpen] = useState(true);
+
+  if (base.buildQueue.length === 0) return null;
+
+  return (
+    <div
+      className="pointer-events-none absolute left-0 top-0 z-20 flex w-[15rem] flex-col gap-1.5 px-3"
+      style={{ paddingTop: 'calc(var(--scene-top, var(--hud-h, 0px)) + 12px)' }}
+      data-testid="build-rail"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((was) => !was)}
+        data-testid="build-rail-toggle"
+        className="glass edge-lit pointer-events-auto flex items-center justify-between gap-2 rounded-sm border border-surface-600 px-3 py-2 font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200 transition-colors hover:border-brass-300/70 hover:text-brass-100"
+      >
+        <span>
+          Under way
+          <span className="ml-1.5 tabular-nums text-brass-300">
+            {base.buildQueue.length}/{MAX_BUILD_QUEUE}
+          </span>
+        </span>
+        <span aria-hidden className={cn('transition-transform', open ? 'rotate-90' : '')}>
+          ›
+        </span>
+      </button>
+
+      {open &&
+        base.buildQueue.map((entry, index) => (
+          <div
+            key={entry.id}
+            data-testid={`build-rail-${entry.kind}`}
+            className={cn(
+              'glass edge-lit pointer-events-auto flex flex-col gap-1 rounded-sm border px-3 py-2',
+              // The one being worked reads differently from the ones waiting behind it: a queue
+              // where every plate looks the same does not say which is moving.
+              index === 0 ? 'border-brass-300/60' : 'border-surface-600/80 opacity-80',
+            )}
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate font-display text-[11px] uppercase tracking-[0.14em] text-ink-200">
+                {BUILDING_CATALOG[entry.kind].name}
+              </span>
+              <span className="shrink-0 font-display text-[12px] font-bold tabular-nums text-brass-300">
+                {formatRemaining(queueRemainingMs(entry, now))}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                to level {entry.level}
+              </span>
+            </div>
+            <span className="block h-1 w-full bg-surface-700">
+              <span
+                className={cn('block h-full', index === 0 ? 'bg-brass-300' : 'bg-surface-600')}
+                style={{ width: `${queueProgressAt(entry, now) * 100}%` }}
+              />
+            </span>
+          </div>
+        ))}
+    </div>
   );
 }
 

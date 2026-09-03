@@ -1,7 +1,6 @@
 import type { PartialResources, Resources } from '../resources.js';
 import { RESOURCE_KEYS } from '../resources.js';
-import { fortifyBonusPercent } from '../city/fortification.js';
-import { findBuilding, type Building } from './state.js';
+import type { Building } from './state.js';
 
 /**
  * What a broken gate lets somebody do to your district (GDD §A4, battle rework).
@@ -19,12 +18,12 @@ import { findBuilding, type Building } from './state.js';
  * supplies to zero and starve a roster that had nothing to do with the fight, which is a punishment
  * loop rather than a setback. Half is enough to hurt and not enough to end anything.
  *
- * ## Digging the gate in
+ * ## The gate is its level
  *
- * The other half of the same screen. Watches used to live here: a count on every structure that
- * bought defence and cost nothing, which is not a decision. What replaced them is the same three
- * levels of fortification the city's locations use, on the Gate alone, paid for in materials. See
- * `gateFortifyPercent` and `city/fortification.ts`.
+ * Nothing else. Watches used to live here, then three levels of digging bought with materials, and
+ * both were the same mistake: a second number that made a gate stronger without making it higher.
+ * A gate's strength is the level it has been raised to, and locations keep the digging
+ * (`city/fortification.ts`), where the ground varies and the choice means something.
  */
 
 /** The most of a structure's job that damage can ever take away. */
@@ -69,19 +68,6 @@ export function districtEffectiveness(buildings: readonly Building[]): number {
     weighted += building.level * buildingEffectiveness(building);
   }
   return levels === 0 ? 1 : weighted / levels;
-}
-
-/**
- * Percentage points the Gate's own fortification adds to what it takes to get into the district.
- *
- * Only the Gate. Digging in is work on the way *in*, and the way in is the Gate: spreading it
- * across every structure was what made watches read as a tick-box on a list rather than as a
- * position on the map. Read off the medium curve, because a home district has no ground type of
- * its own the way a location does.
- */
-export function gateFortifyPercent(buildings: readonly Building[]): number {
-  const gate = findBuilding(buildings, 'gate');
-  return gate ? fortifyBonusPercent('medium', gate.fortification) : 0;
 }
 
 /**

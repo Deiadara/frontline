@@ -6,8 +6,8 @@ import { findUnit, type Army } from '../units/index.js';
  *
  * The board's rule is that **a deployment is not public**. Both crews know a fight is coming and
  * where, that is what a declaration is, and neither knows what the other has walked onto the
- * ground. The only way to find out is to be good at finding out: scouts, hacking, the Signals track,
- * anybody in the room with Logic or Intuition. The only way to stop them is to be good at not being
+ * ground. The only way to find out is to be good at finding out: scouts, Signals, the research track
+ * of the same name, anybody in the room with Logic or Intuition. The only way to stop them is to be good at not being
  * found: cryptography, deception, and units that are hard to see in the first place.
  *
  * It reuses the §F2 channels the city view already reads (`intelYieldPercent` against

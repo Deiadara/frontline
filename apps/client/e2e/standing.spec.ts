@@ -23,7 +23,9 @@ test('the standing bar names the rank beside the points', async ({ page }) => {
   await expect(page.getByTestId('notoriety-tier')).toHaveText(
     notorietyTier(notorious.base!.economy.notoriety),
   );
-  await expect(chip).toContainText(String(notorious.base!.economy.infamy));
+  // Grouped, the same way the ladder and the faction roll write it. Derived rather than typed so
+  // this says "however the app formats a figure" instead of pinning one locale's separator.
+  await expect(chip).toContainText(notorious.base!.economy.infamy.toLocaleString());
 });
 
 test('hovering the chip opens the ladder, and the button buys the next rung', async ({ page }) => {

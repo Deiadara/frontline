@@ -18,6 +18,7 @@ import {
 } from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
@@ -58,11 +59,12 @@ export function TrainingPage() {
   const data = query.data;
   if (!data) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Finding the gym…
-        </p>
-      </div>
+      <ScreenLoad
+        what="The gym"
+        loading="Finding the gym…"
+        isError={query.isError}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 

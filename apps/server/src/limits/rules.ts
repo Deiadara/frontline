@@ -35,6 +35,19 @@ export const READ_LIMIT: LimitRule = { quota: 600, windowMs: 60_000 };
 export const STREAM_LIMIT: LimitRule = { quota: 60, windowMs: 60_000 };
 
 /**
+ * Paths that are password work by another name.
+ *
+ * `AUTH_LIMIT` exists because guessing a password is a slow grind against one endpoint, and it was
+ * keyed on the `/api/auth/` prefix alone. `/api/settings/password` does *twice* the crypto of a
+ * login (a `bcrypt.compare` and a `bcrypt.hash`, measured at 49ms and 55ms on this machine with the
+ * repo's own `bcryptjs`) and sat on the 120/minute write bucket, so one account could spend 12.5
+ * seconds of CPU a minute, on the single thread that serves every player's reads, settles and
+ * battle resolutions. A wrong `currentPassword` is refused *after* the compare, so the refusal costs
+ * the server 49ms and the caller nothing.
+ */
+const PASSWORD_PATHS: readonly string[] = ['/api/settings/password'];
+
+/**
  * Which rule a request falls under, from its method and path.
  *
  * Path-prefixed rather than per-route, so a route added tomorrow is covered by default. The
@@ -42,6 +55,7 @@ export const STREAM_LIMIT: LimitRule = { quota: 60, windowMs: 60_000 };
  */
 export function ruleFor(method: string, path: string): { rule: LimitRule; scope: string } {
   if (path.startsWith('/api/auth/')) return { rule: AUTH_LIMIT, scope: 'auth' };
+  if (PASSWORD_PATHS.includes(path)) return { rule: AUTH_LIMIT, scope: 'auth' };
   if (path === '/api/events') return { rule: STREAM_LIMIT, scope: 'stream' };
   if (method === 'GET' || method === 'HEAD') return { rule: READ_LIMIT, scope: 'read' };
   return { rule: WRITE_LIMIT, scope: 'write' };

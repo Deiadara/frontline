@@ -103,6 +103,21 @@ export const FRAMING = {
     filling the central seventy percent. Consistent implied light from upper-left across the whole
     set.
   `),
+  /**
+   * §C1: a machine, painted whole, the way the Garage draws it.
+   *
+   * Not the icon framing beside it. A vehicle card shows one picture at card width, so what it
+   * wants is a portrait of the machine with its own ground under it, not a two-value silhouette
+   * keyed to transparency and legible at 24 pixels.
+   */
+  vehicle: block(`
+    A single machine in three-quarter view, side-on to slightly front, standing still on wet
+    ground in a workshop or a yard. Painted whole, with its own shallow background: the room is
+    light and grime rather than architecture. Square 1:1, the machine filling the central seventy
+    percent, wheels or skids on the ground line. Consistent implied light from upper-left. Salvage
+    build throughout, welds and mismatched panels visible, one cool accent light on the
+    machine itself. No people, no text, no logos.
+  `),
   officer: block(`
     Head-and-shoulders portrait, three-quarter view, eyes on the upper-third line, the subject
     looking at or just past the viewer. Painted on a shallow, unreadable interior: the room is
@@ -645,6 +660,28 @@ export const PLATE_SUBJECTS = {
     #f59e0b bounce. Emissives are small, sparse and at ground level: a strung bulb line, a marker
     lamp, a brazier. No buildings. Nothing on the pads. Painted signage, hoardings and graffiti are
     part of the street and welcome; nothing that reads as a label for a game object.
+  `),
+  'plate-district-neon-docks': block(`
+    The Neon Docks from above and slightly forward, the same town-view camera as the compound
+    plate and **no sky**: a wet quay running the width of the frame, a flooded dock basin cut into
+    it on the left, and a container wall closing the top edge with the stacked city behind it. Seven
+    places a player can stand, spread apart and each recognisable at a glance from the others: a
+    red gantry crane on the far left quay, a row of striped market awnings along the top, an arched
+    service tunnel in the wall, a pumphouse of clustered pipework with a lit magenta window, a lit
+    chandler's shed at lower right, moored barges strung with laundry at lower left, and a covered
+    gallery over the water. Value in the middle range, cold reflected light off standing water,
+    small sodium lamps at head height. Painted signage is part of the street; nothing that reads as
+    a label for a game object.
+  `),
+  'plate-district-rustyard': block(`
+    The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press
+    houses and furnace rows closing on all four sides, a hoarding fence along the lower left, and
+    the city stacked beyond the top edge. Seven distinguishable places: a long glass-roofed press
+    house at upper left, a breaker's yard of stripped machines under a gantry in the middle, a
+    covered market of trestles at upper right, a lit pawn shop with an outside stair at mid left, a
+    kennel run at mid right, a drained slag pit in the lower middle, and a pump row of fuel stands
+    at lower right. Warm furnace light against cold wet stone, emissives small and at ground level.
+    Painted signage is part of the street; nothing that reads as a label for a game object.
   `),
   'plane-city-sky': block(`
     Sky and distant arcology silhouettes only. Heavy smog ceiling in #1b2233 to #3d4761

@@ -59,7 +59,7 @@ export const RoleAttributeFactSchema = z.object({
 export type RoleAttributeFact = z.infer<typeof RoleAttributeFactSchema>;
 
 /**
- * "Deception and Hacking go together": §B9's *what pairs well with what*, and deliberately
+ * "Deception and Signals go together": §B9's *what pairs well with what*, and deliberately
  * role-free: it names no job, so collecting one never extends any role's profile past
  * `MAX_ROLE_FACTS`.
  *

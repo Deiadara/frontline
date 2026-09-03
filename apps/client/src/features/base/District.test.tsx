@@ -13,6 +13,9 @@ import {
   type BuildStructureResponse,
   type MeResponse,
   startingTraining,
+  OVERSEER_PRESETS,
+  makeAttributes,
+  type CrewStandingResponse,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -46,14 +49,13 @@ const base: Base = {
   progression: startingProgression(),
   research: startingResearch(),
   buildings: [
-    { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
+    { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0 },
     {
       id: 'b-generator',
       kind: 'generator',
       level: 1,
       modifications: [],
       damage: 0,
-      fortification: 0,
     },
   ],
   buildQueue: [],
@@ -107,15 +109,23 @@ const queued: BuildStructureResponse = {
 
 const BROKE = { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 };
 
+/** `GET /overseer/me`: the crew's effect channels, which is where the payroll step discount lives. */
+const crewStanding = (effects: Record<string, number>): CrewStandingResponse => {
+  const { presetId: _presetId, ...preset } = OVERSEER_PRESETS[0]!;
+  return { overseer: { ...preset, id: 'ov-1' }, crewSheet: makeAttributes(15), effects };
+};
+
 const fetchMock = vi.fn();
 
 interface Stubbed {
   detail?: Base;
   /** How `POST /base/build` answers. Defaults to accepting the order. */
   build?: { ok: boolean; status: number; body: unknown };
+  /** The crew's effect channels, as `GET /overseer/me` answers them. */
+  effects?: Record<string, number>;
 }
 
-function stubApi({ detail = base, build }: Stubbed = {}): void {
+function stubApi({ detail = base, build, effects = {} }: Stubbed = {}): void {
   const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
     Promise.resolve({
       ok,
@@ -130,6 +140,8 @@ function stubApi({ detail = base, build }: Stubbed = {}): void {
     }
     if (path.endsWith('/base/district-name'))
       return reply({ base: { ...detail, name: 'Vermilion' } });
+    // Before the bare `/me`, which it also ends with.
+    if (path.endsWith('/overseer/me')) return reply(crewStanding(effects));
     if (path.endsWith('/me')) return reply({ ...me, base: detail });
     if (path.includes('/base/')) return reply({ base: detail });
     throw new Error(`unstubbed request: ${path}`);
@@ -429,8 +441,8 @@ function levelUp() {
  */
 describe("a neighbour's district (§A4)", () => {
   const theirs = [
-    { id: 'n1', kind: 'nexus' as const, level: 6, modifications: [], damage: 0, fortification: 0 },
-    { id: 'n2', kind: 'gate' as const, level: 4, modifications: [], damage: 0, fortification: 0 },
+    { id: 'n1', kind: 'nexus' as const, level: 6, modifications: [], damage: 0 },
+    { id: 'n2', kind: 'gate' as const, level: 4, modifications: [], damage: 0 },
   ];
 
   const renderTheirs = () =>
@@ -522,7 +534,6 @@ describe("a neighbour's district (§A4)", () => {
         level: 3,
         modifications: [],
         damage: 0,
-        fortification: 0,
       },
       {
         id: 'n2',
@@ -530,7 +541,6 @@ describe("a neighbour's district (§A4)", () => {
         level: 3,
         modifications: [],
         damage: 0,
-        fortification: 0,
       },
     ];
     const draw = (queue: BuildQueue) =>
@@ -566,9 +576,7 @@ describe("a neighbour's district (§A4)", () => {
   it('explains a locked plot on hover rather than being a dead square', async () => {
     render(
       <DistrictScene
-        buildings={[
-          { id: 'n1', kind: 'nexus', level: 1, modifications: [], damage: 0, fortification: 0 },
-        ]}
+        buildings={[{ id: 'n1', kind: 'nexus', level: 1, modifications: [], damage: 0 }]}
         queue={[]}
         playerLevel={1}
         selected={null}
@@ -594,5 +602,52 @@ describe("a neighbour's district (§A4)", () => {
       />,
     );
     expect(screen.getByRole('button', { name: /^The Nexus,/ })).toBeInTheDocument();
+  });
+});
+
+/**
+ * §H7/§B7: the Nexus payroll book quotes a price the route will actually charge.
+ *
+ * `POST /bar/payroll` charges `payrollStepCost(steps, payrollStepDiscountPercent)`, and that
+ * discount is a *crew* channel: two perks in the catalogue pay into it and they sum. The panel used
+ * to build its ledger straight off the base, which has no crew on it, so it quoted the full 500 and
+ * disabled its own button at 450 caps on a crew the server would have charged 435. A quoted price
+ * that is too high is the harmful direction: it refuses a purchase rather than correcting itself at
+ * the till.
+ *
+ * Both cases use a *non-zero* discount on purpose. The panel's first paint, before `/overseer/me`
+ * answers, is the undiscounted 500, so a case asserting 500 would pass without the query ever
+ * having been read.
+ */
+describe('the payroll book quotes the crew price, not the list price', () => {
+  const withCaps = (caps: number): Base => ({
+    ...base,
+    resources: { ...STARTING_RESOURCES, caps },
+  });
+
+  const openNexusPayroll = async () => {
+    renderDistrict();
+    await waitFor(() => expect(plot('The Nexus')).toBeInTheDocument());
+    fireEvent.click(plot('The Nexus'));
+    return within(dialog()).getByTestId('nexus-payroll');
+  };
+
+  it('takes the step discount off the quoted price and lets the purchase through', async () => {
+    // ledger_hand (5%) + bank_contact (8%): 500 -> 435, and the crew is holding 450.
+    stubApi({ detail: withCaps(450), effects: { payrollStepDiscountPercent: 13 } });
+
+    const panel = await openNexusPayroll();
+    await waitFor(() => expect(panel).toHaveTextContent('435 caps, once'));
+    expect(panel).not.toHaveTextContent('500 caps, once');
+    expect(within(panel).getByTestId('nexus-increase-payroll')).toBeEnabled();
+  });
+
+  it('still refuses a step the crew cannot afford at the discounted price', async () => {
+    // bank_contact alone: 500 -> 460, which 450 caps does not cover.
+    stubApi({ detail: withCaps(450), effects: { payrollStepDiscountPercent: 8 } });
+
+    const panel = await openNexusPayroll();
+    await waitFor(() => expect(panel).toHaveTextContent('460 caps, once'));
+    expect(within(panel).getByTestId('nexus-increase-payroll')).toBeDisabled();
   });
 });

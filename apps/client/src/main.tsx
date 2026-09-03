@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { onSessionEnd } from './store/session';
 import './fonts.css';
 import './index.css';
 
@@ -24,6 +25,15 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/*
+ * A session ending takes the previous account's data with it.
+ *
+ * Registered here rather than inside the store because the store is imported by `api.ts` and so by
+ * every query in the app: importing the query client from there would close an import cycle. This
+ * is the one place that already owns both.
+ */
+onSessionEnd(() => queryClient.clear());
 
 const root = document.getElementById('root');
 if (!root) throw new Error('missing #root element');

@@ -4,11 +4,14 @@ import {
   MAX_TRAINING_QUEUE,
   VEHICLES,
   buildingLevel,
+  clampLevel,
+  homeTrainingBonus,
   trainingSuppliesReduction,
   trainingTimeReduction,
   addResources,
   addToArmy,
   alreadyHolds,
+  blueprintGateMet,
   canAfford,
   findUnit,
   heldPlaceKindsOf,
@@ -19,12 +22,14 @@ import {
   trainingCancellable,
   trainingCost,
   trainingRefund,
+  resequencedTraining,
   trainingSeconds,
   trainingStartsAt,
   xpForClock,
   type Army,
   type Base,
   type PartialResources,
+  type LocationKind,
   type PlayerXpAward,
   type TrainingOrder,
   type UnitSpec,
@@ -62,16 +67,16 @@ export type TrainingResult =
  *
  * "Can build", not "has built": the Road Reavers' gate is that the yard *makes* motorcycles, so a
  * crew that sends its last bike out on a mission does not lose the ability to train them. Read off
- * the vehicle catalogue's own two unlock clauses, its Garage level and its blueprint, and
- * deliberately not off its price: being short of scrap this afternoon is not a campaign gate.
+ * the vehicle catalogue's own two unlock clauses, its Garage level and its blueprint document
+ * (§D12c), and deliberately not off its price: being short of scrap this afternoon is not a
+ * campaign gate.
  */
 export function buildableVehiclesFor(base: Base): Set<string> {
   const garage = buildingLevel(base.buildings, 'garage');
   return new Set(
     VEHICLES.filter(
       (spec) =>
-        garage >= spec.requiresGarageLevel &&
-        (spec.requiresBlueprint === null || (base.inventory[spec.requiresBlueprint] ?? 0) > 0),
+        garage >= spec.requiresGarageLevel && blueprintGateMet(base.inventory, 'vehicle', spec.id),
     ).map((spec) => spec.id),
   );
 }
@@ -86,16 +91,45 @@ export function unlockContextFor(repos: Repositories, base: Base): UnlockContext
       return control !== undefined && isHeldBy(control, base.id);
     }),
     buildableVehicles: buildableVehiclesFor(base),
+    // §D12a: thirteen units are behind a blueprint document, and the document lives in the satchel.
+    inventory: base.inventory,
   };
+}
+
+/**
+ * §A4: the best level this crew holds, per location kind.
+ *
+ * The input to `homeTrainingBonus`, and the reason it is a map of *kinds* rather than of locations:
+ * two Doghouses are one Doghouse as far as the Cyberhounds are concerned, and the one that counts
+ * is the better of them. A kind nobody in this crew holds is simply absent, which is what makes
+ * "somebody else's level does nothing for you" fall out rather than need saying.
+ */
+export function heldLocationLevels(
+  repos: Repositories,
+  base: Base,
+): ReadonlyMap<LocationKind, number> {
+  const controls = repos.city.controls();
+  const levels = new Map<LocationKind, number>();
+  for (const location of CITY_LOCATIONS) {
+    const control = controls.get(location.id);
+    if (!control || !isHeldBy(control, base.id)) continue;
+    const level = clampLevel(control.level);
+    if (level > (levels.get(location.kind) ?? 0)) levels.set(location.kind, level);
+  }
+  return levels;
 }
 
 /**
  * Everything this district takes off a training bill and a training clock.
  *
- * Three sources folded once, here, so the roster's quoted price, `Max`, and the route's charge are
- * by construction the same three numbers. The Greenhouse's is deliberately kept apart from the
- * general discount all the way down to `trainingCost`, because §B5 says it lands on the supplies
- * line and on nothing else.
+ * Folded once, here, so the roster's quoted price, `Max`, and the route's charge are by
+ * construction the same numbers. The Greenhouse's is deliberately kept apart from the general
+ * discount all the way down to `trainingCost`, because §B5 says it lands on the supplies line and
+ * on nothing else.
+ *
+ * `locationLevels` rides along rather than being folded in, because what it is worth depends on
+ * *which unit* is being priced: see `ratesForUnit`. Everything else here is true of every unit on
+ * the roster at once.
  */
 export function trainingRatesFor(repos: Repositories, base: Base): TrainingRates {
   const effects = standingEffectsFor(repos, base);
@@ -105,6 +139,22 @@ export function trainingRatesFor(repos: Repositories, base: Base): TrainingRates
     suppliesPercent: trainingSuppliesReduction(base.buildings),
     // §B6: the Gauntlet takes time off every unit on the roster, the ones it cannot train included.
     speedPercent: effects.trainingSpeedPercent + trainingTimeReduction(base.buildings),
+    locationLevels: heldLocationLevels(repos, base),
+  };
+}
+
+/**
+ * The same rates as one unit sees them: the crew-wide ones plus whatever its own home adds.
+ *
+ * Pure, and takes the rates rather than the repositories, so the roster can price forty units off
+ * one walk of the control table instead of forty.
+ */
+export function ratesForUnit(rates: TrainingRates, unit: UnitSpec): TrainingRates {
+  const home = homeTrainingBonus(unit, rates.locationLevels);
+  return {
+    ...rates,
+    costPercent: rates.costPercent + home.costPercent,
+    speedPercent: rates.speedPercent + home.speedPercent,
   };
 }
 
@@ -112,6 +162,8 @@ export interface TrainingRates {
   costPercent: number;
   suppliesPercent: number;
   speedPercent: number;
+  /** §A4: the best level held per location kind. Read only through {@link ratesForUnit}. */
+  locationLevels: ReadonlyMap<LocationKind, number>;
 }
 
 export interface TrainingSettlement {
@@ -211,7 +263,13 @@ export function cancelTraining(
   if (!trainingCancellable(order, now)) return { kind: 'refused', reason: 'window_closed' };
 
   const refund = trainingRefund(order);
-  const left = base.trainingQueue.filter((entry) => entry.id !== orderId);
+  // Closed up, not merely shortened. Every order's clock is absolute and was frozen at the
+  // completion time of the order in front of it, so taking one out of the middle left the ones
+  // behind it waiting out a batch that no longer exists.
+  const left = resequencedTraining(
+    base.trainingQueue.filter((entry) => entry.id !== orderId),
+    now,
+  );
   const cancelled: Base = {
     ...base,
     resources: addResources(base.resources, refund),
@@ -244,7 +302,8 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
     return { kind: 'refused', reason: 'already_have_one' };
   }
 
-  const rates = trainingRatesFor(repos, base);
+  // §A4: the unit's own rates, so a worked Doghouse actually shows up on the Cyberhounds' bill.
+  const rates = ratesForUnit(trainingRatesFor(repos, base), unit);
   // §A1: soldiers come out of the district's population, alongside the officers and the placed
   // assignees. `districtPopulation` has already counted everything standing, garrisons and the
   // training bench included, so what this order needs is only what it adds on top.

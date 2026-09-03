@@ -1,9 +1,11 @@
 import {
   BuildVehicleRequestSchema,
-  ITEM_CATALOG,
   VEHICLES,
+  blueprintForVehicle,
+  blueprintGateMet,
   buildingLevel,
   canAfford,
+  describeBlueprintGate,
   discounted,
   findVehicle,
   fleetCapacity,
@@ -17,7 +19,6 @@ import {
   type VehicleRefusal,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { holdsBlueprint } from '../market/board.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from '../routes/own-base.js';
@@ -43,6 +44,16 @@ function price(app: FastifyInstance, base: Base, cost: PartialResources): Partia
   return discounted(cost, standingEffectsFor(app.repos, base).vehiclePartsPercent);
 }
 
+/**
+ * §D12c: the document that gates a machine, answered out of this crew's satchel.
+ *
+ * One place, so the row's `hasBlueprint` flag and the refusal that greys its button cannot come
+ * to different conclusions about the same machine.
+ */
+function holdsVehicleBlueprint(base: Base): (vehicleId: string) => boolean {
+  return (vehicleId) => blueprintGateMet(base.inventory, 'vehicle', vehicleId);
+}
+
 /** The one thing in the way, in the player's words, or null when the yard will build it today. */
 function blockerFor(app: FastifyInstance, base: Base, id: string): string | null {
   const spec = findVehicle(id);
@@ -51,7 +62,7 @@ function blockerFor(app: FastifyInstance, base: Base, id: string): string | null
     id,
     base.fleet,
     buildingLevel(base.buildings, 'garage'),
-    holdsBlueprint(base),
+    holdsVehicleBlueprint(base),
     (cost) => canAfford(base.resources, price(app, base, cost)),
   );
   if (reason === null) return null;
@@ -60,14 +71,14 @@ function blockerFor(app: FastifyInstance, base: Base, id: string): string | null
   if (reason === 'garage_too_low') {
     return `Needs the Garage at level ${spec.requiresGarageLevel}`;
   }
-  if (reason === 'needs_blueprint' && spec.requiresBlueprint !== null) {
-    return `Needs the ${ITEM_CATALOG[spec.requiresBlueprint].name}`;
+  if (reason === 'needs_blueprint') {
+    return describeBlueprintGate('vehicle', spec.id) ?? VEHICLE_REFUSAL_MESSAGES.needs_blueprint;
   }
   return VEHICLE_REFUSAL_MESSAGES[reason];
 }
 
 export function projectGarage(app: FastifyInstance, base: Base): GarageResponse {
-  const holds = holdsBlueprint(base);
+  const holds = holdsVehicleBlueprint(base);
   return {
     resources: base.resources,
     garageLevel: buildingLevel(base.buildings, 'garage'),
@@ -85,9 +96,8 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
       capacity: spec.capacity,
       speedPercent: spec.speedPercent,
       requiresGarageLevel: spec.requiresGarageLevel,
-      requiresBlueprint:
-        spec.requiresBlueprint === null ? null : ITEM_CATALOG[spec.requiresBlueprint].name,
-      hasBlueprint: spec.requiresBlueprint === null || holds(spec.requiresBlueprint),
+      requiresBlueprint: blueprintForVehicle(spec.id)?.name ?? null,
+      hasBlueprint: holds(spec.id),
       refusal: blockerFor(app, base, spec.id),
     })),
   };

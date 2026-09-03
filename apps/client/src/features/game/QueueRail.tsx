@@ -177,7 +177,11 @@ export function QueueRail() {
   const me = useMe();
   const research = useResearch();
   const missions = useMissions();
-  const now = useServerClock(missions.data?.serverNow, me.dataUpdatedAt);
+  /* Both halves off the *same* response. `useServerClock` computes `serverNow - receivedAt`, which
+     only means anything when the two describe one answer: pairing the missions payload's clock with
+     the `/me` query's arrival mixed a 15s poll with a 5s one, so the offset swung between -15s and
+     +5s and every countdown in the rail jumped twenty seconds as the two interleaved. */
+  const now = useServerClock(missions.data?.serverNow, missions.dataUpdatedAt);
   const [opened, setOpened] = useState<string | null>(null);
 
   const base = me.data?.base;

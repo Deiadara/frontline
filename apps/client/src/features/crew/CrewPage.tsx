@@ -15,12 +15,15 @@ import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { InkButton } from '../../components/ui/InkButton';
+import { MarkStamp } from '../../components/ui/MarkStamp';
 import { OfficerPortrait } from '../overseer/OfficerPortrait';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { PerkTags } from '../../components/PerkTags';
 import { cn } from '../../lib/cn';
 import { useCrew, useReassignOfficer, useReleaseOfficer } from '../../lib/queries';
 import { PageShell } from '../game/PageShell';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
+import { useDayResetClock } from '../settings/usePlayerZone';
 
 /**
  * The crew (GDD §C1, §C2): the nineteen chairs, and who is sitting in them.
@@ -151,6 +154,16 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
           injuredUntil={officer.injuredUntil}
           className="absolute inset-0 h-full w-full rounded-none border-0"
         />
+        {/* The mark, stamped over the picture rather than printed beside it (board brief).
+            Top right, clear of the face: the portraits are 4:5 and the head sits centre-left of
+            centre, so this corner is the one part of every master that is reliably background. */}
+        {officer.mark !== null && (
+          <MarkStamp
+            mark={officer.mark}
+            className="right-[7%] top-[5%] h-[26%] w-[26%] text-oxblood-300/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"
+            title={`${label}: ${officer.mark}`}
+          />
+        )}
         {/* A wash up from the bottom so the name reads off the painting rather than on a bar over
             it: the picture keeps its full height and the type still has ground to sit on. */}
         <span
@@ -278,6 +291,9 @@ function ChairWindow({
   onAssign: (officerId: string) => void;
   onClose: () => void;
 }) {
+  // The roster is keyed on an Athens date, so "midnight" was only ever true for a player on the
+  // house clock. `useDayResetClock` puts the same instant on the clock this player reads.
+  const resetsAt = useDayResetClock();
   return (
     <Modal onClose={onClose} labelledBy="chair-window-title" size="wide">
       <div className="flex min-h-0 flex-col" data-testid="chair-window">
@@ -299,7 +315,7 @@ function ChairWindow({
           <div className="flex flex-col gap-2">
             <Heading>Sign somebody</Heading>
             <p className="font-body text-[13px] leading-relaxed text-ink-300">
-              The Bar turns over at midnight, and you may sign a limited number a day.
+              The Bar turns over at {resetsAt}, and you may sign a limited number a day.
             </p>
             <InkButton to="/game/bar" icon="bar" className="self-start">
               Go to the Bar
@@ -488,9 +504,13 @@ function OfficerWindow({
                       Keep them
                     </Button>
                   </div>
-                  {release.isError && (
-                    <p className="font-body text-[12px] text-oxblood-300">
-                      That did not go through. You may not have the caps.
+                  {/* The server's own words. `releaseOfficer` refuses two different ways ("You
+                      cannot cover what letting them go would cost" and "Nobody on your books by
+                      that id"), and a 500 or a dropped connection produces neither: printing the
+                      caps explanation for all three sent a player to check a number that was fine. */}
+                  {release.error !== null && (
+                    <p role="alert" className="font-body text-[12px] text-oxblood-300">
+                      {release.error.message}
                     </p>
                   )}
                 </>
@@ -499,7 +519,7 @@ function OfficerWindow({
                   type="button"
                   onClick={() => setEnding(true)}
                   data-testid="let-go"
-                  className="ink-box inline-flex items-center justify-center gap-1.5 px-3 py-1.5 font-stamp text-[13px] leading-none text-oxblood-300 transition-colors hover:text-oxblood-200"
+                  className="ink-box inline-flex items-center justify-center gap-1.5 px-3 py-1.5 font-stamp text-[13px] leading-none text-oxblood-300 transition-colors hover:text-oxblood-100"
                 >
                   Let go
                   <span className="font-display text-[11px] tabular-nums text-ink-400">
@@ -585,7 +605,7 @@ function Layout({ data }: { data: CrewResponse }) {
         <Link
           to="/game/crew/effects"
           data-testid="open-crew-effects"
-          className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-200 transition-colors hover:text-brass-100"
+          className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-300 transition-colors hover:text-brass-100"
         >
           <Icon name="spark" aria-hidden className="h-3.5 w-3.5" />
           What the crew is buying
@@ -599,6 +619,15 @@ function Layout({ data }: { data: CrewResponse }) {
         <p className="font-body text-[13px] leading-relaxed text-ink-300">
           Nineteen positions, nobody in any of them yet. A card is a job: open an empty one and it
           takes you to the Bar to hire for it.
+        </p>
+      )}
+
+      {/* Reassignment is refused by an ordinary race: somebody took the chair in another tab. The
+          mutation was read only for `isPending`, so a refusal left the window open with nothing
+          said, and the window staying open was the whole of the feedback. */}
+      {reassign.error !== null && (
+        <p role="alert" className="font-body text-[13px] text-oxblood-300">
+          {reassign.error.message}
         </p>
       )}
 
@@ -699,6 +728,20 @@ function Layout({ data }: { data: CrewResponse }) {
 
 export function CrewPage() {
   const crew = useCrew();
-  if (!crew.data) return null;
+  /* `return null` drew nothing at all on a failed read: no heading, no text, no way to tell a
+     broken request from a slow one. See `LoadFailure` for the bug that taught us. */
+  if (!crew.data) {
+    return (
+      <PageShell title="The crew" wide>
+        <ScreenLoad
+          what="Your crew"
+          loading="Reading the chairs…"
+          isError={crew.isError}
+          onRetry={() => void crew.refetch()}
+          detail="Nothing has been lost. Everybody is in the chair you left them in."
+        />
+      </PageShell>
+    );
+  }
   return <Layout data={crew.data} />;
 }

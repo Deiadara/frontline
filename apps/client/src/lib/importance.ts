@@ -17,7 +17,7 @@ import type { AttributeImportance } from '@frontline/shared';
  */
 export const IMPORTANCE_EDGE: Record<AttributeImportance, string> = {
   insignificant: 'border-l-2 border-l-transparent',
-  useful: 'border-l-2 border-l-ferrite-200/70',
+  useful: 'border-l-2 border-l-ferrite-300/70',
   essential: 'border-l-2 border-l-brass-300',
   irreplaceable: 'border-l-2 border-l-iris-300',
 };

@@ -1,4 +1,5 @@
 import {
+  findBlueprintPage,
   findMissionTemplate,
   formatCountdown,
   formatDuration,
@@ -16,6 +17,7 @@ import { LevelUpBanner } from '../../components/LevelUp';
 import { RewardLine } from '../../components/Resources';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
+import { LoadFailure } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
 import { useCrew, useLaunchMission, useMe, useMissions } from '../../lib/queries';
 import { MissionBoard } from './MissionBoard';
@@ -112,6 +114,17 @@ function ReturnedRow({ mission }: { mission: Mission }) {
         />
       </div>
       <RewardLine rewards={mission.rewards} />
+      {/* §F1f: and the page, by name. The card that offered this run said only "a unit blueprint's
+          page"; this is where the player finds out which sheet they actually came home with, which
+          is the half of the mechanic that pays off the anticipation. */}
+      {mission.pageWon !== null && (
+        <span
+          className="truncate font-display text-[11px] uppercase tracking-[0.14em] text-brass-300"
+          data-testid={`mission-page-${mission.id}`}
+        >
+          {findBlueprintPage(mission.pageWon)?.name ?? mission.pageWon}
+        </span>
+      )}
     </li>
   );
 }
@@ -215,6 +228,15 @@ export function MissionsPage() {
       >
         {missionsQuery.isLoading ? (
           <EmptyRow text="Reading the board…" />
+        ) : data === undefined ? (
+          /* A failed read used to fall through every `?? []` and print `MissionBoard`'s empty
+             state, "Nowhere is hiring. Scout something.": a sentence about the game world in
+             answer to a broken request. The roster beside it already modelled three states. */
+          <LoadFailure
+            what="The board"
+            onRetry={() => void missionsQuery.refetch()}
+            detail="Nothing has been lost. Every crew you have out is still out."
+          />
         ) : (
           <MissionBoard
             areas={data?.areas ?? []}

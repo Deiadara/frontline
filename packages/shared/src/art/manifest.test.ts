@@ -152,6 +152,8 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['splash-auth', 'splash-auth.webp', 130005],
   ['plate-district', 'plate-district.webp', 130006],
   ['plate-bar', 'plate-bar.webp', 130007],
+  ['plate-district-neon-docks', 'plate-district-neon-docks.webp', 130008],
+  ['plate-district-rustyard', 'plate-district-rustyard.webp', 130009],
   ['building-nexus', 'building-nexus.webp', 140001],
   ['building-quarters', 'building-quarters.webp', 140002],
   ['building-greenhouse', 'building-greenhouse.webp', 140003],
@@ -256,14 +258,14 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-location-chapel', 'icon-location-chapel.webp', 160072],
   ['icon-location-graveyard', 'icon-location-graveyard.webp', 160073],
   // §C1: the Garage's catalogue, appended after the location markers so no seed above moves.
-  ['icon-vehicle-motorcycle', 'icon-vehicle-motorcycle.webp', 161001],
-  ['icon-vehicle-dirt-runner', 'icon-vehicle-dirt-runner.webp', 161002],
-  ['icon-vehicle-scrap-car', 'icon-vehicle-scrap-car.webp', 161003],
-  ['icon-vehicle-armoured-car', 'icon-vehicle-armoured-car.webp', 161004],
-  ['icon-vehicle-flatbed', 'icon-vehicle-flatbed.webp', 161005],
-  ['icon-vehicle-war-hauler', 'icon-vehicle-war-hauler.webp', 161006],
-  ['icon-vehicle-gas-balloon', 'icon-vehicle-gas-balloon.webp', 161007],
-  ['icon-vehicle-rotorcraft', 'icon-vehicle-rotorcraft.webp', 161008],
+  ['vehicle-motorcycle', 'vehicle-motorcycle.webp', 161001],
+  ['vehicle-dirt-runner', 'vehicle-dirt-runner.webp', 161002],
+  ['vehicle-scrap-car', 'vehicle-scrap-car.webp', 161003],
+  ['vehicle-armoured-car', 'vehicle-armoured-car.webp', 161004],
+  ['vehicle-flatbed', 'vehicle-flatbed.webp', 161005],
+  ['vehicle-war-hauler', 'vehicle-war-hauler.webp', 161006],
+  ['vehicle-gas-balloon', 'vehicle-gas-balloon.webp', 161007],
+  ['vehicle-rotorcraft', 'vehicle-rotorcraft.webp', 161008],
 ];
 
 /**
@@ -310,6 +312,7 @@ const FRAMING_SECTIONS: Readonly<Record<keyof typeof FRAMING, string>> = {
   building: '## 4. ',
   ui: '## 5. ',
   icon: '## 6. ',
+  vehicle: '## 6b. ',
   unit: '## 7. ',
 };
 
@@ -334,8 +337,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 233 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(233);
+  it('holds the 235 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(235);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -379,6 +382,14 @@ describe('ART_MANIFEST', () => {
     // And the Bar's room, for the same reason: the Sit Down control is positioned as a fraction of
     // this exact image, so the empty stool moves out from under it if the delivery size changes.
     'plate-bar': { width: 1926, height: 817, aspect: '2.36:1' },
+    // The two contested districts, and the same reasoning a third time: seven location signs are
+    // positioned as fractions of each of these exact images, so a delivery that changes shape moves
+    // all seven and has to be agreed to here as well as in the manifest.
+    // Both started at 1672x941 and 16:9 and both have been repainted since, to different shapes: the
+    // Docks to the 21:10 the city and the home district are on, the Steelbelt to 2.36:1, which is
+    // the Bar plate's shape. That is why these are two numbers and not one shared constant.
+    'plate-district-neon-docks': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-rustyard': { width: 1584, height: 672, aspect: '2.36:1' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {
@@ -414,6 +425,8 @@ describe('ART_MANIFEST', () => {
       plane: 'webp90',
       building: 'webp90',
       unit: 'webp90',
+      // §C1: a machine on a card, the same format a district plate ships in.
+      vehicle: 'webp90',
       ui: 'png',
       icon: 'webp88',
       splash: 'webp90',
@@ -530,11 +543,17 @@ describe('ART_MANIFEST', () => {
     ).toEqual(['plane-city-far', 'plane-city-fore']);
   });
 
-  it('leaves the other 157 assets needing no post-process at all', () => {
-    // 233 in the manifest, 76 of them post-processed. Both figures move together whenever a
-    // subject is added or removed, because an icon is one of the post-processed classes: §A2 took
-    // the Cistern out and §C1 put the Garage's eight machines in.
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(76);
+  it('leaves the rest of the manifest needing no post-process at all', () => {
+    /*
+     * 233 in the manifest, 68 of them post-processed.
+     *
+     * Both figures move together whenever a subject is added or removed. It was 76: §C1's eight
+     * machines were drafted as icons, which are rendered at 1024² and downscaled, and they are
+     * their own `vehicle` class now, delivered at the size they are painted. A class whose source
+     * and delivery agree needs no step at all, which is the whole reason `postProcess` is derived
+     * rather than written down.
+     */
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(68);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {

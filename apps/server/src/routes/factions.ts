@@ -29,6 +29,7 @@ import { hasRoom, projectFaction } from '../factions/project.js';
 import { notify, notifyFaction } from '../social/notify.js';
 import { sendMessage } from '../social/send.js';
 import { adjustDeployment } from '../battle/deploy.js';
+import { defendingBaseOf } from '../battle/declare.js';
 import { REFUSAL_MESSAGES } from '../battle/routes.js';
 import { settleBase } from '../district/settle.js';
 
@@ -473,9 +474,21 @@ export function registerFactionRoutes(app: FastifyInstance): void {
         const allyOnAttack =
           allies.has(battle.attackerBaseId) ||
           attackerRows.some((row) => row.baseId !== null && allies.has(row.baseId));
-        const allyOnDefence = defenderRows.some(
-          (row) => row.baseId !== null && allies.has(row.baseId),
-        );
+        /*
+         * The defending side is named two ways too, and it has to be.
+         *
+         * A break-in's seeded defender row carries `base_id = NULL` whenever `defenderOf` cannot
+         * name a single holder, which is the ordinary state of a lived-in district: `districtHolder`
+         * is null unless one crew holds every location in it. Matching on rows alone therefore
+         * refused an ally in exactly the case the feature is for, a friend's home being emptied
+         * while they are asleep, and only let them in once the victim had deployed something
+         * themselves. `defendingBaseOf` is the same answer the settler uses to decide whose crew is
+         * defending, so the two cannot disagree about who is being helped.
+         */
+        const defendingBase = defendingBaseOf(app.repos, battle);
+        const allyOnDefence =
+          (defendingBase !== undefined && allies.has(defendingBase.id)) ||
+          defenderRows.some((row) => row.baseId !== null && allies.has(row.baseId));
         if (!allyOnAttack && !allyOnDefence) refuse('not_a_member');
 
         const now = new Date();

@@ -144,7 +144,6 @@ describe('a structure with no damage field', () => {
       level: BUILDING_MAX_LEVEL,
       modifications: [],
       damage: 0,
-      fortification: 0,
     }));
     expect(storageCapacity(LEGACY_DISTRICT)).toBe(storageCapacity(intact));
   });
@@ -568,8 +567,8 @@ describe('a save naming content the game no longer has', () => {
 
   it('drops a structure of a kind that no longer exists', () => {
     const buildings = load('buildings_json', [
-      { id: 'x', kind: 'gone_building', level: 3, modifications: [], damage: 0, fortification: 0 },
-      { id: 'y', kind: 'nexus', level: 3, modifications: [], damage: 0, fortification: 0 },
+      { id: 'x', kind: 'gone_building', level: 3, modifications: [], damage: 0 },
+      { id: 'y', kind: 'nexus', level: 3, modifications: [], damage: 0 },
     ])?.buildings;
     expect(buildings?.map((one) => one.kind)).toEqual(['nexus']);
   });
@@ -582,7 +581,6 @@ describe('a save naming content the game no longer has', () => {
         level: 3,
         modifications: ['gone_mod'],
         damage: 0,
-        fortification: 0,
       },
     ])?.buildings;
     expect(buildings).toHaveLength(1);
@@ -608,7 +606,7 @@ describe('a save naming content the game no longer has', () => {
     [
       'a level that is not a number',
       'buildings_json',
-      [{ id: 'y', kind: 'nexus', level: 'six', modifications: [], damage: 0, fortification: 0 }],
+      [{ id: 'y', kind: 'nexus', level: 'six', modifications: [], damage: 0 }],
     ],
   ])('still refuses %s', (_label, column, value) => {
     expect(() => load(column, value)).toThrow();

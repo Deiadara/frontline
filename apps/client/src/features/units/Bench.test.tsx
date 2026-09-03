@@ -4,11 +4,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const useUnits = vi.hoisted(() => vi.fn());
 const refetch = vi.hoisted(() => vi.fn());
+/* The two writes, as mutable state rather than a fresh literal, so a test can put a refusal on one
+   of them the way react-query would. */
+const train = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  isPending: false,
+  error: null as Error | null,
+  variables: undefined as { unitId: string; count: number } | undefined,
+}));
+const cancel = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  isPending: false,
+  error: null as Error | null,
+}));
 vi.mock('../../lib/queries', () => ({
   useUnits,
   useMe: () => ({ data: { base: { id: 'base-1' } } }),
-  useTrainUnits: () => ({ mutate: vi.fn(), isPending: false }),
-  useCancelTraining: () => ({ mutate: vi.fn(), isPending: false }),
+  useTrainUnits: () => train,
+  useCancelTraining: () => cancel,
 }));
 
 const { UnitsPage } = await import('./UnitsPage');
@@ -61,6 +74,9 @@ function bench(queue: TrainingOrder[]): {
 beforeEach(() => {
   useUnits.mockReset();
   refetch.mockReset();
+  train.error = null;
+  train.variables = undefined;
+  cancel.error = null;
 });
 
 /**
@@ -100,5 +116,57 @@ describe('the training bench', () => {
     render(<UnitsPage />);
     expect(within(screen.getByTestId('training-queue')).getAllByRole('listitem')).toHaveLength(2);
     expect(refetch, 'nothing settled, so nothing to re-read').not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A refused write has to reach the player, and the effect that chases the bench must not loop.
+ *
+ * Neither `train.error` nor `cancel.error` was rendered anywhere, and the QueryClient has no
+ * `MutationCache.onError`, so a refusal was swallowed at both ends: the button un-dimmed, nothing
+ * on the bench or the roster moved, and no message appeared. The count field is bounded by
+ * `TRAINING_MAX_BATCH` rather than by what the crew can afford (that figure only feeds the **Max**
+ * button), so asking for a batch the server refuses is ordinary rather than exotic.
+ */
+describe('when a write is refused', () => {
+  it('says why the batch was not started, against the unit that was pressed', () => {
+    useUnits.mockReturnValue(bench([]));
+    train.error = new Error('Not enough supplies for twenty Razors.');
+    train.variables = { unitId: 'razors', count: 20 };
+
+    render(<UnitsPage />);
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Razors');
+    expect(alert).toHaveTextContent('Not enough supplies for twenty Razors.');
+  });
+
+  it('says why an order could not be called off', () => {
+    useUnits.mockReturnValue(bench([order('running', 'razors', 4, 20)]));
+    cancel.error = new Error('Too late: the first one is already out.');
+
+    render(<UnitsPage />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Too late: the first one is already out.');
+  });
+});
+
+/**
+ * The bench-chasing effect depends on `query.refetch`, not on the query object.
+ *
+ * react-query hands back a **new result object every render**, so `[settled, query]` never matched
+ * and the body ran after every one. `settled` is derived from a clock that ticks once a second, so
+ * once it flipped true this fired again on each of the refetch's own re-renders and kept firing
+ * until the response shrank the bench. The other cases in this file use `mockReturnValue`, which
+ * hands back one frozen object and therefore cannot see this at all: this one returns a fresh
+ * object per call, which is what the real hook does.
+ */
+describe('re-reading a settled bench', () => {
+  it('asks once however many times the page re-renders', () => {
+    useUnits.mockImplementation(() => bench([order('done', 'sparks', 14, 10)]));
+
+    const { rerender } = render(<UnitsPage />);
+    rerender(<UnitsPage />);
+    rerender(<UnitsPage />);
+
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

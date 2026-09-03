@@ -48,12 +48,34 @@ export const SOCIAL_ATTRIBUTES = [
 
 export const TECHNICAL_ATTRIBUTES = [
   'engineering',
-  'hacking',
-  'fabrication',
+  /**
+   * Everything that travels on a wire or a wave, in both directions.
+   *
+   * Was `hacking`, which only ever named the half of it that breaks in. Signals is the whole trade:
+   * running a net that works, reading traffic that was not meant for you, and being the reason
+   * somebody else cannot read yours. A crew's interception and its counter-intrusion are the same
+   * people with the same training pointed different ways.
+   */
+  'signals',
+  /**
+   * Making the thing, whatever the thing is.
+   *
+   * Was `fabrication`, which reads as a bench and a lathe. Craft is the wider skill that bench sits
+   * inside: making, fitting, repairing and improving, from a machined part to a patched wall.
+   */
+  'craft',
   'medicine',
   'cybernetics',
   'salvage',
-  'demolition',
+  /**
+   * What somebody knows that is not what they were hired for.
+   *
+   * Replaces `demolition` outright. The broad, shallow reading that lets a researcher recognise the
+   * problem in front of them, a chemist know what a stray reference means, and anybody in the room
+   * be the one who has read about this before. Where the rest of the technical group is depth in one
+   * trade, this is the breadth under all of them.
+   */
+  'encyclopedia',
   'navigation',
   'chemistry',
   'logistics',
@@ -132,12 +154,12 @@ export const ATTRIBUTE_LABELS: Readonly<Record<AttributeName, string>> = {
   empathy: 'Empathy',
   diplomacy: 'Diplomacy',
   engineering: 'Engineering',
-  hacking: 'Hacking',
-  fabrication: 'Fabrication',
+  signals: 'Signals',
+  craft: 'Craft',
   medicine: 'Medicine',
   cybernetics: 'Cybernetics',
   salvage: 'Salvage',
-  demolition: 'Demolition',
+  encyclopedia: 'Encyclopedia',
   navigation: 'Navigation',
   chemistry: 'Chemistry',
   logistics: 'Logistics',

@@ -85,7 +85,10 @@ export const SCOUT_REFUSALS = [
   'already_scouted',
   'already_out',
   'no_officer',
+  /** They are already leading a fight, out on a job, or out scouting. */
   'officer_busy',
+  /** §D4: they came home hurt and their services are inactive until they are well. */
+  'officer_injured',
   'own_district',
 ] as const;
 export type ScoutRefusal = (typeof SCOUT_REFUSALS)[number];

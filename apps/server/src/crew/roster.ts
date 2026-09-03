@@ -1,10 +1,12 @@
 import {
+  markFromPoints,
   type Base,
   type Commander,
   type CrewOfficer,
   type CrewResponse,
   type OfficerRole,
 } from '@frontline/shared';
+import { roleFit } from '../roles/requirements.js';
 import type { Repositories } from '../db/repos/index.js';
 import { districtPopulation, type DistrictPopulation } from '../district/population.js';
 
@@ -28,6 +30,18 @@ export function projectCrewOfficer(officer: Commander): CrewOfficer {
     weeklyWage: officer.weeklyWage,
     // §D4: sent as the raw clock rather than as a boolean, so the card can count down to it.
     injuredUntil: officer.injuredUntil,
+    /*
+     * How well they fit the chair, as a mark.
+     *
+     * Computed here rather than shipped as the score it comes from: `roleFit` reads the role
+     * requirement table, which is server-side only (B8/B8a), and the score itself is fine grained
+     * enough that a player comparing two of them could work backwards toward the weights. The mark
+     * is the coarse hint the leak guard's own note allows.
+     *
+     * Null on the bench. A mark is a statement about a fit, and somebody with no chair has nothing
+     * to fit: the same officer reads differently in two roles, which is the point of showing it.
+     */
+    mark: officer.role === null ? null : markFromPoints(roleFit(officer.attributes, officer.role)),
   };
 }
 

@@ -14,9 +14,17 @@ import {
   RESOURCE_LABELS,
   RESOURCE_ORDER,
 } from '@frontline/shared';
-import { activeResearch, lateGame, me, meNoOverseer, missionsResponse } from './fixtures';
+import {
+  activeResearch,
+  hudExtremes,
+  lateGame,
+  me,
+  meNoOverseer,
+  missionsResponse,
+} from './fixtures';
 import {
   expectControlNotDimmed,
+  expectNothingOverflowsTheScreen,
   expectNothingClippedVertically,
   expectSheetNotWashedOut,
   installApi,
@@ -37,32 +45,6 @@ const VIEWPORTS: readonly Size[] = [
   { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
 ];
-
-/** Anything wider/taller than its container by more than a rounding error is an overflow bug. */
-const OVERFLOW_SLACK_PX = 1;
-
-interface DocumentMetrics {
-  scrollWidth: number;
-  clientWidth: number;
-  scrollHeight: number;
-  clientHeight: number;
-}
-
-async function expectNoDocumentOverflow(page: Page): Promise<void> {
-  await settleFonts(page);
-  const metrics = await page.evaluate<DocumentMetrics>(() => {
-    const { scrollWidth, clientWidth, scrollHeight, clientHeight } = document.documentElement;
-    return { scrollWidth, clientWidth, scrollHeight, clientHeight };
-  });
-  expect(
-    metrics.scrollWidth,
-    `horizontal overflow: ${metrics.scrollWidth} > ${metrics.clientWidth}`,
-  ).toBeLessThanOrEqual(metrics.clientWidth + OVERFLOW_SLACK_PX);
-  expect(
-    metrics.scrollHeight,
-    `vertical overflow: ${metrics.scrollHeight} > ${metrics.clientHeight}`,
-  ).toBeLessThanOrEqual(metrics.clientHeight + OVERFLOW_SLACK_PX);
-}
 
 /**
  * No element may stick out of the viewport horizontally. Vertical is covered by the document
@@ -153,7 +135,7 @@ for (const size of VIEWPORTS) {
     test(`auth screen at ${tag}`, async ({ page }) => {
       await page.goto('/auth');
       await expect(page.getByRole('heading', { name: 'FRONTLINE' })).toBeVisible();
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
       await page.screenshot({ path: `screenshots/visual/auth-${tag}.png` });
@@ -163,7 +145,7 @@ for (const size of VIEWPORTS) {
       await installApi(page, meNoOverseer);
       await page.goto('/overseer');
       await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
       // Two card rows need ~652px of frame, and only viewports 900px tall and up can pay for it.
@@ -196,7 +178,7 @@ for (const size of VIEWPORTS) {
       await page.goto('/game');
       await expect(page.getByTestId('city-room')).toBeVisible();
       await settleFonts(page);
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
 
@@ -311,7 +293,7 @@ for (const size of VIEWPORTS) {
       await installApi(page, lateGame);
       await page.goto('/game');
       await expect(page.getByTestId('city-room')).toBeVisible();
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
 
@@ -378,7 +360,7 @@ for (const size of VIEWPORTS) {
         return new Set(items.map((i) => Math.round(i.getBoundingClientRect().top))).size;
       });
       expect(rows, 'a legal district name wrapped the stockpile').toBe(1);
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
     });
 
@@ -386,7 +368,7 @@ for (const size of VIEWPORTS) {
       await installApi(page, me);
       await page.goto('/game/base');
       await expect(page.getByTestId('district-plaque')).toContainText('The Ninth Street Crew');
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       /*
        * No vertical guard here, deliberately. The base panel is a document scroller: its content
@@ -396,6 +378,28 @@ for (const size of VIEWPORTS) {
        * 1280x720 is that nothing advertises the scroll: MOU-195 tracks the affordance.
        */
       await page.screenshot({ path: `screenshots/visual/base-${tag}.png` });
+    });
+
+    /**
+     * §A1: the district with work under way, so the rail down the left is on screen.
+     *
+     * A separate case rather than a queue bolted onto the starting fixture, which is the honest
+     * split: `me` is a crew's first hour and should screenshot as one. The rail is only drawn when
+     * there is something in it, so without a fixture that has orders in it nobody reviews it.
+     */
+    test(`the district with a queue at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/base');
+      await expect(page.getByTestId('build-rail')).toBeVisible();
+      await settleFonts(page);
+
+      // The one being worked, and the two waiting behind it.
+      await expect(page.getByTestId('build-rail-quarters')).toBeVisible();
+      await expect(page.getByTestId('build-rail-gate')).toBeVisible();
+
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/base-queue-${tag}.png` });
     });
 
     /*
@@ -446,7 +450,7 @@ for (const size of VIEWPORTS) {
       );
       expect(clipped, `cut text in the level-up banner: ${clipped.join(' | ')}`).toEqual([]);
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/missions-levelup-${tag}.png` });
     });
@@ -528,7 +532,7 @@ for (const size of VIEWPORTS) {
       );
       expect(clipped, `cut text in the §E4 timing breakdown: ${clipped.join(' | ')}`).toEqual([]);
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/missions-${tag}.png` });
 
@@ -551,7 +555,7 @@ for (const size of VIEWPORTS) {
       await installApi(page, lateGame);
       await page.goto('/game/base');
       await expect(page.getByTestId('district-plaque')).toContainText('The Ninth Street Crew');
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
 
       // The district is the screen now, and everything written *about* it lives in a drawer that
@@ -618,7 +622,7 @@ for (const size of VIEWPORTS) {
 
       const cutRoom = await clipped();
       expect(cutRoom, `cut text in the Bar's room: ${cutRoom.join(' | ')}`).toEqual([]);
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/bar-${tag}.png` });
 
@@ -791,7 +795,7 @@ for (const size of VIEWPORTS) {
       }
       await page.getByTestId('research-bench-investigate').click();
       await settleFonts(page);
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/research-${tag}.png` });
@@ -995,7 +999,7 @@ for (const size of VIEWPORTS) {
       // No vertical guard here, and deliberately: the roster is a scrolling document, so the last
       // visible row is *always* half-cut by the fold. That is what a scroller does, and it is why
       // the other document pages in this file gate on overflow and horizontal clipping instead.
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/units-${tag}.png` });
@@ -1054,7 +1058,7 @@ for (const size of VIEWPORTS) {
         expect(gauge.fill).toBeLessThan(gauge.track);
       }
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/training-${tag}.png` });
@@ -1156,7 +1160,7 @@ for (const size of VIEWPORTS) {
       );
       expect(cut, `cut text on the overseer's file: ${cut.join(' | ')}`).toEqual([]);
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/overseer-profile-${tag}.png` });
@@ -1284,7 +1288,7 @@ for (const size of VIEWPORTS) {
       await detail.getByRole('link', { name: 'Go there' }).click();
       await expect(page).toHaveURL(/\/game\/base$/);
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
     });
 
@@ -1307,7 +1311,7 @@ for (const size of VIEWPORTS) {
       );
       expect(clipped, `cut text on the market: ${clipped.join(' | ')}`).toEqual([]);
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/market-${tag}.png` });
@@ -1333,7 +1337,7 @@ for (const size of VIEWPORTS) {
       // The yard is gone from here: see the Garage's own test below.
       await expect(page.getByTestId('vehicle-rotorcraft')).toHaveCount(0);
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/workshop-${tag}.png` });
@@ -1352,7 +1356,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('scrapyard-nexus')).toBeVisible();
       await settleFonts(page);
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/scrapyard-${tag}.png`, fullPage: true });
     });
@@ -1373,7 +1377,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('vehicle-motorcycle')).toContainText('in the yard');
       await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Needs the');
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/garage-${tag}.png`, fullPage: true });
     });
@@ -1400,7 +1404,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('join-sheet')).toBeInViewport({ ratio: 1 });
       await expect(page.getByTestId('start-faction')).toBeInViewport({ ratio: 1 });
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/faction-none-${tag}.png` });
     });
@@ -1418,7 +1422,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('badge-shape-shield')).toBeVisible();
       await expect(page.getByTestId('found-faction')).toBeVisible();
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/faction-create-${tag}.png` });
     });
@@ -1434,7 +1438,7 @@ for (const size of VIEWPORTS) {
       // The empty seats are drawn rather than left as blank panel.
       await expect(page.getByTestId('faction-vacancies')).toBeVisible();
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/faction-${tag}.png` });
     });
@@ -1466,7 +1470,7 @@ for (const size of VIEWPORTS) {
       await settleFonts(page);
 
       await expect(page.getByTestId('crew-bench')).toBeVisible();
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/crew-${tag}.png` });
     });
@@ -1478,7 +1482,7 @@ for (const size of VIEWPORTS) {
       await settleFonts(page);
 
       await expect(page.getByTestId('back-to-crew')).toBeVisible();
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       // Pointed at the **cards**, not at the default `main section`: the first section on this
       // page is the radar, and a gate aimed there passes happily with every card washed out. The
@@ -1498,7 +1502,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('local-only')).toBeVisible();
       await expect(page.getByTestId('your-rank')).toBeInViewport({ ratio: 1 });
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/standings-${tag}.png` });
     });
@@ -1512,7 +1516,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('satchel-blueprint')).toContainText('Cybernetics');
       await expect(page.getByTestId('satchel-relic')).toContainText('Ivory Dice');
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/satchel-${tag}.png` });
@@ -1532,7 +1536,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByText('Investigating the Instructor of the Young')).toBeVisible();
       await settleFonts(page);
 
-      await expectNoDocumentOverflow(page);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/research-active-${tag}.png` });
     });
@@ -1611,4 +1615,200 @@ test('typography survives with every third-party origin unreachable', async ({ p
   await settleFonts(page);
 
   expect(offOrigin, `the client fetched third-party assets: ${offOrigin.join(' | ')}`).toEqual([]);
+});
+
+/**
+ * The standing bar, with every readout at its widest legal value.
+ *
+ * The bar is a row of instruments and its recurring failure is that an instrument grows with its
+ * reading. A long notoriety rank, a seven-figure stockpile and a maximum-length crew name each
+ * used to widen their own plate and push everything to the right of them along; the board hit that
+ * and screenshotted a rank sitting over the doors.
+ *
+ * These are pixel assertions on purpose. jsdom has no layout engine, so a unit test can check that
+ * the sizing classes are present and nothing more: whether two boxes actually overlap is a
+ * question only a browser can answer, and it is the question that was being got wrong.
+ */
+test.describe('the standing bar does not resize itself', () => {
+  /** Every pair of boxes in a row, checked for horizontal overlap. */
+  async function overlaps(page: Page, selector: string): Promise<string[]> {
+    return page.evaluate((sel) => {
+      const boxes = [...document.querySelectorAll(sel)].map((el) => ({
+        id: el.getAttribute('data-testid') ?? el.className.slice(0, 24),
+        rect: el.getBoundingClientRect(),
+      }));
+      const found: string[] = [];
+      for (let i = 0; i < boxes.length; i += 1) {
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const a = boxes[i]!;
+          const b = boxes[j]!;
+          // Same line, and their horizontal spans cross by more than a rounding error.
+          const sameRow = Math.abs(a.rect.top - b.rect.top) < 4;
+          const cross = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
+          if (sameRow && cross > 1) found.push(`${a.id} over ${b.id} by ${Math.round(cross)}px`);
+        }
+      }
+      return found;
+    }, selector);
+  }
+
+  /*
+   * The widths the bar actually changes shape at, which are not the screenshot matrix's.
+   *
+   * The bar has two regimes: an authored two-tier break below 1550, and a plain flex row above it.
+   * The matrix skips from 1440 straight to 1920, so the whole middle regime went unmeasured, and
+   * that is where the board's screenshot came from: a centred grid, since removed, engaged at 1500
+   * while needing about 1960, promised each side more room than the frame had, and ran the
+   * stockpile over the identity plaque. Every boundary is sampled on both sides.
+   *
+   * 1549 and 1550 straddle the break. It sits 20px above the width where the plaque stops fitting
+   * the middle column at `DISTRICT_NAME_MAX`, which is measured rather than chosen: the plaque's
+   * spare room grows a pixel per pixel of viewport and reaches zero at 1530. 1500 is inside the
+   * two-tier regime and is kept because it is the width the old grid used to engage at. The
+   * 1719/1720 and 1959/1960 pairs no longer bound anything and are kept as plain samples.
+   */
+  const BAR_WIDTHS = [
+    1024, 1280, 1440, 1500, 1549, 1550, 1600, 1700, 1719, 1720, 1800, 1920, 1959, 1960, 2560,
+  ];
+
+  for (const width of BAR_WIDTHS) {
+    test(`nothing in the bar sits on anything else at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installApi(page, hudExtremes);
+      await page.goto('/game/city');
+      await expect(page.getByTestId('infamy-chip')).toBeVisible();
+      await settleFonts(page);
+
+      /*
+       * Every labelled box in the bar against every other, not a hand-listed few.
+       *
+       * The narrower check below names four selectors and misses the doors, which is exactly what
+       * the plaque was overlapping in the board's screenshot: the test was looking at the two
+       * things that did not collide. Containment is skipped, because a chip inside a chip is not
+       * an overlap.
+       */
+      const hits = await page.evaluate(() => {
+        const bar = document.querySelector('header');
+        if (!bar) throw new Error('no standing bar on the page');
+        const boxes = [...bar.querySelectorAll<HTMLElement>('[data-testid]')].filter(
+          (el) => el.offsetParent !== null,
+        );
+        const found: string[] = [];
+        for (let i = 0; i < boxes.length; i += 1) {
+          for (let j = i + 1; j < boxes.length; j += 1) {
+            const a = boxes[i]!;
+            const b = boxes[j]!;
+            if (a.contains(b) || b.contains(a)) continue;
+            const x = a.getBoundingClientRect();
+            const y = b.getBoundingClientRect();
+            if (
+              x.left < y.right - 1 &&
+              y.left < x.right - 1 &&
+              x.top < y.bottom - 1 &&
+              y.top < x.bottom - 1
+            )
+              found.push(`${a.dataset.testid} over ${b.dataset.testid}`);
+          }
+        }
+        return [...new Set(found)];
+      });
+
+      expect(hits, `standing bar overlaps at ${width}px`).toEqual([]);
+      await expectNothingClippedHorizontally(page);
+    });
+  }
+
+  for (const { width, height } of VIEWPORTS) {
+    const tag = `${width}x${height}`;
+
+    test(`holds its shape at the widest legal values at ${tag}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await installApi(page, hudExtremes);
+      await page.goto('/game/city');
+      await expect(page.getByTestId('infamy-chip')).toBeVisible();
+      await settleFonts(page);
+
+      // Nothing in the bar sits on top of anything else in it.
+      expect(
+        await overlaps(
+          page,
+          '[data-testid^="resource-chip-"], [data-testid="level-chip"], [data-testid="infamy-chip"], [data-testid="district-plaque"]',
+        ),
+        `standing bar overlaps at ${tag}`,
+      ).toEqual([]);
+
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+    });
+
+    /**
+     * And the plates are the *same size* as with a starting crew.
+     *
+     * The overlap check above only catches the failure once it is bad enough to collide. This is
+     * the rule underneath it: only the identity plaque is allowed to size itself to its contents,
+     * because only its content is something the player typed. Every other plate is an instrument.
+     */
+    test(`keeps every plate the same width as an empty crew at ${tag}`, async ({ page }) => {
+      const widthsOf = async (): Promise<Record<string, number>> =>
+        page.evaluate(() =>
+          Object.fromEntries(
+            [
+              ...document.querySelectorAll(
+                '[data-testid^="resource-chip-"], [data-testid="level-chip"], [data-testid="infamy-chip"]',
+              ),
+            ].map((el) => [
+              el.getAttribute('data-testid') ?? '',
+              Math.round(el.getBoundingClientRect().width),
+            ]),
+          ),
+        );
+
+      await page.setViewportSize({ width, height });
+      await installApi(page, me);
+      await page.goto('/game/city');
+      await expect(page.getByTestId('infamy-chip')).toBeVisible();
+      await settleFonts(page);
+      const small = await widthsOf();
+
+      await installApi(page, hudExtremes);
+      await page.reload();
+      await expect(page.getByTestId('infamy-chip')).toBeVisible();
+      await settleFonts(page);
+      const large = await widthsOf();
+
+      expect(large, `plates resized themselves at ${tag}`).toEqual(small);
+    });
+
+    /**
+     * Fixed columns are only half the rule: the other half is that the figure still *fits*.
+     *
+     * `truncate` keeps an absurd number from shoving the bar apart, but a truncated number is a
+     * lie: `9,999,9...` reads as a different score. The board's bar is worth nothing if it is
+     * wrong, so at the largest figures the game can produce, nothing in it may be cut off.
+     */
+    test(`shows every figure in full at its largest at ${tag}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await installApi(page, hudExtremes);
+      await page.goto('/game/city');
+      await expect(page.getByTestId('infamy-chip')).toBeVisible();
+      await settleFonts(page);
+
+      const cut = await page.evaluate(() =>
+        [
+          ...document.querySelectorAll<HTMLElement>(
+            '[data-testid^="resource-chip-"], [data-testid="infamy-chip"], [data-testid="level-chip"], [data-testid="notoriety-tier"]',
+          ),
+        ].flatMap((chip) =>
+          [chip, ...chip.querySelectorAll<HTMLElement>('*')]
+            .filter((el) => el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1)
+            .map(
+              (el) =>
+                `${chip.dataset.testid}: "${el.textContent?.trim()}" needs ${el.scrollWidth}px, has ${el.clientWidth}px`,
+            ),
+        ),
+      );
+
+      expect(cut, `text cut off in the standing bar at ${tag}`).toEqual([]);
+    });
+  }
 });

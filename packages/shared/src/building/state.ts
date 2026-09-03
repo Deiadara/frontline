@@ -10,7 +10,6 @@ import {
   type BuildingKind,
   type BuildingRequirement,
 } from './kinds.js';
-import { FORTIFY_MAX_LEVEL } from '../city/fortification.js';
 import {
   MAX_MODIFICATION_SLOTS,
   ModificationIdSchema,
@@ -52,13 +51,6 @@ export const BuildingSchema = z.object({
    * says. Absent, null and "never hit" are the same state, and every reader treats them as one.
    */
   damagedAt: IsoDateTimeSchema.nullable().optional(),
-  /**
-   * How far this structure has been dug in, `0..FORTIFY_MAX_LEVEL`. Only the Gate reads it (see
-   * `gateFortifyPercent`); it lives on every structure because the schema is one shape and a field
-   * that is zero everywhere else costs nothing. Defaulted for the same reason as `damage`, which
-   * is also what quietly retires the watch counts that used to sit here.
-   */
-  fortification: z.number().int().min(0).max(FORTIFY_MAX_LEVEL).default(0),
 });
 export type Building = z.infer<typeof BuildingSchema>;
 

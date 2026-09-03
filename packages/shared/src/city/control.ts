@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
-import { POPULATION_PER_LOCATION } from '../building/population.js';
+import { POPULATION_PER_LOCATION, POPULATION_PER_LOCATION_LEVEL } from '../building/population.js';
 import { fortifyBonusPercent } from './fortification.js';
 import { findDistrict, unifiedBonusFor, type District } from './districts.js';
 import {
@@ -8,6 +8,7 @@ import {
   MAX_LOCATION_LEVEL,
   applyHoldBonus,
   bonusesAt,
+  clampLevel,
   noTerritoryEffects,
   type Location,
   type TerritoryEffects,
@@ -56,10 +57,14 @@ export const LocationControlSchema = z.object({
   /**
    * 1..`MAX_LOCATION_LEVEL`: how far this location has been worked up (§A4).
    *
-   * **Reset to 1 the moment it changes hands, for everybody.** That is the whole tension of the
-   * system and it is deliberately not softened: nobody inherits the previous holder's investment,
-   * so a well-developed location is a target worth taking and a liability worth garrisoning, and
-   * pouring four upgrades into ground you cannot hold is a mistake the game lets you make.
+   * **Kept when it changes hands.** You take the ground as it stands, so a well-worked location is
+   * a prize rather than a sandcastle, and every level poured into ground near a border is a level
+   * somebody may end up taking off you rather than one they can only wreck. What does not carry is
+   * an upgrade still in progress: `upgradingUntil` is cleared by the capture.
+   *
+   * The ceiling only ever widens, so a row written when it was 4 still parses. Nothing on a read
+   * path clamps down to an older ceiling: `clampLevel` clamps to the current one and is the only
+   * thing that clamps at all.
    */
   level: z.number().int().min(1).max(MAX_LOCATION_LEVEL).default(1),
   /** Set while a level is being worked on; null when nothing is under way. */
@@ -160,9 +165,13 @@ export function territoryEffectsFor(
     const control = controls.get(location.id);
     if (!control || !isHeldBy(control, baseId)) continue;
     held.add(location.districtId);
-    // §A1: ground you hold is ground people live on. Flat per location and deliberately not
-    // scaled by its level: what houses people is the block, not how well the press in it runs.
-    effects.populationBonus += POPULATION_PER_LOCATION;
+    // §A1: ground you hold is ground people live on. The flat 20 is for holding the block and is
+    // deliberately not scaled by the level: what houses people is the block, not how well the
+    // press in it runs. The per-level beds are a separate, flat term on top of it, and the
+    // catalogue's own `population` bonuses are a third that scales like everything else. See
+    // `building/population.ts` for why the three are kept apart.
+    effects.populationBonus +=
+      POPULATION_PER_LOCATION + POPULATION_PER_LOCATION_LEVEL * (clampLevel(control.level) - 1);
     // At the level it has been worked up to (§A4): the whole reason to pour resources into
     // ground you might lose. `bonusesAt` is the only reader of `LEVEL_SCALE`, so a location's
     // worth and the number on its card cannot disagree.

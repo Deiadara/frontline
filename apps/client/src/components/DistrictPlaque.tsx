@@ -34,10 +34,23 @@ import { cn } from './../lib/cn';
  * short name's size pushes the standing bar onto a second line, which costs the world underneath
  * it fifty pixels. **Ellipsis is not an option**: a cut label is what the board's bar forbids
  * outright. See the note on `DISTRICT_NAME_MAX`.
+ *
+ * Three rungs rather than two. The ceiling itself stays at 28 and is not negotiable from here:
+ * `BaseSchema.name` is this same schema, so lowering the maximum would stop an existing 23 to 28
+ * character name from parsing at all and take those accounts down with it. The width has to come
+ * out of the type instead.
  */
 function plaqueType(length: number): string {
-  if (length <= 21) return 'text-base [@media(min-width:1500px)]:text-lg';
-  return 'text-sm [@media(min-width:1500px)]:text-base';
+  if (length <= 16) return 'tracking-[0.06em] text-base [@media(min-width:1500px)]:text-lg';
+  if (length <= 22) return 'tracking-[0.06em] text-sm [@media(min-width:1500px)]:text-base';
+  // The last rung, for names in the top six characters of the range. The bar has to hold six
+  // stockpiles, two meters, five doors and this at once, and a 28-character name set at the
+  // 22-character size is what put the stockpile through the plaque in the board's screenshot.
+  //
+  // The tracking goes with the size. A plaque is letter-spaced because it is a sign, but at 28
+  // characters that spacing is 28 gaps: about 47px of pure air, which is more than the whole
+  // margin the bar has left at the width the break is measured against. A long name closes up.
+  return 'text-xs tracking-normal [@media(min-width:1500px)]:text-sm';
 }
 
 export function DistrictPlaque({ base }: { base: Base }) {
@@ -54,7 +67,7 @@ export function DistrictPlaque({ base }: { base: Base }) {
         aria-label={`${base.name}. Rename your district`}
         className={cn(
           'group glass painted edge-lit pointer-events-auto relative flex shrink-0 flex-col items-center',
-          'justify-center rounded-md border-2 border-brass-500/60 px-6 py-1.5 shadow-panel',
+          'justify-center rounded-md border-2 border-brass-500/60 px-4 py-1.5 shadow-panel',
           'transition-all duration-150 hover:-translate-y-px hover:border-brass-300 hover:shadow-brass',
           'active:translate-y-0',
         )}
@@ -87,7 +100,7 @@ export function DistrictPlaque({ base }: { base: Base }) {
 
         <span
           className={cn(
-            'font-stamp font-bold leading-none tracking-[0.06em] text-brass-100 text-on-art',
+            'font-stamp font-bold leading-none text-brass-100 text-on-art',
             plaqueType(base.name.length),
           )}
         >
@@ -155,7 +168,19 @@ export function DistrictPlaque({ base }: { base: Base }) {
       <Button size="sm" type="submit" disabled={rename.isPending || draft.trim().length < 2}>
         {rename.isPending ? 'Saving…' : 'Save'}
       </Button>
-      <Button size="sm" variant="ghost" type="button" onClick={() => setDraft(null)}>
+      <Button
+        size="sm"
+        variant="ghost"
+        type="button"
+        onClick={() => {
+          // The refusal belongs to the attempt, not to the plaque: leaving it in the
+          // mutation reopened the form with "That name is taken" already under a field
+          // holding the name the crew is currently using. `onChange` already resets it,
+          // which is why the first keystroke used to clear it.
+          rename.reset();
+          setDraft(null);
+        }}
+      >
         Cancel
       </Button>
     </form>

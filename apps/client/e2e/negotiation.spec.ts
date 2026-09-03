@@ -101,6 +101,28 @@ test.describe('haggling (§H7)', () => {
   });
 
   /**
+   * The meter measures how much longer they will argue, so a signature ends it (board request).
+   *
+   * The bar is checked *present* first, in the same test, on purpose. An absence assertion that
+   * only ever runs after the handshake passes just as happily against a window that never drew a
+   * meter at all, and would keep passing if the whole footer were deleted.
+   */
+  test('the patience meter is gone once they sign', async ({ page }) => {
+    await openBar(page);
+    await page.getByTestId(`negotiate-${RECRUIT}`).click();
+
+    const meter = page.getByRole('progressbar', { name: /How much longer/ });
+    await expect(meter, 'no meter to remove while they are still arguing').toBeVisible();
+
+    const asking = bar.recruits.find((recruit) => recruit.id === RECRUIT)?.askingWage ?? 0;
+    await page.getByLabel(/^Offer to /).fill(String(reservationWage(asking)));
+    await page.getByTestId('negotiation-say').click();
+
+    await expect(page.getByTestId('negotiation-sign')).toBeVisible();
+    await expect(meter, 'the meter outlived the handshake').toHaveCount(0);
+  });
+
+  /**
    * The bug this whole path exists to prevent: **they say yes and never join the crew.**
    *
    * Agreeing a wage used to write the number into the card's *counter-offer* slot: the channel for

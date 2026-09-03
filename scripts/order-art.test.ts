@@ -3,6 +3,7 @@ import {
   OFFICER_PORTRAIT_IDS,
   ART_MANIFEST,
   HERO_ASSETS,
+  deliveredAtPaintedSize,
   NEGATIVE,
   OCCLUDED_BACKDROP_KEYS,
   STYLE_ANCHOR,
@@ -40,20 +41,32 @@ describe('sections', () => {
     expect(hero!.specs.map((s) => s.key)).toEqual(HERO_ASSETS.map((s) => s.key));
     // Named rather than derived: joining this set means asking the board for a 2048×1152
     // render, which is the one size a plain ChatGPT download may not reach (§3 guidance). All
-    // three plates are deliberately absent, and for one reason: each is delivered at the size it
+    // five plates are deliberately absent, and for one reason: each is delivered at the size it
     // was painted, so none of them needs that render and asking for one would be asking the board
     // to repaint a picture things are already positioned on.
     expect(wide!.specs.map((s) => s.key)).toEqual(['splash-auth']);
-    // Opaque and croppable, but not at a size ChatGPT hands back: the unit roster, plus the three
-    // plates delivered off the §6 size table. All three are places with things positioned on them,
-    // the city's district tags, the district's building sites and the Bar's empty stool, so all
-    // three ship at the size they were painted and none belongs in the 16:9 group above.
-    expect(roster!.specs.every((s) => !s.alpha && s.aspect !== '16:9')).toBe(true);
+    // Opaque and croppable, but not at a size ChatGPT hands back: the unit roster, plus the five
+    // plates delivered off the §6 size table. Every one of them is a place with things positioned
+    // on it, the city's district tags, the district's building sites, the Bar's empty stool and the
+    // two contested districts' location plates, so each ships at the size it was painted and none
+    // belongs in the 16:9 group above. The last two are genuinely 16:9 and are kept out of that
+    // group by {@link deliveredAtPaintedSize} rather than by their aspect string.
+    expect(
+      roster!.specs.every(
+        (s) => !s.alpha && (s.aspect !== '16:9' || deliveredAtPaintedSize(s.key)),
+      ),
+    ).toBe(true);
     expect(
       roster!.specs
         .map((s) => s.key)
         .filter((key) => !key.startsWith('unit-') && !key.startsWith('officer-')),
-    ).toEqual(['plate-city', 'plate-district', 'plate-bar']);
+    ).toEqual([
+      'plate-city',
+      'plate-district',
+      'plate-bar',
+      'plate-district-neon-docks',
+      'plate-district-rustyard',
+    ]);
     // The officer pool is opaque and croppable and lands here too, all forty-three of it. Read
     // off the pool rather than typed: the board added ten faces once and will again.
     expect(roster!.specs.filter((s) => s.class === 'officer')).toHaveLength(

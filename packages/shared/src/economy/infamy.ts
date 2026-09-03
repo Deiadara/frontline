@@ -203,7 +203,16 @@ export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
   carrier: 0,
   rabble: 0,
   specialist: 0,
-  wonder: 0,
+  /**
+   * `Ill-Reputed`, the same as Heavy, and paired with it in {@link SUPPLY_GATED_TIERS}.
+   *
+   * Zero until §D12i moved the Hollow Men out of Heavy and into the wonders of engineering. The
+   * rank a unit asks for is about how big a deal it is, not about which shelf of the catalogue it
+   * was filed on, and a taxonomy change is not supposed to hand every crew in the city a shock
+   * trooper it had to earn the day before. The supply exemption below keeps the small engineered
+   * units (Road Reavers, Kite Crews, Cyberhounds, the Twins) open to anybody, exactly as they were.
+   */
+  wonder: 2,
   /** `Ill-Reputed`. A heavy unit wants to hear the name before it turns up. */
   heavy: 2,
   /** `Marked`. A legend does not work for anybody the Combine has not opened a file on. */
@@ -211,7 +220,7 @@ export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
 };
 
 /**
- * The supply a unit has to eat before the Heavy tier's rank gate applies to it.
+ * The supply a unit has to eat before the middle band's rank gate applies to it.
  *
  * The gate is derived off the tier, and that stopped being sufficient when the line infantry moved
  * into Heavy: the tier now runs from Breakers, which a crew trains off a Gauntlet 4 in its first
@@ -225,11 +234,19 @@ export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
  */
 export const NOTORIETY_HEAVY_SUPPLY = 5;
 
+/**
+ * The two tiers where the rank is decided by size rather than by the tier alone.
+ *
+ * Both of them hold cheap early units and expensive late ones, so both need the exemption. Rabble
+ * and specialists are never gated, and a legend is always gated whatever it weighs.
+ */
+const SUPPLY_GATED_TIERS: readonly UnitTier[] = ['heavy', 'wonder'];
+
 export function notorietyToField(unit: UnitSpec | string): number {
   const spec = typeof unit === 'string' ? findUnit(unit) : unit;
   if (!spec) return 0;
   // See `NOTORIETY_HEAVY_SUPPLY`: armour alone is not what the gate is about.
-  if (spec.tier === 'heavy' && spec.supply < NOTORIETY_HEAVY_SUPPLY) return 0;
+  if (SUPPLY_GATED_TIERS.includes(spec.tier) && spec.supply < NOTORIETY_HEAVY_SUPPLY) return 0;
   return NOTORIETY_TO_FIELD[spec.tier];
 }
 

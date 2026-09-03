@@ -86,9 +86,15 @@ Body: `UpgradeLocationRequestSchema` `{locationId}`. Works a location you hold u
 (GDD §A4). Charged up front, a clock on the control row, banked by `settleFortifications` on the
 next read of the city: the same lazy contract fortifying uses, and the same settler.
 
-A location is captured at level 1 and can be worked to `MAX_LOCATION_LEVEL` (4). Each level pays
-more (`LEVEL_SCALE`) and each upgrade costs more than the last (`UPGRADE_COST_SCALE`). **A capture
-resets it to 1** and cancels any work in progress: `battle/resolve.ts`, not this route.
+A location can be worked to `MAX_LOCATION_LEVEL` (10). Each level pays more (`LEVEL_SCALE`, linear
+at +0.5 of the level-1 value per level) and each upgrade costs more than the last
+(`UPGRADE_COST_SCALE`, a doubling for the first three steps and a flat 1.4x after that). Each level
+above the first also adds `POPULATION_PER_LOCATION_LEVEL` (3) beds on top of the flat
+`POPULATION_PER_LOCATION` (20) every held location pays, and takes 2% off the price and 3% off the
+clock of any unit that location unlocks (`homeTrainingBonus`).
+
+**A capture keeps the level** and only cancels work in progress: `battle/resolve.ts`, not this
+route. The district gate is a separate rule and still resets (`resetGateOnDistrictLost`).
 
 Refusals, all `409`:
 

@@ -128,8 +128,17 @@ describe('combat width', () => {
    */
   it('stops extra bodies past the frontage from adding fire', () => {
     const narrow = { ...bareBattlefield(), frontage: 10 };
+    /*
+     * More seeds than the rest of this file, because this one compares two *estimates*.
+     *
+     * Every other assertion here is a comparison between two runs of the same shape, where the
+     * noise largely cancels. This one measures a gap against a fixed threshold, so the noise is the
+     * whole question, and 24 seeds does not settle it: the gap reads 0.104 at 24 seeds, 0.097 at
+     * 100 and 0.090 at 400. It sat the wrong side of the bar on a sample too small to say so, and
+     * went red on a morale change that moved the real figure by about a point.
+     */
     const survived = (attackers: number) => {
-      const { simulations } = run({ razors: attackers }, { wardens: 12 }, narrow);
+      const { simulations } = run({ razors: attackers }, { wardens: 12 }, narrow, 200);
       return (
         simulations.reduce((total, simulation) => {
           const started = simulation.defender.stacks.reduce((n, stack) => n + stack.started, 0);

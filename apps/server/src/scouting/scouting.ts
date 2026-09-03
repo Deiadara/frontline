@@ -10,6 +10,7 @@ import {
   type ScoutingRun,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
+import { officerDuty } from '../crew/duty.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
 
@@ -101,6 +102,17 @@ export function sendScout(
       ? defaultScout(base)
       : base.commanders.find((held) => held.id === input.officerId);
   if (!officer) return { kind: 'refused', reason: 'no_officer' };
+  /*
+   * §D4, and the one-job rule, which this door used to skip entirely.
+   *
+   * `scoutRunMinutes` reads the officer's full sheet, so an injured Head Spy sent scouting handed
+   * the crew the best part of an officer straight through their recovery, and a mission and a
+   * battle could both be holding the same person at the same time. `officerDuty` asks both
+   * questions in one place so the three dispatch doors cannot answer them differently.
+   */
+  const duty = officerDuty(repos, base, officer, now);
+  if (duty === 'injured') return { kind: 'refused', reason: 'officer_injured' };
+  if (duty !== null) return { kind: 'refused', reason: 'officer_busy' };
 
   const plan = planScout(repos, base, districtId, officer, now);
   if (!plan) return { kind: 'refused', reason: 'no_officer' };

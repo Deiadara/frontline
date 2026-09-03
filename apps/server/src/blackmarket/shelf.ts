@@ -12,6 +12,7 @@ import {
   nextDayBoundary,
   spendInfamy,
   takeRefusal,
+  discountedInfamy,
   type Base,
   type BlackMarketRefusal,
   type BlackMarketResponse,
@@ -63,20 +64,6 @@ export function cityLevelFor(repos: Repositories): number {
       .filter((summary) => !summary.isBot)
       .map((summary) => summary.level),
   );
-}
-
-/**
- * §A4: the Statue of the Revolutionist takes infamy off what the dealer asks.
- *
- * Capped and floored: standing under nine metres of bronze does not make contraband free, and a
- * price of zero would turn the daily limit into the only gate the black market has.
- */
-export const MAX_BLACK_MARKET_DISCOUNT = 50;
-
-export function discountedInfamy(price: number, percent: number): number {
-  if (!Number.isFinite(price)) return price;
-  const off = Math.min(MAX_BLACK_MARKET_DISCOUNT, Math.max(0, percent));
-  return Math.max(1, Math.round(price * (1 - off / 100)));
 }
 
 /** The shelf as this crew sees it: the same five things, marked with what they can actually take. */
@@ -159,6 +146,7 @@ export function takeFromBlackMarket(
     takenToday: repos.blackMarket.takenOn(base.id, day),
     level: base.level,
     cityLevel,
+    discountPercent: standingEffectsFor(repos, base).blackMarketDiscountPercent,
   });
   if (refusal) return { kind: 'refused', reason: refusal };
 

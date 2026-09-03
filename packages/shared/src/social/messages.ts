@@ -41,6 +41,15 @@ import { FactionNameSchema } from '../factions/factions.js';
 export const MESSAGE_SUBJECT_MAX = 80;
 export const MESSAGE_BODY_MAX = 2000;
 
+/**
+ * How much of the body a quoted original may take.
+ *
+ * Three quarters, so a reply always has a quarter of the field to be written in. A quote that
+ * filled the box to the last character would be a draft with nowhere to type, which is the same
+ * failure as a draft the schema refuses wearing different clothes.
+ */
+export const QUOTE_MAX = Math.floor(MESSAGE_BODY_MAX * 0.75);
+
 export const MessageSubjectSchema = z.string().trim().min(1).max(MESSAGE_SUBJECT_MAX);
 export const MessageBodySchema = z.string().trim().min(1).max(MESSAGE_BODY_MAX);
 
@@ -134,7 +143,11 @@ export function unreadMessages(messages: readonly Message[]): number {
  */
 export function replySubject(subject: string): string {
   const trimmed = subject.trim();
-  return /^re:/i.test(trimmed) ? trimmed : `Re: ${trimmed}`;
+  const prefixed = /^re:/i.test(trimmed) ? trimmed : `Re: ${trimmed}`;
+  // Bounded by the schema that has to accept it. `Re: ` is four characters, so a subject of exactly
+  // the 80 `MessageSubjectSchema` allows came back at 84 and the send was refused for a length the
+  // player could not see, on text the game wrote for them.
+  return prefixed.slice(0, MESSAGE_SUBJECT_MAX).trim();
 }
 
 /**
@@ -148,5 +161,18 @@ export function quoted(message: Pick<Message, 'senderName' | 'body'>): string {
     .split('\n')
     .map((line) => `> ${line}`)
     .join('\n');
-  return `\n\n${message.senderName} wrote:\n${lines}\n`;
+  const draft = `\n\n${message.senderName} wrote:\n${lines}\n`;
+  /*
+   * Bounded by the schema that has to accept it, for the same reason as the subject above.
+   *
+   * `> ` on every line plus the header and two blank lines *grows* the text: a legal
+   * 1,959-character body of 40 lines came back at 2,058 and `MessageBodySchema` refused it. The
+   * player is looking at a quote the game wrote and being told it is too long.
+   *
+   * Room is left for the reply itself, which is the whole point of opening the box: a quote that
+   * filled the field to the last character would be a draft with nowhere to type. The ellipsis is
+   * inside the quote so it reads as a truncated quotation rather than as a corrupted one.
+   */
+  if (draft.length <= QUOTE_MAX) return draft;
+  return `${draft.slice(0, QUOTE_MAX - 7).trimEnd()}\n> ...\n`;
 }

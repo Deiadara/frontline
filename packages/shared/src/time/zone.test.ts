@@ -5,7 +5,9 @@ import {
   TimezoneSchema,
   dayInZone,
   formatClock,
+  gameHourInZone,
   hourInZone,
+  instantAtHourInZone,
   isValidTimezone,
   nextDayBoundary,
   utcHourInZone,
@@ -85,6 +87,15 @@ describe('reading the same instant in somebody else’s clock', () => {
     expect(utcHourInZone('2026-07-15', 6, 'America/New_York')).toBe('02:00');
   });
 
+  it('renders a game hour as a local wall clock, and as itself at home', () => {
+    expect(gameHourInZone('2026-07-15', 18)).toBe('18:00');
+    // Athens is GMT+3 in July, so 18:00 Athens is 15:00 UTC and 11:00 in New York.
+    expect(gameHourInZone('2026-07-15', 18, 'UTC')).toBe('15:00');
+    expect(gameHourInZone('2026-07-15', 18, 'America/New_York')).toBe('11:00');
+    // And GMT+2 in January, so the same game hour is one hour earlier in UTC.
+    expect(gameHourInZone('2026-01-15', 18, 'UTC')).toBe('16:00');
+  });
+
   it('falls back to the house clock rather than throwing on a zone it does not know', () => {
     // A settings row written against a tz database the runtime has since changed must show the
     // wrong city, not take the screen down.
@@ -94,6 +105,44 @@ describe('reading the same instant in somebody else’s clock', () => {
   it('names the place, not the path', () => {
     expect(zoneCity('America/New_York')).toBe('New York');
     expect(zoneCity(GAME_TIMEZONE)).toBe('Athens');
+  });
+});
+
+describe('reading a game hour back as an instant', () => {
+  it('lands on the hour it was asked for, on both sides of summer time', () => {
+    for (const day of ['2026-01-15', '2026-07-15', '2026-03-29', '2026-10-25']) {
+      for (let hour = 0; hour < 24; hour++) {
+        const at = instantAtHourInZone(day, hour);
+        // The one exception is the hour a spring-forward deletes: 03:00 on 2026-03-29 in Athens
+        // does not exist, and the honest answer is the instant the clock jumped to.
+        if (day === '2026-03-29' && hour === 3) {
+          expect(hourInZone(at)).toBe(4);
+          continue;
+        }
+        expect(dayInZone(at), `${day} ${hour}`).toBe(day);
+        expect(hourInZone(at), `${day} ${hour}`).toBe(hour);
+      }
+    }
+  });
+
+  it('reads hour 24 as the start of the next day', () => {
+    const at = instantAtHourInZone('2026-07-15', 24);
+    expect(dayInZone(at)).toBe('2026-07-16');
+    expect(hourInZone(at)).toBe(0);
+  });
+
+  it('agrees with nextDayBoundary about where a day ends', () => {
+    const midnight = instantAtHourInZone('2026-07-15', 24);
+    expect(midnight.toISOString()).toBe(
+      nextDayBoundary(new Date('2026-07-15T12:00:00.000Z')).toISOString(),
+    );
+  });
+
+  it('carries the right offset across an autumn fall-back', () => {
+    // Athens moves from GMT+3 to GMT+2 at 04:00 local on 2026-10-25. An hour either side has to
+    // resolve to a different UTC instant spacing than a plain 24-hour day would give.
+    expect(instantAtHourInZone('2026-10-25', 2).toISOString()).toBe('2026-10-24T23:00:00.000Z');
+    expect(instantAtHourInZone('2026-10-25', 12).toISOString()).toBe('2026-10-25T10:00:00.000Z');
   });
 });
 

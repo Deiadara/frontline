@@ -185,24 +185,38 @@ export function TopHud({
      * floating in the middle of the row, which is where the board put them: immediately left of
      * the level, so the three things a player checks between actions are one block.
      *
-     * The symmetry has a floor. Below `1500px` the six resource chips alone are more than half
-     * the frame, so the outer columns cannot be equal and the grid gives way to a plain flex row:
-     * the three groups still read left, middle, right, the sign is simply not on the centre line.
+     * The symmetry has a floor, and the floor is **measured, not chosen**. A centred grid needs
+     * `max(left, right) * 2 + plaque` to fit, because the two outer columns are equal by
+     * construction. With the worst content the game can produce, a 28-character district name and
+     * the longest rank, that is 776 * 2 + 312 plus gaps and padding: about 1920px. The floor was
+     * 1500, so from 1500 to 1920 the grid promised each side more room than the frame had, the
+     * stockpile ran over the identity plaque, and the plaque ran over the doors beside it. That is
+     * the board's screenshot. Below the floor the grid gives way to a plain flex row: the three
+     * groups still read left, middle, right, the sign is simply not on the centre line.
      *
-     * Below `1280px` they cannot share a line at all, and an authored break drops the sign and the
-     * identity onto their own tier. Zero-height, full-width, so the wrap happens at a chosen point
-     * rather than wherever flexbox decides: left to itself the identity dropped alone and read as
-     * a rendering fault. The break is at 1280 rather than at the grid's own 1500 because a second
-     * tier costs seventy pixels of the world underneath, and that is too much to spend on
-     * centring a sign. Zero-height, full-width, so the wrap happens at a chosen point
-     * rather than wherever flexbox decides: left to itself the identity dropped alone and read as
-     * a rendering fault.
+     * Which means this number is downstream of the chip sizes. Shrink a chip and it can come down;
+     * add anything to the bar and it has to go up. `visual.spec.ts` sweeps the whole range against
+     * the worst content rather than trusting the arithmetic above.
+     *
+     * Below `1600px` the three groups cannot share a line at all, and an authored break drops the
+     * sign and the standing onto their own tier. Zero-height, full-width, so the wrap happens at a
+     * chosen point rather than wherever flexbox decides: left to itself the row broke in a
+     * different place at every width, and at some of them the identity dropped alone and read as a
+     * rendering fault.
+     *
+     * 1600 is measured, not chosen, and it is measured against the worst content the game can
+     * produce: a 28-character district name, the largest figure in every stockpile, and the longest
+     * rank. Lift the break and sweep, and the row is sound from 1600 up, cuts the name at 1550 and
+     * overlaps the plaque at 1500. It used to be 1280, which was the width the groups needed
+     * *before* the sixth stockpile and the rank plate existed; then 1720, before the chips were
+     * measured for `compactFigure` instead of for a spelled-out seven-digit number. It comes down
+     * whenever a chip does, and the way to find the new number is the sweep, not arithmetic.
      */
-    <header className="glass painted washed rivets edge-lit pointer-events-auto relative flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b-2 border-brass-500/45 px-3 py-2 shadow-panel [@media(min-width:1500px)]:grid [@media(min-width:1500px)]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] xl:px-4">
+    <header className="glass painted washed rivets edge-lit pointer-events-auto relative flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b-2 border-brass-500/45 px-3 py-2 shadow-panel xl:px-4">
       {/* The stockpile: the row read most often, and now the left third of the bar on its own.
           Never the group that wraps: a stockpile that reflows onto four lines takes a third of
           the screen away from the artwork. */}
-      <div className="order-1 flex min-w-max items-center gap-1 [@media(min-width:1500px)]:justify-self-start">
+      <div className="order-1 flex min-w-max items-center gap-1">
         {RESOURCE_ORDER.map((kind) => (
           <ResourceChip key={kind} kind={kind} value={resources[kind]} capacity={ceiling(kind)} />
         ))}
@@ -210,11 +224,11 @@ export function TopHud({
 
       {/* The authored break. Zero height, full width, so the line ends here and nothing else has
           to guess where. Gone entirely once all three groups fit on one line. */}
-      <span aria-hidden className="order-2 h-0 basis-full [@media(min-width:1280px)]:hidden" />
+      <span aria-hidden className="order-2 h-0 basis-full [@media(min-width:1550px)]:hidden" />
 
       {/* Where you are. The one control in the bar that changes anything about the crew itself:
           see `DistrictPlaque`. */}
-      <div className="order-3 flex min-w-0 justify-center [@media(min-width:1500px)]:justify-self-center">
+      <div className="order-3 flex min-w-0 flex-1 justify-center">
         <DistrictPlaque base={base} />
       </div>
 
@@ -225,7 +239,7 @@ export function TopHud({
           other is who is on the road, and both are wanted from wherever a player is standing
           rather than walked to. Settings used to be a third; it is pinned to the right of the
           scenery switcher now, closer to the hand. */}
-      <div className="order-4 ml-auto flex shrink-0 items-center gap-1.5 [@media(min-width:1500px)]:ml-0 [@media(min-width:1500px)]:justify-self-end">
+      <div className="order-4 ml-auto flex shrink-0 items-center gap-1.5">
         <LiveMarker status={live} />
         <div className="flex shrink-0 items-center gap-1 border-r border-surface-600/70 pr-2.5">
           {/* The mailbox and the bell, left of the fighting. The board's placement, and it is the
@@ -338,7 +352,7 @@ function LiveMarker({ status }: { status: LiveStatus | undefined }) {
     <span
       data-testid="live-offline"
       data-tip="Not receiving updates as they happen. The board is still refreshing, just slower."
-      className="flex shrink-0 items-center gap-1.5 rounded-sm border border-oxblood-400/50 bg-oxblood-500/10 px-2 py-1 font-display text-[10px] uppercase tracking-[0.14em] text-oxblood-200"
+      className="flex shrink-0 items-center gap-1.5 rounded-sm border border-oxblood-500/50 bg-oxblood-500/10 px-2 py-1 font-display text-[10px] uppercase tracking-[0.14em] text-oxblood-300"
     >
       <Icon name="clock" aria-hidden className="h-3 w-3" />
       Reconnecting
