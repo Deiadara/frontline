@@ -13,6 +13,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { cityContextFor } from '../city/view.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { defenderOf, districtStandingFor, residentOf } from './ground.js';
 import { npcMuster } from './npc.js';
 
@@ -103,9 +104,21 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
     const control = repos.city.control(target.locationId);
     if (control && isHeldBy(control, base.id)) return { kind: 'refused', reason: 'own_ground' };
   }
+  /*
+   * Your own structure is not a target either. `defenderOf` answers the *district's* holder for a
+   * building, so a crew sharing a district somebody else holds outright could declare against a
+   * structure on its own plot, and the settle then looted the resident (itself) and paid the haul
+   * back off a stockpile read before the loot: the same fight minted resources out of nothing.
+   */
+  if (target.kind === 'building' && base.buildings.some((held) => held.id === target.buildingId)) {
+    return { kind: 'refused', reason: 'own_ground' };
+  }
 
   if (alreadyCalled(repos, target)) return { kind: 'refused', reason: 'already_declared' };
-  if (repos.sieges.pendingCountFor(base.id) >= MAX_PENDING_DECLARATIONS) {
+  // The cap, widened by what research has opened (the Field Commander's and the Raid Boss's last
+  // rungs each call one more fight at once).
+  const cap = MAX_PENDING_DECLARATIONS + standingEffectsFor(repos, base, now).declarationsFlat;
+  if (repos.sieges.pendingCountFor(base.id) >= cap) {
     return { kind: 'refused', reason: 'too_many_pending' };
   }
 

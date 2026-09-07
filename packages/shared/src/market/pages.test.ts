@@ -43,8 +43,13 @@ describe('the Black Market sells pages (§F2)', () => {
       }
     }
     const share = (kinds.get('blueprint_page') ?? 0) / slots;
-    // Measured at 18.9%, about the same as whole blueprints. The floor is the interesting half:
-    // all 157 pages went into the deck at first and nine tenths of the shelf became pages.
+    // Measured at 18.9% when this was written and 19.7% over two years of real dates; the band is
+    // wide because the shelf is a whole deal rather than one constant. The floor is the interesting
+    // half: every page went into the deck at first and nine tenths of the shelf became pages.
+    //
+    // Structurally independent of how many pages the catalogue has, and that is worth knowing when
+    // documents are added: `pagesOnShelf` always deals `PAGES_ON_THE_SHELF` of them, whatever the
+    // total, so a longer catalogue makes a *named* page rarer and the page share identical.
     expect(share, `pages are ${(100 * share).toFixed(1)}% of the shelf`).toBeGreaterThan(0.08);
     expect(share, `pages are ${(100 * share).toFixed(1)}% of the shelf`).toBeLessThan(0.3);
   });

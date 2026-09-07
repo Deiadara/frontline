@@ -11,12 +11,7 @@ import {
   makeAttributes,
 } from './attributes.js';
 import { OVERSEER_PRESETS, OverseerPresetSchema } from './overseer.js';
-import {
-  OFFICER_ROLES,
-  OFFICER_ROLE_LABELS,
-  HIRING_INSIGHT_ROLES,
-  RESKILLING_ROLE,
-} from './roles.js';
+import { OFFICER_ROLES, OFFICER_ROLE_LABELS, RESKILLING_ROLE } from './roles.js';
 import { PERK_CATALOG, PERK_CATEGORIES, findPerk } from './crew/perks.js';
 
 describe('the attribute set', () => {
@@ -105,15 +100,10 @@ describe('officer roles', () => {
     }
   });
 
-  // C4: W4 (reskilling, §G4) and W7 (hiring insight, §B9) read these bindings rather than
-  // each inventing its own role check.
-  it('binds reskilling and hiring insight to real roles', () => {
+  // C4: W4 (reskilling, §G4) reads this binding rather than inventing its own role check.
+  it('binds reskilling to a real role', () => {
     expect(OFFICER_ROLES).toContain(RESKILLING_ROLE);
     expect(RESKILLING_ROLE).toBe('professor');
-    expect(HIRING_INSIGHT_ROLES).toEqual(['professor', 'head_of_research']);
-    for (const role of HIRING_INSIGHT_ROLES) {
-      expect(OFFICER_ROLES).toContain(role);
-    }
   });
 });
 

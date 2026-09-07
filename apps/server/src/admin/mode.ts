@@ -94,15 +94,10 @@ export function adminCaps(caps: number, admin: boolean): number {
 export const WAIVED_REFUSALS: ReadonlySet<string> = new Set([
   // Progress gates: this is behind something you have not built or reached yet.
   'locked',
-  'option_locked',
   'nexus_cap',
   'requirement',
   /** §H3's other door: the crew level a recruit wants to see before they will sign. */
   'level',
-  'modification_unavailable',
-  'no_lead',
-  'no_lead_engineer',
-  'no_modification_slot',
   // Capacity gates: there is room for this, just not right now.
   'queue_full',
   'no_slots',

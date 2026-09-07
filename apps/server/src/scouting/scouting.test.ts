@@ -100,6 +100,17 @@ describe('sending somebody to look', () => {
 
     expect((await send(stack, districtId)).statusCode).toBe(200);
 
+    // ...and the road page says somebody is out, and where: it is the screen for "where is
+    // everybody right now", and a scout on the way to a dark district is somebody.
+    const road = await stack.app.inject({
+      method: 'GET',
+      url: '/api/actions',
+      headers: auth(stack.token),
+    });
+    expect(
+      road.json<{ scoutingRun: { districtId: string } | null }>().scoutingRun?.districtId,
+    ).toBe(districtId);
+
     // The half the instant scout skipped entirely: a run that is under way has told you nothing.
     const midway = await city(stack);
     expect(midway.districts.find((entry) => entry.district.id === districtId)?.scouted).toBe(false);
@@ -155,7 +166,11 @@ describe('sending somebody to look', () => {
     settleScouting(stack.app.repos, new Date());
 
     const bell = stack.app.repos.social.notifications(ownerId, 50);
-    expect(bell.some((entry) => entry.kind === 'scout_home')).toBe(true);
+    const home = bell.find((entry) => entry.kind === 'scout_home');
+    expect(home).toBeDefined();
+    // ...and "Go there" goes to the district that just opened, not to the map: `/game/city` is
+    // no route at all and was redirected to `/game`.
+    expect(home?.link).toBe(`/game/city/${districtId}`);
   });
 
   it('settles a finished run once, however many times the clock passes over it', async () => {

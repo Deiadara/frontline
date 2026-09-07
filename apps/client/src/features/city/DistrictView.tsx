@@ -12,11 +12,9 @@ import {
   maxFortifyBonusPercent,
   quoteFortify,
   type Army,
-  type BattleResult,
   type BattleTarget,
   type Building,
   type BuildingKind,
-  type LevelUp,
   type LocationView,
   type Resources,
 } from '@frontline/shared';
@@ -46,16 +44,7 @@ import {
 import { formatDuration, formatRemaining } from '../base/format';
 import { ForcePicker } from './ForcePicker';
 import { DeclareDialog } from '../battle/DeclareDialog';
-import { BattleResultModal } from '../game/BattleResultModal';
 import { useServerClock } from '../missions/useServerClock';
-
-/** What one fight left behind: the only thing that knows it happened is its own response. */
-interface BattleReport {
-  result: BattleResult;
-  resources: Resources;
-  targetName: string;
-  levelUp?: LevelUp | undefined;
-}
 
 /**
  * Inside one district (GDD §A4): the locations, who is holding them, and what it would take.
@@ -87,8 +76,6 @@ export function DistrictView() {
   const [calling, setCalling] = useState<BattleTarget | null>(null);
   /** The location whose sign was last clicked on the painting, ringed until the next click. */
   const [picked, setPicked] = useState<string | null>(null);
-  /** The last fight's report. The mutation response is the only thing that knows what happened. */
-  const [report, setReport] = useState<BattleReport | null>(null);
 
   const data = query.data;
   const army = me.data?.base?.army ?? {};
@@ -107,6 +94,12 @@ export function DistrictView() {
   // The server's reading of the district's front door. Derived there rather than here, so the
   // screen and the declaration rules cannot disagree about what may be attacked.
   const gate = battles.data?.gates.find((candidate) => candidate.districtId === districtId);
+  /*
+   * The server's clock, for the two countdowns on a location card. They read `Date.now()`, and on
+   * a machine twenty minutes fast an upgrade with twenty minutes to run said "0s left" for the
+   * whole twenty. `ScoutPanel` below learnt the same lesson first and says why.
+   */
+  const now = useServerClock(data?.serverNow, query.dataUpdatedAt);
 
   if (!data) {
     /*
@@ -158,6 +151,7 @@ export function DistrictView() {
         slots={slots}
         declare={declare}
         onDone={() => setCalling(null)}
+        now={now}
       />
     );
   }
@@ -361,6 +355,7 @@ export function DistrictView() {
                   army={army}
                   resources={me.data?.base?.resources ?? EMPTY_STOCK}
                   shut={gate?.shut === true && gate.brokenUntil === null}
+                  now={now}
                   onCall={() =>
                     setCalling({
                       kind: 'location',
@@ -395,16 +390,6 @@ export function DistrictView() {
             }
           />
         )}
-
-        {report && (
-          <BattleResultModal
-            result={report.result}
-            resources={report.resources}
-            targetName={report.targetName}
-            levelUp={report.levelUp}
-            onClose={() => setReport(null)}
-          />
-        )}
       </div>
     </div>
   );
@@ -423,6 +408,8 @@ interface PlaceCardProps {
   resources: Resources;
   /** The district is held end to end, so nothing in it can be called until the gate is down. */
   shut: boolean;
+  /** The server's clock, corrected and ticking, for the card's countdowns. */
+  now: Date;
   onCall: () => void;
 }
 
@@ -441,6 +428,7 @@ function LocationCard({
   army,
   resources,
   shut,
+  now,
   onCall,
 }: PlaceCardProps) {
   const spec = LOCATION_CATALOG[view.location.kind];
@@ -564,8 +552,8 @@ function LocationCard({
               className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300"
               data-testid={`upgrading-${view.location.id}`}
             >
-              Work under way, {formatRemaining(Date.parse(view.upgradingUntil ?? '') - Date.now())}{' '}
-              left
+              Work under way,{' '}
+              {formatRemaining(Date.parse(view.upgradingUntil ?? '') - now.getTime())} left
             </p>
           ) : view.upgrade === null ? (
             <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
@@ -594,7 +582,7 @@ function LocationCard({
           )}
           {digging ? (
             <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ember-300">
-              Digging in, {formatRemaining(Date.parse(view.fortifyingUntil ?? '') - Date.now())}{' '}
+              Digging in, {formatRemaining(Date.parse(view.fortifyingUntil ?? '') - now.getTime())}{' '}
               left
             </p>
           ) : quote === null ? (
@@ -650,8 +638,9 @@ function LocationCard({
       {staging && (
         <ForcePicker
           title={`Garrison ${view.location.name}`}
-          blurb="Units left here hold the location. If it falls, half of them run and half do not."
+          blurb="Units left here hold the location. If it falls, half of them run and half do not. A number below zero brings that many home."
           army={army}
+          standing={view.garrison ?? {}}
           pending={garrison.isPending}
           error={garrison.error}
           confirmLabel="Leave them"
@@ -1047,6 +1036,7 @@ function ContestedDistrict({
   slots,
   declare,
   onDone,
+  now,
 }: {
   data: DistrictDetailResponse;
   viewer: { ownDistrictId: string | null; ownName: string | null };
@@ -1060,6 +1050,7 @@ function ContestedDistrict({
   slots: readonly string[];
   declare: ReturnType<typeof useDeclareBattle>;
   onDone: () => void;
+  now: Date;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [standing, setStanding] = useState(false);
@@ -1207,6 +1198,7 @@ function ContestedDistrict({
               army={army}
               resources={resources}
               shut={shut}
+              now={now}
               onCall={() => {
                 onCall({
                   kind: 'location',

@@ -12,6 +12,7 @@ import {
   startingResearch,
   startingTraining,
 } from '@frontline/shared';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../index.js';
 import { createRepositories, type Repositories } from './index.js';
@@ -211,3 +212,78 @@ function seedBase(repos: Repositories, commanders: ReturnType<typeof createComma
   });
   return 'base-1';
 }
+
+/**
+ * The third place an attribute name is stored, and the one 0075 missed.
+ *
+ * `bases.training_json` names an attribute in every session and in `last`, both validated against
+ * the live enum, so a crew that had drilled Signals under its old name threw out of `BaseSchema`
+ * on every read after 0075: every authenticated route answered 500 for that account. Migration
+ * 0080 sweeps the renames; `rowToBase` drops what was retired. The row here is written the way a
+ * pre-0075 crew's still is, and read the way every route reads it.
+ */
+describe('attribute names in the training book', () => {
+  const RENAMES = new URL('../migrations/0080_training_attribute_names.sql', import.meta.url);
+
+  function drilledUnderOldNames(): { repos: Repositories; db: AppDatabase; base: string } {
+    const { repos, db } = openStack();
+    repos.users.insert({
+      id: 'user-1',
+      username: 'Drilled',
+      passwordHash: 'x',
+      createdAt: new Date().toISOString(),
+    });
+    const base = seedBase(repos, []);
+    const now = new Date().toISOString();
+    db.prepare('UPDATE bases SET training_json = ? WHERE id = ?').run(
+      JSON.stringify({
+        day: '2026-08-16',
+        used: 2,
+        sessions: [
+          {
+            id: 's1',
+            subjectId: 'overseer',
+            attribute: 'hacking',
+            startedAt: now,
+            durationSeconds: 60,
+          },
+          {
+            id: 's2',
+            subjectId: 'c1',
+            attribute: 'demolition',
+            startedAt: now,
+            durationSeconds: 60,
+          },
+        ],
+        last: { overseer: 'hacking', c1: 'demolition', c2: 'fabrication' },
+      }),
+      base,
+    );
+    return { repos, db, base };
+  }
+
+  it('is swept by the migration, and what the migration cannot rename is dropped on read', () => {
+    const { repos, db, base } = drilledUnderOldNames();
+    db.exec(readFileSync(RENAMES, 'utf8'));
+
+    const stored = db.prepare('SELECT training_json FROM bases WHERE id = ?').get(base) as {
+      training_json: string;
+    };
+    expect(stored.training_json).not.toContain('"hacking"');
+    expect(stored.training_json).not.toContain('"fabrication"');
+
+    const read = repos.bases.findById(base);
+    expect(read).toBeDefined();
+    expect(read?.training.sessions.map((session) => session.attribute)).toEqual(['signals']);
+    expect(read?.training.last).toEqual({ overseer: 'signals', c2: 'craft' });
+    expect(read?.training.used).toBe(2);
+  });
+
+  it('opens the account even before the migration has run', () => {
+    const { repos, base } = drilledUnderOldNames();
+    // The floor alone: the old names are unknown to the enum, so they go the way a retired
+    // attribute goes rather than taking the row down with them.
+    expect(() => repos.bases.findById(base)).not.toThrow();
+    expect(repos.bases.findById(base)?.training.sessions).toEqual([]);
+  });
+});

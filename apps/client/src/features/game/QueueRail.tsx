@@ -167,10 +167,13 @@ const MISSION_PHASE_WORD: Record<string, string> = {
  * thing under it is the painting: a crew being out cost the artwork a strip of its height, and the
  * strip appeared and disappeared as missions came and went, so the picture moved.
  *
- * It belongs on the two screens that are *about* things being in flight. There it sits above a
- * sheet, where a band of chrome is the page's own furniture rather than a lid over the view.
+ * It belongs on a screen that is *about* things being in flight, above a sheet, where a band of
+ * chrome is the page's own furniture rather than a lid over the view. That is Actions. It was on
+ * the missions page too, and with two or three crews out the chips wrapped under the board's own
+ * tab row and covered it; that screen now stacks its crews in a column of its own
+ * (`MissionsPage`), so the strip would have been the same clocks a second time, in the way.
  */
-const RAIL_ROUTES = new Set(['/game/missions', '/game/actions']);
+const RAIL_ROUTES = new Set(['/game/actions']);
 
 export function QueueRail() {
   const { pathname } = useLocation();

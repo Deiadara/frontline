@@ -1,12 +1,10 @@
 import {
   withoutRetiredUnits,
   findVehicle,
-  ArmedTrapSchema,
   BattleAnalysisSchema,
   BattleDeploymentSchema,
   LocationHolderSchema,
   ScheduledBattleSchema,
-  type ArmedTrap,
   type BattleAnalysis,
   type BattleDeployment,
   type BattleSide,
@@ -22,7 +20,7 @@ import type { AppDatabase } from '../index.js';
  *
  * Separate from `BattlesRepo`, which writes the after-the-fact `battles` log the instant raid paths
  * still produce. This one owns the *coming* fight: the declaration, the forces moved up for it, the
- * gate it may break and the trap that may go off under it.
+ * trap set under it and the gate it may break.
  *
  * Everything here is read on the settle path, so every query is either keyed or bounded. The one
  * unkeyed read, {@link SiegeRepo.due}, is the settler's, and it is indexed on exactly the two
@@ -54,6 +52,8 @@ interface DeploymentRow {
   boost_id: string | null;
   /** §D1: the one officer this crew is sending to lead. Null is nobody, which is most rows. */
   officer_id: string | null;
+  /** §I4: the one trap this crew has set under this fight. Defenders only. */
+  trap_id: string | null;
   /** §C3: the machines committed to this fight, out of the Garage. */
   vehicles_json: string;
   updated_at: string;
@@ -103,6 +103,7 @@ function rowToDeployment(row: DeploymentRow): BattleDeployment {
     perimeter: withoutRetiredUnits(readJson(row.perimeter_json)),
     boostId: row.boost_id,
     officerId: row.officer_id,
+    trapId: row.trap_id,
     // Same repair the army and the perimeter get above, and it matters more here: this row is read
     // by the global settler, so a retired vehicle id does not brick one save, it throws inside
     // `settleBattles` and takes the world tick down for everybody.
@@ -158,9 +159,6 @@ export interface SiegeRepo {
 
   gate(districtId: string): DistrictGate | undefined;
   breakGate(districtId: string, until: string): void;
-
-  trap(locationId: string): ArmedTrap | undefined;
-  setTrap(locationId: string, trap: ArmedTrap | null): void;
 }
 
 export function createSiegeRepo(db: AppDatabase): SiegeRepo {
@@ -221,14 +219,15 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   );
   const putDeploymentStmt = db.prepare(
     `INSERT INTO battle_deployments
-       (battle_id, base_id, side, army_json, perimeter_json, boost_id, officer_id,
+       (battle_id, base_id, side, army_json, perimeter_json, boost_id, officer_id, trap_id,
         vehicles_json, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (battle_id, side, base_id) DO UPDATE SET
        army_json = excluded.army_json,
        perimeter_json = excluded.perimeter_json,
        boost_id = excluded.boost_id,
        officer_id = excluded.officer_id,
+       trap_id = excluded.trap_id,
        vehicles_json = excluded.vehicles_json,
        updated_at = excluded.updated_at`,
   );
@@ -251,9 +250,6 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
     `INSERT INTO district_gates (district_id, broken_until) VALUES (?, ?)
      ON CONFLICT (district_id) DO UPDATE SET broken_until = excluded.broken_until`,
   );
-
-  const trapStmt = db.prepare('SELECT trap_json FROM location_control WHERE location_id = ?');
-  const setTrapStmt = db.prepare('UPDATE location_control SET trap_json = ? WHERE location_id = ?');
 
   return {
     insert(battle) {
@@ -336,6 +332,7 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
         JSON.stringify(deployment.perimeter),
         deployment.boostId,
         deployment.officerId,
+        deployment.trapId,
         JSON.stringify(deployment.vehicles),
         deployment.updatedAt,
       );
@@ -354,15 +351,6 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
     },
     breakGate(districtId, until) {
       breakGateStmt.run(districtId, until);
-    },
-
-    trap(locationId) {
-      const row = trapStmt.get(locationId) as { trap_json: string | null } | undefined;
-      if (!row || row.trap_json === null) return undefined;
-      return ArmedTrapSchema.parse(readJson(row.trap_json));
-    },
-    setTrap(locationId, trap) {
-      setTrapStmt.run(trap === null ? null : JSON.stringify(trap), locationId);
     },
   };
 }

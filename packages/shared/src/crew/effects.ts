@@ -173,6 +173,14 @@ export interface CrewOnlyEffects {
    * way `unitKindPercent` already is: a crew-only channel a piece of ground cannot grant.
    */
   unitEvasionFlat: number;
+  /**
+   * The whole-number grants research can make (`research/tracks.ts`), on top of what a level
+   * gives: another crew out on a job at once, another chair at the Bar, another fight called at
+   * once. Flat and small, because each one is a door rather than a dial.
+   */
+  missionSlotsFlat: number;
+  recruitSlotsFlat: number;
+  declarationsFlat: number;
 }
 
 /**
@@ -262,6 +270,9 @@ export function noCrewEffects(): CrewEffects {
     unitKindPercent: {},
     xpGainPercent: 0,
     officerAttributeFlat: {},
+    missionSlotsFlat: 0,
+    recruitSlotsFlat: 0,
+    declarationsFlat: 0,
     officerAttributeAtLeast: {},
     leadOffensePercent: 0,
     leadEvasionFlat: 0,
@@ -1120,4 +1131,39 @@ export function recoverCasualties(
   return Object.fromEntries(
     Object.entries(losses).map(([unitId, dead]) => [unitId, dead - Math.floor(dead * share)]),
   );
+}
+
+/**
+ * Two crew folds added together, channel by channel.
+ *
+ * `combineEffects` adds ground to people and only walks the ground's channels. Research pays into
+ * crew-only channels too (a unit's own kind, a structure's cost, another chair at the Bar), so it
+ * needs a merge that walks the whole crew struct. Numbers add, `visionRange` takes the larger, and
+ * every record-valued channel is merged key by key; a rule table (`officerAttributeAtLeast`) is
+ * overlaid, since two rules on one attribute do not add.
+ */
+export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEffects {
+  const mine = into as unknown as Record<string, unknown>;
+  const theirs = extra as unknown as Record<string, unknown>;
+  const total: Record<string, unknown> = { ...mine };
+  for (const key of Object.keys(theirs)) {
+    const a = mine[key];
+    const b = theirs[key];
+    if (typeof a === 'number' && typeof b === 'number') {
+      total[key] = key === 'visionRange' ? Math.max(a, b) : a + b;
+    } else if (key === 'unitTierPercent' || key === 'unitKindPercent') {
+      total[key] = mergeTierCounts(
+        a as TerritoryEffects['unitTierPercent'],
+        b as TerritoryEffects['unitTierPercent'],
+      );
+    } else if (key === 'officerAttributeAtLeast') {
+      total[key] = { ...(a as object), ...(b as object) };
+    } else {
+      total[key] = mergeCounts(
+        (a ?? {}) as Record<string, number | undefined>,
+        (b ?? {}) as Record<string, number | undefined>,
+      );
+    }
+  }
+  return total as unknown as CrewEffects;
 }

@@ -8,6 +8,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import {
+  BUILDING_KINDS,
   CITY_DISTRICTS,
   DISTRICT_NAME_MAX,
   MISSIONS_PER_AREA,
@@ -16,14 +17,18 @@ import {
 } from '@frontline/shared';
 import {
   activeResearch,
+  districtWithAddons,
   hudExtremes,
   lateGame,
+  market,
   me,
   meNoOverseer,
   missionsResponse,
+  pagesHeld,
 } from './fixtures';
 import {
   expectControlNotDimmed,
+  expectNoImagesClipped,
   expectNothingOverflowsTheScreen,
   expectNothingClippedVertically,
   expectSheetNotWashedOut,
@@ -752,53 +757,50 @@ for (const size of VIEWPORTS) {
       await expect(note, 'the standing note opened off the screen').toBeInViewport({ ratio: 1 });
     });
     /*
-     * MOU-166 §B9/§F2: the research page, in both of the states it has.
+     * §C/§D/§I1: the research page, at both of its doors.
      *
-     * Fat in the same specific way the Bar fixture is: the longest role labels in §C1 against the
-     * longest attribute names in §B, every listed role at `MAX_ROLE_FACTS` so the leads counter is
-     * at its widest, and the pairing list filled to its cap so it wraps as far as it ever will. The
-     * two states are shot separately because they render disjoint trees: the start forms only
-     * exist when nothing is running, and the countdown only exists when something is.
+     * Fat in the same specific way the Bar fixture is: the longest role labels in §C1, the deepest
+     * track the marks allow, and a satchel holding documents in every state §D6 to §D10 draws. The
+     * two sections are shot separately because they render disjoint trees.
      */
     test(`research at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
+      // A satchel with a document in every state §D6 to §D10 draws. Registered after `installApi`,
+      // so it wins: the default late-game bag holds no pages at all and would put an empty screen
+      // behind the second door.
+      await page.route('**/api/market', (route) =>
+        route.fulfill({ json: { ...market, inventory: pagesHeld } }),
+      );
       await page.goto('/game/research');
       await expect(page.getByTestId('research-sections')).toBeVisible();
       await settleFonts(page);
 
       /*
-       * The sweep runs on all three sections, not just the one the page opens on.
+       * `sr-only` is excluded by name rather than by size.
        *
-       * The page used to be five panels in one scrolling column, so a single pass saw everything.
-       * It is a rail and a workspace now: two thirds of the screen's copy is behind a door, and a
-       * sweep of the desk alone would certify a third of the page and call it the page.
+       * Tailwind's screen-reader-only class clips its box to 1px, so every label inside a
+       * blueprint's row of squares reads as overflowing by construction, and a size threshold
+       * would silently pardon a real box that collapsed to nothing as well.
        */
       const clipped = async () =>
         page.evaluate<string[]>(() =>
           [...document.querySelectorAll<HTMLElement>('span, p, h3, option, label')]
-            .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+            .filter(
+              (el) =>
+                el.childElementCount === 0 &&
+                !el.closest('.sr-only') &&
+                el.scrollWidth > el.clientWidth + 1,
+            )
             .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
         );
 
-      const box = async (id: string) => {
-        const rect = await page.getByTestId(id).boundingBox();
-        if (!rect) throw new Error(`${id} has no box`);
-        return rect;
-      };
-
-      // The desk, on each of its three benches.
-      for (const bench of ['investigate', 'develop', 'modify']) {
-        await page.getByTestId(`research-bench-${bench}`).click();
-        await settleFonts(page);
-        const cut = await clipped();
-        expect(cut, `cut text on the ${bench} bench: ${cut.join(' | ')}`).toEqual([]);
-      }
-      await page.getByTestId('research-bench-investigate').click();
-      await settleFonts(page);
-      await expectNothingOverflowsTheScreen(page);
-      await expectNothingClippedHorizontally(page);
-      await expectSheetNotWashedOut(page);
-      await page.screenshot({ path: `screenshots/visual/research-${tag}.png` });
+      /*
+       * The rail is exactly two doors, looked at rather than counted in a unit test.
+       *
+       * The desk and the files were doors here until §I1e, and a door left rendering behind a
+       * condition nobody notices is the failure this shot exists to catch.
+       */
+      await expect(page.getByTestId('research-sections').getByRole('button')).toHaveCount(2);
 
       /*
        * The Lab's tree, and the one thing on it that has been wrong before.
@@ -811,41 +813,7 @@ for (const size of VIEWPORTS) {
        * Caught by shape rather than by matching a list of names: a raw key is camelCase or a
        * SCREAMING run with no spaces, and neither is anything a person writes.
        */
-      /*
-       * The bench strip does not move when the bench does.
-       *
-       * It used to live *inside* the scrolling workspace, and the modification bench is sixty-five
-       * cards: scrolling down to read them carried the three buttons off the top of the screen, so
-       * the controls for choosing a bench disappeared the moment you used the bench you chose. At
-       * 1280x720 the strip ended up at y=-77, which is off the sheet entirely.
-       *
-       * Measured against the *frame* rather than merely asserted visible: Playwright counts an
-       * element clipped out of a scroll container as visible, so `toBeVisible` passed throughout
-       * the bug.
-       *
-       * Scrolled with the **wheel**, over the middle of the sheet, rather than by calling
-       * `scrollTo` on the element this test believes is the scroller. That belief is exactly what
-       * regressed: moving the overflow one level up the tree reintroduces the bug and leaves a
-       * `scrollTo` on the old node doing nothing, so the gate passes on the broken build. A wheel
-       * scrolls whatever is actually scrollable under the pointer, which is also what a player
-       * does.
-       */
-      await page.getByTestId('research-bench-modify').click();
-      await settleFonts(page);
-      const stripBefore = await box('research-benches');
-      const sheet = await box('research-workspace');
-      await page.mouse.move(sheet.x + sheet.width / 2, sheet.y + sheet.height / 2);
-      for (let turn = 0; turn < 12; turn += 1) await page.mouse.wheel(0, 400);
-      await page.waitForTimeout(200);
-      const stripAfter = await box('research-benches');
-      expect(stripAfter.y, 'the bench strip scrolled away with its own content').toBe(
-        stripBefore.y,
-      );
-      await expect(page.getByTestId('research-benches')).toBeInViewport({ ratio: 1 });
-      await page.getByTestId('research-bench-investigate').click();
-
-      await page.getByTestId('research-section-programmes').click();
-      await settleFonts(page);
+      await expect(page.getByTestId('research-tracks')).toBeVisible();
       const raw = await page.evaluate<string[]>(() =>
         [...document.querySelectorAll<HTMLElement>('[data-testid^="tech-track-"] p')]
           .map((el) => el.textContent ?? '')
@@ -854,21 +822,21 @@ for (const size of VIEWPORTS) {
       expect(raw, `a field name reached the Lab's tree: ${raw.join(' | ')}`).toEqual([]);
       const cutTree = await clipped();
       expect(cutTree, `cut text on the Lab's tree: ${cutTree.join(' | ')}`).toEqual([]);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/research-programmes-${tag}.png` });
 
-      // And the files, which is where the fat fixture's longest labels live.
-      await page.getByTestId('research-section-the-files').click();
-      await expect(page.getByTestId('research-file')).toBeVisible();
+      // And the documents, behind the other door, which is where §D's widest rows live.
+      await page.getByTestId('research-section-blueprints').click();
+      await expect(page.getByTestId('blueprints-section')).toBeVisible();
       await settleFonts(page);
-      const pairings = page.getByText('What goes with what', { exact: true });
-      await pairings.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-      await expect(pairings).toBeInViewport({ ratio: 1 });
-      await settleFonts(page);
-      const cutFiles = await clipped();
-      expect(cutFiles, `cut text on the files: ${cutFiles.join(' | ')}`).toEqual([]);
+      const cutDocs = await clipped();
+      expect(cutDocs, `cut text on the blueprints: ${cutDocs.join(' | ')}`).toEqual([]);
+      await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
-      await page.screenshot({ path: `screenshots/visual/research-facts-${tag}.png` });
+      await expectNoImagesClipped(page, '[data-testid="blueprints-section"]');
+      await page.screenshot({ path: `screenshots/visual/research-blueprints-${tag}.png` });
     });
 
     /**
@@ -1262,13 +1230,17 @@ for (const size of VIEWPORTS) {
           }),
         }),
       );
-      // The rail lives on the two screens that are about things being in flight (board request).
+      // The rail lives on the one screen that is about things being in flight (board request).
       // On the city and district screens it was a third band of chrome over the artwork, appearing
-      // and disappearing with what the crew was doing, so the painting moved under it.
+      // and disappearing with what the crew was doing, so the painting moved under it; and on the
+      // missions page it wrapped under the board with two or three crews out, so that screen now
+      // stacks its own crews in a column and the strip stays off it.
       await page.goto('/game');
       await expect(page.getByTestId('queue-rail')).toHaveCount(0);
-
       await page.goto('/game/missions');
+      await expect(page.getByTestId('queue-rail')).toHaveCount(0);
+
+      await page.goto('/game/actions');
       const rail = page.getByTestId('queue-rail');
       await expect(rail).toBeVisible();
       const row = page.getByTestId('queue-rail-build-live-build');
@@ -1341,6 +1313,37 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/workshop-${tag}.png` });
+    });
+
+    /**
+     * §I3b: the Workshop's other view, which builds nothing and points at both ends.
+     *
+     * The district behind it is deliberately not `lateGame`'s: that one stands three structures at
+     * level 1, so this shot would be twelve panels all reading "not built yet" and would certify
+     * none of the three slot states the view is for.
+     */
+    test(`the workshop's modifications at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.route('**/api/me', (route) =>
+        route.fulfill({ json: { ...me, base: districtWithAddons } }),
+      );
+      await page.goto('/game/workshop');
+      await page.getByTestId('workshop-view-modifications').click();
+      await expect(page.getByTestId('workshop-modifications')).toBeVisible();
+      await settleFonts(page);
+
+      // A bracket with something in it, an open empty one and one the level has not opened: all
+      // three on screen, or the screenshot is of a state rather than of the view.
+      const first = BUILDING_KINDS[0];
+      const last = BUILDING_KINDS[BUILDING_KINDS.length - 1];
+      await expect(page.getByTestId(`workshop-slot-${first}-1`)).toContainText('Empty');
+      await expect(page.getByTestId(`workshop-shelf-${first}`)).toBeVisible();
+      await expect(page.getByTestId(`workshop-slot-${last}-0`)).toContainText('Opens at level');
+
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/workshop-modifications-${tag}.png` });
     });
 
     /**
@@ -1522,7 +1525,7 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/visual/satchel-${tag}.png` });
     });
 
-    /** The other half of the same screen: a project in flight, with §F4's option showing. */
+    /** The other half of the same screen: a programme on the bench, with its clock running. */
     test(`research in progress at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.route('**/api/research', (route) =>
@@ -1533,7 +1536,7 @@ for (const size of VIEWPORTS) {
         }),
       );
       await page.goto('/game/research');
-      await expect(page.getByText('Investigating the Instructor of the Young')).toBeVisible();
+      await expect(page.getByTestId('research-progress')).toBeVisible();
       await settleFonts(page);
 
       await expectNothingOverflowsTheScreen(page);

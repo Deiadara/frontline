@@ -18,7 +18,7 @@ import {
  * day. A number cannot be that. An item can: it has a name, it either sits in your inventory or it
  * does not, and the sentence "you need one Gyro Assembly" is a sentence a player can act on.
  *
- * Four kinds, and the kind is what a player needs to know about it:
+ * Five kinds, and the kind is what a player needs to know about it:
  *
  * - **Blueprint**: permanent knowledge, and the record that a document was assembled and unlocked.
  *   Never tradeable: see `blueprintItemSpec`.
@@ -28,6 +28,8 @@ import {
  *   late-game structure or an implant cost something you cannot simply grind.
  * - **Relic**: worth caps and nothing else. Loot with no sink, so there is always something in
  *   the market worth haggling over that costs nobody a build.
+ * - **Consumable**: built to be spent once. The traps, cut in the Scrapyard and set under one
+ *   fight the crew is defending (§I4).
  *
  * Everything here is tradeable between players unless it says otherwise, because an item economy
  * where the interesting items cannot move is a collection, not a market.
@@ -37,7 +39,9 @@ import {
  * of those catalogues are owned elsewhere, and moving them is their change to make.
  */
 
-export const ITEM_KINDS = ['blueprint', 'page', 'component', 'relic'] as const;
+// `consumable` is a thing built to be spent once: a trap laid under one fight. It is not a good
+// (the shops never draw from it) and not a part (nothing is made out of it).
+export const ITEM_KINDS = ['blueprint', 'page', 'component', 'relic', 'consumable'] as const;
 export const ItemKindSchema = z.enum(ITEM_KINDS);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
@@ -80,7 +84,27 @@ export const ITEM_IDS = [
 export type GoodId = (typeof ITEM_IDS)[number];
 
 /**
- * Every id that may sit in a satchel: goods, finished blueprints, and blueprint pages.
+ * The consumables, one per entry in `TRAP_CATALOG` (§I4).
+ *
+ * Written out as ids rather than mapped off that catalogue, for the reason the module note gives:
+ * `battle/` sits above `items/` in the import graph, and a value import reaching back up would
+ * close the loop at module-load time. `traps.test.ts` in `battle/` checks the two lists against
+ * each other in both directions, so a trap added there without an item here fails.
+ *
+ * Kept out of {@link ITEM_IDS} on purpose. That array is what the Runner's barrow and the salvage
+ * bins draw from, and a trap has exactly one source: the yard, behind a document and a Lab rung.
+ * A shop that sold them would be a door round both gates.
+ */
+export const CONSUMABLE_ITEM_IDS = [
+  'trap_pressure_plates',
+  'trap_gas_shell',
+  'trap_collapse',
+] as const;
+
+export type ConsumableId = (typeof CONSUMABLE_ITEM_IDS)[number];
+
+/**
+ * Every id that may sit in a satchel: goods, consumables, finished blueprints and their pages.
  *
  * A page is an item so that it is stored, shown and traded by machinery that already exists. It
  * goes into `inventory` on the base like anything else, which is what §F1e asks for, and it needs
@@ -90,9 +114,14 @@ export type GoodId = (typeof ITEM_IDS)[number];
  * player pressed Unlock. `blueprints/state.ts` reads it as the difference between "holds every
  * page" and "owns this, permanently".
  */
-export const ALL_ITEM_IDS = [...ITEM_IDS, ...BLUEPRINT_IDS, ...BLUEPRINT_PAGE_IDS] as const;
+export const ALL_ITEM_IDS = [
+  ...ITEM_IDS,
+  ...CONSUMABLE_ITEM_IDS,
+  ...BLUEPRINT_IDS,
+  ...BLUEPRINT_PAGE_IDS,
+] as const;
 
-export type ItemId = GoodId | BlueprintId | BlueprintPageId;
+export type ItemId = GoodId | ConsumableId | BlueprintId | BlueprintPageId;
 
 /*
  * The cast is the price of building the list at runtime.
@@ -387,8 +416,56 @@ function blueprintItemSpec(blueprint: BlueprintSpec): ItemSpec {
  * hundred and fifty-seven chances for a page to disagree with the blueprint it belongs to about
  * how many pages that blueprint has.
  */
+/**
+ * The three traps as items (§I4).
+ *
+ * `tradeable: false`, which is the whole shape of the thing: a trap is behind a document and a Lab
+ * rung, and an item that walked out of the yard onto a barrow would be a way past both for anybody
+ * with caps. `capsValue` is therefore only the barter broker's floor and the number a salvage
+ * valuation would read. It sits above each trap's own caps line (400, 1,100, 2,600) and below the
+ * whole bill, because what a crew paid for one is mostly scrap and planks rather than money.
+ *
+ * The ids match `TRAP_CATALOG` exactly. `springTrap` takes one out of the satchel by the id it was
+ * set under, so the two lists being the same list is the mechanic and not a tidiness rule.
+ */
+const CONSUMABLE_SPECS: readonly ItemSpec[] = [
+  {
+    id: 'trap_pressure_plates',
+    name: 'Pressure Plates',
+    kind: 'consumable',
+    rarity: 'uncommon',
+    description:
+      'Boards over a stairwell with something underneath them, cut and weighted, ready to lay.',
+    usedFor: 'Set under one fight you are defending. Gone once it goes off.',
+    capsValue: 900,
+    tradeable: false,
+  },
+  {
+    id: 'trap_gas_shell',
+    name: 'Buried Shell',
+    kind: 'consumable',
+    rarity: 'rare',
+    description: 'A cracked chemical round, packed for carrying, with the wire already on it.',
+    usedFor: 'Set under one fight you are defending. Gone once it goes off.',
+    capsValue: 2400,
+    tradeable: false,
+  },
+  {
+    id: 'trap_collapse',
+    name: 'Prepared Collapse',
+    kind: 'consumable',
+    rarity: 'exotic',
+    description:
+      'Cutting gear, jacks and one holding charge. Somebody still has to survey the wall.',
+    usedFor: 'Set under one fight you are defending. Gone once it goes off.',
+    capsValue: 6000,
+    tradeable: false,
+  },
+];
+
 const ALL_SPECS: readonly ItemSpec[] = [
   ...SPECS,
+  ...CONSUMABLE_SPECS,
   ...BLUEPRINTS.map(blueprintItemSpec),
   ...BLUEPRINTS.flatMap((blueprint) =>
     blueprint.pages.map((page) => pageItemSpec(blueprint, page)),
@@ -404,6 +481,7 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   page: 'Page',
   component: 'Component',
   relic: 'Relic',
+  consumable: 'Consumable',
 };
 
 export const ITEM_RARITY_LABELS: Readonly<Record<ItemRarity, string>> = {

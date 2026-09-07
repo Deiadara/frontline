@@ -175,3 +175,63 @@ describe('an ally who reinforced somebody else’s attack', () => {
     expect(listed.committed).not.toBe(sizeOf('defender'));
   });
 });
+
+/**
+ * "What we field" is the whole table, the reader included.
+ *
+ * The projection left the reader out, on the grounds that the question was "who could help me".
+ * The window it feeds is titled for the whole table, and a leader opening it found everybody's
+ * units but their own.
+ */
+describe('what the table fields', () => {
+  it('lists the reader’s own crew beside everybody else’s', async () => {
+    const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
+    const db = openDatabase(config.databasePath);
+    runMigrations(db);
+    const app = await buildApp({ config, db, logger: false });
+    instances.push({ app, db });
+
+    const leader = await register(app, 'the_leader');
+    const mate = await register(app, 'the_mate');
+    const founded = await app.inject({
+      method: 'POST',
+      url: '/api/factions',
+      headers: auth(leader.token),
+      payload: { name: 'The Ninth Street Crew', badge: randomBadge(5), blurb: '' },
+    });
+    expect(founded.statusCode, founded.body.slice(0, 200)).toBe(200);
+    await app.inject({
+      method: 'POST',
+      url: '/api/factions/invite',
+      headers: auth(leader.token),
+      payload: { username: 'the_mate' },
+    });
+    const asked = await app.inject({
+      method: 'GET',
+      url: '/api/factions',
+      headers: auth(mate.token),
+    });
+    const inviteId = asked.json<FactionResponse>().invites[0]?.id;
+    if (!inviteId) throw new Error('fixture: no invitation for the mate');
+    await app.inject({
+      method: 'POST',
+      url: '/api/factions/answer',
+      headers: auth(mate.token),
+      payload: { inviteId, accept: true },
+    });
+
+    const screen = await app.inject({
+      method: 'GET',
+      url: '/api/factions',
+      headers: auth(leader.token),
+    });
+    const armies = screen.json<FactionResponse>().armies;
+    expect(armies.map((entry) => entry.memberUserId).sort()).toEqual(
+      [leader.userId, mate.userId].sort(),
+    );
+    // The reader's row is their real roster, not a placeholder.
+    expect(armies.find((entry) => entry.memberUserId === leader.userId)?.army).toEqual({
+      razors: 40,
+    });
+  });
+});

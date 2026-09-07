@@ -1,4 +1,5 @@
 import {
+  ATTRIBUTE_NAMES,
   BUILDING_CATALOG,
   OFFICER_ROLES,
   RESOURCE_KEYS,
@@ -120,7 +121,7 @@ export interface BasesRepo {
   averageLevel(): number;
   /** What is parked in the yard. */
   updateFleet(baseId: string, fleet: Fleet): void;
-  /** §B9/§E: the blueprints researched and the add-ons the Scrapyard has built. */
+  /** §E: the add-ons the Scrapyard has built, and what is bolted on. */
   updateAddons(baseId: string, addons: Addons): void;
   /**
    * Writes a level-up as one statement (GDD §I2). Level and banked XP move together: a partial
@@ -133,7 +134,7 @@ export interface BasesRepo {
    * level-ups all rewrite the whole list, since it is one JSON column rather than a table.
    */
   updateCommanders(baseId: string, commanders: Commander[]): void;
-  /** The research project in flight and the facts it has produced (GDD §B9). */
+  /** The rung in flight and the programmes the Lab has finished (GDD §C). */
   updateResearch(baseId: string, research: ResearchState): void;
   /** The structures standing in the district (GDD §A1, §D3). One JSON column, rewritten whole. */
   updateBuildings(baseId: string, buildings: Building[]): void;
@@ -219,6 +220,27 @@ function knownTrainingQueue(raw: unknown): unknown {
     const unitId = order.unitId;
     return typeof unitId !== 'string' || findUnit(unitId) !== undefined;
   });
+}
+
+/**
+ * Training sessions and "last drilled" entries naming an attribute that still exists.
+ *
+ * The third place an attribute name is stored, and the one migration 0075 missed when it renamed
+ * two and retired one: a crew that had drilled a retired attribute failed `BaseSchema` on every
+ * read and every route answered 500 for that account. The renames are swept by migration 0080;
+ * this is the floor under both, the same one every other salvaged column has.
+ */
+function knownTraining(raw: unknown): unknown {
+  if (!isRow(raw)) return raw;
+  const known = (name: unknown): boolean =>
+    typeof name === 'string' && (ATTRIBUTE_NAMES as readonly string[]).includes(name);
+  const sessions = Array.isArray(raw.sessions)
+    ? (raw.sessions as unknown[]).filter((session) => !isRow(session) || known(session.attribute))
+    : raw.sessions;
+  const last = isRow(raw.last)
+    ? Object.fromEntries(Object.entries(raw.last).filter(([, name]) => known(name)))
+    : raw.last;
+  return { ...raw, sessions, last };
 }
 
 /**
@@ -355,7 +377,7 @@ function rowToBase(row: BaseRow): Base {
     commanders: knownCommanders(readJson(row.commanders_json)),
     // Left to the schema's own default when the column is empty, rather than defaulted here: a
     // district written before the Training tab existed still opens, with today's allowance.
-    training: row.training_json === null ? undefined : readJson(row.training_json),
+    training: row.training_json === null ? undefined : knownTraining(readJson(row.training_json)),
     // Same rule as `training`: an empty column is a district that predates the feature, and the
     // schema's own default is the right answer for it.
     inventory:

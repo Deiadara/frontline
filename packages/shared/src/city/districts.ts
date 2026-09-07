@@ -485,7 +485,7 @@ export const CITY_DISTRICTS: readonly District[] = [
       ['cathode', 'Cathode Tower', 'broadcast_tower', 'hard'],
       ['overlook', 'The Overlook', 'high_ground', 'hard'],
       ['ferrous', 'Saint Ferrous', 'hospital', 'easy'],
-      ['longpawn', 'The Long Pawn', 'pawn_shop', 'easy'],
+      ['statue', 'Statue of the Revolutionary', 'revolutionary_statue', 'easy'],
       ['regal', 'The Regal', 'cinema', 'easy'],
       ['anvil', 'The Cracked Anvil', 'tavern', 'medium'],
       ['coinop', 'Coin-Op Row', 'arcade', 'easy'],

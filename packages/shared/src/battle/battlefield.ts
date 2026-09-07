@@ -108,6 +108,7 @@ export const LOCATION_CONTEXTS: Record<LocationKind, readonly CombatContext[]> =
   skate_ground: ['open_ground'],
   chapel: ['indoor'],
   graveyard: ['open_ground'],
+  revolutionary_statue: ['open_ground', 'urban'],
 };
 
 /**

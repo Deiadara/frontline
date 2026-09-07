@@ -1,6 +1,6 @@
 import type { Inventory } from '@frontline/shared';
 import { expect, test } from '@playwright/test';
-import { lateGame, market } from './fixtures';
+import { lateGame, market, pagesHeld } from './fixtures';
 import {
   expectNoImagesClipped,
   expectNothingClippedVertically,
@@ -11,7 +11,8 @@ import {
 } from './harness';
 
 /**
- * The Blueprints page (§D4 to §D11), looked at rather than asserted about.
+ * The Blueprints section of the research page (§D4 to §D11, §I1d), looked at rather than asserted
+ * about.
  *
  * The unit tests say the right rows are on the screen. This says the screen holds them: three
  * category panels side by side, each with rows carrying a graphic, a row of squares and, on the
@@ -25,29 +26,8 @@ import {
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
-/** One of each state, across all three categories. */
-const SATCHEL: Inventory = {
-  // Partial: two of the Colossus' eight, which is the longest row on the page.
-  pg_colossus_hull_sections: 1,
-  pg_colossus_reactor_housing: 1,
-  // Partial, with a spare copy: the square that carries a count.
-  pg_juggernauts_slab_armour: 3,
-  pg_juggernauts_power_spine: 1,
-  // Complete and waiting to be unlocked: the Unlock control.
-  pg_snipers_barrel_liners: 1,
-  pg_snipers_range_cards: 1,
-  pg_snipers_ghillie_patterns: 1,
-  // Upgrades and consumables, so all three panels have something in them.
-  pg_munitions_load_tables: 1,
-  pg_garage_pit_layout: 1,
-  pg_garage_hoist_rating: 1,
-  pg_shaped_charges_cone_geometry: 1,
-  pg_overnight_plating_cut_list: 1,
-  pg_overnight_plating_weld_sequence: 1,
-  // Already unlocked: the second view.
-  bp_motorcycle: 1,
-  scrap_servo: 4,
-};
+/** One of each state, across all three categories. Shared with the research page's sweep. */
+const SATCHEL = pagesHeld;
 
 test('the blueprints page holds its rows without cutting any of them', async ({ page }) => {
   await installApi(page, lateGame);
@@ -56,7 +36,7 @@ test('the blueprints page holds its rows without cutting any of them', async ({ 
     await route.fulfill({ json: { ...market, inventory: SATCHEL } });
   });
 
-  await page.goto('/game/inventory/blueprints');
+  await page.goto('/game/research/blueprints');
   await expect(page.getByText('Colossus Blueprint')).toBeVisible();
   await settleFonts(page);
 
@@ -92,7 +72,7 @@ test('shows a crew with no pages nothing at all', async ({ page }) => {
     await route.fulfill({ json: { ...market, inventory: { scrap_servo: 4 } } });
   });
 
-  await page.goto('/game/inventory/blueprints');
+  await page.goto('/game/research/blueprints');
   await expect(page.getByText('How a blueprint is put together')).toBeVisible();
   await expect(page.locator('[data-testid^="blueprint-"]')).toHaveCount(0);
   await settleFonts(page);
@@ -100,7 +80,12 @@ test('shows a crew with no pages nothing at all', async ({ page }) => {
   await page.screenshot({ path: 'e2e-out/blueprints-empty.png', fullPage: true });
 });
 
-/** §D4: the way in. The Blueprints page lives inside the Satchel, so the Satchel has a door to it. */
+/**
+ * §I1d: the documents moved out of the Satchel and into research, and the Satchel keeps the door.
+ *
+ * The pages are still items in the bag, so the Satchel is still where a player notices they have
+ * some; what they add up to is a screen, and that screen is now the second door of the archive.
+ */
 test('opens from the satchel, and says how many pages are in it', async ({ page }) => {
   await installApi(page, lateGame);
   await page.route('**/api/market', async (route) => {
@@ -115,6 +100,24 @@ test('opens from the satchel, and says how many pages are in it', async ({ page 
   await page.screenshot({ path: 'e2e-out/blueprints-satchel.png', fullPage: true });
 
   await page.getByRole('link', { name: /Blueprints/ }).click();
+  await expect(page).toHaveURL(/\/game\/research\/blueprints$/);
+  await expect(page.getByTestId('blueprint-bp_snipers')).toBeVisible();
+  // ...and it arrives with the archive's rail beside it rather than as a page of its own.
+  await expect(page.getByTestId('research-section-blueprints')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+});
+
+/** The Satchel's old address still resolves: it is in bookmarks and in old notifications. */
+test('redirects the old satchel address to the new one', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.route('**/api/market', async (route) => {
+    await route.fulfill({ json: { ...market, inventory: SATCHEL } });
+  });
+
+  await page.goto('/game/inventory/blueprints');
+  await expect(page).toHaveURL(/\/game\/research\/blueprints$/);
   await expect(page.getByTestId('blueprint-bp_snipers')).toBeVisible();
 });
 
@@ -151,7 +154,7 @@ test('reimagining trades three spare pages for one nobody has seen', async ({ pa
     });
   });
 
-  await page.goto('/game/inventory/blueprints');
+  await page.goto('/game/research/blueprints');
   const trade = page.getByTestId('reimagine');
   await expect(trade).toBeEnabled();
   // Open, so the requirement list has done its job and got out of the way.

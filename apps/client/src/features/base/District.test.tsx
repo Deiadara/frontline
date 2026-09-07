@@ -651,3 +651,35 @@ describe('the payroll book quotes the crew price, not the list price', () => {
     expect(within(panel).getByTestId('nexus-increase-payroll')).toBeDisabled();
   });
 });
+
+/**
+ * The level-up a refused build settled is still announced.
+ *
+ * `POST /base/build` settles first and refuses second, and the route puts the level-up a build
+ * crossed overnight on the 409 for exactly that reason (MOU-280): it is the only response that ever
+ * carries it. The banner read `build.data` alone, so the one press that could announce it, made
+ * for something the crew could not afford, dropped it.
+ */
+describe('a level-up that rides on a refusal', () => {
+  it('is drawn over the district all the same', async () => {
+    stubApi({
+      build: {
+        ok: false,
+        status: 409,
+        body: {
+          error: { code: 'NO_FUNDS', message: 'Short' },
+          levelUp: { level: 5, levelsGained: 1, grants: playerLevelGrants(5), unlocks: [] },
+        },
+      },
+    });
+    renderDistrict();
+
+    await waitFor(() => expect(plot('The Quarters')).toBeInTheDocument());
+    fireEvent.click(plot('The Quarters'));
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Queue build' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('region', { name: 'Level up' })).toBeInTheDocument(),
+    );
+  });
+});

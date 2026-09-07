@@ -61,10 +61,17 @@ export const DESTINATIONS: readonly NavDestination[] = [
   { label: 'Units', title: 'The roster', to: '/game/units', icon: 'units' },
   { label: 'Missions', title: 'Missions', to: '/game/missions', icon: 'missions' },
   { label: 'The Bar', title: 'The bar', to: '/game/bar', icon: 'bar', area: 'bar' },
-  // §B8: Research is not a door any more. It is reached from the Lab's own window in the district,
-  // which is where a player is already standing when they decide to research something, and
-  // `/game/research` still resolves for a deep link or a notification.
   { label: 'Crew', title: 'Crew', to: '/game/crew', icon: 'crew' },
+  // §I1b: a door again. It was reachable only from the Lab's own window, which is the right place
+  // to stand when you decide to research something and the wrong place to have to walk to when you
+  // are collecting blueprint pages, and both live behind this door now.
+  {
+    label: 'Research',
+    title: 'Programmes and blueprints',
+    to: '/game/research',
+    icon: 'research',
+    area: 'research',
+  },
   { label: 'Faction', title: 'The people you fight beside', to: '/game/faction', icon: 'faction' },
   {
     label: 'Training',
@@ -83,7 +90,7 @@ export const DESTINATIONS: readonly NavDestination[] = [
   { label: 'Workshop', title: 'Refits and the yard', to: '/game/workshop', icon: 'workshop' },
   {
     label: 'Satchel',
-    title: 'Blueprints, parts and relics',
+    title: 'Parts, relics and what the shops will take',
     to: '/game/inventory',
     icon: 'satchel',
   },
@@ -111,8 +118,8 @@ const SETTINGS: NavDestination = {
   icon: 'gear',
 };
 
-const BENCH: NavDestination = {
-  label: 'Bench',
+const CONSOLE: NavDestination = {
+  label: 'Console',
   title: 'Testing mode: knobs, presets and snapshots',
   to: '/game/admin',
   // Not the gear: Settings already wears it, and two doors with the same glyph side by side
@@ -239,7 +246,7 @@ function Destination({
 export function BottomNav() {
   const admin = useAdmin();
   const me = useMe();
-  const destinations = admin.data ? [...DESTINATIONS, BENCH] : DESTINATIONS;
+  const destinations = admin.data ? [...DESTINATIONS, CONSOLE] : DESTINATIONS;
   // §I3: read once for the row. `useMe` is already resolved by every screen behind `/game`, so
   // this is a cache read rather than a request.
   const level = me.data?.base?.level ?? 1;
@@ -252,7 +259,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Places"
-      // `flex-wrap`. Twelve doors (ten places, Settings, and the Bench in an admin build) do
+      // `flex-wrap`. Fourteen doors (twelve places, Settings, and the Console in an admin build) do
       // not fit one 1024px row, and without it the row does not
       // spill: it *shrinks*, squeezing each door to 65px until "Workshop" wraps onto two lines
       // inside a target the pointer can barely tell from its neighbour. Wrapping puts the overflow

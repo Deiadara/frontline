@@ -18,6 +18,7 @@ import { NotificationFilters } from '../social/NotificationFilters';
 import { cn } from '../../lib/cn';
 import { useChangePassword, useSettings, useUpdateProfile } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
+import { useServerClock } from '../missions/useServerClock';
 
 /**
  * The player's own file.
@@ -184,7 +185,15 @@ function ProfilePanel({
   );
 }
 
-function ClockPanel({ timezone, serverNow }: { timezone: string; serverNow: string }) {
+function ClockPanel({
+  timezone,
+  serverNow,
+  receivedAt,
+}: {
+  timezone: string;
+  serverNow: string;
+  receivedAt: number;
+}) {
   const save = useUpdateProfile();
   const [zone, setZone] = useState(timezone);
   const [done, setDone] = useState<string | null>(null);
@@ -196,7 +205,9 @@ function ClockPanel({ timezone, serverNow }: { timezone: string; serverNow: stri
   const options = OFFERED_TIMEZONES.includes(zone as (typeof OFFERED_TIMEZONES)[number])
     ? OFFERED_TIMEZONES
     : [zone, ...OFFERED_TIMEZONES];
-  const at = new Date(serverNow);
+  // The panel is called "Your clock", so it has to tick: `new Date(serverNow)` was the response's
+  // timestamp, frozen at page load, on a query with no poll.
+  const at = useServerClock(serverNow, receivedAt);
 
   return (
     <Panel
@@ -365,7 +376,11 @@ export function SettingsPage() {
           displayName={data.user.displayName}
           icon={data.user.icon}
         />
-        <ClockPanel timezone={data.user.timezone} serverNow={data.serverNow} />
+        <ClockPanel
+          timezone={data.user.timezone}
+          serverNow={data.serverNow}
+          receivedAt={query.dataUpdatedAt}
+        />
       </div>
 
       {/* The board asked for the filter to live here. It is the same control the bell's own second

@@ -34,12 +34,13 @@ function stub(research: ResearchResponse = F.research): void {
   fetchMock.mockImplementation((path: string) => {
     if (path.endsWith('/research')) return reply(research);
     if (path.endsWith('/me')) return reply(F.me);
-    if (path.endsWith('/bar')) return reply(F.bar);
+    // The Blueprints door counts documents off the satchel, which rides the market payload.
+    if (path.endsWith('/market')) return reply(F.market);
     throw new Error(`unstubbed request: ${path}`);
   });
 }
 
-async function openTracks() {
+function open(at = '/game/research') {
   render(
     <QueryClientProvider
       client={
@@ -48,11 +49,15 @@ async function openTracks() {
         })
       }
     >
-      <MemoryRouter initialEntries={['/game/research']}>
+      <MemoryRouter initialEntries={[at]}>
         <ResearchPage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+async function openTracks() {
+  open();
   fireEvent.click(await screen.findByTestId('research-section-programmes'));
   return screen.getByTestId('research-tracks');
 }
@@ -64,6 +69,54 @@ beforeEach(() => {
 });
 
 afterEach(() => vi.unstubAllGlobals());
+
+/**
+ * §I1a: two doors, and the desk is not one of them.
+ *
+ * Written against the rail's own children rather than against a list of ids the page also exports,
+ * because the failure this is for is a door that is still *rendered*: a section left in `SECTIONS`
+ * behind a condition nobody notices is exactly how the desk would survive its own deletion.
+ */
+describe('the archive rail', () => {
+  it('has exactly two doors: Programmes and Blueprints', async () => {
+    stub();
+    open();
+    const rail = await screen.findByTestId('research-sections');
+    const doors = within(rail).getAllByRole('button');
+    expect(doors.map((door) => door.getAttribute('data-testid'))).toEqual([
+      'research-section-programmes',
+      'research-section-blueprints',
+    ]);
+  });
+
+  it('opens on Programmes, and the Blueprints workspace is not rendered behind it', async () => {
+    stub();
+    open();
+    expect(await screen.findByTestId('research-tracks')).toBeInTheDocument();
+    expect(screen.queryByTestId('blueprints-section')).toBeNull();
+  });
+
+  /** §I1d: the section is the URL, so a deep link into the documents lands on the documents. */
+  it('opens on Blueprints when the URL says blueprints', async () => {
+    stub();
+    open('/game/research/blueprints');
+    expect(await screen.findByTestId('blueprints-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('research-tracks')).toBeNull();
+    expect(screen.getByTestId('research-section-blueprints')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('walks from one door to the other', async () => {
+    stub();
+    open();
+    fireEvent.click(await screen.findByTestId('research-section-blueprints'));
+    expect(await screen.findByTestId('blueprints-section')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('research-section-programmes'));
+    expect(await screen.findByTestId('research-tracks')).toBeInTheDocument();
+  });
+});
 
 describe('the research tracks', () => {
   it('is a precondition that the fixture has a full nineteen tracks with rungs on each', () => {
@@ -193,5 +246,33 @@ describe('the research tracks', () => {
       expect(typeof body).toBe('string');
       expect(body as string).toContain(open.id);
     });
+  });
+});
+
+/**
+ * The countdown on the programme in flight reads the server's clock.
+ *
+ * It ticked off `Date.now()`, and on a machine five minutes fast a four-minute programme showed
+ * "Landing…" under a full bar for five minutes while `GET /research` kept answering that it was
+ * still running. The response carries `serverNow` for exactly this, and every other countdown in
+ * the game reads it.
+ */
+describe('the running programme, on a fast machine', () => {
+  it('counts down what the server says is left, not what the browser thinks', async () => {
+    const serverNow = new Date(F.research.serverNow);
+    const research = F.activeResearch(serverNow);
+    const minutes = research.active?.durationMinutes ?? 0;
+    expect(minutes).toBeGreaterThan(1);
+    // The browser is past the programme's end by its own clock; the server is a minute into it.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(serverNow.getTime() + (minutes + 3) * 60_000);
+    try {
+      stub(research);
+      open();
+      const bar = await screen.findByTestId('research-progress');
+      await waitFor(() => expect(bar).not.toHaveTextContent('Landing'));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -175,6 +175,19 @@ export const BattleDeploymentSchema = z.object({
    */
   officerId: IdSchema.nullable().default(null),
   /**
+   * §I4: the one trap this crew has set under this fight, or null.
+   *
+   * Defenders only, enforced at the door in `battle/routes.ts` along with §I4's one per *side*.
+   * Free to name and free to change right up to the mark: nothing leaves the satchel until the
+   * fight resolves, which is the same rule contraband follows and for the same reason. It also
+   * means the same trap may be named on two fights and only the first to resolve gets it, because
+   * the second finds the bag empty (`springAnyTrap`).
+   *
+   * Not the item id by coincidence: a trap's `TrapSpec.id` and its `ItemSpec.id` are the same
+   * string, so the row names what has to come out of the satchel with no second table.
+   */
+  trapId: z.string().min(1).nullable().default(null),
+  /**
    * §C3: the machines this crew is taking to the fight.
    *
    * They have **left the Garage**, exactly as deployed units have left the roster: a fleet promised
@@ -250,6 +263,7 @@ export function emptyDeployment(
     perimeter: {},
     boostId: null,
     officerId: null,
+    trapId: null,
     vehicles: {},
     updatedAt: at,
   };

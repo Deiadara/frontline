@@ -1,39 +1,22 @@
 import {
-  findModification,
   MISC_AREA_ID,
-  OFFICER_ROLES,
-  CROSS_REFERENCE_IMPROVISATION,
-  EXTRA_FACT_COMMUNICATION,
   MAX_ATTRIBUTE,
-  MAX_PAIRINGS,
-  MAX_ROLE_FACTS,
   MISSION_EDGE_ATTRIBUTES,
   MAX_MISSION_EDGE,
   OVERSEER_PRESETS,
-  RESEARCH_COST_CAPS,
-  RESEARCH_MINUTES,
-  addonsOf,
   createCommander,
-  developAttribute,
   findMissionTemplate,
+  itemsInTrack,
   makeAttributes,
   modifiedSuccessChance,
-  factionXpFromLeadership,
   overseerMissionEdge,
-  pairingsIn,
-  researchCompletesAt,
-  roleFactsIn,
   startingEconomy,
   startingProgression,
   startingResearch,
-  unlocksCrossReference,
-  type ActiveResearch,
-  type Addons,
   type Base,
   type Commander,
   type Overseer,
   type OverseerPreset,
-  type ResearchProject,
   type ResearchResponse,
   type ResearchState,
   startingTraining,
@@ -46,7 +29,15 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { launchMission } from '../missions/launch.js';
 import { settleResearch } from './settle.js';
 import { startResearch } from './start.js';
-import { modificationBlocker } from '../district/modifications.js';
+
+/**
+ * Research at the seam the browser actually touches: the two routes, end to end over a real
+ * database, and the Overseer's own effect on a run (§F5).
+ *
+ * The ladder itself is asserted in `packages/shared/src/research/tracks.test.ts` and the score-side
+ * rules in `tracks.test.ts` next door. What only this file can say is that a rung started over HTTP
+ * lands on the read that comes after its clock, and that the desk's route is gone.
+ */
 
 const NOW = new Date('2026-08-13T09:00:00.000Z');
 const MINUTE_MS = 60_000;
@@ -68,28 +59,6 @@ function makeOverseer(overrides: Partial<Overseer> = {}): Overseer {
   };
 }
 
-/**
- * What an investigation actually takes once `professor('…', 10, …)` is on the books.
- *
- * §F2 cuts a project's clock by the crew's Analysis, Improvisation and Encyclopedia, so the
- * catalogue number is no longer the number that lands on the row. Written out rather than
- * recomputed from the same functions the code under test uses: an expectation derived from the
- * implementation agrees with it however badly either one is broken.
- *
- * 45 catalogue minutes, a little over 6% off, is 42. It has moved twice and both times for a
- * content reason rather than a tuning one. It went 42 to 43 when §C2 landed, because a Professor's
- * seat puts Improvisation to work and does **not** put Analysis to work, so their Analysis 15
- * started counting at the off-duty share. It is back to 42 now that Encyclopedia has replaced
- * Demolition and drives research alongside those two: the crew reads a third thing, so a project
- * takes a minute less.
- */
-const INVESTIGATION_MINUTES = 42;
-
-/** A Professor whose sheet is set exactly where the §F3/§F4 gates are being probed. */
-function professor(id: string, improvisation: number, communication: number): Commander {
-  return createCommander(id, 'Ada Vasquez', 'professor', { improvisation, communication });
-}
-
 function makeBase(overrides: Partial<Base> = {}): Base {
   return {
     id: 'base-1',
@@ -99,12 +68,12 @@ function makeBase(overrides: Partial<Base> = {}): Base {
     level: 1,
     isBot: false,
     resources: {
-      caps: 5000,
-      supplies: 100,
-      oil: 100,
-      scrap: 100,
-      highQualityMetal: 10,
-      planks: 100,
+      caps: 500_000,
+      supplies: 9000,
+      oil: 9000,
+      scrap: 500_000,
+      highQualityMetal: 9000,
+      planks: 9000,
     },
     economy: startingEconomy(NOW.toISOString()),
     progression: startingProgression(),
@@ -124,457 +93,122 @@ function makeBase(overrides: Partial<Base> = {}): Base {
   };
 }
 
-/** A repository double: research writes through four calls and the tests assert on what landed. */
+/** A repository double: research writes through three calls and the tests assert on what landed. */
 function fakeRepos(): {
   repos: Parameters<typeof settleResearch>[0];
-  written: {
-    research?: ResearchState;
-    caps?: number;
-    morale?: number;
-    attributes?: unknown;
-    commanders?: Commander[];
-    level?: number;
-    xpIntoLevel?: number;
-    addons?: Addons;
-  };
+  written: { research?: ResearchState; level?: number; xpIntoLevel?: number };
 } {
-  const written: {
-    research?: ResearchState;
-    caps?: number;
-    morale?: number;
-    attributes?: unknown;
-    commanders?: Commander[];
-    level?: number;
-    xpIntoLevel?: number;
-    addons?: Addons;
-  } = {};
+  const written: { research?: ResearchState; level?: number; xpIntoLevel?: number } = {};
   const repos = {
     bases: {
       updateResearch: (_id: string, research: ResearchState) => {
         written.research = research;
       },
-      updateResources: (_id: string, resources: { caps: number }) => {
-        written.caps = resources.caps;
-      },
-      updateEconomy: (_id: string, economy: { morale: number }) => {
-        written.morale = economy.morale;
-      },
-      // §G6/§H6: settling an investigation pays its lead officer, so the double has to accept
-      // the write. Captured rather than ignored: the character-XP tests below read it back.
-      updateCommanders: (_id: string, commanders: Commander[]) => {
-        written.commanders = commanders;
-      },
-      // §I1: a finished project now pays the *player* as well as its lead, and `awardPlayerXp`
-      // is the only writer of `Base.level`. Captured, so the level-up tests below can read it.
+      updateResources: () => undefined,
+      updateEconomy: () => undefined,
+      // §I1: a finished rung pays the player, and `awardPlayerXp` is the only writer of
+      // `Base.level`. Captured, so the XP tests below can read it.
       updateProgression: (_id: string, level: number, progression: { xpIntoLevel: number }) => {
         written.level = level;
         written.xpIntoLevel = progression.xpIntoLevel;
       },
-      // §B9: modification work ends with a blueprint on the shelf, which is a fifth write.
-      updateAddons: (_id: string, addons: Addons) => {
-        written.addons = addons;
-      },
       updateDistrict: () => undefined,
     },
-    overseers: {
-      updateAttributes: (_id: string, attributes: unknown) => {
-        written.attributes = attributes;
-      },
-    },
-    // §F2: a project's clock is now cut by the crew's Analysis and Improvisation as well as by
-    // the Lab. These doubles answer "no ground, nobody" so the tests below stay about the Lab and
-    // the officer; the crew's cut has its own test.
+    overseers: { updateAttributes: () => undefined },
+    // A rung's clock is cut by the crew's standing as well as by the Lab. These doubles answer
+    // "no ground, nobody", so the tests below stay about the rung.
     city: { controls: () => new Map() },
     users: { findById: () => undefined },
+    // ...and at no table: the cards a faction deals are folded into the same standing.
+    factions: { membershipOf: () => undefined },
   } as unknown as Parameters<typeof settleResearch>[0];
   return { repos, written };
 }
 
-/** Starts `project` and runs the clock past its end, returning what the settlement produced. */
-function runToCompletion(base: Base, overseer: Overseer, project: ResearchProject) {
-  const { repos } = fakeRepos();
-  const started = startResearch(repos, { base, overseer, project, id: 'r-1', now: NOW });
-  if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
-  const after = new Date(NOW.getTime() + started.active.durationMinutes * MINUTE_MS);
-  return settleResearch(repos, started.base, overseer, after);
+/** Two chairs good enough for anything, so the tests below are never about a mark. */
+function chairs(track: Commander['role']): Commander[] {
+  return [
+    createCommander('track', 'Track Officer', track, makeAttributes(95)),
+    createCommander('head', 'Head', 'head_of_research', makeAttributes(95)),
+  ];
 }
 
+/** Starts `techId` and runs the clock past its end, returning what the settlement produced. */
+function runToCompletion(base: Base, overseer: Overseer, techId: string) {
+  const { repos } = fakeRepos();
+  const started = startResearch(repos, {
+    base,
+    project: { kind: 'technology', techId },
+    id: 'r-1',
+    now: NOW,
+  });
+  if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
+  const after = new Date(NOW.getTime() + started.active.durationMinutes * MINUTE_MS);
+  return {
+    minutes: started.active.durationMinutes,
+    ...settleResearch(repos, started.base, overseer, after),
+  };
+}
+
+const MEDIC_RUNGS = itemsInTrack('chief_medic');
+const FIRST_MEDIC = MEDIC_RUNGS[0];
+const LAST_MEDIC = MEDIC_RUNGS[MEDIC_RUNGS.length - 1];
+if (!FIRST_MEDIC || !LAST_MEDIC) throw new Error('the medic track has no rungs');
+
+describe('§F3: Charisma turns a finished rung into allegiance XP', () => {
+  const base = () => makeBase({ commanders: chairs('chief_medic') });
+
+  it('pays a charismatic Overseer more than a dour one for the same rung', () => {
+    const bright = runToCompletion(
+      base(),
+      makeOverseer({ attributes: makeAttributes(10, { charisma: 100 }) }),
+      FIRST_MEDIC.id,
+    );
+    const dour = runToCompletion(
+      base(),
+      makeOverseer({ attributes: makeAttributes(10, { charisma: 0 }) }),
+      FIRST_MEDIC.id,
+    );
+    expect(bright.awards).toHaveLength(1);
+    expect(bright.awards[0]!.xpGained).toBeGreaterThan(dour.awards[0]!.xpGained);
+  });
+});
+
 /**
- * §B9: a finished modification project puts a **blueprint** on the shelf and nothing in a wall.
+ * The third clock, and the third call site.
  *
- * This is the seam between the Lab and the Scrapyard, and it is the one place the two could come
- * apart silently: a project that still bolted the thing in would leave the yard with nothing to
- * build and §E's slots with nothing to empty, and every other research assertion in this file
- * would stay green.
+ * `PLAYER_XP_AWARDS` calls research "the longest single commitment in the game", and it paid a flat
+ * 150 whether the rung ran forty-five minutes or twelve hours. Asserted as the ratio between two
+ * rungs rather than as a figure, because the settlement also adds the Overseer's charisma on top
+ * and that is a different rule this test has no business pinning.
  */
-describe('§B9: modification work ends with a blueprint', () => {
-  const engineer = () => createCommander('eng-1', 'Wren', 'lead_engineer');
-  const project: ResearchProject = {
-    kind: 'modification',
-    modificationId: 'lab_quantum_modeling',
-  };
-
-  it('records the drawing and leaves the structure untouched', () => {
-    const { repos, written } = fakeRepos();
-    const base = makeBase({
-      commanders: [engineer()],
-      buildings: [{ id: 'b-lab', kind: 'lab', level: 20, modifications: [], damage: 0 }],
-      resources: {
-        caps: 99_999,
-        supplies: 99_999,
-        oil: 99_999,
-        scrap: 99_999,
-        highQualityMetal: 99_999,
-        planks: 99_999,
-      },
-    });
-    const overseer = makeOverseer();
-    const started = startResearch(repos, { base, overseer, project, id: 'r-1', now: NOW });
-    if (started.kind !== 'started') throw new Error(`refused: ${started.reason}`);
-
-    const after = new Date(NOW.getTime() + RESEARCH_MINUTES.modification * MINUTE_MS);
-    const settled = settleResearch(repos, started.base, overseer, after);
-
-    expect(addonsOf(settled.base).researched).toEqual(['lab_quantum_modeling']);
-    expect(written.addons?.researched).toEqual(['lab_quantum_modeling']);
-    // Nothing is bolted on: the Scrapyard builds it and the Lab's own dialog fits it.
-    expect(settled.base.buildings.flatMap((building) => building.modifications)).toEqual([]);
-  });
-
-  /**
-   * A drawing the crew already owns cannot be bought twice.
-   *
-   * `settleResearch` will not bank a second copy, so a project that starts anyway buys an occupied
-   * Lab, the fee, and nothing at all at the end of it. `modificationBlocker` used to answer "no
-   * blocker" for an already-drawn modification, which the display path never reached (it
-   * short-circuits on `installed`) and which the gate read as permission.
-   */
-  it('refuses a second project for a drawing the crew already holds', () => {
-    const { repos } = fakeRepos();
-    const stocked = {
-      caps: 99_999,
-      supplies: 99_999,
-      oil: 99_999,
-      scrap: 99_999,
-      highQualityMetal: 99_999,
-      planks: 99_999,
-    };
-    const base = makeBase({
-      commanders: [engineer()],
-      buildings: [{ id: 'b-lab', kind: 'lab', level: 20, modifications: [], damage: 0 }],
-      resources: stocked,
-    });
-    const overseer = makeOverseer();
-    const first = startResearch(repos, { base, overseer, project, id: 'r-1', now: NOW });
-    if (first.kind !== 'started') throw new Error(`refused: ${first.reason}`);
-    const after = new Date(NOW.getTime() + RESEARCH_MINUTES.modification * MINUTE_MS);
-    const owned = settleResearch(repos, first.base, overseer, after).base;
-    expect(addonsOf(owned).researched).toEqual(['lab_quantum_modeling']);
-
-    // They take it out of the wall again, which is allowed and does not un-own the paper.
-    const again = startResearch(repos, {
-      base: { ...owned, resources: stocked },
-      overseer,
-      project,
-      id: 'r-2',
-      now: after,
-    });
-    expect(again).toEqual({ kind: 'refused', reason: 'nothing_to_learn' });
-    expect(modificationBlocker(owned, findModification('lab_quantum_modeling')!)).toBe(
-      'already_drawn',
-    );
-  });
-});
-
-describe('starting a project (§B9, §F2, §F4)', () => {
-  const lead = professor('prof-1', 10, 10);
-  const base = makeBase({ commanders: [lead] });
+describe('a rung pays XP off its own clock (§I1)', () => {
   const overseer = makeOverseer();
-  const investigate: ResearchProject = {
-    kind: 'investigation',
-    role: 'head_spy',
-    leadOfficerId: lead.id,
-    crossReference: false,
-  };
 
-  it('charges caps and freezes the clock onto the row', () => {
-    const { repos, written } = fakeRepos();
-    const result = startResearch(repos, {
-      base,
+  it('pays the tenth rung of a track more than the first', () => {
+    const shallow = runToCompletion(
+      makeBase({ commanders: chairs('chief_medic') }),
       overseer,
-      project: investigate,
-      id: 'r',
-      now: NOW,
-    });
-
-    expect(result.kind).toBe('started');
-    if (result.kind !== 'started') return;
-    expect(result.base.resources.caps).toBe(5000 - RESEARCH_COST_CAPS.investigation);
-    expect(written.caps).toBe(result.base.resources.caps);
-    expect(result.active.durationMinutes).toBe(INVESTIGATION_MINUTES);
-    expect(researchCompletesAt(result.active).getTime()).toBe(
-      NOW.getTime() + INVESTIGATION_MINUTES * MINUTE_MS,
+      FIRST_MEDIC.id,
     );
-    expect(written.research?.active?.id).toBe('r');
-  });
-
-  it('refuses a second project while one is running', () => {
-    const busy = makeBase({
-      commanders: [lead],
-      research: {
-        active: {
-          id: 'r-0',
-          project: investigate,
-          startedAt: NOW.toISOString(),
-          durationMinutes: 45,
+    const deep = runToCompletion(
+      makeBase({
+        commanders: chairs('chief_medic'),
+        research: {
+          ...startingResearch(),
+          technologies: MEDIC_RUNGS.slice(0, -1).map((spec) => spec.id),
         },
-        facts: [],
-        technologies: [],
-      },
-    });
-    const { repos } = fakeRepos();
-    expect(
-      startResearch(repos, { base: busy, overseer, project: investigate, id: 'r', now: NOW }),
-    ).toEqual({ kind: 'refused', reason: 'already_running' });
-  });
-
-  it('§B9/§C4: only a Professor or Head of Research can lead an investigation', () => {
-    const { repos } = fakeRepos();
-    const wrongRole = createCommander('spy-1', 'Nyx', 'head_spy');
-    const withSpy = makeBase({ commanders: [wrongRole] });
-    expect(
-      startResearch(repos, {
-        base: withSpy,
-        overseer,
-        project: { ...investigate, leadOfficerId: wrongRole.id },
-        id: 'r',
-        now: NOW,
       }),
-    ).toEqual({ kind: 'refused', reason: 'no_lead' });
-
-    // ...and a lead who is not on the books at all is the same refusal, not a crash.
-    expect(
-      startResearch(repos, {
-        base,
-        overseer,
-        project: { ...investigate, leadOfficerId: 'nobody' },
-        id: 'r',
-        now: NOW,
-      }),
-    ).toEqual({ kind: 'refused', reason: 'no_lead' });
-  });
-
-  it('§F4: the cross-reference option is refused, not silently dropped, when locked', () => {
-    const { repos } = fakeRepos();
-    const dull = professor('dull', CROSS_REFERENCE_IMPROVISATION - 1, 10);
-    const bright = professor('bright', CROSS_REFERENCE_IMPROVISATION, 10);
-    expect(unlocksCrossReference(dull.attributes)).toBe(false);
-    expect(unlocksCrossReference(bright.attributes)).toBe(true);
-
-    const withBoth = makeBase({ commanders: [dull, bright] });
-    expect(
-      startResearch(repos, {
-        base: withBoth,
-        overseer,
-        project: { ...investigate, leadOfficerId: dull.id, crossReference: true },
-        id: 'r',
-        now: NOW,
-      }),
-    ).toEqual({ kind: 'refused', reason: 'option_locked' });
-
-    // The same request from someone imaginative enough goes through, so the refusal above is the
-    // gate doing its job, not the request being malformed.
-    const allowed = startResearch(repos, {
-      base: withBoth,
       overseer,
-      project: { ...investigate, leadOfficerId: bright.id, crossReference: true },
-      id: 'r',
-      now: NOW,
-    });
-    expect(allowed.kind).toBe('started');
-  });
-
-  it('refuses a role with nothing left to learn, and never charges for it', () => {
-    const { repos, written } = fakeRepos();
-    let state = makeBase({ commanders: [lead] });
-    for (let i = 0; i < MAX_ROLE_FACTS; i += 1) {
-      state = runToCompletion(state, overseer, investigate).base;
-    }
-    expect(roleFactsIn(state.research.facts, 'head_spy')).toHaveLength(MAX_ROLE_FACTS);
-
-    const exhausted = { ...state, resources: { ...state.resources, caps: 5000 } };
-    expect(
-      startResearch(repos, { base: exhausted, overseer, project: investigate, id: 'r', now: NOW }),
-    ).toEqual({ kind: 'refused', reason: 'nothing_to_learn' });
-    expect(written.caps, 'a refused project must not take the money').toBeUndefined();
-  });
-
-  it('refuses when the caps are not there', () => {
-    const { repos } = fakeRepos();
-    const broke = makeBase({
-      commanders: [lead],
-      resources: { ...base.resources, caps: RESEARCH_COST_CAPS.investigation - 1 },
-    });
-    expect(
-      startResearch(repos, { base: broke, overseer, project: investigate, id: 'r', now: NOW }),
-    ).toEqual({ kind: 'refused', reason: 'cannot_afford' });
-  });
-});
-
-describe('settling a project (§B9, §F2, §F3)', () => {
-  const overseer = makeOverseer();
-  const investigate = (leadOfficerId: string, crossReference = false): ResearchProject => ({
-    kind: 'investigation',
-    role: 'head_spy',
-    leadOfficerId,
-    crossReference,
-  });
-
-  it('pays nothing out before the clock is up', () => {
-    const lead = professor('p', 10, 10);
-    const { repos } = fakeRepos();
-    const started = startResearch(repos, {
-      base: makeBase({ commanders: [lead] }),
-      overseer,
-      project: investigate(lead.id),
-      id: 'r',
-      now: NOW,
-    });
-    if (started.kind !== 'started') throw new Error('expected a start');
-
-    const early = new Date(NOW.getTime() + (INVESTIGATION_MINUTES - 1) * MINUTE_MS);
-    const settlement = settleResearch(repos, started.base, overseer, early);
-    expect(settlement.discovered).toEqual([]);
-    expect(settlement.base.research.active, 'the project is still running').not.toBeNull();
-  });
-
-  it('yields one fact, clears the slot, and cannot pay out twice', () => {
-    const lead = professor('p', 10, 10);
-    const settlement = runToCompletion(
-      makeBase({ commanders: [lead] }),
-      overseer,
-      investigate('p'),
+      LAST_MEDIC.id,
     );
 
-    expect(settlement.discovered).toHaveLength(1);
-    expect(settlement.discovered[0]).toMatchObject({ kind: 'role_attribute', role: 'head_spy' });
-    expect(settlement.base.research.active).toBeNull();
-    expect(settlement.base.research.facts).toHaveLength(1);
-
-    // Settling the very same base again finds nothing active and mints nothing.
-    const { repos } = fakeRepos();
-    const again = settleResearch(repos, settlement.base, overseer, new Date(NOW.getTime() + 1e9));
-    expect(again.discovered).toEqual([]);
-    expect(again.base.research.facts).toHaveLength(1);
-  });
-
-  it('§F3: a communicative lead gets a second fact out of the same project', () => {
-    const quiet = professor('quiet', 10, EXTRA_FACT_COMMUNICATION - 1);
-    const talker = professor('talk', 10, EXTRA_FACT_COMMUNICATION);
-    const withBoth = makeBase({ commanders: [quiet, talker] });
-
-    expect(runToCompletion(withBoth, overseer, investigate('quiet')).discovered).toHaveLength(1);
-    expect(runToCompletion(withBoth, overseer, investigate('talk')).discovered).toHaveLength(2);
-  });
-
-  it('§F4: the cross-reference adds a pairing on top of the role fact', () => {
-    const bright = professor('bright', CROSS_REFERENCE_IMPROVISATION, 10);
-    const settlement = runToCompletion(
-      makeBase({ commanders: [bright] }),
-      overseer,
-      investigate('bright', true),
-    );
-    expect(settlement.discovered).toHaveLength(2);
-    expect(pairingsIn(settlement.discovered)).toHaveLength(1);
-  });
-
-  it('§F3: Charisma is worth allegiance XP on a finished project, and a dour Overseer is not', () => {
-    const charismatic = makeAttributes(10, { charisma: MAX_ATTRIBUTE });
-    const dour = makeAttributes(10, { charisma: 0 });
-    expect(factionXpFromLeadership(dour)).toBe(0);
-    expect(factionXpFromLeadership(charismatic)).toBeGreaterThan(0);
-  });
-
-  it('lands the project even if the lead was fired mid-flight, without their bonus', () => {
-    const talker = professor('talk', 10, EXTRA_FACT_COMMUNICATION);
-    const { repos } = fakeRepos();
-    const started = startResearch(repos, {
-      base: makeBase({ commanders: [talker] }),
-      overseer,
-      project: investigate('talk'),
-      id: 'r',
-      now: NOW,
-    });
-    if (started.kind !== 'started') throw new Error('expected a start');
-
-    const withoutLead = { ...started.base, commanders: [] };
-    const after = new Date(NOW.getTime() + RESEARCH_MINUTES.investigation * MINUTE_MS);
-    const settlement = settleResearch(repos, withoutLead, overseer, after);
-    expect(settlement.discovered, 'the work was still done').toHaveLength(1);
-  });
-
-  it('§F2: training develops the Overseer and persists the new sheet', () => {
-    const before = makeOverseer({ attributes: makeAttributes(12) });
-    const { repos, written } = fakeRepos();
-    const base = makeBase();
-    const started = startResearch(repos, {
-      base,
-      overseer: before,
-      project: { kind: 'training', attribute: 'improvisation' },
-      id: 'r',
-      now: NOW,
-    });
-    if (started.kind !== 'started') throw new Error('expected a start');
-
-    const after = new Date(NOW.getTime() + RESEARCH_MINUTES.training * MINUTE_MS);
-    const settlement = settleResearch(repos, started.base, before, after);
-    expect(settlement.overseer.attributes.improvisation).toBe(13);
-    expect(written.attributes).toEqual(settlement.overseer.attributes);
-    // Nothing else on the sheet moved, and no fact was minted by a training project.
-    expect(settlement.discovered).toEqual([]);
-    expect({ ...settlement.overseer.attributes, improvisation: 12 }).toEqual(before.attributes);
-  });
-
-  it('§F2: every attribute is trainable, and training stops at the ceiling', () => {
-    const { repos } = fakeRepos();
-    const maxed = makeOverseer({ attributes: makeAttributes(MAX_ATTRIBUTE) });
-    expect(
-      startResearch(repos, {
-        base: makeBase(),
-        overseer: maxed,
-        project: { kind: 'training', attribute: 'chemistry' },
-        id: 'r',
-        now: NOW,
-      }),
-    ).toEqual({ kind: 'refused', reason: 'nothing_to_learn' });
-    expect(developAttribute(maxed.attributes, 'chemistry').chemistry).toBe(MAX_ATTRIBUTE);
-  });
-
-  it('never files the same fact twice, however long a crew grinds', () => {
-    const bright = professor('b', CROSS_REFERENCE_IMPROVISATION, EXTRA_FACT_COMMUNICATION);
-    let state = makeBase({ commanders: [bright] });
-    for (let run = 0; run < 40; run += 1) {
-      const { repos } = fakeRepos();
-      const project = investigate('b', true);
-      const started = startResearch(repos, {
-        base: { ...state, resources: { ...state.resources, caps: 5000 } },
-        overseer,
-        project,
-        id: `r-${run}`,
-        now: NOW,
-      });
-      if (started.kind !== 'started') break;
-      state = settleResearch(
-        repos,
-        started.base,
-        overseer,
-        new Date(NOW.getTime() + RESEARCH_MINUTES.investigation * MINUTE_MS),
-      ).base;
-    }
-    const keys = state.research.facts.map((fact) => JSON.stringify(fact));
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(roleFactsIn(state.research.facts, 'head_spy')).toHaveLength(MAX_ROLE_FACTS);
-    expect(pairingsIn(state.research.facts).length).toBeLessThanOrEqual(MAX_PAIRINGS);
+    expect(deep.minutes).toBeGreaterThan(shallow.minutes);
+    const shallowXp = shallow.awards[0]!.xpGained;
+    const deepXp = deep.awards[0]!.xpGained;
+    expect(deepXp).toBeGreaterThan(shallowXp);
+    // The curve, not a step: twice the clock is roughly 2^0.8 of the pay.
+    expect(deepXp / shallowXp).toBeCloseTo((deep.minutes / shallow.minutes) ** 0.8, 0);
   });
 });
 
@@ -644,7 +278,7 @@ describe('§F5: the Overseer modifies a run that risks people', () => {
   });
 });
 
-describe('GET /research and POST /research', () => {
+describe('GET /research and POST /research/tech', () => {
   const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 
   afterEach(async () => {
@@ -681,6 +315,14 @@ describe('GET /research and POST /research', () => {
     return token;
   }
 
+  function userIdOf(app: FastifyInstance, token: string): string {
+    return app.jwt.decode<{ sub: string }>(token)!.sub;
+  }
+
+  function baseOf(app: FastifyInstance, token: string) {
+    return app.repos.bases.findByOwnerId(userIdOf(app, token))!;
+  }
+
   const read = async (app: FastifyInstance, token: string): Promise<ResearchResponse> => {
     const res = await app.inject({
       method: 'GET',
@@ -691,215 +333,122 @@ describe('GET /research and POST /research', () => {
     return res.json<ResearchResponse>();
   };
 
-  it('serves an empty, well-formed page to a crew that has never researched', async () => {
+  const startTech = (app: FastifyInstance, token: string, techId: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/research/tech',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { techId },
+    });
+
+  it('serves a well-formed page to a crew that has never researched', async () => {
     const app = await makeApp();
     const token = await makePlayer(app, 'researcher');
     const body = await read(app, token);
 
-    expect(body.facts).toEqual([]);
     expect(body.active).toBeNull();
     expect(body.completesAt).toBeNull();
-    expect(body.leads, 'a fresh crew has no Professor').toEqual([]);
-    expect(body.openRoles.length).toBeGreaterThan(0);
-    expect(body.costs).toEqual(RESEARCH_COST_CAPS);
-    expect(body.overseerAttributes.improvisation).toBeGreaterThan(0);
+    expect(body.head, 'a fresh crew has no Head of Research').toBeNull();
+    expect(body.tracks.length).toBeGreaterThan(0);
+    expect(body.technologies.length).toBe(body.tracks.length * 10);
+    expect(body.technologies.every((rung) => !rung.known)).toBe(true);
+    expect(body.caps).toBeGreaterThan(0);
   });
 
-  it('refuses a project the crew has nobody to run', async () => {
+  /**
+   * The desk's route is gone rather than dormant.
+   *
+   * A route left registered but unreachable from the page is the failure `BattleRequestSchema` was
+   * filed under, so this asserts the door itself is closed.
+   */
+  it('has no desk route left to post to', async () => {
     const app = await makeApp();
-    const token = await makePlayer(app, 'nolead');
+    const token = await makePlayer(app, 'nodesk');
     const res = await app.inject({
       method: 'POST',
       url: '/api/research',
       headers: { authorization: `Bearer ${token}` },
-      payload: {
-        kind: 'investigation',
-        role: 'head_spy',
-        leadOfficerId: 'nobody',
-        crossReference: false,
-      },
+      payload: { kind: 'technology', techId: FIRST_MEDIC.id },
     });
-    expect(res.statusCode).toBe(409);
-    expect(res.json<{ error: { code: string } }>().error.code).toBe('NO_RESEARCH_LEAD');
+    expect(res.statusCode).toBe(404);
   });
 
-  it('§F2: a training project runs end to end and moves the Overseer sheet on the read path', async () => {
+  it('refuses a rung the crew has nobody to run', async () => {
     const app = await makeApp();
-    const token = await makePlayer(app, 'trainee');
-    const before = await read(app, token);
-    const target = 'encyclopedia';
+    const token = await makePlayer(app, 'nochair');
+    const res = await startTech(app, token, FIRST_MEDIC.id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe('RESEARCH_OPTION_LOCKED');
+  });
 
-    const started = await app.inject({
-      method: 'POST',
-      url: '/api/research',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { kind: 'training', attribute: target },
-    });
+  it('refuses a rung that does not exist', async () => {
+    const app = await makeApp();
+    const token = await makePlayer(app, 'nosuch');
+    const res = await startTech(app, token, 'tech_nothing_at_all');
+    expect(res.statusCode).toBe(404);
+  });
+
+  /**
+   * The whole feature, on the wire, over a real database.
+   *
+   * A rung settles lazily on the `GET /research` read, so nothing turns a finished clock into a
+   * finished programme unless somebody asks. Started over HTTP, rewound in the row, then read: the
+   * settle path is the only thing that can bank it and this is the read that has to prove it did.
+   */
+  it('runs a rung end to end and banks it on the read path', async () => {
+    const app = await makeApp();
+    const token = await makePlayer(app, 'trackrunner');
+    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('chief_medic'));
+
+    const started = await startTech(app, token, FIRST_MEDIC.id);
     expect(started.statusCode).toBe(200);
-    const active = started.json<{ active: ActiveResearch }>().active;
+    const running = started.json<ResearchResponse>();
+    expect(running.active?.project).toEqual({ kind: 'technology', techId: FIRST_MEDIC.id });
+    expect(running.completesAt).not.toBeNull();
 
-    // Mid-flight the page shows it running and the sheet is untouched.
+    // Mid-flight the page shows it running and the rung is not finished yet.
     const during = await read(app, token);
-    expect(during.active?.id).toBe(active.id);
-    expect(during.overseerAttributes[target]).toBe(before.overseerAttributes[target]);
-    expect(during.justDiscovered).toEqual([]);
+    expect(during.active?.id).toBe(running.active!.id);
+    expect(during.technologies.find((rung) => rung.id === FIRST_MEDIC.id)?.known).toBe(false);
 
-    // Rewind the start so the clock has run out, then read again: the settle path is the only
-    // thing that can bank it, and this is the read that has to prove it did.
-    const past = new Date(NOW.getTime() - RESEARCH_MINUTES.training * MINUTE_MS * 2).toISOString();
-    app.repos.bases.updateResearch(app.repos.bases.findByOwnerId(userIdOf(app, token))!.id, {
-      active: { ...active, startedAt: past },
-      facts: [],
+    // A second rung is refused while the bench is busy.
+    const busy = await startTech(app, token, MEDIC_RUNGS[1]!.id);
+    expect(busy.statusCode).toBe(409);
+    expect(busy.json<{ error: { code: string } }>().error.code).toBe('RESEARCH_BUSY');
+
+    const stored = baseOf(app, token);
+    const past = new Date(
+      NOW.getTime() - stored.research.active!.durationMinutes * MINUTE_MS * 2,
+    ).toISOString();
+    app.repos.bases.updateResearch(stored.id, {
+      active: { ...stored.research.active!, startedAt: past },
       technologies: [],
     });
 
     const after = await read(app, token);
-    expect(after.active, 'the slot is free again').toBeNull();
-    expect(after.overseerAttributes[target]).toBe(before.overseerAttributes[target] + 1);
+    expect(after.active, 'the bench is free again').toBeNull();
+    expect(after.technologies.find((rung) => rung.id === FIRST_MEDIC.id)?.known).toBe(true);
+    expect(baseOf(app, token).research.technologies).toEqual([FIRST_MEDIC.id]);
   });
 
-  it('§B9: an investigation lands facts on the wire, and only discovered ones', async () => {
+  /**
+   * §B8a: the response carries the marks and the derived percentages, and nothing keyed by role id
+   * that a reader could invert. Asserted over the real body rather than over the projection, since
+   * a field added to the route and not to the schema still reaches the browser.
+   */
+  it('puts no raw role knowledge on the wire', async () => {
     const app = await makeApp();
-    const token = await makePlayer(app, 'digger');
-    const baseId = app.repos.bases.findByOwnerId(userIdOf(app, token))!.id;
+    const token = await makePlayer(app, 'leakcheck');
+    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('chief_medic'));
+    const body = await read(app, token);
 
-    // Hire a Professor the direct way: the Bar's roster is a different feature's gate.
-    const lead = professor('prof-1', CROSS_REFERENCE_IMPROVISATION, EXTRA_FACT_COMMUNICATION);
-    app.repos.bases.updateCommanders(baseId, [lead]);
-
-    const withLead = await read(app, token);
-    expect(withLead.leads).toEqual([
-      { officerId: 'prof-1', name: lead.name, role: 'professor', crossReference: true },
-    ]);
-
-    const started = await app.inject({
-      method: 'POST',
-      url: '/api/research',
-      headers: { authorization: `Bearer ${token}` },
-      payload: {
-        kind: 'investigation',
-        role: 'head_spy',
-        leadOfficerId: 'prof-1',
-        crossReference: true,
-      },
-    });
-    expect(started.statusCode).toBe(200);
-
-    const active = started.json<{ active: ActiveResearch }>().active;
-    const past = new Date(
-      Date.now() - RESEARCH_MINUTES.investigation * MINUTE_MS * 2,
-    ).toISOString();
-    app.repos.bases.updateResearch(baseId, {
-      active: { ...active, startedAt: past },
-      facts: [],
-      technologies: [],
-    });
-
-    const settled = await read(app, token);
-    // Two role facts (Communication) plus a pairing (Imagination): §F3 and §F4 on one run.
-    expect(settled.justDiscovered).toHaveLength(3);
-    expect(settled.facts).toEqual(settled.justDiscovered);
-    expect(roleFactsIn(settled.facts, 'head_spy')).toHaveLength(2);
-    expect(pairingsIn(settled.facts)).toHaveLength(1);
-
-    // The response-body half of INTERFACES R4, over the real route: nothing but facts.
-    //
-    // The §A1 modification catalogue is lifted out first. It is authored English about *buildings*,
-    // byte-identical for every crew and derived from nothing a crew has learnt, so it cannot carry
-    // role knowledge, but a substring scan over English collides with it on sight ("graFFITi"
-    // contains "fit"). Excluding it keeps this scan meaningful instead of forcing the prose to
-    // avoid seven letter sequences; the test below is the catalogue's own guard.
-    const { modifications: _catalogue, ...roleReachable } = settled;
-    const serialized = JSON.stringify(roleReachable);
-    for (const banned of ['affinity', 'weight', 'fit', 'suitability', 'star', 'score', 'rank']) {
-      expect(serialized.toLowerCase(), `the research response mentions "${banned}"`).not.toContain(
-        banned,
+    expect(Object.keys(body).sort()).toEqual(
+      ['active', 'caps', 'completesAt', 'head', 'serverNow', 'technologies', 'tracks'].sort(),
+    );
+    for (const track of body.tracks) {
+      expect(Object.keys(track).sort()).toEqual(
+        ['costCutPercent', 'done', 'mark', 'officerName', 'role'].sort(),
       );
     }
-  });
-
-  it('§A1: the modification catalogue names no role, and is the same for every crew', async () => {
-    const app = await makeApp();
-    const novice = await read(app, await makePlayer(app, 'mod_novice'));
-
-    // Structural, not lexical. Scanning the prose for the nineteen role words is what the rest of
-    // this suite does and it cannot work here: the board's own "Precision Fabricators" contains
-    // `fabricator`, and it is a machine tool, not the officer post. What matters is not which
-    // English words appear. It is that no *field* is keyed by a role and that nothing in the
-    // catalogue moves with what a crew has learnt. Both are checked directly.
-    const ROLE_VALUES = new Set<string>(OFFICER_ROLES);
-    for (const option of novice.modifications) {
-      // Every key is from the fixed DTO, and none of them is `role`.
-      expect(Object.keys(option).sort()).toEqual([
-        'blocker',
-        'building',
-        'description',
-        'effect',
-        'id',
-        'installed',
-        'magnitude',
-        'name',
-      ]);
-      // And no value *is* a role id, which is the shape a leak would actually take.
-      for (const value of Object.values(option)) {
-        expect(ROLE_VALUES.has(String(value)), `${option.id} carries a role id`).toBe(false);
-      }
-    }
-
-    // It does not move with what a crew knows: a fresh account and one that has researched see
-    // the same sixty-five entries, differing only in the two per-crew fields.
-    const veteran = await makePlayer(app, 'mod_veteran');
-    const veteranId = userIdOf(app, veteran);
-    const baseId = app.repos.bases.findByOwnerId(veteranId)!.id;
-    app.repos.bases.updateResearch(baseId, {
-      active: null,
-      facts: [{ kind: 'role_attribute', role: 'head_spy', attribute: 'stealth' }],
-      technologies: [],
-    });
-
-    const shape = (options: typeof novice.modifications) =>
-      options.map(({ blocker: _b, installed: _i, ...rest }) => rest);
-    expect(shape((await read(app, veteran)).modifications)).toEqual(shape(novice.modifications));
-  });
-
-  function userIdOf(app: FastifyInstance, token: string): string {
-    return app.jwt.decode<{ sub: string }>(token)!.sub;
-  }
-});
-
-/**
- * The third clock, and the third call site.
- *
- * `PLAYER_XP_AWARDS` calls research "the longest single commitment in the game", and it paid a flat
- * 150 whether the project ran forty-five minutes or three hours. Asserted as the ratio between two
- * kinds rather than as a figure, because the settlement also adds the lead's charisma on top and
- * that is a different rule this test has no business pinning.
- */
-describe('a project pays XP off its own clock (§I1)', () => {
-  const lead = professor('prof-xp', 10, 10);
-  const overseer = makeOverseer();
-
-  const xpFor = (project: ResearchProject) => {
-    const settled = runToCompletion(makeBase({ commanders: [lead] }), overseer, project);
-    expect(settled.awards).toHaveLength(1);
-    return settled.awards[0]!.xpGained;
-  };
-
-  it('pays a three-hour modification more than a forty-five-minute investigation', () => {
-    const quick = xpFor({
-      kind: 'investigation',
-      role: 'head_spy',
-      leadOfficerId: lead.id,
-      crossReference: false,
-    });
-    const long = xpFor({ kind: 'training', attribute: 'logic' });
-
-    expect(RESEARCH_MINUTES.training).toBeGreaterThan(RESEARCH_MINUTES.investigation);
-    expect(long).toBeGreaterThan(quick);
-    // The curve, not a step: twice the clock is roughly 2^0.8 of the pay.
-    expect(long / quick).toBeCloseTo(
-      (RESEARCH_MINUTES.training / RESEARCH_MINUTES.investigation) ** 0.8,
-      1,
-    );
   });
 });

@@ -21,12 +21,18 @@ import { useSession } from '../../store/session';
  *   setting forty, then switching to one they hold two of left **40** in the field and sent it.
  *
  * The roster is served on a delay here on purpose: served synchronously, the first render already
- * has an army and the first bug cannot reproduce.
+ * has an army and the first bug cannot reproduce. §K6 moved the send controls behind the fight
+ * card's own button and §L moved that behind the chip over the room, so the delay has to outlast
+ * the press that opens them as well as the first render: at 20ms the drawer's first render already
+ * had the army and neither bug could surface.
  */
 
 const NOW = '2026-08-13T12:00:00.000Z';
 const BATTLE = F.factionScreen.battles[0];
 if (!BATTLE) throw new Error('the fixture has no ally battle');
+/* Pulled out of the narrowed const: `renderFaction` is a hoisted declaration, so the narrowing
+   above does not reach inside it. */
+const BATTLE_ID = BATTLE.battleId;
 
 /** Forty of one, two of another: the pair the count bug needs. */
 const units: UnitsResponse = {
@@ -81,8 +87,10 @@ async function renderFaction() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  // The page opens on the members table; the ally fights are a rail section away.
-  fireEvent.click(await screen.findByTestId('faction-section-fights'));
+  // §L: the fight is a chip over the room, and pressing it opens the send-help window on that
+  // fight with its controls already unfolded. One press, because a player pressing a fight has
+  // already decided.
+  fireEvent.click(await screen.findByTestId(`fight-chip-${BATTLE_ID}`));
   return rendered;
 }
 
@@ -92,8 +100,10 @@ beforeEach(() => {
   fetchMock.mockImplementation((path: string) => {
     if (path.endsWith('/factions/reinforce')) return reply({ faction: F.factionScreen });
     // The roster lands after the page has already rendered once, which is the real order.
-    if (path.endsWith('/units')) return reply(units, 20);
+    if (path.endsWith('/units')) return reply(units, 150);
     if (path.endsWith('/factions')) return reply(F.factionScreen);
+    // The table panel's Talk door reads the mailbox, and it is the door that opens first.
+    if (path.endsWith('/messages')) return reply(F.messagesScreen);
     if (path.endsWith('/me')) return reply(F.me);
     throw new Error(`unstubbed request: ${path}`);
   });

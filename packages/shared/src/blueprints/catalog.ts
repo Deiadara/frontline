@@ -63,6 +63,7 @@ export const BLUEPRINT_TARGET_KINDS = [
   'unit_upgrade',
   'building',
   'battle_boost',
+  'trap',
 ] as const;
 export type BlueprintTargetKind = (typeof BLUEPRINT_TARGET_KINDS)[number];
 
@@ -632,6 +633,51 @@ export const BLUEPRINTS = [
       { id: 'pg_refined_accelerant_additive_mix', name: 'Additive Mix' },
       { id: 'pg_refined_accelerant_handling_rules', name: 'Handling Rules' },
       { id: 'pg_refined_accelerant_burn_rate', name: 'Burn Rate Chart' },
+    ],
+  },
+
+  /*
+   * The three traps (§I4).
+   *
+   * A trap is a consumable in the same sense a shaped charge is: cut for one night, gone by
+   * morning. Their page counts run 2, 3, 4 against the §D3 bands, in the order the Security
+   * Officer's track opens them, so the cheap one is a thing a district reaches early and the
+   * frontage collapse is a fortnight of collecting.
+   */
+  {
+    id: 'bp_pressure_plates',
+    name: 'Pressure Plate Blueprint',
+    category: 'consumable',
+    blurb: 'Which boards to lift, what to put under them, and how much weight sets it off.',
+    targets: [{ kind: 'trap', id: 'trap_pressure_plates' }],
+    pages: [
+      { id: 'pg_pressure_plates_board_spans', name: 'Board Spans' },
+      { id: 'pg_pressure_plates_trigger_weights', name: 'Trigger Weights' },
+    ],
+  },
+  {
+    id: 'bp_buried_shell',
+    name: 'Buried Shell Blueprint',
+    category: 'consumable',
+    blurb: 'How to move a cracked chemical round, how deep to put it, and where the wire runs.',
+    targets: [{ kind: 'trap', id: 'trap_gas_shell' }],
+    pages: [
+      { id: 'pg_buried_shell_round_handling', name: 'Round Handling' },
+      { id: 'pg_buried_shell_burial_depth', name: 'Burial Depth' },
+      { id: 'pg_buried_shell_trip_wiring', name: 'Trip Wiring' },
+    ],
+  },
+  {
+    id: 'bp_prepared_collapse',
+    name: 'Prepared Collapse Blueprint',
+    category: 'consumable',
+    blurb: 'A survey of what is holding the frontage up, and the order in which to stop it.',
+    targets: [{ kind: 'trap', id: 'trap_collapse' }],
+    pages: [
+      { id: 'pg_prepared_collapse_load_path', name: 'Load Path Survey' },
+      { id: 'pg_prepared_collapse_cut_sequence', name: 'Cut Sequence' },
+      { id: 'pg_prepared_collapse_holding_charge', name: 'Holding Charge' },
+      { id: 'pg_prepared_collapse_fall_line', name: 'Fall Line' },
     ],
   },
 ] as const satisfies readonly BlueprintSpec[];

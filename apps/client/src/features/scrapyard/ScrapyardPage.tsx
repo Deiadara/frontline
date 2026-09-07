@@ -6,6 +6,7 @@ import {
   type ScrapyardEntry,
 } from '@frontline/shared';
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Icon, type IconName } from '../../components/ui/Icon';
@@ -18,9 +19,11 @@ import { InfoNote, PageShell } from '../game/PageShell';
 /**
  * The Scrapyard (§B9, §E1 to §E4): a screen with a menu, not a list on a shelf.
  *
- * What the yard sells is one kind of thing seen twice: a permanent add-on bolted to something the
- * crew already owns. A **modification** goes into one of a structure's three slots (§E) and is
- * fitted from that structure's own dialog; a **refit** applies to every unit of the roster forever.
+ * What the yard sells is mostly one kind of thing seen twice: a permanent add-on bolted to
+ * something the crew already owns. A **modification** goes into one of a structure's three slots
+ * (§E) and is fitted from that structure's own dialog; a **refit** applies to every unit of the
+ * roster forever. A **trap** (§I4) is the one that is not permanent and is not bolted to anything:
+ * it goes into the satchel and is spent under one fight the crew is defending.
  *
  * ## Why a rail rather than one column of panels
  *
@@ -39,9 +42,10 @@ import { InfoNote, PageShell } from '../game/PageShell';
  * The **Ready to build** filter is the direct answer to §E3: it leaves exactly the entries the
  * crew's blueprints and research have opened.
  *
- * Every price here is scrap, plus high-quality metal on the advanced entries, and nothing else.
- * That is the board's rule and it is enforced on the server by the two price functions rather than
- * by this screen agreeing to show only two columns.
+ * Every bracket and refit is priced in scrap, plus high-quality metal on the advanced entries, and
+ * nothing else. That is the board's rule and it is enforced on the server by the two price
+ * functions rather than by this screen agreeing to show only two columns. Traps are priced by
+ * their own catalogue and are the exception; `CostLine` draws whatever it is handed.
  */
 
 /**
@@ -79,8 +83,37 @@ interface Bench {
   entries: ScrapyardEntry[];
 }
 
+/**
+ * The two benches that belong to nobody's structure, in the order they sit in the rail.
+ *
+ * `building: null` on both, which is what the workspace reads to pick a test id and what the
+ * structure dialogs' deep links do *not* match: a bench with no structure is one a player comes to
+ * this page for on purpose.
+ */
+const LOOSE_BENCHES: readonly {
+  id: string;
+  label: string;
+  blurb: string;
+  icon: IconName;
+  kind: ScrapyardEntry['kind'];
+}[] = [
+  {
+    id: 'refits',
+    label: 'Refits',
+    blurb: 'Bought once, and every unit you will ever field carries it.',
+    icon: 'units',
+    kind: 'upgrade',
+  },
+  {
+    id: 'traps',
+    label: 'Traps',
+    blurb: 'Cut for one night. Set one under a fight you are defending, and it is gone by morning.',
+    icon: 'shield',
+    kind: 'trap',
+  },
+];
+
 function benchesFrom(entries: readonly ScrapyardEntry[]): Bench[] {
-  const refits = entries.filter((entry) => entry.kind === 'upgrade');
   const structures = BUILDING_KINDS.map((kind) => ({
     id: kind,
     label: BUILDING_CATALOG[kind].name,
@@ -90,18 +123,16 @@ function benchesFrom(entries: readonly ScrapyardEntry[]): Bench[] {
     entries: entries.filter((entry) => entry.kind === 'modification' && entry.building === kind),
   })).filter((bench) => bench.entries.length > 0);
 
-  const benches: Bench[] = [];
-  if (refits.length > 0) {
-    benches.push({
-      id: 'refits',
-      label: 'Refits',
-      blurb: 'Bought once, and every unit you will ever field carries it.',
-      building: null,
-      icon: 'units',
-      entries: refits,
-    });
-  }
-  return [...benches, ...structures];
+  const loose: Bench[] = LOOSE_BENCHES.map((bench) => ({
+    id: bench.id,
+    label: bench.label,
+    blurb: bench.blurb,
+    building: null,
+    icon: bench.icon,
+    entries: entries.filter((entry) => entry.kind === bench.kind),
+  })).filter((bench) => bench.entries.length > 0);
+
+  return [...loose, ...structures];
 }
 
 const readyIn = (bench: Bench): number =>
@@ -110,7 +141,22 @@ const readyIn = (bench: Bench): number =>
 export function ScrapyardPage() {
   const query = useScrapyard();
   const build = useBuildAddon();
-  const [bench, setBench] = useState<string>('all');
+  /*
+   * §I3a: the bench a door somewhere else asked for.
+   *
+   * A structure's dialog links here with `?bench=<id>` so "build more" lands on that structure's
+   * bench rather than on the whole board. Held in the URL rather than in state so the link is
+   * shareable and the back button undoes it, and read through the setter so clicking another door
+   * in the rail rewrites it: two sources for "which bench is open" is how a rail stops agreeing
+   * with what is on the right.
+   */
+  const [params, setParams] = useSearchParams();
+  const bench = params.get('bench') ?? 'all';
+  const setBench = (id: string) => {
+    // `replace`, because picking through the rail is browsing rather than navigating: a player who
+    // opened nine benches should get one press of Back out of the yard, not nine.
+    setParams(id === 'all' ? {} : { bench: id }, { replace: true });
+  };
   const [readyOnly, setReadyOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -152,7 +198,16 @@ export function ScrapyardPage() {
   }
 
   const benches = benchesFrom(data.entries);
-  const shown = bench === 'all' ? benches : benches.filter((entry) => entry.id === bench);
+  /*
+   * A `?bench=` this yard has no door for falls back to the whole board.
+   *
+   * Reachable without a typo: a structure whose add-ons are all built, or one this crew has not
+   * laid, has no bench at all, and the building dialog links by structure. Filtering on it
+   * unguarded drew a full rail beside an empty workspace, which reads as a broken screen rather
+   * than as "there is nothing on that bench".
+   */
+  const chosen = benches.some((entry) => entry.id === bench) ? bench : 'all';
+  const shown = chosen === 'all' ? benches : benches.filter((entry) => entry.id === chosen);
   const ready = benches.reduce((total, entry) => total + readyIn(entry), 0);
 
   return (
@@ -174,7 +229,7 @@ export function ScrapyardPage() {
                 icon="workshop"
                 ready={ready}
                 total={data.entries.length}
-                selected={bench === 'all'}
+                selected={chosen === 'all'}
                 onSelect={() => setBench('all')}
               />
             </li>
@@ -186,7 +241,7 @@ export function ScrapyardPage() {
                   icon={entry.icon}
                   ready={readyIn(entry)}
                   total={entry.entries.length}
-                  selected={bench === entry.id}
+                  selected={chosen === entry.id}
                   onSelect={() => setBench(entry.id)}
                 />
               </li>
@@ -203,10 +258,12 @@ export function ScrapyardPage() {
            */}
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <InfoNote label="What the yard cuts">
-              Everything here is scrap, and the heavy work wants good metal as well. The advanced
-              entries need the drawings first: a structure retrofit is a blueprint you assemble out
-              of pages, and the Lab still has to work out the bracket itself. Built modifications
-              sit on the shelf until you fit them from the structure&rsquo;s own window.
+              Brackets and refits are scrap, and the heavy work wants good metal as well; a trap is
+              made of whatever is lying around, so it is priced in planks, oil and caps too. The
+              advanced entries need the drawings first: a retrofit or a trap is a blueprint you
+              assemble out of pages, and a trap wants its Lab programme on top. Built modifications
+              sit on the shelf until you fit them from the structure&rsquo;s own window; a trap goes
+              into the satchel, and you set it on a fight you are defending.
             </InfoNote>
             <button
               type="button"
@@ -364,10 +421,7 @@ function BenchPanel({
           and out of the Lab.
         </p>
       ) : (
-        <ul
-          className="flex flex-col gap-2.5 p-4"
-          data-testid={bench.building === null ? 'scrapyard-refits' : `scrapyard-${bench.building}`}
-        >
+        <ul className="flex flex-col gap-2.5 p-4" data-testid={`scrapyard-${bench.id}`}>
           {entries.map((entry) => (
             <EntryRow
               key={entry.id}

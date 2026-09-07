@@ -31,7 +31,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { projectRecruit } from './project.js';
-import { hireRecruit, releaseOfficer, wageAskedOf } from './hire.js';
+import { hireRecruit, ledgerFor, releaseOfficer, wageAskedOf } from './hire.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
   BAR_HIRES_PER_DAY,
@@ -680,6 +680,61 @@ describe('the Bar over HTTP', () => {
       if (recruit.askingWage !== null) expect(recruit.askingWage).toBeGreaterThan(0);
     }
     expect(bar.recruits.some((r) => r.askingWage !== null)).toBe(true);
+  });
+
+  it('quotes the payroll step on the signing at the price the crew will actually pay', async () => {
+    const { app } = await makeApp();
+    const token = await makePlayer(app, 'discount_operator');
+    const me = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const base = me.json<{ base: Base }>().base;
+    // Somebody already on the books whose perk cuts the step price: what `GET /bar` and the
+    // payroll route both apply, and what the signing response used to leave out.
+    app.repos.bases.updateCommanders(base.id, [
+      // On the bench: a perk is something a person brought, and it counts from any chair or none.
+      createCommander('c-banker', 'Vell', null, {}, ['bank_contact']),
+    ]);
+
+    const bar = await readBar(app, token);
+    const undiscounted = ledgerFor(base).nextStepCost;
+    expect(bar.payroll.nextStepCost, 'the read applies the discount').not.toBe(undiscounted);
+
+    const target = bar.recruits.find((r) => r.assessment.interested && r.askingWage !== null);
+    if (!target?.askingWage) throw new Error('expected an interested recruit');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/bar/hire',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
+    });
+    expect(res.statusCode).toBe(200);
+    const hired = res.json<{ accepted: boolean; payroll: { nextStepCost: number } }>();
+    expect(hired.accepted).toBe(true);
+    // The same figure the read shows, not the one a crew with no banker would be quoted.
+    expect(hired.payroll.nextStepCost).toBe(bar.payroll.nextStepCost);
+  });
+
+  it('seats one more once Succession Planning is finished', async () => {
+    const { app } = await makeApp();
+    const token = await makePlayer(app, 'planning_operator');
+    const me = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const base = me.json<{ base: Base }>().base;
+    const before = (await readBar(app, token)).slotsTotal;
+    expect(before).toBe(playerLevelGrants(base.level).recruitSlots);
+
+    // The Right Hand's ninth rung: two deep in every chair, including one more chair.
+    app.repos.bases.updateResearch(base.id, {
+      ...base.research,
+      technologies: [...base.research.technologies, 'tech_succession_planning'],
+    });
+    expect((await readBar(app, token)).slotsTotal).toBe(before + 1);
   });
 
   it('hires end to end and shows the officer back on the next read', async () => {

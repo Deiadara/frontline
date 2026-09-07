@@ -11,6 +11,7 @@ import {
   type BattlesResponse,
   type DeployRequest,
   type MeResponse,
+  type UnitsResponse,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, Link } from 'react-router-dom';
@@ -97,6 +98,9 @@ const view = (id: string, targetName: string): BattleView => ({
   vehicles: {},
   yard: {},
   leaders: [],
+  // An attacker: §I4 gives them nothing to bury and the panel is not rendered at all.
+  traps: [],
+  trapId: null,
 });
 
 const battles: BattlesResponse = {
@@ -106,15 +110,31 @@ const battles: BattlesResponse = {
   infamy: 40,
   gates: [],
   structures: [],
-  traps: [],
   serverNow: NOW,
 };
 
+/** The roster the dialog reads, with nothing in it: this test is about the wire, not the card. */
+const roster: UnitsResponse = {
+  serverNow: NOW,
+  units: [],
+  army: base.army,
+  garrisoned: {},
+  abroad: {},
+  supplyUsed: 0,
+  supplyCap: 40,
+  queue: [],
+  resources: STARTING_RESOURCES,
+  trainingCostReduction: 0,
+  trainingSpeedBonus: 0,
+  built: [],
+};
+
 /** Nobody on the road: what the screen holds before the column sets out. */
-const nothingWalking: ActionsResponse = { movements: [], serverNow: NOW };
+const nothingWalking: ActionsResponse = { movements: [], scoutingRun: null, serverNow: NOW };
 
 /** The same screen once `troop_movements` has the column the deploy started. */
 const walking: ActionsResponse = {
+  scoutingRun: null,
   movements: [
     {
       id: 'move-1',
@@ -152,6 +172,12 @@ function stubApi(): void {
       column = walking;
       return reply({ battles, base: { ...base, army: { razors: 6 } } });
     }
+    /*
+     * The deploy dialog reads the roster for the card behind each unit's name (§K3). Nothing in
+     * this test looks at that card, so an empty roster is enough: what matters is that the request
+     * is answered rather than thrown at, so a real failure here still stands out.
+     */
+    if (path.endsWith('/units')) return reply(roster);
     if (path.endsWith('/battles')) return reply(battles);
     if (path.endsWith('/actions')) return reply(column);
     if (path.endsWith('/me')) return reply(me);

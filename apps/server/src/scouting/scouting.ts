@@ -148,7 +148,8 @@ export function settleScouting(repos: Repositories, now: Date): number {
       kind: 'scout_home',
       title: 'Your scout is back',
       body: `${findDistrict(run.districtId)?.name ?? run.districtId} is on your map.`,
-      link: '/game/city',
+      // The district itself: `/game/city` matches no route and fell through to the map.
+      link: `/game/city/${run.districtId}`,
       subjectId: run.districtId,
       now,
     });

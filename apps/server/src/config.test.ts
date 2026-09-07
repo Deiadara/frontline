@@ -21,6 +21,16 @@ describe('refusing to deploy an unsafe configuration', () => {
     ).not.toThrow();
   });
 
+  it('refuses a production boot with the Console on, which it is unless somebody says otherwise', () => {
+    // A real secret, so the only thing wrong with this configuration is the bench.
+    expect(() =>
+      assertDeployable(config({ JWT_SECRET: 'a-real-one', ADMIN: 'true' }), 'production'),
+    ).toThrow(/ADMIN/);
+    expect(() =>
+      assertDeployable(config({ JWT_SECRET: 'a-real-one', ADMIN: 'false' }), 'production'),
+    ).not.toThrow();
+  });
+
   it('leaves development and test alone, which is why the default exists', () => {
     expect(() => assertDeployable(config({}), 'development')).not.toThrow();
     expect(() => assertDeployable(config({}), 'test')).not.toThrow();

@@ -42,6 +42,12 @@ interface ForcePickerProps {
   facingSize?: number;
   /** The ground, if it is known. Absent falls back to open ground.  */
   battlefield?: Battlefield;
+  /**
+   * Who is already there, for a garrison. A row can then go below zero, and a number below zero
+   * brings that many home: the garrison route takes signed deltas, and without this the only way
+   * units ever came back from a location was losing it.
+   */
+  standing?: Army;
 }
 
 export function ForcePicker({
@@ -55,21 +61,33 @@ export function ForcePicker({
   onConfirm,
   facingSize,
   battlefield,
+  standing = {},
 }: ForcePickerProps) {
   const [force, setForce] = useState<Army>({});
 
-  const available = Object.entries(army)
-    .flatMap(([unitId, count]) => {
+  // One row per unit the crew has at home or already on the ground, so a garrison of units the
+  // crew has none of at home still has its rows and can be brought back.
+  const available = [...new Set([...Object.keys(army), ...Object.keys(standing)])]
+    .flatMap((unitId) => {
       const unit = findUnit(unitId);
-      return unit && count > 0 ? [{ unit, count }] : [];
+      const count = army[unitId] ?? 0;
+      const there = standing[unitId] ?? 0;
+      return unit && (count > 0 || there > 0) ? [{ unit, count, there }] : [];
     })
     .sort((a, b) => a.unit.name.localeCompare(b.unit.name));
 
-  const chosen = Object.values(force).reduce((total, count) => total + count, 0);
-  const capacity = Math.round(lootCapacityOf(force));
+  // The positive half is what goes; the negative half is what comes home. Only the first is a
+  // force: capacity and odds are read off it alone.
+  const sending: Army = Object.fromEntries(Object.entries(force).filter(([, count]) => count > 0));
+  const chosen = Object.values(sending).reduce((total, count) => total + count, 0);
+  const returning = Object.values(force).reduce(
+    (total, count) => total + (count < 0 ? -count : 0),
+    0,
+  );
+  const capacity = Math.round(lootCapacityOf(sending));
 
-  const set = (unitId: string, value: number, max: number) => {
-    const clamped = Math.max(0, Math.min(max, Math.trunc(value)));
+  const set = (unitId: string, value: number, min: number, max: number) => {
+    const clamped = Math.max(min, Math.min(max, Math.trunc(value)));
     setForce((current) => {
       const next = { ...current };
       if (clamped === 0) delete next[unitId];
@@ -96,7 +114,7 @@ export function ForcePicker({
             You have nobody to send. Train units at the Gauntlet first.
           </p>
         ) : (
-          available.map(({ unit, count }) => (
+          available.map(({ unit, count, there }) => (
             <label
               key={unit.id}
               className="flex items-center justify-between gap-3 border border-surface-700 p-2"
@@ -114,13 +132,14 @@ export function ForcePicker({
               <span className="flex shrink-0 items-center gap-2">
                 <NumberField
                   label={`How many ${unit.name}`}
-                  min={0}
+                  min={-there}
                   max={count}
                   value={force[unit.id] ?? 0}
-                  onChange={(next) => set(unit.id, next, count)}
+                  onChange={(next) => set(unit.id, next, -there, count)}
                 />
                 <span className="font-display text-[11px] tabular-nums text-ink-300">
                   / {count}
+                  {there > 0 && ` · ${there} there`}
                 </span>
               </span>
             </label>
@@ -129,6 +148,7 @@ export function ForcePicker({
 
         <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700 pt-1">
           <Row label="Sending" value={String(chosen)} />
+          {returning > 0 && <Row label="Bringing back" value={String(returning)} />}
           <Row label="Can carry" value={`${capacity} kg`} />
         </dl>
 
@@ -141,7 +161,7 @@ export function ForcePicker({
          * count. It was the nonsense one every time: garrisoning is this picker's only caller.
          */}
         {facingSize !== undefined && (
-          <Odds force={force} facingSize={facingSize} battlefield={battlefield} />
+          <Odds force={sending} facingSize={facingSize} battlefield={battlefield} />
         )}
 
         {error !== null && error !== undefined && (
@@ -158,7 +178,7 @@ export function ForcePicker({
         <Button
           size="sm"
           variant="danger"
-          disabled={chosen === 0 || pending}
+          disabled={(chosen === 0 && returning === 0) || pending}
           onClick={() => onConfirm(force)}
         >
           {pending ? 'Working…' : confirmLabel}

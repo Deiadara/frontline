@@ -648,6 +648,16 @@ function applyDamage(side: SideState, incoming: Map<Stack, number>): Map<Stack, 
     const before = stack.alive;
     stack.pool = Math.max(0, stack.pool - damage);
     stack.alive = Math.min(before, Math.ceil(stack.pool / stack.effective.vitality));
+    // §D3: the cowed stand in the line and take their share of what lands on it, so the men who
+    // fall come from the whole stack rather than from the shooters first. Held constant, the
+    // silenced count ate the firing count as the stack thinned: ten bodies with six cowed lost
+    // five and had nobody left shooting, when three of the five who fell should have been cowed.
+    if (stack.suppressed > 0) {
+      stack.suppressed = Math.min(
+        stack.alive,
+        Math.round((stack.suppressed * stack.alive) / before),
+      );
+    }
     lost.set(stack, before === 0 ? 0 : (before - stack.alive) / before);
   }
   return lost;
@@ -710,6 +720,10 @@ export function pursue(broke: readonly Stack[]): void {
     const after = Math.max(0, Math.round(before * (1 - PURSUIT_LOSS)));
     stack.pool = stack.pool * (after / before);
     stack.alive = after;
+    // The run-down takes the cowed with the rest, the same way `applyDamage` does.
+    if (stack.suppressed > 0) {
+      stack.suppressed = Math.min(after, Math.round((stack.suppressed * after) / before));
+    }
   }
 }
 
@@ -762,14 +776,15 @@ export function simulate(input: SimulateInput): Simulation {
   const next = mulberry32(seedFrom(input.seed));
   const battlefield = input.battlefield ?? bareBattlefield();
 
-  // Counted off units that actually exist, not off the raw record: `buildStacks` skips an id it
-  // cannot resolve, so counting the record could tell a side it was outnumbered by bodies that
-  // never reached the field.
+  // Counted off the line that actually forms, not off the raw record: `buildStacks` skips an id it
+  // cannot resolve and leaves the porters out, so counting the record could tell a side it was
+  // outnumbered by bodies that never reached the field. Forty Scavengers behind twenty Razors were
+  // handing every Warden and Juggernaut sent against them a last stand it had not earned.
   const roster = (army: Army): number =>
-    Object.entries(army).reduce(
-      (total, [unitId, count]) => (findUnit(unitId) && count > 0 ? total + count : total),
-      0,
-    );
+    Object.entries(army).reduce((total, [unitId, count]) => {
+      const unit = findUnit(unitId);
+      return unit && count > 0 && isCombatUnit(unit) ? total + count : total;
+    }, 0);
   const attackerCount = roster(input.attacker.army);
   const defenderCount = roster(input.defender.army);
 

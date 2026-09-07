@@ -49,7 +49,11 @@ export type ModificationSlotResponse = z.infer<typeof ModificationSlotResponseSc
 
 // --- §B9: the Scrapyard's page ----------------------------------------------------------------
 
-export const AddonKindSchema = z.enum(['modification', 'upgrade']);
+/**
+ * What the yard turns out. A trap is the odd one: it is not bolted to anything. It goes into the
+ * satchel as a consumable and is spent on one defended fight (§D, traps rework).
+ */
+export const AddonKindSchema = z.enum(['modification', 'upgrade', 'trap']);
 export type AddonKind = z.infer<typeof AddonKindSchema>;
 
 export const ScrapyardEntrySchema = z.object({
@@ -61,12 +65,15 @@ export const ScrapyardEntrySchema = z.object({
   building: BuildingKindSchema.nullable(),
   /** One line: what it does, already worded. */
   effect: z.string(),
-  /** Scrap, and high-quality metal for the advanced entries. Never anything else (§B9). */
+  /**
+   * Scrap, and high-quality metal for the advanced entries. Never anything else (§B9), with the
+   * one exception the traps are: they are priced by `TRAP_CATALOG` and want planks, oil and caps.
+   */
   cost: PartialResourcesSchema,
   advanced: z.boolean(),
   /** The blueprint it wants, in the player's words, or null when it needs none. */
   blueprint: z.string().nullable(),
-  /** How many the crew already owns. Unit upgrades are one or none. */
+  /** How many the crew already owns. Unit upgrades are one or none; traps are the count in the bag. */
   owned: z.number().int().nonnegative(),
   /** Why the button is dead, already worded, or null when it is live. */
   blocker: z.string().nullable(),

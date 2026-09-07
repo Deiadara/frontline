@@ -30,13 +30,12 @@ import { UNIT_UPGRADES, findUpgrade, type UpgradeSpec } from '../units/upgrades.
  * has taken out of a wall has to go somewhere. So the crew's stock lives here, and a structure's
  * `modifications` array is now a statement about what is *fitted* out of that stock.
  *
- * ## Two different drawings, and an advanced add-on wants both
+ * ## One drawing: the structure's retrofit blueprint
  *
- * A modification has a **Lab project** of its own, recorded in {@link Addons.researched} when it
- * completes: this district worked out how to fit this bracket to this structure. §D12f adds a
- * second, coarser gate on top of it: the structure's **retrofit blueprint**, one document per
- * structure, assembled out of pages that come off the mission board. The project is the design and
- * the document is the manual, and the advanced half of every structure's modifications wants both.
+ * An advanced add-on wants the structure's **retrofit blueprint** (§D12f), one document per
+ * structure, assembled out of pages that come off the mission board. It used to want a Lab project
+ * as well, recorded in {@link Addons.researched}; the desk that ran those projects is gone (plan
+ * §I2d) and nothing reads that list any more. It stays on the row so an old save still parses.
  *
  * The document half is not read here. `blueprints/requirements.ts` imports this module for
  * {@link ADVANCED_MODIFICATION_MAGNITUDE}, so reaching back the other way would close the loop at
@@ -288,14 +287,12 @@ export function clearSlotRefusal(
 /**
  * Why an add-on cannot be built right now.
  *
- * `needs_blueprint` and `needs_research` are two different missing drawings and are deliberately
- * two reasons: one is a document to be collected page by page, the other is a project to be run in
- * the Lab, and a single word for both would send a player to the wrong building.
+ * `needs_blueprint` is a document to be collected page by page. There used to be a second missing
+ * drawing beside it, a Lab project, and it went with the desk.
  */
 export const ADDON_REFUSALS = [
   'unknown_addon',
   'needs_blueprint',
-  'needs_research',
   'needs_previous_tier',
   'gauntlet_too_low',
   'already_built',
@@ -338,10 +335,8 @@ export type ModificationBlueprintGate = (spec: ModificationSpec) => boolean;
 /**
  * Whether the crew may build this modification, and why not.
  *
- * The document before the Lab project, and both before the money. A player short of pages cannot
- * get anywhere by running the project, so the document is the earlier fact and the one worth
- * saying first; the price is last for the reason `upgradeRefusal` gives, that it is the one gate
- * which fixes itself.
+ * The document before the money. The price is last for the reason `upgradeRefusal` gives, that it
+ * is the one gate which fixes itself.
  *
  * `affordable` is passed in rather than computed, because the price a crew actually pays depends
  * on discounts this module has no business knowing about: the same shape `vehicleRefusal` and
@@ -349,15 +344,11 @@ export type ModificationBlueprintGate = (spec: ModificationSpec) => boolean;
  */
 export function modificationBuildRefusal(input: {
   spec: ModificationSpec;
-  addons: Addons;
   blueprintUnlocked: ModificationBlueprintGate;
   affordable: (cost: PartialResources) => boolean;
 }): AddonRefusal | null {
-  const { spec, addons, blueprintUnlocked, affordable } = input;
+  const { spec, blueprintUnlocked, affordable } = input;
   if (!blueprintUnlocked(spec)) return 'needs_blueprint';
-  if (isAdvancedModification(spec) && !addons.researched.includes(spec.id)) {
-    return 'needs_research';
-  }
   return affordable(modificationPrice(spec)) ? null : 'cannot_afford';
 }
 

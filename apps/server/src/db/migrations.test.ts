@@ -7,6 +7,7 @@ import {
   BUILDING_KINDS,
   BadgeSchema,
   DEFAULT_BADGE,
+  ResearchStateSchema,
   type Building,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
@@ -747,5 +748,120 @@ describe('0075: signals, craft and encyclopedia', () => {
     expect(officer!.attributes.encyclopedia).toBe(12);
     expect(officer!.attributes).not.toHaveProperty('demolition');
     expect(() => AttributesSchema.parse(officer!.attributes)).not.toThrow();
+  });
+});
+
+/**
+ * 0077, checked against rows nothing else in the suite can produce.
+ *
+ * `ResearchProjectSchema` is the technology rung and nothing else, so a stored `active` of one of
+ * the three retired kinds cannot be built from any current type: the only way to reach the state is
+ * to write the JSON a pre-removal district had, which is exactly what is in anyone's database. And
+ * `BaseSchema.parse` runs on every read (`repos/bases.ts` `rowToBase`), so getting this wrong is
+ * not a lost project, it is a district that never opens again.
+ */
+describe('0077: the retired desk projects', () => {
+  const THEN = '0077_research_desk_retired.sql';
+
+  const deskProject = (kind: string) => ({
+    id: `r-${kind}`,
+    project:
+      kind === 'investigation'
+        ? { kind, role: 'head_spy', leadOfficerId: 'off-1', crossReference: true }
+        : kind === 'training'
+          ? { kind, attribute: 'logic' }
+          : { kind, modificationId: 'lab_quantum_modeling' },
+    startedAt: NOW,
+    durationMinutes: 45,
+  });
+
+  const rung = {
+    id: 'r-tech',
+    project: { kind: 'technology', techId: 'tech_field_triage' },
+    startedAt: NOW,
+    durationMinutes: 120,
+  };
+
+  /** One district per row of research JSON, all written by the schema that predates 0077. */
+  const legacy = (rows: Record<string, unknown>[]): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, THEN);
+    rows.forEach((research, index) => {
+      db.prepare(
+        'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+      ).run(`u77-${index}`, `legacy77-${index}`, 'x', NOW);
+      insert(db, 'bases', {
+        id: `b77-${index}`,
+        owner_id: `u77-${index}`,
+        name: `Legacy ${index}`,
+        district_id: 'rustyard',
+        created_at: NOW,
+        research_json: JSON.stringify(research),
+      });
+    });
+    return db;
+  };
+
+  const researchOf = (db: AppDatabase, index: number): Record<string, unknown> => {
+    const row = db.prepare('SELECT research_json FROM bases WHERE id = ?').get(`b77-${index}`) as {
+      research_json: string;
+    };
+    return JSON.parse(row.research_json) as Record<string, unknown>;
+  };
+
+  const ROWS = [
+    { active: deskProject('investigation'), facts: [{ kind: 'pairing', attributes: ['speed'] }] },
+    { active: deskProject('training'), facts: [], technologies: ['tech_blood_bank'] },
+    { active: deskProject('modification'), facts: [] },
+    { active: rung, facts: [], technologies: ['tech_field_dressing'] },
+    { active: null, facts: [] },
+    // Already migrated: no `facts` key, nothing on the bench.
+    { active: null, technologies: ['tech_sorted_salvage'] },
+  ];
+
+  it('clears a desk project off the bench and leaves a rung alone', () => {
+    const db = legacy(ROWS);
+    runMigrations(db);
+
+    for (const index of [0, 1, 2]) {
+      expect(researchOf(db, index).active, `row ${index}`).toBeNull();
+    }
+    expect(researchOf(db, 3).active).toEqual(rung);
+    expect(researchOf(db, 4).active).toBeNull();
+    expect(researchOf(db, 5).active).toBeNull();
+  });
+
+  it('keeps everything the row was not about', () => {
+    const db = legacy(ROWS);
+    runMigrations(db);
+    expect(researchOf(db, 1).technologies).toEqual(['tech_blood_bank']);
+    expect(researchOf(db, 3).technologies).toEqual(['tech_field_dressing']);
+    expect(researchOf(db, 5).technologies).toEqual(['tech_sorted_salvage']);
+  });
+
+  it('strips the retired facts key from every row that still has one', () => {
+    const db = legacy(ROWS);
+    runMigrations(db);
+    for (let index = 0; index < ROWS.length; index += 1) {
+      expect(researchOf(db, index), `row ${index}`).not.toHaveProperty('facts');
+    }
+  });
+
+  it('produces research every current district can be parsed with', () => {
+    const db = legacy(ROWS);
+    runMigrations(db);
+    for (let index = 0; index < ROWS.length; index += 1) {
+      expect(() => ResearchStateSchema.parse(researchOf(db, index)), `row ${index}`).not.toThrow();
+    }
+  });
+
+  /** Migrations already applied are never re-run, so idempotence is about a second application. */
+  it('is byte-identical when applied twice', () => {
+    const db = legacy(ROWS);
+    runMigrations(db);
+    const once = db.prepare('SELECT id, research_json FROM bases ORDER BY id').all();
+
+    db.exec(readFileSync(path.join(MIGRATIONS_DIR, THEN), 'utf8'));
+    expect(db.prepare('SELECT id, research_json FROM bases ORDER BY id').all()).toEqual(once);
   });
 });

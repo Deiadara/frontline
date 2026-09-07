@@ -1,4 +1,6 @@
 import {
+  applyResearchBonus,
+  RESEARCH_ITEMS,
   PERK_CATALOG,
   applyPerkBonus,
   noCrewEffects,
@@ -115,9 +117,12 @@ describe('every channel a location pays into', () => {
    */
   const SPEND_DESTINATIONS: readonly string[] = ['unitEvasionFlat'];
 
-  it('leaves no crew-only channel that the perk book never pays into', () => {
+  it('leaves no crew-only channel that neither the perk book nor the Lab pays into', () => {
     const effects = noCrewEffects();
     for (const perk of PERK_CATALOG) applyPerkBonus(effects, perk.bonus);
+    // The three doors (another crew out, another chair, another fight called) are research's
+    // alone: no perk opens one, and a rung does.
+    for (const rung of RESEARCH_ITEMS) applyResearchBonus(effects, rung.payout.bonus);
 
     const crewOnly = Object.keys(noCrewEffects()).filter(
       (key) => !CHANNELS.includes(key as never) && !SPEND_DESTINATIONS.includes(key),

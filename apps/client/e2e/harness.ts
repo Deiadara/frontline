@@ -725,7 +725,13 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       const board = searchParams.get('board');
       return json(board === 'factions' ? leaderboardFactions : leaderboardPlayers);
     }
-    if (pathname.endsWith('/api/messages')) return json(messagesScreen);
+    if (pathname.endsWith('/api/messages')) {
+      // The send answers `{ messages }` (`MessageMutationResponseSchema`); the read answers the
+      // payload itself. One line for both parsed as the read, so every send failed its schema.
+      return route.request().method() === 'POST'
+        ? json({ messages: messagesScreen })
+        : json(messagesScreen);
+    }
     if (pathname.includes('/api/messages/')) return json({ messages: messagesScreen });
     if (pathname.endsWith('/api/notifications')) return json(notificationsScreen);
     if (pathname.includes('/api/notifications/'))
@@ -793,9 +799,10 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // read, the profile patch and the passphrase change.
     if (pathname.includes('/api/settings')) return json(settings);
     // The bench. A build without admin mode answers 404 here and the screen redirects; serving the
-    // snapshot is what puts the Bench door in the nav for these runs.
+    // snapshot is what puts the Console door in the nav for these runs.
     if (pathname.endsWith('/api/admin')) return json(adminSnapshot);
     if (pathname.endsWith('/api/admin/knobs')) return json({ admin: adminSnapshot });
+    if (pathname.endsWith('/api/admin/fog')) return json({ admin: adminSnapshot });
     // §B11: the yard has its own page. Checked before `/api/workshop` only for tidiness: the two
     // prefixes do not overlap.
     /*

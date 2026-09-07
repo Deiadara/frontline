@@ -16,10 +16,12 @@ import {
   infamyForKills,
   infamyForRaidWon,
   isBattleDue,
+  itemCount,
   lootCapacityOf,
   plunder,
   raidTargetOf,
   recoverCasualties,
+  removeItems,
   spendResources,
   springTrap,
   strikeDamage,
@@ -30,6 +32,7 @@ import {
   type Building,
   type District,
   type EconomyState,
+  type ItemId,
   type PartialResources,
   type ScheduledBattle,
   type SideAnalysis,
@@ -225,16 +228,53 @@ interface TrapResult {
   wipedOut: boolean;
 }
 
-/** Whatever was buried under the approach, and what it took. */
+/**
+ * §I4: whatever the defending side set under this fight, and what it took.
+ *
+ * The whole side rather than the defender's own row, because an ally who came to reinforce may be
+ * the one carrying the shell. At most one row can name a trap: `/battles/trap` refuses a second
+ * from anybody else on the side, the same way `/battles/lead` refuses a second officer.
+ *
+ * The bag is checked **here** rather than trusted from the row. Naming a trap is free and free to
+ * change, so the same one can sit on two coming fights at once; the first to resolve takes it out
+ * of the satchel and the second finds nothing there. That is exactly what `appliedBoost` does with
+ * a crate of contraband, and for the same reason.
+ *
+ * No longer restricted to a fight over a location. A trap used to live on `location_control`, so a
+ * crew defending its own gate or its own structures could not have one; it rides the deployment
+ * now, and every fight this crew is defending is ground it is standing on.
+ */
 function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: Army): TrapResult {
-  if (battle.target.kind !== 'location') return { attacking, note: null, wipedOut: false };
-  const armed = repos.sieges.trap(battle.target.locationId);
-  const spec = armed ? findTrap(armed.trapId) : undefined;
-  if (!spec) return { attacking, note: null, wipedOut: false };
+  const nothing: TrapResult = { attacking, note: null, wipedOut: false };
+  const row = repos.sieges
+    .side(battle.id, 'defender')
+    .find((entry) => entry.trapId !== null && entry.baseId !== null);
+  const spec = row?.trapId ? findTrap(row.trapId) : undefined;
+  if (!row?.baseId || !spec) return nothing;
 
-  // One use, cleared whether or not it decided anything. A trap that survives being walked over is
-  // not a trap, it is a wall, and this system deliberately has none.
-  repos.sieges.setTrap(battle.target.locationId, null);
+  // Read fresh rather than off `defenderBase`: the row's owner may be an ally, and nothing has
+  // written to this crew yet, so what comes back is what they are actually carrying.
+  const owner = repos.bases.findById(row.baseId);
+  if (!owner || itemCount(owner.inventory, spec.id as ItemId) <= 0) return nothing;
+
+  /*
+   * Spent, whatever happens next.
+   *
+   * A trap goes off when somebody walks over it, not when the fight is won, so leaving it in the
+   * bag on a loss would make it a free retry. Taken *before* the engine runs, which is why
+   * `resolveOne` is wrapped in one transaction: an engine that threw used to take the defender's
+   * trap with it and leave the fight to run again later without one.
+   *
+   * `updateHoldings` writes the stockpile as well, so it is handed the resources that were just
+   * read back. Nothing in `resolveOne` has written this crew's stockpile at this point, and every
+   * later resource write either re-reads the row or writes a value this call left untouched.
+   */
+  repos.bases.updateHoldings(
+    owner.id,
+    owner.resources,
+    removeItems(owner.inventory, { [spec.id]: 1 }),
+  );
+
   const toll = springTrap(attacking, spec);
   return {
     attacking: toll.survivors,
@@ -1188,10 +1228,16 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       const banked = repos.bases.findById(defenderBase.id) ?? defenderBase;
       repos.bases.updateResources(defenderBase.id, addResources(banked.resources, theirRefund));
     }
+    /*
+     * The kills, never the raid premium. `infamyForRaidWon` prices what taking ground off the
+     * state is worth, seat of power included; paid to a crew for merely holding its position it
+     * was 140 a fight on the Spire with nobody killed, farmable between two accounts with the
+     * attacker risking nothing.
+     */
     const defenderBanked = bankOutcome(
       defenderBase.economy,
       district,
-      !attackerWon,
+      false,
       defenderInfamy,
       now,
       defenderGround?.infamyGainPercent ?? 0,
@@ -1263,8 +1309,13 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
 
   repos.bases.updateArmy(attackerNext.id, attackerNext.army, attackerNext.trainingQueue);
   repos.bases.updateEconomy(attackerNext.id, attackerNext.economy);
-  if (Object.keys(haul).length > 0)
-    repos.bases.updateResources(attackerNext.id, attackerNext.resources);
+  if (Object.keys(haul).length > 0) {
+    // Off a fresh read, the way the defender's refund is: `breakIn` above writes the resident's
+    // stockpile, and if the resident is this crew a write from the snapshot taken at the top of
+    // the settle would put the plundered amount back and add the haul on top.
+    const banked = repos.bases.findById(attackerNext.id) ?? attacker;
+    repos.bases.updateResources(attackerNext.id, addResources(banked.resources, haul));
+  }
 
   return { attackerInfamy, defenderInfamy, haul };
 }

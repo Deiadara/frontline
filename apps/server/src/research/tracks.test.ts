@@ -131,6 +131,8 @@ function fakeRepos(): {
     overseers: { updateAttributes: () => undefined },
     city: { controls: () => new Map() },
     users: { findById: () => undefined },
+    // ...and at no table: the cards a faction deals are folded into the same standing.
+    factions: { membershipOf: () => undefined },
   } as unknown as Parameters<typeof settleResearch>[0];
   return { repos, written };
 }
@@ -164,7 +166,6 @@ function start(base: Base, techId: string) {
   const { repos, written } = fakeRepos();
   const result = startResearch(repos, {
     base,
-    overseer,
     project: { kind: 'technology', techId },
     id: 'r-1',
     now: NOW,
@@ -229,8 +230,8 @@ describe('§C3a: the Head of Research shortens every clock', () => {
       throw new Error('expected both to start');
     }
     expect(quick.result.active.durationMinutes).toBeLessThan(slow.result.active.durationMinutes);
-    // ...and the row runs on the rung's own clock, not on the desk table: 45 catalogue minutes
-    // rather than the 45 an investigation happens to share, so the tenth rung settles it.
+    // ...and the row runs on the rung's own clock rather than on one flat number for the whole
+    // Lab: the first rung of a track and the tenth are hours apart, which is what settles it.
     expect(FIRST_MEDIC.minutes).toBe(45);
     expect(minutesFor(repos, makeBase([]), LAST_MEDIC)).toBe(270);
   });
@@ -444,7 +445,6 @@ describe('§C1b/§C1c: the gates, at the seam the route uses', () => {
     const { repos } = fakeRepos();
     const result = startResearch(repos, {
       base,
-      overseer,
       project: { kind: 'technology', techId: FIRST_MEDIC.id },
       id: 'r-1',
       now: NOW,
@@ -457,7 +457,6 @@ describe('§C1b/§C1c: the gates, at the seam the route uses', () => {
     const { repos } = fakeRepos();
     const result = startResearch(repos, {
       base: makeBase([]),
-      overseer,
       project: { kind: 'technology', techId: FIRST_MEDIC.id },
       id: 'r-1',
       now: NOW,
@@ -487,7 +486,6 @@ describe('a finished rung', () => {
     const { repos } = fakeRepos();
     const started = startResearch(repos, {
       base,
-      overseer,
       project: { kind: 'technology', techId: FIRST_MEDIC.id },
       id: 'r-1',
       now: NOW,

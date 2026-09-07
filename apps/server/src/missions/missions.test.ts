@@ -1,6 +1,8 @@
 import {
+  concurrentMissionSlots,
   BASE_CONCURRENT_MISSIONS,
   CITY_DISTRICTS,
+  CITY_LOCATIONS,
   MISC_AREA_ID,
   MISSION_TEMPLATES,
   type MissionsResponse,
@@ -32,6 +34,7 @@ import { createRng } from '../characters/rng.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
+import { areaStatesFor, projectAreas } from './board.js';
 import { launchMission } from './launch.js';
 import { projectUnits } from '../units/roster.js';
 import { removeForce } from '../battle/forces.js';
@@ -1415,5 +1418,98 @@ describe('how much history a mission screen carries', () => {
     });
     expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
     expect(res.json<MissionsResponse>().missions.length).toBeLessThanOrEqual(MISSION_HISTORY_LIMIT);
+  });
+});
+
+/**
+ * `POST /missions/recall` answers with the whole board, and it has to be the same board.
+ *
+ * The read prices every card off the crew's standing effects (a Smuggler's Tunnel shortens the
+ * clock, a fixer widens the cut). The recall rebuilt the board without that fold, so every card
+ * came back at bare timings and bare pay until the next poll put the crew's own bonuses back on it,
+ * and a launch made off the repainted card was made against the wrong quoted numbers.
+ */
+describe('the board a recall answers with', () => {
+  const auth = (token: string) => ({ authorization: `Bearer ${token}` });
+
+  it('is priced the way the read prices it, standing effects included', async () => {
+    const stack = await makeStack('recaller');
+    // A hold that moves the clock on every card, so a board without the fold reads differently.
+    const tunnel = CITY_LOCATIONS.find((location) => location.kind === 'smugglers_tunnel');
+    if (!tunnel) throw new Error('fixture: no tunnel in the catalogue');
+    stack.repos.city.put({
+      locationId: tunnel.id,
+      holder: { kind: 'crew', baseId: stack.base.id },
+      level: 1,
+      upgradingUntil: null,
+      fortification: 0,
+      fortifyingUntil: null,
+      garrison: {},
+    });
+    const running = planted(
+      stack,
+      findMissionTemplate('deep-expedition') as MissionTemplate,
+      ALWAYS_SUCCEEDS,
+      new Date(),
+    );
+
+    const read = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+    expect(read.statusCode).toBe(200);
+    const recalled = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions/recall',
+      headers: auth(stack.token),
+      payload: { missionId: running.id },
+    });
+    expect(recalled.statusCode, recalled.body.slice(0, 200)).toBe(200);
+
+    const before = read.json<MissionsResponse>().areas;
+    const after = recalled.json<MissionsResponse>().areas;
+    expect(after).toEqual(before);
+    // ...and the fold is not a no-op here: a bare board would differ.
+    const bare = projectAreas(
+      CITY_DISTRICTS,
+      areaStatesFor(stack.repos, stack.base),
+      [],
+      stack.base.level,
+      missionBoardDay(new Date()),
+    );
+    expect(after).not.toEqual(bare);
+  });
+});
+
+/**
+ * The Cartographer's tenth rung is a door, not a percentage: one more crew out at once.
+ *
+ * Read through the standing fold on the board and at the launch gate both, so the number the
+ * board prints is the number the launch refuses at.
+ */
+describe('a research grant that widens what may be out at once', () => {
+  const auth = (token: string) => ({ authorization: `Bearer ${token}` });
+
+  it('adds a crew to the board’s limit once The Whole City is finished', async () => {
+    const stack = await makeStack('mapper');
+    const before = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+    const limit = before.json<MissionsResponse>().activeLimit;
+    expect(limit).toBe(concurrentMissionSlots(stack.base.level));
+
+    stack.repos.bases.updateResearch(stack.base.id, {
+      ...stack.base.research,
+      technologies: [...stack.base.research.technologies, 'tech_the_whole_city'],
+    });
+    const after = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+    expect(after.json<MissionsResponse>().activeLimit).toBe(limit + 1);
   });
 });

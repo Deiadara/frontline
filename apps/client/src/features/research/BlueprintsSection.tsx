@@ -25,11 +25,11 @@ import { Panel } from '../../components/ui/Panel';
 import { PanelSection } from '../../components/ui/PanelSection';
 import { cn } from '../../lib/cn';
 import { useMarket, useReimagine, useUnlockBlueprint } from '../../lib/queries';
-import { InfoNote, PageShell } from '../game/PageShell';
+import { InfoNote } from '../game/PageShell';
 import { BlueprintGlyph } from './BlueprintGlyph';
 
 /**
- * The Blueprints page, inside the Satchel (§D4 to §D11).
+ * The Blueprints section of the research page (§D4 to §D11, §I1d).
  *
  * A blueprint is a document made of named pages, and this screen is the only place the collection
  * is visible. Its whole shape comes from §D5: **a document you hold no pages of is not on this
@@ -48,10 +48,11 @@ import { BlueprintGlyph } from './BlueprintGlyph';
  * ## Everything is read off the satchel
  *
  * Pages and finished documents are items, so this screen needs no endpoint of its own: it reads
- * `inventory` off the market payload, the same object the satchel behind it is drawn from. The one
- * write is Unlock.
+ * `inventory` off the market payload, the same object the Satchel is drawn from. The one write is
+ * Unlock. It lived inside the Satchel until §I1d moved it here, beside the programmes the Lab runs,
+ * because both answer the same question: what can be opened next.
  */
-export function BlueprintsPage() {
+export function BlueprintsSection() {
   const query = useMarket();
   const unlock = useUnlockBlueprint();
   const [showUnlocked, setShowUnlocked] = useState(false);
@@ -75,10 +76,7 @@ export function BlueprintsPage() {
   const shown = showUnlocked ? unlocked : collecting;
 
   return (
-    <PageShell
-      quote="Half a drawing is somebody else's problem until you find the other half."
-      wide
-    >
+    <div className="flex flex-col gap-4" data-testid="blueprints-section">
       {known.length === 0 && (
         <InfoNote label="How a blueprint is put together">
           Nothing here yet. A blueprint is a set of named pages, and you have none of them. Pages
@@ -130,7 +128,7 @@ export function BlueprintsPage() {
       )}
 
       <ReimaginingPanel inventory={data.inventory} context={data.reimagining} />
-    </PageShell>
+    </div>
   );
 }
 

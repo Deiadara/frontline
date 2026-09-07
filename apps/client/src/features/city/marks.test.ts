@@ -19,11 +19,12 @@
  * cannot go red is worse than no gate, because it is read as coverage. What is pinned here instead
  * is the convention and the geometry, both of which do fail when somebody undoes them.
  */
+import { findDistrict } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { GATE_MARK, LOCATION_MARKS, type Mark } from './marks';
 
 /** The districts with a delivered painting dense enough to need leader lines. */
-const PAINTED = ['neon-docks', 'rustyard'] as const;
+const PAINTED = ['neon-docks', 'rustyard', 'chrome-row'] as const;
 
 function marksOf(district: string): [string, Mark][] {
   const gate = GATE_MARK[district];
@@ -39,51 +40,64 @@ describe('where the district signs stand', () => {
       const marks = marksOf(district);
 
       it('has a mark for every sign the painting carries', () => {
-        // Seven locations and a gate. If this drops, the sweeps below measure fewer things while
-        // still passing, which is the failure mode a fixture-shaped test has.
-        expect(marks.length).toBe(8);
+        // Every location the catalogue gives the district, plus its gate. Read off the catalogue
+        // rather than typed as a number: Chrome Row has eight locations where the first two had
+        // seven, and a fixed count would have passed with one sign missing there.
+        const catalogue = findDistrict(district);
+        expect(catalogue, district).toBeDefined();
+        expect(marks.length).toBe((catalogue?.locations.length ?? 0) + 1);
       });
 
-      it('hangs every plate off its point rather than beside it', () => {
-        const beside = marks.filter(([, mark]) => mark.plate === undefined).map(([id]) => id);
-        expect(
-          beside,
-          'these plates hang beside their own point, which on this painting means on top of the thing they name',
-        ).toEqual([]);
-      });
-
-      it('keeps the point and the plate inside the painting', () => {
+      it('stands every sign on its own mark, with no leader line to anywhere', () => {
         for (const [id, mark] of marks) {
-          // A plate-less mark is the test above's to report. Dereferencing it here would turn one
-          // clear failure into three, two of them a `TypeError` that names nothing.
-          const places: [string, { x: number; y: number }][] = [
-            ['point', { x: mark.x, y: mark.y }],
-          ];
-          if (mark.plate) places.push(['plate', mark.plate]);
-          for (const [what, at] of places) {
-            expect(at.x, `${id} ${what} x`).toBeGreaterThan(0);
-            expect(at.x, `${id} ${what} x`).toBeLessThan(1);
-            expect(at.y, `${id} ${what} y`).toBeGreaterThan(0);
-            expect(at.y, `${id} ${what} y`).toBeLessThan(1);
-          }
+          expect(
+            'plate' in mark,
+            `${id} still carries a plate offset, which is a leader line by another name`,
+          ).toBe(false);
+        }
+      });
+
+      it('keeps every sign inside the painting, allowing for its own width', () => {
+        // A sign is about a tenth of the frame wide at the width these were placed at. A centred
+        // sign needs half of that either side; a clamped one needs all of it on its inner side.
+        const HALF = 0.05;
+        for (const [id, mark] of marks) {
+          const left =
+            mark.side === 'left'
+              ? mark.x - 2 * HALF
+              : mark.side === 'right'
+                ? mark.x
+                : mark.x - HALF;
+          const right =
+            mark.side === 'left'
+              ? mark.x
+              : mark.side === 'right'
+                ? mark.x + 2 * HALF
+                : mark.x + HALF;
+          expect(left, `${id} runs off the left edge`).toBeGreaterThan(0);
+          expect(right, `${id} runs off the right edge`).toBeLessThan(1);
+          expect(mark.y, `${id} y`).toBeGreaterThan(0);
+          // The plate room crops the bottom tenth of the painting at 1024x768 (`PlateRoom`), so a
+          // sign below nine tenths is a sign a laptop never shows.
+          expect(mark.y, `${id} sits in the band the shortest viewport crops off`).toBeLessThan(
+            0.9,
+          );
         }
       });
 
       /*
-       * A leader line is a thread, not a journey.
-       *
-       * The plate has to be far enough from the point to be off the building and near enough that
-       * the eye joins them without following the line across the picture. Measured: the longest
-       * placement is about a tenth of the frame, so a fifth is a ceiling with room in it and still
-       * catches a plate that has wandered.
+       * Two signs on one spot is one sign the player cannot read. A plate is about a tenth of the
+       * frame wide and a twenty-fifth tall, so two whose centres are closer than that in both axes
+       * overlap on screen.
        */
-      it('keeps every leader line short enough to read as one sign', () => {
-        for (const [id, mark] of marks) {
-          if (!mark.plate) continue;
-          const { plate } = mark;
-          const length = Math.hypot(plate.x - mark.x, plate.y - mark.y);
-          expect(length, `${id} runs a leader line right across the painting`).toBeLessThan(0.2);
-          expect(length, `${id} is offset by nothing, so the line is invisible`).toBeGreaterThan(0);
+      it('never stands two signs on top of each other', () => {
+        for (let i = 0; i < marks.length; i += 1) {
+          for (let j = i + 1; j < marks.length; j += 1) {
+            const [a, ma] = marks[i]!;
+            const [b, mb] = marks[j]!;
+            const apart = Math.abs(ma.x - mb.x) >= 0.11 || Math.abs(ma.y - mb.y) >= 0.05;
+            expect(apart, `${a} and ${b} overlap`).toBe(true);
+          }
         }
       });
     });

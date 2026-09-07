@@ -673,6 +673,26 @@ export const PLATE_SUBJECTS = {
     small sodium lamps at head height. Painted signage is part of the street; nothing that reads as
     a label for a game object.
   `),
+  'plate-district-chrome-row': block(`
+    Chrome Row from above and slightly forward, the same camera as the other contested plates and
+    **no sky**: what is left of downtown, a wet plaza round a statue on a plinth with a barrel fire
+    at its foot, closed on every side. Eight places a player can stand, each recognisable at a
+    glance: a columned bank hall turned market at upper left with tents and stalls spilling down
+    its steps, a lattice transmitter mast with red lamps, a picture house with a lit marquee at
+    upper right, a hospital block with a red cross on its face at the right, a lookout platform of
+    scaffold on that block's roof, a pawn shop with a lit window at lower left, a row of arcade
+    booths glowing magenta and cyan at lower right, and a tavern with tables in its lit corner. A
+    timber gate with two guards closes the bottom edge. Magenta and sodium light on wet stone.
+    Painted signage is part of the street; nothing that reads as a label for a game object.
+  `),
+  'plate-faction-room': block(`
+    The faction's back room, seen from across the table and **no sky**: a round table under a
+    hanging lamp with a city map, mugs, a bottle and a radio set on it, and five people round it,
+    one standing and leaning in mid-sentence. A faction banner hangs on the wall behind, a
+    pinboard of photographs and red string covers the wall at the left, and lit screens, a
+    gantry and figures at consoles fill the hall beyond. Cold #22d3ee monitor light against warm
+    sodium lamps. Nothing that reads as a label for a game object.
+  `),
   'plate-district-rustyard': block(`
     The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press
     houses and furnace rows closing on all four sides, a hoarding fence along the lower left, and
@@ -1111,6 +1131,10 @@ export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
   graveyard: block(`
     Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8
     stone, one lamp at the gate in #f59e0b.
+  `),
+  revolutionary_statue: block(`
+    A long-coated figure, one fist raised, on a plinth in a paved plaza seen three-quarter from
+    above, cold #22d3ee floodlight up the front.
   `),
 };
 

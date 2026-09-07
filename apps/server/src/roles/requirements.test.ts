@@ -47,10 +47,9 @@ describe('ROLE_REQUIREMENTS', () => {
 
   // Every literal above is authored heaviest-first, and `attributeWeightsOf` hands the entries
   // back in that declaration order. The coincidence is load-bearing in the wrong direction: while
-  // it holds, anything that ships `attributeWeightsOf` order untouched leaks the primary as its
-  // first fact without ever naming a weight. `research/discover.ts` re-sorts into canonical order
-  // precisely because of it, and `research/discovery.leak.test.ts` permutes declaration order to
-  // prove it did. Nothing else pinned the coincidence, so this does.
+  // it holds, anything that ships `attributeWeightsOf` order untouched names the primary without
+  // ever naming a weight, which is the §B8a leak in its cheapest form. Nothing else pins the
+  // coincidence, so this does.
   it('authors every template in descending weight order', () => {
     for (const role of OFFICER_ROLES) {
       const declared = attributeWeightsOf(role).map(([, weight]) => weight);

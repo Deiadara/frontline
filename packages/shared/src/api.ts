@@ -22,12 +22,7 @@ import {
   UnitTierSchema,
   UNIT_UPGRADE_SLOTS,
 } from './units/index.js';
-import {
-  BuildingKindSchema,
-  BuildingSchema,
-  ModificationBlockerSchema,
-  ModificationEffectSchema,
-} from './building/index.js';
+import { BuildingKindSchema, BuildingSchema } from './building/index.js';
 import {
   DistrictSchema,
   EnvLabelIdSchema,
@@ -49,11 +44,7 @@ import { VendorLineSchema, VendorSessionSchema } from './market/vendor.js';
 import { UpgradeLineSchema } from './units/upgrades.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { PlayerLevelGrantsSchema, PlayerLevelUnlockSchema } from './progression/index.js';
-import {
-  ActiveResearchSchema,
-  DiscoveredFactSchema,
-  ResearchProjectSchema,
-} from './research/index.js';
+import { ActiveResearchSchema } from './research/index.js';
 import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
 import { OfficerRoleSchema } from './roles.js';
 import { PerksSchema } from './crew/perks.js';
@@ -975,52 +966,8 @@ export const IncreasePayrollResponseSchema = z.object({
 });
 export type IncreasePayrollResponse = z.infer<typeof IncreasePayrollResponseSchema>;
 
-// --- research and discovery (GDD §B9, §F2-§F5) ---
+// --- research (GDD §C) ---
 
-/**
- * An officer the crew could put on an investigation (§B9/§C4), with what their own sheet buys.
- *
- * `crossReference` is §F4's worked example on the wire: the option is *reported* as unlocked or
- * not, so the client can offer it, and the server re-checks it on the way in. The Imagination
- * rating behind it is already on the officer's sheet: this adds no new knowledge, only the
- * consequence.
- */
-export const ResearchLeadSchema = z.object({
-  officerId: IdSchema,
-  name: z.string().min(1),
-  role: OfficerRoleSchema,
-  crossReference: z.boolean(),
-});
-export type ResearchLead = z.infer<typeof ResearchLeadSchema>;
-
-/**
- * One of the sixty-five modifications, as the research screen shows it (§A1).
- *
- * The whole catalogue is shipped every read rather than only the startable ones: a player deciding
- * which structure to raise next needs to see what raising it would unlock, and a list that hid
- * everything unavailable would hide exactly that. `blocker` is why this one is not startable, or
- * null when it is.
- */
-export const ModificationOptionSchema = z.object({
-  id: z.string().min(1),
-  building: BuildingKindSchema,
-  name: z.string().min(1),
-  description: z.string().min(1),
-  effect: ModificationEffectSchema,
-  magnitude: z.number(),
-  /** Already fitted to the structure. */
-  installed: z.boolean(),
-  blocker: ModificationBlockerSchema.nullable(),
-});
-export type ModificationOption = z.infer<typeof ModificationOptionSchema>;
-
-/**
- * The research screen in one call.
- *
- * Note what is *not* here: no fit score, no weight, no ordering, nothing keyed by role id. Every
- * scrap of role knowledge in this body is a `DiscoveredFact` the crew paid for (§B9, INTERFACES
- * R4), and `apps/server/src/research/discovery.leak.test.ts` asserts it over the real response.
- */
 /**
  * One rung of one of §C's nineteen role tracks, as the screen shows it.
  *
@@ -1079,22 +1026,17 @@ export type ResearchHead = z.infer<typeof ResearchHeadSchema>;
 export const StartTechRequestSchema = z.object({ techId: z.string().min(1) });
 export type StartTechRequest = z.infer<typeof StartTechRequestSchema>;
 
+/**
+ * The research screen in one call.
+ *
+ * Note what is *not* here: no fit score, no weight, no ordering, nothing keyed by role id. The
+ * marks are the coarse hint §B8a allows and nothing behind them reaches the wire.
+ */
 export const ResearchResponseSchema = z.object({
   serverNow: IsoDateTimeSchema,
   active: ActiveResearchSchema.nullable(),
   /** When `active` lands. Null when nothing is running. */
   completesAt: IsoDateTimeSchema.nullable(),
-  /** Facts banked by *this* read's settlement, so the page can call out what just came in. */
-  justDiscovered: z.array(DiscoveredFactSchema),
-  /** Everything the crew knows, discovered facts only. */
-  facts: z.array(DiscoveredFactSchema),
-  leads: z.array(ResearchLeadSchema),
-  /** Roles with something left to learn: the rest are at `MAX_ROLE_FACTS`. */
-  openRoles: z.array(OfficerRoleSchema),
-  /** True once `MAX_PAIRINGS` is reached and cross-referencing has nothing left to find. */
-  pairingsExhausted: z.boolean(),
-  /** §F2: the Overseer's sheet, which is what a training project moves. */
-  overseerAttributes: AttributesSchema,
   /** §C: every rung of every track, with what is finished, what is reachable and why not. */
   technologies: z.array(LabTechSchema).default([]),
   /** §C1b: the nineteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
@@ -1102,30 +1044,11 @@ export const ResearchResponseSchema = z.object({
   /** §C1c: null when nobody holds the post, which shuts every track at once. */
   head: ResearchHeadSchema.nullable().default(null),
   caps: z.number(),
-  costs: z.object({
-    investigation: z.number().int().nonnegative(),
-    training: z.number().int().nonnegative(),
-    modification: z.number().int().nonnegative(),
-  }),
-  /** §A1: modification work needs a Lead Engineer on the books to run it. */
-  canModify: z.boolean(),
-  /** Every modification this district could start right now, with why it can or cannot. */
-  modifications: z.array(ModificationOptionSchema),
   /** Set when this read's settlement crossed a level (§I1). */
   levelUp: LevelUpSchema.optional(),
 });
 export type ResearchResponse = z.infer<typeof ResearchResponseSchema>;
 
-/** Starting a project is just naming it: the server prices, clocks and validates it. */
-export const StartResearchRequestSchema = ResearchProjectSchema;
-export type StartResearchRequest = z.infer<typeof StartResearchRequestSchema>;
-
-export const StartResearchResponseSchema = z.object({
-  active: ActiveResearchSchema,
-  completesAt: IsoDateTimeSchema,
-  resources: ResourcesSchema,
-});
-export type StartResearchResponse = z.infer<typeof StartResearchResponseSchema>;
 // --- the crew (GDD §G) ---
 
 /** One officer on the §G screen: who stands under them, and what §G7 pays for it. */

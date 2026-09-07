@@ -117,6 +117,8 @@ const view: BattleView = {
   vehicles: { ...FLEET },
   yard: {},
   leaders: [],
+  traps: [],
+  trapId: null,
 };
 
 const battles: BattlesResponse = {
@@ -126,7 +128,6 @@ const battles: BattlesResponse = {
   infamy: 40,
   gates: [],
   structures: [],
-  traps: [],
   serverNow: NOW,
 };
 

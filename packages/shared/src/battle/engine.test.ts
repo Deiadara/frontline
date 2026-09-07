@@ -725,3 +725,49 @@ describe('a fight reports who was cowed', () => {
     expect(simulation.cowed.defender).toBeGreaterThanOrEqual(0);
   });
 });
+
+/**
+ * Two ways the line was miscounted, both found by running the engine a few thousand times.
+ *
+ * The cowed stood in the line and took fire, and the count of them never moved: as bodies fell
+ * the silenced number ate the shooters, so a stack that lost half its men had nobody left firing
+ * even though three of the five who fell should have been the cowed ones. And the "outnumbered"
+ * reading counted porters, so forty Scavengers behind twenty Razors handed every Warden and
+ * Juggernaut sent against them a last stand it had not earned.
+ */
+describe('counting the line honestly', () => {
+  const matchups: [Army, Army][] = [
+    [army({ juggernauts: 20 }), army({ razors: 8 })],
+    [army({ juggernauts: 30, ironsides: 10 }), army({ razors: 10 })],
+    [army({ the_colossus: 3 }), army({ razors: 6 })],
+    [army({ juggernauts: 40 }), army({ sparks: 10 })],
+  ];
+
+  it('lets the cowed fall with the rest of the line, never leaving more silenced than standing', () => {
+    let cowedSomewhere = 0;
+    for (const [attacking, defending] of matchups) {
+      const simulation = fight(attacking, defending, 'cowed');
+      cowedSomewhere += simulation.cowed.defender;
+      for (const stack of simulation.defender.stacks) {
+        expect(stack.suppressed, `${stack.unit.id}: silenced past the living`).toBeLessThanOrEqual(
+          stack.alive,
+        );
+      }
+    }
+    expect(
+      cowedSomewhere,
+      'the matchups have to cow somebody or this proves nothing',
+    ).toBeGreaterThan(0);
+  });
+
+  it('does not count porters as bodies to be outnumbered by', () => {
+    const lastStand = UNIT_MODIFIERS.last_stand.label;
+    const reasons = (defending: Army) =>
+      fight(army({ wardens: 10 }), defending, 'porters').attacker.stacks[0]?.effective.reasons ??
+      [];
+    // Sixteen Razors outnumber ten Wardens: the last stand is earned.
+    expect(reasons(army({ razors: 16 }))).toContain(lastStand);
+    // Ten Razors and forty porters do not: the porters never form a line.
+    expect(reasons(army({ razors: 10, scavengers: 40 }))).not.toContain(lastStand);
+  });
+});

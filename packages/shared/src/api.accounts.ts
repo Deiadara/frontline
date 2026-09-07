@@ -170,14 +170,38 @@ export const AdminSnapshotSchema = z.object({
   baseId: IdSchema,
   playerLevel: z.number().int().positive(),
   infamy: z.number().int().nonnegative(),
-  /** Every structure and the level it currently stands at, so the bench can show what it is moving. */
+  /** Every structure and the level it currently stands at, so the console can show what it is moving. */
   buildings: z.array(z.object({ kind: BuildingKindSchema, level: z.number().int().min(0) })),
+  /**
+   * The Console's fog of war: every district, and whether this crew can see into it right now.
+   *
+   * In admin mode everything is scouted unless the admin has un-ticked it, so `visible` is the
+   * effective answer rather than what the crew's scouts have actually seen.
+   */
+  fog: z
+    .array(
+      z.object({
+        districtId: IdSchema,
+        name: z.string(),
+        visible: z.boolean(),
+        /** The crew's own district: listed, ticked, and not a knob. You live there. */
+        home: z.boolean(),
+      }),
+    )
+    .default([]),
   /** The last backups on disk, newest first: the recovery path, visible rather than documented. */
   backups: z.array(
     z.object({ file: z.string().min(1), takenAt: IsoDateTimeSchema, bytes: z.number().int() }),
   ),
 });
 export type AdminSnapshot = z.infer<typeof AdminSnapshotSchema>;
+
+/** One district shown or hidden on the Console. */
+export const AdminFogRequestSchema = z.object({
+  districtId: IdSchema,
+  visible: z.boolean(),
+});
+export type AdminFogRequest = z.infer<typeof AdminFogRequestSchema>;
 
 export const AdminMutationResponseSchema = z.object({ admin: AdminSnapshotSchema });
 export type AdminMutationResponse = z.infer<typeof AdminMutationResponseSchema>;

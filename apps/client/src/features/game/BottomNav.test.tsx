@@ -2,18 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { DESTINATIONS } from './BottomNav';
 
 /**
- * §B8: research stopped being a place you walk to.
+ * §I1b: research is a place you walk to again.
  *
- * The door came off the bottom bar and the Lab's own window carries a button to the same route
- * (`StructureDialog`), which is where a player is already standing when they decide to research
- * something. What must **not** happen is the route disappearing with the door: deep links,
- * notifications and the Lab's button all go to `/game/research`, and that is asserted over in
- * `App.tsx`'s route table rather than here.
+ * The door came off under §B8, when research was a desk you only opened from the Lab's own window.
+ * It carries §D's blueprints now, which is a thing a player checks on the way past rather than a
+ * decision they make while standing in the district, so it is back in the row. The Lab's button
+ * still goes to the same route (`StructureDialog`).
  */
-describe('§B8: the scenery switcher', () => {
-  it('carries no research door', () => {
-    expect(DESTINATIONS.map((destination) => destination.to)).not.toContain('/game/research');
-    expect(DESTINATIONS.map((destination) => destination.label)).not.toContain('Research');
+describe('§I1b: the scenery switcher', () => {
+  it('carries a research door, level-gated like the rest', () => {
+    const research = DESTINATIONS.find((destination) => destination.label === 'Research');
+    expect(research).toBeDefined();
+    expect(research?.to).toBe('/game/research');
+    expect(research?.area).toBe('research');
+    expect(research?.icon).toBe('research');
   });
 
   it('still carries the places research is not', () => {
@@ -23,7 +25,14 @@ describe('§B8: the scenery switcher', () => {
     expect(to).toContain('/game/workshop');
   });
 
-  /** §B9: the Scrapyard is the same shape of decision, and gets the same answer. */
+  /** §D4's old home. The Satchel keeps a link to it; the walk of doors does not get a second one. */
+  it('carries no blueprints door of its own', () => {
+    const to = DESTINATIONS.map((destination) => destination.to);
+    expect(to).not.toContain('/game/research/blueprints');
+    expect(to).not.toContain('/game/inventory/blueprints');
+  });
+
+  /** §B9: the Scrapyard is the same shape of decision as the desk was, and keeps that answer. */
   it('carries no scrapyard door either: the plot is the way in', () => {
     expect(DESTINATIONS.map((destination) => destination.to)).not.toContain('/game/scrapyard');
   });

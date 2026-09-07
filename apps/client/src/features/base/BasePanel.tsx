@@ -24,6 +24,7 @@ import { RESOURCE_META, ResourceGrid } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
+import { ApiRequestError } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import {
   useBase,
@@ -54,6 +55,15 @@ export function BasePanel() {
   const baseQuery = useBase(baseId);
   const base = baseQuery.data?.base ?? me.data?.base ?? null;
   const build = useBuildStructure(baseId);
+  /*
+   * Read off the refusal too. `POST /base/build` settles first and refuses second, and the
+   * level-up a build that finished overnight crossed rides on the 409 (`routes/base.ts`, MOU-280):
+   * that refusal is the only response that ever carries it, and reading `build.data` alone dropped
+   * it whenever the next press was for something the crew could not afford.
+   */
+  const levelUp =
+    build.data?.levelUp ??
+    (build.error instanceof ApiRequestError ? build.error.levelUp : undefined);
   // §B4 and §E: the three writes the plot dialog makes, all answering with the whole base.
   const boost = useBuyBuildBoost(baseId);
   const fit = useFitModification(baseId);
@@ -136,7 +146,7 @@ export function BasePanel() {
       {/* §I1 pays for building things, and the response is the only thing that knows this build is
           what crossed the threshold (MOU-227), so the banner lives with the district, over it, and
           not folded into a drawer the player would have to open to find out they levelled. */}
-      {build.data?.levelUp && (
+      {levelUp && (
         <div
           className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4 pt-3"
           // Under the title row, whatever the title row turned out to be. It used to clear the
@@ -146,7 +156,7 @@ export function BasePanel() {
           style={{ top: 'var(--scene-top, var(--hud-h, 0px))' }}
         >
           <div className="pointer-events-auto w-full max-w-2xl">
-            <LevelUpBanner levelUp={build.data.levelUp} />
+            <LevelUpBanner levelUp={levelUp} />
           </div>
         </div>
       )}

@@ -23,6 +23,7 @@ import {
   stashCount,
   hasInfamy,
   intelQualityLine,
+  itemCount,
   movementCancellable,
   movementSize,
   observedForceSize,
@@ -41,6 +42,7 @@ import {
   type DistrictGateView,
   type BattleBoostOption,
   type ScheduledBattle,
+  type ItemId,
   type StructureDefence,
   type TrapOption,
 } from '@frontline/shared';
@@ -48,7 +50,7 @@ import { crewEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { sideForce } from './side.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
-import { cityContextFor } from '../city/view.js';
+import { cityContextFor, scoutingRunView } from '../city/view.js';
 import { sideOf } from './deploy.js';
 import { defendingBaseOf } from './declare.js';
 import { residentOf, targetName } from './ground.js';
@@ -195,6 +197,11 @@ function viewOf(
     // §D1: who this crew could send. A bystander gets nothing, for the same reason they get no
     // shelf: the list is the caller's own roster and it is not the other side's business.
     leaders: side ? leadersFor(base, now) : [],
+    // §I4: a trap goes under ground you are holding, so only the defender gets a list. An attacker
+    // and a bystander get an empty one rather than no field, which is the same shape the boosts
+    // take and keeps the payload from saying which side the reader is on twice.
+    traps: side === 'defender' ? trapsFor(base) : [],
+    trapId: deployment?.trapId ?? null,
   };
 }
 
@@ -267,15 +274,25 @@ function structuresOf(base: Base): StructureDefence[] {
   }));
 }
 
+/**
+ * §I4: what this crew could set under a fight it is defending.
+ *
+ * The whole catalogue, held or not, for the reason the boost list gives: a trap a player never
+ * sees on this panel is a trap they never go to the yard for. What decides the button is the
+ * satchel and only the satchel, because the document and the Lab rung were both answered before
+ * the yard would cut one, and repeating either here would be a second copy of the Scrapyard's
+ * gate wording free to drift from it.
+ */
 function trapsFor(base: Base): TrapOption[] {
   return TRAP_CATALOG.map((spec) => {
-    const known = base.research.technologies.includes(spec.requiresTech);
+    const held = itemCount(base.inventory, spec.id as ItemId);
     return {
       trapId: spec.id,
       name: spec.name,
       description: spec.description,
-      available: known,
-      blocker: known ? '' : 'The Lab has not worked this one out yet',
+      held,
+      available: held > 0,
+      blocker: held > 0 ? '' : 'None in the bag. The Scrapyard cuts them',
     };
   });
 }
@@ -416,6 +433,7 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
         recallable: movementCancellable(movement, now),
       };
     }),
+    scoutingRun: scoutingRunView(repos, base),
     serverNow: now.toISOString(),
   };
 }
@@ -442,7 +460,6 @@ export function projectBattles(repos: Repositories, base: Base, now: Date): Batt
     infamy: base.economy.infamy,
     gates: gatesFor(repos, visible, now),
     structures: structuresOf(base),
-    traps: trapsFor(base),
     serverNow: now.toISOString(),
   };
 }

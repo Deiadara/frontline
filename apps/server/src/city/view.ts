@@ -137,7 +137,8 @@ export function visibleDistricts(
   controls: Map<string, LocationControl>,
   effects: TerritoryEffects,
 ): Set<string> {
-  const visible = repos.city.scouted(base.id);
+  // Through the admin-aware read, so the testing build sees every district it has not hidden.
+  const visible = repos.city.visibleDistricts(base.id);
   visible.add(base.districtId);
 
   // Anywhere this crew is already standing is, self-evidently, somewhere they can see.
@@ -313,7 +314,10 @@ function projectLocation(
 }
 
 /** The run this crew has out, if any, named so a screen can say who and where. */
-function scoutingRunView(repos: Repositories, base: Base): DistrictDetailResponse['scoutingRun'] {
+export function scoutingRunView(
+  repos: Repositories,
+  base: Base,
+): DistrictDetailResponse['scoutingRun'] {
   const run = repos.scouting.activeFor(base.id)[0];
   if (!run) return null;
   const officer = base.commanders.find((held) => held.id === run.officerId);

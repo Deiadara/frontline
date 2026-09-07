@@ -71,7 +71,6 @@ import {
   launchMission,
   renameDistrict,
   getResearch,
-  startResearch,
   getTraining,
   startTraining,
   getCrewStanding,
@@ -90,6 +89,7 @@ import {
   updateProfile,
   changePassword,
   getAdmin,
+  setAdminFog,
   setAdminKnobs,
   getWorkshop,
   fitUpgrade,
@@ -463,9 +463,9 @@ export function useIncreasePayroll() {
 }
 
 /**
- * The research page (GDD §B9). Polled for the same reason the missions page is: a project settles
- * lazily on this read, so the poll is what turns a finished clock into a discovered fact while the
- * page is open.
+ * The research page (GDD §C). Polled for the same reason the missions page is: a rung settles
+ * lazily on this read, so the poll is what turns a finished clock into a finished programme while
+ * the page is open.
  */
 export function useResearch() {
   const token = useSession((s) => s.token);
@@ -477,29 +477,27 @@ export function useResearch() {
     refetchInterval: RESEARCH_POLL_MS,
   });
 
-  // A landed project can move the Overseer's sheet (§F2) and morale (§F3), and neither of those is
-  // read from here: `me` is what the HUD renders. Keyed on the fetch, not the payload: the server
-  // reports `justDiscovered` per request, so the settling poll reports it and the next reports none.
-  const settledAt = (query.data?.justDiscovered.length ?? 0) > 0 ? query.dataUpdatedAt : 0;
+  /*
+   * A landed rung pays the player XP and can cross a level (§I1), and neither is read from here:
+   * `me` is what the HUD renders.
+   *
+   * The signal is the finished count *growing*. The response used to carry a per-request "this is
+   * what just landed" flag and does not any more, so the transition is the only thing left that
+   * says a settlement happened on this read rather than on an earlier one. The first payload after
+   * a mount sets the baseline and invalidates nothing: a page opening is not a rung landing.
+   */
+  const finished = query.data?.technologies.filter((rung) => rung.known).length ?? null;
+  const lastFinished = useRef<number | null>(null);
   useEffect(() => {
-    if (settledAt === 0) return;
-    void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-  }, [settledAt, queryClient]);
+    if (finished === null) return;
+    const previous = lastFinished.current;
+    lastFinished.current = finished;
+    if (previous !== null && finished > previous) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    }
+  }, [finished, queryClient]);
 
   return query;
-}
-
-/** Put the crew on a project (§B9, §F2). Costs caps, so the HUD is refreshed with the page. */
-export function useStartResearch() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: startResearch,
-    // `onSettled`: "settle first, refuse second", at the top of this file.
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.research });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-    },
-  });
 }
 
 /** The crew: who is in which chair, and everything about them (GDD §C1, §C2). */
@@ -1003,9 +1001,9 @@ export const useUpdateProfile = settingsMutation(updateProfile);
 export const useChangePassword = settingsMutation(changePassword);
 
 /**
- * The admin bench, or `null` when this build does not have one.
+ * The admin console, or `null` when this build does not have one.
  *
- * A 404 is the *answer*, not a failure: `routes/admin.ts` refuses to admit the bench exists when
+ * A 404 is the *answer*, not a failure: `routes/admin.ts` refuses to admit the console exists when
  * admin mode is off. Swallowing exactly that one status keeps the screen and the nav entry off
  * without every caller having to know the convention, and every other status still throws, so a
  * broken bench in a build that should have one is still visibly broken.
@@ -1029,6 +1027,24 @@ export function useAdminKnobs() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: setAdminKnobs,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.admin, response.admin);
+      // Deliberately everything. A knob can move the district, the level, the stockpile and the
+      // infamy in one call, and enumerating what each combination touched is a list that would go
+      // stale the first time a knob is added.
+      void queryClient.invalidateQueries();
+    },
+  });
+}
+
+/**
+ * The Console's fog of war. Everything is invalidated on success for the same reason the knobs
+ * are: what the city, the board and the battles show all follows from what is visible.
+ */
+export function useAdminFog() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: setAdminFog,
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.admin, response.admin);
       // Deliberately everything. A knob can move the district, the level, the stockpile and the

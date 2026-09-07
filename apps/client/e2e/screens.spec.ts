@@ -651,19 +651,19 @@ test('a crew that lands while the page is open pays the HUD', async ({ page }) =
 });
 
 /**
- * MOU-166 §B9: a project that lands while the page is open puts its facts on the page.
+ * §C: a rung that lands while the page is open is finished on the page.
  *
- * The same trap the missions settlement was filed under: a research project settles lazily on the
- * `GET /api/research` read, so nothing turns a finished clock into a discovered fact unless the
- * poll asks. Every static research fixture is born either running or already idle, so the settle
- * path, the one moment the whole feature turns on, is reachable from no other test.
+ * A research programme settles lazily on the `GET /api/research` read, so nothing turns a finished
+ * clock into a finished rung unless the poll asks. Every static research fixture is born either
+ * running or already idle, so the settle path, the one moment the whole feature turns on, is
+ * reachable from no other test.
  *
  * The wait is real: `RESEARCH_POLL_MS` is 15s, and the poll is the event under test.
  */
-test('a project that lands while the page is open shows what it found', async ({ page }) => {
-  const { pending, settled } = settlingResearch();
+test('a programme that lands while the page is open shows as finished', async ({ page }) => {
+  const { pending, settled, landed } = settlingResearch();
   const AFTER_POLL = 30_000;
-  let landed = false;
+  let hasLanded = false;
 
   await installApi(page, lateGame);
   // Registered after `installApi`, so this takes precedence: Playwright tries the most recently
@@ -671,41 +671,32 @@ test('a project that lands while the page is open shows what it found', async ({
   await page.route('**/api/research', (route) =>
     route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify(landed ? settled : pending),
+      body: JSON.stringify(hasLanded ? settled : pending),
     }),
   );
 
   await page.goto('/game/research');
 
-  // Running, with §F4's cross-reference showing: also the proof this route, not the catch-all,
-  // is the one answering.
-  await expect(page.getByText('Investigating the Instructor of the Young')).toBeVisible();
-  await expect(page.getByText('Raid Boss')).toHaveCount(0);
+  // The page lands on Programmes, with the rung on the bench and its clock running. Also the proof
+  // this route, not the catch-all, is the one answering.
+  await expect(page.getByTestId('research-section-programmes')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByTestId('research-progress')).toBeVisible();
+  // Opened by name rather than relying on the page's default track: which trade the fixture puts
+  // on the bench is a property of the catalogue, not of this test.
+  await page.getByTestId(`research-track-${landed.track}`).click();
+  const card = page.getByTestId(`tech-${landed.id}`);
+  await card.scrollIntoViewIfNeeded();
+  await expect(card).toContainText('On the bench');
 
   // The server banks it on the next read.
-  landed = true;
+  hasLanded = true;
 
-  /*
-   * The landing has to be visible from the section the player is standing on, which is the desk.
-   *
-   * The facts themselves live behind the files now, so the flag on the rail is what carries the
-   * news: without it a project could finish under somebody's nose and they would find the three
-   * facts an hour later with nothing having said so. Asserted *before* opening the files, because
-   * a flag that only appears once you are already looking at the thing it announces is not a flag.
-   */
-  await expect(page.getByText('+3 just in')).toBeVisible({ timeout: AFTER_POLL });
-  // And the bench is free again, so something else can be put on it.
-  await expect(page.getByTestId('research-section-the-desk')).toContainText('Free');
-
-  await page.getByTestId('research-section-the-files').click();
-  const raidBossFacts = page.getByRole('listitem').filter({ hasText: 'Raid Boss' }).first();
-  await expect(raidBossFacts).toBeVisible();
-  await expect(raidBossFacts).toContainText('Intimidation');
-  // The Raid Boss chair reads on Improvisation since Demolition was retired for Encyclopedia:
-  // a raid runs on what you do when the plan stops working, and a raid boss has no use for a
-  // reference library.
-  await expect(raidBossFacts).toContainText('Improvisation');
-  await expect(raidBossFacts, 'both facts count against the §B9 cap').toContainText('2 / 3 leads');
+  await expect(card).toContainText('Done', { timeout: AFTER_POLL });
+  // ...and the bench is free again, so something else can be put on it.
+  await expect(page.getByTestId('research-progress')).toHaveCount(0);
 
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/research-settled.png', fullPage: false });

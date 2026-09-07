@@ -5,7 +5,7 @@ import {
   type UpdateProfileRequest,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from './SettingsPage';
@@ -114,5 +114,31 @@ describe('the display name', () => {
     expect(UpdateProfileRequestSchema.safeParse({ displayName: '' }).success).toBe(false);
     // ...and omitting it still means "leave it alone", which is a different instruction.
     expect(UpdateProfileRequestSchema.safeParse({ icon: 'shield' }).success).toBe(true);
+  });
+});
+
+/**
+ * A panel called "Your clock" has to tick.
+ *
+ * `new Date(serverNow)` was the response's own timestamp, frozen at page load on a query with no
+ * poll, so the preview a player uses to check their zone showed the minute they opened the page
+ * for as long as they left it open.
+ */
+describe('the clock preview', () => {
+  it('moves with the clock while the page is left alone', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(Date.parse(NOW));
+    try {
+      renderSettings();
+      const preview = await screen.findByTestId('settings-clock-preview');
+      const shown = preview.textContent;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(61_000);
+      });
+      await waitFor(() => expect(preview.textContent).not.toBe(shown));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

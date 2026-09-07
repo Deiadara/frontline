@@ -14,10 +14,11 @@ import {
   forecast,
 } from '@frontline/shared';
 import { useMemo, useState } from 'react';
-import { Button } from '../../components/ui/Button';
+import { Button, buttonSkin } from '../../components/ui/Button';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
+import { HoverCard } from '../../components/ui/HoverCard';
 import { Panel } from '../../components/ui/Panel';
 import { PanelSection } from '../../components/ui/PanelSection';
 import { cn } from '../../lib/cn';
@@ -25,6 +26,7 @@ import {
   useActions,
   useBattles,
   useBuyBattleBoost,
+  useLayTrap,
   useLeadBattle,
   useTakeVehicles,
   useDeployToBattle,
@@ -33,7 +35,7 @@ import {
 import { formatRemaining } from '../base/format';
 import { PageShell } from '../game/PageShell';
 import { BattleReportModal } from './BattleReportModal';
-import { DeployDialog } from './DeployDialog';
+import { DeployDialog, type DeployMode } from './DeployDialog';
 import { UnitChip } from '../units/UnitChip';
 
 /**
@@ -78,7 +80,9 @@ export function BattlePage() {
 
   const [tab, setTab] = useState<Tab>('coming');
   const [openId, setOpenId] = useState<string | null>(null);
-  const [deploying, setDeploying] = useState<BattleView | null>(null);
+  /* Which fight is open, and which of its two places the dialog is moving people to. One dialog,
+     two modes, so the state has to carry both: `deploying.view` alone cannot say which. */
+  const [deploying, setDeploying] = useState<{ view: BattleView; mode: DeployMode } | null>(null);
   const [reading, setReading] = useState<BattleReportView | null>(null);
 
   const data = battles.data;
@@ -172,8 +176,8 @@ export function BattlePage() {
                       infamy={data.infamy}
                       now={Date.parse(data.serverNow)}
                       walking={columnsTo(road.data?.movements, open.battle.id)}
-                      onDeploy={() => setDeploying(open)}
-                      deploying={deploy.isPending && deploying?.battle.id === open.battle.id}
+                      onDeploy={(mode) => setDeploying({ view: open, mode })}
+                      deploying={deploy.isPending && deploying?.view.battle.id === open.battle.id}
                     />
                   </div>
                 )}
@@ -195,15 +199,16 @@ export function BattlePage() {
 
       {deploying && (
         <DeployDialog
-          view={deploying}
+          view={deploying.view}
           army={army}
           notoriety={notoriety}
+          mode={deploying.mode}
           pending={deploy.isPending}
           error={deploy.error}
           onClose={() => setDeploying(null)}
           onConfirm={(changes, perimeterChanges) =>
             deploy.mutate(
-              { battleId: deploying.battle.id, changes, perimeterChanges },
+              { battleId: deploying.view.battle.id, changes, perimeterChanges },
               { onSuccess: () => setDeploying(null) },
             )
           }
@@ -399,7 +404,7 @@ function BattleDetail({
   now: number;
   /** What is still on the road to this fight: nobody has arrived yet, but they have left. */
   walking: Army;
-  onDeploy: () => void;
+  onDeploy: (mode: DeployMode) => void;
   deploying: boolean;
 }) {
   return (
@@ -436,11 +441,52 @@ function BattleDetail({
           <div className="flex flex-wrap items-center gap-3 border-t border-surface-700 p-4">
             <Button
               disabled={!view.deploymentOpen || deploying}
-              onClick={onDeploy}
+              onClick={() => onDeploy('line')}
               data-testid={`deploy-open-${view.battle.id}`}
             >
               {view.deploymentOpen ? 'Move people' : 'They are on the ground'}
             </Button>
+            {/*
+              The ring, on a control of its own, because it is a different bet from the line.
+              It is also the one thing on this screen nobody would guess from its name, so the
+              button explains itself rather than sending a player to the manual: a `HoverCard`
+              rather than a `data-tip`, since the tip layer draws one line of tracked capitals and
+              this is two sentences of prose. The trigger is already a button, so what carries the
+              button's dressing is a span inside it.
+            */}
+            {view.deploymentOpen && (
+              <HoverCard
+                label="Station units in the periphery"
+                onActivate={() => onDeploy('ring')}
+                disabled={deploying}
+                data-testid={`perimeter-open-${view.battle.id}`}
+                card={
+                  <div className="flex flex-col gap-1.5">
+                    <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
+                      The ring
+                    </p>
+                    <p className="font-body text-[13px] leading-relaxed text-ink-100">
+                      A cordon thrown around the fight. It never takes part: it stands outside and
+                      takes down whoever tries to leave once the losing side has had enough.
+                    </p>
+                    <p className="font-body text-[13px] leading-relaxed text-ink-100">
+                      Every body on it is a body not in the line, and withdrawing past a ring the
+                      other side has already set costs bodies of your own.
+                    </p>
+                  </div>
+                }
+              >
+                <span
+                  className={buttonSkin({
+                    variant: 'ghost',
+                    // `disabled:` never fires on a span, so the dimming is spelled out.
+                    className: deploying ? 'opacity-40' : undefined,
+                  })}
+                >
+                  Station units in the periphery
+                </span>
+              </HoverCard>
+            )}
             {!view.deploymentOpen && (
               <span className="font-body text-[11px] text-ink-300">
                 Nobody moves in the last minute before the mark.
@@ -453,6 +499,8 @@ function BattleDetail({
       {view.side !== null && <LeadPicker view={view} />}
       {view.side !== null && <VehiclePicker view={view} />}
       {view.side !== null && <NameBuys view={view} infamy={infamy} />}
+      {/* §I4: only the side standing on the ground has anything to bury under it. */}
+      {view.side === 'defender' && <TrapPicker view={view} />}
     </div>
   );
 }
@@ -908,6 +956,129 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
                 <p className="mt-0.5 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
                   {choice.held ? choice.source : `${choice.cost} infamy`} · reaches {choice.reach}%
                   of your force
+                </p>
+              </div>
+            )}
+          </div>
+        </PanelSection>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * §I4: the one trap a defender may set under this fight.
+ *
+ * Beside the Boosts panel and in the same register, because it is the same kind of decision made
+ * against the same intel: a thing you commit before the mark, changeable right up to it. What is
+ * different is what it costs, and the panel says so: naming a trap spends nothing and clearing it
+ * refunds nothing, because the trap only leaves the satchel when somebody walks over it.
+ *
+ * The whole catalogue is listed, held or not, for the reason the boost list is: a trap that is
+ * absent from this panel is a trap nobody goes to the yard for. The server has already worded why
+ * a row is dead and this screen prints it rather than deciding anything.
+ */
+function TrapPicker({ view }: { view: BattleView }) {
+  const set = useLayTrap();
+  const chosen = view.traps.find((option) => option.trapId === view.trapId) ?? null;
+  const [picked, setPicked] = useState<string>('');
+  const choice = view.traps.find((option) => option.trapId === picked) ?? null;
+
+  const shut = !view.deploymentOpen;
+  const blocked = shut
+    ? 'They are already on the ground'
+    : choice !== null && !choice.available
+      ? choice.blocker
+      : null;
+
+  return (
+    <Panel title="Trap">
+      <div className="flex flex-col gap-2.5 p-4" data-testid="trap-picker">
+        <PanelSection
+          label="Under the approach"
+          note={
+            shut ? 'They are already on the ground' : 'One per fight, and only when you hold it'
+          }
+          action={
+            view.trapId === null ? undefined : (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={shut || set.isPending}
+                onClick={() => set.mutate({ battleId: view.battle.id, trapId: null })}
+                data-testid="trap-clear"
+              >
+                Dig it back up
+              </Button>
+            )
+          }
+          data-testid="trap-set"
+        >
+          {chosen ? (
+            <>
+              <p className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
+                {chosen.name}
+              </p>
+              <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
+                It goes off before anybody is in contact, and it never turns an attack back. Nothing
+                leaves the bag until then, so moving it to another fight costs you nothing.
+              </p>
+              {/* The count is on the panel rather than only inside the picker: what a player wants
+                  to know before naming the same shell on a second fight is how many they have. */}
+              <p className="mt-1 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
+                {chosen.held} in the bag
+              </p>
+            </>
+          ) : (
+            <p className="font-body text-[12px] leading-relaxed text-ink-300">
+              Nothing buried. The Scrapyard cuts these, and you set one on a fight you are
+              defending.
+            </p>
+          )}
+        </PanelSection>
+
+        <PanelSection
+          label="In the bag"
+          note={blocked ?? 'Free to change right up to the mark'}
+          action={
+            <Button
+              size="sm"
+              disabled={choice === null || blocked !== null || set.isPending}
+              onClick={() =>
+                choice &&
+                set.mutate(
+                  { battleId: view.battle.id, trapId: choice.trapId },
+                  { onSuccess: () => setPicked('') },
+                )
+              }
+              data-testid="set-trap"
+            >
+              Bury it
+            </Button>
+          }
+        >
+          <div className="flex flex-col gap-2.5">
+            <Dropdown
+              label="Trap"
+              placeholder={view.trapId === null ? 'Choose a trap' : 'Set a different one'}
+              value={picked}
+              disabled={shut}
+              options={view.traps.map((option) => ({
+                value: option.trapId,
+                label: option.name,
+                hint: option.available ? `${option.held} in the bag` : option.blocker,
+                disabled: !option.available,
+              }))}
+              onChange={setPicked}
+              data-testid="trap-option-picker"
+            />
+            {choice && (
+              <div className="rounded-sm border border-surface-700 bg-surface-950/60 p-2.5">
+                <p className="font-body text-[12px] leading-relaxed text-ink-100">
+                  {choice.description}
+                </p>
+                <p className="mt-1.5 font-display text-[11px] uppercase tracking-[0.14em] text-brass-300">
+                  {choice.available ? `${choice.held} in the bag` : choice.blocker}
                 </p>
               </div>
             )}

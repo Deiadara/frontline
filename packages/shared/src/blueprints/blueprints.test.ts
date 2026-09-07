@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { BATTLE_BOOSTS } from '../battle/boosts.js';
+import { TRAP_CATALOG } from '../battle/traps.js';
 import { BUILDING_KINDS } from '../building/kinds.js';
 import { MODIFICATIONS } from '../building/modifications.js';
 import { ADVANCED_MODIFICATION_MAGNITUDE } from '../building/addons.js';
 import { VEHICLE_IDS, findVehicle } from '../building/vehicles.js';
-import { ITEM_CATALOG } from '../items/catalog.js';
+import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
 import { InventorySchema, type Inventory } from '../items/inventory.js';
 import { UNIT_UPGRADES } from '../units/upgrades.js';
 import { findUnit } from '../units/catalog.js';
@@ -16,10 +17,12 @@ import {
   blueprintsOfCategory,
   blueprintOfPage,
   findBlueprint,
+  type BlueprintTargetKind,
 } from './catalog.js';
 import {
   blueprintForBattleBoost,
   blueprintForModification,
+  blueprintForTrap,
   blueprintForUnit,
   blueprintForUnitUpgrade,
   blueprintForVehicle,
@@ -213,22 +216,77 @@ describe('what needs a blueprint (§D12)', () => {
   });
 
   it('names something real with every target it declares', () => {
-    const upgradeIds = new Set(UNIT_UPGRADES.map((spec) => spec.id));
-    const boostIds = new Set(BATTLE_BOOSTS.map((spec) => spec.id));
+    const has = (ids: readonly string[]) => {
+      const set = new Set(ids);
+      return (id: string) => set.has(id);
+    };
+    /*
+     * One entry per target kind, and the `Record` is what makes this a test rather than a hole: a
+     * kind added to `BLUEPRINT_TARGET_KINDS` without a way to check its ids fails to compile here,
+     * where the chain of ternaries this replaced silently ran the *last* branch against it and
+     * reported "no such battle boost" about a trap.
+     */
+    const real: Readonly<Record<BlueprintTargetKind, (id: string) => boolean>> = {
+      unit: (id) => findUnit(id) !== undefined,
+      vehicle: (id) => findVehicle(id) !== undefined,
+      unit_upgrade: has(UNIT_UPGRADES.map((spec) => spec.id)),
+      building: has(BUILDING_KINDS),
+      battle_boost: has(BATTLE_BOOSTS.map((spec) => spec.id)),
+      trap: has(TRAP_CATALOG.map((spec) => spec.id)),
+    };
     for (const spec of BLUEPRINTS) {
       for (const target of spec.targets) {
-        const found =
-          target.kind === 'unit'
-            ? findUnit(target.id) !== undefined
-            : target.kind === 'vehicle'
-              ? findVehicle(target.id) !== undefined
-              : target.kind === 'unit_upgrade'
-                ? upgradeIds.has(target.id)
-                : target.kind === 'building'
-                  ? (BUILDING_KINDS as readonly string[]).includes(target.id)
-                  : boostIds.has(target.id);
-        expect(found, `${spec.id} -> ${target.kind}:${target.id}`).toBe(true);
+        expect(real[target.kind](target.id), `${spec.id} -> ${target.kind}:${target.id}`).toBe(
+          true,
+        );
       }
+    }
+  });
+
+  /**
+   * §I4b: every trap is behind a document, and the two catalogues name each other.
+   *
+   * Asserted in both directions on purpose. A trap with no document would be buildable the moment
+   * the Lab rung landed, which is half the gate the brief asked for; a document pointing at a trap
+   * id nobody has is a blueprint a player collects eight pages of and can never spend, and the
+   * loop above only catches the second.
+   */
+  it('gates every trap on a consumable document (§I4b)', () => {
+    for (const spec of TRAP_CATALOG) {
+      const document = blueprintForTrap(spec.id);
+      expect(document, `${spec.id} has no blueprint`).toBeDefined();
+      expect(document!.category, document!.id).toBe('consumable');
+      expect(blueprintGateMet({}, 'trap', spec.id), spec.id).toBe(false);
+      expect(blueprintGateMet({ [document!.id]: 1 }, 'trap', spec.id), spec.id).toBe(true);
+      expect(describeBlueprintGate('trap', spec.id)).toBe(`Needs the ${document!.name}`);
+    }
+  });
+
+  /**
+   * §I4a: a trap is an item, and it is the *same* id.
+   *
+   * `springAnyTrap` takes `TrapSpec.id` out of the satchel, so the two catalogues sharing one
+   * string is the mechanic. They are separate lists because `items/` sits below `battle/` in the
+   * import graph and reaching up would close the loop at load, which is exactly the arrangement
+   * that needs a test rather than a type.
+   */
+  it('gives every trap a consumable item under its own id, and invents none (§I4a)', () => {
+    const consumables = Object.values(ITEM_CATALOG).filter((spec) => spec.kind === 'consumable');
+    expect(consumables.map((spec) => spec.id).sort()).toEqual(
+      TRAP_CATALOG.map((spec) => spec.id).sort(),
+    );
+    for (const spec of TRAP_CATALOG) {
+      const item = ITEM_CATALOG[spec.id as ItemId];
+      expect(item, spec.id).toBeDefined();
+      expect(item.kind, spec.id).toBe('consumable');
+      // The yard is the only door. A tradeable trap would be a way past both gates for anybody
+      // with caps, which is the pair of gates §I4b exists to put there.
+      expect(item.tradeable, spec.id).toBe(false);
+      expect(item.capsValue, spec.id).toBeGreaterThan(spec.cost.caps ?? 0);
+    }
+    // ...and out of the goods the shops draw from, for the same reason.
+    for (const spec of TRAP_CATALOG) {
+      expect((ITEM_IDS as readonly string[]).includes(spec.id), spec.id).toBe(false);
     }
   });
 

@@ -115,10 +115,23 @@ test('lists what is on the road, and offers to turn back only what is still clos
   for (const unitId of Object.keys(early!.army)) {
     await expect(page.getByTestId(`walking-${unitId}`)).toBeVisible();
   }
-  await expect(page.getByText(early!.targetName)).toBeVisible();
-  await expect(page.getByText(late!.targetName)).toBeVisible();
+  // Scoped to the columns: the same target is also a fight the force has reached, further down.
+  const walking = page.getByTestId('movements');
+  await expect(walking.getByText(early!.targetName)).toBeVisible();
+  await expect(walking.getByText(late!.targetName)).toBeVisible();
 
   await expect(page.getByTestId(`recall-${late!.id}`)).toHaveCount(0);
+
+  // Everything else that is away is on the same page: the crews out on jobs, the force standing at
+  // the fight it has reached, and the scout on the road. The page used to list the columns alone.
+  await expect(page.locator('[data-testid^="job-"]').first()).toBeVisible();
+  await expect(page.getByTestId('job-m-1')).toContainText('Deep Expedition');
+  await expect(page.getByTestId('working-razors')).toBeVisible();
+  await expect(page.getByTestId('fight-press')).toContainText('Kessler Press');
+  await expect(page.getByTestId('posted-razors')).toBeVisible();
+  await expect(page.getByTestId('scout-run')).toContainText('Vesper Kade');
+  await expect(page.getByTestId('scout-run')).toContainText('The Rustyard');
+  await expect(page.getByTestId('road-counts')).toContainText('a scout out');
 
   const sent: string[] = [];
   page.on('request', (request) => {

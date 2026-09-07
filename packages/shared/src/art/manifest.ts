@@ -537,24 +537,24 @@ const CITY_PLATE_DELIVERY = {
 } as const satisfies Partial<AssetSpec>;
 
 /**
- * The Steelbelt, at the size the board painted it.
+ * The Steelbelt, redelivered at the shape the screen actually is.
  *
  * Same reasoning as {@link DISTRICT_PLATE_DELIVERY} one class up: this is a *map*. Seven location
  * plates are positioned against features in the picture, in fractions of the picture, so a crop or
- * an upscale slides all seven off the buildings they name. 1584×672 is the master's own size and is
- * written down rather than resampled to the plate class's 2048×1152: an upscale would produce a
- * bigger file carrying exactly this much painting.
+ * an upscale slides all seven off the buildings they name.
  *
- * The first delivery was 1672×941 at 16:9 and was being letterboxed in a band that runs about 2.1
- * wide-to-tall. This one is 2.36, which the band no longer has to fight, and it is the shape the
- * Bar plate is already on. What it costs is sharpness above a 1584px frame: this is the smallest
- * master of the four plates, and every district screen wider than that upscales it. A re-export at
- * 3780×1604, the same shape, would put the Steelbelt on the Docks' and the city's footing.
+ * Three deliveries. The first was 1672x941 at 16:9 and was letterboxed in a band that runs about
+ * 2.1 wide-to-tall. The second was 1584x672 at 2.36:1, the Bar plate's shape, and the smallest
+ * master of the four plates: every district screen wider than 1584px upscaled it. This one is the
+ * same painting exported at 3780x1800, the 21:10 the Docks and the city are on and at the same
+ * width, so all three contested screens are sharp at 1x out to a 3780px window and at 2x to 1890.
+ * The seven marks in `features/city/marks.ts` were re-read off the board's labelled copy of this
+ * export and agree with the previous ones to within half a percent: same composition, more pixels.
  */
 const STEELBELT_PLATE_DELIVERY = {
-  width: 1584,
-  height: 672,
-  aspect: '2.36:1',
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
 } as const satisfies Partial<AssetSpec>;
 
 /**
@@ -566,12 +566,38 @@ const STEELBELT_PLATE_DELIVERY = {
  * city and the home district are on, and at the same width, so all three are sharp at 1x out to a
  * 3780px window and none of them is the odd one out.
  *
- * The Steelbelt has since been repainted too, to {@link STEELBELT_PLATE_DELIVERY}, and landed on a
- * third shape again. They stay separate entries rather than one shared constant for exactly that
- * reason: a size table that quietly averages two different deliveries is how a plate ends up
- * stretched.
+ * The Steelbelt has since been redelivered at this same shape ({@link STEELBELT_PLATE_DELIVERY}).
+ * They stay separate entries rather than one shared constant even so: a size table that quietly
+ * averages two deliveries is how a plate ends up stretched the next time one of them moves.
  */
 const NEON_DOCKS_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * Chrome Row, the third contested district, delivered at 3780x1800 from the start.
+ *
+ * The same shape and width as the Docks and the Steelbelt, so the three contested screens are one
+ * class of picture. Its own entry for the reason the two above give: eight signs and a gate are
+ * fractions of this exact image, and a shared constant is how one plate ends up stretched when
+ * another is redelivered.
+ */
+const CHROME_ROW_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * The faction's back room, delivered at 3780x1800.
+ *
+ * The same shape as the contested plates, which is the shape of the band between the two bars,
+ * so the room is drawn whole at every width with nothing cut off. Its own entry because five seats
+ * are fractions of this exact image (`features/faction/seats.ts`).
+ */
+const FACTION_ROOM_PLATE_DELIVERY = {
   width: 3780,
   height: 1800,
   aspect: '21:10',
@@ -585,6 +611,8 @@ const SIZE_EXCEPTIONS: Readonly<
   'plate-city': CITY_PLATE_DELIVERY,
   'plate-district-neon-docks': NEON_DOCKS_PLATE_DELIVERY,
   'plate-district-rustyard': STEELBELT_PLATE_DELIVERY,
+  'plate-district-chrome-row': CHROME_ROW_PLATE_DELIVERY,
+  'plate-faction-room': FACTION_ROOM_PLATE_DELIVERY,
 };
 
 /**
@@ -629,6 +657,8 @@ const plateDrafts = (
     // Appended for the same reason the two above it were: the seed is the index.
     ['plate-district-neon-docks', 'plate'],
     ['plate-district-rustyard', 'plate'],
+    ['plate-district-chrome-row', 'plate'],
+    ['plate-faction-room', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -648,6 +678,8 @@ const plateDrafts = (
     ...(key === 'plate-city' ? CITY_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-neon-docks' ? NEON_DOCKS_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-rustyard' ? STEELBELT_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-chrome-row' ? CHROME_ROW_PLATE_DELIVERY : {}),
+    ...(key === 'plate-faction-room' ? FACTION_ROOM_PLATE_DELIVERY : {}),
   }),
 );
 

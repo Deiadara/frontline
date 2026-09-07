@@ -291,6 +291,26 @@ export function StructureDialog({
               ? `All ${MAX_MODIFICATION_SLOTS} slots are open. The Scrapyard builds what goes in them.`
               : `The next slot opens at level ${nextSlotAt}. The Scrapyard builds what goes in them.`}
           </p>
+          {/*
+           * §I3a: the way to make more, from the place you found out you were short.
+           *
+           * The shelf empties here and is filled at the yard, and until now the only thing on this
+           * screen that said so was a sentence. A player one add-on short had to know the Scrapyard
+           * existed and leave the district to find out.
+           *
+           * It opens the yard on *this* structure's bench rather than on the whole board, which
+           * the yard reads off `?bench` (`ScrapyardPage`). The bench ids are `BuildingKind`, so
+           * there is no second name to keep in step.
+           */}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mt-2.5"
+            data-testid={`structure-build-addons-${kind}`}
+            onClick={() => onGo(`/game/scrapyard?bench=${kind}`)}
+          >
+            Build more in the Scrapyard
+          </Button>
         </Section>
 
         {/* §B4: the Generator's two-hour burn, bought where it is sold. */}

@@ -159,5 +159,73 @@ describe('reinforcing an ally who is being broken into', () => {
       app.repos.sieges.side(battleId, 'defender').some((row) => row.baseId === ally.baseId),
     ).toBe(true);
     expect(app.repos.bases.findById(ally.baseId)?.army.razors).toBe(15);
+
+    /*
+     * §D7: one boost per side, and it is the principal's.
+     *
+     * `side.ts` reads the first row on a side that names a boost, so an ally's purchase was either
+     * the one applied, with the crew whose fight it is paying for nothing, or burned unread. A
+     * second ally at the raider's table joins the attack and is refused a boost; the raider, who
+     * is the attacking principal, gets past the guard and is refused for the bogus name instead,
+     * which is what shows the guard is the only thing that differed.
+     */
+    const second = await register(app, 'the_second');
+    establish(app, second);
+    establish(app, raider);
+    const raiders = await app.inject({
+      method: 'POST',
+      url: '/api/factions',
+      headers: auth(raider.token),
+      payload: { name: 'The Raiders', badge: randomBadge(11), blurb: '' },
+    });
+    expect(raiders.statusCode, raiders.body).toBe(200);
+    const asked = await app.inject({
+      method: 'POST',
+      url: '/api/factions/invite',
+      headers: auth(raider.token),
+      payload: { username: 'the_second' },
+    });
+    expect(asked.statusCode, asked.body).toBe(200);
+    const secondInvites = await app.inject({
+      method: 'GET',
+      url: '/api/factions',
+      headers: auth(second.token),
+    });
+    const secondInviteId = secondInvites.json<FactionResponse>().invites[0]?.id;
+    if (!secondInviteId) throw new Error('fixture: no invitation reached the second ally');
+    const joined = await app.inject({
+      method: 'POST',
+      url: '/api/factions/answer',
+      headers: auth(second.token),
+      payload: { inviteId: secondInviteId, accept: true },
+    });
+    expect(joined.statusCode, joined.body).toBe(200);
+    const onAttack = await app.inject({
+      method: 'POST',
+      url: '/api/factions/reinforce',
+      headers: auth(second.token),
+      payload: { battleId, army: { razors: 1 } },
+    });
+    expect(onAttack.statusCode, onAttack.body).toBe(200);
+    expect(
+      app.repos.sieges.side(battleId, 'attacker').some((row) => row.baseId === second.baseId),
+    ).toBe(true);
+
+    const bogus = { battleId, boostId: 'no-such-boost' };
+    const bySecond = await app.inject({
+      method: 'POST',
+      url: '/api/battles/boost',
+      headers: auth(second.token),
+      payload: bogus,
+    });
+    expect(bySecond.statusCode, bySecond.body).toBe(403);
+    expect(bySecond.body).toContain('whose fight this is');
+    const byRaider = await app.inject({
+      method: 'POST',
+      url: '/api/battles/boost',
+      headers: auth(raider.token),
+      payload: bogus,
+    });
+    expect(byRaider.statusCode, byRaider.body).toBe(404);
   });
 });

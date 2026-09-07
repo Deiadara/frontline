@@ -138,9 +138,12 @@ function refusalFor(
     role,
     standoff,
     hiresToday,
+    slots,
     now,
   }: Omit<HireInput, 'offerWage' | 'userId' | 'seat'> & {
     hiresToday: number;
+    /** The chairs on the books: the level's, plus the ones research has added. */
+    slots: number;
   },
   blockers: readonly JoinBlocker[],
 ): HireRefusal | null {
@@ -171,7 +174,7 @@ function refusalFor(
   }
 
   // §H8: 2 at the start, +1 per level, read off W6's grant table rather than restated here.
-  if (base.commanders.length >= playerLevelGrants(base.level).recruitSlots) return 'no_slots';
+  if (base.commanders.length >= slots) return 'no_slots';
 
   // The two limits that are about the crew's *capacity* rather than about this request being
   // nonsense, so they come after the ones above: a player asking to fill a post that is already
@@ -218,6 +221,7 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
       ...(standoff ? { standoff } : {}),
       now,
       hiresToday: repos.bar.hiresBy(userId, day),
+      slots: recruitSlotsFor(repos, base),
     },
     blockers,
   );
@@ -243,7 +247,10 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
   const floor = reservationWage(asking);
   if (wage < floor) return { kind: 'countered', wage: floor };
 
-  const ledger = ledgerFor(base);
+  // The same discount `GET /bar` and the payroll route apply, or the step price on the signing
+  // response differs from the one that leaves the stockpile when the button is pressed.
+  const stepDiscount = crewEffectsFor(repos, base).payrollStepDiscountPercent;
+  const ledger = ledgerFor(base, stepDiscount);
   if (!payrollFits(ledger, wage) && !adminWaives('no_payroll', admin)) {
     return { kind: 'refused', reason: 'no_payroll' };
   }
@@ -283,7 +290,7 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
     seat,
   );
 
-  return { kind: 'hired', base: hired, officer, wage, payroll: ledgerFor(hired) };
+  return { kind: 'hired', base: hired, officer, wage, payroll: ledgerFor(hired, stepDiscount) };
 }
 
 /**
@@ -328,5 +335,20 @@ export function releaseOfficer(
   repos.bases.updateEconomy(released.id, released.economy);
   repos.bases.updateCommanders(released.id, released.commanders);
 
-  return { kind: 'released', base: released, officer, fee, payroll: ledgerFor(released) };
+  return {
+    kind: 'released',
+    base: released,
+    officer,
+    fee,
+    payroll: ledgerFor(released, crewEffectsFor(repos, released).payrollStepDiscountPercent),
+  };
+}
+
+/**
+ * How many officers the books hold: the level's chairs, plus the ones research has added (the
+ * Right Hand's ninth rung, the Consigliere's tenth). Through the crew fold rather than the
+ * territory one, because a chair at the Bar is nothing the ground grants.
+ */
+export function recruitSlotsFor(repos: Repositories, base: Base): number {
+  return playerLevelGrants(base.level).recruitSlots + crewEffectsFor(repos, base).recruitSlotsFlat;
 }

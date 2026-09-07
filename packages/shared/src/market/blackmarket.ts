@@ -299,7 +299,7 @@ export function pageGoodId(pageId: string): string {
 /**
  * §F2: every page, as something the fence can be holding.
  *
- * Generated rather than written out: 157 hand-written shelf entries would be 157 chances to spell a
+ * Generated rather than written out: a hand-written shelf entry per page would be one chance per page to spell a
  * page id wrong, and the price is a rule rather than a judgement. Unlike a mission, the fence tells
  * you exactly which page you are buying, which is what makes infamy worth spending here: the Market
  * is where you go when you need the *one* page you are short of, and the price is the tax on
@@ -356,7 +356,8 @@ const KIND_WEIGHT: Readonly<Record<BlackMarketKind, number>> = {
    *
    * A page is the cheapest thing here and the one a player most wants to see, so weight is the only
    * brake on it. `PAGES_ON_THE_SHELF` is the other half: the deck carries a handful of pages a day
-   * rather than all 157, or the Black Market stops being a black market and becomes a page shop.
+   * rather than the whole catalogue, or the Black Market stops being a black market and becomes a
+   * page shop.
    */
   blueprint_page: 1,
 };
@@ -391,7 +392,7 @@ function rngFrom(seed: string): () => number {
  * so no item is stuck in one slot.
  */
 /**
- * §F2: how many of the 157 pages the fence has on any given day.
+ * §F2: how many of the catalogue's pages the fence has on any given day.
  *
  * Four. The deck is dealt across the slots and worked through in order, so putting every page in it
  * would make roughly nine tenths of everything the Black Market ever shows a page, and the crates

@@ -20,6 +20,7 @@ import {
   type Base,
   declarationWindow,
   deployedSize,
+  emptyDeployment,
   garrisonSize,
   findTrap,
   infamyForKill,
@@ -28,6 +29,7 @@ import {
   type BattlesResponse,
   type BattleTarget,
   infamyForRaidWon,
+  type ItemId,
   type ScheduledBattle,
   type SkirmishEngine,
   type UnitsResponse,
@@ -103,11 +105,9 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
    * sends somebody who walks back hours later. A fixture wants the *state*, not the trip.
    *
    * Reading every control in the district as well, which the removed HTTP call used to do as a
-   * side effect. `city.control()` writes the starting row the first time it is asked for one, and
-   * `setTrap` is an `UPDATE`: on a district nobody had read, arming a trap updated no rows and
-   * said nothing, so the fixture armed a trap that was never there. Production reads the control
-   * to check who holds the ground before it charges for the trap, so it materialises the row on
-   * the way past; this is the one path that did not.
+   * side effect. `city.control()` writes the starting row the first time it is asked for one, so
+   * a district nobody had read had no rows for a fixture to hand over, put a garrison on, or read
+   * a holder back out of.
    */
   app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
@@ -281,6 +281,25 @@ async function deploy(
     url: '/api/battles/deploy',
     headers: auth(stack.token),
     payload: { battleId, changes, perimeterChanges },
+  });
+}
+
+/**
+ * §I4: one trap in a crew's satchel and that crew's name on it, on the defending side of a fight.
+ *
+ * Written onto the deployment row rather than through `/battles/trap`, because this fixture's
+ * caller is the attacker and the route answers only for the caller. What `springAnyTrap` reads is
+ * the row and the bag, and that is exactly what this sets up.
+ */
+function armTrap(stack: Stack, battleId: string, baseId: string, trapId: string): void {
+  const holder = stack.repos.bases.findById(baseId)!;
+  stack.repos.bases.updateHoldings(baseId, holder.resources, {
+    ...holder.inventory,
+    [trapId as ItemId]: 1,
+  });
+  stack.repos.sieges.putDeployment({
+    ...emptyDeployment(battleId, baseId, 'defender', new Date().toISOString()),
+    trapId,
   });
 }
 
@@ -684,13 +703,16 @@ describe('resolving it (§A4)', () => {
   /**
    * A fight is atomic, and the trap is what proves it.
    *
-   * `springAnyTrap` consumes the trap *before* the engine runs, and `markResolved` happens after.
-   * So a fight that fails in between used to leave the world in a state the rules do not describe:
-   * the defender's trap spent, and the fight still on the board to be run again later without one.
-   * The world clock is what made that worth fixing rather than noting, because it retries every
-   * second and swallows what it catches, so the trap would be gone and nobody would be told.
+   * `springAnyTrap` takes the trap out of the defender's satchel *before* the engine runs, and
+   * `markResolved` happens after. So a fight that fails in between used to leave the world in a
+   * state the rules do not describe: the trap spent, and the fight still on the board to be run
+   * again later without one. The world clock is what made that worth fixing rather than noting,
+   * because it retries every second and swallows what it catches, so the trap would be gone and
+   * nobody would be told.
    *
-   * The engine is the failure injected here because it sits exactly between the two writes.
+   * The engine is the failure injected here because it sits exactly between the two writes. The
+   * trap is set straight onto the row because the route answers for the caller, and the caller in
+   * this fixture is the attacker; §I4's own suite (`battle/trap.test.ts`) drives the route.
    */
   it('leaves nothing behind when a fight fails halfway through', async () => {
     const exploding: SkirmishEngine = {
@@ -700,48 +722,15 @@ describe('resolving it (§A4)', () => {
     };
     const stack = await makeStack('halfway', exploding);
     const spec = findTrap('trap_collapse')!;
-    const armedAt = new Date().toISOString();
-    stack.repos.sieges.setTrap(SQUATTED_RUSTYARD_LOCATION, { trapId: spec.id, armedAt });
     const { battle } = await readyFight(stack);
+    const holder = plantRival(stack, { districtId: 'neon-docks' });
+    armTrap(stack, battle.id, holder, spec.id);
 
     expect(() => settleBattles(stack.repos, exploding, new Date())).toThrow('engine exploded');
 
-    // Both halves: the trap is still standing, and the fight is still coming.
-    expect(stack.repos.sieges.trap(SQUATTED_RUSTYARD_LOCATION)).toEqual({
-      trapId: spec.id,
-      armedAt,
-    });
+    // Both halves: the trap is still in the bag, and the fight is still coming.
+    expect(stack.repos.bases.findById(holder)!.inventory[spec.id as ItemId]).toBe(1);
     expect(stack.repos.sieges.find(battle.id)!.resolvedAt).toBeNull();
-  });
-
-  /**
-   * Resolved as a *defeat* on purpose. Capturing a location clears its trap as well, so an attacker
-   * win would leave two writes clearing one flag and a mutant that deleted the trap's own clear
-   * would sit behind the capture's and stay green.
-   */
-  it('springs a trap before contact and never leaves it armed afterwards', async () => {
-    const stack = await makeStack('trapped', decided('defender', { fled: { razors: 1 } }));
-    const spec = findTrap('trap_collapse')!;
-    stack.repos.sieges.setTrap(SQUATTED_RUSTYARD_LOCATION, {
-      trapId: spec.id,
-      armedAt: new Date().toISOString(),
-    });
-
-    let seen = 0;
-    const counting: SkirmishEngine = {
-      resolve: (input) => {
-        seen = Object.values(input.attacking).reduce((sum, count) => sum + count, 0);
-        return skirmishOutcome({ winner: 'defender', log: ['done'], fled: { razors: 1 } });
-      },
-    };
-    const armed = stack.repos.bases.findById(stack.baseId)!;
-    stack.repos.bases.updateArmy(armed.id, { razors: 30 }, armed.trainingQueue);
-    await readyFight(stack, { razors: 30 });
-    settleBattles(stack.repos, counting, new Date());
-
-    expect(seen).toBeLessThan(30);
-    expect(seen).toBeGreaterThan(0);
-    expect(stack.repos.sieges.trap(SQUATTED_RUSTYARD_LOCATION)).toBeUndefined();
   });
 
   /**

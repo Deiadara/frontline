@@ -1,4 +1,5 @@
 import {
+  CITY_DISTRICTS,
   withoutRetiredUnits,
   CITY_LOCATIONS,
   LocationControlSchema,
@@ -62,9 +63,19 @@ export interface CityRepo {
   /** Districts this crew has seen inside. */
   scouted(baseId: string): Set<string>;
   markScouted(baseId: string, districtId: string, at: string): void;
+  /**
+   * What this crew can see into right now: the districts its scouts have visited, or in admin
+   * mode every district except the ones the Console has hidden. This is the read the city, the
+   * board and the battles go through; `scouted` is the raw intel and stays that.
+   */
+  visibleDistricts(baseId: string): Set<string>;
+  /** The Console's exceptions: districts an admin has chosen not to see (migration 0079). */
+  hiddenByAdmin(baseId: string): Set<string>;
+  setAdminFog(baseId: string, districtId: string, hidden: boolean): void;
 }
 
-export function createCityRepo(db: AppDatabase): CityRepo {
+/** `admin` is the testing build's flag: it is what makes `visibleDistricts` mean everything. */
+export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
   const allStmt = db.prepare('SELECT * FROM location_control');
   const oneStmt = db.prepare('SELECT * FROM location_control WHERE location_id = ?');
   const insertStmt = db.prepare(
@@ -89,6 +100,11 @@ export function createCityRepo(db: AppDatabase): CityRepo {
     `INSERT INTO district_intel (base_id, district_id, scouted_at) VALUES (?, ?, ?)
      ON CONFLICT (base_id, district_id) DO NOTHING`,
   );
+  const fogStmt = db.prepare('SELECT district_id FROM admin_fog WHERE base_id = ?');
+  const hideStmt = db.prepare(
+    'INSERT INTO admin_fog (base_id, district_id) VALUES (?, ?) ON CONFLICT DO NOTHING',
+  );
+  const showStmt = db.prepare('DELETE FROM admin_fog WHERE base_id = ? AND district_id = ?');
 
   const write = (control: LocationControl): void => {
     insertStmt.run(
@@ -140,6 +156,19 @@ export function createCityRepo(db: AppDatabase): CityRepo {
     },
     markScouted(baseId, districtId, at) {
       markStmt.run(baseId, districtId, at);
+    },
+    visibleDistricts(baseId) {
+      if (!admin) return this.scouted(baseId);
+      const hidden = this.hiddenByAdmin(baseId);
+      return new Set(CITY_DISTRICTS.map((district) => district.id).filter((id) => !hidden.has(id)));
+    },
+    hiddenByAdmin(baseId) {
+      const rows = fogStmt.all(baseId) as { district_id: string }[];
+      return new Set(rows.map((row) => row.district_id));
+    },
+    setAdminFog(baseId, districtId, hidden) {
+      if (hidden) hideStmt.run(baseId, districtId);
+      else showStmt.run(baseId, districtId);
     },
   };
 }

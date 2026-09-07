@@ -57,7 +57,10 @@ export interface Repositories {
   tx<T>(work: () => T): T;
 }
 
-export function createRepositories(db: AppDatabase): Repositories {
+export function createRepositories(
+  db: AppDatabase,
+  options: { admin?: boolean } = {},
+): Repositories {
   return {
     users: createUsersRepo(db),
     factions: createFactionsRepo(db),
@@ -68,7 +71,7 @@ export function createRepositories(db: AppDatabase): Repositories {
     sieges: createSiegeRepo(db),
     missions: createMissionsRepo(db),
     bar: createBarRepo(db),
-    city: createCityRepo(db),
+    city: createCityRepo(db, options.admin ?? false),
     movements: createMovementRepo(db),
     market: createMarketRepo(db),
     blackMarket: createBlackMarketRepo(db),

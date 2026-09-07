@@ -105,13 +105,22 @@ function visibleWindow(room: MeasuredSize, picture: { width: number; height: num
 }
 
 /** A control that floats on the painting: dark glass, a lit edge, and enough contrast to read. */
-export function OnArt({ className, children }: { className?: string; children: ReactNode }) {
+export function OnArt({
+  className,
+  children,
+  'data-testid': testId,
+}: {
+  className?: string;
+  children: ReactNode;
+  'data-testid'?: string;
+}) {
   return (
     <div
       className={cn(
         'glass-strong edge-lit rivets pointer-events-auto rounded-md border border-surface-500/70 shadow-panel',
         className,
       )}
+      data-testid={testId}
     >
       {children}
     </div>

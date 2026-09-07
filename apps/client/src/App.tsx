@@ -28,7 +28,6 @@ import { BlackMarketPage } from './features/market/BlackMarketPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { AdminPage } from './features/admin/AdminPage';
 import { InventoryPage } from './features/inventory/InventoryPage';
-import { BlueprintsPage } from './features/satchel/BlueprintsPage';
 import { WorkshopPage } from './features/workshop/WorkshopPage';
 import { ScrapyardPage } from './features/scrapyard/ScrapyardPage';
 import { GaragePage } from './features/garage/GaragePage';
@@ -124,8 +123,18 @@ export default function App() {
               </RequireLevel>
             }
           />
+          {/* §I1d: both doors of the archive are the same screen. The section follows the URL,
+              so a link into the documents lands on the documents. */}
           <Route
             path="research"
+            element={
+              <RequireLevel area="research">
+                <ResearchPage />
+              </RequireLevel>
+            }
+          />
+          <Route
+            path="research/blueprints"
             element={
               <RequireLevel area="research">
                 <ResearchPage />
@@ -162,7 +171,12 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin" element={<AdminPage />} />
           <Route path="inventory" element={<InventoryPage />} />
-          <Route path="inventory/blueprints" element={<BlueprintsPage />} />
+          {/* The Blueprints page lived in the Satchel until §I1d moved it into research. Kept as a
+              redirect rather than dropped: the old path is in bookmarks and in old notifications. */}
+          <Route
+            path="inventory/blueprints"
+            element={<Navigate to="/game/research/blueprints" replace />}
+          />
           <Route path="workshop" element={<WorkshopPage />} />
           {/* §B9: the Scrapyard's own page, reached from the plot's dialog rather than the nav. */}
           <Route path="scrapyard" element={<ScrapyardPage />} />

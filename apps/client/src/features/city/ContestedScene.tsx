@@ -59,25 +59,6 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
    */
   const unmarked = locations.filter((view) => LOCATION_MARKS[view.location.id] === undefined);
 
-  /**
-   * Every sign whose plate had to move off its point, and the line each of them needs.
-   *
-   * Only those: a plate hanging beside its own point draws its dot inside its own box and needs no
-   * line, because there is nothing to join up.
-   */
-  const leaders = [
-    ...marked.map((view) => ({ key: view.location.id, mark: LOCATION_MARKS[view.location.id]! })),
-    ...(gate !== null && gateMark !== undefined
-      ? [{ key: `gate-${district.id}`, mark: gateMark }]
-      : []),
-  ]
-    .filter((entry) => entry.mark.plate !== undefined)
-    .map((entry) => ({
-      key: entry.key,
-      from: { x: entry.mark.x, y: entry.mark.y },
-      to: entry.mark.plate!,
-    }));
-
   return (
     <div
       className="relative w-full overflow-hidden rounded-sm border border-surface-700"
@@ -94,48 +75,6 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
         className="absolute inset-0 h-full w-full object-cover"
         draggable={false}
       />
-
-      {/*
-       * The leader lines, and the points they run to.
-       *
-       * One layer for all of them rather than a line per sign, because a line has to be drawn in the
-       * painting's coordinates and a sign is positioned in its own: a dot rendered inside the sign's
-       * box can only ever be beside the sign, which is the constraint that had every plate sitting
-       * on the building it names.
-       *
-       * `viewBox="0 0 100 100"` with `preserveAspectRatio="none"` makes the SVG's coordinates the
-       * same percentages the marks are written in, so a line is the two fractions and nothing else.
-       * `vector-effect` then keeps the stroke one pixel wide, which that same non-uniform scale
-       * would otherwise stretch into a wedge.
-       */}
-      <svg
-        aria-hidden
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        className="pointer-events-none absolute inset-0 z-[9] h-full w-full"
-      >
-        {leaders.map((leader) => (
-          <g key={leader.key} className="text-brass-300/70">
-            <line
-              x1={leader.from.x * 100}
-              y1={leader.from.y * 100}
-              x2={leader.to.x * 100}
-              y2={leader.to.y * 100}
-              stroke="currentColor"
-              strokeWidth={1}
-              vectorEffect="non-scaling-stroke"
-            />
-          </g>
-        ))}
-      </svg>
-      {leaders.map((leader) => (
-        <span
-          key={leader.key}
-          aria-hidden
-          style={{ left: `${leader.from.x * 100}%`, top: `${leader.from.y * 100}%` }}
-          className="pointer-events-none absolute z-[9] h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-950/80 bg-brass-300"
-        />
-      ))}
 
       {marked.map((view) => (
         <Sign
@@ -207,12 +146,12 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
 }
 
 /**
- * One sign, hung at its mark.
+ * One sign, standing at its mark.
  *
- * `-translate-y-1/2` centres it on the point, and the horizontal translate hangs it off whichever
- * side {@link Mark} asked for, so a sign near the frame edge stays on the picture instead of being
- * clipped by the `overflow-hidden` above. `max-w` is what keeps a long name from reaching the far
- * edge on a narrow window: the name wraps to two lines rather than the plate growing off frame.
+ * Centred on the mark's `x` with its top edge at `y`, which the marks put just under the feature
+ * each names, the way a plot label sits under a building. No dot and no line: the sign's position
+ * is the whole statement. `max-w` keeps a long name wrapping to two lines rather than growing the
+ * plate off the frame on a narrow window, and `side` turns the two right-edge signs inward.
  */
 function Sign({
   mark,
@@ -231,15 +170,18 @@ function Sign({
   card: ReactNode;
   onActivate: () => void;
 }) {
-  // Where the plate hangs. Beside the point on an open picture; somewhere quieter, with a line back
-  // to the point, when hanging it beside would put it on the roof it is naming.
-  const at = mark.plate ?? mark;
   return (
     <span
-      style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}
+      style={{ left: `${mark.x * 100}%`, top: `${mark.y * 100}%` }}
       className={cn(
-        'absolute z-10 -translate-y-1/2',
-        mark.side === 'right' ? 'translate-x-2' : 'translate-x-[calc(-100%-0.5rem)]',
+        'absolute z-10',
+        // Centred on its mark and hung from it, like a plot label under a building. At the two
+        // frame edges the sign grows inward instead, so it stays inside the `overflow-hidden`.
+        mark.side === 'left'
+          ? '-translate-x-full'
+          : mark.side === 'right'
+            ? 'translate-x-0'
+            : '-translate-x-1/2',
       )}
     >
       <HoverCard
@@ -262,20 +204,6 @@ function Sign({
           <span className="min-w-0">{name}</span>
         </span>
       </HoverCard>
-      {/* The point the sign names, so the eye can tie the two together. Never a hit target: the
-          sign is the control. Drawn here only when the plate is beside its point; a plate that had
-          to move gets its dot and its line from the layer under all of them, because a dot
-          positioned inside this box cannot be placed anywhere else on the picture. */}
-      {mark.plate === undefined && (
-        <span
-          aria-hidden
-          className={cn(
-            'pointer-events-none absolute top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full',
-            'border border-surface-950/80 bg-brass-300',
-            mark.side === 'right' ? '-left-2.5' : '-right-2.5',
-          )}
-        />
-      )}
     </span>
   );
 }

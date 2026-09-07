@@ -107,15 +107,11 @@ import {
   payrollStepCost,
   type UnitsResponse,
   MODIFICATIONS,
+  BUILDING_KINDS,
+  modificationsFor,
   addResources,
-  MAX_PAIRINGS,
-  MAX_ROLE_FACTS,
-  makePairing,
   OFFICER_ROLES,
-  RESEARCH_COST_CAPS,
-  RESEARCH_MINUTES,
   researchCompletesAt,
-  roleFullyResearched,
   CITY_DISTRICTS,
   DISTRICT_NAME_MAX,
   createCommander,
@@ -143,11 +139,10 @@ import {
   type BattleResponse,
   type CityResponse,
   type CreateOverseerResponse,
-  type DiscoveredFact,
+  type Inventory,
   type MeResponse,
   type OfficerRole,
   type LaunchMissionResponse,
-  type ResearchLead,
   type ResearchResponse,
   type Mission,
   type MissionOutcome,
@@ -335,7 +330,7 @@ export const notorious: MeResponse = { ...lateGame, base: notoriousBase };
  * The same save on a build that *has* a bench.
  *
  * Separate from `lateGame` rather than a flag on it, because whether the bench exists is now a
- * fact `/me` reports and almost every other spec wants the answer to be no: a Bench door on the
+ * fact `/me` reports and almost every other spec wants the answer to be no: a Console door on the
  * screenshot matrix would put a fourteenth door in every layout sweep for a screen that does not
  * ship.
  */
@@ -1080,73 +1075,12 @@ export function settlingMissions(now: Date = new Date()): {
 }
 
 /**
- * Research at its widest (GDD §B9).
+ * Research at its widest (GDD §C).
  *
  * The fat case, per the standard `bar` and `missionsResponse` set. Fatness here is specific: the
- * longest role labels in §C1 (`Instructor of the Young`) against the longest attribute names in
- * §B (`communication`, `cryptography`, `intimidation`), every listed role already at
- * `MAX_ROLE_FACTS` so the `3 / 3 leads` counter is at its widest, the pairing cap filled so that
- * list wraps as far as it ever will, and a six-figure cap balance in the header.
- *
- * The facts below are chosen for *string width*, not for accuracy against the server's hidden
- * requirement table: a fixture has no business encoding that, and this file is inside the W1 leak
- * guard's scan (§B8a).
+ * longest role labels in §C1 against the deepest track the marks allow, a six-figure cap balance in
+ * the header, and two chairs left empty so the shut state is on screen as well as the open one.
  */
-const WIDE_ATTRIBUTES = [
-  'communication',
-  'cryptography',
-  'intimidation',
-  'craft',
-  'cybernetics',
-  'intuition',
-  'negotiation',
-  'encyclopedia',
-  'navigation',
-  'engineering',
-  'diplomacy',
-  'strategy',
-] as const;
-
-const WIDE_ROLES = [
-  'instructor_of_the_young',
-  'head_of_research',
-  'finance_officer',
-  'security_officer',
-  'field_commander',
-] as const satisfies readonly OfficerRole[];
-
-const wideFacts: DiscoveredFact[] = [
-  ...WIDE_ROLES.flatMap((role, roleIndex) =>
-    Array.from({ length: MAX_ROLE_FACTS }, (_unused, factIndex) => ({
-      kind: 'role_attribute' as const,
-      role,
-      attribute:
-        WIDE_ATTRIBUTES[(roleIndex * MAX_ROLE_FACTS + factIndex) % WIDE_ATTRIBUTES.length]!,
-    })),
-  ),
-  ...Array.from({ length: MAX_PAIRINGS - 1 }, (_unused, index) =>
-    makePairing(
-      WIDE_ATTRIBUTES[index % WIDE_ATTRIBUTES.length]!,
-      WIDE_ATTRIBUTES[(index + 5) % WIDE_ATTRIBUTES.length]!,
-    ),
-  ),
-];
-
-/** Two leads, one of them imaginative enough to unlock §F4, with the longest names available. */
-const wideLeads: ResearchLead[] = [
-  {
-    officerId: 'off-prof',
-    name: 'Professor Aurelio Xanthopoulos-Reyes',
-    role: 'professor',
-    crossReference: true,
-  },
-  {
-    officerId: 'off-hor',
-    name: 'Wenqing "Compass" Adebayo-Lindqvist',
-    role: 'head_of_research',
-    crossReference: false,
-  },
-];
 
 /**
  * §C: who is in each of the nineteen chairs, in `OFFICER_ROLES` order.
@@ -1266,85 +1200,92 @@ const fixtureTracks: ResearchTrackStatus[] = OFFICER_ROLES.map((role) => {
 
 const researchBase = {
   serverNow: NOW,
-  justDiscovered: [] as DiscoveredFact[],
-  facts: wideFacts,
-  leads: wideLeads,
-  openRoles: OFFICER_ROLES.filter((role) => !roleFullyResearched(wideFacts, role)),
-  pairingsExhausted: false,
-  overseerAttributes: overseer.attributes,
   caps: 125000,
-  costs: RESEARCH_COST_CAPS,
-  // §A1: a crew with no Lead Engineer, so every modification reports the same blocker. The
-  // structures themselves are unbuilt in this fixture, which is the blocker the player sees first.
-  canModify: false,
   // §C: nineteen tracks, each with finished rungs, one startable rung and locked ones above it.
   technologies: fixtureTechnologies,
   tracks: fixtureTracks,
   head: fixtureHead,
-  modifications: MODIFICATIONS.map((mod) => ({
-    id: mod.id,
-    building: mod.building,
-    name: mod.name,
-    description: mod.description,
-    effect: mod.effect,
-    magnitude: mod.magnitude,
-    installed: false,
-    blocker: 'not_built' as const,
-  })),
 };
 
-/** Nothing running: the start forms, both of them, over a crew that already knows a lot. */
+/**
+ * A satchel holding a document in every state §D6 to §D10 draws (§I1d).
+ *
+ * One page in, most of the way there, complete and waiting on its Unlock, and one already unlocked,
+ * across all three categories. Lives here rather than in one spec because both the Blueprints
+ * assertions and the research page's visual sweep need the same fat case: a crew that happened to
+ * hold none of these would screenshot an empty screen and pass.
+ */
+export const pagesHeld: Inventory = {
+  // Partial: two of the Colossus' eight, which is the longest row on the page.
+  pg_colossus_hull_sections: 1,
+  pg_colossus_reactor_housing: 1,
+  // Partial, with a spare copy: the square that carries a count.
+  pg_juggernauts_slab_armour: 3,
+  pg_juggernauts_power_spine: 1,
+  // Complete and waiting to be unlocked: the Unlock control.
+  pg_snipers_barrel_liners: 1,
+  pg_snipers_range_cards: 1,
+  pg_snipers_ghillie_patterns: 1,
+  // Upgrades and consumables, so all three panels have something in them.
+  pg_munitions_load_tables: 1,
+  pg_garage_pit_layout: 1,
+  pg_garage_hoist_rating: 1,
+  pg_shaped_charges_cone_geometry: 1,
+  pg_overnight_plating_cut_list: 1,
+  pg_overnight_plating_weld_sequence: 1,
+  // Already unlocked: the second view.
+  bp_motorcycle: 1,
+  scrap_servo: 4,
+};
+
+/** Nothing on the bench: every reachable rung offering itself, over a crew well up its tracks. */
 export const research: ResearchResponse = {
   ...researchBase,
   active: null,
   completesAt: null,
 };
 
-/** A project in flight, with §F4's cross-reference on, built live so the countdown is real. */
+/** A rung on the bench, built live so the countdown is real. */
 export function activeResearch(now: Date = new Date()): ResearchResponse {
+  const running = fixtureTechnologies.find((rung) => !rung.known && rung.blocker === null);
+  if (!running) throw new Error('the research fixture has no startable rung');
   const active = {
     id: 'r-active',
-    project: {
-      kind: 'investigation' as const,
-      role: 'instructor_of_the_young' as const,
-      leadOfficerId: 'off-prof',
-      crossReference: true,
-    },
+    project: { kind: 'technology' as const, techId: running.id },
     // One minute in, so the countdown reads at its widest for this duration.
     startedAt: new Date(now.getTime() - 60_000).toISOString(),
-    durationMinutes: RESEARCH_MINUTES.investigation,
+    durationMinutes: running.minutes,
   };
   return { ...researchBase, active, completesAt: researchCompletesAt(active).toISOString() };
 }
 
 /**
- * The state change neither fixture above can express: a project still running on the first read,
- * landed and reporting its facts on the next.
+ * The state change neither fixture above can express: a rung still running on the first read,
+ * landed and finished on the next.
  *
- * Every other research fixture is *born* either active or already idle, so the settle path: the
- * one moment the whole feature turns on: would never be exercised in a browser, and facts that
- * never reached the page would pass every assertion in the suite. This is the §E-settlement lesson
- * applied to §B9.
+ * Every other research fixture is *born* either active or already idle, so the settle path, the one
+ * moment the whole feature turns on, would never be exercised in a browser and a rung that never
+ * reached the page would pass every assertion in the suite.
  */
 export function settlingResearch(now: Date = new Date()): {
   pending: ResearchResponse;
   settled: ResearchResponse;
+  /** The rung that lands between the two reads. */
+  landed: LabTech;
 } {
   const pending = activeResearch(now);
-  const discovered: DiscoveredFact[] = [
-    { kind: 'role_attribute', role: 'raid_boss', attribute: 'intimidation' },
-    { kind: 'role_attribute', role: 'raid_boss', attribute: 'improvisation' },
-    makePairing('intimidation', 'improvisation'),
-  ];
+  const running = pending.active!.project.techId;
+  const landed = fixtureTechnologies.find((rung) => rung.id === running)!;
   return {
     pending,
+    landed,
     settled: {
       ...researchBase,
       active: null,
       completesAt: null,
-      justDiscovered: discovered,
-      facts: [...wideFacts, ...discovered],
-      openRoles: researchBase.openRoles.filter((role) => role !== 'raid_boss'),
+      technologies: fixtureTechnologies.map((rung) =>
+        rung.id === running ? { ...rung, known: true, blocker: null } : rung,
+      ),
     },
   };
 }
@@ -1605,6 +1546,37 @@ export const market: MarketResponse = {
 };
 
 /** The workshop with one rung climbed on each line, so both states are on the screenshot. */
+/**
+ * A district with its structures raised, one modification bolted in and one still on the shelf.
+ *
+ * The Workshop's modifications view (§I3b) reads the whole picture off `/me`, and `lateGameBase`
+ * stands three structures at level 1 or 2, so it would screenshot twelve panels all reading
+ * "not built yet". This is the state the view exists for. Kept out of `lateGameBase` itself,
+ * because every other screen in the suite is drawn from that one and a fatter district would move
+ * numbers on all of them.
+ */
+export const districtWithAddons: Base = {
+  ...lateGameBase,
+  buildings: BUILDING_KINDS.map((kind, index) => ({
+    id: `mod-${kind}`,
+    kind,
+    // Every bracket open on the first two, the first bracket still shut on the rest, so the view
+    // draws a fitted slot, an empty one and a locked one.
+    level: index < 2 ? 20 : 3,
+    modifications: index === 0 ? [modificationsFor(kind)[0]!.id] : [],
+    damage: 0,
+  })),
+  addons: {
+    researched: [],
+    built: [
+      // One in a wall, and one of the same structure's still waiting to go into one.
+      modificationsFor(BUILDING_KINDS[0])[0]!.id,
+      modificationsFor(BUILDING_KINDS[0])[1]!.id,
+      modificationsFor(BUILDING_KINDS[1])[0]!.id,
+    ],
+  },
+};
+
 export const workshop: WorkshopResponse = {
   resources: lateGameBase.resources,
   inventory: market.inventory,
@@ -1735,6 +1707,13 @@ export const adminSnapshot: AdminSnapshot = {
     { kind: 'infirmary', level: 4 },
     { kind: 'garage', level: 0 },
   ],
+  // Everything scouted, which is what admin mode does by default; the console's knob un-ticks one.
+  fog: CITY_DISTRICTS.map((district) => ({
+    districtId: district.id,
+    name: district.name,
+    visible: true,
+    home: district.id === lateGameBase.districtId,
+  })),
   backups: [
     {
       file: 'frontline-2026-08-12T09-50-00-000Z.sqlite',
@@ -1762,7 +1741,7 @@ export const adminSnapshot: AdminSnapshot = {
  * three rather than one is that the card is styled by role and the screenshot has to prove all
  * three read as different things.
  */
-const BOARD_NOW = '2026-08-16T12:00:00.000Z';
+export const BOARD_NOW = '2026-08-16T12:00:00.000Z';
 const boardSlots = declarableSlots(new Date(BOARD_NOW)).map((slot) => slot.toISOString());
 
 const boardAnalysis: BattleAnalysis = {
@@ -1975,6 +1954,24 @@ const comingBattle = (
     role: officer.role,
     stats: officerBattleStats(officer.attributes),
   })),
+  /*
+   * §I4: a trap is a defender's to set, so an attacker's view carries an empty list.
+   *
+   * Two Pressure Plates in the bag and one already buried, which is the state worth a screenshot:
+   * one live option, two greyed with the reason on them, and the panel's clear control drawn.
+   */
+  traps:
+    role === 'defender'
+      ? TRAP_CATALOG.map((spec, index) => ({
+          trapId: spec.id,
+          name: spec.name,
+          description: spec.description,
+          held: index === 0 ? 2 : 0,
+          available: index === 0,
+          blocker: index === 0 ? '' : 'None in the bag. The Scrapyard cuts them',
+        }))
+      : [],
+  trapId: role === 'defender' ? (TRAP_CATALOG[0]?.id ?? null) : null,
 });
 
 export const battles: BattlesResponse = {
@@ -2046,13 +2043,6 @@ export const battles: BattlesResponse = {
     damage: index === 0 ? 42 : 0,
     effectiveness: index === 0 ? 0.79 : 1,
   })),
-  traps: TRAP_CATALOG.map((spec, index) => ({
-    trapId: spec.id,
-    name: spec.name,
-    description: spec.description,
-    available: index === 0,
-    blocker: index === 0 ? '' : 'The Lab has not worked this one out yet',
-  })),
   serverNow: BOARD_NOW,
 };
 
@@ -2096,6 +2086,15 @@ export const actionsResponse: ActionsResponse = {
       recallable: false,
     },
   ],
+  // Somebody out looking: ten minutes into an hour's walk to the Rustyard.
+  scoutingRun: {
+    districtId: 'rustyard',
+    districtName: 'The Rustyard',
+    officerId: 'officer-scout',
+    officerName: 'Vesper Kade',
+    departedAt: new Date(Date.parse(BOARD_NOW) - 10 * 60_000).toISOString(),
+    returnsAt: new Date(Date.parse(BOARD_NOW) + 50 * 60_000).toISOString(),
+  },
 };
 
 // --- factions, messages and notifications (board request) ---
@@ -2132,7 +2131,7 @@ export const factionScreen: FactionResponse = {
   rank: 'leader',
   members: [
     {
-      userId: 'me-user',
+      userId: user.id,
       baseId: base.id,
       username: 'Nikos',
       districtName: base.name,
@@ -2145,6 +2144,9 @@ export const factionScreen: FactionResponse = {
       armySize: 26,
       supplyUsed: 32,
       isBot: false,
+      // The leader's chair is the ace of spades, whoever sits in it.
+      card: 'ace_spades',
+      cardMark: 'C',
     },
     {
       userId: ALLY_ID,
@@ -2160,6 +2162,8 @@ export const factionScreen: FactionResponse = {
       armySize: 38,
       supplyUsed: 60,
       isBot: true,
+      card: 'king_diamonds',
+      cardMark: 'D+',
     },
   ],
   invites: [],
@@ -2180,6 +2184,8 @@ export const factionScreen: FactionResponse = {
     },
   ],
   armies: [
+    // Yourself as well: "What we field" is the whole table, the reader included.
+    { memberUserId: user.id, memberName: 'Nikos', army: base.army, size: 26 },
     {
       memberUserId: ALLY_ID,
       memberName: 'Sable_Ninth',
@@ -2202,7 +2208,7 @@ export const factionNone: FactionResponse = {
       factionName: 'The Ninth Circle',
       factionBadge: NINTH_BADGE,
       invitedBy: 'Sable_Ninth',
-      invitedUserId: 'me-user',
+      invitedUserId: user.id,
       sentAt: NOW,
     },
   ],
@@ -2375,7 +2381,7 @@ export const leaderboardPlayers: LeaderboardResponse = {
     },
     {
       rank: 3,
-      userId: 'me-user',
+      userId: user.id,
       username: 'Nikos',
       districtId: base.districtId,
       cityId: 'ashfall',

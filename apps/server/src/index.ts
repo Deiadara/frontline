@@ -43,8 +43,9 @@ async function main(): Promise<void> {
   // Started here rather than in `buildApp` for the same reason the seed is: a test builds an app
   // per case, and a timer writing whole database files to disk every ten minutes is not something a
   // test suite should have to remember to turn off.
+  let stopBackups: () => void = () => undefined;
   if (config.backupsEnabled) {
-    startBackupSchedule({
+    stopBackups = startBackupSchedule({
       db,
       directory: config.backupDir,
       onBackup: (file) => {
@@ -67,13 +68,55 @@ async function main(): Promise<void> {
   // Started here rather than in `buildApp` for the same reason as the backup schedule above: a
   // test builds an app per case, and a timer that resolves battles underneath a case asserting on
   // an unresolved one would be a fine way to make the suite flaky.
-  startWorldClock({
+  const stopClock = startWorldClock({
     repos: app.repos,
     engine: app.skirmishEngine,
     onSettled: (resolved, at) => app.log.info({ resolved, at }, 'world clock settled fights'),
     onError: (error) => app.log.error({ error }, 'world clock tick failed'),
   });
   app.log.info({ everyMs: WORLD_TICK_MS }, 'world clock started: fights land on their mark');
+
+  /*
+   * Ctrl+C stops the server, promptly and cleanly.
+   *
+   * There was no handler, and under `tsx` that is not the same as the default: tsx's preflight
+   * puts its own listener on SIGINT and SIGTERM in the child so it can relay them, which means
+   * the process no longer dies on the signal by itself. It kept listening until tsx gave up and
+   * force-killed it ("Previous process hasn't exited yet"), several seconds after the key was
+   * pressed, with the listening socket held the whole time and the database closed by nobody.
+   * Once, so a second Ctrl+C while the close is in flight falls through to the default and ends
+   * the process outright.
+   */
+  const shutdown = (signal: NodeJS.Signals): void => {
+    app.log.info({ signal }, 'shutting down');
+    stopClock();
+    stopBackups();
+    // The client polls on keep-alive sockets, and a close that waits for those to go idle waits
+    // for the browser. Dropped first, so the close is the close of a server with nobody on it.
+    app.server.closeAllConnections();
+    const closed = app.close().then(
+      () => 0,
+      (error: unknown) => {
+        console.error(error);
+        return 1;
+      },
+    );
+    // ...and two seconds is all a close gets. A shutdown that hangs on a plugin is still a
+    // shutdown: the process ends, and the database is closed on the way out either way.
+    const deadline = new Promise<number>((resolve) => {
+      setTimeout(resolve, 2_000, 0).unref();
+    });
+    void Promise.race([closed, deadline]).then((code) => {
+      try {
+        db.close();
+      } catch (error: unknown) {
+        console.error(error);
+      }
+      process.exit(code);
+    });
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 
   await app.listen({ port: config.port, host: config.host });
 }

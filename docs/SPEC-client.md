@@ -75,7 +75,7 @@ message}`; on `401` also clear the session (logout).
      identity have to share one line, and a second row costs the painting ~40px on every screen.
    - **Scenery switcher** (floating, along the bottom): City / District / Units / Missions / The
      Bar / Research / Crew / Training / Market / Workshop / Satchel, with Settings pinned to the
-     right of the row and the Bench appearing only in an admin build. Each entry is a _place_, with
+     right of the row and the Console appearing only in an admin build. Each entry is a _place_, with
      an icon large enough to read as a destination and its label under it. The row wraps rather
      than shrinking, and the shell measures whatever height that comes to. Gated doors (§I3) still
      draw and still link: they carry a padlock and the level that opens them.

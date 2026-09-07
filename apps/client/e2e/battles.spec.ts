@@ -204,37 +204,103 @@ test('a report reads as a document, and a silent one says so instead of showing 
   await expect(page.getByText(/stayed out there/)).toBeVisible();
 });
 
-test('the deployment dialog splits the line from the ring, and locks what the name cannot field', async ({
+/**
+ * §K2 to K5: two buttons, two windows, and one column in each.
+ *
+ * The line and the ring used to be two steppers on the same row of the same dialog, which put the
+ * whole line-or-ring decision in front of somebody who had pressed a button that already said
+ * where they were going. They are separate windows now, and what only a browser can say is that
+ * each one carries the stepper it is for and *not* the other one: both write into the same state
+ * and the same request, so a mode wired to the wrong half draws an identical screen.
+ */
+test('the line and the ring are two windows, each with one column and its own Half and Max', async ({
   page,
 }) => {
   await installApi(page, lateGame);
   await page.goto('/game/battles');
 
-  await page.getByTestId(`deploy-open-${battles.coming[0]!.battle.id}`).click();
+  const fight = battles.coming[0]!.battle.id;
+  await page.getByTestId(`deploy-open-${fight}`).click();
   await expect(page.getByTestId('deploy-rows')).toBeVisible();
 
-  // Two controls per unit, and they are different controls: one is the fight, one is the cordon.
+  // The line, on its own. The ring's stepper is not in this window at all.
   await expect(page.getByTestId('line-razors')).toBeVisible();
-  await expect(page.getByTestId('ring-razors')).toBeVisible();
+  await expect(page.getByTestId('ring-razors')).toHaveCount(0);
+
+  // Half and Max against the stepper, so a crew with a roster at home is not pressing a chevron
+  // forty times. Half of what is at home, and everybody, both read back off the field.
+  const home = lateGame.base!.army.razors!;
+  await page.getByTestId('deploy-half-razors').click();
+  await expect(page.getByTestId('line-razors')).toHaveValue(String(Math.floor(home / 2)));
+  await page.getByTestId('deploy-max-razors').click();
+  await expect(page.getByTestId('line-razors')).toHaveValue(String(home));
+
+  // §K3: the name opens the roster's own card, portrait, sheet and marks, in the window where a
+  // player is choosing who to send.
+  await page
+    .getByTestId('deploy-razors')
+    .getByRole('button', { name: 'Razors', exact: true })
+    .hover();
+  const card = page.getByTestId('unit-razors');
+  await expect(card).toBeVisible();
+  await expect(card.getByTestId('marks-razors')).toBeVisible();
+  await expect(card).toBeInViewport();
 
   await settleFonts(page);
   await expectNothingClippedVertically(page, '[role="dialog"]');
   await page.screenshot({ path: 'e2e-out/battles-deploy.png', fullPage: true });
+
+  // The ring, behind its own button, with the same controls over the other half of the request.
+  await page.keyboard.press('Escape');
+  await page.getByTestId(`perimeter-open-${fight}`).click();
+  await expect(page.getByTestId('perimeter-dialog')).toBeVisible();
+  await expect(page.getByTestId('ring-razors')).toBeVisible();
+  await expect(page.getByTestId('line-razors')).toHaveCount(0);
+  await page.getByTestId('deploy-max-razors').click();
+  await expect(page.getByTestId('ring-razors')).toHaveValue(String(home));
+  // A window that will not send what it just took is worse than no window: the confirm reads the
+  // ring's deltas, and it used to read a state the ring never wrote to. The opacity is the same
+  // assertion made in paint: the button fades up from its disabled state over 100ms, and a
+  // screenshot taken inside that window shows a live control looking dead.
+  await expect(page.getByTestId('deploy-confirm')).toBeEnabled();
+  await expect(page.getByTestId('deploy-confirm')).toHaveCSS('opacity', '1');
+
+  await settleFonts(page);
+  await expectNothingClippedVertically(page, '[role="dialog"]');
+  await page.screenshot({ path: 'e2e-out/battles-periphery.png', fullPage: true });
 });
 
 test('a district that is held end to end offers the gate and nothing else', async ({ page }) => {
   await installApi(page, lateGame);
   // `chrome-row` is the shut district in the fixture; the district page reads its gate off the
-  // board rather than working it out from who holds what.
+  // board rather than working it out from who holds what. It is a painted district now, so the
+  // gate is a sign on the painting and clicking it is how a fight at the gate is called: there is
+  // no `call-gate` button on a contested district, that one is the residential raid.
   await page.goto('/game/city/chrome-row');
-  await expect(page.getByTestId('call-gate')).toBeVisible();
-
+  const gate = page.getByTestId('site-gate-chrome-row');
+  await expect(gate).toBeVisible();
   await settleFonts(page);
-  // Past the fold before sweeping: seven location cards do not fit a laptop, and the bottom of the
-  // window cutting the last row is the window's doing rather than the layout's. This container was
-  // empty in the fixture until the district paintings landed, so the sweep had nothing to measure
-  // and the fold never came up.
-  await growPastTheFold(page);
-  await expectNothingClippedVertically(page, '[data-testid="locations"]');
+
+  // The ground behind it is this crew's own in the fixture, so a location's window says so and
+  // offers the work you do on your own ground, never a fight: the gate is the only thing here
+  // that opens a caller.
+  const anyLocation = page.locator('[data-testid^="site-chrome-row-"]').first();
+  await expect(anyLocation).toBeVisible();
+  await anyLocation.click();
+  const window = page.getByTestId('location-window');
+  await expect(window).toBeVisible();
+  await expect(window.getByText(/yours/i).first()).toBeVisible();
+  await expect(window.getByRole('button', { name: /Call a fight/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(window).toHaveCount(0);
+
+  // And the gate is the one thing that does offer one.
+  await gate.click();
+  const caller = page.getByRole('dialog');
+  await expect(caller).toBeVisible();
+  await expect(caller.getByTestId('declare-confirm')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await expectNothingClippedVertically(page, '[data-testid="district-painting-chrome-row"]');
   await page.screenshot({ path: 'e2e-out/battles-gate.png', fullPage: true });
 });

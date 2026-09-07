@@ -1,4 +1,4 @@
-import { BUILDING_KINDS } from '@frontline/shared';
+import { BUILDING_KINDS, CITY_DISTRICTS } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import { adminGame, lateGame, me } from './fixtures';
 import {
@@ -10,7 +10,7 @@ import {
 } from './harness';
 
 /**
- * The three screens half B added, the Black Market, Settings and the bench, plus the ambience layer
+ * The three screens half B added, the Black Market, Settings and the console, plus the ambience layer
  * that now runs over all of them.
  *
  * Every screen is measured at 1024 as well as at 1280. 1024 is where the chrome runs out of room:
@@ -200,21 +200,29 @@ test.describe('settings', () => {
   });
 });
 
-test.describe('the bench', () => {
+test.describe('the console', () => {
   for (const { name, width, height } of WIDTHS) {
     test(`lays out the knobs at ${name}`, async ({ page }) => {
       await open(page, '/game/admin', width, height);
 
-      await expect(page.getByRole('heading', { name: 'The Bench' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'The Console' })).toBeVisible();
       // The badge is not decoration: an unmarked free-and-instant build is indistinguishable from
       // a broken economy.
       await expect(page.getByTestId('admin-badge')).toContainText('5s');
       await expect(page.getByTestId('admin-presets').locator('> div')).toHaveCount(3);
+      // The fog of war: one tick per district, home ticked and fixed, the rest ticked by default.
+      const fog = page.getByTestId('admin-fog');
+      await expect(fog).toBeVisible();
+      await expect(fog.locator('input[type="checkbox"]')).toHaveCount(CITY_DISTRICTS.length);
+      await expect(fog.locator('input[type="checkbox"]:checked')).toHaveCount(
+        CITY_DISTRICTS.length,
+      );
+      await expect(fog.locator('input[type="checkbox"]:disabled')).toHaveCount(1);
       /*
        * One row per structure, whatever the catalogue holds.
        *
        * Was a hard 12 and went red when the Cistern was removed (§A2), which is the count doing
-       * its job badly: what the bench promises is a knob for *every* structure, not for twelve of
+       * its job badly: what the console promises is a knob for *every* structure, not for twelve of
        * them. Pinned to the catalogue's own length so removing or adding one moves the test with
        * the game, and separately pinned below so the two cannot drift into agreeing about nothing.
        */
@@ -233,13 +241,13 @@ test.describe('the bench', () => {
 
   test('is a door in the scenery switcher when the build has one', async ({ page }) => {
     await open(page, '/game', 1280, 720);
-    await expect(page.getByTestId('nav-bench')).toBeVisible();
+    await expect(page.getByTestId('nav-console')).toBeVisible();
     await expect(page.getByTestId('nav-settings')).toBeVisible();
   });
 
-  test('is not a door when the server says there is no bench', async ({ page }) => {
+  test('is not a door when the server says there is no console', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    // `/me` is what says whether this build has a bench. It used to be discovered by calling the
+    // `/me` is what says whether this build has a console. It used to be discovered by calling the
     // bench and reading a 404, which worked but made every production session log a failed request
     // on every page, so the answer moved onto a call the shell was already making, and this is the
     // build that answers no.
@@ -248,7 +256,7 @@ test.describe('the bench', () => {
     await settleFonts(page);
 
     await expect(page.getByTestId('nav-settings')).toBeVisible();
-    await expect(page.getByTestId('nav-bench')).toHaveCount(0);
+    await expect(page.getByTestId('nav-console')).toHaveCount(0);
   });
 });
 

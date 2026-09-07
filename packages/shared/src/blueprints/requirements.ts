@@ -45,6 +45,17 @@ export function blueprintForBattleBoost(boostId: string): BlueprintSpec | undefi
 }
 
 /**
+ * §I4: the drawings the yard cuts a trap from.
+ *
+ * The Lab rung on `TrapSpec.requiresTech` is the other half and neither replaces the other: the
+ * rung says the crew has worked out what the thing does, the document says somebody wrote down how
+ * to make one. Both are checked at the Scrapyard, in that order.
+ */
+export function blueprintForTrap(trapId: string): BlueprintSpec | undefined {
+  return blueprintForTarget('trap', trapId);
+}
+
+/**
  * §D12f: almost all building upgrades need a blueprint.
  *
  * "Almost all" is the advanced half of each structure's five modifications, which is a line the

@@ -968,6 +968,8 @@ and the readable action sits on top of it.
 | `plate-bar`                 | `130007` | opaque                  |
 | `plate-district-neon-docks` | `130008` | opaque                  |
 | `plate-district-rustyard`   | `130009` | opaque                  |
+| `plate-district-chrome-row` | `130010` | opaque                  |
+| `plate-faction-room`        | `130011` | opaque                  |
 
 ### 3.1 `plate-city`: the map base plate (plane 2)
 
@@ -1086,6 +1088,34 @@ trestles at upper right, a lit pawn shop with an outside stair at mid left, a ke
 right, a drained slag pit in the lower middle, and a pump row of fuel stands at lower right. Warm
 furnace light against cold wet stone, emissives small and at ground level. Painted signage is part
 of the street; nothing that reads as a label for a game object.
+```
+
+### 3.10 `plate-district-chrome-row`: Chrome Row, walked into (§A4)
+
+```
+SUBJECT: Chrome Row from above and slightly forward, the same camera as the other contested plates
+and **no sky**: what is left of downtown, a wet plaza round a statue on a plinth with a barrel fire
+at its foot, closed on every side. Eight places a player can stand, each recognisable at a glance: a
+columned bank hall turned market at upper left with tents and stalls spilling down its steps, a
+lattice transmitter mast with red lamps, a picture house with a lit marquee at upper right, a
+hospital block with a red cross on its face at the right, a lookout platform of scaffold on that
+block's roof, a pawn shop with a lit window at lower left, a row of arcade booths glowing magenta
+and cyan at lower right, and a tavern with tables in its lit corner. A timber gate with two guards
+closes the bottom edge. Magenta and sodium light on wet stone. Painted signage is part of the
+street; nothing that reads as a label for a game object.
+```
+
+---
+
+### 3.11 `plate-faction-room`: the faction's back room (§L)
+
+```
+SUBJECT: The faction's back room, seen from across the table and **no sky**: a round table under a
+hanging lamp with a city map, mugs, a bottle and a radio set on it, and five people round it, one
+standing and leaning in mid-sentence. A faction banner hangs on the wall behind, a pinboard of
+photographs and red string covers the wall at the left, and lit screens, a gantry and figures at
+consoles fill the hall beyond. Cold #22d3ee monitor light against warm sodium lamps. Nothing that
+reads as a label for a game object.
 ```
 
 ---
@@ -1379,6 +1409,7 @@ One marker per _kind_ of place, not per place: thirty-one places share twenty ki
 | `icon-location-skate-ground`          | `160071` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.`     |
 | `icon-location-chapel`                | `160072` | `SUBJECT: A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one narrow window.`                                    |
 | `icon-location-graveyard`             | `160073` | `SUBJECT: Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8 stone, one lamp at the gate in #f59e0b.`               |
+| `icon-location-revolutionary-statue`  | `160074` | `SUBJECT: A long-coated figure, one fist raised, on a plinth in a paved plaza seen three-quarter from above, cold #22d3ee floodlight up the front.`     |
 
 ### 6.5 Garage machines: ids match `VehicleId`
 

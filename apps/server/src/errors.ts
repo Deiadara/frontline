@@ -26,9 +26,8 @@ export type ErrorCode =
   | 'NEGOTIATION_CLOSED'
   | 'NO_PAYROLL'
   | 'AREA_LOCKED'
-  // research and discovery (GDD §B9, §F2-§F4)
+  // research (GDD §C)
   | 'RESEARCH_BUSY'
-  | 'NO_RESEARCH_LEAD'
   | 'RESEARCH_OPTION_LOCKED'
   | 'RESEARCH_EXHAUSTED'
   | 'TRAINING_REFUSED'
@@ -50,9 +49,6 @@ export type ErrorCode =
   | 'SCRAPYARD_REFUSED'
   | 'BUILD_QUEUE_FULL'
   | 'MISSING_PARTS'
-  | 'MODIFICATION_UNAVAILABLE'
-  | 'NO_MODIFICATION_SLOT'
-  | 'NO_LEAD_ENGINEER'
   | 'NO_HOUSING'
   | 'DAILY_HIRE_LIMIT'
   // the city and its units (GDD §A4, §A5)
@@ -100,7 +96,6 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   // message says which level opens it. A 404 would teach a player that the feature is not built.
   AREA_LOCKED: 403,
   RESEARCH_BUSY: 409,
-  NO_RESEARCH_LEAD: 409,
   RESEARCH_OPTION_LOCKED: 409,
   RESEARCH_EXHAUSTED: 409,
   MISSION_NEEDS_OFFICER: 409,
@@ -113,9 +108,6 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   SCRAPYARD_REFUSED: 409,
   BUILD_QUEUE_FULL: 409,
   MISSING_PARTS: 409,
-  MODIFICATION_UNAVAILABLE: 409,
-  NO_MODIFICATION_SLOT: 409,
-  NO_LEAD_ENGINEER: 409,
   NO_HOUSING: 409,
   DAILY_HIRE_LIMIT: 409,
   DISTRICT_UNSCOUTED: 409,

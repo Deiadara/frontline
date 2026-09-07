@@ -154,6 +154,8 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plate-bar', 'plate-bar.webp', 130007],
   ['plate-district-neon-docks', 'plate-district-neon-docks.webp', 130008],
   ['plate-district-rustyard', 'plate-district-rustyard.webp', 130009],
+  ['plate-district-chrome-row', 'plate-district-chrome-row.webp', 130010],
+  ['plate-faction-room', 'plate-faction-room.webp', 130011],
   ['building-nexus', 'building-nexus.webp', 140001],
   ['building-quarters', 'building-quarters.webp', 140002],
   ['building-greenhouse', 'building-greenhouse.webp', 140003],
@@ -257,6 +259,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-location-skate-ground', 'icon-location-skate-ground.webp', 160071],
   ['icon-location-chapel', 'icon-location-chapel.webp', 160072],
   ['icon-location-graveyard', 'icon-location-graveyard.webp', 160073],
+  ['icon-location-revolutionary-statue', 'icon-location-revolutionary-statue.webp', 160074],
   // §C1: the Garage's catalogue, appended after the location markers so no seed above moves.
   ['vehicle-motorcycle', 'vehicle-motorcycle.webp', 161001],
   ['vehicle-dirt-runner', 'vehicle-dirt-runner.webp', 161002],
@@ -337,8 +340,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 235 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(235);
+  it('holds the 238 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(238);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -385,11 +388,15 @@ describe('ART_MANIFEST', () => {
     // The two contested districts, and the same reasoning a third time: seven location signs are
     // positioned as fractions of each of these exact images, so a delivery that changes shape moves
     // all seven and has to be agreed to here as well as in the manifest.
-    // Both started at 1672x941 and 16:9 and both have been repainted since, to different shapes: the
-    // Docks to the 21:10 the city and the home district are on, the Steelbelt to 2.36:1, which is
-    // the Bar plate's shape. That is why these are two numbers and not one shared constant.
+    // Both started at 1672x941 and 16:9. The Docks were repainted to the 21:10 the city and the
+    // home district are on; the Steelbelt went to 2.36:1 for a while and has since been redelivered
+    // at the same 21:10. Two numbers rather than one shared constant even so, because they have
+    // moved independently before and will again.
     'plate-district-neon-docks': { width: 3780, height: 1800, aspect: '21:10' },
-    'plate-district-rustyard': { width: 1584, height: 672, aspect: '2.36:1' },
+    'plate-district-rustyard': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-chrome-row': { width: 3780, height: 1800, aspect: '21:10' },
+    // The faction's back room, at the same shape: five seats are fractions of this exact image.
+    'plate-faction-room': { width: 3780, height: 1800, aspect: '21:10' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {
@@ -545,7 +552,7 @@ describe('ART_MANIFEST', () => {
 
   it('leaves the rest of the manifest needing no post-process at all', () => {
     /*
-     * 233 in the manifest, 68 of them post-processed.
+     * 233 in the manifest, 69 of them post-processed.
      *
      * Both figures move together whenever a subject is added or removed. It was 76: §C1's eight
      * machines were drafted as icons, which are rendered at 1024² and downscaled, and they are
@@ -553,7 +560,7 @@ describe('ART_MANIFEST', () => {
      * and delivery agree needs no step at all, which is the whole reason `postProcess` is derived
      * rather than written down.
      */
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(68);
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(69);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {

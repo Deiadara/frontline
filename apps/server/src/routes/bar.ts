@@ -10,7 +10,6 @@ import {
   ReleaseOfficerRequestSchema,
   inStandoff,
   payrollStepCost,
-  playerLevelGrants,
   standoffAfterWalkout,
   standoffRemainingMs,
   type Base,
@@ -28,6 +27,7 @@ import {
   releaseOfficer,
   wageAskedOf,
   type HireRefusal,
+  recruitSlotsFor,
 } from '../bar/hire.js';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
 import { barSeatsFor, barDay, barRoster, findBarRecruit, seatOf } from '../bar/roster.js';
@@ -119,7 +119,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       ),
       officers: base.commanders.map((officer) => projectOfficer(base, officer)),
       slotsUsed: base.commanders.length,
-      slotsTotal: playerLevelGrants(base.level).recruitSlots,
+      slotsTotal: recruitSlotsFor(app.repos, base),
       infamy: base.economy.infamy,
       notoriety: base.economy.notoriety,
       level: base.level,

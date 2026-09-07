@@ -153,6 +153,12 @@ export function assertDeployable(config: AppConfig, nodeEnv = process.env.NODE_E
         'addresses of the proxies actually in front of this process.',
     );
   }
+  if (config.admin) {
+    throw new Error(
+      'ADMIN is on, and it is on by default outside tests: every registered player could set ' +
+        'their own level, infamy and stockpile from the Console. Set ADMIN=false to serve players.',
+    );
+  }
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {

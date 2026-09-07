@@ -40,7 +40,14 @@ export default defineConfig({
     {
       // `rm -f` on the sqlite file plus its WAL/SHM sidecars: a stale WAL would resurrect
       // the previous run's rows even after the main file is gone.
-      command: `rm -f "${scratchDb}" "${scratchDb}-wal" "${scratchDb}-shm" && mkdir -p "${scratchDir}" && pnpm --filter @frontline/server exec tsx src/index.ts`,
+      //
+      // `exec node --import tsx`, and not `pnpm ... exec tsx`: Playwright kills the process it
+      // spawned and nothing below it. The old command was a shell over pnpm over tsx over node,
+      // and a Ctrl+C on a run left the node at the bottom alive, reparented to launchd and holding
+      // port 4010 until somebody found it. With the shell replaced by the server itself there is
+      // nothing under the process Playwright kills.
+      command: `rm -f "${scratchDb}" "${scratchDb}-wal" "${scratchDb}-shm" && mkdir -p "${scratchDir}" && exec node --import tsx src/index.ts`,
+      cwd: '../server',
       url: `${apiUrl}/health`,
       reuseExistingServer: false,
       env: {

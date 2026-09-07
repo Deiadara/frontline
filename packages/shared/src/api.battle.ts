@@ -4,7 +4,7 @@ import { BattlefieldSchema } from './battle/battlefield.js';
 import { BattleSideSchema, BattleTargetSchema, ScheduledBattleSchema } from './battle/scheduled.js';
 import { BaseSchema } from './base.js';
 import { FleetSchema } from './building/vehicles.js';
-import { LevelUpSchema } from './api.js';
+import { LevelUpSchema, ScoutingRunViewSchema } from './api.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { OfficerRoleSchema } from './roles.js';
 import { ArmySchema, UnitIdSchema, UnitStatsSchema } from './units/index.js';
@@ -85,6 +85,26 @@ export const BattleBoostOptionSchema = z.object({
 });
 export type BattleBoostOption = z.infer<typeof BattleBoostOptionSchema>;
 
+/**
+ * A trap the caller could set under this fight, and whether they can (§I4).
+ *
+ * Every trap in the catalogue is on the list, including the ones the crew holds none of, for the
+ * reason the boost list gives: a thing you never see is a thing you never build. `held` is the
+ * count in the satchel and `available` is `held > 0`, because by the time a trap is an item the
+ * document and the Lab rung have already been answered at the Scrapyard.
+ */
+export const TrapOptionSchema = z.object({
+  trapId: z.string().min(1),
+  name: z.string(),
+  description: z.string(),
+  /** How many of these the crew is carrying. */
+  held: z.number().int().nonnegative(),
+  available: z.boolean(),
+  /** Why not, in the player's words. Empty when `available`. */
+  blocker: z.string(),
+});
+export type TrapOption = z.infer<typeof TrapOptionSchema>;
+
 export const BattleViewSchema = z.object({
   battle: ScheduledBattleSchema,
   /** The location, the district gate or the structure, in the words on the map. */
@@ -141,6 +161,17 @@ export const BattleViewSchema = z.object({
    * a second copy of it here is a second place for it to be wrong. Empty for a bystander.
    */
   leaders: z.array(BattleLeaderSchema).default([]),
+  /**
+   * §I4: the traps this crew could set under this fight. **Empty unless the caller is defending.**
+   *
+   * A trap is laid on ground you are holding, so an attacker has nothing to set and a bystander is
+   * not in the fight at all. Empty rather than absent for the same reason the boost list is: a
+   * field that only existed for one side would leak which side the reader is on by its own shape,
+   * and this payload already says that outright in `side`.
+   */
+  traps: z.array(TrapOptionSchema).default([]),
+  /** The one already set for this fight, or null. Free to change up to the mark. */
+  trapId: z.string().nullable().default(null),
 });
 export type BattleView = z.infer<typeof BattleViewSchema>;
 
@@ -172,17 +203,6 @@ export const StructureDefenceSchema = z.object({
   effectiveness: z.number().min(0).max(1),
 });
 export type StructureDefence = z.infer<typeof StructureDefenceSchema>;
-
-/** A trap the caller could lay, and whether they can. */
-export const TrapOptionSchema = z.object({
-  trapId: z.string().min(1),
-  name: z.string(),
-  description: z.string(),
-  available: z.boolean(),
-  /** Why not, in the player's words. Empty when `available`. */
-  blocker: z.string(),
-});
-export type TrapOption = z.infer<typeof TrapOptionSchema>;
 
 /**
  * One district's front door, as the caller can see it.
@@ -230,6 +250,12 @@ export type MovementView = z.infer<typeof MovementViewSchema>;
 export const ActionsResponseSchema = z.object({
   /** Everything this crew has walking, soonest to arrive first. */
   movements: z.array(MovementViewSchema),
+  /**
+   * The scout this crew has out, or null. The road page is "where is everybody right now", and a
+   * scout on their way to a dark district is somebody. Defaulted so a fixture written before it
+   * still parses.
+   */
+  scoutingRun: ScoutingRunViewSchema.nullable().default(null),
   serverNow: IsoDateTimeSchema,
 });
 export type ActionsResponse = z.infer<typeof ActionsResponseSchema>;
@@ -249,7 +275,6 @@ export const BattlesResponseSchema = z.object({
   /** Every district this crew can see into, and whether its gate is armed or down. */
   gates: z.array(DistrictGateViewSchema),
   structures: z.array(StructureDefenceSchema),
-  traps: z.array(TrapOptionSchema),
   serverNow: IsoDateTimeSchema,
 });
 export type BattlesResponse = z.infer<typeof BattlesResponseSchema>;
@@ -304,9 +329,21 @@ export const DeployRequestSchema = z.object({
 });
 export type DeployRequest = z.infer<typeof DeployRequestSchema>;
 
+/**
+ * §I4: set the one trap this side is allowed under a fight, or take it back up.
+ *
+ * `trapId: null` is the un-set, and it is free, exactly as {@link LeadBattleRequestSchema}'s is.
+ * Nothing leaves the satchel until the fight resolves, so there is nothing to refund and nothing
+ * to punish: a player who changes their mind about which of two fights gets the shell has to be
+ * able to say so.
+ *
+ * A trap used to be armed on a *location* and to sit there waiting for whoever came. It is on the
+ * fight now, which is why this names a battle: the decision belongs beside the boost and the
+ * officer, made against intel the defender has already read.
+ */
 export const LayTrapRequestSchema = z.object({
-  locationId: z.string().min(1),
-  trapId: z.string().min(1),
+  battleId: IdSchema,
+  trapId: z.string().min(1).nullable(),
 });
 export type LayTrapRequest = z.infer<typeof LayTrapRequestSchema>;
 

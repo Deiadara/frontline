@@ -1,4 +1,5 @@
-import { CHANNEL_LABELS, discounted, type EffectChannel } from '../crew/effects.js';
+import { applyPerkBonus, discounted, noCrewEffects, type CrewEffects } from '../crew/effects.js';
+import { describePerkBonus, type PerkBonus } from '../crew/perks.js';
 import {
   OFFICER_MARKS,
   OFFICER_MARK_CEILING,
@@ -98,22 +99,43 @@ export function requiredHeadMark(step: number): OfficerMark | null {
 /**
  * What a rung pays out.
  *
- * One {@link EffectChannel}, which is the same struct territory, crew attributes and the Garage all
- * write into, so a finished rung is wired into every consumer that already reads those effects with
- * no new parameter threaded anywhere. `unlocks` is set on the four rungs that also open something
- * the crew can lay or buy; it is the words for it, because the catalogues that own those things
- * import this module and cannot be imported back.
+ * Any bonus a perk or a piece of ground can pay ({@link PerkBonus}: every channel the crew fold
+ * already reads, a tier or one unit's own stats, flat points on every officer in a group, a
+ * resource an hour, vision, syringes, training sessions), plus three grants no perk makes: another
+ * crew out on a job at once, another chair at the Bar, another fight called at once. A rung is
+ * folded into the same struct territory, crew attributes and the Garage all write into, so a
+ * finished rung is wired into every consumer that already reads those effects with no new
+ * parameter threaded anywhere. `unlocks` is set on the rungs that also open something the crew can
+ * lay or buy; it is the words for it, because the catalogues that own those things import this
+ * module and cannot be imported back.
+ *
+ * ## Why not a percentage on every rung
+ *
+ * It was one channel and one percentage per rung, sized by depth. Ten rungs of `+N% build speed`
+ * is a slider, and a slider is not a reason to climb: the board asked for rewards a player would
+ * plan a crew around. So the deep rungs open doors (a second crew out, a fourth fight called), the
+ * middle ones favour a kind of unit or lift the other officers, and the percentages are kept where
+ * a percentage is the honest shape of the thing.
  */
+export type ResearchBonus =
+  | PerkBonus
+  /** Another crew out on a job at the same time (§E). */
+  | { kind: 'mission_slots'; flat: number }
+  /** Another chair at the Bar: one more officer on the books. */
+  | { kind: 'recruit_slots'; flat: number }
+  /** Another fight called and pending at once. */
+  | { kind: 'declarations'; flat: number };
+
 export interface ResearchPayout {
-  channel: EffectChannel;
+  bonus: ResearchBonus;
   unlocks?: string;
 }
 
 /**
- * The six kinds of payout the brief allows (§C4a), and which channel is which.
+ * The kinds of payout, and which bonus is which (§C4a, widened by the board on 2026-09-04).
  *
  * Held as a table rather than as a comment so `research.tracks.test.ts` can assert that every one
- * of the 190 rungs lands in one of the six. A seventh family cannot be added by accident: a channel
+ * of the 190 rungs lands in one of them. A ninth family cannot be added by accident: a bonus kind
  * with no entry here fails the same test.
  */
 export const PAYOUT_FAMILIES = [
@@ -123,52 +145,87 @@ export const PAYOUT_FAMILIES = [
   'battle',
   'counterintel',
   'travel',
+  'people',
+  'command',
 ] as const;
 export type PayoutFamily = (typeof PAYOUT_FAMILIES)[number];
 
 /**
- * Which family each channel belongs to.
+ * Which family each bonus kind belongs to.
  *
- * `intelYieldPercent` is filed under `counterintel` with its mirror. The brief's line is "make the
- * crew harder to spy on", and yield is the other half of the same trade: the Head Spy's and the
- * Scout's tracks are about the quiet war in both directions, and splitting the pair across two
- * families would have put "what a scout brings back" under "boost something in battle", which is
- * not what it is.
+ * `intel` is filed under `counterintel` with its mirror: the Head Spy's and the Scout's tracks are
+ * about the quiet war in both directions. `people` is what lifts the officers or seats another;
+ * `command` is what widens what the crew may have going at once.
  */
-const CHANNEL_FAMILY: Partial<Record<EffectChannel, PayoutFamily>> = {
-  researchSpeedPercent: 'thrift',
-  buildSpeedPercent: 'thrift',
-  trainingSpeedPercent: 'thrift',
-  trainingCostPercent: 'thrift',
-  buildCostPercent: 'thrift',
-  wageDiscountPercent: 'thrift',
+const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
+  research_speed: 'thrift',
+  build_speed: 'thrift',
+  training_speed: 'thrift',
+  training_cost: 'thrift',
+  build_cost: 'thrift',
+  wage_discount: 'thrift',
+  payroll_step_discount: 'thrift',
+  market_discount: 'thrift',
+  black_market_discount: 'thrift',
+  refit_discount: 'thrift',
+  vehicle_parts: 'thrift',
+  building_cost: 'thrift',
 
-  productionPercent: 'yield',
-  storageCapacityPercent: 'yield',
-  lootCapacityPercent: 'yield',
-  recruitPoolPercent: 'yield',
+  production: 'yield',
+  storage_capacity: 'yield',
+  loot_capacity: 'yield',
+  recruit_pool: 'yield',
+  resource: 'yield',
+  resource_yield: 'yield',
+  mission_spoils: 'yield',
+  salvage_refund: 'yield',
+  population: 'yield',
+  xp_gain: 'yield',
+  infamy_gain: 'yield',
 
-  defensePercent: 'battle',
-  unitOffensePercent: 'battle',
-  unitVitalityPercent: 'battle',
-  unitMoraleFlat: 'battle',
-  unitSpeedPercent: 'battle',
-  unitStealthPercent: 'battle',
-  cohesionPercent: 'battle',
-  casualtyRecoveryPercent: 'battle',
-  intimidationFlat: 'battle',
+  defense_percent: 'battle',
+  unit_offense: 'battle',
+  unit_vitality: 'battle',
+  unit_armor: 'battle',
+  unit_tier: 'battle',
+  unit_kind: 'battle',
+  unit_morale: 'battle',
+  unit_speed: 'battle',
+  unit_stealth: 'battle',
+  cohesion: 'battle',
+  casualty_recovery: 'battle',
+  intimidation: 'battle',
+  allied_offense: 'battle',
+  gate_defense: 'battle',
+  whole_district: 'battle',
+  battle_stims: 'battle',
+  lead_offense: 'battle',
+  lead_evasion: 'battle',
+  lead_armor: 'battle',
+  lead_morale: 'battle',
+  lead_loot: 'battle',
+  lead_arrival: 'travel',
 
-  intelResistancePercent: 'counterintel',
-  intelYieldPercent: 'counterintel',
+  intel_resistance: 'counterintel',
+  intel: 'counterintel',
 
-  travelSpeedPercent: 'travel',
+  travel_speed: 'travel',
+  mission_speed: 'travel',
+  vision: 'travel',
+
+  officer_group: 'people',
+  officer_attribute: 'people',
+  officer_threshold: 'people',
+  recruit_slots: 'people',
+  training_sessions: 'people',
+
+  mission_slots: 'command',
+  declarations: 'command',
 };
 
 export function payoutFamily(payout: ResearchPayout): PayoutFamily {
   if (payout.unlocks !== undefined) return 'unlock';
-  const family = CHANNEL_FAMILY[payout.channel];
-  if (!family) throw new Error(`no payout family for ${payout.channel}`);
-  return family;
+  return KIND_FAMILY[payout.bonus.kind];
 }
 
 export interface ResearchItemSpec {
@@ -179,17 +236,11 @@ export interface ResearchItemSpec {
   name: string;
   description: string;
   payout: ResearchPayout;
-  magnitude: number;
   cost: PartialResources;
   /** The catalogue clock, before the Lab, the crew and the Head of Research take their cuts. */
   minutes: number;
   requiresMark: OfficerMark;
   requiresHeadMark: OfficerMark | null;
-}
-
-/** Percentage channels and flat ones are not on the same scale, so they do not share a curve. */
-function magnitudeFor(step: number, channel: EffectChannel): number {
-  return CHANNEL_LABELS[channel].unit === 'flat' ? 1 + Math.ceil(step / 2) : 2 + step;
 }
 
 const roundTo = (value: number, unit: number): number => Math.round(value / unit) * unit;
@@ -219,7 +270,7 @@ export function researchItemMinutes(step: number): number {
 interface TrackEntry {
   name: string;
   blurb: string;
-  channel: EffectChannel;
+  bonus: ResearchBonus;
   /** Set on the rungs that also open something. The words are the thing's own name. */
   unlocks?: string;
 }
@@ -243,9 +294,8 @@ function buildTrack(track: OfficerRole, entries: readonly TrackEntry[]): Researc
       description: entry.blurb,
       payout:
         entry.unlocks === undefined
-          ? { channel: entry.channel }
-          : { channel: entry.channel, unlocks: entry.unlocks },
-      magnitude: magnitudeFor(step, entry.channel),
+          ? { bonus: entry.bonus }
+          : { bonus: entry.bonus, unlocks: entry.unlocks },
       cost: researchItemCost(step),
       minutes: researchItemMinutes(step),
       requiresMark: requiredTrackMark(step),
@@ -282,52 +332,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Dead Drops',
       blurb: 'A brick, the gap behind it, and two people who never meet.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 4 },
     },
     {
       name: 'Cut-Outs',
       blurb: 'Every message passes through somebody who can name neither end.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 5 },
     },
     {
       name: 'Traffic Analysis',
       blurb: 'You do not need to read it. You need to know who is talking to whom.',
-      channel: 'intelYieldPercent',
+      bonus: { kind: 'intel', percent: 6 },
     },
     {
       name: 'Back Alleys',
       blurb: 'Routes nobody watches, walked until they are quicker than the road.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'travel_speed', percent: 5 },
     },
     {
       name: 'Legend Building',
       blurb: 'A whole life on paper, for somebody who has never existed.',
-      channel: 'unitStealthPercent',
+      bonus: { kind: 'unit_stealth', percent: 6 },
     },
     {
       name: 'One-Time Pads',
       blurb: 'Slow, unbreakable, and everybody hates carrying the books.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 10 },
     },
     {
       name: 'Turned Runners',
       blurb: 'Their courier still runs their route. He stops here first.',
-      channel: 'intelYieldPercent',
+      bonus: { kind: 'vision', districts: 1 },
     },
     {
       name: 'Compartmentation',
       blurb: 'Nobody knows more than the next name up. Not even you.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'officer_group', group: 'mental', flat: 2 },
     },
     {
       name: 'False Traffic',
       blurb: 'A whole second district that does not exist, chattering away all night.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 14 },
     },
     {
       name: 'The Long Silence',
       blurb: 'For a week the wire says nothing at all, and that is the loudest thing on it.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'unit_kind', unitId: 'ghosts', stat: 'offense', percent: 20 },
     },
   ]),
 
@@ -335,52 +385,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Load Tables',
       blurb: 'Somebody finally wrote down what each beam actually carries.',
-      channel: 'buildSpeedPercent',
+      bonus: { kind: 'build_speed', percent: 4 },
     },
     {
       name: 'Site Discipline',
       blurb: 'Tools go back. It saves an hour a day and nobody believes it until it does.',
-      channel: 'buildSpeedPercent',
+      bonus: { kind: 'build_speed', percent: 5 },
     },
     {
       name: 'Formwork Reuse',
       blurb: 'The same moulds, twelve pours, if you clean them.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'build_cost', percent: 6 },
     },
     {
       name: 'Bracing Standards',
       blurb: 'One drawing for every corner, so no corner is somebody guessing.',
-      channel: 'defensePercent',
+      bonus: { kind: 'building_cost', building: 'gate', percent: 15 },
     },
     {
       name: 'Prefabrication',
       blurb: 'Made flat on the ground and stood up in an afternoon.',
-      channel: 'buildSpeedPercent',
+      bonus: { kind: 'build_speed', percent: 9 },
     },
     {
       name: 'Cold Joints',
       blurb: "Where yesterday's pour meets today's, and how not to leave a seam.",
-      channel: 'defensePercent',
+      bonus: { kind: 'gate_defense', percent: 12 },
     },
     {
       name: 'Critical Path',
       blurb: 'Every build is planned backwards from the day it has to be standing.',
-      channel: 'buildSpeedPercent',
+      bonus: { kind: 'build_speed', percent: 12 },
     },
     {
       name: 'Tolerance Stacking',
       blurb: 'Six parts, each within a millimetre, and the seventh will not go on. Now it does.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'building_cost', building: 'nexus', percent: 20 },
     },
     {
       name: 'Rebar Schedules',
       blurb: 'Steel in the concrete, laid to a drawing rather than to a mood.',
-      channel: 'defensePercent',
+      bonus: { kind: 'defense_percent', percent: 9 },
     },
     {
       name: 'The Standing Order',
       blurb: 'A structure is finished when the file is closed, and not before.',
-      channel: 'buildSpeedPercent',
+      bonus: { kind: 'build_speed', percent: 18 },
     },
   ]),
 
@@ -388,52 +438,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Double Entry',
       blurb: 'Two columns. It is astonishing how much stops going missing.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'wage_discount', percent: 4 },
     },
     {
       name: 'Bulk Contracts',
       blurb: 'Buy for the quarter, not for the week.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'market_discount', percent: 5 },
     },
     {
       name: 'Wage Bands',
       blurb: 'Everybody knows what the job pays before they ask what it pays.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'wage_discount', percent: 6 },
     },
     {
       name: 'Depreciation',
       blurb: 'A machine is worth less every month, and now the books say so.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'vehicle_parts', percent: 10 },
     },
     {
       name: 'Payroll Netting',
       blurb: 'One transfer instead of forty. Forty fees become one.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'payroll_step_discount', percent: 10 },
     },
     {
       name: 'Unit Costing',
       blurb: 'What one soldier costs to put in the field, to the cap.',
-      channel: 'trainingCostPercent',
+      bonus: { kind: 'training_cost', percent: 8 },
     },
     {
       name: 'Hedged Stock',
       blurb: 'Half the scrap bought forward, so a bad month is only half a bad month.',
-      channel: 'storageCapacityPercent',
+      bonus: { kind: 'resource', resource: 'caps', perHour: 12 },
     },
     {
       name: 'Audit Trail',
       blurb: 'Somebody checks. That is the whole of the intervention.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'wage_discount', percent: 10 },
     },
     {
       name: 'Capital Rationing',
       blurb: 'Three projects, money for two, and a rule for choosing.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'build_cost', percent: 10 },
     },
     {
       name: 'The Ledger Closes',
       blurb: 'Every cap accounted for, every month, without exception.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'resource', resource: 'caps', perHour: 30 },
     },
   ]),
 
@@ -441,52 +491,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Shift Rotation',
       blurb: 'Three watches instead of two. Nothing stands idle between them.',
-      channel: 'productionPercent',
+      bonus: { kind: 'production', percent: 5 },
     },
     {
       name: 'Word of Mouth',
       blurb: 'People come because somebody they trust told them to.',
-      channel: 'recruitPoolPercent',
+      bonus: { kind: 'recruit_pool', percent: 8 },
     },
     {
       name: 'Yield Records',
       blurb: 'What each line made, every day, on a board where everyone sees it.',
-      channel: 'productionPercent',
+      bonus: { kind: 'resource_yield', resource: 'supplies', percent: 8 },
     },
     {
       name: 'Open Intake',
       blurb: 'The door is open two nights a week and the room is warm.',
-      channel: 'recruitPoolPercent',
+      bonus: { kind: 'population', flat: 20 },
     },
     {
       name: 'Line Balancing',
       blurb: 'Somebody finally timed every station and moved the slow one.',
-      channel: 'productionPercent',
+      bonus: { kind: 'production', percent: 8 },
     },
     {
       name: 'Overflow Yards',
       blurb: 'Ground nobody was using, fenced and drained.',
-      channel: 'storageCapacityPercent',
+      bonus: { kind: 'storage_capacity', percent: 12 },
     },
     {
       name: 'Apprentice Pipeline',
       blurb: 'Every hand teaches the next one, on the clock.',
-      channel: 'trainingSpeedPercent',
+      bonus: { kind: 'training_sessions', flat: 1 },
     },
     {
       name: 'Continuous Casting',
       blurb: 'The line does not stop between batches any more.',
-      channel: 'productionPercent',
+      bonus: { kind: 'resource', resource: 'scrap', perHour: 20 },
     },
     {
       name: 'Second Site',
       blurb: 'A yard on the far side of the district, running the same hours.',
-      channel: 'productionPercent',
+      bonus: { kind: 'production', percent: 12 },
     },
     {
       name: 'The Growth Curve',
       blurb: 'It compounds. That is the whole trick and it takes a year to see.',
-      channel: 'productionPercent',
+      bonus: { kind: 'recruit_slots', flat: 1 },
     },
   ]),
 
@@ -494,52 +544,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Order of March',
       blurb: 'Who walks where, so the column does not arrive in pieces.',
-      channel: 'cohesionPercent',
+      bonus: { kind: 'cohesion', percent: 4 },
     },
     {
       name: 'Standing Signals',
       blurb: 'Three flags, and everyone knows what they mean under fire.',
-      channel: 'cohesionPercent',
+      bonus: { kind: 'cohesion', percent: 5 },
     },
     {
       name: 'Fire Discipline',
       blurb: 'Nobody shoots until the word, and then everybody does.',
-      channel: 'unitOffensePercent',
+      bonus: { kind: 'unit_tier', tier: 'rabble', stat: 'offense', percent: 6 },
     },
     {
       name: 'Reserve Doctrine',
       blurb: 'A third of the force does nothing at all until it matters.',
-      channel: 'unitMoraleFlat',
+      bonus: { kind: 'unit_morale', flat: 3 },
     },
     {
       name: 'Frontage Drill',
       blurb: 'Widening the line without thinning it, practised until it is dull.',
-      channel: 'cohesionPercent',
+      bonus: { kind: 'cohesion', percent: 9 },
     },
     {
       name: 'Rally Points',
       blurb: 'Everybody knows where to run to, so running is not a rout.',
-      channel: 'unitMoraleFlat',
+      bonus: { kind: 'unit_morale', flat: 5 },
     },
     {
       name: 'Combined Arms',
       blurb: 'The heavy holds, the fast flanks, and neither of them goes alone.',
-      channel: 'unitOffensePercent',
+      bonus: { kind: 'unit_tier', tier: 'heavy', stat: 'offense', percent: 10 },
     },
     {
       name: 'Night Movement',
       blurb: 'Arriving somewhere they were not looking, at an hour they were not up.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'travel_speed', percent: 8 },
     },
     {
       name: 'Echelon Attack',
       blurb: 'One flank hits first. The other hits the response to it.',
-      channel: 'unitOffensePercent',
+      bonus: { kind: 'allied_offense', percent: 10 },
     },
     {
       name: 'The Whole Force',
       blurb: 'Every body you brought is in the fight, which almost never happens.',
-      channel: 'cohesionPercent',
+      bonus: { kind: 'declarations', flat: 1 },
     },
   ]),
 
@@ -547,52 +597,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Reading Room',
       blurb: 'Somewhere quiet, with the files in it, and a rule about noise.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'research_speed', percent: 5 },
     },
     {
       name: 'Index Cards',
       blurb: 'Nobody looks for the same thing twice.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'research_speed', percent: 6 },
     },
     {
       name: 'Bench Notebooks',
       blurb: 'Written down as it happens, not remembered afterwards.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'xp_gain', percent: 5 },
     },
     {
       name: 'Peer Review',
       blurb: 'Somebody who was not there reads it before anybody believes it.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'research_speed', percent: 8 },
     },
     {
       name: 'Instrument Calibration',
       blurb: 'Every gauge checked against one gauge, monthly.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'officer_group', group: 'technical', flat: 2 },
     },
     {
       name: 'Field Debriefs',
       blurb: 'The people who used it tell you what actually happened to it.',
-      channel: 'intelYieldPercent',
+      bonus: { kind: 'intel', percent: 8 },
     },
     {
       name: 'Long Programmes',
       blurb: 'Three projects that nobody is allowed to interrupt for anything.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'research_speed', percent: 12 },
     },
     {
       name: 'The Archive',
       blurb: 'Twenty years of somebody else failing, catalogued and cross-referenced.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'officer_group', group: 'mental', flat: 3 },
     },
     {
       name: 'Shared Bench',
       blurb: 'The chemist and the engineer at the same table, on purpose.',
-      channel: 'buildSpeedPercent',
+      bonus: { kind: 'build_speed', percent: 8 },
     },
     {
       name: 'The Method',
       blurb: 'Guess, test, discard, write it down. It sounds like nothing at all.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'research_speed', percent: 18 },
     },
   ]),
 
@@ -600,52 +650,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Clean Room',
       blurb: 'Half of what kills an implant is dust.',
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'casualty_recovery', percent: 5 },
     },
     {
       name: 'Nerve Mapping',
       blurb: 'Which wire goes where in this body, not in the manual.',
-      channel: 'unitSpeedPercent',
+      bonus: { kind: 'unit_speed', percent: 5 },
     },
     {
       name: 'Rejection Protocols',
       blurb: 'The body says no. There is a way to argue with it.',
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'casualty_recovery', percent: 7 },
     },
     {
       name: 'Reflex Shunts',
       blurb: 'A shortcut past the brain for the things the brain is slow at.',
-      channel: 'unitSpeedPercent',
+      bonus: { kind: 'unit_tier', tier: 'specialist', stat: 'offense', percent: 8 },
     },
     {
       name: 'Load-Bearing Frames',
       blurb: 'Bone is not the strongest thing that can be in there.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'unit_tier', tier: 'heavy', stat: 'vitality', percent: 8 },
     },
     {
       name: 'Pain Gating',
       blurb: 'Not switched off. Turned down, and only on the day.',
-      channel: 'unitMoraleFlat',
+      bonus: { kind: 'unit_morale', flat: 5 },
     },
     {
       name: 'Subdermal Plate',
       blurb: 'Under the skin, over the parts that matter.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'unit_armor', percent: 6 },
     },
     {
       name: 'Salvage Grafts',
       blurb: "Somebody else's arm, and it works.",
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'battle_stims', flat: 1 },
     },
     {
       name: 'Neural Redundancy',
       blurb: 'Two paths for every signal, so one of them can be cut.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'unit_tier', tier: 'wonder', stat: 'vitality', percent: 12 },
     },
     {
       name: 'The Second Body',
       blurb: 'By the end there is not much of the first one left.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'unit_kind', unitId: 'juggernauts', stat: 'vitality', percent: 20 },
     },
   ]),
 
@@ -653,54 +703,54 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Jigs and Fixtures',
       blurb: 'Held the same way every time, so it comes out the same way every time.',
-      channel: 'trainingCostPercent',
+      bonus: { kind: 'training_cost', percent: 5 },
     },
     {
       name: 'Tool Steel',
       blurb: 'Harder than the thing it cuts, and it stays that way.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'build_cost', percent: 5 },
     },
     {
       name: 'Batch Runs',
       blurb: 'Forty of them, then set up for the next thing. Never one at a time.',
-      channel: 'trainingCostPercent',
+      bonus: { kind: 'training_cost', percent: 7 },
     },
     {
       name: 'Standard Parts',
       blurb: 'One thread, one gauge, one size of bolt. It took two years to agree on.',
-      channel: 'trainingCostPercent',
+      bonus: { kind: 'refit_discount', percent: 10 },
       unlocks: 'the Plated Overnight battle boost',
     },
     {
       name: 'Cold Forming',
       blurb: 'Shaped without heat, which is most of the cost gone.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'build_cost', percent: 9 },
     },
     {
       name: 'Reimagining',
       blurb: 'Three drawings that suit nothing, read together until a fourth falls out.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'salvage_refund', percent: 8 },
       unlocks: 'the Reimagining bench on the Blueprints page',
     },
     {
       name: 'Investment Casting',
       blurb: 'A wax model, a shell around it, and a part with no seam anywhere.',
-      channel: 'unitOffensePercent',
+      bonus: { kind: 'unit_tier', tier: 'rabble', stat: 'armor', percent: 8 },
     },
     {
       name: 'Hard Chrome',
       blurb: 'A tenth of a millimetre that triples how long the thing lasts.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'unit_armor', percent: 8 },
     },
     {
       name: 'Numerical Control',
       blurb: "The machine reads the drawing. Nobody's hand is anywhere in it.",
-      channel: 'buildSpeedPercent',
+      bonus: { kind: 'build_speed', percent: 10 },
     },
     {
       name: 'The Master Pattern',
       blurb: 'One perfect part, and every other one measured against it.',
-      channel: 'trainingCostPercent',
+      bonus: { kind: 'unit_kind', unitId: 'ironsides', stat: 'armor', percent: 15 },
     },
   ]),
 
@@ -708,52 +758,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Sorted Salvage',
       blurb: 'Two extra bins and a rule about which one things go in.',
-      channel: 'storageCapacityPercent',
+      bonus: { kind: 'storage_capacity', percent: 6 },
     },
     {
       name: 'Torch Discipline',
       blurb: 'Cut where it comes apart, not where it looks easy.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'loot_capacity', percent: 6 },
     },
     {
       name: 'Magnet Sweeps',
       blurb: 'The yard, once a week, on a rope.',
-      channel: 'productionPercent',
+      bonus: { kind: 'resource', resource: 'scrap', perHour: 6 },
     },
     {
       name: 'Alloy Reclamation',
       blurb: 'The good metal is in there. It is just mixed with everything else.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'resource_yield', resource: 'scrap', percent: 10 },
     },
     {
       name: 'Stripping Order',
       blurb: 'Wiring first, then glass, then the frame. Never the other way round.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'loot_capacity', percent: 9 },
     },
     {
       name: 'Dry Storage',
       blurb: 'Rain is what turns salvage into rust.',
-      channel: 'storageCapacityPercent',
+      bonus: { kind: 'storage_capacity', percent: 12 },
     },
     {
       name: 'Deep Sites',
       blurb: 'The places that are hard to get into are the places nobody has been.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'mission_spoils', percent: 8 },
     },
     {
       name: 'Furnace Runs',
       blurb: 'Everything unusable, once a month, into one pour.',
-      channel: 'productionPercent',
+      bonus: { kind: 'resource', resource: 'highQualityMetal', perHour: 2 },
     },
     {
       name: 'Haul Rigging',
       blurb: 'The truck comes back full because somebody loaded it properly.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'unit_kind', unitId: 'haulers', stat: 'vitality', percent: 15 },
     },
     {
       name: 'Nothing Wasted',
       blurb: 'By now the yard puts out more than the district takes in.',
-      channel: 'productionPercent',
+      bonus: { kind: 'salvage_refund', percent: 15 },
     },
   ]),
 
@@ -761,52 +811,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Standing Orders',
       blurb: 'Written down once, so nobody has to ask twice.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'wage_discount', percent: 4 },
     },
     {
       name: 'Duty Roster',
       blurb: 'Everybody knows what they are doing tomorrow.',
-      channel: 'cohesionPercent',
+      bonus: { kind: 'cohesion', percent: 5 },
     },
     {
       name: 'The Open Door',
       blurb: 'An hour a day when anybody can say anything.',
-      channel: 'unitMoraleFlat',
+      bonus: { kind: 'unit_morale', flat: 3 },
     },
     {
       name: 'Second-in-Command',
       blurb: 'Somebody who can say yes while you are away.',
-      channel: 'cohesionPercent',
+      bonus: { kind: 'officer_group', group: 'social', flat: 2 },
     },
     {
       name: 'Loyalty Bonuses',
       blurb: 'Paid for staying, not for arriving.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'wage_discount', percent: 8 },
     },
     {
       name: 'Grievance Process',
       blurb: 'It goes somewhere. That is most of what people want.',
-      channel: 'recruitPoolPercent',
+      bonus: { kind: 'recruit_pool', percent: 10 },
     },
     {
       name: 'The Word Goes Round',
       blurb: 'Nobody has to be told twice, and nobody hears it wrong.',
-      channel: 'cohesionPercent',
+      bonus: { kind: 'cohesion', percent: 10 },
     },
     {
       name: 'Field Promotions',
       blurb: 'The good ones move up on the day, not at the quarter.',
-      channel: 'unitMoraleFlat',
+      bonus: { kind: 'officer_attribute', attribute: 'leadership', flat: 4 },
     },
     {
       name: 'Succession Planning',
       blurb: 'Two deep in every chair, including yours.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'recruit_slots', flat: 1 },
     },
     {
       name: 'The House Holds',
       blurb: 'You could be gone a month and find it exactly as you left it.',
-      channel: 'cohesionPercent',
+      bonus: { kind: 'whole_district', percent: 15 },
     },
   ]),
 
@@ -814,52 +864,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Street Survey',
       blurb: 'Every road walked and drawn, including the ones that stop.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'travel_speed', percent: 5 },
     },
     {
       name: 'Route Cards',
       blurb: 'One card per run, with the turns on it and nothing else.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'mission_speed', percent: 6 },
     },
     {
       name: 'Curfew Tables',
       blurb: 'When the bridge is open, and when the patrol is on it.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'travel_speed', percent: 7 },
     },
     {
       name: 'Bearing Marks',
       blurb: 'Painted on walls, meaningless to anybody who has not been told.',
-      channel: 'unitSpeedPercent',
+      bonus: { kind: 'unit_speed', percent: 6 },
     },
     {
       name: 'Underground Routes',
       blurb: 'The tunnels are on the map now. Most of them.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'vision', districts: 1 },
     },
     {
       name: 'Cache Points',
       blurb: 'Water and fuel where the map says, so nobody carries either.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'loot_capacity', percent: 8 },
     },
     {
       name: 'Night Navigation',
       blurb: 'Getting there in the dark without a light.',
-      channel: 'unitStealthPercent',
+      bonus: { kind: 'unit_stealth', percent: 8 },
     },
     {
       name: 'Alternate Approaches',
       blurb: 'Three ways in, so one of them being watched is not a problem.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'mission_speed', percent: 12 },
     },
     {
       name: 'Dead Reckoning',
       blurb: 'No landmarks, no light, and still arriving.',
-      channel: 'unitSpeedPercent',
+      bonus: { kind: 'unit_speed', percent: 10 },
     },
     {
       name: 'The Whole City',
       blurb: 'There is no part of it you cannot cross in an afternoon.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'mission_slots', flat: 1 },
     },
   ]),
 
@@ -867,52 +917,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Scales and Measures',
       blurb: 'Your scale, checked, and theirs, checked against yours.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'market_discount', percent: 5 },
     },
     {
       name: 'Standing Buyers',
       blurb: 'Three people who will always take it, at a price you know.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'mission_spoils', percent: 6 },
     },
     {
       name: 'Credit Lines',
       blurb: 'Paid at the end of the month, which is worth a discount.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'wage_discount', percent: 5 },
     },
     {
       name: 'Warehouse Rotation',
       blurb: 'Oldest out first, so nothing rots at the back.',
-      channel: 'storageCapacityPercent',
+      bonus: { kind: 'storage_capacity', percent: 10 },
     },
     {
       name: 'Convoy Terms',
       blurb: 'They carry it. You pay less because you insured it.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'mission_speed', percent: 8 },
     },
     {
       name: 'Grade Sorting',
       blurb: 'Three grades of the same scrap, three prices.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'resource_yield', resource: 'scrap', percent: 12 },
     },
     {
       name: 'Forward Buying',
       blurb: 'Pay now for a delivery in spring.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'market_discount', percent: 10 },
     },
     {
       name: 'Broker Network',
       blurb: 'Somebody in every district who owes you a call.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'black_market_discount', percent: 12 },
     },
     {
       name: 'Bonded Storage',
       blurb: 'Held, sealed, and not yours until it is.',
-      channel: 'storageCapacityPercent',
+      bonus: { kind: 'storage_capacity', percent: 15 },
     },
     {
       name: 'The Better Price',
       blurb: 'Everybody comes to you first, which is worth more than the margin.',
-      channel: 'buildCostPercent',
+      bonus: { kind: 'resource', resource: 'caps', perHour: 40 },
     },
   ]),
 
@@ -920,55 +970,55 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Pressure Plates',
       blurb: 'Two boards, a hinge, and a rule about which stairwell nobody uses.',
-      channel: 'defensePercent',
+      bonus: { kind: 'defense_percent', percent: 5 },
       unlocks: 'the Pressure Plates trap',
     },
     {
       name: 'Watch Schedules',
       blurb: 'Somebody awake, always, and never the same somebody.',
-      channel: 'defensePercent',
+      bonus: { kind: 'intel_resistance', percent: 6 },
     },
     {
       name: 'Sally Ports',
       blurb: 'A door you can come out of, which is not the same as a door.',
-      channel: 'defensePercent',
+      bonus: { kind: 'unit_tier', tier: 'rabble', stat: 'armor', percent: 6 },
     },
     {
       name: 'Shaped Charges',
       blurb: 'The same explosive, pointed. It is entirely a question of what shape the hole is.',
-      channel: 'defensePercent',
+      bonus: { kind: 'gate_defense', percent: 10 },
       unlocks: 'the Buried Shell trap and the Shaped For This boost',
     },
     {
       name: 'Vetting',
       blurb: 'Who they were before they walked in here.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 9 },
     },
     {
       name: 'Hardened Approaches',
       blurb: 'Everything that could be cover for them, taken away.',
-      channel: 'defensePercent',
+      bonus: { kind: 'defense_percent', percent: 9 },
     },
     {
       name: 'Demolition Doctrine',
       blurb: 'Every approach surveyed, cut and re-cut, on the assumption it will be needed.',
-      channel: 'defensePercent',
+      bonus: { kind: 'unit_tier', tier: 'heavy', stat: 'armor', percent: 10 },
       unlocks: 'the Prepared Collapse trap and The Colossus Walks boost',
     },
     {
       name: 'Layered Defence',
       blurb: 'The wall is the third thing they hit, not the first.',
-      channel: 'defensePercent',
+      bonus: { kind: 'gate_defense', percent: 18 },
     },
     {
       name: 'Counter-Surveillance',
       blurb: 'Watching the people who are watching.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 14 },
     },
     {
       name: 'The Hard District',
       blurb: 'They go and hit somebody else instead, which is the point.',
-      channel: 'defensePercent',
+      bonus: { kind: 'whole_district', percent: 20 },
     },
   ]),
 
@@ -976,52 +1026,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Field Triage',
       blurb: 'Deciding fast who can wait is most of the job.',
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'casualty_recovery', percent: 6 },
     },
     {
       name: 'Clean Water',
       blurb: 'It is not glamorous and it halves the sick list.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'unit_vitality', percent: 4 },
     },
     {
       name: 'Stretcher Drill',
       blurb: 'Off the ground and moving in ninety seconds.',
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'casualty_recovery', percent: 8 },
     },
     {
       name: 'Blood Bank',
       blurb: 'Cold storage, cross-matched, and everybody on the books is typed.',
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'battle_stims', flat: 1 },
     },
     {
       name: 'Antiseptics',
       blurb: 'Boiled instruments, and the surgeon washes first.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'unit_vitality', percent: 6 },
     },
     {
       name: 'Forward Aid Posts',
       blurb: 'Treatment where they fell, not where the ward is.',
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'casualty_recovery', percent: 12 },
     },
     {
       name: 'Trauma Theatre',
       blurb: 'A room in the Infirmary that nobody is allowed to use for anything else.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'building_cost', building: 'infirmary', percent: 25 },
     },
     {
       name: 'Convalescence',
       blurb: 'Back on the line when they are ready, not when they are needed.',
-      channel: 'unitMoraleFlat',
+      bonus: { kind: 'unit_morale', flat: 5 },
     },
     {
       name: 'Prosthetics Bench',
       blurb: 'A hand that works is a person who stays.',
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'officer_group', group: 'physical', flat: 2 },
     },
     {
       name: 'Nobody Left',
       blurb: 'Everybody who can be brought back is brought back.',
-      channel: 'casualtyRecoveryPercent',
+      bonus: { kind: 'casualty_recovery', percent: 20 },
     },
   ]),
 
@@ -1029,52 +1079,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Drill Yard',
       blurb: 'Flat ground, marked out, used every morning.',
-      channel: 'trainingSpeedPercent',
+      bonus: { kind: 'training_speed', percent: 5 },
     },
     {
       name: 'Two-Week Basics',
       blurb: 'Everything anybody has to know, in a fortnight.',
-      channel: 'trainingSpeedPercent',
+      bonus: { kind: 'training_speed', percent: 7 },
     },
     {
       name: 'Live Rounds',
       blurb: 'Expensive, and there is no substitute for them.',
-      channel: 'trainingCostPercent',
+      bonus: { kind: 'unit_tier', tier: 'rabble', stat: 'offense', percent: 6 },
     },
     {
       name: 'Section Leaders',
       blurb: 'One in eight of them can teach the other seven.',
-      channel: 'trainingSpeedPercent',
+      bonus: { kind: 'training_sessions', flat: 1 },
     },
     {
       name: 'Graded Ranges',
       blurb: 'Nobody moves up until they hit the target.',
-      channel: 'unitOffensePercent',
+      bonus: { kind: 'unit_kind', unitId: 'snipers', stat: 'offense', percent: 12 },
     },
     {
       name: 'Night Exercises',
       blurb: 'The first time in the dark should not be the real time.',
-      channel: 'unitMoraleFlat',
+      bonus: { kind: 'unit_morale', flat: 4 },
     },
     {
       name: 'Cadre System',
       blurb: 'The veterans train the intake and then go back to their units.',
-      channel: 'trainingSpeedPercent',
+      bonus: { kind: 'training_speed', percent: 12 },
     },
     {
       name: 'Standard Syllabus',
       blurb: 'One course, one book, no favourites.',
-      channel: 'trainingCostPercent',
+      bonus: { kind: 'training_cost', percent: 12 },
     },
     {
       name: 'Continuation Training',
       blurb: 'Nobody is finished. Everybody trains, monthly.',
-      channel: 'unitVitalityPercent',
+      bonus: { kind: 'unit_tier', tier: 'specialist', stat: 'vitality', percent: 10 },
     },
     {
       name: 'The Intake',
       blurb: 'They arrive as bodies and leave six weeks later as soldiers.',
-      channel: 'trainingSpeedPercent',
+      bonus: { kind: 'training_sessions', flat: 2 },
     },
   ]),
 
@@ -1082,52 +1132,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Door Work',
       blurb: 'Getting through it in one go, loudly.',
-      channel: 'unitOffensePercent',
+      bonus: { kind: 'unit_kind', unitId: 'breakers', stat: 'offense', percent: 10 },
     },
     {
       name: 'Split Loads',
       blurb: 'Nobody carries everything, so nobody is caught with everything.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'loot_capacity', percent: 6 },
     },
     {
       name: 'Reputation',
       blurb: 'Half of them do not fight, because of who is standing in the door.',
-      channel: 'intimidationFlat',
+      bonus: { kind: 'intimidation', flat: 2 },
     },
     {
       name: 'Snatch Teams',
       blurb: 'In, out and away before anybody has decided anything.',
-      channel: 'unitSpeedPercent',
+      bonus: { kind: 'unit_speed', percent: 7 },
     },
     {
       name: 'Overwhelming Force',
       blurb: 'Three times what is needed, so that it is over in a minute.',
-      channel: 'unitOffensePercent',
+      bonus: { kind: 'unit_offense', percent: 6 },
     },
     {
       name: 'Loading Drill',
       blurb: 'The truck is packed in four minutes, every time.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'loot_capacity', percent: 12 },
     },
     {
       name: 'The Example',
       blurb: 'One place, made an example of, and the next six pay without being asked.',
-      channel: 'intimidationFlat',
+      bonus: { kind: 'infamy_gain', percent: 10 },
     },
     {
       name: 'Breaching Order',
       blurb: 'Who goes in first, and what they do in the first two seconds.',
-      channel: 'unitOffensePercent',
+      bonus: { kind: 'unit_tier', tier: 'heavy', stat: 'offense', percent: 12 },
     },
     {
       name: 'Fence Network',
       blurb: 'Everything moves within a day. Nothing sits in the yard.',
-      channel: 'lootCapacityPercent',
+      bonus: { kind: 'black_market_discount', percent: 10 },
     },
     {
       name: 'The Name',
       blurb: 'Nobody counts what you brought. They count who is leading it.',
-      channel: 'intimidationFlat',
+      bonus: { kind: 'declarations', flat: 1 },
     },
   ]),
 
@@ -1135,52 +1185,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Point Work',
       blurb: 'One person, four hundred metres ahead, and quiet.',
-      channel: 'unitStealthPercent',
+      bonus: { kind: 'unit_stealth', percent: 5 },
     },
     {
       name: 'Pace Counting',
       blurb: 'Distance without a map, in the dark.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'travel_speed', percent: 6 },
     },
     {
       name: 'Observation Posts',
       blurb: 'Somewhere you can watch a road all day without being seen.',
-      channel: 'intelYieldPercent',
+      bonus: { kind: 'intel', percent: 8 },
     },
     {
       name: 'Track Reading',
       blurb: 'Who went through, how many, and how long ago.',
-      channel: 'intelYieldPercent',
+      bonus: { kind: 'intel', percent: 10 },
     },
     {
       name: 'Light Order',
       blurb: 'Nothing carried that is not needed. Nothing that rattles.',
-      channel: 'unitSpeedPercent',
+      bonus: { kind: 'unit_speed', percent: 6 },
     },
     {
       name: 'Hide Discipline',
       blurb: 'A day in a hole without moving.',
-      channel: 'unitStealthPercent',
+      bonus: { kind: 'unit_stealth', percent: 10 },
     },
     {
       name: 'Runner Relays',
       blurb: 'The report gets back in an hour instead of in a day.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'mission_speed', percent: 8 },
     },
     {
       name: 'Route Reconnaissance',
       blurb: 'The way in is walked before anybody has to use it.',
-      channel: 'travelSpeedPercent',
+      bonus: { kind: 'vision', districts: 1 },
     },
     {
       name: 'Counter-Tracking',
       blurb: 'Going back over your own trail and taking it apart.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 10 },
     },
     {
       name: 'Eyes On',
       blurb: 'There is nothing in this district you do not already know about.',
-      channel: 'intelYieldPercent',
+      bonus: { kind: 'vision', districts: 2 },
     },
   ]),
 
@@ -1188,48 +1238,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'The Quiet Word',
       blurb: 'Before it is a problem, rather than after.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'wage_discount', percent: 4 },
     },
     {
       name: 'Reading the Room',
       blurb: 'Who is uncomfortable, and about what.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 5 },
     },
-    { name: 'Favours Owed', blurb: 'A ledger nobody writes down.', channel: 'recruitPoolPercent' },
+    {
+      name: 'Favours Owed',
+      blurb: 'A ledger nobody writes down.',
+      bonus: { kind: 'recruit_pool', percent: 8 },
+    },
     {
       name: 'Terms in Advance',
       blurb: 'Agreed before anybody is in a position to want more.',
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'market_discount', percent: 6 },
     },
     {
       name: 'Deniability',
       blurb: 'Arranged so that it was never said.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 8 },
     },
     {
       name: 'Backchannels',
       blurb: 'A way to talk to somebody you are not talking to.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'black_market_discount', percent: 8 },
     },
     {
       name: 'Sitting Down',
       blurb: 'Both sides, one table, and somebody neutral pouring.',
-      channel: 'unitMoraleFlat',
+      bonus: { kind: 'allied_offense', percent: 8 },
     },
     {
       name: 'The Long View',
       blurb: "This year's enemy is next year's supplier.",
-      channel: 'wageDiscountPercent',
+      bonus: { kind: 'officer_group', group: 'social', flat: 3 },
     },
     {
       name: 'Insulation',
       blurb: 'Nothing that happens downstairs reaches this floor.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'intel_resistance', percent: 12 },
     },
     {
       name: 'Nothing in Writing',
       blurb: 'There is no document anywhere with your name on it.',
-      channel: 'intelResistancePercent',
+      bonus: { kind: 'recruit_slots', flat: 1 },
     },
   ]),
 
@@ -1237,52 +1291,52 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Reading Lists',
       blurb: 'What to read, in what order, and what to skip.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'research_speed', percent: 4 },
     },
     {
       name: 'Lecture Series',
       blurb: 'Two hours a week, and everybody is better at their job.',
-      channel: 'trainingSpeedPercent',
+      bonus: { kind: 'training_speed', percent: 5 },
     },
     {
       name: 'Marginalia',
       blurb: 'The notes in the margin are worth more than the book they are in.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'xp_gain', percent: 6 },
     },
     {
       name: 'Working Papers',
       blurb: 'Circulated before they are finished, which is the point of them.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'research_speed', percent: 7 },
     },
     {
       name: 'Seminar',
       blurb: 'Six people arguing about one page.',
-      channel: 'trainingSpeedPercent',
+      bonus: { kind: 'officer_group', group: 'mental', flat: 2 },
     },
     {
       name: 'Citation Index',
       blurb: 'Who read what, and what it changed.',
-      channel: 'intelYieldPercent',
+      bonus: { kind: 'intel', percent: 8 },
     },
     {
       name: 'Applied Sections',
       blurb: 'The theory goes down to the workshop the same week.',
-      channel: 'buildSpeedPercent',
+      bonus: { kind: 'build_speed', percent: 8 },
     },
     {
       name: 'Retrospectives',
       blurb: 'Every project, afterwards, honestly.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'xp_gain', percent: 12 },
     },
     {
       name: 'The Reading Year',
       blurb: 'One long project nobody is allowed to hurry.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'officer_attribute', attribute: 'encyclopedia', flat: 5 },
     },
     {
       name: 'First Principles',
       blurb: 'Beginning from nothing and arriving somewhere nobody expected.',
-      channel: 'researchSpeedPercent',
+      bonus: { kind: 'research_speed', percent: 15 },
     },
   ]),
 ];
@@ -1330,34 +1384,63 @@ export function researchUnlocks(known: readonly string[]): string[] {
 }
 
 /**
- * What the finished rungs are worth, as effect channels.
+ * What the finished rungs are worth, as one crew fold.
  *
- * Sparse, and folded by the caller into the same struct everything else lands in, so a rung needs
- * no wiring of its own: whatever already reads `buildSpeedPercent` gets research's contribution to
- * it for free.
+ * Folded by the caller into the same struct everything else lands in (`mergeCrewEffects`), so a
+ * rung needs no wiring of its own: whatever already reads `buildSpeedPercent`, a tier's armour or
+ * the chairs at the Bar gets research's contribution to it for free. Ids the catalogue does not
+ * know are skipped: a save may carry a rung that was retired.
  */
-export function researchEffects(known: readonly string[]): Partial<Record<EffectChannel, number>> {
-  const total: Partial<Record<EffectChannel, number>> = {};
+export function researchEffects(known: readonly string[]): CrewEffects {
+  const total = noCrewEffects();
   for (const id of known) {
     const spec = findResearchItem(id);
-    if (!spec) continue;
-    const { channel } = spec.payout;
-    total[channel] = (total[channel] ?? 0) + spec.magnitude;
+    if (spec) applyResearchBonus(total, spec.payout.bonus);
   }
   return total;
+}
+
+/** One rung into a fold: the three grants here, everything else through the perk fold. */
+export function applyResearchBonus(into: CrewEffects, bonus: ResearchBonus): CrewEffects {
+  switch (bonus.kind) {
+    case 'mission_slots':
+      into.missionSlotsFlat += bonus.flat;
+      return into;
+    case 'recruit_slots':
+      into.recruitSlotsFlat += bonus.flat;
+      return into;
+    case 'declarations':
+      into.declarationsFlat += bonus.flat;
+      return into;
+    default:
+      return applyPerkBonus(into, bonus);
+  }
+}
+
+/** "+1 crew out on a job at once": the three grants in words. Everything else is a perk's line. */
+export function describeResearchBonus(bonus: ResearchBonus): string {
+  switch (bonus.kind) {
+    case 'mission_slots':
+      return `+${bonus.flat} ${bonus.flat === 1 ? 'crew' : 'crews'} out on a job at once`;
+    case 'recruit_slots':
+      return `+${bonus.flat} ${bonus.flat === 1 ? 'chair' : 'chairs'} at the Bar`;
+    case 'declarations':
+      return `+${bonus.flat} ${bonus.flat === 1 ? 'fight' : 'fights'} called at once`;
+    default:
+      return describePerkBonus(bonus);
+  }
 }
 
 /**
  * What one rung does, in the words a player reads.
  *
  * Here rather than at the route because it was written twice once already and the two copies
- * disagreed: the route folded the channel through {@link CHANNEL_LABELS} and the e2e fixture
- * printed the raw key, so every screenshot of the Lab said `+8% PRODUCTIONPERCENT` while the
- * running game said `+8% what the district makes`.
+ * disagreed: the route folded the channel through a label table and the e2e fixture printed the
+ * raw key, so every screenshot of the Lab said `+8% PRODUCTIONPERCENT` while the running game said
+ * `+8% what the district makes`.
  */
 export function describeResearchPayout(spec: ResearchItemSpec): string {
-  const unit = CHANNEL_LABELS[spec.payout.channel].unit === 'flat' ? '' : '%';
-  const effect = `+${spec.magnitude}${unit} ${CHANNEL_LABELS[spec.payout.channel].label.toLowerCase()}`;
+  const effect = describeResearchBonus(spec.payout.bonus);
   return spec.payout.unlocks === undefined ? effect : `Opens ${spec.payout.unlocks}, and ${effect}`;
 }
 

@@ -79,7 +79,7 @@ describe('the in-flight rail', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/game/missions']}>
+      <MemoryRouter initialEntries={['/game/actions']}>
         <QueueRail />
       </MemoryRouter>,
     );
@@ -97,7 +97,7 @@ describe('the in-flight rail', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/game/missions']}>
+      <MemoryRouter initialEntries={['/game/actions']}>
         <QueueRail />
       </MemoryRouter>,
     );

@@ -26,8 +26,8 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * It deliberately fabricates nothing the rules could not produce: every value below is one the game
  * would eventually reach, so what a reviewer looks at is the real end-game rather than a mock of it.
- * Research is pointedly left alone for that reason: facts are *discovered*, and writing them in
- * would be inventing a state the mechanic does not have.
+ * Research is pointedly left alone for that reason: a programme is *worked through* on the Lab's one
+ * bench, and granting the rungs outright would be inventing a state the mechanic does not have.
  */
 
 /** Level 20 is the ceiling the game actually has, so "end-game" means exactly this. */

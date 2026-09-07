@@ -1,32 +1,8 @@
-import {
-  FACTION_BLURB_MAX,
-  FACTION_NAME_MAX,
-  FACTION_RANK_BLURBS,
-  FACTION_RANK_LABELS,
-  FACTION_RANKS,
-  MAX_FACTION_MEMBERS,
-  UNIT_CATALOG,
-  canEditDescription,
-  canEditIdentity,
-  canInvite,
-  canKick,
-  canSetRank,
-  findUnit,
-  leavingDisbands,
-  type AllyBattle,
-  type FactionBadge as Badge,
-  type FactionMember,
-  type FactionRank,
-  type FactionResponse,
-} from '@frontline/shared';
-import { useState, type ReactNode } from 'react';
+import { MAX_FACTION_MEMBERS, canInvite, type FactionResponse } from '@frontline/shared';
+import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
-import { Confirm } from '../../components/ui/Confirm';
-import { HoverCard } from '../../components/ui/HoverCard';
-import { Icon } from '../../components/ui/Icon';
+import { LoadFailure } from '../../components/ui/LoadFailure';
 import { Modal } from '../../components/ui/Modal';
-import { NumberField } from '../../components/ui/NumberField';
-import { cn } from '../../lib/cn';
 import {
   useDisbandFaction,
   useEditFactionDescription,
@@ -37,50 +13,53 @@ import {
   useLeaveFaction,
   useMe,
   useReinforceAlly,
-  useUnits,
 } from '../../lib/queries';
-import { LoadFailure } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
-import { BadgeBuilder } from './BadgeBuilder';
-import { FactionBadge } from './FactionBadge';
+import { useServerClock } from '../missions/useServerClock';
+import { Armies } from './Armies';
+import { Book } from './Book';
+import { Crest } from './Crest';
+import { Doors, LedgerWindow, MembersWindow } from './Doors';
+import { FightWindow } from './Fights';
 import { FoundFaction } from './FoundFaction';
+import { MemberWindow } from './MemberWindow';
+import { Readings } from './Readings';
+import { Room } from './Room';
+import { WindowHead } from './parts';
 import { refusalText } from './refusal';
 
 /**
- * The faction (board request): the up-to-five people you fight beside.
+ * The faction (§L): the back room, with the five of you at the table.
  *
- * Laid out as separate drawn sheets with air between them rather than one wall of rows: an
- * identity plate, a strip of readings, a rail of internal screens, and whichever screen is open.
- * The board asked for exactly that, and it is also what makes the page legible: five different
- * kinds of thing inside one bordered box read as one long list, and the same five as separate
- * sheets read as a desk with papers on it.
+ * The room is a painting of five people round a table, and the screen is built to leave them
+ * visible. The five name plates hang on the painted people (`seats.ts`); the crest is pinned to the
+ * wall at the top left, over the pinboard; the readings and the coming fights sit at the top right,
+ * over the hall behind the table; the doors stand at the crest's shoulder; and the empty seats
+ * are a row along the foot of the room. Nothing sits over a face.
  *
- * The four internal screens are genuinely different questions, which is what makes them doors
- * rather than sections:
+ * Everything that is a list or a form is behind a door: the members as rows, the ledger, the book,
+ * what the table can field, a person's file, the send-help form a fight chip opens. There is no
+ * conversation here: the faction's messages are the mailbox's, and a second place to read them was
+ * a second place for them to be out of date.
  *
- *   * **The table.** Who is here, what rank, and how big they are.
- *   * **Fights.** What has been called that you could put units into. The reason the screen exists.
- *   * **What is fielded.** Every ally's army, so "who could help me" has an answer.
- *   * **The book.** The name, the badge, what the ranks carry, and the way out.
- *
- * The copy is in the first person plural throughout: it is *your* faction once you are in it, so
- * nothing here says "their fights" or "what they field". That was the board's note and it is right;
- * a screen that talks about your own team in the third person reads like a scouting report.
+ * No `PageShell`, deliberately, and the same reasoning as the Bar's: a sheet with a header on it is
+ * a document about a place, and this is the place. Founding a faction keeps its shell, because that
+ * screen really is a form.
  */
 
-const SECTIONS = [
-  { id: 'table', label: 'The table', icon: 'faction', blurb: 'Who is at it' },
-  { id: 'fights', label: 'Fights', icon: 'battles', blurb: 'Where to send help' },
-  { id: 'armies', label: 'What is fielded', icon: 'units', blurb: 'Who can send it' },
-  { id: 'book', label: 'The book', icon: 'archive', blurb: 'Name, ranks and the door' },
-] as const;
-type SectionId = (typeof SECTIONS)[number]['id'];
+type DoorId = 'book' | 'armies' | 'invite' | 'members' | 'ledger';
+
+/** Which fights window is open: one fight, opened by its chip, or all of them. */
+interface FightsDoor {
+  readonly only: string | null;
+}
 
 export function FactionPage() {
   const query = useFaction();
   const me = useMe();
-  const [section, setSection] = useState<SectionId>('table');
-  const [inviting, setInviting] = useState(false);
+  const [door, setDoor] = useState<DoorId | null>(null);
+  const [fights, setFights] = useState<FightsDoor | null>(null);
+  const [openMemberId, setOpenMemberId] = useState<string | null>(null);
   const [username, setUsername] = useState('');
 
   const invite = useInviteToFaction();
@@ -92,6 +71,12 @@ export function FactionPage() {
   const describe = useEditFactionDescription();
 
   const data = query.data;
+  /*
+   * The server's clock, and it has to tick: the chips over the room count down to a mark the
+   * server enforces, so a machine whose clock is skewed must still be shown the real time left.
+   */
+  const serverNow = useServerClock(data?.serverNow, query.dataUpdatedAt);
+
   /*
    * A failure is said out loud rather than rendered as a blank sheet.
    *
@@ -129,879 +114,207 @@ export function FactionPage() {
 
   const faction = data.faction;
   const myUserId = me.data?.user.id ?? '';
-  const counts: Record<SectionId, ReactNode> = {
-    table: `${data.members.length}/${MAX_FACTION_MEMBERS}`,
-    fights: data.battles.length > 0 ? String(data.battles.length) : '',
-    armies: data.armies.length > 0 ? String(data.armies.length) : '',
-    book: '',
-  };
-
-  const bodies = data.members.reduce((total, member) => total + member.armySize, 0);
-  /*
-   * §J8: what the table has *earned*, not what the people at it are holding.
-   *
-   * The two are different numbers and the wallet sum is the wrong one: it falls when somebody buys
-   * notoriety, and it jumps when a rich stranger joins. This is the same figure the standings rank
-   * factions by, read off the same field, so the two screens cannot disagree about who is ahead.
-   */
-  const infamy = data.members.reduce((total, member) => total + member.infamyEarned, 0);
-  const topLevel = data.members.reduce((best, member) => Math.max(best, member.level), 0);
-
-  return (
-    <PageShell title={faction.name} fills wide>
-      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-        <div className="flex min-h-0 min-w-0 flex-col gap-4">
-          <Identity faction={faction} rank={data.rank} seats={data.members.length} />
-          <div className="ink-frame card-paper washed flex min-h-0 flex-col overflow-hidden">
-            <Rail section={section} onSelect={setSection} counts={counts} />
-          </div>
-        </div>
-
-        <div className="flex min-h-0 min-w-0 flex-col gap-4">
-          {/* The readings, as separate plates. Four numbers about the faction as a whole, which is
-              the thing no single member's row can tell you. */}
-          <div
-            className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-4"
-            data-testid="faction-tally"
-          >
-            <Tally
-              label="Seats"
-              value={`${data.members.length}/${MAX_FACTION_MEMBERS}`}
-              icon="faction"
-            />
-            <Tally label="Bodies" value={bodies.toLocaleString()} icon="units" />
-            <Tally label="Earned" value={Math.round(infamy).toLocaleString()} icon="infamy" />
-            <Tally label="Top level" value={String(topLevel)} icon="level" />
-          </div>
-
-          {error && (
-            <p role="alert" className="shrink-0 font-body text-[13px] text-oxblood-300">
-              {refusalText(error.message)}
-            </p>
-          )}
-
-          <div
-            className="ink-frame card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto"
-            data-testid="faction-workspace"
-          >
-            {section === 'table' && (
-              <Table
-                data={data}
-                faction={faction}
-                myUserId={myUserId}
-                pending={pending}
-                onInvite={() => setInviting(true)}
-                onAction={(userId, action) => memberAction.mutate({ userId, action })}
-              />
-            )}
-
-            {section === 'fights' &&
-              (data.battles.length === 0 ? (
-                <Empty>
-                  Nobody at this table has a fight called. When one is, it shows up here and you can
-                  put units into it.
-                </Empty>
-              ) : (
-                <ul data-testid="faction-battles">
-                  {data.battles.map((battle) => (
-                    <FightRow
-                      key={battle.battleId}
-                      battle={battle}
-                      pending={pending}
-                      onReinforce={(battleId, unitId, count) =>
-                        reinforce.mutate({ battleId, army: { [unitId]: count } })
-                      }
-                    />
-                  ))}
-                </ul>
-              ))}
-
-            {section === 'armies' &&
-              (data.armies.length === 0 ? (
-                <Empty>Nobody else is at the table yet.</Empty>
-              ) : (
-                <ul data-testid="faction-armies">
-                  {data.armies.map((ally) => (
-                    <li
-                      key={ally.memberUserId}
-                      className="border-b border-surface-700/70 px-4 py-3 last:border-b-0"
-                    >
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="font-stamp text-[15px] text-ink-100">
-                          {ally.memberName}
-                        </span>
-                        <span className="font-display text-[12px] tabular-nums text-ink-300">
-                          {ally.size} bodies
-                        </span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {Object.entries(ally.army).map(([unitId, count]) => (
-                          <span
-                            key={unitId}
-                            className="rounded-sm border border-surface-600 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.1em] text-ink-200"
-                          >
-                            {findUnit(unitId)?.name ?? unitId}{' '}
-                            <span className="tabular-nums text-brass-300">{count}</span>
-                          </span>
-                        ))}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ))}
-
-            {section === 'book' && (
-              <Book
-                data={data}
-                faction={faction}
-                onIdentity={(name, badge) => identity.mutate({ name, badge })}
-                onDescription={(blurb) => describe.mutate({ blurb })}
-                onLeave={() => leave.mutate(undefined)}
-                onDisband={() => disband.mutate(undefined)}
-                busy={identity.isPending || describe.isPending || leave.isPending}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {inviting && (
-        <Modal onClose={() => setInviting(false)} labelledBy="invite-title" size="default">
-          <div className="flex flex-col gap-3 p-5">
-            <h2 id="invite-title" className="font-stamp text-xl text-ink-100">
-              Ask somebody to join
-            </h2>
-            <p className="font-body text-[13px] leading-relaxed text-ink-300">
-              Anybody, in any city. The invitation lands in their messages with a button on it, and
-              they decide from there.
-            </p>
-            <label className="flex flex-col gap-1">
-              <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
-                Their name
-              </span>
-              <input
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                data-testid="invite-username"
-                className="rounded-sm border border-surface-500 bg-surface-900 px-2.5 py-2 font-body text-[14px] text-ink-100"
-              />
-            </label>
-            {invite.error && (
-              <p role="alert" className="font-body text-[12px] text-oxblood-300">
-                {refusalText(invite.error.message)}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                disabled={invite.isPending || username.trim().length === 0}
-                data-testid="send-invite"
-                onClick={() =>
-                  invite.mutate(
-                    { username: username.trim() },
-                    {
-                      onSuccess: () => {
-                        setUsername('');
-                        setInviting(false);
-                      },
-                    },
-                  )
-                }
-              >
-                Send it
-              </Button>
-              <Button variant="ghost" onClick={() => setInviting(false)}>
-                Never mind
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
-    </PageShell>
-  );
-}
-
-/**
- * The plate at the top of the rail: the badge, big, and where you stand under it.
- *
- * Deliberately does *not* repeat the faction's name. The page is already titled with it, and a
- * heading directly under a heading saying the same words reads as a rendering bug rather than as
- * emphasis. What goes here instead is the thing the title cannot say: which of the three ranks you
- * hold, how full the table is, and how long it has been standing.
- */
-function Identity({
-  faction,
-  rank,
-  seats,
-}: {
-  faction: NonNullable<FactionResponse['faction']>;
-  rank: FactionRank | null;
-  seats: number;
-}) {
-  return (
-    <section
-      className="ink-frame card-paper washed flex shrink-0 items-center gap-3 p-3.5"
-      data-testid="faction-identity"
-    >
-      <FactionBadge badge={faction.badge} size={60} title={`${faction.name}'s badge`} />
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="font-display text-[13px] font-bold uppercase tracking-[0.16em] text-brass-300">
-          {rank ? FACTION_RANK_LABELS[rank] : 'Guest'}
-        </span>
-        <span aria-hidden className="ink-rule h-1 w-full" />
-        <p className="font-body text-[11px] leading-tight text-ink-400">
-          {seats} of {MAX_FACTION_MEMBERS} seats · since{' '}
-          <span className="tabular-nums">{faction.foundedAt.slice(0, 10)}</span>
-        </p>
-      </div>
-    </section>
-  );
-}
-
-/** One reading about the faction as a whole. */
-function Tally({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon: 'faction' | 'units' | 'infamy' | 'level';
-}) {
-  return (
-    <div className="ink-frame card-paper washed flex items-center gap-2.5 px-3 py-2.5">
-      <span
-        aria-hidden
-        className="icon-plate flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-4 [&_svg]:w-4"
-      >
-        <Icon name={icon} />
-      </span>
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
-          {label}
-        </span>
-        <span className="truncate font-display text-[15px] font-bold tabular-nums text-ink-100">
-          {value}
-        </span>
-      </span>
-    </div>
-  );
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return (
-    <p className="p-4 font-body text-[13px] italic leading-relaxed text-ink-400">{children}</p>
-  );
-}
-
-function Rail({
-  section,
-  onSelect,
-  counts,
-}: {
-  section: SectionId;
-  onSelect: (id: SectionId) => void;
-  counts: Record<SectionId, ReactNode>;
-}) {
-  return (
-    <ul
-      className="min-h-0 flex-1 divide-y divide-surface-700/70 overflow-y-auto"
-      data-testid="faction-sections"
-    >
-      {SECTIONS.map((entry) => (
-        <li key={entry.id}>
-          <button
-            type="button"
-            onClick={() => onSelect(entry.id)}
-            aria-pressed={section === entry.id}
-            data-testid={`faction-section-${entry.id}`}
-            className={cn(
-              'flex w-full items-center gap-3 px-3 py-3 text-left transition-colors',
-              section === entry.id
-                ? 'bg-brass-300/10 text-brass-100'
-                : 'text-ink-200 hover:bg-surface-700/50',
-            )}
-          >
-            <span
-              aria-hidden
-              className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
-            >
-              <Icon name={entry.icon} />
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate font-display text-[12px] font-bold uppercase tracking-[0.14em]">
-                {entry.label}
-              </span>
-              <span className="truncate font-body text-[11px] leading-tight text-ink-400">
-                {entry.blurb}
-              </span>
-            </span>
-            <span className="shrink-0 font-display text-[11px] tabular-nums text-ink-300">
-              {counts[entry.id]}
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function Table({
-  data,
-  faction,
-  myUserId,
-  pending,
-  onInvite,
-  onAction,
-}: {
-  data: FactionResponse;
-  faction: NonNullable<FactionResponse['faction']>;
-  myUserId: string;
-  pending: boolean;
-  onInvite: () => void;
-  onAction: (userId: string, action: 'kick' | 'promote' | 'demote' | 'hand_over') => void;
-}) {
   const canAsk = data.rank !== null && canInvite(data.rank);
-  const vacancies = Math.max(0, MAX_FACTION_MEMBERS - data.members.length);
-  return (
-    <>
-      {/* The count and the one control that changes it.
-          The button is drawn (`.ink-box`) rather than a filled brass slab: a solid rectangle in the
-          corner of a ruled sheet reads as something stuck on top of the paper, and the board asked
-          for it to be a standalone drawn control instead. */}
-      <div className="flex items-center justify-between gap-3 border-b border-surface-700/70 px-4 py-2.5">
-        <h2 className="font-display text-[12px] font-bold uppercase tracking-[0.18em] text-brass-300">
-          {data.members.length} of {MAX_FACTION_MEMBERS}
-        </h2>
-        {canAsk && (
-          <button
-            type="button"
-            data-testid="open-invite"
-            onClick={onInvite}
-            className="ink-box inline-flex items-center gap-1.5 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-300 transition-colors hover:text-brass-100"
-          >
-            <Icon name="crew" aria-hidden className="h-3.5 w-3.5" />
-            Invite somebody
-          </button>
-        )}
-      </div>
-      <ul data-testid="faction-members">
-        {data.members.map((member) => (
-          <MemberRow
-            key={member.userId}
-            member={member}
-            badge={faction.badge}
-            rank={data.rank}
-            isSelf={member.userId === myUserId}
-            pending={pending}
-            onAction={(action) => onAction(member.userId, action)}
-          />
-        ))}
-      </ul>
-      {/* The seats nobody is in yet, drawn.
-          A table of five with two people at it was a short list and then a wall of nothing, which
-          reads as a screen that failed to load. The same empty chair the crew screen uses
-          (`.ink-chair`) says the other three seats exist and are open, which is the actual state,
-          and it gives the panel something to be. */}
-      {vacancies > 0 && (
-        <ul data-testid="faction-vacancies">
-          {Array.from({ length: vacancies }, (_, index) => (
-            <li
-              key={index}
-              className="flex min-w-0 items-center gap-3 border-b border-surface-700/70 px-4 py-2.5 last:border-b-0"
-            >
-              <span
-                aria-hidden
-                className="ink-chair h-9 w-8 shrink-0 opacity-35"
-                style={{ aspectRatio: '96 / 112' }}
-              />
-              <span className="flex min-w-0 flex-col">
-                <span className="font-stamp text-[15px] leading-tight text-ink-400">
-                  An empty seat
-                </span>
-                <span className="font-body text-[11px] leading-tight text-ink-500">
-                  {canAsk
-                    ? 'Somebody you invite could take it'
-                    : 'A chief or the leader can fill it'}
-                </span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {data.pending.length > 0 && (
-        <div className="border-t border-surface-700/70 px-4 py-2.5">
-          <h3 className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
-            Asked, not answered
-          </h3>
-          <p className="mt-1 font-body text-[12px] text-ink-300">
-            {data.pending.length} invitation{data.pending.length === 1 ? '' : 's'} still open.
-          </p>
-        </div>
-      )}
-    </>
-  );
-}
-
-/** One member. The hover is where the detail lives, which is what keeps the rows scannable. */
-function MemberRow({
-  member,
-  badge,
-  rank,
-  isSelf,
-  pending,
-  onAction,
-}: {
-  member: FactionMember;
-  badge: Badge;
-  rank: FactionRank | null;
-  isSelf: boolean;
-  pending: boolean;
-  onAction: (action: 'kick' | 'promote' | 'demote' | 'hand_over') => void;
-}) {
-  // Both questions are asked of the domain rather than re-derived here, so the greyed-out button
-  // and the refusal behind it can never disagree about who may do what.
-  const mayKick = rank !== null && !isSelf && canKick(rank, member.rank);
-  const mayRank = rank !== null && !isSelf && canSetRank(rank) && member.rank !== 'leader';
   /*
-   * The two that cannot be taken back ask first.
+   * Looked up live rather than held as the object that was clicked.
    *
-   * Leaving and disbanding already did; removing somebody and handing the faction over did not,
-   * and they are the same kind of act: one throws a person out of a table they have to be invited
-   * back to, and the other gives away every permission the presser holds, to somebody else, with
-   * no way to take it back if they were wrong about which row they clicked. Promote and demote are
-   * deliberately *not* here: both are one click to undo.
+   * Every faction write answers with the whole refreshed screen, so promoting somebody with their
+   * file open replaces the array this came out of. Holding the row would leave the window drawing
+   * the rank they had a moment ago over controls computed from it, and a member who is removed
+   * while their file is open would leave the window standing over somebody who is no longer there.
    */
-  const [asking, setAsking] = useState<'kick' | 'hand_over' | null>(null);
+  const openMember = data.members.find((member) => member.userId === openMemberId) ?? null;
+  const openMemberWindow = (member: { userId: string }) => setOpenMemberId(member.userId);
 
   return (
-    <li
-      className="flex min-w-0 items-center gap-3 border-b border-surface-700/70 px-4 py-2.5 last:border-b-0"
-      data-testid={`faction-member-${member.username}`}
-    >
-      <HoverCard
-        label={`${member.username}: what they bring to the table`}
-        card={
-          <>
-            <p className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300">
-              {FACTION_RANK_LABELS[member.rank]}
-              {member.isBot && ' · does not play'}
-            </p>
-            <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 font-body text-[12px] text-ink-200">
-              <dt className="text-ink-400">Level</dt>
-              <dd className="tabular-nums">{member.level}</dd>
-              <dt className="text-ink-400">Infamy</dt>
-              <dd className="tabular-nums">{Math.round(member.infamy).toLocaleString()}</dd>
-              <dt className="text-ink-400">Bodies</dt>
-              <dd className="tabular-nums">{member.armySize.toLocaleString()}</dd>
-              <dt className="text-ink-400">Supply</dt>
-              <dd className="tabular-nums">{member.supplyUsed.toLocaleString()}</dd>
-              <dt className="text-ink-400">District</dt>
-              <dd className="truncate">{member.districtName}</dd>
-            </dl>
-          </>
-        }
+    <div className="relative h-full w-full">
+      <Room
+        members={data.members}
+        myUserId={myUserId}
+        canAsk={canAsk}
+        onOpenMember={openMemberWindow}
+        onInvite={() => setDoor('invite')}
+      />
+
+      {/* The chrome, over the room and inside the standing bar and the nav. `pointer-events-none`
+          as a layer with each plate turning them back on, so the painting between them does not
+          eat a press meant for a name plate standing behind it. The crest and the doors top left,
+          the readings top right. */}
+      <div
+        className="pointer-events-none absolute inset-0 flex flex-col p-3"
+        style={{
+          paddingTop: 'calc(var(--hud-h, 0px) + 12px)',
+          paddingBottom: 'calc(var(--nav-h, 0px) + 12px)',
+        }}
+        data-testid="faction-workspace"
       >
-        <span className="flex min-w-0 items-center gap-2.5">
-          <FactionBadge badge={badge} size={30} />
-          <span className="flex min-w-0 flex-col">
-            <span className="truncate font-stamp text-[15px] leading-tight text-ink-100">
-              {member.username}
-              {isSelf && <span className="ml-1.5 text-[11px] text-brass-300">you</span>}
-            </span>
-            <span className="truncate font-body text-[11px] leading-tight text-ink-400">
-              {member.districtName}
-            </span>
-          </span>
-        </span>
-      </HoverCard>
-
-      <span className="ml-auto flex shrink-0 items-center gap-3">
-        <span
-          className={cn(
-            'hidden font-display text-[10px] uppercase tracking-[0.14em] sm:block',
-            member.rank === 'leader' ? 'text-brass-300' : 'text-ink-400',
-          )}
-        >
-          {FACTION_RANK_LABELS[member.rank]}
-        </span>
-        <span className="font-display text-[13px] font-bold tabular-nums text-ink-100">
-          {member.armySize}
-          <span className="ml-1 text-[10px] font-normal text-ink-400">bodies</span>
-        </span>
-        {mayRank && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={pending}
-            data-testid={`rank-${member.username}`}
-            onClick={() => onAction(member.rank === 'chief' ? 'demote' : 'promote')}
-          >
-            {member.rank === 'chief' ? 'Demote' : 'Make chief'}
-          </Button>
-        )}
-        {mayRank && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={pending}
-            data-testid={`hand-over-${member.username}`}
-            onClick={() => setAsking('hand_over')}
-          >
-            Hand over
-          </Button>
-        )}
-        {mayKick && (
-          <Button
-            size="sm"
-            variant="danger"
-            disabled={pending}
-            data-testid={`kick-${member.username}`}
-            onClick={() => setAsking('kick')}
-          >
-            Remove
-          </Button>
-        )}
-      </span>
-
-      {asking === 'kick' && (
-        <Confirm
-          title={`Remove ${member.username}?`}
-          body={`They leave the table and everything of theirs goes with them. Getting back in takes a fresh invitation.`}
-          confirm="Remove them"
-          testId="confirm-kick"
-          onCancel={() => setAsking(null)}
-          onConfirm={() => {
-            setAsking(null);
-            onAction('kick');
-          }}
-        />
-      )}
-
-      {asking === 'hand_over' && (
-        <Confirm
-          title={`Hand the faction to ${member.username}?`}
-          body={`They become the leader and you step down to chief. Only they can hand it back, and only if they choose to.`}
-          confirm="Hand it over"
-          testId="confirm-hand-over"
-          onCancel={() => setAsking(null)}
-          onConfirm={() => {
-            setAsking(null);
-            onAction('hand_over');
-          }}
-        />
-      )}
-    </li>
-  );
-}
-
-/** One fight somebody at the table has called, and the control that puts units into it. */
-function FightRow({
-  battle,
-  pending,
-  onReinforce,
-}: {
-  battle: AllyBattle;
-  pending: boolean;
-  onReinforce: (battleId: string, unitId: string, count: number) => void;
-}) {
-  const units = useUnits();
-  const army = units.data?.army ?? {};
-  const fieldable = Object.entries(army).filter(([unitId, count]) => {
-    const unit = findUnit(unitId);
-    return count > 0 && unit !== undefined && unit.tier !== 'carrier';
-  });
-  /*
-   * The choice is *derived*, not seeded, because the roster arrives after the first render.
-   *
-   * `useState(fieldable[0]?.[0] ?? '')` runs once, and on that render `units.data` is undefined:
-   * `fieldable` is empty and the id is `''`. The query resolving re-renders with a full list and
-   * nothing resets the id, so `held` stayed 0 and the button stayed dead over a `<select>` with
-   * nothing selected. The units query really is cold here: the shell's `QueueRail` subscribes to
-   * `/me`, `/missions` and `/research`, not to `/units`, so a player who follows a notification
-   * straight to this page has never fetched an army.
-   */
-  const [picked, setPicked] = useState<string | null>(null);
-  const unitId = picked !== null && (army[picked] ?? 0) > 0 ? picked : (fieldable[0]?.[0] ?? '');
-  const held = army[unitId] ?? 0;
-  /*
-   * ...and the count follows the unit rather than outliving it.
-   *
-   * `NumberField` clamps inside its own handlers and renders whatever `value` it is given, so
-   * setting 40 of something the crew holds 40 of and then switching to one they hold 2 of left
-   * **40** in the field over a live button, and sent it.
-   */
-  const [wanted, setWanted] = useState(1);
-  const count = Math.max(1, Math.min(wanted, Math.max(1, held)));
-
-  return (
-    <li className="flex min-w-0 flex-col gap-2 border-b border-surface-700/70 px-4 py-3 last:border-b-0">
-      <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
-        <span className="min-w-0 font-stamp text-[15px] leading-tight text-ink-100">
-          {battle.targetName}
-        </span>
-        <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-          {battle.memberName} · {battle.side === 'attacker' ? 'attacking' : 'holding'}
-        </span>
-      </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 font-body text-[12px] text-ink-300">
-        <span>
-          Mark{' '}
-          <span className="tabular-nums text-ink-100">{battle.scheduledFor.slice(11, 16)}</span> on{' '}
-          <span className="tabular-nums text-ink-100">{battle.scheduledFor.slice(0, 10)}</span>
-        </span>
-        <span>
-          <span className="tabular-nums text-ink-100">{battle.committed}</span> already committed
-        </span>
-        {battle.yourContribution > 0 && (
-          <span className="text-brass-300">
-            you sent <span className="tabular-nums">{battle.yourContribution}</span>
-          </span>
-        )}
-      </div>
-
-      {battle.canReinforce && fieldable.length > 0 ? (
-        <div className="flex min-w-0 flex-wrap items-end gap-2">
-          <label className="flex min-w-0 flex-col gap-1">
-            <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
-              Send
-            </span>
-            <select
-              value={unitId}
-              onChange={(event) => setPicked(event.target.value)}
-              data-testid={`reinforce-unit-${battle.battleId}`}
-              className="min-w-0 rounded-sm border border-surface-500 bg-surface-900 px-2 py-1.5 font-body text-[13px] text-ink-100"
-            >
-              {fieldable.map(([id, have]) => (
-                <option key={id} value={id}>
-                  {UNIT_CATALOG.find((unit) => unit.id === id)?.name ?? id} ({have})
-                </option>
-              ))}
-            </select>
-          </label>
-          <NumberField
-            label="How many"
-            value={count}
-            min={1}
-            max={Math.max(1, held)}
-            onChange={setWanted}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Crest faction={faction} rank={data.rank} />
+            <Doors
+              onMembers={() => setDoor('members')}
+              onLedger={() => setDoor('ledger')}
+              onBook={() => setDoor('book')}
+              onArmies={() => setDoor('armies')}
+            />
+          </div>
+          <Readings
+            data={data}
+            now={serverNow}
+            canAsk={canAsk}
+            onInvite={() => setDoor('invite')}
+            onOpenFight={(battleId) => setFights({ only: battleId })}
+            onOpenFights={() => setFights({ only: null })}
           />
-          <Button
-            size="sm"
-            disabled={pending || held < 1}
-            data-testid={`reinforce-${battle.battleId}`}
-            onClick={() => onReinforce(battle.battleId, unitId, count)}
-          >
-            Send help
-          </Button>
         </div>
-      ) : (
-        <p className="font-body text-[12px] italic text-ink-400">
-          {battle.canReinforce
-            ? 'Nothing on your roster to send.'
-            : 'The mark has passed. Nobody is moving now.'}
-        </p>
+
+        {error && (
+          <p
+            role="alert"
+            className="glass-strong pointer-events-auto mt-2 max-w-[34rem] self-center rounded-sm border border-oxblood-300/50 px-3 py-1.5 font-body text-[12.5px] text-oxblood-300"
+          >
+            {refusalText(error.message)}
+          </p>
+        )}
+      </div>
+
+      {openMember && (
+        <MemberWindow
+          member={openMember}
+          data={data}
+          isSelf={openMember.userId === myUserId}
+          pending={pending}
+          onAction={(action) => memberAction.mutate({ userId: openMember.userId, action })}
+          onClose={() => setOpenMemberId(null)}
+        />
       )}
-    </li>
+
+      {fights && (
+        <FightWindow
+          battles={data.battles}
+          only={fights.only}
+          pending={pending}
+          onReinforce={(battleId, unitId, count) =>
+            reinforce.mutate({ battleId, army: { [unitId]: count } })
+          }
+          onClose={() => setFights(null)}
+        />
+      )}
+
+      {door === 'members' && (
+        <MembersWindow
+          members={data.members}
+          myUserId={myUserId}
+          onOpenMember={(member) => {
+            setDoor(null);
+            openMemberWindow(member);
+          }}
+          onClose={() => setDoor(null)}
+        />
+      )}
+
+      {door === 'ledger' && <LedgerWindow data={data} onClose={() => setDoor(null)} />}
+
+      {door === 'armies' && (
+        <Armies armies={data.armies} myUserId={myUserId} onClose={() => setDoor(null)} />
+      )}
+
+      {door === 'book' && (
+        <Book
+          data={data}
+          faction={faction}
+          onIdentity={(name, badge) => identity.mutate({ name, badge })}
+          onDescription={(blurb) => describe.mutate({ blurb })}
+          onLeave={() => leave.mutate(undefined)}
+          onDisband={() => disband.mutate(undefined)}
+          onClose={() => setDoor(null)}
+          busy={identity.isPending || describe.isPending || leave.isPending}
+        />
+      )}
+
+      {door === 'invite' && (
+        <InviteWindow
+          data={data}
+          username={username}
+          onUsername={setUsername}
+          busy={invite.isPending}
+          refusal={invite.error ? refusalText(invite.error.message) : null}
+          onSend={() =>
+            invite.mutate(
+              { username: username.trim() },
+              {
+                onSuccess: () => {
+                  setUsername('');
+                  setDoor(null);
+                },
+              },
+            )
+          }
+          onClose={() => setDoor(null)}
+        />
+      )}
+    </div>
   );
 }
 
-/**
- * The book: what the faction is called, what each rank carries, and the way out.
- *
- * The three are on one screen because they are the three things you come here to *change* rather
- * than to read, and each is gated differently: the leader owns the name and the badge, a chief
- * keeps the description, and leaving is everybody's.
- */
-function Book({
+/** Asking somebody in: a name, and the fact that the answer is theirs to give. */
+function InviteWindow({
   data,
-  faction,
-  onIdentity,
-  onDescription,
-  onLeave,
-  onDisband,
+  username,
+  onUsername,
   busy,
+  refusal,
+  onSend,
+  onClose,
 }: {
   data: FactionResponse;
-  faction: NonNullable<FactionResponse['faction']>;
-  onIdentity: (name: string, badge: Badge) => void;
-  onDescription: (blurb: string) => void;
-  onLeave: () => void;
-  onDisband: () => void;
+  username: string;
+  onUsername: (value: string) => void;
   busy: boolean;
+  refusal: string | null;
+  onSend: () => void;
+  onClose: () => void;
 }) {
-  const rank = data.rank;
-  const [name, setName] = useState(faction.name);
-  const [badge, setBadge] = useState<Badge>(faction.badge);
-  const [blurb, setBlurb] = useState(faction.blurb);
-  const [leaving, setLeaving] = useState(false);
-  const [disbanding, setDisbanding] = useState(false);
-
-  const mayIdentity = rank !== null && canEditIdentity(rank);
-  const mayDescribe = rank !== null && canEditDescription(rank);
-  const takesItWithYou = rank !== null && leavingDisbands(rank, data.members.length);
-
+  const room = Math.max(0, MAX_FACTION_MEMBERS - data.members.length);
   return (
-    <div className="flex flex-col gap-5 p-4">
-      <section className="flex flex-col gap-3">
-        <Heading>Name and badge</Heading>
-        {mayIdentity ? (
-          <>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={FACTION_NAME_MAX}
-              data-testid="edit-name"
-              className="rounded-sm border border-surface-500 bg-surface-900 px-3 py-2 font-stamp text-[16px] text-ink-100"
-            />
-            <BadgeBuilder badge={badge} onChange={setBadge} />
-            <Button
-              className="self-start"
-              disabled={busy || name.trim().length < 3}
-              data-testid="save-identity"
-              onClick={() => onIdentity(name.trim(), badge)}
-            >
-              Save name and badge
-            </Button>
-          </>
-        ) : (
-          <div className="flex items-center gap-3">
-            <FactionBadge badge={faction.badge} size={64} title={`${faction.name}'s badge`} />
-            <div className="flex flex-col gap-1">
-              <span className="font-stamp text-[17px] text-ink-100">{faction.name}</span>
-              <span className="font-body text-[12px] text-ink-400">
-                Only the leader changes these.
-              </span>
-            </div>
-          </div>
-        )}
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <Heading>Description</Heading>
-        {mayDescribe ? (
-          <>
-            <textarea
-              value={blurb}
-              onChange={(event) => setBlurb(event.target.value)}
-              maxLength={FACTION_BLURB_MAX}
-              rows={2}
-              data-testid="edit-blurb"
-              className="rounded-sm border border-surface-500 bg-surface-900 px-3 py-2 font-body text-[13px] text-ink-100"
-            />
-            <Button
-              className="self-start"
-              size="sm"
-              disabled={busy}
-              data-testid="save-blurb"
-              onClick={() => onDescription(blurb.trim())}
-            >
-              Save description
-            </Button>
-          </>
-        ) : (
-          <p className="font-body text-[13px] leading-relaxed text-ink-300">
-            {faction.blurb || 'Nothing written down.'}
+    <Modal onClose={onClose} labelledBy="invite-title" size="default" data-testid="invite-window">
+      <WindowHead id="invite-title" title="Ask somebody to join" onClose={onClose} />
+      <div className="flex flex-col gap-3 p-5">
+        <p className="font-body text-[13px] leading-relaxed text-ink-300">
+          Anybody, in any city. The invitation lands in their messages with a button on it, and they
+          decide from there.
+          {room === 0 &&
+            ' There is no room at the table right now, so this one will be turned down.'}
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
+            Their name
+          </span>
+          <input
+            value={username}
+            onChange={(event) => onUsername(event.target.value)}
+            data-testid="invite-username"
+            className="rounded-sm border border-surface-500 bg-surface-900 px-2.5 py-2 font-body text-[14px] text-ink-100"
+          />
+        </label>
+        {refusal !== null && (
+          <p role="alert" className="font-body text-[12px] text-oxblood-300">
+            {refusal}
           </p>
         )}
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <Heading>What each rank carries</Heading>
-        <ul className="flex flex-col gap-1.5" data-testid="rank-book">
-          {FACTION_RANKS.map((entry) => (
-            <li
-              key={entry}
-              className={cn(
-                'flex min-w-0 flex-col rounded-sm border px-3 py-2',
-                entry === rank ? 'border-brass-300/70 bg-brass-300/10' : 'border-surface-600/80',
-              )}
-            >
-              <span className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300">
-                {FACTION_RANK_LABELS[entry]}
-                {entry === rank && <span className="ml-2 text-ink-300">you</span>}
-              </span>
-              <span className="font-body text-[12px] leading-snug text-ink-300">
-                {FACTION_RANK_BLURBS[entry]}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <Heading>The door</Heading>
-        <p className="font-body text-[13px] leading-relaxed text-ink-300">
-          {takesItWithYou
-            ? data.members.length > 1
-              ? 'You lead this faction, so leaving ends it for everybody at the table. Hand it to somebody first if you want it to carry on without you.'
-              : 'You are the only one here, so leaving ends it.'
-            : 'You can walk out whenever you like. What you have sent to a fight already in flight stays sent.'}
-        </p>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex gap-2">
           <Button
-            variant="danger"
-            disabled={busy}
-            data-testid="leave-faction"
-            onClick={() => setLeaving(true)}
+            disabled={busy || username.trim().length === 0}
+            data-testid="send-invite"
+            onClick={onSend}
           >
-            Leave the faction
+            Send it
           </Button>
-          {rank !== null && canEditIdentity(rank) && data.members.length > 1 && (
-            <Button
-              variant="danger"
-              disabled={busy}
-              data-testid="disband-faction"
-              onClick={() => setDisbanding(true)}
-            >
-              Disband it
-            </Button>
-          )}
+          <Button variant="ghost" onClick={onClose}>
+            Never mind
+          </Button>
         </div>
-      </section>
-
-      {leaving && (
-        <Confirm
-          title={takesItWithYou ? 'This ends the faction' : 'Leave the faction?'}
-          body={
-            takesItWithYou
-              ? `${faction.name} is disbanded the moment you go, for all ${data.members.length} of you. This cannot be undone.`
-              : `You leave ${faction.name}. Its fights stop showing up on your screen.`
-          }
-          confirm={takesItWithYou ? 'Leave and disband it' : 'Leave'}
-          testId="confirm-leave"
-          onCancel={() => setLeaving(false)}
-          onConfirm={() => {
-            setLeaving(false);
-            onLeave();
-          }}
-        />
-      )}
-
-      {disbanding && (
-        <Confirm
-          title="Disband the faction"
-          body={`${faction.name} and everything at its table goes, for all ${data.members.length} of you. This cannot be undone.`}
-          confirm="Disband it"
-          testId="confirm-disband"
-          onCancel={() => setDisbanding(false)}
-          onConfirm={() => {
-            setDisbanding(false);
-            onDisband();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function Heading({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <h3 className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">
-        {children}
-      </h3>
-      <span aria-hidden className="ink-rule h-1 w-full" />
-    </div>
+      </div>
+    </Modal>
   );
 }

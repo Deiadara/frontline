@@ -1,0 +1,15 @@
+-- §I4: the one trap a defending crew has set under a fight.
+--
+-- Beside `boost_id` and `officer_id`, and for the same reasons those two are there: both sides have
+-- a row per crew, the answer is chosen and changed freely up to the mark, and an ally reinforcing
+-- somebody else's fight has their own row rather than overwriting the defender's.
+--
+-- Nullable, defaulting to NULL, which is what every deployment written before today meant: nobody
+-- set a trap on it. Not a foreign key and not constrained to the catalogue, because a trap id is a
+-- string in `battle/traps.ts` rather than a table, and the settler re-reads the catalogue and the
+-- satchel at the mark rather than trusting an id written sixteen hours ago.
+--
+-- `location_control.trap_json` is deliberately left where it is. Traps used to be armed on a
+-- location and to sit there waiting; nothing reads or writes that column any more, and dropping it
+-- would rewrite a table on every existing save to reclaim a few nulls.
+ALTER TABLE battle_deployments ADD COLUMN trap_id TEXT;

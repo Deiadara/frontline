@@ -70,7 +70,6 @@ import {
   AdminMutationResponseSchema,
   WorkshopResponseSchema,
   WorkshopMutationResponseSchema,
-  StartResearchResponseSchema,
   type FortifyRequest,
   type UpgradeLocationRequest,
   type GarrisonRequest,
@@ -92,7 +91,6 @@ import {
   type LevelUp,
   type LoginRequest,
   type RegisterRequest,
-  type StartResearchRequest,
   type StartTrainingRequest,
   type StartTechRequest,
   type BuyFromVendorRequest,
@@ -103,6 +101,7 @@ import {
   type TakeBlackMarketRequest,
   type UpdateProfileRequest,
   type ChangePasswordRequest,
+  type AdminFogRequest,
   type AdminKnobsRequest,
   type FitUpgradeRequest,
   type BuildVehicleRequest,
@@ -301,8 +300,6 @@ export const negotiateWithRecruit = (body: NegotiateRequest) =>
 
 export const getResearch = () => apiFetch('/research', ResearchResponseSchema);
 
-export const startResearch = (body: StartResearchRequest) =>
-  apiFetch('/research', StartResearchResponseSchema, jsonBody(body));
 export const startTech = (body: StartTechRequest) =>
   apiFetch('/research/tech', ResearchResponseSchema, jsonBody(body));
 
@@ -363,7 +360,7 @@ export const changePassword = (body: ChangePasswordRequest) =>
   apiFetch('/settings/password', SettingsResponseSchema, jsonBody(body));
 
 /**
- * The admin bench.
+ * The admin console.
  *
  * A 404 here is not an error state to show, it is the answer "there is no bench in this build":
  * see `routes/admin.ts`. The hook that calls it turns that one status into `null` rather than
@@ -373,6 +370,10 @@ export const getAdmin = () => apiFetch('/admin', AdminSnapshotSchema);
 
 export const setAdminKnobs = (body: AdminKnobsRequest) =>
   apiFetch('/admin/knobs', AdminMutationResponseSchema, jsonBody(body));
+
+/** Show or hide one district on the Console's fog of war. */
+export const setAdminFog = (body: AdminFogRequest) =>
+  apiFetch('/admin/fog', AdminMutationResponseSchema, jsonBody(body));
 
 export const getWorkshop = () => apiFetch('/workshop', WorkshopResponseSchema);
 

@@ -87,7 +87,7 @@ const SATCHEL_KINDS = ITEM_KINDS.filter((kind) => kind !== 'page');
 function BlueprintsLink({ pages }: { pages: number }) {
   return (
     <Link
-      to="/game/inventory/blueprints"
+      to="/game/research/blueprints"
       className="flex items-center justify-between gap-3 rounded-sm border border-surface-600 bg-surface-800/70 px-4 py-3 transition-colors hover:border-brass-500/70"
     >
       <span className="min-w-0">
@@ -108,6 +108,7 @@ const EMPTY_COPY: Record<ItemKind, string> = {
   page: 'No pages. They belong on the Blueprints page rather than in here.',
   component: 'No parts. The Runner carries them, and so does anything you pull apart.',
   relic: 'Nothing worth selling on. That is not the worst problem to have.',
+  consumable: 'Nothing to spend. The Scrapyard builds traps, once you hold the drawings.',
 };
 
 function KindPanel({ kind, entries }: { kind: ItemKind; entries: [ItemId, number][] }) {

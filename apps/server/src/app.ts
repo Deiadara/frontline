@@ -79,7 +79,7 @@ export async function buildApp({
 
   app.decorate('config', config);
   app.decorate('db', db);
-  app.decorate('repos', createRepositories(db));
+  app.decorate('repos', createRepositories(db, { admin: config.admin }));
   app.decorate('skirmishEngine', skirmishEngine);
 
   await app.register(cors, { origin: config.corsOrigin });

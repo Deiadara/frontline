@@ -10,22 +10,21 @@ import {
   officerIsInjured,
   removeFleet,
   RecallColumnRequestSchema,
-  canAfford,
   boostAvailable,
   findBattleBoost,
   findBlackMarketGood,
   stashCount,
   findTrap,
+  itemCount,
   deploymentIsOpen,
   emptyDeployment,
-  isHeldBy,
   notorietyUpgradeCost,
   spendInfamy,
-  spendResources,
   type BattleMutationResponse,
   type ActionsResponse,
   type BattlesResponse,
   type Base,
+  type ItemId,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { settleBase } from '../district/settle.js';
@@ -163,37 +162,71 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     },
   );
 
-  /** §A4: bury something under the approach to a location you hold. */
+  /**
+   * §I4: set the one trap this side is allowed under a fight it is defending, or take it back up.
+   *
+   * Free, and free to change right up to the mark, exactly like naming an officer. Nothing leaves
+   * the satchel here: the trap is *named* on the deployment row and spent when the fight resolves,
+   * which is what lets a defender move it between two fights for nothing. It also means the same
+   * trap may be named on two battles and only the first to land gets it, because the second finds
+   * the bag empty (`springAnyTrap`), the rule contraband already follows.
+   *
+   * The refusals are in the order the fiction wants them: is there such a thing, are you in this
+   * fight, are you the one being attacked, is there still time, and are you carrying one.
+   */
   app.post('/battles/trap', { preHandler: app.authenticate }, (request): BattleMutationResponse => {
-    const body = parseBody(LayTrapRequestSchema, request.body);
+    const { battleId, trapId } = parseBody(LayTrapRequestSchema, request.body);
     const now = new Date();
     const base = settled(request.currentUser.id, now);
 
-    const spec = findTrap(body.trapId);
-    if (!spec) throw new AppError('NOT_FOUND', 'No such trap');
-    const control = app.repos.city.control(body.locationId);
-    if (!control || !isHeldBy(control, base.id)) {
-      throw new AppError('PLACE_UNAVAILABLE', 'You do not hold that');
+    const spec = trapId === null ? null : (findTrap(trapId) ?? null);
+    if (trapId !== null && spec === null) throw new AppError('NOT_FOUND', 'No such trap');
+
+    const battle = app.repos.sieges.find(battleId);
+    if (!battle || battle.resolvedAt !== null) {
+      throw new AppError('NOT_FOUND', 'No fight by that name is still coming');
     }
-    if (!base.research.technologies.includes(spec.requiresTech)) {
-      throw new AppError('UNIT_LOCKED', 'The Lab has not worked that one out yet');
+    const side = sideOf(app.repos, battle, base.id);
+    if (side === null) throw new AppError('FORBIDDEN', 'You are not in this one');
+    // A trap goes under ground you are holding. There is nothing for an attacker to bury it in.
+    if (side !== 'defender') {
+      throw new AppError('FORBIDDEN', 'You are the one walking in. There is nothing to bury');
     }
-    if (app.repos.sieges.trap(body.locationId)) {
-      throw new AppError('PLACE_UNAVAILABLE', 'There is already something under there');
-    }
-    if (!canAfford(base.resources, spec.cost)) {
-      throw new AppError('INSUFFICIENT_RESOURCES', 'You cannot cover the materials');
+    if (!deploymentIsOpen(new Date(battle.scheduledFor), now)) {
+      throw new AppError('PLACE_UNAVAILABLE', 'They are already on the ground');
     }
 
-    const next: Base = { ...base, resources: spendResources(base.resources, spec.cost) };
-    app.db.transaction(() => {
-      app.repos.sieges.setTrap(body.locationId, {
-        trapId: spec.id,
-        armedAt: now.toISOString(),
-      });
-      app.repos.bases.updateResources(next.id, next.resources);
-    })();
-    return respond(next, now);
+    if (spec !== null) {
+      // A trap's `TrapSpec.id` is its `ItemSpec.id`: the catalogues share the string on purpose,
+      // and `traps.test.ts` in the shared package is what keeps the two lists in step.
+      if (itemCount(base.inventory, spec.id as ItemId) <= 0) {
+        throw new AppError('FORBIDDEN', 'You are not carrying one of those');
+      }
+      /*
+       * §I4: one trap per **side**, enforced here the way `/battles/lead` enforces one officer.
+       *
+       * A side can be several crews. The row holds a single id, so a crew cannot set two; an ally
+       * reinforcing the defence setting a second one would be a row `springAnyTrap` reads and a
+       * second trap going off, which is not the one the board asked for.
+       */
+      const taken = app.repos.sieges
+        .side(battle.id, side)
+        .some((row) => row.baseId !== base.id && row.trapId !== null);
+      if (taken) {
+        throw new AppError('FORBIDDEN', 'Somebody on your side has already set one');
+      }
+    }
+
+    const deployment =
+      app.repos.sieges.deployment(battleId, side, base.id) ??
+      emptyDeployment(battleId, base.id, side, now.toISOString());
+    app.repos.sieges.putDeployment({
+      ...deployment,
+      baseId: base.id,
+      trapId: spec?.id ?? null,
+      updatedAt: now.toISOString(),
+    });
+    return respond(base, now);
   });
 
   /**
@@ -218,6 +251,21 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       }
       const side = sideOf(app.repos, battle, base.id);
       if (side === null) throw new AppError('FORBIDDEN', 'You are not in this one');
+      /*
+       * §D7: one boost per side, and it is the principal's. `side.ts` reads the first row on the
+       * side that names one, so an ally's purchase was either the one applied, with the crew whose
+       * fight it is paying for nothing, or burned unread. The trap and the officer routes refuse a
+       * second from the same side; this is the boost route's version of the same rule.
+       */
+      const principal =
+        side === 'attacker'
+          ? battle.attackerBaseId
+          : battle.defender.kind === 'crew'
+            ? battle.defender.baseId
+            : null;
+      if (principal !== null && principal !== base.id) {
+        throw new AppError('FORBIDDEN', 'Only the crew whose fight this is can put a name on it');
+      }
       if (!deploymentIsOpen(new Date(battle.scheduledFor), now)) {
         throw new AppError('PLACE_UNAVAILABLE', 'They are already on the ground');
       }

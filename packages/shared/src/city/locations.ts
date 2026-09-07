@@ -96,6 +96,7 @@ export const LOCATION_KINDS = [
   'skate_ground',
   'chapel',
   'graveyard',
+  'revolutionary_statue',
 ] as const;
 export const LocationKindSchema = z.enum(LOCATION_KINDS);
 export type LocationKind = z.infer<typeof LocationKindSchema>;
@@ -952,6 +953,22 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       'The lodge is manned and the gates are shut at night. It becomes yours visibly.',
       'The subsided terrace is worked properly instead of dug at by whoever turns up.',
       'The register is found. You know who is here, and so does everyone you tell.',
+    ],
+  },
+  revolutionary_statue: {
+    label: 'Statue in a Plaza',
+    blurb:
+      'The one in the middle of the district: a long coat, a raised fist, and a plinth every road in Chrome Row runs past.',
+    reward:
+      'It is what they are fighting for. A crew that holds it walks into a fight harder to frighten.',
+    bonuses: [{ kind: 'unit_morale', flat: 10 }],
+    baseDefense: 4,
+    labels: [L('open', 4), L('elevated', 2)],
+    upgradeCost: { caps: 360, scrap: 90, planks: 60 },
+    upgrades: [
+      'The plinth is scrubbed and the name re-cut. People stop to read it again.',
+      'Floodlit. The first thing anybody sees coming into the district, and it is yours.',
+      'A crowd under it most nights. What is said there is repeated in every district.',
     ],
   },
 };

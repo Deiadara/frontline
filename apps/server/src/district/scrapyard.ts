@@ -1,16 +1,23 @@
 import {
+  addItems,
+  itemCount,
   removeItems,
   ITEM_CATALOG,
   MODIFICATIONS,
+  TRAP_CATALOG,
   UNIT_UPGRADES,
   addonsOf,
   blueprintForModification,
+  blueprintForTrap,
   blueprintForUnitUpgrade,
   blueprintGateMet,
   buildingLevel,
   canAfford,
   describeAddonEffect,
+  describeBlueprintGate,
   findModification,
+  findTech,
+  findTrap,
   findUpgrade,
   isAdvancedModification,
   isAdvancedUpgrade,
@@ -18,11 +25,13 @@ import {
   modificationPrice,
   spendResources,
   upgradePrice,
+  type AddonKind,
   type Base,
   type ItemId,
   type ModificationSpec,
   type ScrapyardEntry,
   type ScrapyardResponse,
+  type TrapSpec,
   type UpgradeSpec,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
@@ -35,11 +44,17 @@ import type { Repositories } from '../db/repos/index.js';
  * permanent thing bolted to something they already own, both cost scrap and, past the cheap end,
  * high-quality metal, and both mostly want a blueprint first.
  *
- * **No other resource appears on this page**, which is the board's rule and is enforced by
+ * **No other resource appears on those two**, which is the board's rule and is enforced by
  * `modificationPrice` and `upgradePrice` rather than trusted: neither can return a caps line.
  *
+ * The traps (§I4) are the third bench and the exception, deliberately. They are priced by
+ * `TRAP_CATALOG` in planks, oil and caps as well as scrap, because a trap is a thing you make out
+ * of what is lying around rather than a bracket cut out of stock, and re-pricing them into two
+ * columns to satisfy a rule about brackets would have made a shell cost the same as a stairwell.
+ *
  * What the yard does *not* do is fit anything. A built modification goes on the shelf
- * (`Base.addons.built`) and is put into a slot from the structure's own dialog, which is §E.
+ * (`Base.addons.built`) and is put into a slot from the structure's own dialog, which is §E; a
+ * built trap goes into the satchel and is set on a coming fight from the battle page.
  */
 
 /** The Scrapyard has to be standing to build anything: this is its shop. */
@@ -56,6 +71,35 @@ function documentFor(spec: ModificationSpec | UpgradeSpec): string | null {
   const document =
     'magnitude' in spec ? blueprintForModification(spec) : blueprintForUnitUpgrade(spec.id);
   return document?.name ?? null;
+}
+
+/**
+ * §I4: a trap, and why the yard will not cut one.
+ *
+ * Two gates, both of them [call, made], in the order the brief words them: the **document** first,
+ * because it is the half a player collects page by page and the half they can act on today, then
+ * the Lab rung from `TrapSpec.requiresTech`, then the bill. Same order the modifications use, and
+ * for the same reason: sending somebody to the Lab for a rung when they are four pages short of
+ * the drawings sends them to the wrong building.
+ */
+function trapBlockerFor(base: Base, spec: TrapSpec): string | null {
+  if (!blueprintGateMet(base.inventory, 'trap', spec.id)) {
+    return describeBlueprintGate('trap', spec.id);
+  }
+  if (!base.research.technologies.includes(spec.requiresTech)) {
+    return `Needs ${findTech(spec.requiresTech)?.name ?? spec.requiresTech} from the Lab`;
+  }
+  return canAfford(base.resources, spec.cost) ? null : 'You cannot cover that';
+}
+
+/**
+ * What one trap does, in the line the yard's rows print.
+ *
+ * Read off `killShare` and `maxKills` rather than written out per trap, so a tuning pass on the
+ * catalogue cannot leave three sentences behind saying the old numbers.
+ */
+function describeTrap(spec: TrapSpec): string {
+  return `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} bodies`;
 }
 
 function upgradeBlockerFor(base: Base, spec: UpgradeSpec): string | null {
@@ -102,9 +146,8 @@ function modificationBlockerFor(base: Base, id: string): string | null {
   const spec = findModification(id);
   if (!spec) return 'No such add-on';
   if (!modificationGateMet(base.inventory, spec)) return `Needs the ${documentFor(spec)}`;
-  if (isAdvancedModification(spec) && !addonsOf(base).researched.includes(spec.id)) {
-    return `Needs the ${spec.name} drawn up in the Lab`;
-  }
+  // The Lab project that used to sit between the drawings and the yard is gone with the desk: a
+  // crew holding the structure's retrofit blueprint can cut any of its advanced add-ons.
   return canAfford(base.resources, modificationPrice(spec)) ? null : 'You cannot cover that';
 }
 
@@ -140,10 +183,35 @@ export function projectScrapyard(base: Base): ScrapyardResponse {
     blocker: base.fittedUpgrades.includes(spec.id) ? null : upgradeBlockerFor(base, spec),
   }));
 
+  /*
+   * §I4: the traps.
+   *
+   * `building: null` like the refits, because a trap belongs to no structure: it goes into the
+   * satchel and is set under one fight the crew is defending. `owned` is the count in the bag
+   * rather than a 0/1, because unlike everything else on this page a trap is spent, so "you have
+   * three" is the number a player is deciding on.
+   *
+   * `advanced` is read off the bill for the same reason it is on a modification: high-quality
+   * metal is the line between a thing a district cuts and a thing it plans for.
+   */
+  const traps: ScrapyardEntry[] = TRAP_CATALOG.map((spec) => ({
+    id: spec.id,
+    kind: 'trap' as const,
+    name: spec.name,
+    description: spec.description,
+    building: null,
+    effect: describeTrap(spec),
+    cost: spec.cost,
+    advanced: (spec.cost.highQualityMetal ?? 0) > 0,
+    blueprint: blueprintForTrap(spec.id)?.name ?? null,
+    owned: itemCount(base.inventory, spec.id as ItemId),
+    blocker: trapBlockerFor(base, spec),
+  }));
+
   return {
     scrapyardLevel: buildingLevel(base.buildings, 'scrapyard'),
     resources: base.resources,
-    entries: [...modifications, ...upgrades],
+    entries: [...modifications, ...upgrades, ...traps],
   };
 }
 
@@ -160,11 +228,32 @@ export type AddonBuildResult = { kind: 'refused'; reason: string } | { kind: 'bu
 export function buildAddon(
   repos: Repositories,
   base: Base,
-  kind: 'modification' | 'upgrade',
+  kind: AddonKind,
   id: string,
 ): AddonBuildResult {
   if (buildingLevel(base.buildings, 'scrapyard') < SCRAPYARD_REQUIRED_LEVEL) {
     return { kind: 'refused', reason: 'Build the Scrapyard first' };
+  }
+  /*
+   * §I4: one trap, into the satchel.
+   *
+   * The only thing this page builds that does not end up bolted to something. It is an item, so it
+   * goes through `addItems` and `updateHoldings` rather than onto a shelf, and building a second
+   * one is legal: a crew defending two fights on the same evening needs two.
+   */
+  if (kind === 'trap') {
+    const spec = findTrap(id);
+    if (!spec) return { kind: 'refused', reason: 'No such trap' };
+    const blocker = trapBlockerFor(base, spec);
+    if (blocker !== null) return { kind: 'refused', reason: blocker };
+
+    const built: Base = {
+      ...base,
+      resources: spendResources(base.resources, spec.cost),
+      inventory: addItems(base.inventory, { [spec.id]: 1 }),
+    };
+    repos.bases.updateHoldings(built.id, built.resources, built.inventory);
+    return { kind: 'built', base: built };
   }
 
   if (kind === 'modification') {

@@ -8,20 +8,20 @@ import {
   type BuildingKind,
   type ResourceKey,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
-import { useAdmin, useAdminKnobs } from '../../lib/queries';
+import { useAdmin, useAdminFog, useAdminKnobs } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
 import { formatDayClock } from '@frontline/shared';
 import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
- * The bench.
+ * The console.
  *
  * A design pass needs to look at the game at level 3, at level 10 and at level 20, and reaching any
  * of those by playing takes days. This puts the whole district at a chosen level in one click, sets
@@ -30,10 +30,10 @@ import { usePlayerZone } from '../settings/usePlayerZone';
  *
  * **It does not exist when admin mode is off.** `GET /api/admin` answers 404 in that build, the
  * hook turns that one status into `null`, and this screen redirects rather than rendering an
- * apology. There is no half-state where a player sees a locked bench and wonders what is behind it.
+ * apology. There is no half-state where a player sees a locked console and wonders what is behind it.
  *
  * Everything here is one press, applied immediately, with the resulting state shown underneath.
- * A bench with a Save button is a bench where you have to remember what you changed.
+ * A console with a Save button is a console where you have to remember what you changed.
  */
 
 const PRESETS: readonly { label: string; blurb: string; knobs: AdminKnobsRequest }[] = [
@@ -97,7 +97,7 @@ function StructureKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
             </span>
             {/*
              * The painted picker, not the browser's. This was the last `<select>` left in the
-             * codebase: the bench is not a player screen, but it is a screen somebody looks at the
+             * codebase: the console is not a player screen, but it is a screen somebody looks at the
              * artwork through, and a white operating-system menu dropped over it is the exact
              * complaint `Dropdown` was written to answer.
              */}
@@ -183,6 +183,11 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
   const [playerLevel, setPlayerLevel] = useState(snapshot.playerLevel);
   const [infamy, setInfamy] = useState(snapshot.infamy);
   const [amount, setAmount] = useState(100_000);
+  // Seeded once and then followed: every knob answers with a fresh snapshot, and a field still
+  // holding the number it mounted with re-submits a stale level the next time its button is
+  // pressed after the other knob has moved.
+  useEffect(() => setPlayerLevel(snapshot.playerLevel), [snapshot.playerLevel]);
+  useEffect(() => setInfamy(snapshot.infamy), [snapshot.infamy]);
 
   const numberField = (
     label: string,
@@ -278,6 +283,90 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
 }
 
 /** What is on disk, so a restore can be chosen without an ssh session. */
+/**
+ * Fog of war (board request).
+ *
+ * In admin mode every district is scouted, so a reviewer can open any screen without sending a
+ * scout and waiting. This is where a district is un-ticked to look at the unscouted state of it.
+ * The tick is the effective answer, computed server-side through the same seam the city reads;
+ * real scouting intel is never written here, so admin mode off is exactly what the crew has seen.
+ */
+function FogPanel({ snapshot }: { snapshot: AdminSnapshot }) {
+  const fog = useAdminFog();
+
+  const hidden = snapshot.fog.filter((entry) => !entry.visible).length;
+  const setAll = (visible: boolean) => {
+    for (const entry of snapshot.fog) {
+      if (entry.visible !== visible) fog.mutate({ districtId: entry.districtId, visible });
+    }
+  };
+  return (
+    <Panel
+      title="Fog of war"
+      action={
+        <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
+          {hidden === 0 ? 'Everything scouted' : `${hidden} hidden`}
+        </span>
+      }
+    >
+      <div className="flex flex-col gap-3 p-4">
+        <p className="font-body text-[12px] leading-relaxed text-ink-300">
+          Ticked is scouted. In testing mode everything is, until you say otherwise; un-tick a
+          district to see it the way a crew that has never been there does.
+        </p>
+        <ul className="grid gap-1.5 sm:grid-cols-2 2xl:grid-cols-3" data-testid="admin-fog">
+          {snapshot.fog.map((entry) => (
+            <li key={entry.districtId}>
+              <label className="flex items-center gap-2.5 rounded-sm border border-surface-600/70 bg-surface-800/60 px-3 py-2 font-body text-[13px] text-ink-100">
+                <input
+                  type="checkbox"
+                  checked={entry.visible}
+                  disabled={fog.isPending || entry.home}
+                  onChange={(event) =>
+                    fog.mutate({ districtId: entry.districtId, visible: event.target.checked })
+                  }
+                  data-testid={`admin-fog-${entry.districtId}`}
+                />
+                <span className="min-w-0 flex-1 break-words leading-snug">{entry.name}</span>
+                {entry.home && (
+                  <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                    Home
+                  </span>
+                )}
+              </label>
+            </li>
+          ))}
+        </ul>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={fog.isPending}
+            onClick={() => setAll(true)}
+            data-testid="admin-fog-all"
+          >
+            Scout everything
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={fog.isPending}
+            onClick={() => setAll(false)}
+            data-testid="admin-fog-none"
+          >
+            Hide everything
+          </Button>
+        </div>
+        {fog.error !== null && (
+          <p role="alert" className="font-body text-[12px] text-oxblood-300">
+            {fog.error.message}
+          </p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 function BackupsPanel({ snapshot }: { snapshot: AdminSnapshot }) {
   const zone = usePlayerZone();
   return (
@@ -322,19 +411,19 @@ export function AdminPage() {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Opening the bench…
+          Opening the console…
         </p>
       </div>
     );
   }
 
-  // Null is the answer "this build has no bench", not a failure. See `useAdmin`.
+  // Null is the answer "this build has no console", not a failure. See `useAdmin`.
   const snapshot = query.data;
   if (!snapshot) return <Navigate to="/game" replace />;
 
   return (
     <PageShell
-      title="The Bench"
+      title="The Console"
       icon="gear"
       wide
       lede="Testing mode. Put the game at a stage and look at it."
@@ -381,6 +470,7 @@ export function AdminPage() {
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <StructureKnobs snapshot={snapshot} />
+        <FogPanel snapshot={snapshot} />
         <div className="flex flex-col gap-5">
           <StateKnobs snapshot={snapshot} />
           <BackupsPanel snapshot={snapshot} />

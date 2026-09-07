@@ -2,7 +2,6 @@ import {
   territoryEffectsFor,
   BUILDING_MAX_LEVEL,
   MAX_BUILD_QUEUE,
-  MODIFICATIONS,
   STARTING_RESOURCES,
   buildingBuildSeconds,
   buildingCost,
@@ -13,7 +12,6 @@ import {
   MAX_TRAINING_QUEUE,
   trainingCost,
   districtProduction,
-  findModification,
   findBuilding,
   RESOURCE_KEYS,
   BUILD_BOOST_MS,
@@ -23,7 +21,6 @@ import {
   addonsOf,
   shelvedModifications,
   queueCompletesAt,
-  researchCost,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -42,13 +39,7 @@ import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { settleBase } from './settle.js';
 import { queueBuild } from './build.js';
 import { buyBuildBoost } from './boost.js';
-import {
-  clearSlot,
-  fitIntoSlot,
-  isModificationDrawn,
-  modificationBlocker,
-  modificationOptions,
-} from './modifications.js';
+import { clearSlot, fitIntoSlot } from './modifications.js';
 import { districtPopulation } from './population.js';
 import { cancelTraining, queueTraining, settleTraining } from '../units/training.js';
 import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
@@ -553,116 +544,12 @@ describe('population (§A1: one pool)', () => {
   });
 });
 
-describe('modifications (§A1, §C4)', () => {
-  const engineer = () => [createCommander('eng', 'Wrench', 'lead_engineer')];
-  const rich: Resources = {
-    caps: 9999,
-    supplies: 9999,
-    oil: 9999,
-    scrap: 9999,
-    highQualityMetal: 9999,
-    planks: 9999,
-  };
-
-  it('reports the whole catalogue, every entry with a reason it is not startable', () => {
-    const repos = openStack();
-    const base = seedBase(repos);
-    const options = modificationOptions(base);
-
-    expect(options).toHaveLength(MODIFICATIONS.length);
-    // A brand-new district has built almost nothing, so everything belonging to a structure that is
-    // not standing reports `not_built`: exactly that many, no more and no fewer. Counted off the
-    // catalogue rather than written down, because a magic number here is a number that goes stale
-    // the next time a structure joins or leaves the game and reports nothing when it does.
-    const standing = MODIFICATIONS.filter(
-      (spec) => buildingLevel(base.buildings, spec.building) > 0,
-    );
-    expect(standing.length, 'a brand-new district has something built').toBeGreaterThan(0);
-    expect(options.filter((o) => o.blocker === 'not_built')).toHaveLength(
-      MODIFICATIONS.length - standing.length,
-    );
-    expect(options.every((o) => !o.installed)).toBe(true);
-  });
-
-  it('walks the gates in order: build it, hire an engineer, then pay', () => {
-    const spec = findModification('lab_quantum_modeling');
-    if (!spec) throw new Error('fixture error: the Lab modification is missing');
-
-    const withLab = (level: number, options: Partial<SeedOptions> = {}) =>
-      seedBase(openStack(), {
-        buildings: [build('nexus', 10), build('generator', 1), build('lab', level)],
-        ...options,
-      });
-
-    // Not built at all is the first thing a player is told, before anything about slots.
-    expect(
-      modificationBlocker(
-        seedBase(openStack(), { buildings: [build('nexus', 10), build('generator', 1)] }),
-        spec,
-      ),
-    ).toBe('not_built');
-
-    // §B9: no slot gate. A Lab project draws a blueprint now; the Scrapyard builds it and the
-    // structure's dialog fits it, so a Lab with no bracket open is still a Lab worth designing for.
-    expect(modificationBlocker(withLab(4), spec)).toBe('no_lead_engineer');
-    expect(modificationBlocker(withLab(5), spec)).toBe('no_lead_engineer');
-    expect(modificationBlocker(withLab(5, { officers: engineer() }), spec)).toBe('cannot_afford');
-    expect(modificationBlocker(withLab(5, { officers: engineer(), resources: rich }), spec)).toBe(
-      null,
-    );
-  });
-
-  /**
-   * §B9: a full Lab is exactly the crew that wants a fourth drawing.
-   *
-   * This used to refuse the project outright, which was right while a project ended by bolting the
-   * thing in and is wrong now: the brackets are emptiable (§E), so designing a fourth is how a
-   * player buys themselves a choice about which three the Lab is.
-   */
-  it('offers a fourth modification even with all three slots full', () => {
-    const spec = findModification('lab_shielded_datacore');
-    if (!spec) throw new Error('fixture error: the Lab modification is missing');
-
-    const full = seedBase(openStack(), {
-      buildings: [
-        build('nexus', 20),
-        build('generator', 1),
-        build('lab', 20, [
-          'lab_quantum_modeling',
-          'lab_neural_drafting_table',
-          'lab_redundant_testing_chambers',
-        ]),
-      ],
-      officers: engineer(),
-      resources: rich,
-    });
-    expect(modificationBlocker(full, spec)).toBeNull();
-
-    // ...and one already drawn is not sold twice, whether it is on the shelf or in a wall.
-    //
-    // This used to assert `null` here, which is what the code did and the opposite of what the
-    // line above it says: `null` means "nothing is in the way", and `research/start.ts` reads it as
-    // permission, so the Lab charged for a second copy of a drawing the crew already owned and
-    // banked nothing at the end of the clock.
-    const fitted = findModification('lab_quantum_modeling');
-    if (!fitted) throw new Error('fixture error: the Lab modification is missing');
-    expect(modificationBlocker(full, fitted)).toBe('already_drawn');
-    expect(isModificationDrawn(full, fitted.id)).toBe(true);
-    expect(isModificationDrawn(full, spec.id)).toBe(false);
-  });
-
-  it('prices modification work in materials as well as caps', () => {
-    const cost = researchCost('modification');
-    expect(cost.caps).toBeGreaterThan(0);
-    expect(cost.highQualityMetal ?? 0).toBeGreaterThan(0);
-    expect(researchCost('investigation').highQualityMetal).toBeUndefined();
-  });
-
+describe('modification brackets (§E)', () => {
   /**
    * §E: a slot is filled and emptied from the structure, out of what the Scrapyard has built.
    *
-   * The whole of the change §B9 made to research is visible here: owning an add-on and having it
-   * installed are two facts now, so a slot can be emptied and the thing is still yours.
+   * Owning an add-on and having it installed are two facts, so a slot can be emptied and the thing
+   * is still yours.
    */
   it('fits a built add-on, refuses a second copy, and empties the slot again', () => {
     const repos = openStack();

@@ -473,7 +473,7 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M10 7h4M10 12h4M10 17h4" {...S} />
     </>
   ),
-  /** The desk: a sheet under a pen, which is where a project is put on somebody. */
+  /** A desk: a sheet under a pen. Nothing draws it since the Lab's desk was retired (§I1e). */
   desk: (
     <>
       <path d="M5.5 3.5h8.4l4.6 4.5v12h-13z" {...S} />

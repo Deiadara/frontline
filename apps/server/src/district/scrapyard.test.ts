@@ -1,4 +1,5 @@
 import {
+  TRAP_CATALOG,
   UNIT_UPGRADES,
   MODIFICATIONS,
   RESOURCE_KEYS,
@@ -96,12 +97,23 @@ function seedBase(repos: Repositories, over: Partial<Base> = {}): Base {
 }
 
 describe('§B9: the Scrapyard builds add-ons', () => {
-  it('prices every entry in scrap, and in nothing but scrap and metal', () => {
+  it('prices every bracket and refit in scrap, and in nothing but scrap and metal', () => {
     const repos = openStack();
     const { entries } = projectScrapyard(seedBase(repos, { resources: RICH }));
-    expect(entries.length).toBe(MODIFICATIONS.length + 9);
+    // Derived rather than typed: three benches, and a content edit to any of them should move this
+    // number rather than redden a count nobody meant to pin.
+    expect(entries.length).toBe(MODIFICATIONS.length + UNIT_UPGRADES.length + TRAP_CATALOG.length);
 
-    for (const entry of entries) {
+    /*
+     * The board's two-column rule, and it is about the two benches that bolt things on.
+     *
+     * Traps are the exception and are excluded here rather than quietly weakening the assertion for
+     * everybody: they are priced by `TRAP_CATALOG` in planks, oil and caps as well as scrap,
+     * because a trap is made out of what is lying around. Their own bill is checked below.
+     */
+    const bolted = entries.filter((entry) => entry.kind !== 'trap');
+    expect(bolted.length).toBe(MODIFICATIONS.length + UNIT_UPGRADES.length);
+    for (const entry of bolted) {
       expect(entry.cost.scrap ?? 0, entry.id).toBeGreaterThan(0);
       for (const key of RESOURCE_KEYS) {
         if (key === 'scrap' || key === 'highQualityMetal') continue;
@@ -111,6 +123,22 @@ describe('§B9: the Scrapyard builds add-ons', () => {
       expect((entry.cost.highQualityMetal ?? 0) > 0, `${entry.id} metal vs advanced`).toBe(
         entry.advanced,
       );
+    }
+  });
+
+  /** §I4a: the trap bench, priced straight off `TRAP_CATALOG` rather than through a price function. */
+  it('puts every trap on its own bench at the catalogue price', () => {
+    const repos = openStack();
+    const { entries } = projectScrapyard(seedBase(repos, { resources: RICH }));
+    const traps = entries.filter((entry) => entry.kind === 'trap');
+    expect(traps.map((entry) => entry.id)).toEqual(TRAP_CATALOG.map((spec) => spec.id));
+
+    for (const spec of TRAP_CATALOG) {
+      const entry = traps.find((row) => row.id === spec.id)!;
+      expect(entry.cost, spec.id).toEqual(spec.cost);
+      // A trap belongs to no structure: it goes in the satchel, not into a bracket.
+      expect(entry.building, spec.id).toBeNull();
+      expect(entry.advanced, spec.id).toBe((spec.cost.highQualityMetal ?? 0) > 0);
     }
   });
 
@@ -139,13 +167,16 @@ describe('§B9: the Scrapyard builds add-ons', () => {
   });
 
   /**
-   * §D12f: an advanced modification wants the retrofit document *and* the Lab project.
+   * §D12f, as it stands since the desk went (plan §I2d): an advanced modification wants the
+   * structure's retrofit document, and nothing else.
    *
-   * Both halves are asserted, and separately, because either one on its own is a gate that passes
-   * this test while the other is missing entirely: a build refused for want of pages looks exactly
-   * like a build refused for want of a Lab project from the outside.
+   * It used to want a Lab project as well ("drawn up in the Lab"), and the two gates were asserted
+   * separately because either alone passed the test while the other was missing. The project is
+   * gone with the desk, so the third case here is the one that matters now: a crew that *only* has
+   * the old `addons.researched` entry, with no document, is still refused, which proves the yard
+   * has stopped reading that list rather than merely stopped requiring it.
    */
-  it('refuses an advanced add-on until the crew holds the document and the Lab has drawn it', () => {
+  it('refuses an advanced add-on until the crew holds the document, and asks for nothing else', () => {
     const repos = openStack();
     const advanced = MODIFICATIONS.find(isAdvancedModification);
     expect(advanced).toBeDefined();
@@ -160,24 +191,15 @@ describe('§B9: the Scrapyard builds add-ons', () => {
       reason: `Needs the ${document.name}`,
     });
 
-    // The document alone is not enough: the Lab still has to draw this particular bracket.
-    const read: Base = { ...bare, inventory: { [document.id]: 1 } };
-    const stillRefused = buildAddon(repos, read, 'modification', advanced.id);
-    expect(stillRefused.kind).toBe('refused');
-    if (stillRefused.kind === 'refused') expect(stillRefused.reason).toMatch(/Lab/);
-
-    // And the Lab project alone is not enough either.
+    // The retired Lab project on its own buys nothing: the list is not read any more.
     const drawnOnly: Base = { ...bare, addons: { researched: [advanced.id], built: [] } };
     expect(buildAddon(repos, drawnOnly, 'modification', advanced.id)).toEqual({
       kind: 'refused',
       reason: `Needs the ${document.name}`,
     });
 
-    const drawn: Base = {
-      ...bare,
-      inventory: { [document.id]: 1 },
-      addons: { researched: [advanced.id], built: [] },
-    };
+    // The document alone is the whole gate.
+    const drawn: Base = { ...bare, inventory: { [document.id]: 1 } };
     const built = buildAddon(repos, drawn, 'modification', advanced.id);
     expect(built.kind).toBe('built');
     if (built.kind !== 'built') return;

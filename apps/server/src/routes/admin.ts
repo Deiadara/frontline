@@ -1,4 +1,7 @@
 import {
+  AdminFogRequestSchema,
+  CITY_DISTRICTS,
+  findDistrict,
   AdminKnobsRequestSchema,
   BUILDING_KINDS,
   RESOURCE_KEYS,
@@ -32,8 +35,8 @@ import { ownBase } from './own-base.js';
  * Nothing here fabricates a state the rules could not produce, for the same reason the sandbox does
  * not: a reviewer looking at a district built by a knob should be looking at the real thing. The
  * levels are levels the game reaches, the resources are inside the storage the district actually
- * has, and research is left alone because facts are *discovered* and writing them in would be
- * inventing a state the mechanic does not have.
+ * has, and research is left alone because a programme is worked through on the Lab's bench and
+ * granting the rungs outright would be inventing a state the mechanic does not have.
  */
 
 function requireAdmin(app: FastifyInstance): void {
@@ -52,6 +55,17 @@ function snapshot(app: FastifyInstance, base: Base): AdminSnapshot {
     baseId: base.id,
     playerLevel: base.level,
     infamy: base.economy.infamy,
+    // Effective visibility, through the same seam the city view reads, so a tick here and the map
+    // over there can never disagree. Home is listed and always visible: you live there.
+    fog: (() => {
+      const visible = app.repos.city.visibleDistricts(base.id);
+      return CITY_DISTRICTS.map((district) => ({
+        districtId: district.id,
+        name: district.name,
+        visible: district.id === base.districtId || visible.has(district.id),
+        home: district.id === base.districtId,
+      }));
+    })(),
     buildings: BUILDING_KINDS.map((kind) => ({
       kind,
       level: buildingLevel(base.buildings, kind),
@@ -95,6 +109,24 @@ export function registerAdminRoutes(app: FastifyInstance): void {
   app.get('/admin', { preHandler: app.authenticate }, (request): AdminSnapshot => {
     requireAdmin(app);
     return snapshot(app, ownBase(app, request.currentUser.id));
+  });
+
+  /**
+   * The fog of war knob: show or hide one district for this crew while admin mode is on.
+   *
+   * Stored as the exception (`admin_fog`), never as scouting intel: hiding a district a scout has
+   * genuinely visited leaves that visit on record, and turning admin mode off shows the crew
+   * exactly what it has seen and nothing else. Home cannot be hidden; you live there.
+   */
+  app.post('/admin/fog', { preHandler: app.authenticate }, (request): AdminMutationResponse => {
+    requireAdmin(app);
+    const { districtId, visible } = parseBody(AdminFogRequestSchema, request.body);
+    if (!findDistrict(districtId)) throw new AppError('NOT_FOUND', 'No such district');
+    return app.db.transaction(() => {
+      const base = ownBase(app, request.currentUser.id);
+      if (districtId !== base.districtId) app.repos.city.setAdminFog(base.id, districtId, !visible);
+      return { admin: snapshot(app, base) };
+    })();
   });
 
   app.post('/admin/knobs', { preHandler: app.authenticate }, (request): AdminMutationResponse => {

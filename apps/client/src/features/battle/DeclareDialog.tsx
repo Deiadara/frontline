@@ -46,7 +46,13 @@ export function DeclareDialog({
   onClose,
   onConfirm,
 }: DeclareDialogProps) {
-  const [chosen, setChosen] = useState<string | null>(slots[0] ?? null);
+  const [picked, setPicked] = useState<string | null>(null);
+  /*
+   * Derived, not seeded. `slots` is re-read every few seconds and the first mark drops off the list
+   * the minute it passes; a choice seeded once from `slots[0]` outlived the slot and the dialog
+   * posted a mark the board no longer offered. `Fights.tsx` documents the same trap.
+   */
+  const chosen = picked !== null && slots.includes(picked) ? picked : (slots[0] ?? null);
   // Off by default. Holding is the bigger commitment of the two. It takes the survivors off the
   // roster until somebody goes and gets them, so it is the one a player has to reach for.
   const [hold, setHold] = useState(false);
@@ -93,7 +99,7 @@ export function DeclareDialog({
                   key={slot}
                   type="button"
                   data-testid={`slot-${slot}`}
-                  onClick={() => setChosen(slot)}
+                  onClick={() => setPicked(slot)}
                   className={cn(
                     'border px-2.5 py-1 font-display text-[12px] tabular-nums transition-colors',
                     slot === chosen

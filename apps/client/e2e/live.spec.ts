@@ -221,7 +221,16 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   const granted = await openGround(page);
   await page.getByTestId(`district-tag-${granted.id}`).click();
   await expect(page.getByRole('heading', { name: granted.name })).toBeVisible();
-  await expect(page.getByTestId('locations')).toBeVisible();
+  /*
+   * Which district this is depends on where the account was planted, and three of them are
+   * painted now: a painted district is a picture with a sign on each location, and its cards live
+   * in a window behind the sign. An unpainted one still draws the column of cards. The rest of this
+   * step is the same either way, which is the point of the card being the same component.
+   */
+  const painted = page.getByTestId(`district-painting-${granted.id}`);
+  const isPainted = (await painted.count()) > 0;
+  if (isPainted) await expect(painted).toBeVisible();
+  else await expect(page.getByTestId('locations')).toBeVisible();
   await shootEveryViewport(page, 'district-locations');
 
   /*
@@ -237,7 +246,10 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    */
   const firstPlace = granted.locations[0];
   if (!firstPlace) throw new Error(`fixture error: ${granted.name} has no locations`);
-  const card = page.getByTestId(`location-${firstPlace.id}`);
+  if (isPainted) await page.getByTestId(`site-${firstPlace.id}`).click();
+  const card = (isPainted ? page.getByTestId('location-window') : page).getByTestId(
+    `location-${firstPlace.id}`,
+  );
   await expect(card).toBeVisible();
 
   await card.getByRole('button', { name: 'Call a fight' }).click();

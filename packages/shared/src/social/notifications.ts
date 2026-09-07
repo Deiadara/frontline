@@ -126,7 +126,7 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
   research_done: {
     group: 'district',
     label: 'The Lab',
-    blurb: 'An investigation, a programme or a modification has landed.',
+    blurb: 'A research programme has landed.',
     icon: 'research',
   },
   training_done: {

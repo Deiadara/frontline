@@ -1,5 +1,3 @@
-import { z } from 'zod';
-import { IsoDateTimeSchema } from '../primitives.js';
 import type { PartialResources } from '../resources.js';
 import type { Army } from '../units/training.js';
 
@@ -23,13 +21,22 @@ import type { Army } from '../units/training.js';
  * a random one would be a lottery ticket rather than a plan. The victims are taken across the
  * attacking stacks in proportion to their size, so a trap cannot be baited by putting one Razor in
  * front of the Colossus.
+ *
+ * ## Where one comes from (§I4)
+ *
+ * A trap used to be bought with resources and armed on a location, where it sat waiting for
+ * whoever turned up. It is a **consumable item** now: the Scrapyard cuts one for the cost below,
+ * behind the trap's blueprint document and the Lab rung named here, and it goes into the satchel.
+ * A defender sets one on a coming fight and it is spent at the mark. The ids in this catalogue are
+ * therefore also item ids in `items/catalog.ts`, and that is the mechanic rather than a
+ * coincidence: the deployment row names the trap, and the settler takes that id out of the bag.
  */
 
 export interface TrapSpec {
   id: string;
   name: string;
   description: string;
-  /** The Lab programme that has to be finished before this can be laid. */
+  /** The Lab programme the yard wants finished before it will cut one. */
   requiresTech: string;
   cost: PartialResources;
   /** Share of the attacking force it takes off, before any ceiling. */
@@ -75,17 +82,10 @@ export function findTrap(id: string): TrapSpec | undefined {
   return BY_ID.get(id);
 }
 
-/** Traps this crew's finished research allows it to lay. */
+/** Traps this crew's finished research allows the yard to cut. */
 export function trapsAvailable(technologies: readonly string[]): TrapSpec[] {
   return TRAP_CATALOG.filter((spec) => technologies.includes(spec.requiresTech));
 }
-
-/** A trap sitting on a location, waiting. One per location: see the module note on why not three. */
-export const ArmedTrapSchema = z.object({
-  trapId: z.string().min(1),
-  armedAt: IsoDateTimeSchema,
-});
-export type ArmedTrap = z.infer<typeof ArmedTrapSchema>;
 
 export interface TrapToll {
   /** Bodies the trap took, by unit id. */

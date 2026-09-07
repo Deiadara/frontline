@@ -380,7 +380,13 @@ function OfferCard({
        * 7rem is the measured worst case (109px) plus a little. It is sized to the widest payout
        * the catalogue can produce at the narrowest card, because the whole point of the fixed
        * heights is that the row beneath never moves, at any width. */}
-      <div className="flex h-28 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5">
+      {/* 7rem, and 8 from `xl`. The band was sized for a card a third of the board at full width.
+          From `xl` the board shares the sheet with the crews in flight, the cards are a fifth
+          narrower, a six-resource haul wraps one row deeper, and the page badge under it went 8px
+          past the fold. Below `xl` the board has the whole width and the old height still fits: at
+          1024x768 the extra rem pushed the card's own bottom tags under the fold of the screen.
+          Fixed either way, for the same reason as before: three cards, one line of buttons. */}
+      <div className="flex h-28 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5 xl:h-32">
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
           Expected haul
         </span>

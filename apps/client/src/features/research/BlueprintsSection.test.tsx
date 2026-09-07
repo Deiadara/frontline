@@ -11,7 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BlueprintsPage } from './BlueprintsPage';
+import { BlueprintsSection } from './BlueprintsSection';
 import { BLUEPRINT_UNLOCK_MESSAGES } from '@frontline/shared';
 import { useSession } from '../../store/session';
 
@@ -125,7 +125,7 @@ function renderPage() {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/game/inventory/blueprints']}>
-        <BlueprintsPage />
+        <BlueprintsSection />
       </MemoryRouter>
     </QueryClientProvider>,
   );

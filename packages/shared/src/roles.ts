@@ -214,15 +214,6 @@ export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<s
  */
 export const RESKILLING_ROLE: OfficerRole = 'professor';
 
-/**
- * C4/B9: the librarian-ish research task that buys partial hiring insight is a Professor /
- * Head of Research activity. W7 (research) gates the task on *this* constant.
- *
- * Note what the task yields: hints about what pairs well with what. Never the raw requirement
- * table (B8).
- */
-export const HIRING_INSIGHT_ROLES: readonly OfficerRole[] = ['professor', 'head_of_research'];
-
 export function isOfficerRole(value: string): value is OfficerRole {
   return (OFFICER_ROLES as readonly string[]).includes(value);
 }

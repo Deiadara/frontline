@@ -7,17 +7,21 @@ import {
   type CrewMember,
   type Base,
   type CrewEffects,
-  techEffects,
+  researchEffects,
+  mergeCrewEffects,
   gateDefensePercent,
   gateIntelResistancePercent,
   raidLootBonus,
   liftOfficer,
   peerLift,
   officerIsInjured,
+  FACTION_CARD_SPECS,
+  cardBonusPercent,
   type Commander,
   type NumericEffectChannel,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { cardsAtTable } from '../factions/cards.js';
 import { benchedMember, overseerMember, seatedMember } from '../roles/duties.js';
 
 /**
@@ -50,12 +54,18 @@ export function standingEffectsFor(
    * particular column rather than about the crew, so it is applied where a column is put on the
    * road (`battle/movement.ts`) off what that column actually took.
    */
-  // The Lab's finished programmes. Sparse, and folded rather than assigned, so a technology adds
-  // to whatever the ground and the people were already worth on the same channel.
-  for (const [channel, amount] of Object.entries(techEffects(base.research.technologies))) {
-    const key = channel as NumericEffectChannel;
-    total[key] += amount ?? 0;
-  }
+  // The Lab's finished programmes, folded rather than assigned, so a rung adds to whatever the
+  // ground and the people were already worth on the same channel, a tier's armour and a chair at
+  // the Bar included.
+  Object.assign(total, mergeCrewEffects(total, researchEffects(base.research.technologies)));
+  /*
+   * The table's cards (§L, `factions/cards.ts`). Each seat at the faction's table is a card
+   * responsible for one aspect of the faction, read off its holder's own sheet, and every member
+   * is paid on it: the leader's ace is what the whole table hits for. Folded here because here is
+   * the one place every consumer of a crew's standing reads from, so a card that paid out
+   * anywhere else would be a bonus some fights saw and others did not.
+   */
+  for (const [channel, percent] of factionCardBonuses(repos, base)) total[channel] += percent;
   /*
    * §B7: the Gate, folded here because here is the only way into a fight.
    *
@@ -93,11 +103,7 @@ export function crewEffectsFor(
   const people = sheets.length === 0 ? noCrewEffects() : crewEffects(sheets);
   // Production, storage and costs are read through *this* fold rather than the territory one, so
   // the Lab has to land here too or half its tech tree would do nothing at all.
-  for (const [channel, amount] of Object.entries(techEffects(base.research.technologies))) {
-    const key = channel as NumericEffectChannel;
-    people[key] += amount ?? 0;
-  }
-  return people;
+  return mergeCrewEffects(people, researchEffects(base.research.technologies));
 }
 
 /**
@@ -174,4 +180,22 @@ export function crewSheetsFor(
   const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
   // The Overseer is the player, not an employee: no seat, and no discount anywhere.
   return overseer ? [overseerMember(overseer.attributes, overseer.perks), ...officers] : officers;
+}
+
+/**
+ * What the crew's faction pays it, channel by channel, off the cards at its table.
+ *
+ * Nothing for a crew at no table. A seat is worth `cardBonusPercent` of its holder's mark on the
+ * card's own channel; five seats can push five different channels, or an empty table none.
+ */
+export function factionCardBonuses(
+  repos: Repositories,
+  base: Base,
+): [NumericEffectChannel, number][] {
+  const membership = repos.factions.membershipOf(base.ownerId);
+  if (!membership) return [];
+  return [...cardsAtTable(repos, membership.factionId).values()].map((held) => [
+    FACTION_CARD_SPECS[held.card].channel,
+    cardBonusPercent(held.mark),
+  ]);
 }

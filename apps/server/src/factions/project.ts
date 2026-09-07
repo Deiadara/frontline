@@ -14,6 +14,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { residentOf, targetName } from '../battle/ground.js';
 import { sideOf } from '../battle/deploy.js';
+import { cardsAtTable } from './cards.js';
 
 /**
  * What the faction screen is made of.
@@ -31,7 +32,7 @@ function projectMember(
   rank: FactionMember['rank'],
   joinedAt: string,
   infamyEarned: number,
-): FactionMember | null {
+): Omit<FactionMember, 'card' | 'cardMark'> | null {
   const user = repos.users.findById(userId);
   const base = repos.bases.findByOwnerId(userId);
   // A member with no district cannot happen in play (an Overseer is chosen before anything else),
@@ -57,11 +58,14 @@ function projectMember(
 }
 
 export function membersOf(repos: Repositories, factionId: string): FactionMember[] {
-  return repos.factions
-    .members(factionId)
-    .flatMap(
-      (row) => projectMember(repos, row.userId, row.rank, row.joinedAt, row.infamyEarned) ?? [],
-    );
+  // Dealt once for the table rather than per row: a card depends on where everybody else sits.
+  const dealt = cardsAtTable(repos, factionId);
+  return repos.factions.members(factionId).flatMap((row) => {
+    const member = projectMember(repos, row.userId, row.rank, row.joinedAt, row.infamyEarned);
+    const held = dealt.get(row.userId);
+    if (!member || !held) return [];
+    return [{ ...member, card: held.card, cardMark: held.mark }];
+  });
 }
 
 function projectInvite(
@@ -159,25 +163,25 @@ function allyBattles(
 }
 
 /** What each ally can field, which is the question "who could help me" is really asking. */
-function allyArmies(
-  repos: Repositories,
-  members: readonly FactionMember[],
-  selfUserId: string,
-): AllyArmy[] {
-  return members
-    .filter((member) => member.userId !== selfUserId)
-    .flatMap((member) => {
-      const base = repos.bases.findById(member.baseId);
-      if (!base) return [];
-      return [
-        {
-          memberUserId: member.userId,
-          memberName: member.username,
-          army: base.army,
-          size: member.armySize,
-        },
-      ];
-    });
+/**
+ * What the whole table can field, the reader's own crew included.
+ *
+ * It left the reader out, on the grounds that "who could help me" is about the others. The screen
+ * it feeds is "What we field", and a leader opening it found everybody's units but their own.
+ */
+function allyArmies(repos: Repositories, members: readonly FactionMember[]): AllyArmy[] {
+  return members.flatMap((member) => {
+    const base = repos.bases.findById(member.baseId);
+    if (!base) return [];
+    return [
+      {
+        memberUserId: member.userId,
+        memberName: member.username,
+        army: base.army,
+        size: member.armySize,
+      },
+    ];
+  });
 }
 
 /** The whole faction screen in one payload. */
@@ -227,7 +231,7 @@ export function projectFaction(repos: Repositories, userId: string, now: Date): 
       .invitesFrom(faction.id)
       .flatMap((row) => projectInvite(repos, row) ?? []),
     battles: allyBattles(repos, members, userId, now),
-    armies: allyArmies(repos, members, userId),
+    armies: allyArmies(repos, members),
     serverNow,
   };
 }

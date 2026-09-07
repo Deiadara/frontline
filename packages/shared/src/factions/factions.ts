@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OfficerMarkSchema } from '../crew/marks.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { BadgeSchema } from './badge.js';
 
@@ -47,6 +48,20 @@ export const FACTION_BLURB_MAX = 240;
 
 export const FactionNameSchema = z.string().trim().min(FACTION_NAME_MIN).max(FACTION_NAME_MAX);
 export const FactionBlurbSchema = z.string().trim().max(FACTION_BLURB_MAX);
+
+/**
+ * The five cards a table is dealt, one per seat. What each is for is in `cards.ts`; the enum lives
+ * here because the member row carries it and `cards.ts` reads the ranks from this file.
+ */
+export const FACTION_CARDS = [
+  'ace_spades',
+  'king_diamonds',
+  'queen_hearts',
+  'jack_clubs',
+  'joker',
+] as const;
+export const FactionCardSchema = z.enum(FACTION_CARDS);
+export type FactionCard = z.infer<typeof FactionCardSchema>;
 
 export const FACTION_RANKS = ['leader', 'chief', 'member'] as const;
 export const FactionRankSchema = z.enum(FACTION_RANKS);
@@ -179,6 +194,13 @@ export const FactionMemberSchema = z.object({
   supplyUsed: z.number().int().nonnegative(),
   /** Never live: a hardcoded neighbour who is in the faction but does not play (see `seed/`). */
   isBot: z.boolean().default(false),
+  /**
+   * The card their seat holds (`cards.ts`) and their mark on it: what they are responsible for at
+   * this table and how well their sheet answers it. Dealt by seat on the server off the same
+   * order the room draws, so the two cannot disagree.
+   */
+  card: FactionCardSchema,
+  cardMark: OfficerMarkSchema,
 });
 export type FactionMember = z.infer<typeof FactionMemberSchema>;
 

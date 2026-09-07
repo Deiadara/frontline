@@ -14,7 +14,7 @@ import {
 } from './kinds.js';
 import { blueprintForModification, modificationGateMet } from '../blueprints/index.js';
 import type { Inventory } from '../items/inventory.js';
-import { isAdvancedModification, modificationBuildRefusal, noAddons } from './addons.js';
+import { isAdvancedModification, modificationBuildRefusal } from './addons.js';
 import {
   MAX_MODIFICATION_SLOTS,
   MODIFICATIONS,
@@ -1121,32 +1121,29 @@ describe('§D12f: what the Scrapyard will not cut yet', () => {
     expect(
       modificationBuildRefusal({
         spec: cheap,
-        addons: noAddons(),
         blueprintUnlocked: holding({}),
         affordable: RICH,
       }),
     ).toBeNull();
   });
 
-  it('names the document first, then the Lab project, then the money', () => {
+  it('names the document first, then the money, and asks for nothing else', () => {
     expect(isAdvancedModification(advanced)).toBe(true);
     expect(document.id).toBe('bp_nexus_retrofit');
 
-    const refuse = (inventory: Inventory, researched: string[], afford: () => boolean) =>
+    const refuse = (inventory: Inventory, afford: () => boolean) =>
       modificationBuildRefusal({
         spec: advanced,
-        addons: { researched, built: [] },
         blueprintUnlocked: holding(inventory),
         affordable: afford,
       });
     const read: Inventory = { [document.id]: 1 };
 
     // Everything shut: the document is what it says.
-    expect(refuse({}, [], BROKE)).toBe('needs_blueprint');
-    // Document in hand, project not run: the project, even though the crew is also broke.
-    expect(refuse(read, [], BROKE)).toBe('needs_research');
-    // Both drawings in hand: now the price is the only thing left.
-    expect(refuse(read, [advanced.id], BROKE)).toBe('cannot_afford');
-    expect(refuse(read, [advanced.id], RICH)).toBeNull();
+    expect(refuse({}, BROKE)).toBe('needs_blueprint');
+    // Document in hand and broke: the price, and nothing between. There used to be a Lab project
+    // here (`needs_research`), and this is the assertion that keeps it from coming back.
+    expect(refuse(read, BROKE)).toBe('cannot_afford');
+    expect(refuse(read, RICH)).toBeNull();
   });
 });

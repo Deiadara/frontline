@@ -3,6 +3,7 @@ import {
   findMissionTemplate,
   formatCountdown,
   formatDuration,
+  missionCompletesAt,
   missionPhaseAt,
   missionProgressAt,
   missionRemainingMs,
@@ -197,11 +198,22 @@ export function MissionsPage() {
   const limit = data?.activeLimit ?? 0;
   const atCapacity = limit > 0 && active.length >= limit;
 
+  /*
+   * Soonest home first. The server hands missions back in launch order, and a day-long expedition
+   * launched first sat at the top of the stack for a day while three short runs landed underneath
+   * it. What a player glancing at the left of this screen wants is "who is next through the gate".
+   */
+  const landing = [...active].sort(
+    (a, b) => missionCompletesAt(a).getTime() - missionCompletesAt(b).getTime(),
+  );
+
   return (
     <PageShell
       // A quotation, not a lede. It is the one line on this screen that is not telling anybody a
       // number, and it was set in the same grey help text as the travel-time explainer beside it.
       quote="The first death is in the heart. Get out there and show you are still alive."
+      wide
+      fills
     >
       {levelUp && (
         <div className="flex flex-col gap-2">
@@ -216,96 +228,131 @@ export function MissionsPage() {
         </div>
       )}
 
-      <Panel
-        title="Mission Board"
-        action={
-          atCapacity ? (
-            <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-warning">
-              All crews deployed
-            </span>
-          ) : null
-        }
-      >
-        {missionsQuery.isLoading ? (
-          <EmptyRow text="Reading the board…" />
-        ) : data === undefined ? (
-          /* A failed read used to fall through every `?? []` and print `MissionBoard`'s empty
+      {/*
+       * A rail and a workspace, the frame the Lab, the yard and the Training tab already use.
+       *
+       * The crews in flight used to be a horizontal strip of chips in the shell's chrome under the
+       * board, and the strip wrapped: with two or three crews out the chips ran under the board's
+       * own tab row and covered it. A column on the left has room for a stack, the stack scrolls
+       * inside its own box when it is long, and nothing on this screen has to move to make room.
+       *
+       * The column opens at `xl`, not `lg`. The board is three cards across and each needs about
+       * 300px for a six-resource haul to fit its band; at 1024 wide an 18rem column leaves them
+       * 215px and the haul spills out of the box. Below `xl` the board keeps the width and the
+       * stack follows it in the flow, which is under the board but never over it.
+       *
+       * Two different frames, then. Above `xl` the sheet fills the window and each column scrolls
+       * inside itself, with the crews in flight taking at most half the column so a single crew out
+       * is never clipped by the list under it. Below `xl` the sheet scrolls as a whole and every
+       * panel is its natural height: a fixed frame shared three ways at 768px tall left the board
+       * a strip too short to show its own cards.
+       */}
+      <div className="min-h-0 flex-1 overflow-y-auto xl:flex xl:flex-col xl:overflow-visible">
+        <div className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[18rem_minmax(0,1fr)] xl:items-stretch">
+          <div className="order-2 flex min-w-0 flex-col gap-4 xl:order-1 xl:min-h-0">
+            <Panel
+              title="In flight"
+              className="flex flex-col xl:max-h-[50%] xl:shrink-0"
+              action={
+                <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
+                  <span className="tabular-nums text-ink-200">{active.length}</span>
+                  {limit > 0 ? <span className="tabular-nums"> / {limit}</span> : null} crews out
+                </span>
+              }
+            >
+              {missionsQuery.isLoading ? (
+                <EmptyRow text="Reading the board…" />
+              ) : landing.length === 0 ? (
+                <EmptyRow text="Every crew is home" />
+              ) : (
+                <ul
+                  aria-label="Crews in flight"
+                  data-testid="crews-in-flight"
+                  className="flex flex-col divide-y divide-surface-700 xl:min-h-0 xl:overflow-y-auto"
+                >
+                  {landing.map((mission) => (
+                    <InFlightRow key={mission.id} mission={mission} now={now} />
+                  ))}
+                </ul>
+              )}
+            </Panel>
+
+            <Panel title="Recently returned" className="flex flex-col xl:min-h-0 xl:flex-1">
+              {returned.length === 0 ? (
+                <EmptyRow text="No crew has come back yet" />
+              ) : (
+                <ul
+                  aria-label="Crews returned"
+                  className="flex flex-col divide-y divide-surface-700 xl:min-h-0 xl:overflow-y-auto"
+                >
+                  {returned.map((mission) => (
+                    <ReturnedRow key={mission.id} mission={mission} />
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          </div>
+
+          <div className="order-1 flex min-w-0 flex-col xl:order-2 xl:min-h-0 xl:overflow-y-auto">
+            <Panel
+              title="Mission Board"
+              action={
+                atCapacity ? (
+                  <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-warning">
+                    All crews deployed
+                  </span>
+                ) : null
+              }
+            >
+              {missionsQuery.isLoading ? (
+                <EmptyRow text="Reading the board…" />
+              ) : data === undefined ? (
+                /* A failed read used to fall through every `?? []` and print `MissionBoard`'s empty
              state, "Nowhere is hiring. Scout something.": a sentence about the game world in
              answer to a broken request. The roster beside it already modelled three states. */
-          <LoadFailure
-            what="The board"
-            onRetry={() => void missionsQuery.refetch()}
-            detail="Nothing has been lost. Every crew you have out is still out."
-          />
-        ) : (
-          <MissionBoard
-            areas={data?.areas ?? []}
-            army={data?.army ?? {}}
-            fleet={me.data?.base?.fleet ?? {}}
-            roster={roster}
-            atCapacity={atCapacity}
-            pendingTemplateId={launch.isPending ? (launch.variables?.templateId ?? null) : null}
-            refusal={
-              launch.error && launch.variables
-                ? { templateId: launch.variables.templateId, message: launch.error.message }
-                : null
-            }
-            onLaunch={(areaId, templateId, force, officerId, vehicles) =>
-              launch.mutate(
-                {
-                  areaId,
-                  templateId,
-                  force,
-                  vehicles: vehicles ?? {},
-                  ...(officerId ? { officerId } : {}),
-                },
-                // A launch settles the board first, so this response is the only place a crew
-                // that landed on it is ever reported: including when the launch is then
-                // refused, since the settle is not rolled back (MOU-280).
-                {
-                  onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp),
-                  onError: (error) => error.levelUp && setLevelUp(error.levelUp),
-                },
-              )
-            }
-          />
-        )}
-      </Panel>
-
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Panel
-          title="In Flight"
-          action={
-            <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-              <span className="tabular-nums text-ink-200">{active.length}</span>
-              {limit > 0 ? <span className="tabular-nums"> / {limit}</span> : null} crews out
-            </span>
-          }
-        >
-          {missionsQuery.isLoading ? (
-            <EmptyRow text="Reading the board…" />
-          ) : active.length === 0 ? (
-            <EmptyRow text="Every crew is home" />
-          ) : (
-            <ul aria-label="Crews in flight" className="flex flex-col divide-y divide-surface-700">
-              {active.map((mission) => (
-                <InFlightRow key={mission.id} mission={mission} now={now} />
-              ))}
-            </ul>
-          )}
-        </Panel>
-
-        <Panel title="Recently Returned">
-          {returned.length === 0 ? (
-            <EmptyRow text="No crew has come back yet" />
-          ) : (
-            <ul aria-label="Crews returned" className="flex flex-col divide-y divide-surface-700">
-              {returned.map((mission) => (
-                <ReturnedRow key={mission.id} mission={mission} />
-              ))}
-            </ul>
-          )}
-        </Panel>
+                <LoadFailure
+                  what="The board"
+                  onRetry={() => void missionsQuery.refetch()}
+                  detail="Nothing has been lost. Every crew you have out is still out."
+                />
+              ) : (
+                <MissionBoard
+                  areas={data?.areas ?? []}
+                  army={data?.army ?? {}}
+                  fleet={me.data?.base?.fleet ?? {}}
+                  roster={roster}
+                  atCapacity={atCapacity}
+                  pendingTemplateId={
+                    launch.isPending ? (launch.variables?.templateId ?? null) : null
+                  }
+                  refusal={
+                    launch.error && launch.variables
+                      ? { templateId: launch.variables.templateId, message: launch.error.message }
+                      : null
+                  }
+                  onLaunch={(areaId, templateId, force, officerId, vehicles) =>
+                    launch.mutate(
+                      {
+                        areaId,
+                        templateId,
+                        force,
+                        vehicles: vehicles ?? {},
+                        ...(officerId ? { officerId } : {}),
+                      },
+                      // A launch settles the board first, so this response is the only place a crew
+                      // that landed on it is ever reported: including when the launch is then
+                      // refused, since the settle is not rolled back (MOU-280).
+                      {
+                        onSuccess: (result) => result.levelUp && setLevelUp(result.levelUp),
+                        onError: (error) => error.levelUp && setLevelUp(error.levelUp),
+                      },
+                    )
+                  }
+                />
+              )}
+            </Panel>
+          </div>
+        </div>
       </div>
     </PageShell>
   );

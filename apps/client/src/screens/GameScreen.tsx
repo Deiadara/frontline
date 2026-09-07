@@ -6,6 +6,7 @@ import { useMeasuredHeight } from '../lib/useMeasuredHeight';
 import { BottomNav } from '../features/game/BottomNav';
 import { QueueRail } from '../features/game/QueueRail';
 import { SceneBackdrop } from '../features/game/PageShell';
+import { ShellLevelUp } from '../features/game/ShellLevelUp';
 import { TopHud } from '../features/game/TopHud';
 
 /**
@@ -64,6 +65,10 @@ export function GameScreen() {
       <main className="absolute inset-0 z-10">
         <Outlet />
       </main>
+
+      {/* The level a build crossed while the player was looking at another page: `/me` settles
+          it and is the only response that knows. Over the screen, under the chrome. */}
+      <ShellLevelUp levelUp={me.data?.levelUp} />
 
       {/* The junk in the corners lives here, under the chrome: at this opacity a fallen robot arm
           over the queue rail's countdowns is a smear on the one thing that is counting down. */}

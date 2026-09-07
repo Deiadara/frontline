@@ -82,6 +82,26 @@ const GLYPHS: Record<ItemKind, JSX.Element> = {
       <path d="M3.4 5.7h9.2M8 2.6v9.7" stroke="currentColor" strokeWidth="1" />
     </>
   ),
+  // A pressure plate over a charge: a board, and the thing under it. Built to go off once.
+  consumable: (
+    <>
+      <path d="M2.8 6.2h10.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path
+        d="M4.2 6.2v1.6M11.8 6.2v1.6"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+      <path
+        d="M8 8.6l1.9 1.6-0.7 2.6H6.8l-0.7-2.6z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      <path d="M8 8.6V7.4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </>
+  ),
 };
 
 const TINT: Record<ItemKind, string> = {
@@ -89,6 +109,7 @@ const TINT: Record<ItemKind, string> = {
   page: 'text-iris-300',
   component: 'text-verdigris-100',
   relic: 'text-brass-300',
+  consumable: 'text-oxblood-100',
 };
 
 export function ItemGlyph({ id, className }: { id: ItemId; className?: string }) {

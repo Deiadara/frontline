@@ -573,34 +573,6 @@ export function nextModificationSlotLevel(level: number): number | null {
   return MODIFICATION_SLOT_LEVELS.find((needed) => level < needed) ?? null;
 }
 
-/**
- * Why a modification cannot be started right now. Ordered as they are checked, most structural
- * first: no point telling a player they cannot afford something their district cannot host.
- */
-export const MODIFICATION_BLOCKERS = [
-  /** The structure it goes in has not been built. */
-  'not_built',
-  /** Built, but every slot its level has opened is already full. */
-  'no_slot',
-  /** §C4: nobody on the books holds the Lead Engineer post. */
-  'no_lead_engineer',
-  /** Another project is already on the bench (§B9: one at a time). */
-  'research_busy',
-  'cannot_afford',
-  /**
-   * The crew already owns the drawing, whether it is on the shelf or bolted on.
-   *
-   * A real blocker rather than "nothing is in the way". It used to be spelled as an early `return
-   * null`, which the display path never reached (it short-circuits on `installed`) and the one
-   * caller that treats the blocker as a *gate* read as permission: the Lab charged for a second
-   * copy of the same paper, ran its clock, and banked nothing at the end because the id was
-   * already in `addons.researched`.
-   */
-  'already_drawn',
-] as const;
-export const ModificationBlockerSchema = z.enum(MODIFICATION_BLOCKERS);
-export type ModificationBlocker = z.infer<typeof ModificationBlockerSchema>;
-
 /** Guards the catalogue's shape at module load rather than only under test. */
 for (const kind of BUILDING_KINDS) {
   const count = modificationsFor(kind).length;

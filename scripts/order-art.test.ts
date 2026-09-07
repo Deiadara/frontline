@@ -66,6 +66,8 @@ describe('sections', () => {
       'plate-bar',
       'plate-district-neon-docks',
       'plate-district-rustyard',
+      'plate-district-chrome-row',
+      'plate-faction-room',
     ]);
     // The officer pool is opaque and croppable and lands here too, all forty-three of it. Read
     // off the pool rather than typed: the board added ten faces once and will again.

@@ -70,10 +70,12 @@ export interface HoverCardProps {
    *
    * `tip` is a sentence or two beside the thing it explains. `window` is a framed panel roughly
    * six times its area, for the handful of things worth a proper look: a resource, a unit, an
-   * item. The frame is drawn by the caller; this only sets the width and drops the tooltip's
-   * padding, since a window supplies its own.
+   * item. `card` is wider again, and it exists for one thing: a roster card, which is a portrait
+   * beside a two-column sheet of twelve stats and needs about 42rem before the stat labels start
+   * crossing their own bars. The frame is drawn by the caller in all three; this only sets the
+   * width and, past `tip`, drops the tooltip's padding, since the caller supplies its own.
    */
-  size?: 'tip' | 'window';
+  size?: 'tip' | 'window' | 'card';
   /**
    * Whether the card itself can be pointed at.
    *
@@ -242,12 +244,14 @@ export function HoverCard({
             className={cn(
               'z-[200] w-max',
               interactive ? 'pointer-events-auto' : 'pointer-events-none',
-              size === 'window'
-                ? 'max-w-[26rem]'
-                : // A torn scrap of paper with a hand-inked rule round it, not a rounded rectangle
-                  // with a hairline border. The card is the game's most-read surface and it was the
-                  // one that looked most like a form.
-                  'scrap max-w-[17rem] px-4 py-3.5',
+              size === 'card'
+                ? 'max-w-[42rem]'
+                : size === 'window'
+                  ? 'max-w-[26rem]'
+                  : // A torn scrap of paper with a hand-inked rule round it, not a rounded
+                    // rectangle with a hairline border. The card is the game's most-read surface
+                    // and it was the one that looked most like a form.
+                    'scrap max-w-[17rem] px-4 py-3.5',
               // Invisible for the one frame between mounting and being measured, so it never
               // flashes at the top-left corner on its way to where it belongs.
               placement === null && 'opacity-0',

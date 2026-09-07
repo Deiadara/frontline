@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { TRAP_CATALOG } from '../battle/traps.js';
 import { BATTLE_BOOSTS } from '../battle/boosts.js';
-import { CHANNEL_LABELS, EFFECT_CHANNELS } from '../crew/effects.js';
+import { noCrewEffects } from '../crew/effects.js';
+import { findUnit } from '../units/catalog.js';
 import { OFFICER_MARKS, markIndex, type OfficerMark } from '../crew/marks.js';
 import { OFFICER_ROLES } from '../roles.js';
 import { ResearchStateSchema } from './state.js';
@@ -106,41 +107,15 @@ describe('§C1: the shape of the tree', () => {
     for (const id of stored) expect(findResearchItem(id), id).toBeDefined();
 
     /*
-     * ...and each one still pays into the channel it paid into, which is the half of "the id
-     * survives" that resolving alone does not cover.
-     *
-     * A re-homed id that landed on a different channel would keep every save parsing and quietly
-     * move what the crew had already bought: a Chief Medic's crew that paid for Field Triage would
-     * find their casualty recovery gone and something else up instead, with nothing to read that
-     * said so. The magnitudes did change, deliberately: they come off the rung's depth now rather
-     * than off a hand-written tier, and that is a retune the whole catalogue shares.
+     * What each of these pays was re-dealt on 2026-09-04, on purpose: the board asked for rewards a
+     * crew is planned around rather than a percentage per rung. A save that paid for Field Triage
+     * still holds Field Triage; what it is worth is whatever the catalogue says today, the same way
+     * every other retune has landed.
      */
-    const wasPaidInto: Record<string, string> = {
-      tech_shift_rotation: 'productionPercent',
-      tech_line_balancing: 'productionPercent',
-      tech_critical_path: 'buildSpeedPercent',
-      tech_traffic_analysis: 'intelYieldPercent',
-      tech_one_time_pads: 'intelResistancePercent',
-      tech_false_traffic: 'intelResistancePercent',
-      tech_field_triage: 'casualtyRecoveryPercent',
-      tech_blood_bank: 'casualtyRecoveryPercent',
-      tech_trauma_theatre: 'unitVitalityPercent',
-      tech_sorted_salvage: 'storageCapacityPercent',
-      tech_alloy_reclamation: 'buildCostPercent',
-      tech_standard_parts: 'trainingCostPercent',
-      tech_pressure_plates: 'defensePercent',
-      tech_shaped_charges: 'defensePercent',
-      tech_demolition_doctrine: 'defensePercent',
-    };
-    expect(Object.keys(wasPaidInto).sort()).toEqual([...stored].sort());
-    for (const [id, channel] of Object.entries(wasPaidInto)) {
-      expect(findResearchItem(id)?.payout.channel, id).toBe(channel);
-    }
-
-    // ...and a state written before any of this parses, keeping what it held.
+    // ...and a state written before any of this parses, keeping what it held. The retired `facts`
+    // key is stripped rather than refused, so a row migration 0077 has not reached still reads.
     expect(ResearchStateSchema.parse({ active: null, facts: [], technologies: stored })).toEqual({
       active: null,
-      facts: [],
       technologies: stored,
     });
     expect(ResearchStateSchema.parse({ active: null, facts: [] }).technologies).toEqual([]);
@@ -281,38 +256,63 @@ describe('§C1b/§C1c: who has to be in a chair', () => {
 });
 
 describe('§C4a: what a rung pays', () => {
-  it('lands every one of the 190 in one of the six kinds the brief allows', () => {
-    expect(PAYOUT_FAMILIES).toHaveLength(6);
+  it('lands every one of the 190 in one of the eight kinds', () => {
+    expect(PAYOUT_FAMILIES).toHaveLength(8);
     for (const spec of RESEARCH_ITEMS) {
       expect(PAYOUT_FAMILIES, spec.id).toContain(payoutFamily(spec.payout));
-      expect(EFFECT_CHANNELS, spec.id).toContain(spec.payout.channel);
     }
   });
 
-  it('uses only channels that already exist, and reuses most of them', () => {
-    const used = new Set(RESEARCH_ITEMS.map((spec) => spec.payout.channel));
-    expect(used.size).toBeGreaterThan(15);
-    for (const channel of used) expect(EFFECT_CHANNELS).toContain(channel);
+  it('is not a slider: the rewards come in many kinds, and every track mixes them', () => {
+    const kinds = new Set(RESEARCH_ITEMS.map((spec) => spec.payout.bonus.kind));
+    expect(kinds.size).toBeGreaterThan(30);
+    for (const role of OFFICER_ROLES) {
+      const own = new Set(itemsInTrack(role).map((spec) => spec.payout.bonus.kind));
+      expect(own.size, role).toBeGreaterThanOrEqual(4);
+    }
   });
 
-  it('folds into effect channels, skipping ids it does not know', () => {
-    const [a, b] = RESEARCH_ITEMS;
-    if (!a || !b) throw new Error('need two rungs');
-    const folded = researchEffects([a.id, b.id, 'tech_not_a_thing']);
-    const expected: Record<string, number> = {};
-    expected[a.payout.channel] = (expected[a.payout.channel] ?? 0) + a.magnitude;
-    expected[b.payout.channel] = (expected[b.payout.channel] ?? 0) + b.magnitude;
-    expect(folded).toEqual(expected);
-    expect(researchEffects([])).toEqual({});
+  it('names units, structures and attributes that exist', () => {
+    for (const spec of RESEARCH_ITEMS) {
+      const bonus = spec.payout.bonus;
+      if (bonus.kind === 'unit_kind') expect(findUnit(bonus.unitId), spec.id).toBeDefined();
+      expect(describeResearchPayout(spec), spec.id).not.toMatch(/undefined/);
+    }
+  });
+
+  it('keeps the doors for the deep rungs', () => {
+    // A second crew out, another chair, another fight called: the grants a crew plans around,
+    // and none of them on a rung a fresh recruit can reach.
+    const doors = RESEARCH_ITEMS.filter((spec) =>
+      ['mission_slots', 'recruit_slots', 'declarations'].includes(spec.payout.bonus.kind),
+    );
+    expect(doors.length).toBeGreaterThanOrEqual(5);
+    for (const spec of doors) expect(spec.step, spec.id).toBeGreaterThanOrEqual(6);
+    expect(doors.some((spec) => spec.payout.bonus.kind === 'mission_slots')).toBe(true);
+  });
+
+  it('folds into one crew fold, skipping ids it does not know', () => {
+    const map = findResearchItem('tech_the_whole_city');
+    const chair = findResearchItem('tech_succession_planning');
+    const fire = findResearchItem('tech_fire_discipline');
+    if (!map || !chair || !fire) throw new Error('missing rungs');
+    const folded = researchEffects([map.id, chair.id, fire.id, 'tech_not_a_thing']);
+    expect(folded.missionSlotsFlat).toBe(1);
+    expect(folded.recruitSlotsFlat).toBe(1);
+    expect(folded.unitTierPercent.rabble?.offense).toBe(6);
+    expect(researchEffects([])).toEqual(noCrewEffects());
   });
 
   it('writes its effect in words, never as a field name', () => {
     for (const spec of RESEARCH_ITEMS) {
       const line = describeResearchPayout(spec);
       expect(line, spec.id).not.toMatch(/[a-z][A-Z]/);
-      expect(line, spec.id).toContain(CHANNEL_LABELS[spec.payout.channel].label.toLowerCase());
+      expect(line.length, spec.id).toBeGreaterThan(5);
       if (spec.payout.unlocks !== undefined) expect(line).toContain(spec.payout.unlocks);
     }
+    expect(describeResearchPayout(findResearchItem('tech_the_whole_city')!)).toBe(
+      '+1 crew out on a job at once',
+    );
   });
 
   it('opens something on the rungs that say they do, and nowhere else', () => {
@@ -322,17 +322,16 @@ describe('§C4a: what a rung pays', () => {
     expect(researchUnlocks(['tech_shift_rotation'])).toEqual([]);
   });
 
-  it('grows what it pays with how deep it is', () => {
+  it('pays more at the top of a track than at the foot, on the kinds that repeat', () => {
+    // The same kind twice in one track pays at least as much the second time: the top of a track
+    // is the reason to climb it.
     for (const role of OFFICER_ROLES) {
       const rungs = itemsInTrack(role);
-      for (let i = 1; i < rungs.length; i += 1) {
-        const here = rungs[i];
-        const below = rungs[i - 1];
-        if (!here || !below) throw new Error('missing rung');
-        const flat = CHANNEL_LABELS[here.payout.channel].unit === 'flat';
-        const belowFlat = CHANNEL_LABELS[below.payout.channel].unit === 'flat';
-        if (flat === belowFlat)
-          expect(here.magnitude, here.id).toBeGreaterThanOrEqual(below.magnitude);
+      const first = rungs[0]?.payout.bonus;
+      const last = rungs[rungs.length - 1]?.payout.bonus;
+      if (!first || !last) throw new Error('missing rung');
+      if (first.kind === last.kind && 'percent' in first && 'percent' in last) {
+        expect(last.percent, role).toBeGreaterThan(first.percent);
       }
     }
   });

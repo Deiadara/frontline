@@ -1,4 +1,5 @@
 import {
+  type LevelUp,
   BENCH_LABEL,
   type PayrollLedger,
   OFFICER_ROLE_LABELS,
@@ -14,6 +15,7 @@ import {
 } from '@frontline/shared';
 import { useCallback, useState, type ReactNode } from 'react';
 import { AttributeSheet } from '../overseer/AttributeSheet';
+import { LevelUpBanner } from '../../components/LevelUp';
 import { Button } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
 import { LoadFailure } from '../../components/ui/LoadFailure';
@@ -150,6 +152,12 @@ export function BarPage() {
   const [open, setOpen] = useState<'stool' | 'payroll' | 'crew' | null>(null);
   /** Which chair the stool screen is showing. An index, so the arrows are arithmetic. */
   const [seat, setSeat] = useState(0);
+  /*
+   * Signing somebody pays (§I1), so a hire can be the thing that crosses a level, and the hire
+   * response is the only thing that knows. Latched, because the next `/bar` read carries nothing
+   * about it: a settle nobody announces has no second chance.
+   */
+  const [levelUp, setLevelUp] = useState<LevelUp | null>(null);
 
   const data = barQuery.data;
   const recruits = data?.recruits ?? [];
@@ -165,6 +173,7 @@ export function BarPage() {
       { recruitId, role, offerWage },
       {
         onSuccess: (result) => {
+          if (result.levelUp) setLevelUp(result.levelUp);
           if (result.accepted) {
             // Signed: the deal is spent, and the window (if this came from one) has done its job.
             setAgreed((current) => {
@@ -255,6 +264,24 @@ export function BarPage() {
           />
         </OnPlate>
       </PlateRoom>
+
+      {levelUp && (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4 pt-3"
+          style={{ top: 'var(--hud-h, 0px)' }}
+        >
+          <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2">
+            <LevelUpBanner levelUp={levelUp} />
+            <button
+              type="button"
+              onClick={() => setLevelUp(null)}
+              className="self-end font-display text-[11px] uppercase tracking-[0.18em] text-ink-300 hover:text-ink-200"
+            >
+              Noted
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* The two standing readouts, on the glass over the room. */}
       {/* The same inset the room takes, or the two readouts sit under the nav: this layer is over

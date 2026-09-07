@@ -46,11 +46,24 @@ function requireOwnBase(app: FastifyInstance, ownerId: string): Base {
   return base;
 }
 
+/**
+ * How many crews may be out at once: the level's grant, plus what research has opened (§E, the
+ * Cartographer's tenth rung). Read through the standing fold so every door research opens comes
+ * through the one seam.
+ */
+function missionSlotsFor(app: FastifyInstance, base: Base, now: Date): number {
+  return (
+    concurrentMissionSlots(base.level) + standingEffectsFor(app.repos, base, now).missionSlotsFlat
+  );
+}
+
 export function registerMissionRoutes(app: FastifyInstance): void {
   app.get('/missions', { preHandler: app.authenticate }, (request): MissionsResponse => {
     const now = new Date();
     const own = requireOwnBase(app, request.currentUser.id);
-    const settlement = resolveDueMissions(app.repos, own, now);
+    // In a transaction, the way the world clock runs it: the settle marks a run resolved before it
+    // pays, so a write failing halfway left a crew marked home with its bodies and its haul gone.
+    const settlement = app.repos.tx(() => resolveDueMissions(app.repos, own, now));
 
     const stored = app.repos.missions.listByBaseId(settlement.base.id);
     const active = stored.filter((entry) => entry.mission.status === 'active');
@@ -59,7 +72,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       missions: stored.map((entry) => entry.mission),
       justResolved: settlement.resolved,
       resources: settlement.base.resources,
-      activeLimit: concurrentMissionSlots(settlement.base.level),
+      activeLimit: missionSlotsFor(app, settlement.base, now),
       // The card quotes what the launch will freeze. Read from the same fold `POST /missions`
       // reads: a Smuggler's Tunnel shortens the clock and the crew's own fixer widens the cut, and
       // both used to be invisible to the board and frozen onto the run.
@@ -122,12 +135,12 @@ export function registerMissionRoutes(app: FastifyInstance): void {
 
     // Settle first: a mission that came home while the player was reading the board frees a slot
     // they should be allowed to use on this very request.
-    const { base, levelUp } = resolveDueMissions(app.repos, own, now);
+    const { base, levelUp } = app.repos.tx(() => resolveDueMissions(app.repos, own, now));
     // The active runs, not the whole history filtered down to them: the repo has a query for this
     // and the launch path was loading a month of finished work to count what is out.
     const active = app.repos.missions.listActiveByBaseId(base.id);
 
-    if (active.length >= concurrentMissionSlots(base.level)) {
+    if (active.length >= missionSlotsFor(app, base, now)) {
       throw new AppError(
         'MISSIONS_AT_CAPACITY',
         'Every crew you have is already out on a mission',
@@ -267,21 +280,32 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         throw new AppError('MISSION_REFUSED', 'They are already at the gate');
       }
       app.repos.missions.markRecalled(missionId, now.toISOString());
-      const all = app.repos.missions.listByBaseId(base.id);
+      // Settled first, as the read is, so the board this answers with is the board the next read
+      // would show: a crew that came home while the order was given frees its slot here.
+      const settlement = resolveDueMissions(app.repos, base, now);
+      const settled = settlement.base;
+      const all = app.repos.missions.listByBaseId(settled.id);
       return {
         missions: all.map((entry) => entry.mission),
-        justResolved: [],
-        resources: base.resources,
-        activeLimit: concurrentMissionSlots(base.level),
+        justResolved: settlement.resolved,
+        resources: settled.resources,
+        activeLimit: missionSlotsFor(app, settled, now),
+        // The same fold the read prices from. Without it every card was repainted at bare timings
+        // and bare pay until the next poll put the crew's tunnel and fixer back on it.
         areas: projectAreas(
           CITY_DISTRICTS,
-          areaStatesFor(app.repos, base),
+          areaStatesFor(app.repos, settled),
           all.filter((entry) => entry.mission.status === 'active'),
-          base.level,
+          settled.level,
           missionBoardDay(now),
+          (({ missionSpeedPercent, missionSpoilsPercent }) => ({
+            speedPercent: missionSpeedPercent,
+            spoilsPercent: missionSpoilsPercent,
+          }))(standingEffectsFor(app.repos, settled, now)),
         ),
-        army: base.army,
+        army: settled.army,
         serverNow: now.toISOString(),
+        levelUp: settlement.levelUp,
       };
     })();
   });
