@@ -31,8 +31,6 @@ import { settleWorld } from '../world/settle.js';
  */
 
 const REFUSAL_ERRORS: Record<CityRefusal, { code: ErrorCode; message: string }> = {
-  unscouted: { code: 'DISTRICT_UNSCOUTED', message: 'You have not had eyes on that ground' },
-  no_force: { code: 'NO_FORCE', message: 'Send somebody, or do not send anybody' },
   // §D7, the same refusal the battle board gives for the same reason.
   needs_infamy: {
     code: 'NOT_ENOUGH_INFAMY',
@@ -43,10 +41,8 @@ const REFUSAL_ERRORS: Record<CityRefusal, { code: ErrorCode; message: string }> 
     code: 'NO_FORCE',
     message: 'Scavengers carry. They do not fight. Send them on a mission instead',
   },
-  already_held: { code: 'PLACE_UNAVAILABLE', message: 'You already hold it' },
   not_held: { code: 'PLACE_UNAVAILABLE', message: 'You do not hold that' },
   not_contested: { code: 'INVALID_TARGET', message: 'There is nothing there to take' },
-  not_raidable: { code: 'INVALID_TARGET', message: 'That district cannot be raided' },
   at_max_fortification: {
     code: 'PLACE_UNAVAILABLE',
     message: 'It is as dug in as that ground allows',
@@ -111,14 +107,6 @@ export function registerCityRoutes(app: FastifyInstance): void {
     },
   );
 
-  /**
-   * §A4: put eyes on a district.
-   *
-   * Free, and instant. What it costs is the walk, which the map already shows as travel time and
-   * which nothing yet charges: see the TODO on `city/actions.ts`. Scouting is deliberately not
-   * gated on anything: a map you cannot look at is a map you cannot plan against, and the fog is
-   * meant to be an invitation rather than a wall.
-   */
   /**
    * §A4: send somebody to look at a district (board rework).
    *
@@ -195,7 +183,8 @@ export function registerCityRoutes(app: FastifyInstance): void {
    *
    * What replaced them: `POST /battles/declare`, `POST /battles/deploy` and the settler in
    * `battle/resolve.ts`. Robbing a crew's home is the same three calls against a `gate` and then a
-   * `building` target: a home district still cannot be taken, only broken into and emptied.
+   * `district` target (migration 0087): a home district still cannot be taken, only broken into and
+   * emptied.
    */
 
   /** §A4: leave units on a location you hold, or bring them home. */

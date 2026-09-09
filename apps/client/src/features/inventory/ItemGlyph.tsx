@@ -1,13 +1,26 @@
-import { ITEM_CATALOG, type ItemId, type ItemKind } from '@frontline/shared';
+import {
+  ITEM_CATALOG,
+  blueprintOfPage,
+  findBlueprint,
+  findBlueprintPage,
+  type ItemId,
+  type ItemKind,
+} from '@frontline/shared';
 import type { JSX } from 'react';
 import { cn } from '../../lib/cn';
+import { BlueprintGlyph, PageGlyph, type GlyphSize } from '../research/BlueprintGlyph';
 
 /**
  * The picture on an item.
  *
- * Procedural, and drawn per *kind* rather than per item: eighteen hand-drawn glyphs is a lot of
- * somebody's time for a system that mostly needs a player to tell a blueprint from a part from a
- * trinket at a glance.
+ * Procedural, and drawn per *kind* for the goods: eighteen hand-drawn glyphs is a lot of somebody's
+ * time for a system that mostly needs a player to tell a part from a trinket at a glance.
+ *
+ * **Pages and assembled documents are the exception, and they are the reason this file has a
+ * branch in it.** There are a hundred and sixty pages and a page is a thing a player collects one
+ * at a time, so "all pages look alike" is not a shortcut there, it is the feature failing. Those
+ * go to `BlueprintGlyph`, which draws each one its own sheet in its own rarity ink. The six
+ * pre-war `blueprint_*` goods are not in that catalogue and keep the kind glyph below.
  *
  * Item art is deliberately **not** in `ART_MANIFEST` yet. Adding eighteen keys would put eighteen
  * lines on the board's order sheet for a feature whose art has not been designed, and the order
@@ -15,10 +28,8 @@ import { cn } from '../../lib/cn';
  * manifest as `item-<id>` and this component grows the same `deliveredUrl` lookup every other
  * asset-backed component already has: one function call, no other change.
  *
- * The four kinds are drawn to be distinguishable in silhouette, not in colour, so they still read
- * at 24px and for a player who cannot separate the palette's greens from its purples. A page and a
- * blueprint share a tint on purpose: they are the same object at two stages, and the torn edge is
- * what separates them.
+ * The five kinds are drawn to be distinguishable in silhouette, not in colour, so they still read
+ * at 24px and for a player who cannot separate the palette's greens from its purples.
  */
 
 const GLYPHS: Record<ItemKind, JSX.Element> = {
@@ -36,8 +47,10 @@ const GLYPHS: Record<ItemKind, JSX.Element> = {
       <path d="M5.8 8.4h5M5.8 10.3h5" stroke="currentColor" strokeWidth="1" />
     </>
   ),
-  // A single sheet with a torn edge down one side: one page out of a document, and the only
-  // silhouette here that is incomplete on purpose.
+  // A single sheet with a torn edge down one side. Every page in the game now draws its own sheet
+  // through `PageGlyph` above, so this is the kind's fallback and nothing reaches it today: the
+  // record has to be total over `ItemKind`, and a page item invented outside the blueprint
+  // catalogue would still get paper rather than a blank box.
   page: (
     <>
       <path
@@ -56,7 +69,7 @@ const GLYPHS: Record<ItemKind, JSX.Element> = {
       <path d="M7.4 8.2h3.2M7.4 10.1h3.2" stroke="currentColor" strokeWidth="1" />
     </>
   ),
-  // A cog: a part, and the only round silhouette of the four.
+  // A cog: a part, and the only round silhouette of the five.
   component: (
     <>
       <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3" fill="none" />
@@ -112,7 +125,25 @@ const TINT: Record<ItemKind, string> = {
   consumable: 'text-oxblood-100',
 };
 
-export function ItemGlyph({ id, className }: { id: ItemId; className?: string }) {
+export function ItemGlyph({
+  id,
+  size = 'md',
+  className,
+}: {
+  id: ItemId;
+  /** How much detail a blueprint or page glyph draws. Ignored by the five kind glyphs. */
+  size?: GlyphSize | undefined;
+  className?: string | undefined;
+}) {
+  const page = findBlueprintPage(id);
+  const document = page === undefined ? undefined : blueprintOfPage(id);
+  if (page !== undefined && document !== undefined) {
+    return <PageGlyph page={page} blueprint={document} size={size} className={className} />;
+  }
+  const blueprint = findBlueprint(id);
+  if (blueprint !== undefined) {
+    return <BlueprintGlyph blueprint={blueprint} size={size} className={className} />;
+  }
   const spec = ITEM_CATALOG[id];
   return (
     <svg

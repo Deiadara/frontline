@@ -1321,4 +1321,57 @@ test('the crew screen leads with the people, and every card stands at one height
     Math.max(...heights) - Math.min(...heights),
     `cards run from ${Math.min(...heights)}px to ${Math.max(...heights)}px`,
   ).toBeLessThanOrEqual(1);
+
+  /*
+   * §D6: one of them is laid up, and the state is on the grid rather than only in the file.
+   *
+   * The fixture timed the injury off `NOW`, a fixed date weeks in the past, so
+   * `officerRecoverySeconds` answered 0 and no card in any screenshot the suite has ever taken
+   * carried the band. It is timed off the real clock now, and this is what holds it there.
+   */
+  const hurt = page.locator('[data-injured="true"]').first();
+  await expect(hurt).toBeVisible();
+  await expect(hurt.getByText('Injured')).toBeVisible();
+
+  /*
+   * And the same officer's file, where the frame is `painted` and the film has to survive it.
+   *
+   * `OfficerPortrait` draws the red wash, the word and the clock as `absolute` layers over the
+   * face, and the crew window hands the component a `painted` frame: `.painted > *` pins every
+   * direct child to `position: relative` at equal specificity and later source order, so the
+   * layers lost. Measured as geometry rather than presence, because a defeated film is still in
+   * the DOM: it collapses to a zero-height inline span at the top of the picture, which every
+   * "is it rendered" check passes.
+   */
+  await page.getByTestId('seat-head_of_research').click();
+  const file = page.getByTestId('crew-detail');
+  await expect(file).toBeVisible();
+  const layers = await file.locator('[data-injured="true"]').evaluate((frame) => {
+    const box = frame.getBoundingClientRect();
+    const share = (selector: string) => {
+      const layer = frame.querySelector(selector);
+      if (layer === null) return null;
+      const at = layer.getBoundingClientRect();
+      return {
+        width: at.width / box.width,
+        height: at.height / box.height,
+        // Where the layer's own middle sits down the frame. The band is across the picture.
+        centre: (at.top + at.height / 2 - box.top) / box.height,
+      };
+    };
+    return {
+      // The red wash, which covers the whole face.
+      wash: share('span[class*="bg-oxblood-500/35"]'),
+      // The dark band the word and the clock are set on, across the middle.
+      band: share('span[class*="top-1/2"]'),
+    };
+  });
+  expect(layers.wash, 'the file draws its red film at all').not.toBeNull();
+  expect(layers.wash?.width).toBeGreaterThan(0.98);
+  expect(layers.wash?.height).toBeGreaterThan(0.98);
+  // Both halves of the same fix, because they are two independent sites: reverting either one on
+  // its own leaves the other passing.
+  expect(layers.band, 'the file draws the Injured band at all').not.toBeNull();
+  expect(layers.band?.width).toBeGreaterThan(0.98);
+  expect(Math.abs((layers.band?.centre ?? 0) - 0.5)).toBeLessThan(0.05);
 });

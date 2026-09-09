@@ -227,8 +227,15 @@ export function QueueRail() {
             {formatRemaining(Math.max(0, entry.endsAt - now.getTime()))}
           </span>
           {/* The progress bar as the chip's own underline: a strip has no room for a row of
-              bars under the labels, and a filling edge is read at a glance anyway. */}
-          <span className="absolute inset-x-0 bottom-0 block h-[3px] bg-surface-900">
+              bars under the labels, and a filling edge is read at a glance anyway.
+
+              `!absolute`, and the chip is why the flag exists: the button is `painted`, and
+              `.painted > *` sets `position: relative` on every direct child at the same
+              specificity as a plain positioning utility, so the later of the two in the generated
+              stylesheet wins. It is the custom rule, so the underline lost, fell into the chip's
+              flex row as a 3px item beside the countdown, and no chip on the road ever drew the
+              bar. See the note on `.painted > *` in `index.css`. */}
+          <span className="!absolute inset-x-0 bottom-0 block h-[3px] bg-surface-900">
             <span
               className="block h-full bg-brass-300"
               style={{ width: `${entry.progress * 100}%` }}

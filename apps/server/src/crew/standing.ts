@@ -43,10 +43,10 @@ import { benchedMember, overseerMember, seatedMember } from '../roles/duties.js'
  * the hours a raid's disruption lasts every positive percentage this crew holds is worth a quarter
  * less, whatever paid it: the ground, the people, the Lab, the table, the Gate. Applied here rather
  * than at each consumer for the reason everything else is folded here: a consumer that read the raw
- * fold would be a system a raid quietly did not reach, and there are two dozen of them. Production
- * takes it twice on purpose, once as hours off the walk (`district/settle.ts`) and once as a
- * smaller bonus in the walk's multiplier: a raided district makes less *and* the crew running it is
- * worse at making it.
+ * fold would be a system a raid quietly did not reach, and there are two dozen of them.
+ * `productionPercent` is the one channel the cut skips, because the walk has already charged for it
+ * once as hours off the window: see `DISRUPTION_EXEMPT_CHANNELS` for why cutting it here as well
+ * would bill a raided crew twice for one raid.
  */
 export function standingEffectsFor(
   repos: Repositories,

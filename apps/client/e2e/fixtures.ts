@@ -1560,7 +1560,17 @@ function crewAt(
       role,
       PERK_SPREAD[index % PERK_SPREAD.length] ?? [],
       40 + index * 37,
-      hurtHours === 0 ? null : new Date(Date.parse(NOW) + hurtHours * 3600 * 1000).toISOString(),
+      /*
+       * Against the *real* clock, not `NOW`.
+       *
+       * `NOW` is a fixed date well in the past, so `NOW + 19h` is weeks behind whenever the suite
+       * runs and `officerRecoverySeconds` answered 0: the officer read as fit, the red band never
+       * drew, and the comment on `crewFat` promising "the grid's screenshot carries the red band
+       * and the countdown" described a screenshot nobody had ever taken. Same fault, same cure as
+       * `lateGameBase.buildQueue`, which is timed relatively for exactly this reason. Nothing
+       * asserts an exact remaining figure, so the drift costs nothing.
+       */
+      hurtHours === 0 ? null : new Date(Date.now() + hurtHours * 3600 * 1000).toISOString(),
     ),
   );
   return {
@@ -2629,7 +2639,11 @@ export const messagesScreen: MessagesResponse = {
       readBy: 1,
     },
   ],
-  unread: 1,
+  // The inbox rows with no `readAt` on them, which is what `unreadMessages` counts:
+  // `COUNT(*) WHERE recipient_user_id = ? AND is_sent_copy = 0 AND deleted = 0 AND read_at IS NULL`.
+  // It said 1 against two unread rows (the faction call and the invitation), so the badge beside
+  // Inbox and the HUD's own mailbox count disagreed with the list under them on every screenshot.
+  unread: 2,
   hasFaction: true,
   serverNow: NOW,
 };

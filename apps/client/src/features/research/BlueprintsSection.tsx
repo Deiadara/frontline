@@ -9,6 +9,8 @@ import {
   reimaginingRefusal,
   reimaginingRequirements,
   BLUEPRINTS,
+  ITEM_RARITY_LABELS,
+  pageRarity,
   sparePages,
   type BlueprintCategory,
   type BlueprintUnlockRefusal,
@@ -25,7 +27,8 @@ import { Panel } from '../../components/ui/Panel';
 import { PanelSection } from '../../components/ui/PanelSection';
 import { cn } from '../../lib/cn';
 import { useMarket, useReimagine, useUnlockBlueprint } from '../../lib/queries';
-import { BlueprintGlyph } from './BlueprintGlyph';
+import { RARITY_INK, RARITY_TONE } from '../../lib/rarity';
+import { BlueprintGlyph, PageGlyph } from './BlueprintGlyph';
 
 /**
  * The Blueprints section of the research page (§D4 to §D11, §I1d).
@@ -247,7 +250,7 @@ function BlueprintCard({
       data-testid={`blueprint-${blueprint.id}`}
       data-status={status}
       className={cn(
-        'flex gap-3 rounded-sm border p-3',
+        'flex flex-col gap-2.5 rounded-sm border p-3',
         unlocked
           ? 'border-bile-300/50 bg-bile-300/10'
           : complete
@@ -255,78 +258,120 @@ function BlueprintCard({
             : 'border-surface-700 bg-surface-900/50 opacity-75',
       )}
     >
-      <span className="icon-tile flex h-14 w-14 shrink-0 items-center justify-center rounded-sm">
-        <BlueprintGlyph blueprint={blueprint} className="h-11 w-11" />
-      </span>
-
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <header className="flex items-baseline justify-between gap-2">
-          <h3 className="min-w-0 font-display text-[14px] font-bold text-ink-100">
-            {blueprint.name}
-          </h3>
-          {!unlocked && (
-            <Icon name="lock" label="Locked" className="h-4 w-4 shrink-0 text-ink-300" />
-          )}
-        </header>
-
-        <p className="font-body text-[13px] leading-snug text-ink-200">{blueprint.blurb}</p>
-
-        <PageSquares holding={holding} />
-
-        <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-          {unlocked ? `${total} pages` : `${distinctHeld} of ${total} pages`}
-        </p>
-
-        {unlocked ? (
-          <p className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-bile-300">
-            Unlocked
+      {/*
+       * The cover across the head of the card rather than in a column beside everything.
+       *
+       * At 44px in a side column the drawing was a mark with a colour: the panel is a third of the
+       * screen wide, so the art and the blurb were fighting over the same 250px. The head is the
+       * one place the cover can be 72px without taking width off the words, and 72px is where the
+       * hull curve, the rotor and the gear stop being suggestions.
+       *
+       * Rarity is on the glyph's ink and on the word under the name, not on the article's border:
+       * that border is already saying the thing §D6 wants said, which is whether the document is
+       * short or finished. Two meanings on one edge is one meaning.
+       */}
+      <header className="flex items-start gap-3">
+        <BlueprintGlyph
+          blueprint={blueprint}
+          size="lg"
+          className="h-[72px] w-[72px] shrink-0 rounded-sm"
+        />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="min-w-0 font-display text-[14px] font-bold text-ink-100">
+              {blueprint.name}
+            </h3>
+            {!unlocked && (
+              <Icon name="lock" label="Locked" className="h-4 w-4 shrink-0 text-ink-300" />
+            )}
+          </div>
+          <p
+            className={cn(
+              'font-display text-[11px] font-bold uppercase tracking-[0.16em]',
+              RARITY_INK[blueprint.rarity],
+            )}
+            data-testid={`rarity-${blueprint.id}`}
+          >
+            {ITEM_RARITY_LABELS[blueprint.rarity]}
           </p>
-        ) : (
-          complete && (
-            <div>
-              <Button size="sm" disabled={pending} onClick={() => onUnlock(blueprint.id)}>
-                Unlock
-              </Button>
-            </div>
-          )
-        )}
-      </div>
+          <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+            {unlocked ? `${total} pages` : `${distinctHeld} of ${total} pages`}
+          </p>
+        </div>
+      </header>
+
+      <p className="font-body text-[13px] leading-snug text-ink-200">{blueprint.blurb}</p>
+
+      <PageRows holding={holding} />
+
+      {unlocked ? (
+        <p className="font-display text-[12px] font-bold uppercase tracking-[0.16em] text-bile-300">
+          Unlocked
+        </p>
+      ) : (
+        complete && (
+          <div>
+            <Button size="sm" disabled={pending} onClick={() => onUnlock(blueprint.id)}>
+              Unlock
+            </Button>
+          </div>
+        )
+      )}
     </article>
   );
 }
 
 /**
- * The row of squares (§D6).
+ * The pages, one row each (§D6).
  *
- * One per page, in the document's own order, filled for what is held and empty for what is not. A
- * spare copy is marked rather than counted out: the square is about whether the page is *in*, and
- * a player with two of one page wants to know they have something to trade, not a second box.
+ * This was a strip of twenty-pixel squares, and squares were the right answer while every page
+ * looked and read the same: the only question a square could answer was in or out. Pages have
+ * names, drawings and rarities of their own now, and none of that fits in a square.
  *
- * An unlocked document draws every square filled. The pages were spent assembling it, so counting
- * them again would draw an empty row under the one thing on this page that is finished. A copy
+ * The sheet in a row is **36px**, which is the size the second motif starts to be a second
+ * drawing rather than a speck. At 14px the eight Colossus pages were eight identical dots beside
+ * eight different names, so the art was there and nobody could see it; at 36px the Reactor Housing
+ * and the Ignition Sequence are two different sheets from across the room. That costs about 44px
+ * of card height per page and the card is allowed to grow for it.
+ *
+ * Held or missing is carried by the row rather than said in words: a held page is lit and a
+ * missing one is dimmed to the edge of legible, so the shape of what is left reads down the column
+ * without anybody having to read it.
+ *
+ * An unlocked document draws every row held. The pages were spent assembling it, so counting them
+ * again would draw an empty column under the one thing on this screen that is finished. A copy
  * found *after* it was assembled still gets its number, because that copy is spendable.
  */
-function PageSquares({ holding }: { holding: BlueprintHolding }) {
+function PageRows({ holding }: { holding: BlueprintHolding }) {
+  const { blueprint } = holding;
   const unlocked = holding.status === 'unlocked';
   return (
-    <ul className="flex flex-wrap gap-1" data-testid={`pages-${holding.blueprint.id}`}>
+    <ul className="flex flex-col gap-1" data-testid={`pages-${blueprint.id}`}>
       {holding.pages.map(({ page, held }) => {
         const filled = unlocked || held > 0;
+        const rarity = pageRarity(blueprint, page);
         return (
           <li
             key={page.id}
-            data-tip={page.name}
+            data-tip={`${page.name}. ${ITEM_RARITY_LABELS[rarity]}. ${page.description}`}
             data-held={filled ? 'yes' : 'no'}
+            data-rarity={rarity}
             className={cn(
-              'flex h-5 w-5 items-center justify-center rounded-[2px] border',
-              filled
-                ? 'border-brass-500/70 bg-brass-500/70'
-                : 'border-surface-600 bg-surface-950/60',
+              'flex items-center gap-2.5 rounded-[2px] border p-1.5',
+              RARITY_TONE[rarity],
+              filled ? 'bg-surface-800/70' : 'border-surface-700 bg-surface-950/50 opacity-50',
             )}
           >
-            <span className="sr-only">
-              {page.name}: {filled ? 'held' : 'missing'}
+            <PageGlyph page={page} blueprint={blueprint} size="md" className="h-9 w-9 shrink-0" />
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate font-display text-[11.5px] font-bold uppercase tracking-[0.1em]">
+                {page.name}
+              </span>
+              <span className="font-display text-[10px] uppercase tracking-[0.14em] opacity-70">
+                {ITEM_RARITY_LABELS[rarity]}
+              </span>
             </span>
+            <span className="sr-only">{filled ? 'held' : 'missing'}</span>
             {/* The threshold differs because "spare" does. On a document still being collected the
                 first copy is doing a job, so two is one spare. On an unlocked one the pages were
                 already spent assembling it, so every copy still in the satchel is spare and a
@@ -334,9 +379,9 @@ function PageSquares({ holding }: { holding: BlueprintHolding }) {
             {held > (unlocked ? 0 : 1) && (
               <span
                 aria-hidden
-                className="font-display text-[9px] font-bold leading-none text-surface-950"
+                className="shrink-0 font-display text-[12px] font-bold leading-none tabular-nums"
               >
-                {held}
+                x{held}
               </span>
             )}
           </li>

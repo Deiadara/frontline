@@ -48,8 +48,12 @@ import { districtPopulation } from '../district/population.js';
  * and whatever has come due is applied the next time the crew is read.
  */
 
+/*
+ * `unknown_unit` is not on this list. `queueTraining` is handed a `UnitSpec`, so by the time it runs
+ * the unit exists; the route resolves the id and 404s on its own before it gets here. A refusal
+ * nothing returns is a sentence a player can never be shown and a waiver nobody can classify.
+ */
 export const TRAINING_REFUSALS = [
-  'unknown_unit',
   'locked',
   'queue_full',
   'already_have_one',

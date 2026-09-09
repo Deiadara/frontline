@@ -31,17 +31,19 @@ import type { Repositories } from '../db/repos/index.js';
  * territory rules rather than half of both.
  */
 
+/*
+ * Four names went with `POST /city/attack` and `POST /city/raid` (battle rework): `unscouted`,
+ * `no_force`, `already_held` and `not_raidable` were the instant-fight path's, nothing left in this
+ * module returns one, and a refusal a route still has a sentence for is a sentence nobody can read.
+ * The declaration path spells its own (`battle/declare.ts`).
+ */
 export const CITY_REFUSALS = [
-  'unscouted',
-  'no_force',
   'needs_infamy',
   'not_enough_units',
   /** §A5: a porter is not a soldier. The support tier may never be sent to a fight. */
   'not_a_fighting_force',
-  'already_held',
   'not_held',
   'not_contested',
-  'not_raidable',
   'at_max_fortification',
   'already_fortifying',
   'cannot_afford',

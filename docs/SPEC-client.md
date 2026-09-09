@@ -327,6 +327,16 @@ sets the interface (`font-display` for headers and HUD labels, wide tracking; `f
 copy) and `Special Elite` (`font-stamp`) is the typewriter. Use the existing utilities: `.grain`,
 `.painted`, `.washed`, `.glass`, `.ink-rule`, `.paint-track`/`.paint-fill`, `.text-glow-cyan`,
 `.text-glow-magenta`, `shadow-panel`/`shadow-lifted`/`shadow-brass`.
+
+**A direct child of `.painted` or `.rusted` that needs positioning must say `!absolute`.** Both
+utilities pin their direct children to `position: relative` so the contents sit above the wash, at
+the same specificity as a plain positioning utility, and the custom rule is emitted later so it
+wins. `Panel` is `painted`, so this reaches every panel in the game. It has now cost four sites:
+the district plaque's corner brackets, the scenery switcher's Settings tile, the vehicle card's
+picture, and the in-flight rail's progress underline, which never drew at all. The same trap
+catches a class handed _in_ to a component whose own root already positions itself (`cn` is
+`clsx`; it concatenates and does not resolve Tailwind conflicts): `OfficerPortrait` is `relative`,
+so a caller's `absolute` needs the flag too.
 Panels: 1px borders in `neon-cyan/20`-`/30` on `night-raised` surfaces; square corners or
 minimal radius. All colors come from `src/theme/tokens.ts` / Tailwind theme: no ad-hoc hex.
 

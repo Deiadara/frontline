@@ -3,6 +3,7 @@ import {
   addItems,
   barterQuote,
   barterRateFor,
+  brokerDealsIn,
   isReimaginingResearched,
   canAfford,
   canSettle,
@@ -214,6 +215,7 @@ export type MarketRefusal =
   | VendorBidRefusal
   | 'too_small'
   | 'same_resource'
+  | 'no_caps'
   | 'unknown_offer'
   | 'not_yours'
   | 'own_offer'
@@ -243,6 +245,8 @@ export function barter(
   minimum: number,
 ): MarketResult {
   if (give === want) return { kind: 'refused', reason: 'same_resource' };
+  // Materials only, either way round: see `BARTER_RESOURCES`.
+  if (!brokerDealsIn(give) || !brokerDealsIn(want)) return { kind: 'refused', reason: 'no_caps' };
   if (amount < minimum) return { kind: 'refused', reason: 'too_small' };
   if (!canAfford(base.resources, { [give]: amount })) {
     return { kind: 'refused', reason: 'cannot_afford' };
@@ -414,6 +418,7 @@ export const MARKET_REFUSAL_TEXT: Record<
   cannot_afford: 'You cannot cover that',
   too_small: 'The Broker will not get out of his chair for that little',
   same_resource: 'The Broker trades one thing for another, not for itself',
+  no_caps: 'The Broker does not touch caps. Materials for materials, or the supply run',
   unknown_offer: 'That listing is gone',
   not_yours: 'That listing is not yours to touch',
   own_offer: 'You cannot trade with yourself',

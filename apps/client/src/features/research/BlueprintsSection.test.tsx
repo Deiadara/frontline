@@ -1,8 +1,10 @@
 import {
+  ITEM_RARITY_LABELS,
   RESOURCE_KEYS,
   supplyBoard,
   STORAGE_SHARES,
   findBlueprint,
+  pageRarity,
   type Inventory,
   type MarketResponse,
   type Resources,
@@ -172,6 +174,66 @@ describe('what a crew is allowed to see (§D5)', () => {
   });
 });
 
+/**
+ * §D8, the board's 2026-09-09 call: every page is its own thing and says so.
+ *
+ * A page row carries three things a square never could: the page's name, its rarity, and on hover
+ * the line saying what is actually drawn on the sheet. All three are authored in the shared
+ * catalogue, so the assertions read them from there rather than repeating the copy: a test holding
+ * its own copy of "Range Cards" passes on a screen printing a page that no longer exists.
+ */
+describe('what a page row says about the page (§D8)', () => {
+  it('names every page of the document and inks each one at its own rarity', async () => {
+    stub({ pg_snipers_range_cards: 1 });
+    renderPage();
+    const rows = within(await screen.findByTestId('pages-bp_snipers')).getAllByRole('listitem');
+    const snipers = findBlueprint('bp_snipers');
+    expect(snipers).toBeDefined();
+    if (!snipers) return;
+
+    for (const [index, page] of snipers.pages.entries()) {
+      const text = rows[index]?.textContent ?? '';
+      expect(text, `row ${index} does not name ${page.id}`).toContain(page.name);
+      // The rarity word is printed in the row now rather than only carried on the hover: the row
+      // is 44px tall for the sake of the drawing, which leaves a second line free.
+      expect(text, `row ${index} does not say what ${page.id} is worth`).toContain(
+        ITEM_RARITY_LABELS[pageRarity(snipers, page)],
+      );
+    }
+    expect(rows.map((row) => row.dataset.rarity)).toEqual(
+      snipers.pages.map((page) => pageRarity(snipers, page)),
+    );
+    // Barrel Liners is authored a tier above the document. A screen reading one rarity for the
+    // whole document would draw all three rows the same and still name them correctly.
+    expect(new Set(rows.map((row) => row.dataset.rarity)).size).toBeGreaterThan(1);
+  });
+
+  it('puts the page description and its rarity word on the hover', async () => {
+    stub({ pg_snipers_range_cards: 1 });
+    renderPage();
+    const rows = within(await screen.findByTestId('pages-bp_snipers')).getAllByRole('listitem');
+    const snipers = findBlueprint('bp_snipers');
+    const page = snipers?.pages[1];
+    expect(page).toBeDefined();
+    if (!snipers || !page) return;
+
+    const tip = rows[1]?.dataset.tip ?? '';
+    expect(tip).toContain(page.name);
+    expect(tip).toContain(page.description);
+    expect(tip).toContain(ITEM_RARITY_LABELS[pageRarity(snipers, page)]);
+  });
+
+  it('prints the document rarity beside its name', async () => {
+    stub({ pg_colossus_hull_sections: 1 });
+    renderPage();
+    const colossus = findBlueprint('bp_the_colossus');
+    expect(colossus?.rarity).toBe('exotic');
+    expect(await screen.findByTestId('rarity-bp_the_colossus')).toHaveTextContent(
+      ITEM_RARITY_LABELS.exotic,
+    );
+  });
+});
+
 describe('a document being collected (§D6 to §D9)', () => {
   it('draws a square per page, filled for what is held', async () => {
     stub({ pg_snipers_range_cards: 1 });
@@ -314,8 +376,10 @@ describe('a spare page of a document already assembled (§D10, §G2)', () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole('tab', { name: /Unlocked/ }));
-    const squares = within(await screen.findByTestId('pages-bp_snipers'));
-    expect(squares.getByText('1')).toBeVisible();
+    const rows = within(await screen.findByTestId('pages-bp_snipers'));
+    // "x1" rather than a bare 1: the count sits at the end of a row carrying a name now, and a
+    // lone digit beside "Range Cards" reads as part of the name.
+    expect(rows.getByText('x1')).toBeVisible();
   });
 
   it('leaves a spent page with no copies left carrying no number at all', async () => {

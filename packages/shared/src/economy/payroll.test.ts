@@ -64,7 +64,7 @@ describe('the payroll book (§H7)', () => {
     expect(payrollFits(ledger, PAYROLL_BASE - 149)).toBe(false);
   });
 
-  it('charges five weeks of the fee to let somebody go', () => {
+  it('charges ten weeks of the fee to let somebody go', () => {
     expect(dismissalFee(50)).toBe(50 * DISMISSAL_WEEKS);
     expect(dismissalFee(0)).toBe(0);
   });

@@ -351,6 +351,78 @@ Both failures are the same missing precondition.
 Unlike §6.2 nothing enforces this: it is the assumption every erasure measurement is made under. A
 master that breaks it does not fail loudly, it goes quiet.
 
+### 6.4 Blueprint glyphs (drawn in code, not ordered)
+
+Forty-one documents and a hundred and sixty pages each carry their own drawing. They are **not** in
+`ART_MANIFEST` and they are not on the board's order sheet: a hundred and sixty sheets is a season
+of somebody's time for a collectible that has to be told apart at 16 px, which is exactly the case
+code-generated art is for. Recorded here because this file is the art record and the glyphs are art.
+
+Drawn by `apps/client/src/features/research/BlueprintGlyph.tsx` in a 48 × 48 viewBox, in
+`currentColor`, at three layers. The glyph carries its own **dark plate** (`.icon-plate`, the
+ground index.css keeps for drawn marks rather than painted ones): a stroked single-colour mark
+washes out on the pale lilac `.icon-tile`, which is right for the painted resource masters and
+wrong for these.
+
+**The paper.** A page is a loose sheet with a torn left edge and a turned top corner. A document is
+a bound cover with a spine, two stitches, a title block and the ragged fore-edge of the pages inside
+it. The tear and the fore-edge are seeded polylines, so no two sheets fray the same way. Both are
+filled with a 13% wash of their own ink, so a drawing on a dark plate reads as ink on paper rather
+than as a wireframe in a box. The bound/loose difference is in silhouette, not in colour: a page and
+its document stay one glance apart for a reader who cannot separate the palette.
+
+**The drawing.** Eleven motifs, each authored inside a 12 × 12 box centred on the origin and placed
+by a transform: `schematic` (a boxed elevation with section hatching), `dimension` (a run with its
+witness lines), `gear`, `hull` (a chassis over two wheels), `rotor`, `circuit`, `bolts` (a plate and
+its bolt pattern), `stamp`, `coffee` (three arcs of a ring somebody left a cup on), `figure` (a body
+in elevation) and `vessel` (a drum with a level line and a tap).
+
+The **primary** motif is the subject, centred and upright, and comes from what the document unlocks:
+a body for a unit, a chassis for a machine that drives, a rotor for one that flies, an elevation for
+a building, a gear for a fitted upgrade, a drum for a mixture, a bolted plate for a trap. Seven
+targets override the family where it would say the wrong thing, the Rotorcraft and Heli Porter to
+`rotor` and the armour and cybernetics lines to `bolts` and `circuit`. Every page of one document
+therefore shares its subject, which is what makes eight Colossus sheets read as one document.
+
+The subject sits **high** on the sheet and the **second** motif gets the whole foot of it at nearly
+the same size, turned a few degrees, in one of three seeded positions. That is a deliberate revision:
+with the subject centred, the second motif could only go in a corner at a fifth of the sheet, and at
+36px eight pages of one document came out as eight copies of the subject with a smudge on them. Two
+drawings of comparable weight is what makes two pages different from across a room. The **third** is
+a pencilled note in a top corner and only the largest size draws it. Both are drawn from the pool the
+subject is not in and picked by the page's own id.
+
+**One line weight.** Every motif is handed a `pen` instead of writing its stroke widths out, and the
+pen divides by the mark's own scale. A plain `strokeWidth="1.5"` inside a `scale(0.85)` mark lands at
+1.27 on the paper, so the second drawing came out thinner than the first and vanished at 36px. Three
+weights, and they stay a hierarchy: **1.5** the subject's own line, **1.15** the detail inside it,
+**0.9** annotation on it.
+
+**The hand.** Four drafting ticks in the side margins and one dimension run across the top, on their
+own seed stream so adding a motif later does not move every tick on every sheet. Drawn at 0.85 and
+below, always lighter than a motif's line, and only at the largest size: at 36px they crowded the two
+drawings that carry the sheet, and a tick nobody can resolve is grain rather than draughtsmanship.
+
+**Rarity is the ink.** The whole glyph is drawn in its tier's colour, `ink-200` common,
+`verdigris-100` uncommon, `iris-100` rare, `brass-300` exotic, matching the border-and-ink tones the
+market has carried on lot cards since the barrow shipped (`apps/client/src/lib/rarity.ts`). A page
+takes its document's tier unless the catalogue authors it one step off; nothing is ever two steps
+off, and the catalogue throws at load if it is.
+
+**Size drops detail, it never redraws.** `sm` (16 px) is the paper and the subject; `md` (36 px, the
+page rows and the satchel) adds the second drawing along the foot; `lg` (72 px, a document in a card
+head) adds the pencilled note and the drafting ticks. The subject sits in the same place at all
+three, so a glyph does not change identity when it changes size.
+
+**Where each size is used.** The Blueprints screen draws a document's cover at 72 px across the head
+of its card and every page at 36 px in its own row, which is what the two sizes were tuned against.
+Everywhere else the glyph arrives through `ItemGlyph` and takes the box its caller gives it.
+
+**Deterministic.** Same id, same sheet, every render, every screen, every player.
+`BlueprintGlyph.test.tsx` pins that and pins the other half: two hundred and one glyphs, no two
+alike. If the board ever hands over masters for these, they land at the same call sites in the same
+three sizes with the same ink around them.
+
 ---
 
 ## 7. File naming

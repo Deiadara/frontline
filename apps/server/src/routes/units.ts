@@ -35,7 +35,6 @@ import {
  */
 
 const REFUSAL_ERRORS: Record<TrainingRefusal, { code: ErrorCode; message: string }> = {
-  unknown_unit: { code: 'NOT_FOUND', message: 'No such unit' },
   locked: { code: 'UNIT_LOCKED', message: 'You cannot field those yet' },
   queue_full: { code: 'TRAINING_QUEUE_FULL', message: 'The bench is full' },
   already_have_one: { code: 'UNIT_LOCKED', message: 'There is only ever one of those' },

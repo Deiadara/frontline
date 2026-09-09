@@ -121,8 +121,8 @@ export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
  * §E7's full range: a three-minute scrap run at one end, a day-long expedition at the other.
  *
  * §A3: the Combine is the antagonist the board is written against: most of the paying work is a
- * blow against it, a little is honest scavenging it does not care about, and two jobs are the
- * Combine's own, taken for its caps. That last pair is what makes §D8's `Collaborator` a choice a
+ * blow against it, a little is honest scavenging it does not care about, and a handful of jobs
+ * are the Combine's own, taken for its caps. That last pair is what makes §D8's `Collaborator` a choice a
  * player can actually make rather than a word in a table.
  */
 export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
@@ -445,6 +445,200 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     durationMinutes: 420,
     spoils: { highQualityMetal: 10, caps: 48, scrap: 17 },
     successChance: 0.79,
+  },
+
+  // --- the 2026-09 intake -------------------------------------------------------------------
+  //
+  // Twenty-four jobs still meant a board of three was drawing from a pool small enough that a
+  // player working two districts saw the same card twice in a morning. These fourteen widen the
+  // shapes rather than the count: a rescue, an escort, a sabotage nobody is guarding, a crawl
+  // through flooded plant rooms, a siege that runs eleven hours, and errands short enough to fit
+  // between two builds. They also fill the holes the old list had: one easy fight for a crew with
+  // nobody on the books, and long work that does not need an officer.
+  {
+    id: 'glass-pull',
+    name: 'Glass Pull',
+    brief:
+      'The arcade roof let go in the night and left a hundred metres of frame lying in the street. Get there before the glaziers do.',
+    kind: 'standard',
+    difficulty: 'easy',
+    stance: 'unaligned',
+    travelBand: 'close',
+    durationMinutes: 6,
+    spoils: { planks: 50, scrap: 15 },
+    successChance: 0.96,
+  },
+  {
+    id: 'ledger-errand',
+    name: 'Ledger Errand',
+    brief:
+      'A Combine clerk needs a ledger walked four streets to an office with a working stamp. Nine minutes, and nobody has to know you did it.',
+    kind: 'standard',
+    difficulty: 'easy',
+    stance: 'for_government',
+    travelBand: 'close',
+    durationMinutes: 9,
+    spoils: { caps: 108, supplies: 13 },
+    successChance: 0.95,
+  },
+  {
+    id: 'gate-duty',
+    name: 'Gate Duty',
+    brief:
+      'The Combine is a shift short on a service gate and will pay anybody who can stand in it. You will be turning your own neighbours back.',
+    kind: 'battle',
+    difficulty: 'easy',
+    stance: 'for_government',
+    travelBand: 'close',
+    durationMinutes: 24,
+    // The one fight on the board a crew with nobody on the books can take, and it is the Combine's.
+    spoils: { caps: 104, supplies: 21 },
+    successChance: 0.9,
+  },
+  {
+    id: 'water-cart-escort',
+    name: 'Water Cart Escort',
+    brief:
+      'Combine meter crews have started stopping the water carts on the ramp. Walk this one up and they will find somewhere else to be.',
+    kind: 'battle',
+    difficulty: 'easy',
+    stance: 'against_government',
+    travelBand: 'close',
+    durationMinutes: 28,
+    spoils: { supplies: 92, caps: 53 },
+    successChance: 0.86,
+  },
+  {
+    id: 'meter-round',
+    name: 'Meter Round',
+    brief:
+      'The Combine wants its air meters read on four blocks it no longer walks. Read them honestly and everybody on that stair pays for it.',
+    kind: 'standard',
+    difficulty: 'easy',
+    stance: 'for_government',
+    travelBand: 'further',
+    durationMinutes: 30,
+    spoils: { caps: 85, supplies: 32 },
+    successChance: 0.92,
+  },
+  {
+    id: 'tower-strip',
+    name: 'Tower Strip',
+    brief:
+      'The signal tower on the co-op roof has been leaning since the storm, and the aerial gear on it is worth more than the tower. Climb light.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'unaligned',
+    travelBand: 'close',
+    durationMinutes: 45,
+    spoils: { highQualityMetal: 9, scrap: 27 },
+    successChance: 0.83,
+  },
+  {
+    id: 'holding-pen-break',
+    name: 'Holding Pen Break',
+    brief:
+      'The Combine is holding nineteen people in a yard behind the depot until somebody signs for them. Go and sign for them.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'further',
+    durationMinutes: 50,
+    // Nobody pays for a rescue. What comes home is what nineteen families put together for it.
+    spoils: { caps: 120, supplies: 66 },
+    successChance: 0.75,
+  },
+  {
+    id: 'rail-cut',
+    name: 'Rail Cut',
+    brief:
+      'Six charges under a Combine freight line and the ore stops moving for a fortnight. Nobody is guarding it, which is the only easy part.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'further',
+    durationMinutes: 65,
+    spoils: { scrap: 51, oil: 26, caps: 21 },
+    successChance: 0.82,
+  },
+  {
+    id: 'armoury-raid',
+    name: 'Armoury Raid',
+    brief:
+      'A Combine district armoury with one road in and a duty roster that thins after midnight. Take the racks and be out before the relief comes.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'further',
+    durationMinutes: 75,
+    spoils: { highQualityMetal: 12, caps: 40, scrap: 20 },
+    successChance: 0.71,
+  },
+  {
+    id: 'tanker-ditch',
+    name: 'Tanker Ditch',
+    brief:
+      'A fuel tanker went into the culvert some time last week and is still mostly full. It is also still leaking, so go today.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'unaligned',
+    travelBand: 'further',
+    durationMinutes: 95,
+    spoils: { oil: 67, scrap: 13 },
+    successChance: 0.85,
+  },
+  {
+    id: 'sublevel-crawl',
+    name: 'Sublevel Crawl',
+    brief:
+      'Two and a half hours on your belly through flooded plant rooms, cutting out whatever the water has not finished. Take lamps and rope.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'unaligned',
+    travelBand: 'further',
+    durationMinutes: 150,
+    spoils: { scrap: 31, planks: 26, highQualityMetal: 3 },
+    successChance: 0.84,
+  },
+  {
+    id: 'outer-sheds',
+    name: 'The Outer Sheds',
+    brief:
+      'Machine sheds past the last checkpoint that nobody has bothered to strip, because of the walk. It is a long walk. That is the difficulty.',
+    kind: 'standard',
+    difficulty: 'easy',
+    stance: 'unaligned',
+    travelBand: 'furthest',
+    durationMinutes: 240,
+    // Four hours out and nobody leading it: §G6 easy is about who is shooting, not how far it is.
+    spoils: { planks: 28, scrap: 28, supplies: 19 },
+    successChance: 0.9,
+  },
+  {
+    id: 'outpost-siege',
+    name: 'Outpost Siege',
+    brief:
+      'Sit on a Combine road outpost until the garrison runs out of water. Eleven hours, and the relief column is the part nobody plans for.',
+    kind: 'battle',
+    difficulty: 'hard',
+    stance: 'against_government',
+    travelBand: 'furthest',
+    durationMinutes: 660,
+    spoils: { highQualityMetal: 9, oil: 30, caps: 35, scrap: 15 },
+    successChance: 0.69,
+  },
+  {
+    id: 'reservoir-expedition',
+    name: 'Reservoir Expedition',
+    brief:
+      'Twelve hours out to the high reservoir and back, on the word of one man who says the pumping station still has stores in it.',
+    kind: 'standard',
+    difficulty: 'hard',
+    stance: 'unaligned',
+    travelBand: 'furthest',
+    durationMinutes: 720,
+    spoils: { supplies: 40, oil: 25, caps: 20, scrap: 15 },
+    successChance: 0.86,
   },
 ];
 

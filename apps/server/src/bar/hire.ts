@@ -245,7 +245,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
  *
  * Their slice of the book is freed the moment it happens, and it costs `DISMISSAL_WEEKS` of that
  * slice in caps, paid there and then. That asymmetry is the whole design: committing costs
- * nothing, so a player will sign somebody; walking it back costs five weeks, so they will think
+ * nothing, so a player will sign somebody; walking it back costs ten weeks, so they will think
  * about it first. Without it the book would be a scratch pad a crew could rewrite every time a
  * better sheet walked into the Bar.
  */

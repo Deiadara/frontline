@@ -194,7 +194,7 @@ export function settleCapturedGates(repos: Repositories, now: Date): number {
  * condition: a crew looking at a district they have half-taken should see no gate to raise, which
  * is the thing that makes taking the last location worth doing.
  */
-export function capturedGatesFor(repos: Repositories, base: Base, now: Date): CapturedGateView[] {
+export function capturedGatesFor(repos: Repositories, base: Base): CapturedGateView[] {
   return districtsHeldWhole(repos, base.id).map((districtId) => {
     const gate = gateFor(repos, districtId);
     const atCeiling = gate.level >= CAPTURED_GATE_MAX_LEVEL;
@@ -214,7 +214,6 @@ export function capturedGatesFor(repos: Repositories, base: Base, now: Date): Ca
       defensePercent: capturedGateDefensePercent(gate.level),
       intelResistancePercent: capturedGateIntelResistancePercent(gate.level),
       refusal: refusal === null ? null : GATE_REFUSALS[refusal],
-      ...(now ? {} : {}),
     };
   });
 }

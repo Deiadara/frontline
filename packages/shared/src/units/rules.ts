@@ -33,9 +33,10 @@ export interface UnitRuleSpec {
   /**
    * Whether the rule is a thing the unit can do or a thing it cannot, so the card knows the colour.
    *
-   * Defaulted to `'positive'` rather than written on every row, because two of the three rules are
-   * and a field that is almost always the same value stops being read. A card draws a negative rule
-   * in the refusal red it already uses for a locked row, which is the only difference this makes.
+   * Defaulted to `'positive'` rather than written on every row, because all but one of the rules
+   * are and a field that is almost always the same value stops being read. A card draws a negative
+   * rule in the refusal red it already uses for a locked row, which is the only difference this
+   * makes.
    */
   tone?: 'positive' | 'negative';
 }

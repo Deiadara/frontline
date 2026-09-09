@@ -239,10 +239,13 @@ export function InfoNote({
   tone = 'neutral',
   /** What the chip says, and what the note is titled. Short: it is a label, not a summary. */
   label = 'How this works',
+  size = 'md',
 }: {
   children: ReactNode;
   tone?: 'neutral' | 'warn';
   label?: string;
+  /** `sm` is a chip that sits on a panel's head beside its title, at the head's own height. */
+  size?: 'md' | 'sm';
 }) {
   return (
     <HoverCard
@@ -265,8 +268,10 @@ export function InfoNote({
     >
       <span
         className={cn(
-          'flex items-center gap-1.5 rounded-sm border px-2.5 py-1',
-          'font-display text-[11px] font-bold uppercase tracking-[0.14em]',
+          'flex items-center gap-1.5 rounded-sm border',
+          size === 'sm'
+            ? 'px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.14em]'
+            : 'px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
           tone === 'warn'
             ? 'border-brass-500/50 bg-brass-500/10 text-brass-100'
             : 'border-iris-500/45 bg-iris-500/10 text-iris-100',

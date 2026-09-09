@@ -12,10 +12,6 @@ import {
   missionRewards,
   payoutSlots,
   scaledSpoils,
-  missionTimings,
-  hastenedMinutes,
-  hastenedRoadMinutes,
-  TRAVEL_BAND_MINUTES,
   type Base,
   type District,
   type MissionArea,
@@ -25,6 +21,7 @@ import {
 import { cityContextFor } from '../city/view.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { StoredMission } from '../db/repos/missions.js';
+import { pricedTimings } from './pricing.js';
 
 /**
  * The mission board, per area (GDD §E, §A4).
@@ -102,10 +99,7 @@ export function offerFor(
    */
   board?: { areaId: string; day: string },
 ): MissionOffer {
-  const timings = missionTimings({
-    travelMinutes: hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], 0, speedPercent),
-    durationMinutes: hastenedMinutes(template.durationMinutes, speedPercent),
-  });
+  const timings = pricedTimings(template, speedPercent);
   const rewards = scaledSpoils(
     missionRewards(template, 'success', timings.totalMinutes),
     payPercent,

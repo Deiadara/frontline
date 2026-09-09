@@ -1173,7 +1173,7 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
          * §H7: letting somebody go, behind a confirmation.
          *
          * Two clicks because it is expensive and irreversible: their slice of the book comes back
-         * immediately and five weeks of it leaves the stockpile on the spot. The figure is on the
+         * immediately and `DISMISSAL_WEEKS` of it leaves the stockpile on the spot. The figure is on the
          * button rather than in a dialog, so the price is read before the second click rather than
          * after it.
          */}

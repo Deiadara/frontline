@@ -221,14 +221,13 @@ export function projectCity(repos: Repositories, base: Base, now: Date): CityRes
       summarise(district, context, residentSummary(summaries, district.id, base)),
     ),
     // §B7: the gates on ground this crew holds outright. Empty for a crew that holds none.
-    capturedGates: capturedGatesFor(repos, base, now),
+    capturedGates: capturedGatesFor(repos, base),
     homeDistrictId: base.districtId,
     serverNow: now.toISOString(),
   };
 }
 
-/** One location as its holder's opponent sees it, or, for a location you hold, in full. */
-export /**
+/**
  * A plot as it stands before anybody builds on it: every structure at level 1.
  *
  * Not persisted and never written: it is what the *scene* needs to draw a district, for a plot that
@@ -246,6 +245,7 @@ function unbuiltDistrict(districtId: string): Building[] {
   }));
 }
 
+/** One location as its holder's opponent sees it, or, for a location you hold, in full. */
 function projectLocation(
   location: (typeof CITY_LOCATIONS)[number],
   control: LocationControl,

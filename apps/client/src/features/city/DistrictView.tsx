@@ -1,4 +1,5 @@
 import {
+  formatClock,
   BUILDING_CATALOG,
   type DistrictDetailResponse,
   formatCountdown,
@@ -21,6 +22,7 @@ import {
 } from '@frontline/shared';
 import { useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePlayerZone } from '../settings/usePlayerZone';
 import { CostLine } from '../../components/Resources';
 import { PLAQUE_PLATE, PlaqueFace } from '../../components/DistrictPlaque';
 import { Button } from '../../components/ui/Button';
@@ -71,6 +73,8 @@ export function DistrictView() {
   const navigate = useNavigate();
   const me = useMe();
   const baseId = me.data?.base?.id;
+  // The player's own clock, the way every other deadline on a screen is printed.
+  const zone = usePlayerZone();
   const query = useDistrict(districtId);
 
   const scout = useScout();
@@ -293,7 +297,7 @@ export function DistrictView() {
                   <p className="font-body text-xs leading-relaxed text-ink-300">
                     {gate.brokenUntil === null
                       ? 'One party holds every location in here, so there is no way in but the front. Break the gate and everything behind it is reachable for a day.'
-                      : `The way in is open until ${new Date(gate.brokenUntil).toLocaleString()}. Everything behind it can be taken while it lasts.`}
+                      : `The way in is open until ${formatClock(new Date(gate.brokenUntil), zone)}. Everything behind it can be taken while it lasts.`}
                   </p>
                   {gate.brokenUntil === null && (
                     <div>
@@ -421,6 +425,11 @@ function cardId(locationId: string): string {
   return `location-card-${locationId}`;
 }
 
+/** The heading inside that card, so a dialog holding one can point `aria-labelledby` at it. */
+function cardHeadingId(locationId: string): string {
+  return `${cardId(locationId)}-name`;
+}
+
 function LocationCard({
   id,
   picked,
@@ -461,7 +470,10 @@ function LocationCard({
           <p className="font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">
             {spec.label}
           </p>
-          <h3 className="font-display text-sm font-bold tracking-[0.08em] text-ink-100">
+          <h3
+            id={cardHeadingId(view.location.id)}
+            className="font-display text-sm font-bold tracking-[0.08em] text-ink-100"
+          >
             {view.location.name}
           </h3>
         </div>
@@ -994,13 +1006,16 @@ function VisitedBuildingDialog({
 }) {
   const spec = BUILDING_CATALOG[kind];
   return (
-    <Modal onClose={onClose} data-testid="visited-building">
+    <Modal onClose={onClose} labelledBy="visited-building-title" data-testid="visited-building">
       <div className="flex flex-col gap-3 p-5">
         <div>
           <p className="font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">
             {districtName}
           </p>
-          <h2 className="font-display text-lg font-bold tracking-[0.08em] text-ink-100">
+          <h2
+            id="visited-building-title"
+            className="font-display text-lg font-bold tracking-[0.08em] text-ink-100"
+          >
             {spec.name}
           </h2>
         </div>
@@ -1198,7 +1213,15 @@ function ContestedDistrict({
       )}
 
       {picked && (
-        <Modal onClose={() => setOpen(null)} size="wide" data-testid="location-window">
+        <Modal
+          onClose={() => setOpen(null)}
+          size="wide"
+          // The card's own heading names the window. `LocationCard` puts `id` on its `<section>`
+          // and its `<h3>` is the place's name, so the id the card already carries is the one
+          // thing a reader needs: without it this dialog announced itself as nothing at all.
+          labelledBy={cardHeadingId(picked.location.id)}
+          data-testid="location-window"
+        >
           <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-4">
             <LocationCard
               id={cardId(picked.location.id)}

@@ -1809,3 +1809,131 @@ describe('a research grant that widens what may be out at once', () => {
     expect(after.json<MissionsResponse>().activeLimit).toBe(limit + 1);
   });
 });
+
+/**
+ * §D5/§E5: what a leader's Short Way buys, and what it must not cost.
+ *
+ * `leadArrivalPercent` shortens the road a led run walks. It was folded into `missionSpeedPercent`
+ * before `launchMission` froze `pricedMinutes`, and pay and XP scale with those minutes
+ * (`rewardScale` is monotonic in them), so bringing the fastest leader on the books made the same
+ * job pay **less** than the card had quoted for it. That is the §A4 divergence `offerFor`'s own doc
+ * says was closed for the ground channel, arriving a second time through the officer.
+ *
+ * Both runs below are the same job, at the same level, out of crews with the same person on the
+ * books. The only difference is whether the launch names them as leading it, so anything that moves
+ * moved because of that.
+ */
+describe('§D5: a leader shortens the road and not the cheque', () => {
+  const auth = (token: string) => ({ authorization: `Bearer ${token}` });
+
+  /**
+   * An easy job on a board today, longest road first.
+   *
+   * Longest, because a tenth off a five-minute hop can round back onto the same whole minute and a
+   * comparison that lands on one passes whatever the code does. Easy, because the crew that does
+   * not name a leader has to be allowed out at all (§G6).
+   */
+  function anEasyRoadToday(): { template: MissionTemplate; areaId: string } {
+    const day = missionBoardDay(new Date());
+    const offered = MISSION_TEMPLATES.filter((template) => template.difficulty === 'easy')
+      .map((template) => ({ template, areaId: areasOffering(template.id, day)[0] }))
+      .filter(
+        (entry): entry is { template: MissionTemplate; areaId: string } =>
+          entry.areaId !== undefined,
+      )
+      .sort(
+        (a, b) =>
+          TRAVEL_BAND_MINUTES[b.template.travelBand] - TRAVEL_BAND_MINUTES[a.template.travelBand],
+      );
+    const longest = offered[0];
+    if (!longest) throw new Error(`no easy job on any board on ${day}`);
+    return longest;
+  }
+
+  /** A crew with one officer on the books who knows a short way, seated and fit to lead. */
+  async function crewWithAShortWay(username: string): Promise<{ stack: Stack; officerId: string }> {
+    const stack = await makeStack(username);
+    const officer = createCommander('off-short', 'Ilva Rask', 'field_commander', {}, ['short_way']);
+    stack.repos.bases.updateCommanders(stack.base.id, [officer]);
+    return { stack, officerId: officer.id };
+  }
+
+  async function launch(
+    stack: Stack,
+    template: MissionTemplate,
+    areaId: string,
+    officerId?: string,
+  ): Promise<Mission> {
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(stack.token),
+      payload: {
+        templateId: template.id,
+        areaId,
+        force: { razors: 4 },
+        vehicles: {},
+        ...(officerId === undefined ? {} : { officerId }),
+      },
+    });
+    expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+    return res.json<{ mission: Mission }>().mission;
+  }
+
+  it('pays and teaches the same whether or not the fastest officer leads it', async () => {
+    const { template, areaId } = anEasyRoadToday();
+    const led = await crewWithAShortWay('short_way_led');
+    const unled = await crewWithAShortWay('short_way_unled');
+
+    const withLeader = await launch(led.stack, template, areaId, led.officerId);
+    const without = await launch(unled.stack, template, areaId);
+
+    // The control: the perk is worth something on this leg, so the equalities below are a claim
+    // about the pricing rather than a comparison of two identical runs.
+    expect(
+      withLeader.travelMinutes,
+      'fixture: the Short Way does not move this road, so nothing here is measured',
+    ).toBeLessThan(without.travelMinutes);
+
+    // ...and none of what it is worth reaches the cheque.
+    expect(withLeader.pricedMinutes).toBe(without.pricedMinutes);
+    expect(withLeader.xp).toBe(without.xp);
+    expect(withLeader.payPercent).toBe(without.payPercent);
+    // Through the settler's own expression (`missions/resolve.ts`) rather than a second copy of the
+    // pricing that could drift from it.
+    const paid = (mission: Mission) =>
+      scaledSpoils(
+        missionRewards(template, 'success', pricedTotalMinutes(mission)),
+        mission.payPercent,
+      );
+    expect(paid(withLeader)).toEqual(paid(without));
+    expect(
+      Object.values(paid(withLeader)).some((amount) => (amount ?? 0) > 0),
+      'fixture: this job pays nothing, so equal pay proves nothing',
+    ).toBe(true);
+  });
+
+  it('freezes the clock the board quoted, not the one the crew runs on', async () => {
+    const { template, areaId } = anEasyRoadToday();
+    const { stack, officerId } = await crewWithAShortWay('short_way_quoted');
+
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: auth(stack.token),
+    });
+    const quoted = board
+      .json<MissionsResponse>()
+      .areas.find((area) => area.id === areaId)
+      ?.offers.find((offer) => offer.templateId === template.id);
+    if (!quoted) throw new Error(`fixture: ${template.id} is not on ${areaId}'s board`);
+
+    const mission = await launch(stack, template, areaId, officerId);
+
+    // The card and the row, tied together: `pricedTimings` is the one function behind both.
+    expect(mission.pricedMinutes).toBe(quoted.totalMinutes);
+    expect(mission.xp).toBe(quoted.xp);
+    // And the run really is shorter than the quote, which is what the officer was brought for.
+    expect(mission.travelMinutes).toBeLessThan(quoted.travelMinutes);
+  });
+});

@@ -201,3 +201,48 @@ describe('after a listing is posted', () => {
     expect(screen.getByRole('button', { name: 'Post it' })).toBeDisabled();
   });
 });
+
+/**
+ * A refusal belongs under the half whose button was pressed.
+ *
+ * The two writes on this page sit in opposite panels: Accept is on somebody else's listing on the
+ * left, Withdraw on your own on the right. Both refusals printed under the left one, because the
+ * page took `accept.error ?? withdraw.error` and rendered it there. So "that listing has gone"
+ * for a withdraw appeared at the foot of a board the player was not looking at, on a page whose
+ * two halves are a full screen apart at 1440.
+ *
+ * Anchored on the panel headings rather than on a test id, because the panels do not have one and
+ * the point of the assertion is *which half of the page* the sentence lands in.
+ */
+describe('a refused withdraw', () => {
+  it('says so under your own half of the board, not under theirs', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/market/withdraw'))
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          statusText: 'Conflict',
+          json: () =>
+            Promise.resolve({
+              error: { code: 'MARKET_REFUSED', message: 'That listing has gone' },
+            }),
+        } as Response);
+      if (path.endsWith('/market'))
+        return reply({ ...market, offers: [], mine: [{ ...market.offers[0], id: 'offer-mine' }] });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+
+    renderOffers();
+    await screen.findByTestId('offer-offer-mine');
+    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('That listing has gone');
+    // `You offer` and `They offer` are the two panel headings; the alert has to be inside the
+    // first and not the second.
+    const mine = screen.getByRole('heading', { name: 'You offer' }).closest('div');
+    const theirs = screen.getByRole('heading', { name: 'They offer' }).closest('div');
+    expect(mine?.parentElement?.contains(alert)).toBe(true);
+    expect(theirs?.parentElement?.contains(alert)).toBe(false);
+  });
+});

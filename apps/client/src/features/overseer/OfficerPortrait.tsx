@@ -58,13 +58,25 @@ export function OfficerPortrait({
       style={style}
       data-injured={injured ? 'true' : undefined}
     >
+      {/*
+       * Every layer below is `!absolute`, not `absolute`, and the reason is the caller.
+       *
+       * A frame class arrives from outside this component and two of the ones already passed
+       * defeat a plain positioning utility at equal specificity: the crew window hands this
+       * `painted`, whose `.painted > *` rule pins direct children to `position: relative`, and any
+       * caller passing its own `relative` would do the same. The face survives either way because
+       * it is also `h-full w-full`, but the injured film and the fallback letter do not: an inline
+       * `relative` span with an inert `inset-0` drops the letter to the top of the frame and
+       * collapses the red wash to nothing. The flag makes the stacking a fact about this component
+       * rather than a fact about what the caller happened to pass.
+       */}
       {painted ? (
         <img
           src={painted}
           alt=""
           // The delivery frames the face in the central seventy percent, so any crop keeps it.
           className={cn(
-            'absolute inset-0 h-full w-full object-cover',
+            '!absolute inset-0 h-full w-full object-cover',
             // Desaturated under the wash rather than only tinted: a red film over a full-colour
             // face reads as a lighting effect, and the point is that this person is out.
             injured && 'grayscale-[0.55]',
@@ -73,7 +85,7 @@ export function OfficerPortrait({
       ) : (
         <span
           aria-hidden
-          className="absolute inset-0 flex items-center justify-center font-stamp text-[28px] text-ink-100/25"
+          className="!absolute inset-0 flex items-center justify-center font-stamp text-[28px] text-ink-100/25"
         >
           {name.slice(0, 1)}
         </span>
@@ -100,8 +112,8 @@ function InjuredOverlay({ seconds }: { seconds: number }) {
   const clock = formatRecovery(seconds);
   return (
     <>
-      <span aria-hidden className="absolute inset-0 bg-oxblood-500/35" />
-      <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 bg-[rgb(24_20_22)]/80 py-[6%]">
+      <span aria-hidden className="!absolute inset-0 bg-oxblood-500/35" />
+      <span className="!absolute inset-x-0 top-1/2 -translate-y-1/2 bg-[rgb(24_20_22)]/80 py-[6%]">
         <svg
           viewBox="0 0 100 30"
           role="img"

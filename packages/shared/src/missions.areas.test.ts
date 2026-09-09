@@ -111,6 +111,37 @@ describe('finding a board a job is on', () => {
   });
 
   /**
+   * And from any starting day, not just from the one this file happens to name.
+   *
+   * The test above starts on 2026-01-01 and covers the whole catalogue in three days, so it says
+   * very little about the walk: a job reachable only in January would sail through it. This asks
+   * the property a player actually has, which is that whenever they start playing, every job in
+   * the game turns up on a board in front of them soon.
+   *
+   * Three weeks rather than the fortnight above because the measured worst window is twelve days
+   * and the margin is the point: a catalogue that grows past the walk's ability to circulate it
+   * fails here first, while the entries are still content nobody has built a system on.
+   */
+  it('reaches every job from every starting day of a year', () => {
+    const WINDOW = 21;
+    const dayAt = (index: number) => missionBoardDay(new Date(Date.UTC(2026, 0, 1 + index)));
+
+    for (let start = 0; start < 365; start += 1) {
+      const seen = new Set<string>();
+      for (let day = start; day < start + WINDOW; day += 1) {
+        for (const areaId of AREAS) {
+          for (const template of missionOffers(areaId, dayAt(day))) seen.add(template.id);
+        }
+      }
+      const unreachable = MISSION_TEMPLATES.filter((template) => !seen.has(template.id));
+      expect(
+        unreachable.map((template) => template.id),
+        `no board offered these in the ${WINDOW} days from ${dayAt(start)}`,
+      ).toEqual([]);
+    }
+  });
+
+  /**
    * Every day has an easy job and a hard job somewhere in the city.
    *
    * Not a content nicety: it is the property the server's test fixtures stand on. Those tests used

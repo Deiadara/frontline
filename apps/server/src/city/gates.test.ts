@@ -109,7 +109,7 @@ describe('who gets a gate', () => {
     repos.city.put({ ...control, holder: { kind: 'looters' }, garrison: {} });
 
     expect(holdsDistrictWhole(repos, base.id, DISTRICT.id)).toBe(false);
-    expect(capturedGatesFor(repos, base, new Date(HOUR))).toEqual([]);
+    expect(capturedGatesFor(repos, base)).toEqual([]);
   });
 
   /**

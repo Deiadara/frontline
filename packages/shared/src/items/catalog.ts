@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ItemRarity } from './rarity.js';
 import {
   BLUEPRINTS,
   BLUEPRINT_IDS,
@@ -7,6 +8,7 @@ import {
   type BlueprintPage,
   type BlueprintPageId,
   type BlueprintSpec,
+  pageRarity,
 } from '../blueprints/catalog.js';
 
 /**
@@ -44,10 +46,6 @@ import {
 export const ITEM_KINDS = ['blueprint', 'page', 'component', 'relic', 'consumable'] as const;
 export const ItemKindSchema = z.enum(ITEM_KINDS);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
-
-export const ITEM_RARITIES = ['common', 'uncommon', 'rare', 'exotic'] as const;
-export const ItemRaritySchema = z.enum(ITEM_RARITIES);
-export type ItemRarity = z.infer<typeof ItemRaritySchema>;
 
 /**
  * Goods only, and it stays that way.
@@ -344,27 +342,6 @@ const SPECS: readonly ItemSpec[] = [
 ];
 
 /**
- * How rare a document is, read off how many pages it takes.
- *
- * One number decides it because one number is what §D3 already scaled: a two-page motorbike is an
- * early thing and an eight-page Colossus is the end of a campaign, so a second dial for rarity
- * would only be a chance to disagree with the first.
- */
-function blueprintRarity(pages: number): ItemRarity {
-  if (pages <= 3) return 'uncommon';
-  if (pages <= 5) return 'rare';
-  return 'exotic';
-}
-
-/** A page is one step commoner than the document it belongs to: you find pages, not documents. */
-const RARITY_BELOW: Readonly<Record<ItemRarity, ItemRarity>> = {
-  common: 'common',
-  uncommon: 'common',
-  rare: 'uncommon',
-  exotic: 'rare',
-};
-
-/**
  * What a page is worth in caps.
  *
  * Scaled by the length of its document rather than flat, so a page of the Colossus is not priced
@@ -379,8 +356,11 @@ function pageItemSpec(blueprint: BlueprintSpec, page: BlueprintPage): ItemSpec {
     id: page.id as ItemId,
     name: `${blueprint.name}: ${page.name}`,
     kind: 'page',
-    rarity: RARITY_BELOW[blueprintRarity(pages)],
-    description: `One page of ${pages} from the ${blueprint.name}.`,
+    // Authored in `blueprints/catalog.ts`, next to the page's own name and drawing, rather than
+    // worked out from a page count here. A page is a hand-made thing and the sheet that decides
+    // whether a document is out of reach is not always the last one in the list.
+    rarity: pageRarity(blueprint, page),
+    description: page.description,
     usedFor: `Collect all ${pages} to unlock the ${blueprint.name}.`,
     capsValue: CAPS_PER_PAGE_STEP * pages,
     tradeable: true,
@@ -401,7 +381,7 @@ function blueprintItemSpec(blueprint: BlueprintSpec): ItemSpec {
     id: blueprint.id as ItemId,
     name: blueprint.name,
     kind: 'blueprint',
-    rarity: blueprintRarity(pages),
+    rarity: blueprint.rarity,
     description: blueprint.blurb,
     usedFor: `Unlocked, permanently. Assembled from ${pages} pages.`,
     capsValue: CAPS_PER_PAGE_STEP * pages * pages,
@@ -482,11 +462,4 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   component: 'Component',
   relic: 'Relic',
   consumable: 'Consumable',
-};
-
-export const ITEM_RARITY_LABELS: Readonly<Record<ItemRarity, string>> = {
-  common: 'Common',
-  uncommon: 'Uncommon',
-  rare: 'Rare',
-  exotic: 'Exotic',
 };

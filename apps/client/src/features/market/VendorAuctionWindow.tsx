@@ -116,8 +116,8 @@ function LotDossier({ offer }: { offer: VendorOffer }) {
         </div>
       </div>
       <p className="font-body text-[12px] leading-relaxed text-ink-300">
-        One goes to the highest bid when he packs up, at what they bid. Every bid is in the open and
-        stays in: nothing comes off the table until he leaves.
+        One goes to the highest bid when he packs up, at what they bid. Every crew's bid is in the
+        open; raising yours replaces it, and nothing comes off the table until he leaves.
       </p>
     </div>
   );
@@ -245,7 +245,7 @@ export function LotClock({
   );
 }
 
-/** Every bid on the lot, newest first. */
+/** Every crew's standing bid on the lot, newest first: a raise replaces the crew's earlier row. */
 function LotHistory({ auction, zone }: { auction: VendorAuction; zone: string }) {
   return (
     <div className="flex min-w-0 flex-col rounded-sm border border-surface-700 bg-surface-950/40">
@@ -323,8 +323,11 @@ function LotBidPanel({
       : null;
   const short = amount > caps;
   const stepFrom = (value: number) => Math.max(1, nextLotBid(auction.reserve, value) - value);
+  // Never past the field's own ceiling: a button that types a figure the field refuses is a
+  // button that does nothing visible.
+  const ceiling = Math.max(auction.nextBid, caps, auction.reserve);
   const raiseBy = (percent: number) => () =>
-    setAmount((current) => Math.ceil(current * (1 + percent / 100)));
+    setAmount((current) => Math.min(ceiling, Math.ceil(current * (1 + percent / 100))));
 
   return (
     <div className="flex min-w-0 flex-col gap-2" data-testid="lot-bid-panel">
@@ -336,7 +339,7 @@ function LotBidPanel({
           value={amount}
           onChange={setAmount}
           min={auction.reserve}
-          max={Math.max(auction.nextBid, caps, auction.reserve)}
+          max={ceiling}
           step={stepFrom(amount)}
           label={`Bid for ${name}`}
           disabled={refusal !== null}

@@ -13,6 +13,12 @@ const getActions = vi.hoisted(() => vi.fn());
 const getBattles = vi.hoisted(() => vi.fn());
 const buildAddon = vi.hoisted(() => vi.fn());
 const startTech = vi.hoisted(() => vi.fn());
+const getDistrict = vi.hoisted(() => vi.fn());
+const placeVendorBid = vi.hoisted(() => vi.fn());
+const getCrewStanding = vi.hoisted(() => vi.fn());
+const reassignOfficer = vi.hoisted(() => vi.fn());
+const releaseOfficer = vi.hoisted(() => vi.fn());
+const startTraining = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
@@ -23,6 +29,12 @@ vi.mock('./api', async (importOriginal) => ({
   getBattles,
   buildAddon,
   startTech,
+  getDistrict,
+  placeVendorBid,
+  getCrewStanding,
+  reassignOfficer,
+  releaseOfficer,
+  startTraining,
 }));
 
 const { ApiRequestError } = await import('./api');
@@ -30,10 +42,16 @@ const {
   useActions,
   useBuildAddon,
   useCrew,
+  useCrewStanding,
   useDeployToBattle,
+  useDistrict,
   useLaunchMission,
   useMe,
+  usePlaceVendorBid,
+  useReassignOfficer,
+  useReleaseOfficer,
   useStartTech,
+  useStartTraining,
 } = await import('./queries');
 const { useSession } = await import('../store/session');
 
@@ -77,8 +95,25 @@ beforeEach(() => {
   getBattles.mockReset().mockResolvedValue({ coming: [], reports: [] });
   buildAddon.mockReset();
   startTech.mockReset();
+  getDistrict.mockReset().mockResolvedValue({ district: { id: 'rustyard' } });
+  placeVendorBid.mockReset();
+  getCrewStanding.mockReset().mockResolvedValue({ crewSheet: {}, effects: {} });
+  reassignOfficer.mockReset();
+  releaseOfficer.mockReset();
+  startTraining.mockReset();
   useSession.setState({ token: 'session-token', user: null });
 });
+
+/** The app's own defaults, so a missing poll cannot be papered over by a short `staleTime`. */
+function screen<T>(hook: () => T) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000 } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return renderHook(hook, { wrapper });
+}
 
 /**
  * MOU-280/MOU-368/MOU-381 pin *which* caches a refused launch names. This pins the outcome the
@@ -198,5 +233,109 @@ describe('a refused write that had already settled the crew', () => {
     await waitFor(() => expect(result.current.tech.isError).toBe(true));
 
     await waitFor(() => expect(getMe).toHaveBeenCalledTimes(2));
+  });
+});
+
+/**
+ * `GET /city/:id` is a settle, not a read.
+ *
+ * `routes/city.ts` runs `settleWorld` (movements, scouting runs, gates) and then `settleBase` on
+ * its first two lines, so a fortification finishing, an upgrade landing, a column arriving and a
+ * scout walking back in all happen *on this request*. The screen drawn from it has four countdowns
+ * on it and no other query behind them, so with no interval the last thing a player saw was
+ * whatever was true when they opened the street: a scout at zero read "Walking back in" until they
+ * navigated away and came back.
+ *
+ * Timers rather than a real wait, and the assertion is that a *second* call happens: the mount's
+ * own fetch would satisfy a test that only counted one.
+ */
+describe('the district screen, which settles on its own read', () => {
+  it('re-asks the server while the page is open', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = screen(() => useDistrict('rustyard'));
+      await vi.waitFor(() => expect(getDistrict).toHaveBeenCalledTimes(1));
+      expect(result.current).toBeDefined();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.waitFor(() => expect(getDistrict.mock.calls.length).toBeGreaterThanOrEqual(2));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * `POST /market/bid` closes every finished visit before it looks at the bid.
+ *
+ * `settleVendorAuctions` runs on the route's second line, outside the transaction and ahead of
+ * every refusal `placeVendorBid` can give. So "you are already leading this lot" is an answer given
+ * after the server has handed lots over, taken the caps for them and put the goods in a satchel,
+ * and the HUD beside the refusal is quoting the tin from before all of that.
+ */
+describe('a refused bid at the barrow', () => {
+  it('makes the HUD re-read the caps the close just spent', async () => {
+    placeVendorBid.mockRejectedValueOnce(
+      new ApiRequestError(409, 'MARKET_REFUSED', 'You are already leading this lot'),
+    );
+    const { result } = screen(() => ({ bid: usePlaceVendorBid(), me: useMe() }));
+    await waitFor(() => expect(getMe).toHaveBeenCalledTimes(1));
+
+    result.current.bid.mutate({ lineId: 'l1', amount: 1300 });
+    await waitFor(() => expect(result.current.bid.isError).toBe(true));
+
+    await waitFor(() => expect(getMe).toHaveBeenCalledTimes(2));
+  });
+});
+
+/**
+ * The crew fold is a different fact from the roster, and three writes move it.
+ *
+ * `crewSheetsFor` builds `/overseer/me` out of everybody on the books: a seated officer is paid
+ * their full rating in the attributes their chair uses, a benched one the off-duty share of
+ * everything, and a departed one takes their perks and the lift those perks put on every peer's
+ * sheet with them. `crewStanding` has no poll and a 30s `staleTime`, so nothing else re-reads it.
+ */
+describe('the writes that change what the crew is buying', () => {
+  it('re-reads the fold after an officer takes a different chair', async () => {
+    reassignOfficer.mockResolvedValueOnce({ crew: EMPTY_CREW });
+    const { result } = screen(() => ({
+      move: useReassignOfficer(),
+      standing: useCrewStanding(),
+    }));
+    await waitFor(() => expect(getCrewStanding).toHaveBeenCalledTimes(1));
+
+    result.current.move.mutate({ officerId: 'off-1', role: 'professor' });
+    await waitFor(() => expect(result.current.move.isSuccess).toBe(true));
+
+    await waitFor(() => expect(getCrewStanding).toHaveBeenCalledTimes(2));
+  });
+
+  it('re-reads the fold after somebody is let go', async () => {
+    releaseOfficer.mockResolvedValueOnce({ bar: {}, base: {}, fee: 1140 });
+    const { result } = screen(() => ({
+      release: useReleaseOfficer(),
+      standing: useCrewStanding(),
+    }));
+    await waitFor(() => expect(getCrewStanding).toHaveBeenCalledTimes(1));
+
+    result.current.release.mutate({ officerId: 'off-1' });
+    await waitFor(() => expect(result.current.release.isSuccess).toBe(true));
+
+    await waitFor(() => expect(getCrewStanding).toHaveBeenCalledTimes(2));
+  });
+
+  /**
+   * And the roster, which is the third copy of the sheet an hour moves: `CrewPage`'s officer
+   * window prints `AttributeSheet` straight off `useCrew`, which has no poll either.
+   */
+  it('re-reads the roster after an hour on the bench', async () => {
+    startTraining.mockResolvedValueOnce({ serverNow: '2026-09-09T00:00:00.000Z', subjects: [] });
+    const { result } = screen(() => ({ train: useStartTraining(), roster: useCrew() }));
+    await waitFor(() => expect(getCrew).toHaveBeenCalledTimes(1));
+
+    result.current.train.mutate({ subjectId: 'off-1', attribute: 'composure' });
+    await waitFor(() => expect(result.current.train.isSuccess).toBe(true));
+
+    await waitFor(() => expect(getCrew).toHaveBeenCalledTimes(2));
   });
 });

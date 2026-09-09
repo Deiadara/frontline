@@ -898,7 +898,7 @@ export const BarResponseSchema = z.object({
 });
 export type BarResponse = z.infer<typeof BarResponseSchema>;
 
-/** §H7: let an officer go. Frees their slice of the book and charges five weeks of it in caps. */
+/** §H7: let an officer go. Frees their slice of the book and charges `DISMISSAL_WEEKS` (ten) of it in caps. */
 export const ReleaseOfficerRequestSchema = z.object({ officerId: IdSchema });
 export type ReleaseOfficerRequest = z.infer<typeof ReleaseOfficerRequestSchema>;
 

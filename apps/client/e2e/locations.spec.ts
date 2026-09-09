@@ -56,6 +56,10 @@ async function openLocation(page: Page, locationId: string): Promise<void> {
   }
   await page.getByTestId(`site-${locationId}`).click();
   await expect(open).toBeVisible();
+  // Named by the card inside it. The window shipped with `role="dialog" aria-modal="true"` and no
+  // label, so a reader opening any of seven signs on the painting heard the same nothing; the
+  // card's own heading is the place's name and is the only thing that needs saying.
+  await expect(open).not.toHaveAccessibleName('');
 }
 
 /**

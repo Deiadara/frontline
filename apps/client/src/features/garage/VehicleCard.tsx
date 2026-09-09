@@ -136,8 +136,14 @@ function VehicleGlyph({ id }: { id: string }) {
        * centred and room over and under it, and the frame is 1:1 too, so there is nothing to crop
        * and cropping would only cut the ground out from under it. The previous band did exactly
        * that, and lost the wheels.
+       *
+       * `!absolute`: the frame is `painted`, and `.painted > *` pins every direct child to
+       * `position: relative` at the same specificity as a plain `absolute`, so the custom rule
+       * wins on emission order. The picture happens to land in the same place today because
+       * `h-full w-full` fills the square either way, which is luck rather than layout: `inset-0`
+       * is doing nothing until the flag makes it. See `index.css`.
        */}
-      <img src={painted} alt="" className="absolute inset-0 h-full w-full object-contain" />
+      <img src={painted} alt="" className="!absolute inset-0 h-full w-full object-contain" />
     </span>
   );
 }

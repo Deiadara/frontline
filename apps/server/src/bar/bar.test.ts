@@ -14,6 +14,7 @@ import {
   createCommander,
   maxOpenAuctionsFor,
   playerLevelGrants,
+  playerXpToNextLevel,
   reservationWage,
   startingEconomy,
   startingProgression,
@@ -543,9 +544,9 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
 
   /**
    * The other end of the contract, and the only place caps move. Committing is free so a player
-   * will bid; walking it back is five weeks so they will think about it first.
+   * will bid; walking it back is ten weeks so they will think about it first.
    */
-  it('frees the slice when an officer is let go, and charges five weeks of it', () => {
+  it('frees the slice when an officer is let go, and charges ten weeks of it', () => {
     const { repos } = fakeRepos();
     const hired = sign(repos, makeBase(), reserveFor(recruit()));
     if (hired.kind !== 'signed') throw new Error('expected a signing');
@@ -1074,6 +1075,66 @@ describe('§H7a: the close', () => {
  * would hand the two runs two different crews. Everything else about the two worlds is identical:
  * the day, the seat, the user ids and the two equal finals.
  */
+/**
+ * §I2: the two things the Bar has to run before it answers, and the one it has to say.
+ *
+ * The close is the Bar's own clock and it moves state every route here reads: it fills a chair, it
+ * commits a wage, and signing somebody pays XP. Two halves were missing.
+ *
+ *   * `BarResponse.levelUp` has been on the wire since §I2 and the screen has latched it since it
+ *     shipped, and nothing on the server ever filled it in. The close runs on this read, so this
+ *     read is very often the only thing in the game that knows a level was crossed: the marker
+ *     stays banked and the card is announced by whichever poll happens to drain it next.
+ *   * `POST /bar/bid` and `POST /bar/seal` did not settle at all. Every other Bar route did, so
+ *     which door a player came through decided whether the officer they won overnight was on the
+ *     books yet.
+ */
+describe('§I2: the Bar settles before it answers', () => {
+  it('announces the level the close paid for, exactly once', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'levelling_up');
+
+    const bar = await readBar(app, player);
+    const { auction } = openTable(bar);
+    expect((await bid(app, player, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    // One point short of the next level, so the close's own `officerHired` award is what crosses
+    // it and nothing else on the read can be what this is measuring.
+    const before = app.repos.bases.findById(player.baseId);
+    if (!before) throw new Error('fixture: no base');
+    app.repos.bases.updateProgression(before.id, before.level, {
+      xpIntoLevel: playerXpToNextLevel(before.level) - 1,
+    });
+
+    vi.setSystemTime(AFTER);
+    const announced = await readBar(app, player);
+    expect(announced.slotsUsed, 'fixture: nobody was signed, so nothing paid').toBe(1);
+    expect(announced.levelUp?.level).toBe(before.level + 1);
+    expect(announced.levelUp?.levelsGained).toBe(1);
+
+    // Drained, so the shell's own poll cannot draw the same card a second time.
+    expect((await readBar(app, player)).levelUp).toBeUndefined();
+  });
+
+  it('runs last night before it looks at a bid, even one it is about to refuse', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'overnight_winner');
+
+    const bar = await readBar(app, player);
+    const { auction, name } = openTable(bar);
+    expect((await bid(app, player, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    vi.setSystemTime(AFTER);
+    // Nothing reads the Bar and no world clock runs: the only thing to touch the server since
+    // midnight is this bid, and it names a seat from a roster that no longer exists.
+    const stale = await bid(app, player, recruitId(bar.day, 0), auction.reserve);
+    expect(stale.statusCode).toBe(404);
+
+    const signed = app.repos.bases.findById(player.baseId);
+    expect(signed?.commanders.map((officer) => officer.name)).toEqual([name]);
+  });
+});
+
 describe('a tie at the close', () => {
   const DAY = '2026-08-12';
 

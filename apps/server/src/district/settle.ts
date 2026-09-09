@@ -176,7 +176,11 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
   // §F2: Engineering and Chemistry on the line, Logistics on the warehouse. Read once for the
   // whole window rather than per segment: a crew does not change halfway through a settle, and
   // re-reading it inside the walk would cost a database round trip per completed build.
-  const { productionPercent, storageCapacityPercent } = crewEffectsFor(repos, base);
+  // Read at the settle's own instant, not at the wall clock: both folds are step functions of time
+  // (an officer is out of the room until `injuredUntil`, a raid's disruption until it expires), and
+  // `now` is the moment this window is being priced at. Defaulting the argument read the clock of
+  // whichever process happened to be running, which is the settle answering about a different day.
+  const { productionPercent, storageCapacityPercent } = crewEffectsFor(repos, base, now);
   // §A4, and what the ground makes go further (the Abandoned Nuclear Plant). Read from the
   // territory fold rather than the crew one: this is a location's doing, not a person's.
   /*
@@ -191,7 +195,7 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
    * Read off the territory fold rather than the crew one, like `resourceYieldPercent` beside it:
    * both are a location's doing rather than a person's.
    */
-  const { resourceYieldPercent, perHour } = standingEffectsFor(repos, base);
+  const { resourceYieldPercent, perHour } = standingEffectsFor(repos, base, now);
   const { buildings, resources, carry } = walk(
     base,
     due,

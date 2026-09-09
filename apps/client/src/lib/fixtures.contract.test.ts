@@ -75,4 +75,23 @@ describe('the e2e fixtures still describe what the server sends', () => {
     const missing = S.CITY_DISTRICTS.filter((d) => !seen.has(d.id)).map((d) => d.id);
     expect(missing, 'districts the city fixture never shows').toEqual([]);
   });
+
+  /**
+   * A count that disagrees with the rows under it parses perfectly and is still a lie.
+   *
+   * Both badges are `COUNT(*) ... WHERE read_at IS NULL` on the server (`repos/social.ts`), over
+   * the inbox for messages and the list for notifications. The mail fixture said 1 against two
+   * unread rows, so the badge beside Inbox, the count on `Mark all read` and the list under them
+   * disagreed in every screenshot the social suite takes, and no schema could catch it. The
+   * notification fixture had the same fault and carries the scar in a comment; this is the check
+   * that stops the next one.
+   */
+  it('counts the unread rows it actually carries', () => {
+    expect(F.messagesScreen.unread, 'unread messages against unread inbox rows').toBe(
+      F.messagesScreen.inbox.filter((row) => row.readAt === null).length,
+    );
+    expect(F.notificationsScreen.unread, 'unread bell against unread rows').toBe(
+      F.notificationsScreen.notifications.filter((row) => row.readAt === null).length,
+    );
+  });
 });

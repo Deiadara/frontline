@@ -26,6 +26,7 @@ import {
 } from '@frontline/shared';
 import { adminMinutes } from '../admin/mode.js';
 import type { StoredMission } from '../db/repos/missions.js';
+import { pricedTimings } from './pricing.js';
 
 /*
  * How many missions one base can have in flight is `concurrentMissionSlots` now, off the player's
@@ -98,6 +99,19 @@ export function launchMission(args: {
    */
   missionSpeedPercent?: number;
   /**
+   * §D5: what the officer *leading this run* takes off the road (`leadArrivalPercent`), or 0.
+   *
+   * Separate from `missionSpeedPercent` above, and the separation is the whole point. That one is a
+   * fact about the crew, true when the card is drawn, so the card quotes it and the pay is priced
+   * on it. This one is a fact about a decision the player makes *after* reading the card, so it
+   * shortens the clock the run actually keeps and touches nothing the run is paid.
+   *
+   * Folded in the other order it paid a crew less for bringing their best leader: `rewardScale` is
+   * monotonic in the minutes, so a Short Way on the priced clock is a smaller cheque. See
+   * `pricedTimings`.
+   */
+  leadSpeedPercent?: number;
+  /**
    * §A4: what the crew's own people and ground add to how fast its **units** move
    * (`TerritoryEffects.unitSpeedPercent`, the Skate Ground and the officers' Speed).
    *
@@ -129,6 +143,7 @@ export function launchMission(args: {
     officer,
     admin = false,
     missionSpeedPercent = 0,
+    leadSpeedPercent = 0,
     missionSpoilsPercent = 0,
     unitSpeedPercent = 0,
     areaId,
@@ -160,34 +175,31 @@ export function launchMission(args: {
       fitted: fittedFor(base.unitLoadouts, unitId),
     }),
   );
+  // The clock the crew actually keeps: the ground's cut and, on a led run, the officer's on top.
+  const runSpeedPercent = missionSpeedPercent + Math.max(0, leadSpeedPercent);
   const durationMinutes = adminMinutes(
     hastenedMinutes(
       terms ? delegatedMinutes(template.durationMinutes, terms) : template.durationMinutes,
-      missionSpeedPercent,
+      runSpeedPercent,
     ),
     admin,
   );
   const timings = missionTimings({
     travelMinutes: admin
       ? 0
-      : hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], pace, missionSpeedPercent),
+      : hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], pace, runSpeedPercent),
     durationMinutes,
   });
   /*
-   * What the pay is priced on: the card's own clock, at nobody's pace at all.
+   * ...and the clock the pay is priced on, which is the card's and nobody else's.
    *
-   * `missionRewards` and `missionXp` scale with the minutes, so pricing off `timings` charged the
-   * crew for riding: the card's quote is for the job as offered, and a faster road is what the
-   * Garage was for, not a discount on the take. Speed 0 rather than the walkers' own, because the
-   * card is drawn before a crew is picked and has to quote the same number the settle pays out.
-   * Frozen on the row with everything else (`MissionSchema.pricedMinutes`).
+   * The same function `offerFor` draws the card with, called with the same crew figure, so the two
+   * cannot come apart: see `pricedTimings` for the four things it leaves out and why each of them
+   * would otherwise mean a player is quoted one number and paid another. Frozen on the row here
+   * (`MissionSchema.pricedMinutes`) so a retune landing mid-flight cannot re-price a crew already
+   * out.
    */
-  const priced = missionTimings({
-    travelMinutes: admin
-      ? 0
-      : hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], 0, missionSpeedPercent),
-    durationMinutes,
-  });
+  const priced = pricedTimings(template, missionSpeedPercent);
 
   const afterOverseer = overseer
     ? modifiedSuccessChance(authored, overseer.attributes, template.kind)

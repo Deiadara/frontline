@@ -31,6 +31,7 @@ import { crewEffectsFor } from '../crew/standing.js';
 import type { BarBid } from '../db/repos/bar.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
+import { takeLevelUp } from '../progression/award.js';
 
 /**
  * The Bar (GDD §H, §H7a).
@@ -48,8 +49,18 @@ function requireOwnBase(app: FastifyInstance, ownerId: string): Base {
   return base;
 }
 
-/** Settle everything the Bar reads off before reading it: wages and upkeep (§H7/§D1). */
+/**
+ * Settle everything the Bar reads off before reading it: last night's tables, then the district.
+ *
+ * The close is first and it is not only the read's business. A player who opens the Bar at ten past
+ * midnight is the one who runs it if the world clock has not got there first, and every route here
+ * reads something the close moves: the roster it just filled a chair on, the book it just committed
+ * a wage to, the tables a bid is counted against. `POST /bar/bid` and `POST /bar/seal` used to skip
+ * it, so a crew that won its last chair overnight could still be offered a table the close would
+ * then refuse them at. Read *after* it, because signing writes to this crew.
+ */
 function settledBase(app: FastifyInstance, ownerId: string, now: Date): Base {
+  settleBarAuctions(app.repos, now);
   return settleBase(app.repos, requireOwnBase(app, ownerId), now).base;
 }
 
@@ -183,12 +194,18 @@ export function registerBarRoutes(app: FastifyInstance): void {
 
   app.get('/bar', { preHandler: app.authenticate }, (request): BarResponse => {
     const now = new Date();
-    // Before anything else: last night's tables. A player who opens the Bar at ten past midnight
-    // is the one who closes them if the world clock has not got there first, and they must see the
-    // officer they won on this very read rather than on the next one.
-    settleBarAuctions(app.repos, now);
-
+    // Last night's tables settle inside this, so the officer a crew won overnight is on the books
+    // by the time this read draws them.
     const base = settledBase(app, request.currentUser.id, now);
+    /*
+     * §I1/§I2: what the two settles above just banked.
+     *
+     * `BarResponse.levelUp` has always been on the wire and the screen has always latched it, and
+     * nothing ever filled it in: signing somebody pays XP and the close runs here, so this read is
+     * often the only one that knows a level was crossed. `takeLevelUp` drains the durable marker
+     * (migration 0083), so it is announced exactly once whichever door banked it.
+     */
+    const levelUp = takeLevelUp(app.repos, base.id);
     const window = auctionWindow(now);
     const day = window.day;
     // §F2: Charisma and Diplomacy widen the room. Word gets around about who is hiring.
@@ -235,6 +252,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
       // Only the tables this crew sat at, from the last night it sat at any. A results panel that
       // carried every close in the city would be a leaderboard nobody asked for.
       results: latestResultsFor(app.repos, request.currentUser.id, day),
+      levelUp,
     };
   });
 
@@ -251,7 +269,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
   /**
    * §H7: let an officer go.
    *
-   * Their slice of the book is freed immediately and five weeks of it is taken in caps on the
+   * Their slice of the book is freed immediately and ten weeks of it is taken in caps on the
    * spot. Deliberately not reversible and deliberately expensive: the book is a standing promise,
    * and a crew that could rotate its officers for free would never have to live with one.
    */

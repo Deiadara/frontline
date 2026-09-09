@@ -388,8 +388,8 @@ export const useSealBid = bidMutation(sealBid);
 /**
  * §H7: let an officer go.
  *
- * Frees their slice of the book and charges five weeks of it in caps on the spot, so both the Bar
- * and the stockpile move: everything that reads either is invalidated.
+ * Frees their slice of the book and charges `DISMISSAL_WEEKS` of it in caps on the spot, so both
+ * the Bar and the stockpile move: everything that reads either is invalidated.
  */
 export function useReleaseOfficer() {
   const queryClient = useQueryClient();
@@ -399,6 +399,12 @@ export function useReleaseOfficer() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
+      // …and the fold, which is a different fact from the roster. `crewSheetsFor` builds
+      // `/overseer/me` out of everybody on the books, so somebody leaving takes their best-of
+      // ratings, their perks and the lift those perks put on every peer's sheet out with them.
+      // `crewStanding` has no poll and a 30s `staleTime`, so without this the "what the crew is
+      // buying" ledger goes on quoting a channel the departed officer was the only source of.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
       // …and the district, which is a *different* copy of the base. `BasePanel` prefers
       // `queryKeys.base(id)` over the one on `/me`, and its Reports drawer prints the payroll
       // book and the caps this just moved: without this the two screens disagree until the
@@ -548,13 +554,23 @@ function useCityWrite<Body, Result>(
   });
 }
 
-/** One district's places, who holds them, and what they are worth. */
+/**
+ * One district's places, who holds them, and what they are worth.
+ *
+ * Polled on the district cadence, and it is the read with the most standing on it: `GET /city/:id`
+ * runs `settleWorld` and `settleBase` on its first two lines, so a fortification finishing, an
+ * upgrade landing, a column arriving and a scout walking back in all happen *on this request*.
+ * Without an interval nothing ever made it again, and the screen has four live countdowns drawn
+ * off the payload: a scout at zero read "Walking back in" until the player navigated away, and a
+ * finished upgrade kept its clock at `0s left` beside a location still at the old level.
+ */
 export function useDistrict(districtId: string | undefined) {
   const token = useSession((s) => s.token);
   return useQuery({
     queryKey: queryKeys.district(districtId ?? ''),
     queryFn: () => getDistrict(districtId ?? ''),
     enabled: token !== null && districtId !== undefined,
+    refetchInterval: DISTRICT_POLL_MS,
   });
 }
 
@@ -659,6 +675,11 @@ export function useTraining() {
  * The response *is* the refreshed board, so the tab does not re-derive anything, but the sheet it
  * just moved is also what the Overseer's profile is drawn from, and what every effect in the game
  * is computed from, so both of those are dropped too.
+ *
+ * And the roster, which is the third copy of that sheet: `CrewPage`'s officer window prints
+ * `AttributeSheet` straight off `useCrew`, and an hour that raised Composure by three left that
+ * window showing the number from before the session. `useCrew` has no poll, so nothing else was
+ * ever going to correct it.
  */
 export function useStartTraining() {
   const queryClient = useQueryClient();
@@ -667,6 +688,7 @@ export function useStartTraining() {
     onSuccess: (training) => {
       queryClient.setQueryData(queryKeys.training, training);
       void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
@@ -719,8 +741,32 @@ function marketMutation<TArgs>(mutationFn: (args: TArgs) => Promise<MarketMutati
   };
 }
 
-/** A bid on a lot at the barrow. The answer is the whole board with the lot's table moved. */
-export const usePlaceVendorBid = marketMutation(placeVendorBid);
+/**
+ * A bid on a lot at the barrow. The answer is the whole board with the lot's table moved.
+ *
+ * The one market write that also needs `onSettled`, and the only one: `POST /market/bid` calls
+ * `settleVendorAuctions` on its second line, *outside* the transaction and before
+ * `placeVendorBid` decides anything. So "you are already leading this lot", "that does not clear
+ * the leader" and "you cannot cover that" are all answers given after the server has closed every
+ * finished visit, handed the lots over, taken the caps for them and put the goods in a satchel.
+ * Refreshing only on success left the HUD quoting the pre-close tin. See "settle first, refuse
+ * second" at the top of this file; the Bar's `bidMutation` is the same shape for the same reason.
+ */
+export function usePlaceVendorBid() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: placeVendorBid,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.market, response.market);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.market });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workshop });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+    },
+  });
+}
 /**
  * §D10: assemble a blueprint out of the pages the satchel is holding.
  *
@@ -821,14 +867,6 @@ function settingsMutation<TArgs>(mutationFn: (args: TArgs) => Promise<SettingsRe
 }
 
 /**
- * The battle board (§A4). Polled, because it is the one screen with a *deadline* on it.
- *
- * Declared fights resolve lazily on this read, so the poll is what turns a passed mark into a
- * report while somebody is sitting on the page. It is also the read that keeps the deployment
- * countdown honest: the cutoff is one second before the mark, and a stale board would keep a
- * shut window looking open.
- */
-/**
  * Warms the caches for the screens behind the standing bar and the bottom nav.
  *
  * The pattern every client-side game UI ends up at, and the reason is the same everywhere: a screen
@@ -872,6 +910,14 @@ export function usePrefetchScreens(ready: boolean): void {
   }, [token, ready, queryClient]);
 }
 
+/**
+ * The battle board (§A4). Polled, because it is the one screen with a *deadline* on it.
+ *
+ * Declared fights resolve lazily on this read, so the poll is what turns a passed mark into a
+ * report while somebody is sitting on the page. It is also the read that keeps the deployment
+ * countdown honest: the cutoff is one second before the mark, and a stale board would keep a
+ * shut window looking open.
+ */
 export function useBattles() {
   const token = useSession((s) => s.token);
   return useQuery({
@@ -1007,10 +1053,6 @@ export function useAdminKnobs() {
   });
 }
 
-/**
- * The Console's fog of war. Everything is invalidated on success for the same reason the knobs
- * are: what the city, the board and the battles show all follows from what is visible.
- */
 /** The console's mock fight. Everything invalidated, like a knob: a declaration moves the board, the map and the shell's mark. */
 export function useAdminMockBattle() {
   const queryClient = useQueryClient();
@@ -1023,6 +1065,10 @@ export function useAdminMockBattle() {
   });
 }
 
+/**
+ * The Console's fog of war. Everything is invalidated on success for the same reason the knobs
+ * are: what the city, the board and the battles show all follows from what is visible.
+ */
 export function useAdminFog() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1173,7 +1219,15 @@ export function useRecallMission() {
   });
 }
 
-/** §C2: move an officer into a different position. */
+/**
+ * §C2: move an officer into a different position.
+ *
+ * `crewStanding` with the rest, because a chair is not decoration: `crewSheet` pays somebody their
+ * full rating only in the attributes the seat they are sitting in actually uses, and
+ * `benchedMember` pays the off-duty share of everything. Taking a chair therefore moves every
+ * channel of the fold `/overseer/me` reports, and that query has no poll and a 30s `staleTime`, so
+ * the crew effects page kept the pre-move numbers for as long as the player stayed inside `/game`.
+ */
 export function useReassignOfficer() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1182,6 +1236,7 @@ export function useReassignOfficer() {
       queryClient.setQueryData(queryKeys.crew, response.crew);
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.training });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
     },
   });
 }

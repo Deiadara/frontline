@@ -62,7 +62,6 @@ export function OffersPage() {
   }
 
   const pending = accept.isPending || withdraw.isPending;
-  const failure = accept.error ?? withdraw.error;
 
   return (
     <PageShell
@@ -109,9 +108,12 @@ export function OffersPage() {
               ))}
             </ul>
           )}
-          {failure !== null && (
+          {/* Under the half whose button was pressed. Both refusals used to print here, so
+              "that listing has gone" for a withdraw on the right of the screen appeared under
+              somebody else's board on the left, where the player was not looking. */}
+          {accept.error !== null && (
             <p role="alert" className="px-4 pb-4 font-body text-[13px] text-oxblood-300">
-              {failure.message}
+              {accept.error.message}
             </p>
           )}
         </Panel>
@@ -149,6 +151,12 @@ export function OffersPage() {
               </ul>
             )}
 
+            {withdraw.error !== null && (
+              <p role="alert" className="font-body text-[13px] text-oxblood-300">
+                {withdraw.error.message}
+              </p>
+            )}
+
             <OfferComposer market={data} counter={counter} onDone={() => setCounter(null)} />
           </div>
         </Panel>
@@ -175,10 +183,15 @@ function Nothing({ children }: { children: ReactNode }) {
  * One listing, as the trade it is.
  *
  * Two piles with an arrow between them and a caption on each, so which side is whose is read off
- * the card rather than worked out from the button at the bottom. The verdict badge is always from
+ * the card rather than worked out from the button at the bottom. The colours are always from
  * *this* crew's side of the table: on somebody else's listing what arrives is their `give`, and on
- * our own it is our `want`, which is why the pair is swapped rather than the card reused as it
- * stood. See the comment on `valueVerdict`.
+ * our own it is our `want`, which is why the `tone` pair is swapped rather than the card reused as
+ * it stood.
+ *
+ * There is no worth-against-worth verdict on the card any more. It went with the board's
+ * 2026-09-09 pass, along with the item slot the composer used to offer: the two piles drawn at
+ * `lg` answer "what for what" faster than a badge summarising them, and a badge priced off the
+ * vendor's table was quietly telling a player their own proposal was fair.
  *
  * The controls are the caller's, because they are the one thing the two halves do not share.
  */

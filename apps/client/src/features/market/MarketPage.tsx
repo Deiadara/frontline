@@ -1,5 +1,6 @@
 import {
   BARTER_MINIMUM,
+  BARTER_RESOURCES,
   ITEM_CATALOG,
   ITEM_RARITY_LABELS,
   RESOURCE_LABELS,
@@ -125,7 +126,7 @@ function RunnerHours({ market, now, zone }: { market: MarketResponse; now: Date;
     .map((session) => gameHourInZone(marketDay(now), session.startHour, zone))
     .join(' and ');
   return (
-    <InfoNote label={label}>
+    <InfoNote label={label} size="sm">
       Today he is in at {hours}, two hours each, and the hours move every day. What he has is the
       same for everybody in the city, and every line on the barrow is a lot: bid while he is in, and
       the highest bid takes one when he packs up, at what they bid. The Broker never leaves and
@@ -347,37 +348,6 @@ function VendorPanel({
   );
 }
 
-/** A labelled step of a counter's form: the same small-caps hand on every one of them. */
-function Field({
-  label,
-  tone = 'ink',
-  centred = false,
-  children,
-}: {
-  label: ReactNode;
-  tone?: 'ink' | 'give' | 'take';
-  centred?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div className={cn('flex min-w-0 flex-col gap-1.5', centred && 'items-center text-center')}>
-      <span
-        className={cn(
-          'font-display text-[11px] font-bold uppercase tracking-[0.16em]',
-          tone === 'give'
-            ? 'text-oxblood-300'
-            : tone === 'take'
-              ? 'text-verdigris-300'
-              : 'text-ink-200',
-        )}
-      >
-        {label}
-      </span>
-      {children}
-    </div>
-  );
-}
-
 /**
  * The Broker: always in, always half.
  *
@@ -410,123 +380,178 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
       title="The Broker"
       className="row-span-2 flex min-h-0 flex-col"
       action={
-        <span className="neon-rose shrink-0 rounded-sm border border-tangerine-300/30 bg-surface-950/60 px-2 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]">
+        <span className="neon-rose shrink-0 rounded-sm border border-tangerine-300/30 bg-surface-950/60 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.14em]">
           Always in
         </span>
       }
     >
-      {/* The rows spread over the column rather than huddling on its centre line: on a tall screen
-          the tiles take their full size and the gaps grow with the room, so the Broker fills his
-          counter. `m-auto` on the column is what keeps the first row reachable on a short screen,
-          where the scroller is the one that gives. */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3 text-center">
-        <div className="m-auto flex min-h-full flex-col items-center justify-around gap-1.5 [@media(min-height:800px)]:gap-3">
-          <Field label="You hand over" tone="give" centred>
-            <ResourcePicker
-              label="What to give the Broker"
-              value={give}
-              onChange={setGive}
-              held={market.resources}
-              size="sm"
-              data-testid="broker-give"
+      {/* Two ledgers and the deal between them (board request, 2026-09-09). What leaves is a
+          framed sheet in the giving colour, what arrives a framed sheet in the taking colour, and
+          the rate sits on the band between them with the arrow pointing the way the goods go. The
+          two sheets share whatever height the column has, so the counter is full at any size, and
+          on a screen too short for both the column scrolls behind its own head. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto p-3 [@media(min-height:960px)]:gap-3 [@media(min-height:960px)]:p-4">
+        <Ledger tone="give" title="You hand over" eyebrow="What leaves your store">
+          <ResourcePicker
+            label="What to give the Broker"
+            value={give}
+            onChange={setGive}
+            held={market.resources}
+            keys={BARTER_RESOURCES}
+            size="sm"
+            grow
+            data-testid="broker-give"
+          />
+          {/* The number, and the three fractions a player reaches for instead of typing it. Only
+              the fractions that clear his minimum are live. */}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <NumberField
+              label="how much to give the Broker"
+              value={amount}
+              onChange={setAmount}
+              min={0}
+              max={Math.max(BARTER_MINIMUM, held)}
+              className="w-[7.5rem]"
+              data-testid="broker-amount"
             />
-          </Field>
+            {(
+              [
+                ['¼', 0.25],
+                ['½', 0.5],
+                ['All', 1],
+              ] as const
+            ).map(([label, share]) => {
+              const value = Math.floor(held * share);
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={value < BARTER_MINIMUM}
+                  onClick={() => setAmount(value)}
+                  data-tip={`${value.toLocaleString()} ${RESOURCE_LABELS[give].toLowerCase()}`}
+                  className={cn(
+                    'door-tile flex h-[38px] min-w-[2.75rem] items-center justify-center rounded-md border px-2',
+                    'font-display text-[16px] font-bold leading-none tracking-[0.04em] transition-all duration-150',
+                    value < BARTER_MINIMUM
+                      ? 'cursor-not-allowed border-surface-600/60 text-ink-500'
+                      : 'border-brass-500/60 text-brass-300 hover:-translate-y-0.5 hover:border-brass-300 hover:text-brass-100',
+                  )}
+                >
+                  <span className="relative z-[2]">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Ledger>
 
-          {/* The number, its quick fractions, and the deal it makes, on one centred line. A barter
-            is a proportion of what you are sitting on rather than a number anybody has in mind,
-            so the fractions sit against the field; only the ones that clear his minimum are live.
-            The deal sits on the same line so the figure and what it buys are read together. */}
-          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
-            <span className="flex items-center gap-1.5">
-              <NumberField
-                label="how much to give the Broker"
-                value={amount}
-                onChange={setAmount}
-                min={0}
-                max={Math.max(BARTER_MINIMUM, held)}
-                className="w-28"
-                data-testid="broker-amount"
-              />
-              {(
-                [
-                  ['¼', 0.25],
-                  ['½', 0.5],
-                  ['All', 1],
-                ] as const
-              ).map(([label, share]) => {
-                const value = Math.floor(held * share);
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    disabled={value < BARTER_MINIMUM}
-                    onClick={() => setAmount(value)}
-                    data-tip={`${value.toLocaleString()} ${RESOURCE_LABELS[give].toLowerCase()}`}
-                    className={cn(
-                      'door-tile flex h-[38px] min-w-[2.75rem] items-center justify-center rounded-md border px-2',
-                      'font-display text-[16px] font-bold leading-none tracking-[0.04em] transition-all duration-150',
-                      value < BARTER_MINIMUM
-                        ? 'cursor-not-allowed border-surface-600/60 text-ink-500'
-                        : 'border-brass-500/60 text-brass-300 hover:-translate-y-0.5 hover:border-brass-300 hover:text-brass-100',
-                    )}
-                  >
-                    <span className="relative z-[2]">{label}</span>
-                  </button>
-                );
-              })}
+        {/* The band between the sheets: the deal, drawn, with his rate on it. */}
+        <div
+          className="edge-lit flex shrink-0 items-center justify-center gap-4 rounded-md border border-brass-500/40 bg-surface-950/60 px-4 py-2"
+          data-testid="barter-quote"
+        >
+          <GoodChip amount={amount} tone="give">
+            <ResourceIcon kind={give} className="h-6 w-6" />
+          </GoodChip>
+          <span className="flex items-center gap-2">
+            <TradeArrow className="h-7 w-7 rotate-90" />
+            <span className="neon font-display text-[13px] font-bold uppercase tracking-[0.16em]">
+              {Math.round(market.barterRate * 100)}% back
             </span>
+            <TradeArrow className="h-7 w-7 rotate-90" />
+          </span>
+          <GoodChip amount={quote} tone="take">
+            <ResourceIcon kind={want} className="h-6 w-6" />
+          </GoodChip>
+        </div>
 
-            {/* The deal, drawn: what goes in, the rate, what comes out. */}
-            <div
-              className="edge-lit flex w-fit items-center gap-2 rounded-md border border-brass-500/40 bg-surface-950/50 px-3 py-1.5"
-              data-testid="barter-quote"
-            >
-              <GoodChip amount={amount} tone="give">
-                <ResourceIcon kind={give} className="h-6 w-6" />
-              </GoodChip>
-              <span className="flex flex-col items-center gap-0.5">
-                <TradeArrow className="h-6 w-6 rotate-90" />
-                <span className="neon font-display text-[9px] font-bold uppercase tracking-[0.12em]">
-                  {Math.round(market.barterRate * 100)}%
-                </span>
-              </span>
-              <GoodChip amount={quote} tone="take">
-                <ResourceIcon kind={want} className="h-6 w-6" />
-              </GoodChip>
-            </div>
-          </div>
+        <Ledger tone="take" title="You walk away with" eyebrow="What he hands back">
+          <ResourcePicker
+            label="What to take from the Broker"
+            value={want}
+            onChange={setWant}
+            held={market.resources}
+            keys={BARTER_RESOURCES}
+            disabled={(key) => key === give}
+            size="sm"
+            grow
+            data-testid="broker-take"
+          />
+          {/* The answer, at a size worth reading: the figure and the thing, nothing else. */}
+          <span className="flex items-baseline gap-2" data-testid="broker-answer">
+            <span className="font-display text-[26px] font-bold leading-none tabular-nums text-verdigris-100">
+              {quote.toLocaleString()}
+            </span>
+            <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+              {RESOURCE_LABELS[want]}
+            </span>
+          </span>
+        </Ledger>
 
-          <Field label="You walk away with" tone="take" centred>
-            <ResourcePicker
-              label="What to take from the Broker"
-              value={want}
-              onChange={setWant}
-              held={market.resources}
-              disabled={(key) => key === give}
-              size="sm"
-              data-testid="broker-take"
-            />
-          </Field>
-
-          <div className="flex flex-col items-center gap-1.5">
-            <Button
-              disabled={blocked !== null || barter.isPending}
-              onClick={() => barter.mutate({ give, want, amount })}
-            >
-              {barter.isPending ? 'Counting it out…' : 'Trade'}
-            </Button>
-            {blocked !== null && (
-              <span className="font-display text-[12px] text-warning">{blocked}</span>
-            )}
-            {barter.error !== null && (
-              <p role="alert" className="font-body text-[13px] text-oxblood-300">
-                {barter.error.message}
-              </p>
-            )}
-          </div>
+        <div className="flex shrink-0 flex-col items-center gap-1.5">
+          <Button
+            className="w-full"
+            disabled={blocked !== null || barter.isPending}
+            onClick={() => barter.mutate({ give, want, amount })}
+          >
+            {barter.isPending ? 'Counting it out…' : 'Trade'}
+          </Button>
+          {blocked !== null && (
+            <span className="font-display text-[12px] text-warning">{blocked}</span>
+          )}
+          {barter.error !== null && (
+            <p role="alert" className="font-body text-[13px] text-oxblood-300">
+              {barter.error.message}
+            </p>
+          )}
         </div>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * One side of the Broker's ledger: a framed sheet in the colour of the direction the goods move,
+ * with its name lettered across the top and a line under it saying what the sheet is for.
+ *
+ * Both sheets share the column's height (`flex-1`) and centre what they hold, so the Broker's
+ * counter is full at every size rather than two rows of tiles on a centre line with nothing
+ * above or below them. `shrink-0`, because a sheet squeezed under its own content lets the
+ * content run over the sheet below it: on a screen too short for both, the column scrolls.
+ */
+function Ledger({
+  tone,
+  title,
+  eyebrow,
+  children,
+}: {
+  tone: 'give' | 'take';
+  title: string;
+  eyebrow: string;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className={cn(
+        'card-paper washed edge-lit flex flex-1 shrink-0 flex-col items-center justify-center gap-2.5 rounded-md border p-3 text-center [@media(min-height:960px)]:gap-3',
+        tone === 'give' ? 'border-oxblood-500/45' : 'border-verdigris-300/45',
+      )}
+      data-testid={`ledger-${tone}`}
+    >
+      <span className="flex flex-col items-center gap-0.5">
+        <span
+          className={cn(
+            'font-stamp text-[17px] leading-none',
+            tone === 'give' ? 'text-oxblood-300' : 'text-verdigris-100',
+          )}
+        >
+          {title}
+        </span>
+        <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-400">
+          {eyebrow}
+        </span>
+      </span>
+      {children}
+    </section>
   );
 }
 

@@ -78,6 +78,46 @@ describe('the mission board', () => {
     }
     const ids = MISSION_TEMPLATES.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
+    // Names as well as ids. An id collision is loud, because the second entry becomes unreachable
+    // through `findMissionTemplate`; a name collision is silent and lands on the player, who gets
+    // two cards reading `Ration Run` that pay different amounts and cannot tell which is which.
+    const names = MISSION_TEMPLATES.map((t) => t.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  /**
+   * And no two jobs that are the same job with a different name.
+   *
+   * Ids and names are what a machine trips over; this is what a *player* trips over. A board of
+   * three is a choice, and two cards with the same kind, ground, clock, odds and haul are not a
+   * choice however differently they read. The catalogue is thirty-eight entries now, which is
+   * comfortably past the size where you can hold it all in your head while adding to it.
+   */
+  it('has no two jobs with the same shape and numbers', () => {
+    const shape = (template: MissionTemplate) =>
+      [
+        template.kind,
+        template.difficulty,
+        template.stance,
+        template.travelBand,
+        template.durationMinutes,
+        template.successChance,
+        Object.entries(template.spoils)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, amount]) => `${key}:${amount}`)
+          .join(','),
+      ].join('|');
+
+    const byShape = new Map<string, string[]>();
+    for (const template of MISSION_TEMPLATES) {
+      const key = shape(template);
+      byShape.set(key, [...(byShape.get(key) ?? []), template.id]);
+    }
+    const twins = [...byShape.values()].filter((ids) => ids.length > 1);
+    expect(
+      twins,
+      `jobs that are the same job: ${twins.map((ids) => ids.join('/')).join(', ')}`,
+    ).toEqual([]);
   });
 
   it('offers every distance band and both kinds', () => {

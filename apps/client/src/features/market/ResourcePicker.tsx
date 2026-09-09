@@ -41,7 +41,7 @@ export function ResourcePicker({
   label: string;
   /**
    * `sm` is the market's counters, where six tiles have to share a column with a whole trade, and
-   * `grow` lets a small tile take its full size on a screen 800px tall or more, where the column
+   * `grow` lets a small tile take its full size on a screen 960px tall or more, where the column
    * has the room and a small tile leaves it half empty.
    */
   size?: 'md' | 'sm';
@@ -74,7 +74,7 @@ export function ResourcePicker({
               size === 'sm' ? 'w-[3.75rem] py-1' : 'w-[4.5rem] py-1.5',
               size === 'sm' &&
                 grow &&
-                '[@media(min-height:800px)]:w-[4.5rem] [@media(min-height:800px)]:py-1.5',
+                '[@media(min-height:960px)]:w-[4.5rem] [@media(min-height:960px)]:py-1.5',
               'transition-all duration-150 ease-out focus-visible:outline-none',
               chosen
                 ? 'door-tile-active z-10 -translate-y-0.5 border-brass-300 text-brass-100'
@@ -90,7 +90,7 @@ export function ResourcePicker({
                 size === 'sm' ? 'h-6 w-6' : 'h-8 w-8',
                 size === 'sm' &&
                   grow &&
-                  '[@media(min-height:800px)]:h-8 [@media(min-height:800px)]:w-8',
+                  '[@media(min-height:960px)]:h-8 [@media(min-height:960px)]:w-8',
               )}
             />
             <span className="relative z-[2] flex items-center gap-0.5 font-display text-[10px] font-bold leading-none tabular-nums">

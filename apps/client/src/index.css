@@ -896,8 +896,8 @@
    * Neon: a tube, lit, with the halo a tube throws on the wall behind it.
    *
    * Two colours because a tube is one colour and its bloom on a dark wall picks up the second.
-   * The flicker is a contact going, not a strobe: long steady, a brief dip, steady again. Steps,
-   * so the dip is a cut rather than a fade, which is what a bad contact does.
+   * Steady, with no flicker: the animation that went with these shipped on nothing for months and
+   * was deleted rather than left as a utility waiting for a sign to be written.
    */
   .neon {
     color: #9df7ff;
@@ -912,22 +912,6 @@
       0 0 4px rgb(255 158 230 / 0.9),
       0 0 12px rgb(255 96 214 / 0.55),
       0 0 26px rgb(127 240 255 / 0.25);
-  }
-  .neon-flicker {
-    animation: neon-flicker 9s steps(1, end) infinite;
-  }
-  @keyframes neon-flicker {
-    0%,
-    61%,
-    64%,
-    67%,
-    100% {
-      opacity: 1;
-    }
-    62%,
-    65.5% {
-      opacity: 0.45;
-    }
   }
 
   /**
@@ -993,7 +977,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .neon-flicker,
     .holo-tag::after {
       animation: none;
     }

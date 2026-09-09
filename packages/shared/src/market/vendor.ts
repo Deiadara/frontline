@@ -281,5 +281,18 @@ export function barterQuote(giveAmount: number, rate: number = BARTER_RATE): num
 /** The smallest trade the Broker will look at. Below this the rate rounds to nothing anyway. */
 export const BARTER_MINIMUM = 10;
 
-/** The resources the Broker deals in: all of them, in stockpile order. */
-export const BARTER_RESOURCES: readonly ResourceKey[] = RESOURCE_KEYS;
+/**
+ * The resources the Broker deals in: every material, and never caps (board request, 2026-09-09).
+ *
+ * Caps are money, and the supply run is where money becomes material at a price the day rations.
+ * A Broker that took caps at half would be a second, unrationed supply run, and one that paid
+ * caps out would be a cash machine for anybody with a full warehouse.
+ */
+export const BARTER_RESOURCES: readonly ResourceKey[] = RESOURCE_KEYS.filter(
+  (key) => key !== 'caps',
+);
+
+/** Whether the Broker will touch this resource at all. */
+export function brokerDealsIn(key: ResourceKey): boolean {
+  return BARTER_RESOURCES.includes(key);
+}

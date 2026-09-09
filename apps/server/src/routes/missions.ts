@@ -11,7 +11,6 @@ import {
   missionForceRefusal,
   missionBoardDay,
   missionOffers,
-  leading,
   type Base,
   type LaunchMissionResponse,
   type MissionForceRefusal,
@@ -237,23 +236,30 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       // the people on the books take a bigger cut of what the job pays. Read once: two calls would
       // be two settles of the same effects.
       /*
-       * §D5: an officer's leading perks pay on a run they are actually on.
+       * §D5: an officer's leading perks pay on a run they are actually on, and the two of them are
+       * spent on **different** clocks.
        *
-       * `leading` spends them onto the same two channels the ground already pushes, so a Short Way
-       * and a Smuggler's Tunnel add up rather than arriving through two parallel paths. Skipped
-       * outright when nobody is leading, which is the whole condition on the channel.
+       * This used to hand `leading(...)` straight to the launch, which folds `leadArrivalPercent`
+       * into `missionSpeedPercent`, and the launch priced the pay off that. `rewardScale` is
+       * monotonic in the minutes, so a crew that sent their Short Way officer finished sooner and
+       * was paid less than the card had quoted them: the §A4 bug `offerFor` was written against,
+       * one channel along. The arrival cut goes to the running clock alone (`leadSpeedPercent`) and
+       * the loot cut goes to the take, which is where a player would look for each of them.
        */
-      ...(({ missionSpeedPercent, missionSpoilsPercent, leadLootPercent, unitSpeedPercent }) => ({
+      ...(({
         missionSpeedPercent,
+        missionSpoilsPercent,
+        leadLootPercent,
+        leadArrivalPercent,
+        unitSpeedPercent,
+      }) => ({
+        missionSpeedPercent,
+        leadSpeedPercent: officer ? leadArrivalPercent : 0,
         missionSpoilsPercent: missionSpoilsPercent + (officer ? leadLootPercent : 0),
         // §C3: the same channel the march reads (`battle/movement.ts`). The Skate Ground says
         // "everything you field moves faster" and the road to a job is a road.
         unitSpeedPercent,
-      }))(
-        officer
-          ? leading(standingEffectsFor(app.repos, base, now))
-          : standingEffectsFor(app.repos, base, now),
-      ),
+      }))(standingEffectsFor(app.repos, base, now)),
     });
     // The row and the roster move together: a crew that is out is a crew that is not at home to
     // defend the district, and a split between these two would let the same people do both.

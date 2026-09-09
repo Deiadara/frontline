@@ -2208,9 +2208,118 @@ numbers, the rule-changing refits arriving as rungs and holdings instead.
       works" note is gone; the Research rail's caps box is gone (the standing bar prints the
       figure); the Bar's Your tables strip sits at the top left of the room, the note and the
       readouts keeping the foot.
+- [x] AL8. **The Broker as two ledgers.** What leaves and what arrives are two framed sheets in
+      the giving and taking colours, each with its name lettered across the top, the tiles and
+      the count in the first and the tiles and the answer at 26px in the second, the deal band
+      with his rate between them, and Trade across the foot. The sheets share the column's
+      height, so the counter is full at 900 and 1080 tall; at 720 the column scrolls behind its
+      head rather than letting a sheet run over the one below it. The Runner's hours chip is the
+      note's small size, at the head's own height.
+- [x] AL9. **The Broker does not touch caps.** Materials for materials only, either way round:
+      the shared list drops caps (a seventh material joins on its own), the server refuses a
+      trade naming caps in the player's words, and the pickers offer five tiles. Pinned in shared
+      and over HTTP, the server check watched failing.
 - [x] AL5. A flaky gate found and fixed on the way: the market's washed-out sweep screenshotted
       the first sheet on the page, which is the loading sheet now and is replaced a frame later.
       It waits for the barrow.
+
+## AM. Fourteen more missions (2026-09-09, by agent, reviewed)
+
+The catalogue had one easy fight in the whole game, no hard job close to home, no easy job at
+the far band, and no rescue, escort or long siege. Fourteen templates fill those holes, from a
+six-minute Glass Pull to a fourteen-hour Reservoir Expedition, every haul priced on the §E5 rule
+(all within two percent of target), the hourly-rate spread unchanged at 4.2x. The catalogue is
+38: standard 22, battle 16, easy 15, hard 23. New guards: no two jobs with the same shape and
+numbers, every job drawn from every starting day of a year, names unique as well as ids.
+
+Left for the board: the page-prize rate moved from one page per 7.4 rotations to 8.0, still
+inside the 6 to 9 band, because the board's hard share fell from 71% to 63% with the easy fights
+added; page prizes and item finds are rolled by the engine per area and day and cannot be
+authored on a template.
+
+## AN. Every page and every document its own thing (2026-09-09, by agent, reviewed)
+
+- [x] AN1. **Rarity** authored per document off what it unlocks (nine common, fifteen uncommon,
+      ten rare, seven exotic) and per page (its document's tier, or one step off where the page
+      is the hard one; two steps throws at load), exposed on the item catalogue and printed as
+      the colour and the word on the Blueprints screen, the satchel and the market.
+- [x] AN2. **A description per page and per document**, 160 lines in the game's voice, on the
+      hover of every page row; pages of one document read as different sheets.
+- [x] AN3. **Procedural sheets.** A page is a torn loose sheet, a document a bound cover; eleven
+      motifs (schematic, dimension, gear, hull, rotor, circuit, bolts, stamp, coffee, figure,
+      vessel), the primary picked by what the document unlocks, the others and their placement
+      seeded off the page's id; three detail tiers by size; the rarity as the ink. Determinism
+      and distinctness pinned, the first distinctness test retightened after a fixed-seed mutant
+      passed it on the tear alone. Recorded in the art bible. The first cut was too small and
+      too faint to read on the screen (a 44px cover on the pale plate, 14px page marks); the
+      sheets now carry the dark plate themselves with a wash of their own ink, a pen whose
+      weight survives the mark's scale, the subject high and a second drawing across the foot,
+      a 72px cover on the card's head and a 36px sheet on every page row.
+
+## AO. A bug pass over the codebase (2026-09-09)
+
+Two lanes reading every file, one over shared and the server, one over the client, after a
+week that touched almost every module. The shared and server half:
+
+- [x] AO1. **The Bar never announced the level its close paid for.** `GET /bar` declared
+      `levelUp` and the screen latched it, but no route wrote it, and the close's signing XP is
+      often the only read that crosses a level. It drains the marker after the settle now.
+- [x] AO2. **The Bar's bid routes skipped the close.** Only the read settled last night's
+      tables; a bid or a seal read the roster and the book before it. Every Bar route settles
+      first through one helper.
+- [x] AO3. **The production settle read the crew at the wrong clock.** The walk threads its
+      window's `now` everywhere except into the two crew folds, which are step functions of time
+      (injuries, the raid's disruption), so the window was priced with the crew as it stands at
+      the process's wall clock. Threaded; four twin sites in the battle settle with it. Pinned
+      by a settle-clock test with its own positive control.
+- [x] AO4. **Refusals listed and never raised** (four city ones from removed routes, one training
+      one the route pre-empts) removed with their sentences; a parameter kept alive by a lint
+      trick, a stray export that had detached a doc comment, and four stale comments cleaned.
+- [x] AO5. **Migrations 0081 to 0087 proven on a seeded store**: one row in every table the
+      schema has at 0081, the seven files applied in order and again, every row read back
+      through the repos, defaults landing on rows that predate them, and a completeness check
+      that names any table a future migration adds without seeding it.
+- [x] AO6. **A led mission paid less than its card quoted**, because the officer's speed
+      shortened the frozen minutes pay and XP scale with. One helper now prices the card and the
+      launch alike, off the crew's own speed channel only; the officer's cut, the column's pace,
+      the delegation penalty and admin mode shorten the clock the crew runs on and none of them
+      the cheque (the last two are behaviour changes that fall out of "priced equals card": an
+      unled run was paid more for being short-staffed, and the testing build paid a minute's
+      worth for every run). Pinned by a led-versus-unled pair with the same pay and a shorter
+      road, and by the card's own figures tied to the row.
+
+Reported, not changed: `ResearchResponse.levelUp` and the battle mutation's are declared and
+never written, and no screen draws them; `BattleResponseSchema` has no server producer; the
+Garage's two routes are the only ones that never settle the base; a lot cleared before its close
+reports "passed" rather than "unsold"; a handful of exports imported only by their own tests.
+
+The client half:
+
+- [x] AO7. **A defeated `absolute` in four places.** `.painted > *` pins every direct child to
+      `relative` at the same specificity as `absolute`, so a plain `absolute` child loses on
+      emission order: the actions rail's progress underline never drew, the machine's picture
+      and the officer portrait's four layers only held by luck, and the crew grid's frame lost
+      to the portrait's own `relative`. All `!absolute`, the rule written into the client spec,
+      the rail's underline gated by geometry at five viewports.
+- [x] AO8. **The district screen never polled** while its four countdowns ran; a refused bid at
+      the barrow had already settled lots and spent caps but only a success re-read the board;
+      a chair change or a release never refreshed the crew's fold, and an hour's training never
+      refreshed the roster the officer window prints. All four re-ask.
+- [x] AO9. **The sound layer's refusal path had no test and could not have one**: it played the
+      engine directly, past the injected player. Routed through the player, tested.
+- [x] AO10. Two dialogs with no accessible name; a failed withdraw printing under the other half
+      of the offers board; "five weeks" in six places for a ten-week fee; the lot window claiming
+      a raise stays on the table when it replaces the crew's row; the raise buttons overshooting
+      the field's ceiling; a breach deadline printed off the browser's clock. All fixed.
+- [x] AO11. **Two fixtures lied**: the mailbox's unread count against its rows, and the injured
+      officer timed off a date four weeks old so the red band never drew in any screenshot.
+      Both corrected, with a contract test on the counts. Dead code out: the verdict helpers and
+      the neon flicker nothing used.
+
+Reported, not changed: the live channel's `base` event does not name the district panel's own
+copy of the base (the polls cover it); `speedPercent` on the wire is kept alive by a fixture
+only; a fallback letter at 20% opacity where a machine has no painting; the market's own copy of
+the rarity tones beside the shared one.
 
 ## Gates
 

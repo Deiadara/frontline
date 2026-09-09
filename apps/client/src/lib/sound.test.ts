@@ -386,6 +386,12 @@ describe('kindForTarget', () => {
   });
 });
 
+/** `MutationObserver` fires on a microtask, so one turn of the queue is enough to see it. */
+async function waitForMutations(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe('the layer', () => {
   /**
    * `Modal`'s panel stops click propagation so a press inside it does not fall through to the
@@ -408,6 +414,47 @@ describe('the layer', () => {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(heard).toEqual(['click']);
     panel.remove();
+  });
+
+  /**
+   * A refusal is heard because a `role="alert"` node appeared, and nothing else says so.
+   *
+   * There is no `MutationCache.onError` on this client's `QueryClient` to hang a hook on, so the
+   * layer watches for the node instead: every refusal in the game ends up as one, success uses
+   * `role="status"`. That made the observer's selector the whole mechanism and it had no test at
+   * all, because the callback played through `engine` rather than through the injected `play` and
+   * `engine` has no `AudioContext` under jsdom: a broken selector and a working one were the same
+   * silence.
+   */
+  it('hears a refusal as a role=alert node arriving, wherever in the subtree it lands', async () => {
+    const heard: string[] = [];
+    const teardown = installSoundLayer(document, (kind) => heard.push(kind));
+
+    const bare = document.createElement('p');
+    bare.setAttribute('role', 'alert');
+    bare.textContent = 'You cannot cover that';
+    document.body.append(bare);
+    await waitForMutations();
+    expect(heard).toEqual(['refuse']);
+
+    // A panel mounted *around* an alert, which is how most of them arrive: the added node is the
+    // wrapper and the alert is inside it.
+    const panel = document.createElement('div');
+    panel.innerHTML = '<span role="alert">Nobody on your books by that name</span>';
+    document.body.append(panel);
+    await waitForMutations();
+    expect(heard).toEqual(['refuse', 'refuse']);
+
+    teardown();
+    const after = document.createElement('p');
+    after.setAttribute('role', 'alert');
+    document.body.append(after);
+    await waitForMutations();
+    expect(heard).toEqual(['refuse', 'refuse']);
+
+    bare.remove();
+    panel.remove();
+    after.remove();
   });
 
   it('counts a switch, a radio, a picker option and a role=button as presses, and a field as none', () => {

@@ -147,8 +147,10 @@ banks every crossing into a durable marker (migration 0083, `bases.pending_level
 `Base` and off the wire); `takeLevelUp` reads that marker and clears it. So a level a settle banked
 with no response to carry it, the world clock bringing a crew home at 03:00, a build finishing on a
 poll of `/crew`, is announced by the next response that carries a `levelUp` rather than lost.
-`GET /api/me`, `GET /api/missions`, `POST /api/missions`, `POST /api/missions/:id/recall` and
-`POST /api/base/build` (success and refusal alike) are the responses that drain it.
+`GET /api/me`, `GET /api/bar`, `GET /api/missions`, `POST /api/missions`,
+`POST /api/missions/:id/recall` and `POST /api/base/build` (success and refusal alike) are the
+responses that drain it. `GET /api/bar` is on that list because the Bar's own close runs on it and
+signing somebody pays XP, so it is very often the only read that knows a level was crossed.
 
 ### The Bar (§H, §H7a)
 
@@ -160,11 +162,11 @@ city's average level, so every request recomputes it and two accounts asking on 
 served the same people. What is stored is what the players did to it: `bar_bids`, `bar_auction_results`
 and the `bar_hires` signing log.
 
-- `GET /api/bar` → `BarResponseSchema`. Settles last night's tables first (see below), then returns
-  the room, the officers on the books, the payroll ledger, one `BarAuction` per recruit in roster
-  order, how many tables this crew is at (`auctionsUsed` / `auctionsAllowed`), and `results`:
-  yesterday's outcome for every table this crew sat at, as `won`, `lost`, `passed` (their final was
-  highest and they could not take the person) or `unsold`.
+- `GET /api/bar` → `BarResponseSchema`. Returns the room, the officers on the books, the payroll
+  ledger, one `BarAuction` per recruit in roster order, how many tables this crew is at
+  (`auctionsUsed` / `auctionsAllowed`), `results` (yesterday's outcome for every table this crew sat
+  at, as `won`, `lost`, `passed` when their final was highest and they could not take the person, or
+  `unsold`), and `levelUp` when the close or the district settle crossed a level.
 - `POST /api/bar/bid`: `{recruitId, amount}`. A public bid, in the open phase. Must beat the leader
   by the increment, or match the reserve on an untouched table.
 - `POST /api/bar/seal`: `{recruitId, amount}`. The one secret final value, in the last thirty
@@ -173,6 +175,11 @@ and the `bar_hires` signing log.
   `DISMISSAL_WEEKS` of it in caps on the spot. `404 NOT_FOUND` for a stranger, `409
 INSUFFICIENT_CAPS` when the crew cannot cover it.
 - `POST /api/bar/payroll`: `{}`. Buys one step of standing payroll at a server-quoted price.
+
+**Every** route here settles last night's tables before it reads anything (see below), not only the
+read. All five touch state the close moves: the chair it filled, the wage it committed, the tables a
+bid is counted against. `POST /api/bar/bid` and `POST /api/bar/seal` used to skip it, so a crew that
+won its last chair overnight could be offered a table the close would then refuse them at.
 
 Both bid routes answer `200` with `BidResponseSchema` `{auction, auctionsUsed, auctionsAllowed}`:
 the table as it now stands, so the screen never has to guess what its own bid did. A recruit id
@@ -215,9 +222,10 @@ before today, and settles each one in its own transaction:
    could take is recorded with a null winner and a null price.
 4. Tell the table: `officer_hired` to the winner, `bar_outbid` to everybody else who bid.
 
-Two doors reach it and both are fine, because it is a function of stored rows: `settleWorld` (so
-the world clock closes tables at midnight whether or not anybody is looking) and `GET /api/bar`
-(so the first player through the door after midnight sees the result on that read).
+Every door reaches it and that is fine, because it is a function of stored rows: `settleWorld` (so
+the world clock closes tables at midnight whether or not anybody is looking) and every `/api/bar`
+route (so the first player through the door after midnight sees the result on that request,
+whichever request it was).
 
 ### The market and the Runner's lots (market extension)
 
@@ -407,9 +415,25 @@ estimates at speed 0. The **speed divides** (`base / (1 + speed/100)`) and the c
 speed a road reads is the sheet after the workshop's fitted upgrades and the crew's
 `unitSpeedPercent` channel, which is the same figure `battle/effects.ts` hands the engine.
 
-A mission's pay is deliberately not on that clock. `pricedMinutes` is frozen at speed 0 and the
-ground's reduction only, which is what the card quoted before a crew was picked, so a faster road is
-what the Garage bought and never a discount on the take.
+A mission's pay is deliberately not on that clock. `pricedMinutes` is **the card's own figure**:
+`pricedTimings(template, missionSpeedPercent)` in `apps/server/src/missions/pricing.ts`, and the one
+function both `offerFor` (which draws the board) and `launchMission` (which freezes the row) call,
+so the two cannot come apart. It carries the crew's own `missionSpeedPercent` and nothing else,
+because that is the only input the card can know when it is read. Four things are therefore in the
+clock the crew actually runs on and out of the one it is paid on:
+
+- the **column's pace**, chosen after the card is read, so the Garage buys a shorter wait and never
+  a smaller cheque;
+- §D5's **`leadArrivalPercent`**, for the same reason: `rewardScale` is monotonic in the minutes, so
+  pricing a led run off its own shorter clock paid a crew _less_ for bringing their fastest leader;
+- §G6's **delegation penalty**, which would otherwise pay an unled crew _more_ for being
+  short-staffed, against `delegation.ts`'s rule that leading is always better than not leading;
+- **admin mode**, which skips the wait and not the economy: the card is not admin-aware and quotes
+  the real clock, so the testing build pays the real price.
+
+`missionXp` is frozen off the same figure, and `resolveDueMissions` pays and awards against it
+through `pricedTotalMinutes`. What an officer leading a run _does_ buy on the pay side is
+`leadLootPercent`, which goes into the frozen `payPercent`.
 
 The **report** is withheld rather than redacted: the winner always gets one, the loser only if at
 least one unit fled and made it home. A redacted report leaks the shape of what was kept back, and a

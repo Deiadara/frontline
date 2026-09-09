@@ -258,6 +258,30 @@ describe('the Broker, over HTTP', () => {
     expect(small.statusCode).toBe(409);
   });
 
+  it('does not touch caps, either way round (board 2026-09-09)', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    stock(app, 'trader', { caps: 5000, oil: 1000, scrap: 0 });
+
+    for (const payload of [
+      { give: 'caps', want: 'scrap', amount: 400 },
+      { give: 'oil', want: 'caps', amount: 400 },
+    ]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/market/barter',
+        headers: auth(token),
+        payload,
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json<{ error: { message: string } }>().error.message).toContain('caps');
+    }
+    // And nothing moved.
+    const after = baseOf(app, 'trader');
+    expect(after.resources.caps).toBe(5000);
+    expect(after.resources.oil).toBe(1000);
+  });
+
   it('will not let a crew trade what it does not have', async () => {
     const app = await makeApp();
     const token = await signIn(app);

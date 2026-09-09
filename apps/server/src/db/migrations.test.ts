@@ -8,10 +8,15 @@ import {
   BadgeSchema,
   DEFAULT_BADGE,
   ResearchStateSchema,
+  startingEconomy,
+  startingProgression,
+  startingResearch,
   type Building,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from './index.js';
+import { createBasesRepo } from './repos/bases.js';
+import { createMissionsRepo } from './repos/missions.js';
 import { createSiegeRepo } from './repos/sieges.js';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
@@ -428,6 +433,346 @@ describe('the migration chain', () => {
       one.close();
       two.close();
     }
+  });
+});
+
+/**
+ * 0081 to 0087 against a database that has something in every table.
+ *
+ * The chain tests above prove a *cold* database reaches one schema, and each per-migration case
+ * proves one migration against the rows it is about. Neither is the state a live save is in, and
+ * that gap is where this run's migrations are risky: 0085 rewrites three JSON columns in place,
+ * 0087 drops and rebuilds a table two others point at, and 0082 drops three tables outright. Every
+ * one of those passes on an empty store whether or not it got the interesting part right.
+ *
+ * So the store is filled first: one row in every table the schema has at 0081, seeded through the
+ * live foreign keys rather than around them, and then the seven files are applied in order. The
+ * completeness assertion is what keeps this honest as tables are added: a new table with nothing in
+ * it fails here by name rather than quietly narrowing what the chain was measured against.
+ */
+describe('0081 to 0087 on a database with rows in every table', () => {
+  const FIRST = '0081_mission_priced_minutes.sql';
+  const THROUGH = [
+    '0081_mission_priced_minutes.sql',
+    '0082_bar_auctions.sql',
+    '0083_pending_level_up.sql',
+    '0084_sound_volume.sql',
+    '0085_retire_flatbed_war_hauler.sql',
+    '0086_vendor_auctions.sql',
+    '0087_district_raid_target.sql',
+  ];
+  /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
+  const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
+
+  /**
+   * What each table needs beyond what {@link insert} can guess.
+   *
+   * Foreign keys, because a generic filler cannot know which parent row to point at, and the
+   * columns behind a CHECK, because `''` is not one of four archetypes. Everything else is left to
+   * the filler, so a column added to one of these tables tomorrow does not have to be listed here.
+   */
+  const SEED: Record<string, Record<string, unknown>> = {
+    users: { id: 'u-seed', username: 'seeded', password_hash: 'x', created_at: NOW },
+    overseers: {
+      id: 'o-seed',
+      user_id: 'u-seed',
+      preset_id: 'enforcer',
+      name: 'Seed',
+      archetype: 'enforcer',
+      portrait_id: 'overseer-1',
+      bio: 'bio',
+      attributes_json: '{}',
+      created_at: NOW,
+    },
+    // Written the way a live row is, because this one is read back through `rowToBase`: the
+    // column defaults are the shape a *migration* leaves behind rather than the shape a district
+    // is saved in, and `BaseSchema` is the thing that has to accept it at the end of the chain.
+    bases: {
+      id: 'b-seed',
+      owner_id: 'u-seed',
+      name: 'Seed Crew',
+      district_id: 'rustyard',
+      created_at: NOW,
+      resources_json: JSON.stringify({
+        caps: 100,
+        supplies: 50,
+        oil: 50,
+        scrap: 50,
+        planks: 50,
+        highQualityMetal: 5,
+      }),
+      economy_json: JSON.stringify(startingEconomy(NOW)),
+      progression_json: JSON.stringify(startingProgression()),
+      research_json: JSON.stringify(startingResearch()),
+      buildings_json: '[]',
+      // 0085's third column: a fleet naming a machine the Garage no longer builds.
+      fleet_json: '{"flatbed":2,"scrap_car":1}',
+    },
+    factions: { id: 'f-seed', name: 'The Seeded', founded_at: NOW },
+    faction_members: { user_id: 'u-seed', faction_id: 'f-seed', rank: 'leader', joined_at: NOW },
+    faction_invites: {
+      id: 'i-seed',
+      faction_id: 'f-seed',
+      invited_user_id: 'u-seed',
+      invited_by_user_id: 'u-seed',
+      sent_at: NOW,
+    },
+    messages: {
+      id: 'm-seed',
+      thread_id: 't-seed',
+      sender_user_id: 'u-seed',
+      sender_name: 'seeded',
+      recipient_user_id: 'u-seed',
+      audience: 'player',
+      addressed_to: 'seeded',
+      subject: 'Docks',
+      body: 'Tonight',
+      sent_at: NOW,
+    },
+    notifications: {
+      id: 'n-seed',
+      user_id: 'u-seed',
+      kind: 'battle_report',
+      title: 'A fight was won',
+      link: '/game/battles',
+      created_at: NOW,
+    },
+    notification_settings: { user_id: 'u-seed' },
+    bar_hires: {
+      id: 'h-seed',
+      day: '2026-08-16',
+      user_id: 'u-seed',
+      recruit_id: 'bar-2026-08-16-0-0',
+      hired_at: NOW,
+    },
+    bar_negotiations: {
+      user_id: 'u-seed',
+      day: '2026-08-16',
+      recruit_id: 'bar-2026-08-16-0-0',
+      patience: 3,
+      standing: 0,
+      mood: 'wary',
+      updated_at: NOW,
+    },
+    bar_standoffs: { user_id: 'u-seed', recruit_id: 'bar-2026-08-16-0-0', until: NOW },
+    // A fight over a roof, which is the shape 0087 has to rewrite, with both its children attached.
+    scheduled_battles: {
+      id: 'fight-seed',
+      attacker_base_id: 'b-seed',
+      target_kind: 'building',
+      district_id: 'ashen-terraces',
+      building_id: 'their-scrapyard',
+      defender_json: '{"kind":"unoccupied"}',
+      scheduled_for: NOW,
+      declared_at: NOW,
+      seed: 'seed-1',
+    },
+    battle_deployments: {
+      battle_id: 'fight-seed',
+      base_id: 'b-seed',
+      side: 'defender',
+      updated_at: NOW,
+      // 0085's second column.
+      vehicles_json: '{"war_hauler":1,"scrap_car":2}',
+    },
+    troop_movements: {
+      id: 'mv-seed',
+      base_id: 'b-seed',
+      battle_id: 'fight-seed',
+      side: 'attacker',
+      from_district_id: 'kettle-row',
+      to_district_id: 'ashen-terraces',
+      departed_at: NOW,
+      arrives_at: NOW,
+    },
+    battles: {
+      id: 'log-seed',
+      attacker_base_id: 'b-seed',
+      target_district_id: 'ashen-terraces',
+      winner: 'attacker',
+      log_json: '[]',
+      rewards_json: '{}',
+      created_at: NOW,
+    },
+    location_control: {
+      location_id: 'rustyard-ramp',
+      holder_kind: 'crew',
+      holder_base_id: 'b-seed',
+    },
+    // 0085's first column, and 0081's own: a run on the road with a retired machine under it.
+    missions: {
+      id: 'run-seed',
+      base_id: 'b-seed',
+      template_id: 'scrap_run',
+      started_at: NOW,
+      travel_minutes: 12,
+      duration_minutes: 30,
+      success_chance: 0.6,
+      seed: 7,
+      status: 'active',
+      vehicles_json: '{"flatbed":1,"scrap_car":1}',
+    },
+    market_offers: {
+      id: 'offer-seed',
+      seller_base_id: 'b-seed',
+      seller_name: 'Seed Crew',
+      give_json: '{}',
+      want_json: '{}',
+      status: 'open',
+      created_at: NOW,
+    },
+    market_supply_runs: { base_id: 'b-seed', day: '2026-08-16', updated_at: NOW },
+    black_market_stash: { base_id: 'b-seed', good_id: 'stim_syringe', count: 1 },
+    black_market_takings: {
+      id: 'take-seed',
+      base_id: 'b-seed',
+      day: '2026-08-16',
+      slot_index: 0,
+      good_id: 'stim_syringe',
+      infamy_spent: 10,
+      taken_at: NOW,
+    },
+    black_market_slots: { day: '2026-08-16', slot_index: 0 },
+    bar_slots: { day: '2026-08-16', slot: 0 },
+    vendor_sales: { day: '2026-08-16', line_id: '2026-08-16-0-servo', updated_at: NOW },
+    district_intel: { base_id: 'b-seed', district_id: 'ashen-terraces', scouted_at: NOW },
+    admin_fog: { base_id: 'b-seed', district_id: 'ashen-terraces' },
+    scouting_runs: {
+      id: 'scout-seed',
+      base_id: 'b-seed',
+      district_id: 'kettle-row',
+      officer_id: 'off-1',
+      departed_at: NOW,
+      returns_at: NOW,
+    },
+    captured_gates: { district_id: 'ashen-terraces' },
+    district_gates: { district_id: 'ashen-terraces' },
+    game_events: { id: 1, kind: 'seeded', at: NOW },
+  };
+
+  /** Every table the schema has at 0081, minus the runner's own bookkeeping. */
+  function tablesOf(db: AppDatabase): string[] {
+    return (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .all() as { name: string }[]
+    )
+      .map((row) => row.name)
+      .filter((name) => name !== 'schema_migrations');
+  }
+
+  /**
+   * A store with a row in every table, seeded through the live foreign keys.
+   *
+   * Order is found rather than declared: a table whose parent has not been written yet throws, so
+   * it is deferred and tried again on the next pass. That is what lets `users` and `overseers`,
+   * which point at each other, be seeded at all without a hand-kept order to maintain.
+   */
+  function seeded(): { db: AppDatabase; tables: string[] } {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, FIRST);
+    const tables = tablesOf(db);
+
+    let waiting = tables;
+    while (waiting.length > 0) {
+      const failed: string[] = [];
+      for (const table of waiting) {
+        try {
+          insert(db, table, SEED[table] ?? {});
+        } catch {
+          failed.push(table);
+        }
+      }
+      expect(failed.length, `nothing could be seeded into: ${failed.join(', ')}`).toBeLessThan(
+        waiting.length,
+      );
+      waiting = failed;
+    }
+
+    for (const table of tables) {
+      const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
+      expect(n, `${table} was not seeded, so the chain is not measured against it`).toBe(1);
+    }
+    return { db, tables };
+  }
+
+  it('applies the seven files in order, once, and stops', () => {
+    const { db } = seeded();
+    expect(runMigrations(db)).toEqual(THROUGH);
+    expect(runMigrations(db), 'a second run must apply nothing').toEqual([]);
+  });
+
+  it('leaves a row in every table that still exists afterwards', () => {
+    const { db, tables } = seeded();
+    runMigrations(db);
+
+    const survivors = tables.filter((table) => !RETIRED.has(table));
+    for (const table of survivors) {
+      const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
+      // `battle_deployments` and `troop_movements` are the ones this is really about: 0087 drops
+      // the table they point at, and an implicit DELETE would empty them without a word.
+      expect(n, `${table} lost its row somewhere in 0081..0087`).toBe(1);
+    }
+    // ...and the three that go are gone, rather than sitting there empty.
+    for (const table of RETIRED) {
+      expect(tablesOf(db), `${table} outlived the mechanic under it`).not.toContain(table);
+    }
+  });
+
+  it('reads back through the repositories a live request would use', () => {
+    const { db } = seeded();
+    runMigrations(db);
+
+    // 0087: the roof fight is a raid on the district now, and the repo parses it.
+    expect(createSiegeRepo(db).find('fight-seed')?.target).toEqual({
+      kind: 'district',
+      districtId: 'ashen-terraces',
+    });
+    expect(createSiegeRepo(db).deployments('fight-seed')).toHaveLength(1);
+
+    // 0081: a run already on the road prices off its own row's clock, which is what 0 means.
+    expect(createMissionsRepo(db).findById('run-seed')?.mission.pricedMinutes).toBe(0);
+    // ...and the district still opens, which is the thing every one of these can take away.
+    expect(createBasesRepo(db).findById('b-seed')?.id).toBe('b-seed');
+  });
+
+  /**
+   * 0085, read off the columns rather than through a repository.
+   *
+   * `rowToBase`, `rowToDeployment` and `rowToStored` all drop an id the catalogue no longer has on
+   * the way out, so a repository read is green whether or not the migration ran: the reader's
+   * salvage is the floor under this migration, not a test of it. What 0085 is for is leaving the
+   * *stored* rows clean, so that is what is asserted.
+   */
+  it('takes the retired machines out of all three stored fleets', () => {
+    const { db } = seeded();
+    runMigrations(db);
+
+    const json = (sql: string, id: string): unknown =>
+      JSON.parse((db.prepare(sql).get(id) as { j: string }).j);
+    expect(json('SELECT fleet_json AS j FROM bases WHERE id = ?', 'b-seed')).toEqual({
+      scrap_car: 1,
+    });
+    expect(
+      json('SELECT vehicles_json AS j FROM battle_deployments WHERE battle_id = ?', 'fight-seed'),
+    ).toEqual({ scrap_car: 2 });
+    expect(json('SELECT vehicles_json AS j FROM missions WHERE id = ?', 'run-seed')).toEqual({
+      scrap_car: 1,
+    });
+  });
+
+  it('gives the two new columns their defaults on rows that predate them', () => {
+    const { db } = seeded();
+    runMigrations(db);
+
+    // 0083: a district nothing has announced a level for.
+    expect(createBasesRepo(db).pendingLevelUp('b-seed')).toBeUndefined();
+    // 0084: sixty, which is what a new account gets.
+    expect(db.prepare('SELECT sound_volume AS v FROM users WHERE id = ?').get('u-seed')).toEqual({
+      v: 60,
+    });
   });
 });
 

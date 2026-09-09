@@ -2,7 +2,6 @@ import {
   ITEM_CATALOG,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
-  bundleValue,
   type ItemId,
   type TradeBundle,
 } from '@frontline/shared';
@@ -149,63 +148,6 @@ export function TradeArrow({ className }: { className?: string }) {
       )}
     >
       <Icon name="chevron-down" className="h-4 w-4 -rotate-90" />
-    </span>
-  );
-}
-
-/**
- * How a deal reads, priced against the vendor's own table.
- *
- * The board used to print `worth 400 against 300` and leave the arithmetic to the player. The
- * numbers are still there on the hover, because somebody haggling wants them; what is on the card
- * is the verdict, which is the thing a glance is actually asking for.
- */
-export const FAIR_BAND = 0.1;
-
-/**
- * The verdict, always from the player's side of the table.
- *
- * `received` and `paid`, not `give` and `want`: on the board an offer's `give` is what arrives, and
- * in the composer the field called `give` is what *leaves*. Naming these after the two sides of the
- * transaction rather than after whichever object is to hand is what stops the badge telling a
- * player their own lopsided proposal is in their favour, which is what it did.
- */
-export function valueVerdict(
-  received: number,
-  paid: number,
-): {
-  label: string;
-  tone: string;
-} {
-  if (paid <= 0) return { label: 'a gift', tone: 'border-verdigris-300/60 text-verdigris-100' };
-  const ratio = received / paid;
-  if (ratio >= 1 + FAIR_BAND) {
-    return { label: 'in your favour', tone: 'border-verdigris-300/60 text-verdigris-100' };
-  }
-  if (ratio <= 1 - FAIR_BAND) {
-    return { label: 'steep', tone: 'border-oxblood-500/60 text-oxblood-300' };
-  }
-  return { label: 'about fair', tone: 'border-surface-600 text-ink-200' };
-}
-
-/** The verdict as a badge, with the two figures behind it for anybody who wants them. */
-export function ValueBadge({ received, paid }: { received: TradeBundle; paid: TradeBundle }) {
-  const gained = bundleValue(received);
-  const given = bundleValue(paid);
-  const verdict = valueVerdict(gained, given);
-  return (
-    <span
-      data-tip={`Worth ${gained.toLocaleString()} against ${given.toLocaleString()}`}
-      className="shrink-0"
-    >
-      <span
-        className={cn(
-          'inline-flex items-center rounded-sm border px-2 py-1 font-display text-[10px] font-bold uppercase tracking-[0.14em]',
-          verdict.tone,
-        )}
-      >
-        {verdict.label}
-      </span>
     </span>
   );
 }

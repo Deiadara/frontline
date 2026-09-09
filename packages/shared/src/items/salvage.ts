@@ -1,4 +1,5 @@
-import { ITEM_CATALOG, ITEM_IDS, type ItemId, type ItemRarity } from './catalog.js';
+import { ITEM_CATALOG, ITEM_IDS, type ItemId } from './catalog.js';
+import type { ItemRarity } from './rarity.js';
 import type { ItemCost } from './inventory.js';
 
 /**

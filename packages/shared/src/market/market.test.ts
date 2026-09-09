@@ -3,7 +3,7 @@ import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
 import { hourInZone, instantAtHourInZone } from '../time/zone.js';
 import { addItems, hasItems, heldItems, removeItems } from '../items/inventory.js';
-import { STARTING_RESOURCES, type ResourceKey } from '../resources.js';
+import { RESOURCE_KEYS, STARTING_RESOURCES, type ResourceKey } from '../resources.js';
 import { STORAGE_SHARES } from '../building/production.js';
 import {
   MAX_OPEN_OFFERS,
@@ -36,6 +36,7 @@ import {
   VENDOR_SESSIONS_PER_DAY,
   VENDOR_SESSION_HOURS,
   VENDOR_STOCK_SIZE,
+  BARTER_RESOURCES,
   barterQuote,
   currentVendorSession,
   marketDay,
@@ -179,6 +180,10 @@ describe('the Runner', () => {
 
 describe('the Broker', () => {
   it('gives back exactly half, rounded down', () => {
+    // Materials only: caps are the one key the Broker will not deal in, and the list is every
+    // other resource so a seventh material joins on its own.
+    expect(BARTER_RESOURCES).not.toContain('caps');
+    expect(BARTER_RESOURCES).toHaveLength(RESOURCE_KEYS.length - 1);
     expect(barterQuote(100)).toBe(100 * BARTER_RATE);
     expect(barterQuote(101)).toBe(50);
     expect(barterQuote(1)).toBe(0);

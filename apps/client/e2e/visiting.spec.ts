@@ -92,6 +92,11 @@ test('a building opens what it is, and offers no fight of its own', async ({ pag
   const dialog = page.getByTestId('visited-building');
   await expect(dialog).toBeVisible();
 
+  // A dialog announces itself by name. This one carried `role="dialog" aria-modal="true"` and no
+  // `aria-labelledby` at all, so a reader arriving in it was told there was a dialog and nothing
+  // about which building it was for, on a screen whose thirteen plates all open the same shape.
+  await expect(dialog).toHaveAccessibleName('The Scrapyard');
+
   // What it is and how far along it is, and that is the whole of it.
   await expect(dialog).toContainText('The Scrapyard');
   await expect(dialog).toContainText('Standing at level');

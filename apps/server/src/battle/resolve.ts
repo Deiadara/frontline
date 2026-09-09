@@ -626,6 +626,8 @@ function settleSideVehicles(
   repos: Repositories,
   rows: readonly BattleDeployment[],
   survivors: Army,
+  /** The fight's own instant, so this fold answers about the same moment every other one does. */
+  now: Date,
 ): { destroyed: Fleet; lostBy: Map<string, Fleet> } {
   const shares = splitSurvivors(rows, survivors, (row) => mergeArmies(row.army, row.perimeter));
   let destroyed: Fleet = {};
@@ -636,7 +638,7 @@ function settleSideVehicles(
     // yard is what the survivors go back into. Per row rather than per side, because a side can be
     // several crews and each of them holds their own ground (`battle/side.ts`).
     const owner = repos.bases.findById(row.baseId);
-    const anyRide = owner ? standingEffectsFor(repos, owner).anyRide : false;
+    const anyRide = owner ? standingEffectsFor(repos, owner, now).anyRide : false;
     const fielded = mergeArmies(row.army, row.perimeter);
     const committed = forceSize(fielded);
     const survived = forceSize(shares.get(row.baseId) ?? {});
@@ -985,8 +987,11 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
 
   // Everything either side's ground is worth, read once. Four separate reads of the same fold were
   // already happening in this function; the two below are the same numbers with a name on them.
-  const attackerGround = standingEffectsFor(repos, attacker);
-  const defenderGround = defenderBase ? standingEffectsFor(repos, defenderBase) : null;
+  // At the fight's own instant, like the two folds `resolveOne` already reads at `now`: both are
+  // step functions of time (an officer is out until `injuredUntil`, a raid's disruption until it
+  // expires), so the same fold read at the wall clock is a second, disagreeing answer.
+  const attackerGround = standingEffectsFor(repos, attacker, now);
+  const defenderGround = defenderBase ? standingEffectsFor(repos, defenderBase, now) : null;
 
   /*
    * §F2 and §B10: the medics take some of the *winner's* dead off the list before it is applied.
@@ -1095,11 +1100,12 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * actually took off the board.
    */
   const defenderRows = repos.sieges.side(battle.id, 'defender');
-  const attackerVehicles = settleSideVehicles(repos, attackerRows, attackerHome);
+  const attackerVehicles = settleSideVehicles(repos, attackerRows, attackerHome, now);
   const defenderVehicles = settleSideVehicles(
     repos,
     defenderRows,
     mergeArmies(defenderSurvivors, defenderRingHome),
+    now,
   );
 
   const attackerInfamy =
@@ -1452,7 +1458,7 @@ function breakIn(
    */
   const capacity = lootCapacityOf(
     input.committed,
-    standingEffectsFor(repos, input.attacker).lootCapacityPercent,
+    standingEffectsFor(repos, input.attacker, now).lootCapacityPercent,
   );
   const haul = plunder(resident.resources, capacity, ['caps']);
   repos.bases.updateResources(resident.id, spendResources(resident.resources, haul));

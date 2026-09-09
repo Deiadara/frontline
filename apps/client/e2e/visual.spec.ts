@@ -1496,6 +1496,33 @@ for (const size of VIEWPORTS) {
       // Nineteen minutes left of twenty, not zero and not the whole thing.
       await expect(row).toContainText(/1[89]m/);
 
+      /*
+       * The chip's underline is pinned to its bottom edge, across its whole width.
+       *
+       * Measured rather than trusted, because it was not: the chip is `painted`, and
+       * `.painted > *` sets `position: relative` on every direct child at the same specificity as
+       * a plain `absolute`, so the custom rule won on emission order. The bar fell into the chip's
+       * own flex row as a 3px item beside the countdown, and no chip on the road ever drew a
+       * progress edge. Geometry rather than a class check: the class was always there.
+       */
+      const underline = await row.evaluate((chip): { gap: number; span: number } | null => {
+        const drawn = chip.querySelector('span[class*="bottom-0"]');
+        if (drawn === null) return null;
+        const chipBox = chip.getBoundingClientRect();
+        const barBox = drawn.getBoundingClientRect();
+        return {
+          gap: Math.abs(barBox.bottom - chipBox.bottom),
+          span: chipBox.width === 0 ? 0 : barBox.width / chipBox.width,
+        };
+      });
+      expect(underline, 'the chip draws a progress underline at all').not.toBeNull();
+      // Within the chip's own 1px border of its bottom edge, and across all but that border's
+      // width. A ratio rather than the exact figure, so the assertion is about the bar spanning
+      // the chip rather than about the border being 1px: broken, the bar sat 15.5px up on the
+      // row's centre line, which is what the reverted-fix run measured.
+      expect(underline?.gap).toBeLessThanOrEqual(2);
+      expect(underline?.span).toBeGreaterThan(0.9);
+
       // Clicking opens the clock rather than navigating: the rail has room for four words, and
       // what a player wants from it is when the thing lands and whether they can change their mind.
       await row.click();

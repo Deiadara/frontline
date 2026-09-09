@@ -159,7 +159,10 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
           portraitId={portraitId}
           name={officer.name}
           injuredUntil={officer.injuredUntil}
-          className="absolute inset-0 h-full w-full rounded-none border-0"
+          // `!absolute`: `cn` is `clsx` and does not resolve Tailwind conflicts, so this lands
+          // beside the portrait's own `relative` and the later of the two in the generated
+          // stylesheet wins. That is `.relative`, so the frame this asks for was never applied.
+          className="!absolute inset-0 h-full w-full rounded-none border-0"
         />
         {/* The mark, stamped over the picture rather than printed beside it (board brief).
             Top right, clear of the face: the portraits are 4:5 and the head sits centre-left of
@@ -248,7 +251,10 @@ function BenchCard({
           portraitId={portraitId}
           name={officer.name}
           injuredUntil={officer.injuredUntil}
-          className="absolute inset-0 h-full w-full rounded-none border-0"
+          // `!absolute`: `cn` is `clsx` and does not resolve Tailwind conflicts, so this lands
+          // beside the portrait's own `relative` and the later of the two in the generated
+          // stylesheet wins. That is `.relative`, so the frame this asks for was never applied.
+          className="!absolute inset-0 h-full w-full rounded-none border-0"
         />
         <span
           aria-hidden

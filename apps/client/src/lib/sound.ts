@@ -358,7 +358,12 @@ export function installSoundLayer(
         if (!(node instanceof Element)) continue;
         // The alert may be the added node or may be inside a panel that was added around it.
         if (node.matches('[role="alert"]') || node.querySelector('[role="alert"]') !== null) {
-          engine.play('refuse');
+          // Through the injected `play`, exactly like the click path. It called `engine.play`
+          // directly, which meant the one seam a test can hold was bypassed by the half of the
+          // layer that has no other way to be observed: `engine` has no `AudioContext` under
+          // jsdom, so every refusal was swallowed and nothing could tell a working observer from
+          // a broken selector.
+          play('refuse');
           return;
         }
       }
