@@ -12,6 +12,7 @@ import {
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from './index.js';
+import { createSiegeRepo } from './repos/sieges.js';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
 
@@ -863,5 +864,130 @@ describe('0077: the retired desk projects', () => {
 
     db.exec(readFileSync(path.join(MIGRATIONS_DIR, THEN), 'utf8'));
     expect(db.prepare('SELECT id, research_json FROM bases ORDER BY id').all()).toEqual(once);
+  });
+});
+
+/**
+ * 0087: one raid on a district, where thirteen fights on thirteen roofs used to be.
+ *
+ * Two things have to survive the rewrite and neither is obvious from reading the SQL.
+ *
+ *   * **The row has to come back as a `district` target.** `scheduled_battles` is rebuilt (sqlite
+ *     cannot alter a CHECK), so the test is written against a row inserted under the *old* schema
+ *     and read back through the repo, which is the only thing that proves the two halves agree.
+ *   * **The rebuild has to be legal with children attached.** `troop_movements` and
+ *     `battle_deployments` reference this table, and with `foreign_keys = ON` a DROP does an
+ *     implicit DELETE that trips them. `PRAGMA foreign_keys = OFF` inside a migration does nothing
+ *     (it is a no-op inside a transaction, which is what `runMigrations` wraps each file in), which
+ *     is why the migration uses `defer_foreign_keys` instead. So both child tables are given a row
+ *     here: without one the migration passes whether or not it got that right.
+ */
+describe('0087: a building target becomes a district raid', () => {
+  const RAID = '0087_district_raid_target.sql';
+  const DISTRICT = 'ashen-terraces';
+
+  const legacyRaid = (): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, RAID);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u1', 'legacy', 'x', NOW);
+    const columns = (db.prepare('SELECT * FROM bases LIMIT 0').columns() as { name: string }[]).map(
+      (c) => c.name,
+    );
+    const values: Record<string, string | number> = {};
+    for (const name of columns) {
+      values[name] = name.endsWith('_json')
+        ? '[]'
+        : name === 'level' || name.startsWith('is_')
+          ? 0
+          : name === 'owner_id'
+            ? 'u1'
+            : 'b1';
+    }
+    values.id = 'b1';
+    db.prepare(
+      `INSERT INTO bases (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+    ).run(...columns.map((name) => values[name]));
+
+    // Two calls the old build could write: a fight on one roof, and a fight at the gate beside it.
+    db.prepare(
+      `INSERT INTO scheduled_battles
+         (id, attacker_base_id, target_kind, district_id, location_id, building_id,
+          defender_json, scheduled_for, declared_at, resolved_at, seed, hold_after_capture)
+       VALUES (?, ?, 'building', ?, NULL, ?, ?, ?, ?, NULL, ?, 0)`,
+    ).run(
+      'fight-1',
+      'b1',
+      DISTRICT,
+      'their-scrapyard',
+      '{"kind":"unoccupied"}',
+      NOW,
+      NOW,
+      'seed-1',
+    );
+    db.prepare(
+      `INSERT INTO scheduled_battles
+         (id, attacker_base_id, target_kind, district_id, location_id, building_id,
+          defender_json, scheduled_for, declared_at, resolved_at, seed, hold_after_capture)
+       VALUES (?, ?, 'gate', ?, NULL, NULL, ?, ?, ?, NULL, ?, 0)`,
+    ).run('fight-2', 'b1', DISTRICT, '{"kind":"unoccupied"}', NOW, NOW, 'seed-2');
+
+    // The two tables that point at it, each with a row, so the rebuild is actually under load.
+    db.prepare(
+      `INSERT INTO battle_deployments (battle_id, base_id, side, army_json, perimeter_json,
+         updated_at, vehicles_json) VALUES (?, ?, 'attacker', '{}', '{}', ?, '{}')`,
+    ).run('fight-1', 'b1', NOW);
+    db.prepare(
+      `INSERT INTO troop_movements (id, base_id, battle_id, side, from_district_id,
+         to_district_id, army_json, perimeter_json, departed_at, arrives_at)
+       VALUES (?, ?, ?, 'attacker', ?, ?, '{}', '{}', ?, ?)`,
+    ).run('m1', 'b1', 'fight-1', 'kettle-row', DISTRICT, NOW, NOW);
+    return db;
+  };
+
+  it('rewrites the roof fight into a raid on the same district, and leaves the gate alone', () => {
+    const db = legacyRaid();
+    runMigrations(db);
+
+    const repo = createSiegeRepo(db);
+    expect(repo.find('fight-1')?.target).toEqual({ kind: 'district', districtId: DISTRICT });
+    expect(repo.find('fight-2')?.target).toEqual({ kind: 'gate', districtId: DISTRICT });
+  });
+
+  it('keeps the rows that point at the rebuilt table', () => {
+    const db = legacyRaid();
+    runMigrations(db);
+
+    const repo = createSiegeRepo(db);
+    expect(repo.deployments('fight-1')).toHaveLength(1);
+    const movements = db.prepare('SELECT battle_id FROM troop_movements').all() as {
+      battle_id: string;
+    }[];
+    expect(movements.map((row) => row.battle_id)).toEqual(['fight-1']);
+    // And the deferred check really did run at the commit rather than being switched off for good:
+    // a movement pointing at no battle must still be refused.
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO troop_movements (id, base_id, battle_id, side, from_district_id,
+             to_district_id, army_json, perimeter_json, departed_at, arrives_at)
+           VALUES ('m2', 'b1', 'nothing', 'attacker', 'kettle-row', ?, '{}', '{}', ?, ?)`,
+        )
+        .run(DISTRICT, NOW, NOW),
+    ).toThrow();
+  });
+
+  /** A resolved fight is history and still has to parse: `resolvedFor` reads it back. */
+  it('rewrites finished fights too, so the battle board still reads them', () => {
+    const db = legacyRaid();
+    db.prepare('UPDATE scheduled_battles SET resolved_at = ? WHERE id = ?').run(NOW, 'fight-1');
+    runMigrations(db);
+
+    const row = db
+      .prepare('SELECT target_kind FROM scheduled_battles WHERE id = ?')
+      .get('fight-1') as { target_kind: string };
+    expect(row.target_kind).toBe('district');
+    expect(createSiegeRepo(db).find('fight-1')?.resolvedAt).toBe(NOW);
   });
 });

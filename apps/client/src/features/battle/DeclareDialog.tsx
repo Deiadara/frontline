@@ -69,7 +69,12 @@ export function DeclareDialog({
   }, []);
 
   return (
-    <Modal onClose={onClose} labelledBy="declare-title" className="border-oxblood-500/30">
+    <Modal
+      onClose={onClose}
+      labelledBy="declare-title"
+      className="border-oxblood-500/30"
+      data-testid="declare-dialog"
+    >
       <div className="flex shrink-0 flex-col gap-1 border-b border-oxblood-500/15 px-5 py-4">
         <p className="font-display text-[10px] uppercase tracking-[0.22em] text-oxblood-300">
           {target.kind === 'gate' ? 'Break the way in' : 'Call a fight'}
@@ -155,6 +160,9 @@ export function DeclareDialog({
           variant="danger"
           disabled={chosen === null || pending}
           data-testid="declare-confirm"
+          // Not the confirm every other primary button gets. Calling a fight is the loudest thing
+          // a player does in this game: everybody in the city sees it, and it cannot be taken back.
+          data-sound="call"
           onClick={() => chosen && onConfirm(chosen, holdable && hold)}
         >
           {pending ? 'Working…' : 'Call it'}

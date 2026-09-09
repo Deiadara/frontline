@@ -131,7 +131,6 @@ export const chrome = {
 } as const;
 
 export type RampName = keyof typeof ramps;
-export type RampStop = keyof (typeof ramps)['abyss'];
 
 /** `'#22d3ee'` → `0x22d3ee`: the form PixiJS wants colours in. */
 export const hex = (value: string): number => Number.parseInt(value.replace('#', ''), 16);

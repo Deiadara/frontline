@@ -67,6 +67,7 @@ const me: MeResponse = {
     displayName: null,
     icon: 'shield',
     timezone: 'Europe/Athens',
+    soundVolume: 60,
   },
   overseer: null,
   base,

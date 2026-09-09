@@ -304,6 +304,9 @@ describe('listings', () => {
   });
 
   it('caps how many one crew may have standing', () => {
+    // The board's number, as a literal: a cap derived from the constant it tests would follow it
+    // anywhere.
+    expect(MAX_OPEN_OFFERS).toBe(5);
     expect(
       offerRefusal(
         bundle({ resources: { scrap: 10 } }),

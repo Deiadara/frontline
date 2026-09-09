@@ -14,7 +14,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { awardPlayerXp, levelUpFrom } from './award.js';
+import { awardPlayerXp, levelUpFrom, mergeLevelUps, takeLevelUp } from './award.js';
 
 const NOW = '2026-08-13T09:30:00.000Z';
 const open: AppDatabase[] = [];
@@ -255,3 +255,79 @@ describe('XP source pricing (§I1)', () => {
  * defender turns out for. That wiring lives in the settler, and it is measured against the real
  * routes in `battle/fight-xp.test.ts`: the same shape these were, one layer along.
  */
+
+/**
+ * §I2: a level-up nobody was in a position to announce.
+ *
+ * The announcement used to ride only on the response of the request that paid for it, and two
+ * paths had no such response. The world clock brings crews home every second and throws away what
+ * it banked, so a mission that crossed a threshold at 03:00 was never announced at all; and every
+ * read route settles the base while only `/me` and the district answer with a `levelUp`, so a
+ * build finishing on a poll of `/crew` was banked and silent. The marker (migration 0083) is the
+ * durable half: `awardPlayerXp` writes it and the announcing responses drain it.
+ */
+describe('the level-up nobody announced', () => {
+  it('is banked on the crossing and handed over exactly once', () => {
+    const { db, repos } = makeRepos();
+    // One XP short of level 2, so a single award crosses.
+    const base = seedBase(db, repos, 1);
+    repos.bases.updateProgression(base.id, 1, {
+      xpIntoLevel: playerXpToNextLevel(1) - 1,
+    });
+    const ready = repos.bases.findById(base.id)!;
+
+    expect(repos.bases.pendingLevelUp(base.id), 'nothing owed yet').toBeUndefined();
+    const { award } = awardPlayerXp(repos, ready, 'missionCompleted');
+    expect(award.levelsGained).toBe(1);
+
+    const owed = takeLevelUp(repos, base.id);
+    expect(owed?.levelsGained).toBe(1);
+    expect(owed?.level).toBe(2);
+    // Drained: a second response cannot draw the same card.
+    expect(takeLevelUp(repos, base.id)).toBeUndefined();
+  });
+
+  it('adds up two crossings nobody was there for, into one card', () => {
+    const { db, repos } = makeRepos();
+    const base = seedBase(db, repos, 1);
+    repos.bases.updateProgression(base.id, 1, { xpIntoLevel: playerXpToNextLevel(1) - 1 });
+
+    // Two separate settles, neither of which is a response: the shape of the world clock running
+    // twice overnight.
+    let carried = repos.bases.findById(base.id)!;
+    carried = awardPlayerXp(repos, carried, 'missionCompleted').base;
+    repos.bases.updateProgression(base.id, carried.level, {
+      xpIntoLevel: playerXpToNextLevel(carried.level) - 1,
+    });
+    carried = repos.bases.findById(base.id)!;
+    carried = awardPlayerXp(repos, carried, 'missionCompleted').base;
+
+    const owed = takeLevelUp(repos, base.id);
+    expect(owed?.levelsGained, 'two thresholds are one card that says two').toBe(2);
+    expect(owed?.level, 'and it names the level they ended on').toBe(carried.level);
+  });
+
+  it('writes nothing when the award crossed no threshold', () => {
+    const { db, repos } = makeRepos();
+    const base = seedBase(db, repos, 1);
+    repos.bases.updateProgression(base.id, 1, { xpIntoLevel: 0 });
+    awardPlayerXp(repos, repos.bases.findById(base.id)!, 'unitTrained', 0, 1);
+    expect(repos.bases.pendingLevelUp(base.id)).toBeUndefined();
+  });
+
+  it('merges two announcements the way one settlement merges its own awards', () => {
+    const grants = playerLevelGrants(3);
+    const first = { level: 2, levelsGained: 1, grants: playerLevelGrants(2), unlocks: [] };
+    const second = { level: 3, levelsGained: 1, grants, unlocks: [] };
+    expect(mergeLevelUps(first, second)).toEqual({
+      level: 3,
+      levelsGained: 2,
+      grants,
+      unlocks: [],
+    });
+    // Either side absent is the other side, unchanged.
+    expect(mergeLevelUps(undefined, second)).toEqual(second);
+    expect(mergeLevelUps(first, undefined)).toEqual(first);
+    expect(mergeLevelUps(undefined, undefined)).toBeUndefined();
+  });
+});

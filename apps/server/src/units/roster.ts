@@ -6,6 +6,7 @@ import {
   UNIT_CATALOG,
   UNIT_MODIFIERS,
   unitRules,
+  markedUnit,
   addToArmy,
   describeRequirement,
   isHeldBy,
@@ -28,6 +29,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { trainingRatesFor, unlockContextFor } from './training.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { districtPopulation, unitsAbroad } from '../district/population.js';
 
 /**
@@ -91,6 +93,8 @@ function describeSlot(upgradeId: string | null): FittedSlot {
 
 export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsResponse {
   const context = unlockContextFor(repos, base);
+  // The crew's own fold, for the marks its ground and its people have granted (`unit_mark`).
+  const effects = standingEffectsFor(repos, base, now);
   const rates = trainingRatesFor(repos, base);
   const garrisoned = garrisonedUnits(repos, base);
   const abroad = unitsAbroad(repos, base);
@@ -117,7 +121,15 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
         description: UNIT_MODIFIERS[id].description,
         when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
       })),
-      rules: unitRules(unit),
+      /*
+       * The marks this crew's sheet actually carries, granted ones included (`unit_mark`).
+       *
+       * Read through `markedUnit`, which is the same helper the engine builds a stack with, so the
+       * card and the fight cannot disagree about whether these Ironsides hold the line. A card that
+       * printed only the catalogue's marks would be showing a rule the engine is not using and
+       * hiding one it is, which is worse than showing neither.
+       */
+      rules: unitRules(markedUnit(unit, effects)),
       affinities: groundAffinities(unit),
       cost: unit.cost,
       trainSeconds: unit.trainSeconds,

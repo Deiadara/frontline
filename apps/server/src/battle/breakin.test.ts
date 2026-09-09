@@ -1,8 +1,9 @@
 /**
  * Breaking into a lived-in district: what leaves with the raiders, and what does not come back.
  *
- * A `building` target is the only path in the game that plunders a stockpile, and until this file
- * nothing tested it: `grep -rn "kind: 'building'"` across the server suite found no test at all.
+ * A `district` target is the only path in the game that plunders a stockpile, and until this file
+ * nothing tested the `building` target it replaced: `grep -rn "kind: 'building'"` across the
+ * server suite found no test at all.
  * Two shipped bugs lived in that gap, and both are the same mistake in different clothes, so both
  * are pinned here as invariants rather than as numbers.
  *
@@ -18,6 +19,9 @@
  */
 import {
   MAX_LOCATION_LEVEL,
+  RAID_DISRUPTION_HOURS,
+  RAID_DISRUPTION_PERCENT,
+  DISRUPTED_CHANNELS,
   RESOURCE_KEYS,
   declarationWindow,
   skirmishOutcome,
@@ -31,8 +35,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { settleDistrict } from '../district/settle.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { settleMovements } from './movement.js';
-import { settleBattles } from './resolve.js';
+import { STRUCTURES_WRECKED_PER_RAID, settleBattles } from './resolve.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -123,17 +129,9 @@ const totalAcross = (world: World): Resources =>
     {} as Resources,
   );
 
-/** Declares a break-in on the victim's district, sends a column, and settles it. */
+/** Declares a raid on the victim's district, sends a column, and settles it. */
 async function breakIn(world: World): Promise<void> {
-  const buildings = world.app.repos.bases.findById(world.victim.baseId)!.buildings;
-  const building = buildings[0];
-  if (!building) throw new Error('fixture: the victim has nothing to break into');
-
-  const target: BattleTarget = {
-    kind: 'building',
-    districtId: world.victim.districtId,
-    buildingId: building.id,
-  };
+  const target: BattleTarget = { kind: 'district', districtId: world.victim.districtId };
   const declared = await world.app.inject({
     method: 'POST',
     url: '/api/battles/declare',
@@ -224,12 +222,11 @@ describe('breaking into a lived-in district', () => {
     /*
      * A poor victim, in caps only.
      *
-     * Caps are first in `PLUNDER_PRIORITY` and weigh a kilogram, so a well-stocked victim has its
-     * whole hold filled with them and *nothing else moves*. That matters because the refund is also
-     * paid in caps: with a caps-only haul, every assertion below is about a resource that legitimately
-     * moves on two counts at once, and the test cannot tell a clobbered stockpile from a refunded
-     * one. Capping the caps forces the raiders to carry something else out, and that something else
-     * is what the duplication shows up in.
+     * A raid leaves the till alone now (board 2026-09-09), so the hold fills with materials on its
+     * own and this is belt and braces rather than the load-bearing setup it used to be. It is kept
+     * because the reason is still live: the refund is paid in caps, so any assertion about caps is
+     * about a resource that can move on two counts at once and cannot tell a clobbered stockpile
+     * from a refunded one. A victim with 40 caps makes that impossible to hide behind.
      */
     world.app.repos.bases.updateResources(world.victim.baseId, {
       ...stockOf(world, world.victim.baseId),
@@ -268,5 +265,257 @@ describe('breaking into a lived-in district', () => {
       if (key === 'caps') continue;
       expect(lost, `the victim kept the ${key} the raiders carried out`).toBe(gained);
     }
+  });
+});
+
+/**
+ * §A4, board 2026-09-09: what one call on a district actually takes.
+ *
+ * The `building` target this replaced hit exactly one roof and took a share of everything including
+ * the till. A crew who wanted a home properly turned over needed thirteen declarations against a cap
+ * of three, so nobody ever wrecked anything, and the raid that did happen carried away a wallet.
+ */
+describe('one raid on the whole district', () => {
+  it('carries out materials and never the till', async () => {
+    const world = await makeWorld();
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+
+    const victimBefore = stockOf(world, world.victim.baseId);
+    const raiderBefore = stockOf(world, world.raider.baseId);
+    await breakIn(world);
+    const victimAfter = stockOf(world, world.victim.baseId);
+    const raiderAfter = stockOf(world, world.raider.baseId);
+
+    // Something left, or the caps assertion below is vacuous: an empty haul takes no caps either.
+    const looted = RESOURCE_KEYS.filter(
+      (key) => key !== 'caps' && raiderAfter[key] > raiderBefore[key],
+    );
+    expect(looted, 'the raid carried nothing out').not.toEqual([]);
+    // And the victim's wallet is exactly where it was. The raider is not owed a salvage refund
+    // here (nothing they hold pays one), so the two sides can be checked directly.
+    expect(victimAfter.caps, 'the raid took caps').toBe(victimBefore.caps);
+    expect(raiderAfter.caps, 'the raider was paid in caps').toBe(raiderBefore.caps);
+  });
+
+  it('leaves three of their structures limping, not one and not all of them', async () => {
+    const world = await makeWorld();
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+
+    // Enough roofs that "three" and "all of them" are different answers.
+    const victimBase = world.app.repos.bases.findById(world.victim.baseId)!;
+    world.app.repos.bases.updateDistrict(
+      victimBase.id,
+      [
+        ...victimBase.buildings,
+        { id: 'v-scrapyard', kind: 'scrapyard', level: 7, modifications: [], damage: 0 },
+        { id: 'v-gate', kind: 'gate', level: 6, modifications: [], damage: 0 },
+        { id: 'v-quarters', kind: 'quarters', level: 5, modifications: [], damage: 0 },
+      ],
+      victimBase.buildQueue,
+    );
+    const standing = world.app.repos.bases.findById(world.victim.baseId)!.buildings;
+    expect(standing.length, 'fixture: not enough roofs to tell three from all').toBeGreaterThan(
+      STRUCTURES_WRECKED_PER_RAID,
+    );
+    expect(standing.every((building) => building.damage === 0)).toBe(true);
+
+    await breakIn(world);
+
+    const after = world.app.repos.bases.findById(world.victim.baseId)!.buildings;
+    const hit = after.filter((building) => building.damage > 0);
+    expect(hit).toHaveLength(STRUCTURES_WRECKED_PER_RAID);
+    // The tallest first, which is the rule a defender can plan around.
+    const tallest = [...standing]
+      .sort((a, b) => b.level - a.level || a.id.localeCompare(b.id))
+      .slice(0, STRUCTURES_WRECKED_PER_RAID)
+      .map((building) => building.id);
+    expect(hit.map((building) => building.id).sort()).toEqual([...tallest].sort());
+    // And the raid's own clock is on each of them, so they repair from now.
+    for (const building of hit) expect(building.damagedAt).not.toBeNull();
+  });
+
+  /**
+   * The second half of §A4's disruption: not only fewer hours of production, but a weaker crew.
+   *
+   * Measured through `standingEffectsFor`, which is the fold every consumer of a crew's standing
+   * reads: a channel that was not cut here is a channel a raid does not reach anywhere.
+   */
+  it('takes the same share off every positive percentage the victim holds', async () => {
+    const world = await makeWorld();
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+    // Ground worth holding, so the victim has percentages to lose in the first place.
+    give(world, 'rustyard-bones');
+
+    const victim = () => world.app.repos.bases.findById(world.victim.baseId)!;
+    const before = standingEffectsFor(world.app.repos, victim(), new Date());
+    // `DISRUPTED_CHANNELS` rather than every percent channel: `productionPercent` is exempt because
+    // the settle walk already takes the same quarter off the hours it multiplies.
+    const paying = DISRUPTED_CHANNELS.filter((channel) => before[channel] > 0);
+    expect(
+      paying,
+      'the victim holds no positive percentage, so there is nothing to measure',
+    ).not.toEqual([]);
+
+    await breakIn(world);
+
+    const after = standingEffectsFor(world.app.repos, victim(), new Date());
+    const scale = 1 - RAID_DISRUPTION_PERCENT / 100;
+    for (const channel of paying) {
+      expect(after[channel], `${channel} was untouched by the raid`).toBeCloseTo(
+        before[channel] * scale,
+        6,
+      );
+    }
+    // And it wears off: read past the expiry and the crew is whole again.
+    const over = new Date(Date.parse(victim().economy.disruption.until as string) + 1_000);
+    const recovered = standingEffectsFor(world.app.repos, victim(), over);
+    for (const channel of paying) {
+      expect(recovered[channel], `${channel} never came back`).toBeCloseTo(before[channel], 6);
+    }
+  });
+});
+
+/**
+ * §A4's other half: what a raid leaves behind.
+ *
+ * `raid.ts` says it in two bullets, and only one of them was implemented. What leaves is bounded
+ * by the carry, and `plunder` does that; what stays broken is disruption, and *nothing wrote it*.
+ * `disruptionFrom` and `refreshDisruption` were exported and documented and called by nobody,
+ * while `settleDistrict` carefully cut its production walk at an expiry that could never be set.
+ * So the one consequence of losing a raid that a victim cannot buy back never happened.
+ */
+describe('what a raid leaves behind (§A4)', () => {
+  const disruptionOf = (world: World, baseId: string) =>
+    world.app.repos.bases.findById(baseId)!.economy.disruption;
+
+  it('leaves the district running badly, and leaves the raiders alone', async () => {
+    const world = await makeWorld();
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+
+    expect(disruptionOf(world, world.victim.baseId).until).toBeNull();
+    const at = Date.now();
+    await breakIn(world);
+
+    const hurt = disruptionOf(world, world.victim.baseId);
+    expect(hurt.percent).toBe(RAID_DISRUPTION_PERCENT);
+    expect(hurt.until).not.toBeNull();
+    const hours = (Date.parse(hurt.until as string) - at) / 3_600_000;
+    expect(hours).toBeGreaterThan(RAID_DISRUPTION_HOURS - 0.1);
+    expect(hours).toBeLessThan(RAID_DISRUPTION_HOURS + 0.1);
+
+    // The crew that did it goes home to a district that works: this is a thing done *to* somebody.
+    expect(disruptionOf(world, world.raider.baseId).until).toBeNull();
+  });
+
+  /** And what the victim actually loses for it: a share of the hours, off the production walk. */
+  it('costs the victim a quarter of what the district would have made', async () => {
+    const world = await makeWorld();
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+    // A new crew stands a Nexus and a Generator, neither of which makes anything. Give the victim
+    // a Scrapyard so the walk has an output to lose a share of.
+    const victimBase = world.app.repos.bases.findById(world.victim.baseId)!;
+    world.app.repos.bases.updateDistrict(
+      victimBase.id,
+      [
+        ...victimBase.buildings,
+        { id: 'victim-scrapyard', kind: 'scrapyard', level: 10, modifications: [], damage: 0 },
+      ],
+      victimBase.buildQueue,
+    );
+    await breakIn(world);
+
+    /*
+     * The same district, the same window, twice: once limping and once well.
+     *
+     * An A/B against itself rather than against the raider's district, because the two crews are
+     * planted on different ground with different structures and the control has to be the same
+     * place. The stockpile and the production clock are wound back between the two runs, so what
+     * is measured is the same window of accrual and nothing else.
+     */
+    // Anchored on the disruption the raid actually wrote rather than on the wall clock, so the
+    // five-hour window below always sits inside it: read off `new Date()` it drifted against the
+    // raid's own instant and the assertion went red on a busy run.
+    const raided = world.app.repos.bases.findById(world.victim.baseId)!.economy.disruption;
+    if (raided.until === null) throw new Error('the raid wrote no disruption to measure');
+    const from = new Date(Date.parse(raided.until) - RAID_DISRUPTION_HOURS * 3_600_000);
+    const wind = (disruption: { until: string | null; percent: number }) => {
+      const base = world.app.repos.bases.findById(world.victim.baseId)!;
+      world.app.repos.bases.updateResources(
+        base.id,
+        Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0])) as unknown as Resources,
+      );
+      world.app.repos.bases.updateEconomy(base.id, {
+        ...base.economy,
+        disruption,
+        productionSettledAt: from.toISOString(),
+        productionCarry: {},
+      });
+    };
+    // Five hours, inside the six the disruption lasts: one hour of a level-1 district rounds to
+    // nothing but carry, and a window past the expiry would be measuring a partly-recovered place.
+    const WINDOW_HOURS = 5;
+    const accrue = (): Resources => {
+      settleDistrict(
+        world.app.repos,
+        world.app.repos.bases.findById(world.victim.baseId)!,
+        new Date(from.getTime() + WINDOW_HOURS * 3_600_000),
+      );
+      return stockOf(world, world.victim.baseId);
+    };
+
+    wind(raided);
+    const limping = accrue();
+    wind({ until: null, percent: 0 });
+    const well = accrue();
+
+    // Whatever the district actually makes: measured rather than named, so retuning a structure
+    // cannot make this test wrong.
+    const made = RESOURCE_KEYS.filter((key) => well[key] > 0);
+    expect(made.length, 'the district made nothing, so there is nothing to lose').toBeGreaterThan(
+      0,
+    );
+    for (const key of made) {
+      expect(limping[key], `${key} was untouched by the raid`).toBeLessThan(well[key]);
+      const share = 1 - limping[key] / well[key];
+      // A quarter off, within the rounding a whole-number stockpile imposes.
+      expect(share, `${key} lost the wrong share`).toBeGreaterThan(
+        RAID_DISRUPTION_PERCENT / 100 - 0.06,
+      );
+      expect(share, `${key} lost the wrong share`).toBeLessThan(
+        RAID_DISRUPTION_PERCENT / 100 + 0.06,
+      );
+    }
+  });
+
+  /**
+   * A second raid refreshes rather than stacks, and refreshing never *shortens* a longer one.
+   *
+   * The grief case `refreshDisruption` was written for: two crews taking turns must not be able to
+   * hold a district at zero output, and a crew that raided an hour ago must not be able to raid
+   * again to hand the victim back four of the six hours.
+   */
+  it('refreshes a standing disruption rather than stacking or shortening it', async () => {
+    const world = await makeWorld();
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 40 }, []);
+
+    const victim = world.app.repos.bases.findById(world.victim.baseId)!;
+    const longer = new Date(Date.now() + 24 * 3_600_000).toISOString();
+    world.app.repos.bases.updateEconomy(victim.id, {
+      ...victim.economy,
+      disruption: { until: longer, percent: RAID_DISRUPTION_PERCENT },
+    });
+
+    await breakIn(world);
+
+    const after = disruptionOf(world, world.victim.baseId);
+    // The later expiry stands, and the percentage is one raid's worth rather than two.
+    expect(after.until).toBe(longer);
+    expect(after.percent).toBe(RAID_DISRUPTION_PERCENT);
   });
 });

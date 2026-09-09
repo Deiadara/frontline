@@ -47,6 +47,10 @@ function magnitude(bonus: HoldBonus): number {
   if ('perHour' in bonus) return bonus.perHour;
   if ('districts' in bonus) return bonus.districts;
   if ('flat' in bonus) return bonus.flat;
+  if ('minutes' in bonus) return bonus.minutes;
+  // The rules carry no quantity at all and do not ladder with a level (`scaledBonus`), so they
+  // contribute nothing to the "worked up is worth more" sum below rather than a made-up one.
+  if (!('percent' in bonus)) return 0;
   return bonus.percent;
 }
 
@@ -100,7 +104,20 @@ describe('every channel a location pays into', () => {
     const dead: string[] = [];
     for (const channel of CHANNELS) {
       const value = effects[channel];
-      const moved = typeof value === 'number' ? value !== 0 : Object.keys(value ?? {}).length > 0;
+      /*
+       * Three shapes now, and the boolean one is why this is a chain rather than a ternary.
+       *
+       * `Object.keys(false)` is `[]` rather than a throw, so a switch channel that nothing granted
+       * read as dead *and* a switch channel that something granted read as dead. Both arms were
+       * wrong in the same direction, which is the failure mode that looks like a passing test right
+       * up until the first switch is authored.
+       */
+      const moved =
+        typeof value === 'boolean'
+          ? value
+          : typeof value === 'number'
+            ? value !== 0
+            : Object.keys(value ?? {}).length > 0;
       if (!moved) dead.push(channel);
     }
     expect(dead, 'channels nothing in the game pays into').toEqual([]);

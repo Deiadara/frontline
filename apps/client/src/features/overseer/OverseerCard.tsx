@@ -38,8 +38,16 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
             {preset.archetype}
           </span>
           {/* Two lines, not three. The sheet under this card grew by two rows when the attribute
-              model was reworked, and at 1280x800 the fourth card was the one that paid for it. */}
-          <p className="mt-1.5 line-clamp-2 font-body text-[12px] leading-relaxed text-ink-300">
+              model was reworked, and at 1280x800 the fourth card was the one that paid for it.
+
+              The rest of the line is on the hover rather than nowhere. Every bio here runs to
+              three lines in this column, so the clamp cut all four of them mid-word on the one
+              screen where a player is choosing *on* the description: an ellipsis with nothing
+              behind it is the shortened half of a sentence and no way to read the other half. */}
+          <p
+            data-tip={preset.bio}
+            className="mt-1.5 line-clamp-2 font-body text-[12px] leading-relaxed text-ink-300"
+          >
             {preset.bio}
           </p>
           <div className="mt-1.5 flex flex-wrap gap-1">

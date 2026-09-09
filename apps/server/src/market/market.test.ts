@@ -10,6 +10,7 @@ import {
   OFFER_LIFETIME_HOURS,
   vendorSessionsFor,
   vendorStockFor,
+  visitClosesAt,
   type ItemId,
   type Resources,
   type MarketResponse,
@@ -20,7 +21,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { acceptOffer, buyFromVendor, projectMarket } from './board.js';
+import { acceptOffer, projectMarket } from './board.js';
+import { placeVendorBid, settleVendorAuctions } from './auction.js';
 
 /**
  * The market and the workshop, end to end over HTTP.
@@ -160,7 +162,7 @@ describe('the Runner, over HTTP', () => {
   });
 
   /**
-   * The till refuses out of hours, and the line id comes from the *catalogue* rather than from the
+   * He takes no bids out of hours, and the line id comes from the *catalogue* rather than from the
    * response.
    *
    * It used to be read off the board, which worked while a shut barrow still listed its goods. Now
@@ -168,7 +170,7 @@ describe('the Runner, over HTTP', () => {
    * a 400 dressed up as the rule under test. Naming a line the crew could not have seen is also
    * the case the guard is actually for, which is somebody who kept an id from this morning.
    */
-  it('will not sell while he is out of the district', async () => {
+  it('will not take a bid while he is out of the district', async () => {
     const app = await makeApp();
     const token = await signIn(app);
     const view = await board(app, token);
@@ -178,14 +180,40 @@ describe('the Runner, over HTTP', () => {
     expect(line, 'fixture error: nothing on the barrow today').toBeDefined();
     const res = await app.inject({
       method: 'POST',
-      url: '/api/market/buy',
+      url: '/api/market/bid',
       headers: auth(token),
-      payload: { lineId: line?.id ?? '', count: 1 },
+      payload: { lineId: line?.id ?? '', amount: line?.price ?? 1 },
     });
     expect(res.statusCode).toBe(409);
     expect(res.json<{ error: { message: string } }>().error.message).toContain(
       'not in the district',
     );
+  });
+
+  /** Every line he has something left of is a lot, and a line he is cleared out of is not. */
+  it('puts a lot on every line with something left on it', async () => {
+    const app = await makeApp();
+    await signIn(app);
+    const day = marketDay(new Date());
+    const at = anOpenMoment(day);
+    const cleared = vendorStockFor(day)[0];
+    if (!cleared) throw new Error('fixture error: nothing on the barrow today');
+    app.repos.market.recordVendorSale(day, cleared.id, cleared.stock, at.toISOString());
+
+    const view = projectMarket(app.repos, baseOf(app, 'trader'), at);
+    expect(view.vendor.session).toBe(0);
+    for (const offer of view.vendor.stock) {
+      if (offer.line.id === cleared.id) {
+        expect(offer.line.stock).toBe(0);
+        expect(offer.auction).toBeNull();
+        continue;
+      }
+      expect(offer.auction?.lineId).toBe(offer.line.id);
+      // The reserve is the city's number, so it is the line's own price and nobody's discount.
+      expect(offer.auction?.reserve).toBe(offer.line.price);
+      expect(offer.auction?.leading).toBeNull();
+      expect(offer.auction?.nextBid).toBe(offer.line.price);
+    }
   });
 });
 
@@ -718,20 +746,39 @@ describe('one of a thing is one of a thing (§D5c)', () => {
  * A sold-out line stays sold out across a restart.
  *
  * The city's counter was a module-level `Map`, so it lived exactly as long as the process. A
- * restart, a crash or a deploy put every sold-out line back on the barrow inside the same UTC day,
+ * restart, a crash or a deploy put every sold-out line back on the barrow inside the same game day,
  * which turns a blueprint the catalogue rations to `stock: 1` into one that anybody can have: the
  * exploit is "wait for a deploy". Two app instances over one database file is the smallest thing
  * that can tell the difference, because an in-memory database dies with the process it is testing.
+ *
+ * The line goes now by being won rather than bought, which is the same counter one door further
+ * along: the close books the sale, and his second visit of the day finds nothing left to bid on.
  */
 describe('what the city has already bought', () => {
   it('survives the server being restarted', async () => {
     const file = path.join(mkdtempSync(path.join(tmpdir(), 'frontline-market-')), 'world.sqlite');
-    const day = marketDay(new Date());
-    const open = anOpenMoment(day);
 
-    // A line the catalogue rations, so buying it out is buying out the whole city's supply.
-    const rationed = vendorStockFor(day).find((line) => line.stock <= 2);
-    if (!rationed) throw new Error('fixture error: the Runner rations nothing today');
+    /*
+     * A fixed day with a one-of-a-kind line on it, rather than today's.
+     *
+     * The barrow is a pure function of the game day, and not every day has a line the catalogue
+     * rations to one. Scanning for a day that does is what makes the fixture the same on every
+     * morning the suite runs; nothing else in this case cares what the date is.
+     */
+    let day = '2026-09-15';
+    let rationed = vendorStockFor(day).find((line) => line.stock === 1);
+    for (let step = 0; step < 90 && !rationed; step += 1) {
+      day = new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10);
+      rationed = vendorStockFor(day).find((line) => line.stock === 1);
+    }
+    if (!rationed) throw new Error('fixture error: the Runner rations nothing for three months');
+    const line = rationed;
+
+    const during = (session: number): Date => {
+      const slot = vendorSessionsFor(day)[session];
+      if (!slot) throw new Error(`fixture error: no session ${session} on ${day}`);
+      return new Date(instantAtHourInZone(day, slot.startHour).getTime() + 30 * 60_000);
+    };
 
     const boot = async () => {
       const config = loadConfig({ DATABASE_PATH: file, JWT_SECRET: 'test-secret' });
@@ -745,22 +792,31 @@ describe('what the city has already bought', () => {
     const token = await signIn(first.app, 'restarts');
     const me = await first.app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
     const base = first.app.repos.bases.findById(me.json<{ base: { id: string } }>().base.id)!;
-    // Caps enough that affording it is never the reason a purchase is refused.
+    const userId = base.ownerId;
+    // Caps enough that affording it is never the reason a bid or a close is refused.
     first.app.repos.bases.updateResources(base.id, { ...base.resources, caps: 1_000_000 });
 
-    const bought = buyFromVendor(
-      first.app.repos,
-      first.app.repos.bases.findById(base.id)!,
-      rationed.id,
-      rationed.stock,
-      open,
-    );
-    expect(bought.kind, 'the fixture could not buy the line out').toBe('done');
+    const placed = placeVendorBid(first.app.repos, {
+      base: first.app.repos.bases.findById(base.id)!,
+      userId,
+      lineId: line.id,
+      amount: line.price,
+      now: during(0),
+    });
+    expect(placed.kind, 'the fixture could not bid on the line').toBe('placed');
+    settleVendorAuctions(first.app.repos, new Date(visitClosesAt(day, 0).getTime() + 60_000));
+    expect(first.app.repos.market.vendorSold(day, line.id)).toBe(1);
+
     // Sold out for this process, which is the part that always worked.
     expect(
-      buyFromVendor(first.app.repos, first.app.repos.bases.findById(base.id)!, rationed.id, 1, open)
-        .kind,
-    ).toBe('refused');
+      placeVendorBid(first.app.repos, {
+        base: first.app.repos.bases.findById(base.id)!,
+        userId,
+        lineId: line.id,
+        amount: line.price,
+        now: during(1),
+      }),
+    ).toMatchObject({ kind: 'refused', reason: 'sold_out' });
 
     await first.app.close();
     first.db.close();
@@ -774,17 +830,17 @@ describe('what the city has already bought', () => {
      * module registry is the closest thing in-process to the restart that actually loses it.
      */
     vi.resetModules();
-    const { buyFromVendor: afterRestart } = await import('./board.js');
+    const { placeVendorBid: afterRestart } = await import('./auction.js');
 
     const second = await boot();
     try {
-      const after = afterRestart(
-        second.app.repos,
-        second.app.repos.bases.findById(base.id)!,
-        rationed.id,
-        1,
-        open,
-      );
+      const after = afterRestart(second.app.repos, {
+        base: second.app.repos.bases.findById(base.id)!,
+        userId,
+        lineId: line.id,
+        amount: line.price,
+        now: during(1),
+      });
       expect(after, 'a restart put the sold-out line back on the barrow').toMatchObject({
         kind: 'refused',
         reason: 'sold_out',

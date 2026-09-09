@@ -1,8 +1,8 @@
 import {
   VEHICLES,
   type Army,
-  carriedSpeedPercent,
   mergeFleets,
+  travelMinutes,
   type VehicleId,
   type BattleBoostOption,
   type BattleReportView,
@@ -10,7 +10,9 @@ import {
   type BattlesResponse,
   type MovementView,
   type StructureDefence,
+  type UnitLoadouts,
   estimatedForce,
+  findUnit,
   forecast,
 } from '@frontline/shared';
 import { useMemo, useState } from 'react';
@@ -32,11 +34,15 @@ import {
   useDeployToBattle,
   useMe,
 } from '../../lib/queries';
-import { formatRemaining } from '../base/format';
+import { formatDuration, formatRemaining } from '../base/format';
+import { heldToLine, readColumn } from './column';
+import { Characteristics } from '../../components/ui/LabelChip';
+import { locationKindOf, whenItHolds } from '../city/characteristics';
 import { PageShell } from '../game/PageShell';
 import { BattleReportModal } from './BattleReportModal';
 import { DeployDialog, type DeployMode } from './DeployDialog';
 import { UnitChip } from '../units/UnitChip';
+import { OnThisGround } from './EffectiveCard';
 
 /**
  * The Battles page (GDD §A4, battle rework).
@@ -87,6 +93,8 @@ export function BattlePage() {
 
   const data = battles.data;
   const army = me.data?.base?.army ?? {};
+  /** §C3: the workshop's brackets, which move a unit's speed and therefore the column's clock. */
+  const loadouts = me.data?.base?.unitLoadouts ?? {};
   const notoriety = me.data?.base?.economy.notoriety ?? 0;
 
   // The fight the detail is showing. Falls back to the first one so the page never opens on an
@@ -170,9 +178,27 @@ export function BattlePage() {
                    * the machines and the boost), which no 768-tall laptop fits, and cut content is
                    * the one thing the board's bar rules out outright.
                    */
-                  <div className="min-h-0 min-w-0 overflow-y-auto" data-testid="battle-detail-pane">
+                  <div
+                    /*
+                     * Keyed on the fight, so picking another one starts that fight's page at the
+                     * top of it.
+                     *
+                     * The pane is the only scrolling region on this screen, and it kept its offset
+                     * across a change of subject: a player who had scrolled down to the boost on
+                     * one fight and then pressed another row landed halfway down the new fight,
+                     * with the ground, the odds and the leader above the fold and no sign that
+                     * anything had moved. Remounting is also what clears the pickers inside the
+                     * detail, which are about the fight that was open rather than the one that is.
+                     */
+                    key={open.battle.id}
+                    className="min-h-0 min-w-0 overflow-y-auto"
+                    data-testid="battle-detail-pane"
+                  >
                     <BattleDetail
                       view={open}
+                      homeDistrictId={me.data?.base?.districtId ?? null}
+                      army={army}
+                      loadouts={loadouts}
                       infamy={data.infamy}
                       now={Date.parse(data.serverNow)}
                       walking={columnsTo(road.data?.movements, open.battle.id)}
@@ -201,6 +227,8 @@ export function BattlePage() {
         <DeployDialog
           view={deploying.view}
           army={army}
+          loadouts={loadouts}
+          homeDistrictId={me.data?.base?.districtId ?? null}
           notoriety={notoriety}
           mode={deploying.mode}
           pending={deploy.isPending}
@@ -234,7 +262,7 @@ function Counts({ data }: { data: BattlesResponse }) {
         data-testid="board-infamy"
         className="font-display text-sm font-bold tabular-nums text-oxblood-300"
       >
-        {data.infamy} infamy
+        {Math.round(data.infamy).toLocaleString()} infamy
       </span>
     </span>
   );
@@ -393,6 +421,9 @@ function mergeCounts(into: Army, force: Army): Army {
 
 function BattleDetail({
   view,
+  homeDistrictId,
+  army,
+  loadouts,
   infamy,
   now,
   walking,
@@ -400,6 +431,12 @@ function BattleDetail({
   deploying,
 }: {
   view: BattleView;
+  /** §C3: where the crew lives, which decides whether there is a road to this fight at all. */
+  homeDistrictId: string | null;
+  /** §C3: what is still at home, so the machines panel can quote a column that could be sent. */
+  army: Army;
+  /** §C3: the crew's brackets, so the quoted pace is the sheet the road will actually read. */
+  loadouts: UnitLoadouts;
   infamy: number;
   now: number;
   /** What is still on the road to this fight: nobody has arrived yet, but they have left. */
@@ -420,6 +457,39 @@ function BattleDetail({
           </span>
         }
       >
+        {/*
+          §A4: what the ground is like, under the name of the ground and above everything else.
+          
+          It used to be nowhere on this screen: the characteristics decide a real share of the
+          outcome and a player could only learn them by opening the district, reading the location
+          card and remembering. A row here, with the tiers on the chips, is what makes "send the
+          Anodics rather than the Snipers" a decision somebody can make before the mark rather than
+          a lesson they read in the report afterwards.
+        */}
+        <div className="border-b border-surface-700 px-4 pb-3 pt-4">
+          <Characteristics
+            labels={view.battlefield.labels}
+            size="md"
+            when={whenItHolds(
+              locationKindOf(
+                view.battle.target.kind === 'location' ? view.battle.target.locationId : undefined,
+              ),
+              view.battlefield.weather,
+            )}
+            data-testid="battle-characteristics"
+          />
+          {/* The two figures the ground is worth on its own, said in words rather than left in the
+              chips: a fortified location and a defensible one are different problems. */}
+          <p className="mt-1.5 font-body text-[12px] leading-snug text-ink-300">
+            {view.battlefield.locationName} holds {view.battlefield.frontage} across the front
+            {view.battlefield.baseDefense > 0 &&
+              `, and is worth ${view.battlefield.baseDefense} armour to whoever stands on it`}
+            {view.battlefield.fortifyPercent > 0 &&
+              `. Dug in: +${Math.round(view.battlefield.fortifyPercent)}% toughness to the holder`}
+            .
+          </p>
+        </div>
+
         <div className="grid gap-3 p-4 sm:grid-cols-3">
           <Figure
             label="Goes off in"
@@ -497,7 +567,17 @@ function BattleDetail({
       </Panel>
 
       {view.side !== null && <LeadPicker view={view} />}
-      {view.side !== null && <VehiclePicker view={view} />}
+      {/* §C3: a machine shortens a road. A crew holding its own district has no road to this
+          fight, so the picker would only be a way to put the yard where a wipe can wreck it. */}
+      {view.side !== null &&
+        !(view.side === 'defender' && view.battle.target.districtId === homeDistrictId) && (
+          <VehiclePicker
+            view={view}
+            army={army}
+            loadouts={loadouts}
+            homeDistrictId={homeDistrictId}
+          />
+        )}
       {view.side !== null && <NameBuys view={view} infamy={infamy} />}
       {/* §I4: only the side standing on the ground has anything to bury under it. */}
       {view.side === 'defender' && <TrapPicker view={view} />}
@@ -513,32 +593,50 @@ function BattleDetail({
  * exactly as deployed units have left the roster, so the totals on this panel always add up to the
  * fleet the crew owns.
  *
- * The line under it is the one that decides anything: what a machine buys is speed for the people
- * *on it*, so a bike under a column of four hundred is worth almost nothing and a hauler under
- * forty is worth all of it.
+ * The line under it is the one that decides anything: a column arrives when its last people do
+ * (§C3), so a bike under a column of four hundred is worth nothing at all and a bus that seats
+ * the whole of a force of thirty is worth all of it.
  */
-function VehiclePicker({ view }: { view: BattleView }) {
+function VehiclePicker({
+  view,
+  army,
+  loadouts,
+  homeDistrictId,
+}: {
+  view: BattleView;
+  /** What is still at home: the biggest column this crew could put on this road. */
+  army: Army;
+  /** The crew's brackets: the armour line takes speed off a sheet, so the road reads them. */
+  loadouts: UnitLoadouts;
+  homeDistrictId: string | null;
+}) {
   const take = useTakeVehicles();
   const shut = !view.deploymentOpen;
   const owned = mergeFleets(view.yard, view.vehicles);
   /*
-   * The seats, and what a column that fills them rides at.
+   * The pace, quoted against a column that exists.
    *
-   * There is no column at the moment this renders, so it cannot quote one. It used to try:
-   * `carriedSpeedPercent(view.vehicles, view.muster.size)`, where `muster.size` is the *whole
-   * side's* folded deployment, allies and everything already on the ground included. The server
-   * computes the same function per column, over `input.army + input.perimeter`
-   * (`battle/movement.ts:76-83`), and the two are never the same number: three War Haulers seated
-   * among 200 standing bodies printed 17% next to a six-Razor deploy the server gives 28%.
+   * There is no column at the moment this renders, so the honest thing to quote is the one the
+   * player can still choose: **everybody at home**, which is what the deploy dialog's Max on every
+   * row produces and the slowest column this yard will ever have to move. It used to quote
+   * `carriedSpeedPercent(view.vehicles, view.muster.size)` instead, where `muster.size` is the
+   * *whole side's* folded deployment, allies and everything already on the ground included, which
+   * is not a force this crew is sending anywhere.
    *
-   * `DeployDialog` is where a column exists; `MissionBoard.tsx:501` does the same sum against the
-   * force actually picked. What this panel can say honestly is a fact about the machines.
+   * `columnSpeed` is the server's own function (`battle/movement.ts`, `travelMsTo`), so the pace on
+   * this panel is the pace the road is measured with rather than a second arithmetic that agrees by
+   * inspection. The crew's travel reduction is not on this payload and only ever shortens a road,
+   * so the clock below is an upper bound and says so.
    */
   const seats = VEHICLES.reduce(
     (total, spec) => total + spec.capacity * (view.vehicles[spec.id] ?? 0),
     0,
   );
-  const speed = carriedSpeedPercent(view.vehicles, seats);
+  const column = readColumn(view.vehicles, army, loadouts);
+  const minutes =
+    homeDistrictId === null
+      ? null
+      : travelMinutes(homeDistrictId, view.battle.target.districtId, { speed: column.speed });
 
   const set = (id: VehicleId, count: number) =>
     take.mutate({
@@ -557,9 +655,14 @@ function VehiclePicker({ view }: { view: BattleView }) {
           note={
             lines.length === 0
               ? 'Nothing in the yard'
-              : speed > 0
-                ? `${seats} seats · ${speed}% off the road at a full load`
-                : 'Nothing loaded, so everybody walks'
+              : [
+                  `${seats} seats`,
+                  // Nobody at home is not a column, and `heldToLine` over one reads "Rides at 0".
+                  column.speed > 0 ? heldToLine(column) : null,
+                  minutes === null ? null : `${formatDuration(minutes * 60)} at most`,
+                ]
+                  .filter((part) => part !== null)
+                  .join(' · ')
           }
         >
           {lines.length === 0 ? (
@@ -580,7 +683,7 @@ function VehiclePicker({ view }: { view: BattleView }) {
                     <span className="min-w-0 truncate font-body text-[12px] text-ink-100">
                       {spec.name}{' '}
                       <span className="text-ink-400">
-                        carries {spec.capacity}, {spec.speedPercent}% off the road
+                        carries {spec.capacity}, speed {spec.speed}
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5">
@@ -809,7 +912,11 @@ function Forces({ view, walking }: { view: BattleView; walking: Army }) {
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {rows.map(([unitId, count]) => (
             <li key={unitId}>
-              <UnitChip unitId={unitId} count={count} data-testid={`force-${unitId}`} />
+              {/* §A4: the chip says how many. The card behind it says what they are worth *here*,
+                  which is the question a player standing in front of a muster is actually asking. */}
+              <OnThisGround unitId={unitId} view={view} label={onGroundLabel(unitId)}>
+                <UnitChip unitId={unitId} count={count} data-testid={`force-${unitId}`} />
+              </OnThisGround>
             </li>
           ))}
         </ul>
@@ -829,12 +936,14 @@ function Forces({ view, walking }: { view: BattleView; walking: Army }) {
           <ul className="mt-2 flex flex-wrap gap-1.5" data-testid="battle-walking">
             {road.map(([unitId, count]) => (
               <li key={`road-${unitId}`}>
-                <UnitChip
-                  unitId={unitId}
-                  count={count}
-                  muted
-                  data-testid={`battle-walking-${unitId}`}
-                />
+                <OnThisGround unitId={unitId} view={view} label={onGroundLabel(unitId)}>
+                  <UnitChip
+                    unitId={unitId}
+                    count={count}
+                    muted
+                    data-testid={`battle-walking-${unitId}`}
+                  />
+                </OnThisGround>
               </li>
             ))}
           </ul>
@@ -848,7 +957,9 @@ function Forces({ view, walking }: { view: BattleView; walking: Army }) {
           <ul className="mt-2 flex flex-wrap gap-1.5">
             {ring.map(([unitId, count]) => (
               <li key={unitId}>
-                <UnitChip unitId={unitId} count={count} muted data-testid={`ring-${unitId}`} />
+                <OnThisGround unitId={unitId} view={view} label={onGroundLabel(unitId)}>
+                  <UnitChip unitId={unitId} count={count} muted data-testid={`ring-${unitId}`} />
+                </OnThisGround>
               </li>
             ))}
           </ul>
@@ -856,6 +967,18 @@ function Forces({ view, walking }: { view: BattleView; walking: Army }) {
       )}
     </div>
   );
+}
+
+/**
+ * What the hover on a chip is called, for anybody who cannot see it.
+ *
+ * The unit's **name**, never the wire id: an `aria-label` is read out, and the board was announcing
+ * every stack in a fight as "road_reavers on this ground". `BattleView` carries counts by id and
+ * nothing else, so the name comes off the catalogue, and an id the catalogue has never heard of
+ * falls back to the id rather than to an empty label.
+ */
+function onGroundLabel(unitId: string): string {
+  return `${findUnit(unitId)?.name ?? unitId} on this ground`;
 }
 
 /**
@@ -954,8 +1077,8 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
                   {choice.effect}
                 </p>
                 <p className="mt-0.5 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-                  {choice.held ? choice.source : `${choice.cost} infamy`} · reaches {choice.reach}%
-                  of your force
+                  {choice.held ? choice.source : `${choice.cost.toLocaleString()} infamy`} · reaches{' '}
+                  {choice.reach}% of your force
                 </p>
               </div>
             )}
@@ -1094,7 +1217,7 @@ function hintFor(option: BattleBoostOption): string {
   const reach = option.reach === 0 ? 'reaches nothing you sent' : `reaches ${option.reach}%`;
   // A crate's price is not on this line because it has already been paid. What a player wants to
   // know about one is how many are left in the bag, which is what `source` carries for held boosts.
-  const price = option.held ? option.source : `${option.cost} infamy`;
+  const price = option.held ? option.source : `${option.cost.toLocaleString()} infamy`;
   return `${price} · ${option.effect} · ${reach}`;
 }
 

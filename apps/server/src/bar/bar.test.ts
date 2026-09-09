@@ -1,5 +1,6 @@
 import {
   DISMISSAL_WEEKS,
+  MAX_OPEN_AUCTIONS,
   PAYROLL_BASE,
   districtPopulationCapacity,
   noTerritoryEffects,
@@ -11,35 +12,65 @@ import {
   blackMarketDay,
   assessJoin,
   createCommander,
+  maxOpenAuctionsFor,
   playerLevelGrants,
   reservationWage,
   startingEconomy,
   startingProgression,
   startingResearch,
-  type CrewResponse,
+  type BarAuction,
   type Base,
   type BarResponse,
+  type BidResponse,
   type Commander,
+  type CrewResponse,
+  type Notification,
   startingTraining,
 } from '@frontline/shared';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { projectRecruit } from './project.js';
-import { hireRecruit, ledgerFor, releaseOfficer, wageAskedOf } from './hire.js';
+import { bidCeilingFor, committedWage, releaseOfficer, signRecruit, wageAskedOf } from './hire.js';
+import { reserveFor, settleBarAuctions } from './auction.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
-  BAR_HIRES_PER_DAY,
   BAR_ROSTER_SIZE,
   barDay,
   barRoster,
   findBarRecruit,
+  recruitId,
 } from './roster.js';
+
+/*
+ * The clock, pinned.
+ *
+ * Every bid route reads `new Date()` and refuses outside the phase it belongs to, so a suite on
+ * the real clock would go red for half an hour a day. Only `Date` is faked: Fastify's own timers
+ * have to keep running or `app.inject` never settles.
+ *
+ * August, so Athens is GMT+3 and the day turns at 21:00 UTC.
+ */
+/** Midday in Athens: the open phase, where the ordinary bidding happens. */
+const NOW = new Date('2026-08-13T09:00:00.000Z');
+/** Twenty minutes before the close: the sealed phase. */
+const SEALED = new Date('2026-08-13T20:40:00.000Z');
+/** Half past midnight in Athens: a new day, and yesterday's tables are due. */
+const AFTER = new Date('2026-08-13T21:30:00.000Z');
+
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 
@@ -48,6 +79,7 @@ afterEach(async () => {
     await app.close();
     db.close();
   }
+  vi.setSystemTime(NOW);
 });
 
 async function makeApp(): Promise<{ app: FastifyInstance; db: AppDatabase }> {
@@ -60,37 +92,84 @@ async function makeApp(): Promise<{ app: FastifyInstance; db: AppDatabase }> {
   return handle;
 }
 
+interface Player {
+  token: string;
+  userId: string;
+  baseId: string;
+  username: string;
+}
+
 /** A registered player who has picked an overseer, i.e. one who has a base. */
-async function makePlayer(app: FastifyInstance, username: string): Promise<string> {
+async function makePlayer(app: FastifyInstance, username: string): Promise<Player> {
   const register = await app.inject({
     method: 'POST',
     url: '/api/auth/register',
     payload: { username, password: 'hunter2pass' },
   });
   expect(register.statusCode).toBe(201);
-  const token = register.json<{ token: string }>().token;
+  const registered = register.json<{ token: string; user: { id: string } }>();
 
   const overseer = await app.inject({
     method: 'POST',
     url: '/api/overseer',
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${registered.token}` },
     payload: { presetId: 'enforcer' },
   });
   expect(overseer.statusCode).toBe(201);
-  return token;
+  return {
+    token: registered.token,
+    userId: registered.user.id,
+    baseId: overseer.json<{ base: { id: string } }>().base.id,
+    username,
+  };
 }
 
-async function readBar(app: FastifyInstance, token: string): Promise<BarResponse> {
+async function readBar(app: FastifyInstance, player: Player): Promise<BarResponse> {
   const res = await app.inject({
     method: 'GET',
     url: '/api/bar',
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${player.token}` },
   });
   expect(res.statusCode).toBe(200);
   return res.json<BarResponse>();
 }
 
-const NOW = new Date('2026-08-13T09:00:00.000Z');
+/** The first table this crew can actually sit at, with the recruit it is about. */
+function openTable(bar: BarResponse): { auction: BarAuction; name: string } {
+  const recruit = bar.recruits.find((entry) => entry.assessment.interested);
+  const auction = bar.auctions.find((entry) => entry.recruitId === recruit?.id);
+  if (!recruit || !auction) throw new Error('fixture: nobody at the Bar this crew can approach');
+  return { auction, name: recruit.name };
+}
+
+/** Every table this crew can sit at, in roster order. */
+function openTables(bar: BarResponse): BarAuction[] {
+  const willing = new Set(
+    bar.recruits.filter((entry) => entry.assessment.interested).map((entry) => entry.id),
+  );
+  return bar.auctions.filter((auction) => willing.has(auction.recruitId));
+}
+
+function bid(app: FastifyInstance, player: Player, recruitId: string, amount: number) {
+  return app.inject({
+    method: 'POST',
+    url: '/api/bar/bid',
+    headers: { authorization: `Bearer ${player.token}` },
+    payload: { recruitId, amount },
+  });
+}
+
+function seal(app: FastifyInstance, player: Player, recruitId: string, amount: number) {
+  return app.inject({
+    method: 'POST',
+    url: '/api/bar/seal',
+    headers: { authorization: `Bearer ${player.token}` },
+    payload: { recruitId, amount },
+  });
+}
+
+const errorOf = (body: string): { code: string; message: string } =>
+  (JSON.parse(body) as { error: { code: string; message: string } }).error;
 
 function makeBase(overrides: Partial<Base> = {}): Base {
   return {
@@ -130,17 +209,15 @@ interface Written {
   commanders?: Commander[];
   caps?: number;
   commitments?: Record<string, number>;
-  /** §H2b: the seat the hire turned over, and how many times this player has signed today. */
-  turnedOver?: number;
-  hiresToday: number;
+  hires: number;
 }
 
-/** A repository double: hiring writes through four calls and the tests assert on what landed. */
-function fakeRepos(hiresToday = 0): {
-  repos: Parameters<typeof hireRecruit>[0];
+/** A repository double: signing writes through three calls and the tests assert on what landed. */
+function fakeRepos(): {
+  repos: Parameters<typeof signRecruit>[0];
   written: Written;
 } {
-  const written: Written = { hiresToday };
+  const written: Written = { hires: 0 };
   const bases = {
     updateResources: (_id: string, resources: { caps: number }) => {
       written.caps = resources.caps;
@@ -153,35 +230,22 @@ function fakeRepos(hiresToday = 0): {
     },
   };
   const bar = {
-    hiresBy: () => written.hiresToday,
-    recordHire: (_hire: unknown, slot: number) => {
-      written.turnedOver = slot;
-      written.hiresToday += 1;
+    recordHire: () => {
+      written.hires += 1;
     },
   };
   /*
    * A crew holding nothing.
    *
-   * The §H5 alignment settler folds the crew's own effects, and a crew's effects now include what
-   * the *ground* adds to its officers (§A4: the Chapel, the Broadcast Station). So a double that
-   * omits the city repo is a double the code under test cannot run against, which is the double
-   * being wrong rather than the code being fragile: an empty map is what "this crew holds nothing"
-   * actually looks like.
+   * The crew fold reads what the *ground* adds to its officers (§A4: the Chapel, the Broadcast
+   * Station), so a double that omits the city repo is a double the code under test cannot run
+   * against: an empty map is what "this crew holds nothing" actually looks like.
    */
   const city = { controls: () => new Map(), control: () => undefined, scouted: () => new Set() };
   const users = { findById: () => undefined };
   const overseers = { findById: () => undefined };
-  /*
-   * And a crew with nobody away.
-   *
-   * Same argument as the city repo above: §A1 counts the units this crew has at a fight against
-   * the same beds as the officer being hired here, so `districtPopulation` reads both of these.
-   * Empty lists are what "nothing deployed, nothing walking" looks like.
-   */
   const sieges = { deploymentsFor: () => [] };
   const movements = { forBase: () => [] };
-  // §A1: the population fold counts everybody a crew feeds, and that now includes the crews out on
-  // missions. Nobody is out in these cases; the double has to answer the question all the same.
   const missions = { listActiveByBaseId: () => [] };
   return {
     repos: {
@@ -193,13 +257,10 @@ function fakeRepos(hiresToday = 0): {
       sieges,
       movements,
       missions,
-    } as unknown as Parameters<typeof hireRecruit>[0],
+    } as unknown as Parameters<typeof signRecruit>[0],
     written,
   };
 }
-
-/** The two §H2b fields every `hireRecruit` call needs, defaulted so cases can ignore them. */
-const SIGNER = { userId: 'user-1', seat: 0 };
 
 describe('§H2/§H2a: one global roster, generated from the game date', () => {
   it('serves two different accounts the identical roster on the same game day', async () => {
@@ -263,8 +324,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
     // cutting a brand-new crew's worst day down to a single willing recruit: the worst day offers
     // exactly the floor, measured. An empty Bar stays unreachable either way (`recruitAt` forces
     // both gates), so what moves is how much choice a new crew gets, and that is a decision worth
-    // pinning rather than deriving. The three HTTP cases below also lean on it for their
-    // stability under the real clock.
+    // pinning rather than deriving. The HTTP cases below also lean on it for their stability.
     expect(BAR_OPEN_DOOR_FLOOR).toBe(3);
   });
 
@@ -275,7 +335,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
     for (let day = 0; day < 400; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
       for (const cityLevel of [0, 8, 30]) {
-        const roster = barRoster(key, [], BAR_ROSTER_SIZE, cityLevel);
+        const roster = barRoster(key, BAR_ROSTER_SIZE, cityLevel);
         const willing = roster.filter(
           (r) => assessJoin(r.requirement, { notoriety: 0, level: 1 }).interested,
         );
@@ -297,7 +357,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
       let count = 0;
       for (let day = 0; day < 60; day++) {
         const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-        for (const recruit of barRoster(key, [], BAR_ROSTER_SIZE, cityLevel)) {
+        for (const recruit of barRoster(key, BAR_ROSTER_SIZE, cityLevel)) {
           for (const name of ATTRIBUTE_NAMES) {
             total += recruit.attributes[name];
             count += 1;
@@ -312,7 +372,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
     // And the recruitment ceiling still holds: the 40..100 band is what progression is for.
     for (let day = 0; day < 30; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-      for (const recruit of barRoster(key, [], BAR_ROSTER_SIZE, 90)) {
+      for (const recruit of barRoster(key, BAR_ROSTER_SIZE, 90)) {
         for (const name of ATTRIBUTE_NAMES) {
           expect(recruit.attributes[name]).toBeLessThanOrEqual(MAX_RECRUITMENT_ATTRIBUTE);
         }
@@ -322,7 +382,7 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
 
   it('leaves the ungated seats free to be anyone else: the floor is a floor, not the roster', () => {
     // A guarantee that quietly flattened every recruit into the same safe disposition would pass
-    // the check above and gut §H3/§H4 entirely.
+    // the check above and gut §H3 entirely.
     const gated = new Set<number>();
     const perksSeen = new Set<string>();
     for (let day = 0; day < 200; day++) {
@@ -359,86 +419,63 @@ describe('§H3: the roster as one particular crew sees it', () => {
     expect(wageAskedOf(recruit)).toBe(askingWage(recruit.attributes));
   });
 
-  /** The half of a walkout that persists. Six hours is a delay; this is what it actually costs. */
-  it('marks a recruit up for every time this crew has walked out on them', () => {
+  /** §H7a: the floor is what the table opens at, and it is a fact about the person. */
+  it('opens a table at the reservation price off that same sheet', () => {
     const [recruit] = barRoster('2026-08-13');
     if (!recruit) throw new Error('empty roster');
-    const flat = wageAskedOf(recruit);
-    const twice = wageAskedOf(recruit, { until: NOW.toISOString(), walkouts: 2 });
-    expect(twice).toBeGreaterThan(flat);
+    expect(reserveFor(recruit)).toBe(reservationWage(askingWage(recruit.attributes)));
+    expect(reserveFor(recruit)).toBeLessThan(wageAskedOf(recruit));
   });
 });
 
-describe('§H7/§H8: hiring out of the Bar', () => {
+describe('§H7/§H8: putting a won recruit on the books', () => {
   const recruit = () => {
     const found = barRoster('2026-08-13').find((r) => r.requirement.minNotoriety === 0);
     if (!found) throw new Error('expected an ungated recruit');
     return found;
   };
 
-  it('signs at the offered fee, banks the officer and commits it against the payroll book', () => {
+  const sign = (repos: Parameters<typeof signRecruit>[0], base: Base, price: number) =>
+    signRecruit(repos, { base, userId: 'user-1', recruit: recruit(), price, now: NOW });
+
+  it('signs at the closing price, banks the officer and commits it against the payroll book', () => {
     const { repos, written } = fakeRepos();
-    const base = makeBase();
     const hire = recruit();
-    const asking = wageAskedOf(hire);
+    const price = reserveFor(hire) + 5;
 
-    const result = hireRecruit(repos, {
-      ...SIGNER,
-      base,
-      recruit: hire,
-      role: 'head_spy',
-      offerWage: asking,
-      now: NOW,
-    });
-    expect(result.kind).toBe('hired');
-    if (result.kind !== 'hired') return;
+    const result = sign(repos, makeBase(), price);
+    expect(result.kind).toBe('signed');
+    if (result.kind !== 'signed') return;
 
-    expect(result.wage).toBe(asking);
-    expect(result.officer.role).toBe('head_spy');
-    // What they signed for is what the book is charged, and it is the whole of the relationship.
-    expect(result.officer.weeklyWage).toBe(asking);
+    expect(result.wage).toBe(price);
+    // The close happens while the player is asleep, so nobody is signed into a chair.
+    expect(result.officer.role).toBeNull();
+    // What the table closed at is what the book is charged, and it is the whole relationship.
+    expect(result.officer.weeklyWage).toBe(price);
     expect(result.officer.perks).toEqual(hire.perks);
-    // The fee lives in the payroll book and nowhere else, as a commitment rather than a bill.
-    expect(written.commitments).toEqual({ [hire.id]: asking });
-    expect(result.base.economy.payroll.commitments[hire.id]).toBe(asking);
+    expect(written.commitments).toEqual({ [hire.id]: price });
+    expect(result.base.economy.payroll.commitments[hire.id]).toBe(price);
     expect(written.commanders?.map((c) => c.id)).toEqual([hire.id]);
+    expect(written.hires, 'the signing log gets its row').toBe(1);
   });
 
   /**
-   * §A1: an officer needs a bed like anybody else, and the army is in the same pool now.
-   *
-   * The interesting half is the second assertion. A crew whose district is full of *soldiers* is a
-   * crew that cannot hire, which is the whole point of merging the two ceilings: it used to be
-   * possible to fill the barracks and the Quarters independently and never notice either.
-   */
-  /**
-   * §A1, as the board rewrote it: an officer needs no bed, so a packed district still hires.
+   * §A1, as the board rewrote it: an officer needs no bed, so a packed district still signs.
    *
    * This test asserted the opposite until the rule changed. It is kept, pointed the other way,
    * because "a full district can still sign somebody" is exactly the property that would quietly
    * regress if the housing gate were ever put back for a reason that felt good at the time.
    */
   it('signs somebody into a district with no beds left at all', () => {
-    const hire = recruit();
-    const sign = (base: Base) =>
-      hireRecruit(fakeRepos().repos, {
-        ...SIGNER,
-        base,
-        recruit: hire,
-        role: 'head_spy',
-        offerWage: wageAskedOf(hire),
-        now: NOW,
-      });
-
     const bare = makeBase();
-    expect(sign(bare).kind).toBe('hired');
+    expect(sign(fakeRepos().repos, bare, reserveFor(recruit())).kind).toBe('signed');
 
     // Razors are one body each, so this roster fills the pool to the brim. The crew is who you
     // are and the army is what you can field: filling one has nothing to say about the other.
     const packed = makeBase({
       army: { razors: districtPopulationCapacity(bare.buildings, noTerritoryEffects()) },
     });
-    expect(sign(packed).kind).toBe('hired');
+    expect(sign(fakeRepos().repos, packed, reserveFor(recruit())).kind).toBe('signed');
   });
 
   /**
@@ -448,61 +485,19 @@ describe('§H7/§H8: hiring out of the Bar', () => {
   it('commits the fee against the book and charges no caps at all', () => {
     const { repos, written } = fakeRepos();
     const base = makeBase();
-    const hire = recruit();
-    const result = hireRecruit(repos, {
-      ...SIGNER,
-      base,
-      recruit: hire,
-      role: 'head_spy',
-      offerWage: wageAskedOf(hire),
-      now: NOW,
-    });
-    expect(result.kind).toBe('hired');
-    if (result.kind !== 'hired') return;
+    const result = sign(repos, base, reserveFor(recruit()));
+    expect(result.kind).toBe('signed');
+    if (result.kind !== 'signed') return;
     expect(result.base.resources.caps).toBe(base.resources.caps);
     expect(written.caps, 'signing must not move caps').toBeUndefined();
     expect(result.payroll.committed).toBe(result.wage);
     expect(result.payroll.available).toBe(result.payroll.capacity - result.wage);
   });
 
-  /**
-   * §H7: the six hours a walkout buys, enforced at the *signing* and not only in the conversation.
-   *
-   * `/bar/negotiate` refuses to reopen a cold chair, which is what a player sees, and it is not
-   * what a request has to go through: signing is its own route. A tab left open across a walkout,
-   * or anything posting the floor price straight at `/bar/hire`, put the officer on the books
-   * during the standoff. The markup applied (`wageAskedOf` reads the same record); the clock did
-   * not, and the clock is the half that makes a walkout cost something today.
-   */
-  it('refuses a signing while they are still walked out on, and takes it once the clock runs out', () => {
-    const hire = recruit();
-    const sign = (standoff: { until: string; walkouts: number } | undefined) =>
-      hireRecruit(fakeRepos().repos, {
-        ...SIGNER,
-        base: makeBase(),
-        recruit: hire,
-        role: 'head_spy',
-        ...(standoff ? { standoff } : {}),
-        offerWage: wageAskedOf(hire, standoff),
-        now: NOW,
-      });
-
-    const cold = { until: new Date(NOW.getTime() + 60_000).toISOString(), walkouts: 1 };
-    expect(sign(cold)).toEqual({ kind: 'refused', reason: 'standoff' });
-
-    // The same record an hour after it expires: they will sit down, and at the marked-up price.
-    const expired = { until: new Date(NOW.getTime() - 60_000).toISOString(), walkouts: 1 };
-    const signed = sign(expired);
-    expect(signed.kind).toBe('hired');
-    if (signed.kind !== 'hired') return;
-    expect(signed.wage).toBeGreaterThan(wageAskedOf(hire));
-  });
-
   it('refuses a fee the payroll book will not stretch to', () => {
     const { repos, written } = fakeRepos();
     const base = makeBase();
-    const hire = recruit();
-    // Already spoken for, down to a few caps: the fee cannot fit whatever the crew has in the bank.
+    // Already spoken for, down to a few caps: the fee cannot fit whatever is in the bank.
     const full = {
       ...base,
       economy: {
@@ -510,34 +505,50 @@ describe('§H7/§H8: hiring out of the Bar', () => {
         payroll: { ...base.economy.payroll, commitments: { 'someone-else': PAYROLL_BASE - 1 } },
       },
     };
-    const result = hireRecruit(repos, {
-      ...SIGNER,
-      base: full,
-      recruit: hire,
-      role: 'head_spy',
-      offerWage: wageAskedOf(hire),
-      now: NOW,
+    expect(sign(repos, full, reserveFor(recruit()))).toEqual({
+      kind: 'refused',
+      reason: 'no_payroll',
     });
-    expect(result).toEqual({ kind: 'refused', reason: 'no_payroll' });
     expect(written.commanders).toBeUndefined();
+  });
+
+  it('holds §H8: 2 slots at level 1, +1 per level', () => {
+    expect(playerLevelGrants(1).recruitSlots).toBe(2);
+    expect(playerLevelGrants(2).recruitSlots).toBe(3);
+
+    const full = makeBase({
+      commanders: [createCommander('a', 'A', 'scout', {}), createCommander('b', 'B', 'trader', {})],
+    });
+    expect(sign(fakeRepos().repos, full, reserveFor(recruit()))).toEqual({
+      kind: 'refused',
+      reason: 'no_slots',
+    });
+
+    // The same crew one level up has room, because §H8 is read off W6's grant table.
+    expect(sign(fakeRepos().repos, { ...full, level: 2 }, reserveFor(recruit())).kind).toBe(
+      'signed',
+    );
+  });
+
+  it('will not sign the same person twice', () => {
+    const hire = recruit();
+    const already = makeBase({
+      commanders: [createCommander(hire.id, hire.name, 'scout', {})],
+    });
+    expect(sign(fakeRepos().repos, already, reserveFor(hire))).toEqual({
+      kind: 'refused',
+      reason: 'already_hired',
+    });
   });
 
   /**
    * The other end of the contract, and the only place caps move. Committing is free so a player
-   * will sign somebody; walking it back is five weeks so they will think about it first.
+   * will bid; walking it back is five weeks so they will think about it first.
    */
   it('frees the slice when an officer is let go, and charges five weeks of it', () => {
     const { repos } = fakeRepos();
-    const hired = hireRecruit(repos, {
-      ...SIGNER,
-      base: makeBase(),
-      recruit: recruit(),
-      role: 'head_spy',
-      offerWage: wageAskedOf(recruit()),
-      now: NOW,
-    });
-    expect(hired.kind).toBe('hired');
-    if (hired.kind !== 'hired') return;
+    const hired = sign(repos, makeBase(), reserveFor(recruit()));
+    if (hired.kind !== 'signed') throw new Error('expected a signing');
 
     const released = releaseOfficer(repos, hired.base, hired.officer.id);
     expect(released.kind).toBe('released');
@@ -550,15 +561,8 @@ describe('§H7/§H8: hiring out of the Bar', () => {
 
   it('refuses to let somebody go the crew cannot pay off, and 404s a stranger', () => {
     const { repos } = fakeRepos();
-    const hired = hireRecruit(repos, {
-      ...SIGNER,
-      base: makeBase(),
-      recruit: recruit(),
-      role: 'head_spy',
-      offerWage: wageAskedOf(recruit()),
-      now: NOW,
-    });
-    if (hired.kind !== 'hired') throw new Error('expected a hire');
+    const hired = sign(repos, makeBase(), reserveFor(recruit()));
+    if (hired.kind !== 'signed') throw new Error('expected a signing');
 
     const broke = { ...hired.base, resources: { ...hired.base.resources, caps: 0 } };
     expect(releaseOfficer(repos, broke, hired.officer.id)).toEqual({
@@ -570,332 +574,250 @@ describe('§H7/§H8: hiring out of the Bar', () => {
       reason: 'not_on_the_books',
     });
   });
-
-  it('counters a lowball instead of signing or erroring (§H7)', () => {
-    const { repos, written } = fakeRepos();
-    const base = makeBase();
-    const hire = recruit();
-    const result = hireRecruit(repos, {
-      ...SIGNER,
-      base,
-      recruit: hire,
-      role: 'head_spy',
-      offerWage: 1,
-      now: NOW,
-    });
-    expect(result.kind).toBe('countered');
-    if (result.kind !== 'countered') return;
-    expect(result.wage).toBeGreaterThanOrEqual(reservationWage(wageAskedOf(hire)));
-    expect(written.commanders, 'a counter must not hire anybody').toBeUndefined();
-    expect(written.caps, 'a counter must not move caps').toBeUndefined();
-  });
-
-  it('holds §H8: 2 slots at level 1, +1 per level', () => {
-    expect(playerLevelGrants(1).recruitSlots).toBe(2);
-    expect(playerLevelGrants(2).recruitSlots).toBe(3);
-
-    const full = makeBase({
-      commanders: [createCommander('a', 'A', 'scout', {}), createCommander('b', 'B', 'trader', {})],
-    });
-    expect(
-      hireRecruit(fakeRepos().repos, {
-        ...SIGNER,
-        base: full,
-        recruit: recruit(),
-        role: 'head_spy',
-        offerWage: 500,
-        now: NOW,
-      }),
-    ).toEqual({ kind: 'refused', reason: 'no_slots' });
-
-    // The same crew one level up has room, because §H8 is read off W6's grant table.
-    const levelled = { ...full, level: 2 };
-    expect(
-      hireRecruit(fakeRepos().repos, {
-        ...SIGNER,
-        base: levelled,
-        recruit: recruit(),
-        role: 'head_spy',
-        offerWage: wageAskedOf(recruit()),
-        now: NOW,
-      }).kind,
-    ).toBe('hired');
-  });
-
-  it('holds §C3: one officer per role', () => {
-    const taken = makeBase({
-      commanders: [createCommander('a', 'A', 'head_spy', {})],
-    });
-    expect(
-      hireRecruit(fakeRepos().repos, {
-        ...SIGNER,
-        base: taken,
-        recruit: recruit(),
-        role: 'head_spy',
-        offerWage: 500,
-        now: NOW,
-      }),
-    ).toEqual({ kind: 'refused', reason: 'role_taken' });
-  });
-
-  it('will not hire the same person twice', () => {
-    const hire = recruit();
-    const already = makeBase({
-      commanders: [createCommander(hire.id, hire.name, 'scout', {})],
-    });
-    expect(
-      hireRecruit(fakeRepos().repos, {
-        ...SIGNER,
-        base: already,
-        recruit: hire,
-        role: 'head_spy',
-        offerWage: 500,
-        now: NOW,
-      }),
-    ).toEqual({ kind: 'refused', reason: 'already_hired' });
-  });
 });
 
-describe('the Bar over HTTP', () => {
-  it('reports slots, crew standing and an empty roster of officers to a fresh player', async () => {
+describe('§H7a: bidding at the Bar', () => {
+  it('opens a table at the reserve, and the whole city sees the bid', async () => {
     const { app } = await makeApp();
-    const bar = await readBar(app, await makePlayer(app, 'fresh_operator'));
+    const one = await makePlayer(app, 'operator_one');
+    const two = await makePlayer(app, 'operator_two');
 
-    expect(bar.slotsUsed).toBe(0);
-    expect(bar.slotsTotal).toBe(playerLevelGrants(1).recruitSlots);
-    expect(bar.officers).toEqual([]);
-    expect(bar.filledRoles).toEqual([]);
-    expect(bar.notoriety).toBe(0);
-    expect(bar.level).toBe(1);
-    expect(bar.infamy).toBe(0);
-    expect(bar.payroll.capacity).toBeGreaterThan(0);
-    expect(bar.payroll.committed).toBe(0);
+    const bar = await readBar(app, one);
+    const { auction } = openTable(bar);
+    expect(auction.leading, 'an untouched table has no leader').toBeNull();
+    expect(auction.nextBid, 'and it opens at the reserve').toBe(auction.reserve);
+    expect(bar.auctionsUsed).toBe(0);
+    expect(bar.auctionsAllowed).toBe(MAX_OPEN_AUCTIONS);
+
+    const placed = await bid(app, one, auction.recruitId, auction.reserve);
+    expect(placed.statusCode, placed.body.slice(0, 300)).toBe(200);
+    const mine = placed.json<BidResponse>();
+    expect(mine.auction.leading).toMatchObject({
+      username: one.username,
+      amount: auction.reserve,
+      yours: true,
+    });
+    expect(mine.auction.yourBid).toBe(auction.reserve);
+    expect(mine.auction.bidders).toBe(1);
+    expect(mine.auctionsUsed).toBe(1);
+
+    // The other side of the room: the same bid, by name, and not marked as theirs.
+    const theirs = await readBar(app, two);
+    const seen = theirs.auctions.find((entry) => entry.recruitId === auction.recruitId);
+    expect(seen?.leading).toMatchObject({ username: one.username, yours: false });
+    expect(seen?.bids).toHaveLength(1);
+    expect(seen?.bidders).toBe(1);
+    expect(seen?.yourBid, "nobody else's bid is ever mine").toBeNull();
+    expect(seen?.nextBid).toBeGreaterThan(auction.reserve);
   });
 
-  it('prices only the recruits who are interested (§H7)', async () => {
+  it('refuses a bid under the increment, and says what it would take', async () => {
     const { app } = await makeApp();
-    const bar = await readBar(app, await makePlayer(app, 'pricing_operator'));
-    for (const recruit of bar.recruits) {
-      expect(recruit.askingWage === null).toBe(!recruit.assessment.interested);
-      if (recruit.askingWage !== null) expect(recruit.askingWage).toBeGreaterThan(0);
-    }
-    expect(bar.recruits.some((r) => r.askingWage !== null)).toBe(true);
+    const one = await makePlayer(app, 'increment_one');
+    const two = await makePlayer(app, 'increment_two');
+
+    const { auction } = openTable(await readBar(app, one));
+    expect((await bid(app, one, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    const table = (await readBar(app, two)).auctions.find(
+      (entry) => entry.recruitId === auction.recruitId,
+    );
+    if (!table) throw new Error('the table went missing');
+    // Matching the leader is not beating them, and neither is anything under the step.
+    const short = await bid(app, two, auction.recruitId, table.nextBid - 1);
+    expect(short.statusCode).toBe(409);
+    expect(errorOf(short.body).code).toBe('BID_REFUSED');
+    expect(errorOf(short.body).message).toContain(String(table.nextBid));
+
+    const enough = await bid(app, two, auction.recruitId, table.nextBid);
+    expect(enough.statusCode, enough.body.slice(0, 300)).toBe(200);
+    expect(enough.json<BidResponse>().auction.leading?.username).toBe(two.username);
   });
 
-  it('quotes the payroll step on the signing at the price the crew will actually pay', async () => {
+  /**
+   * The floor, at the exact cap either side of it.
+   *
+   * The test above measures the *increment* against a leader; this one measures the reserve on a
+   * table nobody has opened, which is the other boundary and the one a first bid actually hits.
+   */
+  it('takes a first bid at exactly the reserve, and refuses one cap under it', async () => {
     const { app } = await makeApp();
-    const token = await makePlayer(app, 'discount_operator');
-    const me = await app.inject({
-      method: 'GET',
-      url: '/api/me',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const base = me.json<{ base: Base }>().base;
-    // Somebody already on the books whose perk cuts the step price: what `GET /bar` and the
-    // payroll route both apply, and what the signing response used to leave out.
-    app.repos.bases.updateCommanders(base.id, [
-      // On the bench: a perk is something a person brought, and it counts from any chair or none.
-      createCommander('c-banker', 'Vell', null, {}, ['bank_contact']),
-    ]);
+    const one = await makePlayer(app, 'floor_one');
+    const two = await makePlayer(app, 'floor_two');
 
-    const bar = await readBar(app, token);
-    const undiscounted = ledgerFor(base).nextStepCost;
-    expect(bar.payroll.nextStepCost, 'the read applies the discount').not.toBe(undiscounted);
+    const bar = await readBar(app, one);
+    const tables = openTables(bar);
+    const [first, second] = tables;
+    if (!first || !second)
+      throw new Error('fixture: the room needs two tables this crew can sit at');
 
-    const target = bar.recruits.find((r) => r.assessment.interested && r.askingWage !== null);
-    if (!target?.askingWage) throw new Error('expected an interested recruit');
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
-    });
-    expect(res.statusCode).toBe(200);
-    const hired = res.json<{ accepted: boolean; payroll: { nextStepCost: number } }>();
-    expect(hired.accepted).toBe(true);
-    // The same figure the read shows, not the one a crew with no banker would be quoted.
-    expect(hired.payroll.nextStepCost).toBe(bar.payroll.nextStepCost);
+    const under = await bid(app, one, first.recruitId, first.reserve - 1);
+    expect(under.statusCode).toBe(409);
+    expect(errorOf(under.body).code).toBe('BID_REFUSED');
+    expect(errorOf(under.body).message).toContain(String(first.reserve));
+    // Nothing was banked, so the table is still untouched and still counts against no cap.
+    const untouched = (await readBar(app, two)).auctions.find(
+      (entry) => entry.recruitId === first.recruitId,
+    );
+    expect(untouched?.leading).toBeNull();
+    expect(untouched?.bidders).toBe(0);
+    expect((await readBar(app, one)).auctionsUsed, 'a refused bid is not a table').toBe(0);
+
+    // Exactly the reserve stands, on a table with the same shape.
+    const at = await bid(app, one, second.recruitId, second.reserve);
+    expect(at.statusCode, at.body.slice(0, 300)).toBe(200);
+    expect(at.json<BidResponse>().auction.leading?.amount).toBe(second.reserve);
   });
 
-  it('seats one more once Succession Planning is finished', async () => {
+  /**
+   * A sealed value **equal** to the leading open bid.
+   *
+   * `sealBid`'s floor is the highest of the reserve, the crew's own open bid and the leader's, and
+   * it is a floor rather than a step: matching the leader is a legal final, because at the close a
+   * tie is decided by a coin hashed off the auction (§H7a) rather than by who was there first. One
+   * under it cannot win and is refused before the player spends the evening believing in it.
+   */
+  it('takes a sealed value level with the leader, and refuses one under it', async () => {
     const { app } = await makeApp();
-    const token = await makePlayer(app, 'planning_operator');
-    const me = await app.inject({
-      method: 'GET',
-      url: '/api/me',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const base = me.json<{ base: Base }>().base;
-    const before = (await readBar(app, token)).slotsTotal;
-    expect(before).toBe(playerLevelGrants(base.level).recruitSlots);
+    const leader = await makePlayer(app, 'level_leader');
+    const sniper = await makePlayer(app, 'level_sniper');
 
-    // The Right Hand's ninth rung: two deep in every chair, including one more chair.
-    app.repos.bases.updateResearch(base.id, {
-      ...base.research,
-      technologies: [...base.research.technologies, 'tech_succession_planning'],
-    });
-    expect((await readBar(app, token)).slotsTotal).toBe(before + 1);
+    const { auction, name } = openTable(await readBar(app, leader));
+    expect((await bid(app, leader, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    vi.setSystemTime(SEALED);
+    const short = await seal(app, sniper, auction.recruitId, auction.reserve - 1);
+    expect(short.statusCode).toBe(409);
+    expect(errorOf(short.body).message).toContain(String(auction.reserve));
+
+    const level = await seal(app, sniper, auction.recruitId, auction.reserve);
+    expect(level.statusCode, level.body.slice(0, 300)).toBe(200);
+    expect(level.json<BidResponse>().auction.yourSealed).toBe(auction.reserve);
+
+    // And the close: two finals at the same number, exactly one contract, and the coin decides.
+    vi.setSystemTime(AFTER);
+    const fromLeader = await readBar(app, leader);
+    const fromSniper = await readBar(app, sniper);
+    expect(fromLeader.slotsUsed + fromSniper.slotsUsed, 'a tie is not two contracts').toBe(1);
+    const signed = fromLeader.slotsUsed === 1 ? fromLeader : fromSniper;
+    expect(signed.officers[0]?.commander.name).toBe(name);
+    // Whoever it was paid the number they both put down, not a step above it.
+    expect(signed.results[0]).toMatchObject({ outcome: 'won', price: auction.reserve });
   });
 
-  it('hires end to end and shows the officer back on the next read', async () => {
+  it('refuses the leader raising their own bid', async () => {
     const { app } = await makeApp();
-    const token = await makePlayer(app, 'hiring_operator');
-    const bar = await readBar(app, token);
-    const target = bar.recruits.find((r) => r.assessment.interested && r.askingWage !== null);
-    if (!target?.askingWage) throw new Error('expected an interested recruit');
+    const one = await makePlayer(app, 'lonely_bidder');
+    const { auction } = openTable(await readBar(app, one));
+    expect((await bid(app, one, auction.recruitId, auction.reserve)).statusCode).toBe(200);
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
-    });
-    expect(res.statusCode).toBe(200);
-    const hired = res.json<{
-      accepted: boolean;
-      wage: number;
-      payroll: { committed: number; available: number; capacity: number };
-    }>();
-    expect(hired.accepted).toBe(true);
-    // The book, not the stockpile: the fee is spoken for and nothing was charged.
-    expect(hired.payroll.committed).toBe(hired.wage);
-    expect(hired.payroll.available).toBe(hired.payroll.capacity - hired.wage);
-
-    const after = await readBar(app, token);
-    expect(after.slotsUsed).toBe(1);
-    expect(after.filledRoles).toEqual(['head_spy']);
-    expect(after.officers[0]?.commander.name).toBe(target.name);
-    expect(after.officers[0]?.weeklyWage).toBe(hired.wage);
-    // Nothing was charged: the book is a ceiling, not a bill.
-    expect(after.caps).toBe(bar.caps);
-    expect(after.payroll.committed).toBe(hired.wage);
-
-    // …and they are in the crew, which is the screen a player goes to next.
-    //
-    // Worth its own read rather than trusting the Bar's: `/bar` projects the officers it just
-    // wrote, so it would report a signing that went nowhere. The Crew screen is a different route
-    // over a different projection, and "I agreed a wage and they never turned up" is the shape of
-    // bug this catches.
-    const crew = await app.inject({
-      method: 'GET',
-      url: '/api/crew',
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(crew.statusCode).toBe(200);
-    const roster = crew.json<CrewResponse>();
-    expect(roster.officers.map((one) => one.name)).toContain(target.name);
-    expect(roster.officers.find((one) => one.name === target.name)?.role).toBe('head_spy');
-
-    // §H2b. They have left the room, and somebody else is in their seat. Both halves matter: a
-    // roster that merely greyed them out would still be a private catalogue, and one that emptied
-    // the seat would shrink the shared room every time anybody hired.
-    expect(after.recruits.map((r) => r.id)).not.toContain(target.id);
-    expect(after.recruits).toHaveLength(BAR_ROSTER_SIZE);
-    const seat = bar.recruits.findIndex((r) => r.id === target.id);
-    expect(after.recruits[seat]?.name).not.toBe(target.name);
-    // And they left for everybody, not just for the crew that signed them.
-    const bystander = await readBar(app, await makePlayer(app, 'bar_bystander'));
-    expect(bystander.recruits.map((r) => r.id)).not.toContain(target.id);
-    expect(bystander.recruits[seat]?.id).toBe(after.recruits[seat]?.id);
-  });
-
-  it('§H2b: allows one hire a day and refuses the second', async () => {
-    const { app } = await makeApp();
-    const token = await makePlayer(app, 'eager_operator');
-    const bar = await readBar(app, token);
-    expect(bar.hiresLeftToday).toBe(BAR_HIRES_PER_DAY);
-
-    const [first, second] = bar.recruits.filter((r) => r.askingWage !== null);
-    if (!first?.askingWage || !second?.askingWage) throw new Error('need two interested recruits');
-    const hire = (recruitId: string, offerWage: number, role: string) =>
-      app.inject({
-        method: 'POST',
-        url: '/api/bar/hire',
-        headers: { authorization: `Bearer ${token}` },
-        payload: { recruitId, role, offerWage },
-      });
-
-    expect((await hire(first.id, first.askingWage, 'head_spy')).statusCode).toBe(200);
-    expect((await readBar(app, token)).hiresLeftToday).toBe(0);
-
-    // A *different* role, so this can only be the daily limit and not §C3.
-    const again = await hire(second.id, second.askingWage, 'trader');
+    const again = await bid(app, one, auction.recruitId, auction.reserve * 3);
     expect(again.statusCode).toBe(409);
-    expect(again.json<{ error: { code: string } }>().error.code).toBe('DAILY_HIRE_LIMIT');
+    expect(errorOf(again.body).code).toBe('BID_REFUSED');
+    expect(errorOf(again.body).message).toContain('already the highest');
   });
 
-  it('rejects a hire into a role that is already filled', async () => {
+  it('holds the crew to two tables at once, and to three at level 40', async () => {
     const { app } = await makeApp();
-    const token = await makePlayer(app, 'double_operator');
-    const bar = await readBar(app, token);
-    const [first, second] = bar.recruits.filter((r) => r.askingWage !== null);
-    if (!first?.askingWage || !second?.askingWage) throw new Error('need two interested recruits');
+    const player = await makePlayer(app, 'busy_bidder');
 
-    const hire = (recruitId: string, offerWage: number) =>
-      app.inject({
-        method: 'POST',
-        url: '/api/bar/hire',
-        headers: { authorization: `Bearer ${token}` },
-        payload: { recruitId, role: 'head_spy', offerWage },
-      });
+    const tables = openTables(await readBar(app, player));
+    expect(tables.length).toBeGreaterThan(MAX_OPEN_AUCTIONS);
+    for (let table = 0; table < MAX_OPEN_AUCTIONS; table += 1) {
+      const auction = tables[table];
+      if (!auction) throw new Error('fixture: not enough tables');
+      expect((await bid(app, player, auction.recruitId, auction.nextBid)).statusCode).toBe(200);
+    }
 
-    expect((await hire(first.id, first.askingWage)).statusCode).toBe(200);
-    const clash = await hire(second.id, second.askingWage);
-    expect(clash.statusCode).toBe(409);
-    expect(clash.json<{ error: { code: string } }>().error.code).toBe('ROLE_TAKEN');
+    const third = tables[MAX_OPEN_AUCTIONS];
+    if (!third) throw new Error('fixture: not enough tables');
+    const refused = await bid(app, player, third.recruitId, third.nextBid);
+    expect(refused.statusCode).toBe(409);
+    expect(errorOf(refused.body).code).toBe('TOO_MANY_AUCTIONS');
+    expect(errorOf(refused.body).message).toContain('every table you can hold');
+
+    // §I3: the level-40 milestone used to buy a second signing a day. It buys a third table now.
+    const base = app.repos.bases.findById(player.baseId);
+    if (!base) throw new Error('no base');
+    app.repos.bases.updateProgression(base.id, 40, base.progression);
+    // A book wide enough that the level-40 room's prices cannot be what refuses the third bid.
+    app.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      payroll: { ...base.economy.payroll, purchasedSteps: 40 },
+    });
+
+    const grown = await readBar(app, player);
+    expect(grown.auctionsAllowed).toBe(maxOpenAuctionsFor(40));
+    expect(grown.auctionsUsed).toBe(MAX_OPEN_AUCTIONS);
+    const spare = openTables(grown).find(
+      (auction) =>
+        !tables.slice(0, MAX_OPEN_AUCTIONS).some((t) => t.recruitId === auction.recruitId),
+    );
+    if (!spare) throw new Error('fixture: no fourth table');
+    const allowed = await bid(app, player, spare.recruitId, spare.nextBid);
+    expect(allowed.statusCode, allowed.body.slice(0, 300)).toBe(200);
+  });
+
+  it('takes no open bid once the table seals, and no lock before it does', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'late_bidder');
+    const { auction } = openTable(await readBar(app, player));
+
+    // Before the last half hour there is nothing to lock: the open bid is the only move.
+    const early = await seal(app, player, auction.recruitId, auction.reserve);
+    expect(early.statusCode).toBe(409);
+    expect(errorOf(early.body).message).toContain('Nothing is sealed yet');
+
+    vi.setSystemTime(SEALED);
+    const late = await bid(app, player, auction.recruitId, auction.reserve);
+    expect(late.statusCode).toBe(409);
+    expect(errorOf(late.body).code).toBe('BID_REFUSED');
+    expect(errorOf(late.body).message).toBe('The table is sealed. Lock a final value instead');
+    expect((await readBar(app, player)).auctions[0]?.phase).toBe('sealed');
+  });
+
+  it('takes one sealed value, refuses a second, and refuses one that cannot win', async () => {
+    const { app } = await makeApp();
+    const one = await makePlayer(app, 'sealed_one');
+    const two = await makePlayer(app, 'sealed_two');
+    const { auction } = openTable(await readBar(app, one));
+    expect((await bid(app, one, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    vi.setSystemTime(SEALED);
+    // A value under the leading open bid cannot win, so it is refused rather than banked.
+    const doomed = await seal(app, two, auction.recruitId, auction.reserve - 1);
+    expect(doomed.statusCode).toBe(409);
+    expect(errorOf(doomed.body).message).toContain(String(auction.reserve));
+
+    // A crew with no open bid may still lock one: that is what the sealed phase is for.
+    const locked = await seal(app, two, auction.recruitId, auction.reserve + 20);
+    expect(locked.statusCode, locked.body.slice(0, 300)).toBe(200);
+    expect(locked.json<BidResponse>().auction.yourSealed).toBe(auction.reserve + 20);
+    expect(locked.json<BidResponse>().auctionsUsed, 'a lock is a table too').toBe(1);
+
+    const twice = await seal(app, two, auction.recruitId, auction.reserve + 200);
+    expect(twice.statusCode).toBe(409);
+    expect(errorOf(twice.body).message).toContain('locked your final value');
+
+    // And nobody else can see it. The leader still reads an open table with one bid on it.
+    const theirs = (await readBar(app, one)).auctions.find(
+      (entry) => entry.recruitId === auction.recruitId,
+    );
+    expect(theirs?.yourSealed).toBeNull();
+    expect(theirs?.bids).toHaveLength(1);
+    expect(theirs?.bidders, 'the count is the one hint that somebody is there').toBe(2);
   });
 
   it('404s a recruit who is not at the Bar today (§H2)', async () => {
     const { app } = await makeApp();
-    const token = await makePlayer(app, 'stale_operator');
-    const yesterday = findBarRecruit('1999-01-01', 'bar-1999-01-01-0-0');
-    expect(yesterday, 'the helper only finds a recruit on its own day').toBeDefined();
+    const player = await makePlayer(app, 'stale_operator');
+    const yesterday = recruitId('1999-01-01', 0);
+    expect(findBarRecruit('1999-01-01', yesterday), 'the id is well formed').toBeDefined();
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { recruitId: 'bar-1999-01-01-0-0', role: 'head_spy', offerWage: 50 },
-    });
-    expect(res.statusCode).toBe(404);
+    expect((await bid(app, player, yesterday, 50)).statusCode).toBe(404);
   });
 
-  it('§H2b: 404s a recruit whose seat has already turned over', async () => {
-    const { app } = await makeApp();
-    const quick = await makePlayer(app, 'quick_operator');
-    const slow = await makePlayer(app, 'slow_operator');
-
-    // Both tabs are looking at the same room. One of them signs first.
-    const staleView = await readBar(app, slow);
-    const target = (await readBar(app, quick)).recruits.find(
-      (r) => r.assessment.interested && r.askingWage !== null,
-    );
-    if (!target?.askingWage) throw new Error('expected an interested recruit');
-    expect(staleView.recruits.map((r) => r.id)).toContain(target.id);
-
-    expect(
-      (
-        await app.inject({
-          method: 'POST',
-          url: '/api/bar/hire',
-          headers: { authorization: `Bearer ${quick}` },
-          payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
-        })
-      ).statusCode,
-    ).toBe(200);
-
-    // The stale tab now holds an id naming a generation that seat has moved past. It must not
-    // sign the replacement by accident: the generation is in the id precisely so it cannot.
-    const stale = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: { authorization: `Bearer ${slow}` },
-      payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
-    });
-    expect(stale.statusCode).toBe(404);
-  });
-
-  it('needs a base: recruiting from nowhere is a 409, not a crash', async () => {
+  it('needs a base: bidding from nowhere is a 409, not a crash', async () => {
     const { app } = await makeApp();
     const register = await app.inject({
       method: 'POST',
@@ -909,12 +831,298 @@ describe('the Bar over HTTP', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(409);
-    expect(res.json<{ error: { code: string } }>().error.code).toBe('NO_BASE');
+    expect(errorOf(res.body).code).toBe('NO_BASE');
   });
 
   it('is behind authentication', async () => {
     const { app } = await makeApp();
     expect((await app.inject({ method: 'GET', url: '/api/bar' })).statusCode).toBe(401);
+  });
+
+  it('reports slots, crew standing and an empty roster of officers to a fresh player', async () => {
+    const { app } = await makeApp();
+    const bar = await readBar(app, await makePlayer(app, 'fresh_operator'));
+
+    expect(bar.slotsUsed).toBe(0);
+    expect(bar.slotsTotal).toBe(playerLevelGrants(1).recruitSlots);
+    expect(bar.officers).toEqual([]);
+    expect(bar.filledRoles).toEqual([]);
+    expect(bar.notoriety).toBe(0);
+    expect(bar.level).toBe(1);
+    expect(bar.infamy).toBe(0);
+    expect(bar.payroll.capacity).toBeGreaterThan(0);
+    expect(bar.payroll.committed).toBe(0);
+    expect(bar.results, 'nobody bid yesterday').toEqual([]);
+    // One table per recruit, in roster order, so a card and its table are the same index.
+    expect(bar.auctions.map((auction) => auction.recruitId)).toEqual(
+      bar.recruits.map((recruit) => recruit.id),
+    );
+  });
+
+  it('prices only the recruits who are interested (§H7)', async () => {
+    const { app } = await makeApp();
+    const bar = await readBar(app, await makePlayer(app, 'pricing_operator'));
+    for (const recruit of bar.recruits) {
+      expect(recruit.askingWage === null).toBe(!recruit.assessment.interested);
+      if (recruit.askingWage !== null) expect(recruit.askingWage).toBeGreaterThan(0);
+    }
+    expect(bar.recruits.some((r) => r.askingWage !== null)).toBe(true);
+  });
+
+  it('seats one more once Succession Planning is finished', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'planning_operator');
+    const base = app.repos.bases.findById(player.baseId);
+    if (!base) throw new Error('no base');
+    const before = (await readBar(app, player)).slotsTotal;
+    expect(before).toBe(playerLevelGrants(base.level).recruitSlots);
+
+    // The Right Hand's ninth rung: two deep in every chair, including one more chair.
+    app.repos.bases.updateResearch(base.id, {
+      ...base.research,
+      technologies: [...base.research.technologies, 'tech_succession_planning'],
+    });
+    expect((await readBar(app, player)).slotsTotal).toBe(before + 1);
+  });
+
+  /** §H7a: nobody leaves the room before midnight, whatever anybody has bid. */
+  it('leaves the room exactly as it was when somebody bids in it', async () => {
+    const { app } = await makeApp();
+    const one = await makePlayer(app, 'room_one');
+    const two = await makePlayer(app, 'room_two');
+    const before = await readBar(app, one);
+    const { auction } = openTable(before);
+    expect((await bid(app, one, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    const after = await readBar(app, one);
+    const bystander = await readBar(app, two);
+    expect(after.recruits.map((r) => r.id)).toEqual(before.recruits.map((r) => r.id));
+    expect(bystander.recruits.map((r) => r.id)).toEqual(before.recruits.map((r) => r.id));
+    expect(after.recruits).toHaveLength(BAR_ROSTER_SIZE);
+  });
+
+  it('rotates the whole room at midnight', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'midnight_operator');
+    const today = await readBar(app, player);
+
+    vi.setSystemTime(AFTER);
+    const tomorrow = await readBar(app, player);
+    expect(tomorrow.day).not.toBe(today.day);
+    const yesterdays = new Set(today.recruits.map((r) => r.id));
+    expect(tomorrow.recruits.some((r) => yesterdays.has(r.id))).toBe(false);
+  });
+});
+
+describe('§H7a: the close', () => {
+  /** Reads a player's bell. */
+  const bell = (app: FastifyInstance, player: Player): Notification[] =>
+    app.repos.social.notifications(player.userId, 50);
+
+  it('signs the highest final onto the bench, and tells everybody at the table', async () => {
+    const { app } = await makeApp();
+    const one = await makePlayer(app, 'closing_one');
+    const two = await makePlayer(app, 'closing_two');
+
+    const bar = await readBar(app, one);
+    const { auction, name } = openTable(bar);
+    expect((await bid(app, one, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    // The snipe: no open bid at all, one locked value in the last half hour.
+    vi.setSystemTime(SEALED);
+    const price = auction.reserve + 25;
+    expect((await seal(app, two, auction.recruitId, price)).statusCode).toBe(200);
+
+    // What the winner's book will be charged: the price after their own negotiators (§H7). Read
+    // off the crew as it stands *before* the close, which is the fold `signRecruit` reads.
+    const crew = app.repos.bases.findById(two.baseId);
+    if (!crew) throw new Error('no base');
+    const charged = committedWage(price, crewEffectsFor(app.repos, crew).wageDiscountPercent);
+
+    // The loser opens the Bar first, so the close is not run by the crew it pays.
+    vi.setSystemTime(AFTER);
+    const loser = await readBar(app, one);
+    const winner = await readBar(app, two);
+
+    expect(winner.slotsUsed).toBe(1);
+    expect(winner.officers[0]?.commander.name).toBe(name);
+    expect(winner.officers[0]?.commander.role, 'the close signs to the bench').toBeNull();
+    expect(winner.officers[0]?.weeklyWage).toBe(charged);
+    expect(winner.payroll.committed).toBe(charged);
+    expect(winner.filledRoles).toEqual([]);
+    expect(loser.slotsUsed).toBe(0);
+
+    // …and they are in the crew, which is the screen a player goes to next.
+    const roster = await app.inject({
+      method: 'GET',
+      url: '/api/crew',
+      headers: { authorization: `Bearer ${two.token}` },
+    });
+    expect(roster.json<CrewResponse>().officers.map((entry) => entry.name)).toContain(name);
+
+    // §I1: signing somebody pays, even when the decision was made hours earlier at a table.
+    const paid = app.repos.bases.findById(two.baseId);
+    expect(paid?.progression.xpIntoLevel).toBeGreaterThan(0);
+
+    // Both of them are told, and told different things.
+    const won = bell(app, two).find((entry) => entry.kind === 'officer_hired');
+    expect(won?.title).toBe(`${name} signed with you at ${price} a week`);
+    const outbid = bell(app, one).find((entry) => entry.kind === 'bar_outbid');
+    expect(outbid?.title).toBe(`${name} went to ${two.username} for ${price}`);
+
+    // And the results panel says the same thing from each side.
+    expect(loser.results).toEqual([
+      {
+        day: bar.day,
+        recruitId: auction.recruitId,
+        name,
+        outcome: 'lost',
+        price,
+        winner: two.username,
+        yourFinal: auction.reserve,
+      },
+    ]);
+    expect(winner.results[0]).toMatchObject({ outcome: 'won', price, winner: two.username });
+
+    // The table is settled once. A second read must not sign anybody a second time.
+    expect((await readBar(app, two)).slotsUsed).toBe(1);
+  });
+
+  it('passes a winner with no chair down to the next final', async () => {
+    const { app } = await makeApp();
+    const one = await makePlayer(app, 'chairless');
+    const two = await makePlayer(app, 'patient');
+
+    const bar = await readBar(app, one);
+    const { auction, name } = openTable(bar);
+    expect((await bid(app, two, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+    const top = (await readBar(app, one)).auctions.find(
+      (entry) => entry.recruitId === auction.recruitId,
+    );
+    expect((await bid(app, one, auction.recruitId, top?.nextBid ?? 0)).statusCode).toBe(200);
+
+    // The highest bidder fills both chairs after bidding. The close has to notice.
+    const base = app.repos.bases.findById(one.baseId);
+    if (!base) throw new Error('no base');
+    app.repos.bases.updateCommanders(base.id, [
+      createCommander('sitting-1', 'Halvard', 'head_spy'),
+      createCommander('sitting-2', 'Vasso', 'lead_engineer'),
+    ]);
+
+    const runnerUp = app.repos.bases.findById(two.baseId);
+    if (!runnerUp) throw new Error('no base');
+    const charged = committedWage(
+      auction.reserve,
+      crewEffectsFor(app.repos, runnerUp).wageDiscountPercent,
+    );
+
+    vi.setSystemTime(AFTER);
+    const passed = await readBar(app, one);
+    const took = await readBar(app, two);
+
+    expect(took.officers.map((entry) => entry.commander.name)).toContain(name);
+    expect(took.officers.find((entry) => entry.commander.name === name)?.weeklyWage).toBe(charged);
+    expect(passed.officers.map((entry) => entry.commander.name)).not.toContain(name);
+    expect(passed.results[0]).toMatchObject({ outcome: 'passed', winner: two.username });
+    expect(took.results[0]).toMatchObject({ outcome: 'won' });
+  });
+
+  it('leaves a table nobody can take unsold, and does not re-roll the seat', async () => {
+    const { app } = await makeApp();
+    const one = await makePlayer(app, 'broke_one');
+    const two = await makePlayer(app, 'broke_two');
+
+    const bar = await readBar(app, one);
+    const { auction, name } = openTable(bar);
+    expect((await bid(app, two, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+    const top = (await readBar(app, one)).auctions.find(
+      (entry) => entry.recruitId === auction.recruitId,
+    );
+    expect((await bid(app, one, auction.recruitId, top?.nextBid ?? 0)).statusCode).toBe(200);
+
+    // Both crews fill every chair after bidding, so the ranking runs out of takers.
+    for (const player of [one, two]) {
+      const base = app.repos.bases.findById(player.baseId);
+      if (!base) throw new Error('no base');
+      app.repos.bases.updateCommanders(base.id, [
+        createCommander(`${player.username}-1`, 'Halvard', 'head_spy'),
+        createCommander(`${player.username}-2`, 'Vasso', 'lead_engineer'),
+      ]);
+    }
+
+    vi.setSystemTime(AFTER);
+    const first = await readBar(app, one);
+    const second = await readBar(app, two);
+
+    expect(first.officers.map((entry) => entry.commander.name)).not.toContain(name);
+    expect(second.officers.map((entry) => entry.commander.name)).not.toContain(name);
+    // The crew that led it hears that it went nowhere; the one behind them hears it went unsold.
+    expect(first.results[0]).toMatchObject({ outcome: 'passed', price: null, winner: null });
+    expect(second.results[0]).toMatchObject({ outcome: 'unsold', price: null, winner: null });
+    expect(bell(app, one)[0]?.title).toBe(`${name} went unsigned`);
+    // The room is whole: nobody was replaced, the day simply ended.
+    expect(second.recruits).toHaveLength(BAR_ROSTER_SIZE);
+    expect(second.recruits.map((entry) => entry.id)).not.toContain(auction.recruitId);
+  });
+});
+
+/**
+ * §H7a: a tie goes to a coin, and the coin is a hash rather than a draw.
+ *
+ * Driven against two databases built in opposite order on purpose. Whoever is first in the rows is
+ * the winner under any "first bid wins" rule, so a settle that quietly resolved ties by row order
+ * would hand the two runs two different crews. Everything else about the two worlds is identical:
+ * the day, the seat, the user ids and the two equal finals.
+ */
+describe('a tie at the close', () => {
+  const DAY = '2026-08-12';
+
+  function tiedWorld(order: readonly string[]): { winner: string | null; db: AppDatabase } {
+    const db = openDatabase(':memory:');
+    runMigrations(db);
+    const repos = createRepositories(db);
+    const recruit = barRoster(DAY)[0];
+    if (!recruit) throw new Error('empty roster');
+
+    for (const userId of ['user_a', 'user_b']) {
+      repos.users.insert({
+        id: userId,
+        username: userId,
+        passwordHash: 'x',
+        createdAt: NOW.toISOString(),
+      });
+      repos.bases.insert(makeBase({ id: `base-${userId}`, ownerId: userId }));
+    }
+    for (const userId of order) {
+      repos.bar.placeOpenBid({
+        day: DAY,
+        recruitId: recruit.id,
+        userId,
+        baseId: `base-${userId}`,
+        amount: reserveFor(recruit),
+        at: `${DAY}T09:00:00.000Z`,
+      });
+    }
+
+    settleBarAuctions(repos, NOW);
+    const [result] = repos.bar.results(DAY);
+    return { winner: result?.winnerUserId ?? null, db };
+  }
+
+  it('picks the same crew whichever of them bid first', () => {
+    const forwards = tiedWorld(['user_a', 'user_b']);
+    const backwards = tiedWorld(['user_b', 'user_a']);
+    try {
+      expect(forwards.winner, 'a tie still has to be won by somebody').not.toBeNull();
+      expect(backwards.winner).toBe(forwards.winner);
+      // And exactly one of them got them: a tie is not two contracts.
+      const held = (db: AppDatabase, userId: string) =>
+        createRepositories(db).bases.findByOwnerId(userId)?.commanders.length ?? 0;
+      expect(held(forwards.db, 'user_a') + held(forwards.db, 'user_b')).toBe(1);
+    } finally {
+      forwards.db.close();
+      backwards.db.close();
+    }
   });
 });
 
@@ -1025,27 +1233,28 @@ describe('0006_recruitment.sql', () => {
 /**
  * §H2a: the person on the card is the person you sign.
  *
- * The roster route generates the room at the city's average level (`barCalibre`), which is how a
- * mature city gets better people through the door. The hire and negotiate routes were resolving the
- * same id at level 0, so at a grown-up Bar the sheet on the card and the sheet on the contract were
- * two different people wearing one id. Nothing failed: both are legitimate recruits.
+ * The roster is generated at the city's average level (`barCalibre`), which is how a mature city
+ * gets better people through the door. The hire and negotiate routes used to resolve the same id at
+ * level 0, so at a grown-up Bar the sheet on the card and the sheet on the contract were two
+ * different people wearing one id. Nothing failed: both are legitimate recruits.
  */
 describe('§H2a: the Bar gets better as the city does', () => {
   /** Puts real levels on the map so `averageLevel()` is well above the calibre floor. */
   const growTheCity = (app: FastifyInstance, level: number) => {
     for (const summary of app.repos.bases.listSummaries()) {
-      const base = app.repos.bases.findById(summary.id)!;
+      const base = app.repos.bases.findById(summary.id);
+      if (!base) continue;
       app.repos.bases.updateProgression(base.id, level, base.progression);
     }
   };
 
   it('offers a stronger room once the city has levelled', async () => {
     const { app } = await makeApp();
-    const token = await makePlayer(app, 'young_city');
-    const before = await readBar(app, token);
+    const player = await makePlayer(app, 'young_city');
+    const before = await readBar(app, player);
 
     growTheCity(app, 30);
-    const after = await readBar(app, token);
+    const after = await readBar(app, player);
 
     const mean = (bar: { recruits: { attributes: Record<string, number> }[] }) =>
       bar.recruits.reduce(
@@ -1058,117 +1267,47 @@ describe('§H2a: the Bar gets better as the city does', () => {
   /**
    * The bug this exists for: the card and the contract must be the same sheet.
    *
-   * Asserted against the *hired officer's* attributes rather than against a second read of the
+   * Asserted against the *signed officer's* attributes rather than against a second read of the
    * roster, because that is the copy that ends up on the payroll for good.
    */
-  it('hires the recruit that was on the card, not a level-1 version of them', async () => {
+  it('signs the recruit that was on the card, not a level-1 version of them', async () => {
     const { app } = await makeApp();
-    const token = await makePlayer(app, 'mature_city');
+    const player = await makePlayer(app, 'mature_city');
     growTheCity(app, 30);
-
-    const bar = await readBar(app, token);
-    const target = bar.recruits.find((r) => r.assessment.interested && r.askingWage !== null);
-    if (!target?.askingWage) throw new Error('expected an interested recruit');
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { recruitId: target.id, role: 'head_spy', offerWage: target.askingWage },
+    const base = app.repos.bases.findById(player.baseId);
+    if (!base) throw new Error('no base');
+    // A level-30 room prices above a starting book, and this test is not about the book.
+    app.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      payroll: { ...base.economy.payroll, purchasedSteps: 40 },
     });
-    expect(res.statusCode).toBe(200);
 
-    const after = await readBar(app, token);
+    const bar = await readBar(app, player);
+    const target = bar.recruits.find((r) => r.assessment.interested);
+    const auction = bar.auctions.find((entry) => entry.recruitId === target?.id);
+    if (!target || !auction) throw new Error('expected an interested recruit');
+    expect((await bid(app, player, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    vi.setSystemTime(AFTER);
+    const after = await readBar(app, player);
     const signed = after.officers.find((officer) => officer.commander.name === target.name);
-    expect(signed, 'the hired officer should be on the roster').toBeDefined();
+    expect(signed, 'the won officer should be on the roster').toBeDefined();
     expect(signed?.commander.attributes).toEqual(target.attributes);
   });
 });
 
 /**
- * §C2: signing somebody with no chair in mind (board request).
+ * §H7a: the auction has one floor, and it is the city's. The contract is not.
  *
- * The Bar's whole pressure is that the room turns over at midnight, so a sheet you did not sign is
- * a sheet you will not see again. Before the bench that pressure was doubled by an unrelated one:
- * you had to have a chair free *and* have decided which, at the last step of a negotiation you had
- * already won. The bench separates the two decisions without softening the first.
+ * `wageDiscountPercent` is fed by four perks, two attributes and a technology. It cannot come off
+ * the asking price any more: two crews bidding against each other have to be bidding against the
+ * same number, or the same offer is legal for one of them and under the floor for the other, and
+ * the close has to choose which of two reserves the ranking is measured against.
+ *
+ * It comes off the **contract** instead, at the close, for the winner alone. Both halves are
+ * tested here: the card and the floor are the city's number, and the book entry is not.
  */
-describe('signing somebody to the bench', () => {
-  it('puts them on the books with no chair, and fills none', async () => {
-    const { app } = await makeApp();
-    const token = await makePlayer(app, 'bench_operator');
-    const bar = await readBar(app, token);
-    const target = bar.recruits.find((r) => r.assessment.interested && r.askingWage !== null);
-    if (!target?.askingWage) throw new Error('expected an interested recruit');
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { recruitId: target.id, role: null, offerWage: target.askingWage },
-    });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.json<{ accepted: boolean }>().accepted).toBe(true);
-
-    const after = await readBar(app, token);
-    // On the books and costing money, which is the half that makes the bench a real decision.
-    expect(after.slotsUsed).toBe(1);
-    expect(after.officers[0]?.commander.name).toBe(target.name);
-    expect(after.officers[0]?.commander.role).toBeNull();
-    // And holding no chair, so every one of the nineteen is still open to them.
-    expect(after.filledRoles).toEqual([]);
-  });
-
-  /**
-   * The bench is not a chair, so it cannot be occupied.
-   *
-   * `role_taken` is checked by comparing roles, and `null === null` is true: without the guard the
-   * second bench signing in a crew's life would be refused as "somebody already holds that
-   * position", which is both wrong and a strange thing to be told about a bench.
-   */
-  it('takes a second person onto it', async () => {
-    const { app } = await makeApp();
-    const token = await makePlayer(app, 'bench_twice');
-    const bar = await readBar(app, token);
-    const targets = bar.recruits
-      .filter((r) => r.assessment.interested && r.askingWage !== null)
-      .slice(0, 2);
-    if (targets.length < 2) throw new Error('expected two interested recruits');
-
-    for (const target of targets) {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/api/bar/hire',
-        headers: { authorization: `Bearer ${token}` },
-        payload: { recruitId: target.id, role: null, offerWage: target.askingWage },
-      });
-      // The daily limit is a separate rule and may stop the second one; what must never happen is
-      // a refusal that says the bench is taken.
-      if (res.statusCode !== 200) {
-        expect(res.json<{ error: { code: string } }>().error.code).not.toBe('ROLE_TAKEN');
-      }
-    }
-
-    const after = await readBar(app, token);
-    expect(after.filledRoles).toEqual([]);
-    expect(after.officers.every((entry) => entry.commander.role === null)).toBe(true);
-  });
-});
-
-/**
- * §H7: the negotiators the crew already employs.
- *
- * `wageDiscountPercent` is fed by four perks, two attributes and a technology, and until this was
- * wired it was read by nobody: `wageAskedOf` took a discount that all three of its call sites
- * declined to pass. A player could hire the Union Rep, read "everybody signs for less", and watch
- * every asking price in the game stay exactly where it was.
- *
- * The second test is the one that matters more. Three places quote this number, and if they ever
- * disagree the player is shown one price and charged another, which the note on `ledgerFor` calls
- * the worst kind of pricing bug because it looks like a refund.
- */
-describe('what the crew takes off an asking wage (§H7)', () => {
+describe('what a table opens at (§H7)', () => {
   function crewWith(perks: string[]): { repos: Repositories; base: Base } {
     const db = openDatabase(':memory:');
     runMigrations(db);
@@ -1186,75 +1325,122 @@ describe('what the crew takes off an asking wage (§H7)', () => {
     return { repos, base };
   }
 
-  it('lowers what a recruit asks for', () => {
-    const [recruit] = barRoster('2026-08-13');
-    if (!recruit) throw new Error('empty roster');
-
-    expect(wageAskedOf(recruit, undefined, 7)).toBeLessThan(wageAskedOf(recruit, undefined, 0));
-  });
-
-  /** The roster, the window and the signature all quote the same number. */
-  it('quotes the same figure on the roster as it charges at the signature', () => {
+  it('quotes the same asking price to a crew with a negotiator and one without', () => {
     const { repos, base } = crewWith(['union_rep']);
     const [recruit] = barRoster('2026-08-13');
     if (!recruit) throw new Error('empty roster');
 
     const discount = crewEffectsFor(repos, base).wageDiscountPercent;
-    expect(discount, 'the Union Rep should be worth something').toBeGreaterThan(0);
-
-    const onTheRoster = projectRecruit(base, recruit, undefined, discount).askingWage;
-    const atTheSignature = wageAskedOf(recruit, undefined, discount);
-
-    expect(onTheRoster).toBe(atTheSignature);
-    expect(atTheSignature).toBeLessThan(wageAskedOf(recruit, undefined, 0));
+    expect(discount, 'the Union Rep is still worth something on the channel').toBeGreaterThan(0);
+    // …and it is worth nothing at the Bar, on the card or at the floor.
+    expect(projectRecruit(base, recruit).askingWage).toBe(askingWage(recruit.attributes));
+    expect(reserveFor(recruit)).toBe(reservationWage(askingWage(recruit.attributes)));
   });
 
-  /**
-   * And the signature honours it, which the test above cannot see.
-   *
-   * `hireRecruit` computes the discount itself rather than taking it as an argument, so nothing
-   * outside it observes whether it did. Driven through the real call for that reason: a mutation
-   * that made the signature stop applying the discount passed every other test in this block,
-   * because they all assert against `wageAskedOf` directly. Measured, not assumed.
-   *
-   * The probe is an offer at the *discounted* floor. A crew whose negotiator is being honoured
-   * signs it; a crew being quoted the sticker price counters, because the same offer is below
-   * their floor.
-   */
-  it('signs at a price only a crew with a negotiator could have been quoted', () => {
-    const { repos, base } = crewWith(['union_rep']);
-    const [hire] = barRoster('2026-08-13');
-    if (!hire) throw new Error('empty roster');
+  it('charges the book the price the winner talked down, and tells everybody the price', async () => {
+    const { app } = await makeApp();
+    const plain = await makePlayer(app, 'no_negotiator');
+    const haggler = await makePlayer(app, 'union_shop');
 
-    const discount = crewEffectsFor(repos, base).wageDiscountPercent;
-    const discounted = reservationWage(wageAskedOf(hire, undefined, discount));
-    const sticker = reservationWage(wageAskedOf(hire, undefined, 0));
+    // A negotiator already on the books. Their own wage is zero, so the book shows the new
+    // contract and nothing else.
+    const base = app.repos.bases.findById(haggler.baseId);
+    if (!base) throw new Error('no base');
+    app.repos.bases.updateCommanders(base.id, [
+      createCommander('neg-1', 'Ada Vance', null, {}, ['union_rep'], 0),
+    ]);
+    const discount = crewEffectsFor(app.repos, {
+      ...base,
+      commanders: [createCommander('neg-1', 'Ada Vance', null, {}, ['union_rep'], 0)],
+    }).wageDiscountPercent;
+    expect(discount, 'the perk has to be worth something or this proves nothing').toBeGreaterThan(
+      0,
+    );
+
+    const bar = await readBar(app, plain);
+    const { auction, name } = openTable(bar);
+    expect((await bid(app, plain, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+    const table = (await readBar(app, haggler)).auctions.find(
+      (entry) => entry.recruitId === auction.recruitId,
+    );
+    if (!table) throw new Error('the table went missing');
+    const price = table.nextBid;
+    expect((await bid(app, haggler, auction.recruitId, price)).statusCode).toBe(200);
+
+    vi.setSystemTime(AFTER);
+    const lost = await readBar(app, plain);
+    const won = await readBar(app, haggler);
+
+    // The book, and only the book, is charged the talked-down figure.
+    const charged = committedWage(price, discount);
+    expect(charged).toBeLessThan(price);
+    const officer = won.officers.find((entry) => entry.commander.name === name);
+    expect(officer?.weeklyWage).toBe(charged);
+    expect(won.payroll.committed).toBe(charged);
+
+    // Everything the rest of the city reads is the number the table closed at.
+    expect(won.results[0]).toMatchObject({ outcome: 'won', price });
+    expect(lost.results[0]).toMatchObject({ outcome: 'lost', price, winner: haggler.username });
     expect(
-      discounted,
-      'the discount has to move the floor for this to prove anything',
-    ).toBeLessThan(sticker);
-
-    const result = hireRecruit(repos, {
-      base,
-      userId: 'user-1',
-      seat: 0,
-      recruit: hire,
-      role: 'head_spy',
-      offerWage: discounted,
-      now: NOW,
-    });
-
-    expect(result.kind, 'the crew is owed the price their negotiator won').toBe('hired');
+      app.repos.social
+        .notifications(haggler.userId, 50)
+        .find((entry) => entry.kind === 'officer_hired')?.title,
+    ).toBe(`${name} signed with you at ${price} a week`);
+    expect(
+      app.repos.social.notifications(plain.userId, 50).find((entry) => entry.kind === 'bar_outbid')
+        ?.title,
+    ).toBe(`${name} went to ${haggler.username} for ${price}`);
   });
 
   /**
-   * The perk is worth something *on top of* the sheet.
-   *
-   * Compared against the same officer without it rather than against zero: three attributes feed
-   * this channel as well, so any officer at all already takes something off. Asserting zero for a
-   * crew with a body in it was the first version of this test and it was wrong about the game,
-   * not about the wiring.
+   * The ceiling on the wire is the one the gate enforces. A screen that capped the field at the
+   * raw book refused bids the server would have taken, and one that did not cap it drew a refusal
+   * the player could not read off any number on the page.
    */
+  it('quotes a bid ceiling the book holds after the talk-down, and refuses one cap over it', async () => {
+    const { app } = await makeApp();
+    const haggler = await makePlayer(app, 'ceiling_shop');
+    const base = app.repos.bases.findById(haggler.baseId);
+    if (!base) throw new Error('no base');
+    app.repos.bases.updateCommanders(base.id, [
+      createCommander('neg-1', 'Ada Vance', null, {}, ['union_rep'], 0),
+    ]);
+
+    const bar = await readBar(app, haggler);
+    const discount = crewEffectsFor(
+      app.repos,
+      app.repos.bases.findById(base.id)!,
+    ).wageDiscountPercent;
+    expect(discount).toBeGreaterThan(0);
+    expect(bar.bidCeiling).toBe(bidCeilingFor(bar.payroll.available, discount));
+    expect(bar.bidCeiling).toBeGreaterThan(bar.payroll.available);
+    expect(committedWage(bar.bidCeiling, discount)).toBeLessThanOrEqual(bar.payroll.available);
+    expect(committedWage(bar.bidCeiling + 1, discount)).toBeGreaterThan(bar.payroll.available);
+
+    // The table with the lowest floor, so the ceiling is the only thing in the way.
+    const table = openTables(bar).sort((a, b) => a.reserve - b.reserve)[0];
+    if (!table) throw new Error('no open table');
+    expect(table.reserve).toBeLessThanOrEqual(bar.bidCeiling);
+    const over = await bid(app, haggler, table.recruitId, bar.bidCeiling + 1);
+    expect(over.statusCode).toBe(409);
+    expect(errorOf(over.body).code).toBe('NO_PAYROLL');
+    expect((await bid(app, haggler, table.recruitId, bar.bidCeiling)).statusCode).toBe(200);
+  });
+
+  /** The panel reads the last night the crew sat at a table, not only last night. */
+  it('still shows a close two days later, when the crew skipped a night', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'late_riser');
+    const bar = await readBar(app, player);
+    const { auction } = openTable(bar);
+    expect((await bid(app, player, auction.recruitId, auction.reserve)).statusCode).toBe(200);
+
+    vi.setSystemTime(new Date(AFTER.getTime() + 24 * 60 * 60_000));
+    const later = await readBar(app, player);
+    expect(later.results.map((entry) => entry.outcome)).toEqual(['won']);
+    expect(later.results[0]?.day).toBe(bar.day);
+  });
+
   it('is worth more with the perk than the same officer without it', () => {
     const bare = crewWith([]);
     const rep = crewWith(['union_rep']);

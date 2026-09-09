@@ -170,6 +170,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   refit_discount: 'thrift',
   vehicle_parts: 'thrift',
   building_cost: 'thrift',
+  building_credit: 'thrift',
 
   production: 'yield',
   storage_capacity: 'yield',
@@ -221,6 +222,15 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
 
   mission_slots: 'command',
   declarations: 'command',
+
+  // The 2026-09-09 rules. Filed by what they change rather than by being new: a road is `travel`
+  // whether it is bought in minutes or in percent, and a mark on a sheet is `battle`.
+  road_shortcut: 'travel',
+  carriers_fight: 'battle',
+  any_ride: 'travel',
+  unit_mark: 'battle',
+  steady_nerve: 'battle',
+  scout_parties: 'counterintel',
 };
 
 export function payoutFamily(payout: ResearchPayout): PayoutFamily {
@@ -345,9 +355,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'intel', percent: 6 },
     },
     {
-      name: 'Back Alleys',
-      blurb: 'Routes nobody watches, walked until they are quicker than the road.',
-      bonus: { kind: 'travel_speed', percent: 5 },
+      name: 'Two Sets of Eyes',
+      blurb: 'Never one watcher on anything, so nothing waits on one person coming home.',
+      // A second scouting party out at once, which the door's one limit otherwise refuses. One,
+      // matching the Watchtower and the Second Glass: doubling the rate is the whole of it, and
+      // three sources of the same permission is already a crew that sees everything.
+      bonus: { kind: 'scout_parties', flat: 1 },
     },
     {
       name: 'Legend Building',
@@ -405,7 +418,15 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Prefabrication',
       blurb: 'Made flat on the ground and stood up in an afternoon.',
-      bonus: { kind: 'build_speed', percent: 9 },
+      /*
+       * The Gauntlet, priced a level lower for ever (`building_credit`).
+       *
+       * A level is 28% of the bill at any height (`BUILDING_COST_GROWTH`), so this is worth about
+       * what the track's own `building_cost` rung is worth on the Gate, and it is worth it just as
+       * much at level 18 as at level 2. One level, not two: two is a strictly better perk than
+       * anything else on this track and the ladder is meant to be climbed rather than skipped.
+       */
+      bonus: { kind: 'building_credit', building: 'gauntlet', levels: 1 },
     },
     {
       name: 'Cold Joints',
@@ -776,9 +797,13 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'resource_yield', resource: 'scrap', percent: 10 },
     },
     {
-      name: 'Stripping Order',
-      blurb: 'Wiring first, then glass, then the frame. Never the other way round.',
-      bonus: { kind: 'loot_capacity', percent: 9 },
+      name: 'Yard Discipline',
+      blurb: 'Everybody who works a site can hold one. That is how the site stays yours.',
+      // The porters take a place in the line at half strength (`carriers_fight`, `CARRIER_STRENGTH`).
+      // The fifth rung rather than the tenth: it is a permission rather than a magnitude, so a deep
+      // rung would be a door that opens once and pays nothing further, and the track's own late
+      // rungs are the ones that should carry the big figures.
+      bonus: { kind: 'carriers_fight' },
     },
     {
       name: 'Dry Storage',
@@ -798,7 +823,10 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Haul Rigging',
       blurb: 'The truck comes back full because somebody loaded it properly.',
-      bonus: { kind: 'unit_kind', unitId: 'haulers', stat: 'vitality', percent: 15 },
+      // A mark on one sheet rather than fifteen percent on one of its eleven numbers. Haulers were
+      // the only carrier in the roster without `picker`, and this is the rung that makes them the
+      // crew that goes through the ground on the way out (`PICKER_EXTRA_LOAD`).
+      bonus: { kind: 'unit_mark', unitId: 'haulers', mark: 'picker' },
     },
     {
       name: 'Nothing Wasted',
@@ -874,7 +902,10 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Curfew Tables',
       blurb: 'When the bridge is open, and when the patrol is on it.',
-      bonus: { kind: 'travel_speed', percent: 7 },
+      // Two minutes flat rather than a third percentage on a track that already had two of them.
+      // Half the Tram Depot's four: this is a timetable, not eight roads under one roof, and it is
+      // the rung at which a crew stops walking round a closed bridge.
+      bonus: { kind: 'road_shortcut', minutes: 2 },
     },
     {
       name: 'Bearing Marks',
@@ -902,9 +933,13 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'mission_speed', percent: 12 },
     },
     {
-      name: 'Dead Reckoning',
-      blurb: 'No landmarks, no light, and still arriving.',
-      bonus: { kind: 'unit_speed', percent: 10 },
+      name: 'Load Plans',
+      blurb: 'Somebody has worked out how the thing that does not fit goes on the thing that does.',
+      // The ninth rung of the track about crossing the city, and the one thing crossing it could
+      // not do. Waives `no_ride` (`any_ride`): a Colossus takes a seat, and the column stops being
+      // held to its 15. Deep on purpose, because it is the whole answer to a rule rather than a
+      // share of one.
+      bonus: { kind: 'any_ride' },
     },
     {
       name: 'The Whole City',
@@ -995,9 +1030,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'intel_resistance', percent: 9 },
     },
     {
-      name: 'Hardened Approaches',
-      blurb: 'Everything that could be cover for them, taken away.',
-      bonus: { kind: 'defense_percent', percent: 9 },
+      name: 'Standing Orders Under Fire',
+      blurb: 'Every position knows what it does when the one beside it goes quiet.',
+      // The cascade term, cut (`steady_nerve`). The sixth rung of the defence track rather than a
+      // third `defense_percent`: a district that holds because nobody panicked is a different thing
+      // from a district that holds because the wall is thicker, and the track had two walls already.
+      bonus: { kind: 'steady_nerve' },
     },
     {
       name: 'Demolition Doctrine',

@@ -11,6 +11,7 @@ import {
   type MissionPhase,
   type MovementView,
   type ScoutingRunView,
+  type Fleet,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
@@ -203,6 +204,32 @@ function Force({
   );
 }
 
+/**
+ * §C3: the machines under a force, beside the bodies.
+ *
+ * On every leg the same way: a column walking to a fight, a force standing at one, a crew out on
+ * a job. The screen listed what was moving and not what it rode in, so the yard the player had
+ * just emptied onto a battle was invisible between the picker and the settle.
+ */
+function Rides({ fleet, testPrefix }: { fleet: Readonly<Fleet>; testPrefix: string }) {
+  const rides = Object.entries(fleet).filter(([, count]) => (count ?? 0) > 0);
+  if (rides.length === 0) return null;
+  return (
+    <>
+      {rides.map(([vehicleId, count]) => (
+        <span
+          key={vehicleId}
+          data-testid={`${testPrefix}-ride-${vehicleId}`}
+          className="rounded-sm border border-surface-600 bg-surface-950/40 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.1em] text-ink-200"
+        >
+          {findVehicle(vehicleId)?.name ?? vehicleId}{' '}
+          <span className="tabular-nums text-brass-300">{count}</span>
+        </span>
+      ))}
+    </>
+  );
+}
+
 function Column({
   movement,
   now,
@@ -235,7 +262,10 @@ function Column({
         <div className="flex flex-col gap-3 p-4">
           <Route from={movement.fromName} to={movement.toName} remaining={formatRemaining(left)} />
           <ProgressBar progress={progress} label={movement.targetName} tone="brass" />
-          <Force army={movement.army} perimeter={movement.perimeter} testPrefix="walking" />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Force army={movement.army} perimeter={movement.perimeter} testPrefix="walking" />
+            <Rides fleet={movement.vehicles} testPrefix="walking" />
+          </div>
           {movement.recallable && (
             <div className="flex flex-wrap items-center gap-3">
               <Button
@@ -290,7 +320,14 @@ function Fight({ view, now }: { view: BattleView; now: Date }) {
             remaining={phase === 'fighting' ? 'settling' : formatRemaining(left)}
           />
           {view.muster && (
-            <Force army={view.muster.army} perimeter={view.muster.perimeter} testPrefix="posted" />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Force
+                army={view.muster.army}
+                perimeter={view.muster.perimeter}
+                testPrefix="posted"
+              />
+              <Rides fleet={view.vehicles} testPrefix="posted" />
+            </div>
           )}
         </div>
       </Panel>
@@ -311,7 +348,6 @@ function Job({ mission, now }: { mission: Mission; now: Date }) {
   const name = template?.name ?? mission.templateId;
   const phase = missionPhaseAt(mission, now);
   const remaining = missionRemainingMs(mission, now);
-  const rides = Object.entries(mission.vehicles).filter(([, count]) => count > 0);
   return (
     <li data-testid={`job-${mission.id}`}>
       <Panel
@@ -335,15 +371,7 @@ function Job({ mission, now }: { mission: Mission; now: Date }) {
           />
           <div className="flex flex-wrap items-center gap-1.5">
             <Force army={mission.force} testPrefix="working" />
-            {rides.map(([vehicleId, count]) => (
-              <span
-                key={vehicleId}
-                className="rounded-sm border border-surface-600 bg-surface-950/40 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.1em] text-ink-200"
-              >
-                {findVehicle(vehicleId)?.name ?? vehicleId}{' '}
-                <span className="tabular-nums text-brass-300">{count}</span>
-              </span>
-            ))}
+            <Rides fleet={mission.vehicles} testPrefix="working" />
           </div>
         </div>
       </Panel>

@@ -192,14 +192,41 @@ describe('geography (§A4)', () => {
   });
 
   it('shortens the journey with a travel bonus, and stops shortening it eventually', () => {
-    const plain = travelMinutes(STARTER_DISTRICT_ID, 'combine-spire') ?? 0;
-    const quick = travelMinutes(STARTER_DISTRICT_ID, 'combine-spire', 30) ?? 0;
-    const absurd = travelMinutes(STARTER_DISTRICT_ID, 'combine-spire', 500) ?? 0;
-    const capped = travelMinutes(STARTER_DISTRICT_ID, 'combine-spire', MAX_TRAVEL_SPEED_BONUS) ?? 0;
+    const to = (pace?: { speed?: number; reductionPercent?: number }) =>
+      travelMinutes(STARTER_DISTRICT_ID, 'combine-spire', pace) ?? 0;
+    const plain = to();
+    const quick = to({ reductionPercent: 30 });
+    const absurd = to({ reductionPercent: 500 });
+    const capped = to({ reductionPercent: MAX_TRAVEL_SPEED_BONUS });
 
     expect(quick).toBeLessThan(plain);
     expect(absurd).toBe(capped);
     expect(absurd).toBeGreaterThan(0);
+  });
+
+  /**
+   * The two halves of a road, and that they compose rather than one swallowing the other.
+   *
+   * Speed divides and the ground's reduction multiplies what is left, so a column at 100 halves
+   * the walk and a crew holding the ground then takes its percentage off that half. Reading both
+   * as one summed percentage, the way this used to, made a Rail Yard worth the same as a
+   * helicopter. The exact arithmetic is pinned in `time/speed.test.ts`; what this asks is that the
+   * map is wired to it in the right order.
+   */
+  it('divides by the column speed and then takes the ground off what is left', () => {
+    const to = (pace?: { speed?: number; reductionPercent?: number }) =>
+      travelMinutes(STARTER_DISTRICT_ID, 'combine-spire', pace) ?? 0;
+    const plain = to();
+    // Within a minute of the exact figure: the map rounds once at the end, so a 61-minute walk
+    // halves to 30 rather than to 30.5.
+    const within = (minutes: number, exact: number) => Math.abs(minutes - exact) <= 1;
+    expect(to({ speed: 0, reductionPercent: 0 })).toBe(plain);
+    expect(within(to({ speed: 100 }), plain / 2)).toBe(true);
+    expect(within(to({ speed: 100, reductionPercent: 10 }), (plain / 2) * 0.9)).toBe(true);
+    // Neither channel is worth nothing, and the pair beats either alone.
+    expect(to({ speed: 30 })).toBeLessThan(plain);
+    expect(to({ speed: 100, reductionPercent: 10 })).toBeLessThan(to({ speed: 100 }));
+    expect(to({ speed: 100, reductionPercent: 10 })).toBeLessThan(to({ reductionPercent: 10 }));
   });
 
   it('sees the nearest districts first, and the same ones every time', () => {

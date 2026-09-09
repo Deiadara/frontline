@@ -24,12 +24,11 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
-import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { useFitUpgrade, useMe, useWorkshop } from '../../lib/queries';
-import { InfoNote, PageShell } from '../game/PageShell';
+import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
 
@@ -64,7 +63,7 @@ export function WorkshopPage() {
   const data = query.data;
   if (!data) {
     return (
-      <ScreenLoad
+      <ScreenLoadSheet
         what="The workshop"
         loading="Opening the workshop…"
         isError={query.isError}

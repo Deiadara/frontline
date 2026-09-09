@@ -98,21 +98,14 @@ export const WAIVED_REFUSALS: ReadonlySet<string> = new Set([
   'requirement',
   /** §H3's other door: the crew level a recruit wants to see before they will sign. */
   'level',
+  /** §H7a: the same two doors, refused at the table rather than at the signature. */
+  'not_interested',
   // Capacity gates: there is room for this, just not right now.
   'queue_full',
   'no_slots',
   'no_supply',
-  'daily_limit',
   /** §H7: the payroll book has no room for another fee. A ceiling, like the beds and the slots. */
   'no_payroll',
-  /**
-   * §H7: the six hours after a walkout.
-   *
-   * A cooldown rather than a capacity, and waived for the same reason `daily_limit` is: on the
-   * bench the point is to reach the state, and a reviewer who wanted to see what a marked-up
-   * second negotiation looks like should not have to wait until this afternoon for it.
-   */
-  'standoff',
   // Price gates. `adminCost` already makes the charge zero; this is the check in front of it.
   'cannot_afford',
   'missing_parts',

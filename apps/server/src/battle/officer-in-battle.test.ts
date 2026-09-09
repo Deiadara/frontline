@@ -1,16 +1,27 @@
 import {
+  DEFAULT_BADGE,
   CAPTURED_GATE_START_LEVEL,
   capturedGateDefensePercent,
   CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL,
   MAX_CASUALTY_RECOVERY,
   createCommander,
   declarationWindow,
+  effectiveSpeed,
   findDistrict,
+  findUnit,
+  findVehicle,
+  hastenedRoadMinutes,
+  mapDistance,
+  NOTORIETY_TO_FIELD,
   officerBattleStats,
   officerIsInjured,
   recoverCasualties,
   skirmishOutcome,
   startingHolder,
+  travelMinutesBetween,
+  TRAVEL_MINUTES_PER_MAP_UNIT,
+  UNIT_UPGRADES,
+  upgradedStats,
   type BattlesResponse,
   type BattleTarget,
   type SkirmishEngine,
@@ -476,6 +487,282 @@ describe('taking machines to a fight (§C3)', () => {
     bringForward(lost, lostBattle, new Date(Date.now() - 1000));
     settleBattles(lost.app.repos, wipe, new Date());
     expect(lost.app.repos.bases.findById(lost.baseId)!.fleet).toEqual({});
+  });
+
+  /**
+   * Only what somebody was riding is at risk. Two Cheese Wagons under ten bodies is one bus with
+   * ten in it and one with nobody: the settle used to wreck both on a wipe and hand the enemy
+   * sixty infamy for a seating plan.
+   */
+  it('wrecks only the machines the force could fill, and sends the idle ones home', async () => {
+    const stack = await makeStack(undefined, 'convoy');
+    park(stack, { armoured_car: 2 });
+    const battleId = await declare(stack);
+    await takeVehicles(stack, battleId, { armoured_car: 2 });
+    await deploy(stack, battleId, { razors: 10 });
+    const wipe = spy('defender', { killed: { razors: 10 }, fled: {} });
+    bringForward(stack, battleId, new Date(Date.now() - 1000));
+    settleBattles(stack.app.repos, wipe, new Date());
+    expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ armoured_car: 1 });
+  });
+
+  /**
+   * A body that cannot get in fills no seat, and the settle has to count seats (§C3, `no_ride`).
+   *
+   * A Colossus and a Cheese Wagon. `loadable` trims the yard down to what the bodies going could
+   * fill and its whole contract is that `bodies` means the **riders**, which is how the client's
+   * own quote reads it. The settle handed it the plain force size instead, so one Colossus made a
+   * thirty-seat bus "carrying somebody": wiped, and the crew lost a bus nobody was ever in and paid
+   * the enemy thirty infamy for it. The Colossus walks and the wagon never left the yard.
+   */
+  it('leaves a machine idle when the only body going will not ride', async () => {
+    const stack = await makeStack(undefined, 'colossus');
+    /*
+     * The crew gives up the Breaker's Yard first, and that is now part of the setup rather than a
+     * detail: the yard grants `any_ride` (`city/locations.ts`), which waives the very rule this
+     * test is about. `makeStack` hands the crew every location in the Rustyard, the yard among
+     * them, so without this the Colossus takes a seat and the wagon is correctly wrecked with it.
+     */
+    const yard = stack.app.repos.city.control('rustyard-bonefield')!;
+    stack.app.repos.city.put({ ...yard, holder: { kind: 'unoccupied' }, garrison: {} });
+    park(stack, { armoured_car: 1 });
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateArmy(base.id, { the_colossus: 1 }, base.trainingQueue);
+    // A legendary needs a name behind it before anybody will field one (§A5).
+    stack.app.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      notoriety: NOTORIETY_TO_FIELD.legendary,
+    });
+    const battleId = await declare(stack);
+    await takeVehicles(stack, battleId, { armoured_car: 1 });
+    const sent = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/deploy',
+      headers: auth(stack.token),
+      payload: { battleId, changes: { the_colossus: 1 }, perimeterChanges: {} },
+    });
+    expect(sent.statusCode, sent.body.slice(0, 200)).toBe(200);
+    expect(findUnit('the_colossus')?.no_ride).toBe(true);
+
+    const wipe = spy('defender', { killed: { the_colossus: 1 }, fled: {} });
+    bringForward(stack, battleId, new Date(Date.now() - 1000));
+    settleBattles(stack.app.repos, wipe, new Date());
+    expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ armoured_car: 1 });
+  });
+
+  /** Nobody rode, nobody died, nothing is wrecked: a committed yard with no column comes home. */
+  it('hands everything back to a crew that fielded nobody', async () => {
+    const stack = await makeStack(undefined, 'idle');
+    park(stack, { motorcycle: 2 });
+    const battleId = await declare(stack);
+    await takeVehicles(stack, battleId, { motorcycle: 2 });
+    const engine = spy('defender', { killed: {}, fled: {} });
+    bringForward(stack, battleId, new Date(Date.now() - 1000));
+    settleBattles(stack.app.repos, engine, new Date());
+    expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ motorcycle: 2 });
+  });
+
+  /**
+   * The picker and the deploy share a screen and nothing orders them. A column sent first walked
+   * at the old pace whatever was loaded onto the fight afterwards.
+   */
+  it('re-times a column already on the road when the machines are picked after it left', async () => {
+    const stack = await makeStack(undefined, 'late');
+    park(stack, { motorcycle: 5 });
+    const battleId = await declare(stack);
+    await deploy(stack, battleId, { razors: 10 });
+    const walking = stack.app.repos.movements.forBase(stack.baseId)[0]!;
+
+    // Ten seats for ten bodies: the whole column rides.
+    expect((await takeVehicles(stack, battleId, { motorcycle: 5 })).statusCode).toBe(200);
+    const riding = stack.app.repos.movements.find(walking.id)!;
+    expect(Date.parse(riding.arrivesAt)).toBeLessThan(Date.parse(walking.arrivesAt));
+    expect(riding.departedAt).toBe(walking.departedAt);
+
+    // And narrowing the set puts the walk back.
+    expect((await takeVehicles(stack, battleId, {})).statusCode).toBe(200);
+    expect(stack.app.repos.movements.find(walking.id)!.arrivesAt).toBe(walking.arrivesAt);
+  });
+
+  /**
+   * One arithmetic under both roads (§C3, the speed rebalance).
+   *
+   * The march and the mission leg are the same function now: `roadMinutes` divides the length by
+   * the column's speed and takes the ground's cut off what is left. This asks it of the *battle*
+   * road twice, walking and riding, and then feeds the same length and the same two speeds through
+   * the mission-side name and checks it lands on the same minutes. They used to be two divisions
+   * that happened to agree, with the machines' contribution summed into the ground's percentage on
+   * one of them and not the other.
+   */
+  it('walks the battle road on the same arithmetic the mission road uses', async () => {
+    const stack = await makeStack(undefined, 'onemap');
+    park(stack, { motorcycle: 10 });
+    const battleId = await declare(stack);
+    await deploy(stack, battleId, { razors: 20 });
+
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    const effects = crewEffectsFor(stack.app.repos, base);
+    const walking = stack.app.repos.movements.forBase(stack.baseId)[0]!;
+    const from = findDistrict(base.districtId)!;
+    const to = findDistrict(walking.toDistrictId)!;
+    const legMinutes = (movement: { departedAt: string; arrivesAt: string }): number =>
+      (Date.parse(movement.arrivesAt) - Date.parse(movement.departedAt)) / 60_000;
+
+    const onFoot = effectiveSpeed(findUnit('razors')!.stats.speed, {
+      percent: effects.unitSpeedPercent,
+    });
+    const onWheels = findVehicle('motorcycle')!.speed;
+    expect(onWheels).toBeGreaterThan(onFoot);
+
+    expect(legMinutes(walking)).toBe(
+      travelMinutesBetween(from, to, {
+        speed: onFoot,
+        reductionPercent: effects.travelSpeedPercent,
+      }),
+    );
+
+    // Ten bikes, twenty seats, twenty bodies: the whole column rides and moves at the Scrappy.
+    expect((await takeVehicles(stack, battleId, { motorcycle: 10 })).statusCode).toBe(200);
+    const riding = stack.app.repos.movements.find(walking.id)!;
+    expect(legMinutes(riding)).toBe(
+      travelMinutesBetween(from, to, {
+        speed: onWheels,
+        reductionPercent: effects.travelSpeedPercent,
+      }),
+    );
+
+    // ...and the mission side, given this road's own length and these same two speeds, agrees to
+    // the minute. One length, one column, one answer, whichever screen asked.
+    const length = mapDistance(from.position, to.position) * TRAVEL_MINUTES_PER_MAP_UNIT;
+    expect(hastenedRoadMinutes(length, onFoot, effects.travelSpeedPercent)).toBe(
+      legMinutes(walking),
+    );
+    expect(hastenedRoadMinutes(length, onWheels, effects.travelSpeedPercent)).toBe(
+      legMinutes(riding),
+    );
+  });
+
+  /**
+   * The march reads the sheet the workshop fitted, not the one the catalogue prints (§C3).
+   *
+   * `upgradedStats` is what `battle/effects.ts` hands the engine, so a Neural Lace is twelve points
+   * of speed inside the fight. `unitColumnSpeed` read `unit.stats.speed` straight off the
+   * catalogue, so the same Razors crossed the city slower than they crossed the battlefield they
+   * were crossing it to reach, and the one upgrade line whose whole flavour is "goes faster" moved
+   * no clock a player watches. The armour line's negative speed is the same rule the other way up.
+   */
+  it('walks the road at the sheet the workshop fitted', async () => {
+    const stack = await makeStack(undefined, 'laced');
+    // The largest of them, so the two sheets are more than a rounding step apart on this road.
+    const quickening = [...UNIT_UPGRADES]
+      .sort((a, b) => (b.effect.speed ?? 0) - (a.effect.speed ?? 0))
+      .find((spec) => (spec.effect.speed ?? 0) > 0);
+    if (!quickening) throw new Error('no upgrade adds speed');
+    stack.app.repos.bases.updateUnitLoadouts(stack.baseId, { razors: [quickening.id] });
+
+    const battleId = await declare(stack);
+    await deploy(stack, battleId, { razors: 10 });
+
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    const effects = crewEffectsFor(stack.app.repos, base);
+    const walking = stack.app.repos.movements.forBase(stack.baseId)[0]!;
+    const from = findDistrict(base.districtId)!;
+    const to = findDistrict(walking.toDistrictId)!;
+    const leg = (Date.parse(walking.arrivesAt) - Date.parse(walking.departedAt)) / 60_000;
+
+    const sheet = findUnit('razors')!.stats;
+    const printed = effectiveSpeed(sheet.speed, { percent: effects.unitSpeedPercent });
+    const fitted = effectiveSpeed(upgradedStats(sheet, [quickening.id]).speed, {
+      percent: effects.unitSpeedPercent,
+    });
+    expect(fitted).toBeGreaterThan(printed);
+    const road = (speed: number): number =>
+      travelMinutesBetween(from, to, { speed, reductionPercent: effects.travelSpeedPercent });
+    expect(leg).toBe(road(fitted));
+    // The teeth: this road is long enough that the two sheets are different numbers of minutes.
+    expect(road(printed)).toBeGreaterThan(road(fitted));
+  });
+
+  /**
+   * A side can be several crews, and each row holds its own machines. The settle used to handle
+   * the declarer's row and nobody else's, so an ally's yard sat on the deployment row for ever.
+   */
+  it("settles an ally's machines on their own row, and brings them home", async () => {
+    const stack = await makeStack(undefined, 'caller');
+    const registered = await stack.app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'helper', password: 'hunter2pass' },
+    });
+    const allyToken = registered.json<{ token: string }>().token;
+    const chosen = await stack.app.inject({
+      method: 'POST',
+      url: '/api/overseer',
+      headers: auth(allyToken),
+      payload: { presetId: 'enforcer' },
+    });
+    const allyId = chosen.json<{ base: { id: string } }>().base.id;
+    const joined = new Date().toISOString();
+    stack.app.repos.factions.insert({
+      id: 'f1',
+      name: 'Iron Wolves',
+      badge: DEFAULT_BADGE,
+      blurb: '',
+      foundedAt: joined,
+    });
+    for (const [baseId, rank] of [
+      [stack.baseId, 'leader'],
+      [allyId, 'member'],
+    ] as const) {
+      const owner = stack.app.repos.bases.findById(baseId)!.ownerId;
+      stack.app.repos.factions.addMember({
+        userId: owner,
+        factionId: 'f1',
+        rank,
+        joinedAt: joined,
+      });
+    }
+    const ally = stack.app.repos.bases.findById(allyId)!;
+    stack.app.repos.bases.updateArmy(ally.id, { ...ally.army, razors: 6 }, ally.trainingQueue);
+    stack.app.repos.bases.updateFleet(ally.id, { motorcycle: 3 });
+
+    const battleId = await declare(stack);
+    await deploy(stack, battleId, { razors: 10 });
+    const reinforced = await stack.app.inject({
+      method: 'POST',
+      url: '/api/factions/reinforce',
+      headers: auth(allyToken),
+      payload: { battleId, army: { razors: 6 } },
+    });
+    expect(reinforced.statusCode, reinforced.body.slice(0, 200)).toBe(200);
+    const took = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/vehicles',
+      headers: auth(allyToken),
+      payload: { battleId, vehicles: { motorcycle: 3 } },
+    });
+    expect(took.statusCode, took.body.slice(0, 200)).toBe(200);
+    expect(stack.app.repos.bases.findById(allyId)!.fleet).toEqual({});
+
+    const engine = spy('attacker', { winnerLosses: {} });
+    bringForward(stack, battleId, new Date(Date.now() - 1000));
+    settleBattles(stack.app.repos, engine, new Date());
+    expect(stack.app.repos.bases.findById(allyId)!.fleet).toEqual({ motorcycle: 3 });
+  });
+
+  /** The yard says where its machines went rather than showing an empty row. */
+  it('counts committed machines as out on the Garage page', async () => {
+    const stack = await makeStack(undefined, 'yard');
+    park(stack, { motorcycle: 3 });
+    const battleId = await declare(stack);
+    await takeVehicles(stack, battleId, { motorcycle: 2 });
+    const page = await stack.app.inject({
+      method: 'GET',
+      url: '/api/garage',
+      headers: auth(stack.token),
+    });
+    const bike = page.json<{ vehicles: { id: string; owned: number; out: number }[] }>().vehicles;
+    expect(bike.find((row) => row.id === 'motorcycle')).toMatchObject({ owned: 1, out: 2 });
   });
 });
 

@@ -1,22 +1,27 @@
 import {
   BUILD_BOOST_MS,
   buildBoostOilCost,
-  createCommander,
-  negotiate,
-  reservationWage,
-  negotiationLine,
-  negotiationVoice,
+  auctionPhaseAt,
+  nextLotBid,
+  nextMinimumBid,
   notorietyUpgradeCost,
-  openNegotiation,
-  type BarRecruit,
+  type BarAuction,
+  type BarResponse,
+  type VendorAuction,
   type Base,
-  type Commander,
+  type MarketResponse,
   type MeResponse,
-  type OfficerRole,
   dismissalFee,
+  findUnit,
+  trainingCost,
+  trainingRefund,
+  type PartialResources,
+  type Resources,
   type CrewOfficer,
   type CrewResponse,
+  type ResearchResponse,
   type ScoutingRunView,
+  type SettingsResponse,
 } from '@frontline/shared';
 import { expect, type Page } from '@playwright/test';
 import {
@@ -51,6 +56,7 @@ import {
   launchResponse,
   missionsResponse,
   research,
+  startedResearch,
   TOKEN,
 } from './fixtures';
 
@@ -451,6 +457,45 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     (meResponse.base?.level ?? 1) > 1 ? crewFat : crewStart,
   );
 
+  /*
+   * Tonight's tables, copied per install for the reason the roster is.
+   *
+   * A bid is a write, and the whole point of the auction screen is that the next read shows the
+   * new leader. Mutating the module-level `bar` would make one spec's bid visible to the next
+   * spec's read, so the bid test would pass alone and fail in the suite once an earlier run of
+   * itself had already taken the lead.
+   */
+  const tables: BarResponse = structuredClone(bar);
+
+  /*
+   * The market, copied per install for the reason tonight's tables are.
+   *
+   * The barrow is an auction: a bid is a write, and the screen re-reads the board straight after
+   * it. A fixture shared across installs would carry one test's bid into the next, and one that
+   * answered the write with the untouched board would let a test assert the button was pressed
+   * rather than that the lot moved.
+   */
+  const board: MarketResponse = structuredClone(market);
+
+  /*
+   * The player's own record, copied per install and mutable.
+   *
+   * Same argument as the roster: the settings screen saves and reads back, so the record the
+   * handler answers with has to carry what was just written. Copied rather than shared, or one
+   * spec's save would be visible to the next spec's read.
+   */
+  let account: SettingsResponse = structuredClone(settings);
+
+  /*
+   * The Lab, per install and mutable for the reason tonight's tables are.
+   *
+   * Starting a rung is a write, and `useStartTech` invalidates the Archive straight after it: a
+   * fixture that answered the write with a running bench and the next read with an empty one would
+   * flip the card back to "Put them on it" a frame later, and no test could tell that from the
+   * button doing nothing.
+   */
+  let lab: ResearchResponse = research;
+
   await page.route('**/api/**', async (route) => {
     const { pathname, searchParams } = new URL(route.request().url());
     const json = (data: unknown, status = 200) =>
@@ -594,7 +639,12 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       });
     }
 
-    if (pathname.endsWith('/api/units')) return json(unitsResponse);
+    // The roster's own copy of the stockpile follows the session, the way the server derives it
+    // from the base it just settled. A fixed one would have the roster quoting what the crew could
+    // afford before it paid for the batch it is looking at.
+    if (pathname.endsWith('/api/units')) {
+      return json({ ...unitsResponse, resources: (session.base ?? baseDetail.base).resources });
+    }
     /*
      * §A5, and method-aware for the same reason `/api/missions` is: the two writes answer with a
      * `TrainUnitsResponse`, which is a different shape from the roster, and a handler that served
@@ -605,13 +655,37 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
      */
     if (pathname.endsWith('/api/units/train') || pathname.endsWith('/api/units/cancel')) {
       const own = session.base ?? baseDetail.base;
+      /*
+       * Both writes move the stockpile, and until now neither did.
+       *
+       * The route answered with the base exactly as it found it, so under this harness ordering a
+       * batch was free and cancelling one paid nothing back: a client that sent the right body and
+       * then drew a stockpile that never moved passed every run. The prices are the shared
+       * functions the server charges and refunds with, so a fixture cannot quote one number while
+       * the server takes another.
+       */
       if (!pathname.endsWith('/api/units/cancel')) {
-        return json({ base: own, queue: unitsResponse.queue });
+        const body = route.request().postDataJSON() as { unitId: string; count: number };
+        const spec = findUnit(body.unitId);
+        if (!spec) return json({ error: { code: 'NOT_FOUND', message: 'No such unit' } }, 404);
+        const bill = trainingCost(
+          spec,
+          body.count,
+          unitsResponse.trainingCostReduction,
+          unitsResponse.trainingSuppliesReduction ?? 0,
+        );
+        const charged: Base = { ...own, resources: movedStock(own.resources, bill, -1) };
+        session = { ...session, base: charged };
+        return json({ base: charged, queue: unitsResponse.queue });
       }
       const body = route.request().postDataJSON() as { orderId: string };
+      const order = unitsResponse.queue.find((entry) => entry.id === body.orderId);
+      const back = order ? trainingRefund(order) : {};
+      const paid: Base = { ...own, resources: movedStock(own.resources, back, 1) };
+      session = { ...session, base: paid };
       return json({
-        base: own,
-        queue: unitsResponse.queue.filter((order) => order.id !== body.orderId),
+        base: paid,
+        queue: unitsResponse.queue.filter((entry) => entry.id !== body.orderId),
       });
     }
     /*
@@ -625,82 +699,71 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       return json(launchResponse());
     }
     /*
-     * §H7: the conversation, run through the *real* model rather than answered with a canned
-     * reply.
+     * §H7: a bid, open or sealed, run against the *real* increment rule.
      *
-     * `negotiate` and `negotiationLine` are pure and live in `@frontline/shared`, which is exactly
-     * where the server gets them from, so this fixture produces the same answer the server would
-     * for the same offer. A hard-coded reply here would let a client that sent the wrong body, or
-     * mis-read the response, pass every run: the failure mode this harness has already been bitten
-     * by once on `/api/missions`.
+     * `nextMinimumBid` is the shared function the server gates on, so a bid this fixture takes is
+     * one the server would take too, and a bid it refuses is refused for the same arithmetic. A
+     * canned "ok" here would let a client that sent the wrong amount, or mis-read the answer, pass
+     * every run: the hole `/api/missions` was already bitten by once.
+     *
+     * The write lands on `tables`, this install's own copy, so the *next* read of `/api/bar` shows
+     * the new leader. A handler that answered the write and left the room unchanged would let a
+     * test assert the button was pressed rather than that anything happened.
      */
-    if (pathname.endsWith('/api/bar/negotiate')) {
-      const body = route.request().postDataJSON() as { recruitId: string; offerWage: number };
-      const recruit = bar.recruits.find((entry) => entry.id === body.recruitId);
-      if (!recruit || recruit.askingWage === null) {
-        return json(
-          { error: { code: 'NOT_FOUND', message: 'They are not at the Bar today' } },
-          404,
-        );
+    if (pathname.endsWith('/api/bar/bid') || pathname.endsWith('/api/bar/seal')) {
+      const sealing = pathname.endsWith('/api/bar/seal');
+      const body = route.request().postDataJSON() as { recruitId: string; amount: number };
+      const table = tables.auctions.find((one) => one.recruitId === body.recruitId);
+      if (!table) return json({ error: { code: 'NOT_FOUND', message: 'They have left' } }, 404);
+
+      const refusal = refuseBid(tables, table, body.amount, sealing);
+      if (refusal !== null) return json({ error: { code: 'CONFLICT', message: refusal } }, 409);
+
+      const wasIn = table.yourBid !== null || table.yourSealed !== null;
+      if (sealing) {
+        table.yourSealed = body.amount;
+      } else {
+        const placed = {
+          username: authResponse.user.username,
+          amount: body.amount,
+          at: tables.serverNow,
+          yours: true,
+        };
+        table.bids = [placed, ...table.bids].slice(0, 20);
+        table.leading = placed;
+        table.yourBid = body.amount;
+        table.nextBid = nextMinimumBid(table.reserve, body.amount);
       }
-      const turn = negotiate({
-        negotiation:
-          bar.negotiations[body.recruitId] ??
-          openNegotiation(recruit.askingWage, recruit.attributes),
-        offer: body.offerWage,
-        asking: recruit.askingWage,
-        attributes: recruit.attributes,
-      });
+      if (!wasIn) {
+        table.bidders += 1;
+        tables.auctionsUsed += 1;
+      }
       return json({
-        negotiation: turn.negotiation,
-        line: negotiationLine(
-          negotiationVoice(recruit.id),
-          turn.negotiation.mood,
-          turn.negotiation.rounds,
-        ),
-        accepted: turn.accepted,
-        walkedAway: turn.walkedAway,
+        auction: table,
+        auctionsUsed: tables.auctionsUsed,
+        auctionsAllowed: tables.auctionsAllowed,
       });
     }
+    if (pathname.endsWith('/api/bar')) return json(tables);
     /*
-     * Signing somebody, which had **no handler at all** until the hire path was fixed.
+     * §C: putting a rung on the bench, and being charged for it.
      *
-     * That absence is why the "agrees but never joins the crew" bug shipped: `/api/bar/hire` fell
-     * through to the 404 catch-all, so a test could drive the whole negotiation, press the button,
-     * and see nothing happen: exactly as a player did. A route the app calls and the fixture does
-     * not answer is a hole in the contract, not a missing convenience.
-     *
-     * The fee rule is the real one: `reservationWage` is the same shared function `/bar/hire`
-     * gates on, so an offer this fixture accepts is one the server would accept too.
+     * `POST /api/research/tech` had no handler at all, so it fell through to the 404 at the foot
+     * of this router: every e2e that pressed "Put them on it" was testing a Lab whose start route
+     * did not exist. Charged off the rung's own `cost`, the figure the card quotes, so the
+     * stockpile the HUD redraws is the one the price promised.
      */
-    if (pathname.endsWith('/api/bar/hire')) {
-      const body = route.request().postDataJSON() as {
-        recruitId: string;
-        role: OfficerRole;
-        offerWage: number;
-      };
-      const recruit = bar.recruits.find((entry) => entry.id === body.recruitId);
-      if (!recruit || recruit.askingWage === null) {
-        return json({ error: { code: 'NOT_FOUND', message: 'They have left' } }, 404);
-      }
-      const floor = reservationWage(recruit.askingWage);
-      if (body.offerWage < floor) {
-        return json({ accepted: false, wage: floor, officer: null, payroll: null });
-      }
-      const committed = bar.payroll.committed + body.offerWage;
-      return json({
-        accepted: true,
-        wage: body.offerWage,
-        officer: hiredOfficer(recruit, body.role),
-        payroll: {
-          ...bar.payroll,
-          committed,
-          available: Math.max(0, bar.payroll.capacity - committed),
-        },
-      });
+    if (pathname.endsWith('/api/research/tech')) {
+      const { techId } = route.request().postDataJSON() as { techId: string };
+      const rung = research.technologies.find((one) => one.id === techId);
+      if (!rung) return json({ error: { code: 'NOT_FOUND', message: 'No such rung' } }, 404);
+      const own = session.base ?? baseDetail.base;
+      const charged: Base = { ...own, resources: movedStock(own.resources, rung.cost, -1) };
+      session = { ...session, base: charged };
+      lab = startedResearch(techId);
+      return json(lab);
     }
-    if (pathname.endsWith('/api/bar')) return json(bar);
-    if (pathname.endsWith('/api/research')) return json(research);
+    if (pathname.endsWith('/api/research')) return json(lab);
     // Keyed off the installed session for the same reason `/api/base/` is: a fixed §G payload
     // would put a twelve-pip late-game roster under a level-1 header, and the screenshot would be
     // of a screen the server can never produce.
@@ -787,22 +850,69 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // Every market write answers with the whole board, so one handler covers the read and all five
     // writes: the fixture *is* the contract, and a write that answered with a different shape
     // would be a hole in it.
+    /*
+     * A bid on a lot, judged by the shared step function the server gates on, so a bid this
+     * fixture takes is one the server would take too, and a refusal is worded the way the server
+     * words it. The write lands on `board`, this install's own copy.
+     */
+    if (pathname.endsWith('/api/market/bid')) {
+      const body = route.request().postDataJSON() as { lineId: string; amount: number };
+      const offer = board.vendor.stock.find((one) => one.line.id === body.lineId);
+      const lot = offer?.auction ?? null;
+      if (lot === null) {
+        return json(
+          { error: { code: 'CONFLICT', message: 'The city cleared him out of those' } },
+          409,
+        );
+      }
+      const refusal = refuseLotBid(lot, body.amount);
+      if (refusal !== null) return json({ error: { code: 'CONFLICT', message: refusal } }, 409);
+
+      const wasIn = lot.yourBid !== null;
+      const placed = {
+        username: authResponse.user.username,
+        amount: body.amount,
+        at: board.serverNow,
+        yours: true,
+      };
+      lot.bids = [placed, ...lot.bids].slice(0, 20);
+      lot.leading = placed;
+      lot.yourBid = body.amount;
+      lot.nextBid = nextLotBid(lot.reserve, body.amount);
+      if (!wasIn) lot.bidders += 1;
+      return json({ market: board });
+    }
     if (pathname.includes('/api/market'))
-      return json(route.request().method() === 'GET' ? market : { market });
+      return json(route.request().method() === 'GET' ? board : { market: board });
     // The back room. Read and write answer with the same shape wrapped differently, exactly as the
     // front of the market does: the fixture *is* the contract, so a write that answered with
     // something else would be a hole in it.
     if (pathname.includes('/api/black-market')) {
       return json(route.request().method() === 'GET' ? blackMarket : { blackMarket });
     }
-    // Settings answers the same record from all three of its endpoints, so one handler covers the
-    // read, the profile patch and the passphrase change.
-    if (pathname.includes('/api/settings')) return json(settings);
+    /*
+     * Settings answers the same record from all three of its endpoints, so one handler covers the
+     * read, the profile patch and the passphrase change.
+     *
+     * The profile patch is folded into the copy rather than discarded, for the reason the roster
+     * and the auction tables are copied per install: a save is a write, and the screen reads the
+     * record back straight afterwards. A handler that answered the write with the *old* record
+     * would put the volume bar back where it was a frame after the player saved it, and a test
+     * could not tell that from the Save button doing nothing at all.
+     */
+    if (pathname.includes('/api/settings')) {
+      if (route.request().method() === 'PATCH') {
+        const patch = (route.request().postDataJSON() ?? {}) as Partial<SettingsResponse['user']>;
+        account = { ...account, user: { ...account.user, ...patch } };
+      }
+      return json(account);
+    }
     // The bench. A build without admin mode answers 404 here and the screen redirects; serving the
     // snapshot is what puts the Console door in the nav for these runs.
     if (pathname.endsWith('/api/admin')) return json(adminSnapshot);
     if (pathname.endsWith('/api/admin/knobs')) return json({ admin: adminSnapshot });
     if (pathname.endsWith('/api/admin/fog')) return json({ admin: adminSnapshot });
+    if (pathname.endsWith('/api/admin/mock-battle')) return json({ admin: adminSnapshot });
     // §B11: the yard has its own page. Checked before `/api/workshop` only for tidiness: the two
     // prefixes do not overlap.
     /*
@@ -835,23 +945,81 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
   });
 }
 
+/** A stockpile with a bundle taken off it (`sign` -1) or added to it (+1), floored at zero. */
+function movedStock(stock: Resources, bundle: PartialResources, sign: 1 | -1): Resources {
+  const moved = { ...stock };
+  for (const [key, amount] of Object.entries(bundle) as [keyof Resources, number][]) {
+    moved[key] = Math.max(0, moved[key] + sign * amount);
+  }
+  return moved;
+}
+
 /**
- * The officer a signed recruit becomes.
+ * Why the server would turn a bid down, in the server's own words.
  *
- * Built through the shared `createCommander` rather than by hand: a hand-written literal missed
- * fields the schema requires and carried three it does not have, so the response failed to parse,
- * the mutation errored instead of succeeding, and the window silently stayed open on a completed
- * hire. The factory cannot drift from the schema.
+ * The refusals are the interesting half of this route: every one of them is a sentence a player
+ * reads on the screen and has to act on, and a fixture that only ever answered "ok" would leave
+ * the whole of that surface undrawn by any run. The three rules are the ones §H7 states: the phase
+ * decides which kind of bid is even legal, a crew may sit at a fixed number of tables at once, and
+ * a number that cannot win is not a bid.
  */
-function hiredOfficer(recruit: BarRecruit, role: OfficerRole): Commander {
-  return createCommander(
-    recruit.id,
-    recruit.name,
-    role,
-    recruit.attributes,
-    recruit.perks,
-    recruit.askingWage ?? 0,
-  );
+/** The barrow's refusals, in the server's words: leading already, or under the next step. */
+function refuseLotBid(lot: VendorAuction, amount: number): string | null {
+  if (lot.leading?.yours === true) return 'You are already the highest bid. Save your caps';
+  if (amount < lot.nextBid) {
+    return lot.leading === null
+      ? `He will not take under ${lot.nextBid}`
+      : `Somebody is at ${lot.leading.amount}. You need at least ${lot.nextBid}`;
+  }
+  return null;
+}
+
+function refuseBid(
+  tables: BarResponse,
+  table: BarAuction,
+  amount: number,
+  sealing: boolean,
+): string | null {
+  /*
+   * The *fixture's* clock, not the wall clock.
+   *
+   * Every timestamp in `fixtures.ts` is relative to its own frozen `serverNow`, which is what lets
+   * a table be four minutes off its close in every run whenever the run happens. Judging the phase
+   * against `Date.now()` here put that same table a month past midnight, so every bid in the suite
+   * came back "that table closed" and the screen was never drawn at all.
+   */
+  const phase = auctionPhaseAt(new Date(tables.serverNow), {
+    day: tables.day,
+    sealedFrom: new Date(table.sealedFrom),
+    closesAt: new Date(table.closesAt),
+  });
+  if (phase === 'closed') return 'That table closed at midnight.';
+  if (sealing && phase === 'open') {
+    return 'The table is still open. Bid where everybody can see it.';
+  }
+  if (!sealing && phase === 'sealed') {
+    return 'The table is sealed. Lock a final value instead.';
+  }
+
+  const alreadyIn = table.yourBid !== null || table.yourSealed !== null;
+  if (!alreadyIn && tables.auctionsUsed >= tables.auctionsAllowed) {
+    return `You are already at ${tables.auctionsAllowed} tables. Let one close first.`;
+  }
+
+  if (sealing) {
+    if (table.yourSealed !== null) {
+      return 'You have already locked a value on this table. It cannot be changed.';
+    }
+    const floor = Math.max(table.reserve, table.yourBid ?? 0, table.leading?.amount ?? 0);
+    return amount < floor ? `A final value under ${floor} cannot win. Name at least that.` : null;
+  }
+
+  if (amount < table.nextBid) {
+    return table.leading === null
+      ? `The table opens at ${table.reserve}.`
+      : `Somebody is at ${table.leading.amount}. Beat it by at least ${table.nextBid}.`;
+  }
+  return null;
 }
 
 /**

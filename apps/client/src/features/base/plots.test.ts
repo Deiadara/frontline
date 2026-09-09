@@ -9,7 +9,6 @@ import {
   siteArea,
   siteCentroid,
   siteDepth,
-  sitePoints,
   type DistrictSite,
   type ScenePoint,
 } from './plots';
@@ -196,24 +195,6 @@ describe('the district layout (GDD §A1)', () => {
     const depths = DISTRICT_SITES_BY_DEPTH.map(siteDepth);
     expect(depths).toEqual([...depths].sort((a, b) => a - b));
     expect(DISTRICT_SITES_BY_DEPTH).toHaveLength(DISTRICT_SITES.length);
-  });
-
-  /**
-   * The outline is emitted in the plate's own pixel units, which is what the `<svg>` viewBox is.
-   *
-   * Percent-of-scene and viewBox units are different numbers, and the conversion is the one line
-   * between a correct table and twelve outlines bunched into the top-left ninth of the picture.
-   */
-  it('emits points in the plate pixel space the overlay is drawn in', () => {
-    const site = DISTRICT_SITES.find((candidate) => candidate.kind === 'nexus');
-    expect(site).toBeDefined();
-    if (!site) return;
-
-    const first = site.shape[0] as ScenePoint;
-    const [x, y] = (sitePoints(site).split(' ')[0] ?? '').split(',').map(Number);
-    expect(x).toBeCloseTo((first[0] / 100) * DISTRICT_PLATE.width, 0);
-    expect(y).toBeCloseTo((first[1] / 100) * DISTRICT_PLATE.height, 0);
-    expect(sitePoints(site).split(' ')).toHaveLength(site.shape.length);
   });
 });
 

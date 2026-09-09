@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { meetsNotoriety } from '../economy/notoriety.js';
-import { MILESTONE_SECOND_SIGNATURE, isPlayerUnlockActive } from '../progression/unlocks.js';
 
 /**
  * Who will even talk to you (GDD §H3).
@@ -92,34 +91,4 @@ export function assessJoin(requirement: JoinRequirement, crew: CrewStanding): Jo
     interested: blockers.length === 0,
     blockers,
   };
-}
-
-/**
- * §H2b: how many people one crew may sign in a UTC day.
- *
- * One. The Bar is a shared room (§H2) and its stock is finite: hiring somebody takes them out of it
- * for every player, and a seat produces a replacement rather than staying empty. Without a
- * per-player limit the first account awake each day works through the whole roster and every
- * replacement behind it, and nobody else ever meets anybody. The limit is what makes a shared shop
- * shared rather than a race.
- *
- * It lives here rather than beside the roster generator because both sides of the wire need it: the
- * server refuses the second hire, and the Bar screen has to be able to say why before the player
- * tries.
- */
-export const BAR_HIRES_PER_DAY = 1;
-
-/**
- * §I3, and how many a crew who has earned it may sign.
- *
- * The one exception to the paragraph above, and it is a deliberate one: `MILESTONE_SECOND_SIGNATURE`
- * is worth reaching level 40 for precisely because the limit it lifts has bound every crew in the
- * city since their first night. Two is the whole of it: the room still empties, it just empties
- * slightly faster for one crew.
- *
- * Every reader of the limit goes through here rather than through the constant, so the milestone
- * cannot be honoured on the screen and forgotten at the gate.
- */
-export function barHiresPerDay(level: number): number {
-  return BAR_HIRES_PER_DAY + (isPlayerUnlockActive(MILESTONE_SECOND_SIGNATURE, level) ? 1 : 0);
 }

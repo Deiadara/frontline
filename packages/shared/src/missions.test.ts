@@ -14,6 +14,8 @@ import {
   findMissionTemplate,
   formatCountdown,
   formatDuration,
+  hastenedMinutes,
+  hastenedRoadMinutes,
   isMissionDue,
   missionCompletesAt,
   missionPhaseAt,
@@ -42,6 +44,7 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     templateId: 'scrap-run',
     areaId: 'misc',
     vehicles: {},
+    pricedMinutes: 0,
     payPercent: 0,
     xp: 240,
     force: { razors: 4 },
@@ -130,6 +133,20 @@ describe('the mission board', () => {
   it('resolves templates by id, and only real ones', () => {
     expect(findMissionTemplate('scrap-run')?.name).toBe('Scrap Run');
     expect(findMissionTemplate('not-a-mission')).toBeUndefined();
+  });
+});
+
+describe('the road leg (§C3)', () => {
+  /**
+   * The job cap is 50 and a Rotorcraft alone is 52: under the job cap the top of the Garage's
+   * ladder bought nothing over a Gas Balloon. The road has its own ceiling, twice as high.
+   */
+  it('lets a machine past the job cap, and stops at the road cap', () => {
+    expect(hastenedMinutes(60, 52)).toBe(40);
+    expect(hastenedRoadMinutes(60, 52)).toBe(39);
+    expect(hastenedRoadMinutes(60, 100)).toBe(30);
+    expect(hastenedRoadMinutes(60, 150)).toBe(30);
+    expect(hastenedRoadMinutes(60, 0)).toBe(60);
   });
 });
 
@@ -291,6 +308,30 @@ describe('mission phase (§E2)', () => {
         );
       }
     });
+  });
+
+  /**
+   * The exact turnaround: the millisecond the recall button closes and the payout opens.
+   *
+   * The two rules are complements and they meet at one instant, so it is worth pinning that they
+   * meet there and do not overlap. A gap would be a minute in which a crew can neither be recalled
+   * nor banked; an overlap would let a player delete a payout by turning a crew round at the gate,
+   * which is exactly what the note on `canRecall` says it is there to stop.
+   */
+  it('closes the recall on the same millisecond the payout opens, with no gap and no overlap', () => {
+    const home = missionCompletesAt(mission).getTime();
+    const oneBefore = new Date(home - 1);
+    const exactly = new Date(home);
+
+    expect(canRecall(mission, oneBefore), 'recall is open right up to the gate').toBe(true);
+    expect(isMissionDue(mission, oneBefore), 'and nothing is owed yet').toBe(false);
+
+    expect(canRecall(mission, exactly), 'they are at the gate: nothing to turn round').toBe(false);
+    expect(isMissionDue(mission, exactly), 'and the payout is owed').toBe(true);
+
+    // A crew already recalled cannot be recalled again, at any point on its shortened clock.
+    const turned = { ...mission, recalledAt: at(10).toISOString() };
+    expect(canRecall(turned, at(11))).toBe(false);
   });
 
   it('counts down to zero and never below', () => {

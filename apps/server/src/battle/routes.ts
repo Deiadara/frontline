@@ -1,5 +1,6 @@
 import {
   blueprintGateMet,
+  DECLARATION_REFUSAL_MESSAGES,
   DeclareBattleRequestSchema,
   DeployRequestSchema,
   LayTrapRequestSchema,
@@ -31,7 +32,7 @@ import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { declareBattle, type DeclareRefusal } from './declare.js';
 import { adjustDeployment, sideOf, type DeployRefusal } from './deploy.js';
-import { recallColumn, type RecallRefusal } from './movement.js';
+import { recallColumn, type RecallRefusal, retimeColumns } from './movement.js';
 import { projectActions, projectBattles } from './view.js';
 import { seatedRoles } from '../crew/roster.js';
 import { settleWorld } from '../world/settle.js';
@@ -65,10 +66,14 @@ export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = 
   off_slot: 'Fights are called on the half hour, and only on the half hour',
   too_soon: 'Nobody gets less than eight hours to see you coming',
   too_late: 'Nothing is called more than a day out',
-  gate_armed: 'That district is shut. The only thing to hit is the gate',
-  no_gate: 'Nobody holds all of that district. There is no gate, only locations to take',
-  gate_intact: 'The gate is standing. Nothing behind it can be reached',
-  nothing_to_break: 'There is nothing built there to break',
+  /*
+   * The four the shared rules already have words for, spread rather than retyped.
+   *
+   * They were retyped, and the copies drifted: `no_gate` said "only locations to take" here and
+   * something else in `DECLARATION_REFUSAL_MESSAGES`, so the sentence a player read depended on
+   * which layer refused them. `declarationRefusal` is the one rule, and this is the one wording.
+   */
+  ...DECLARATION_REFUSAL_MESSAGES,
   unscouted: 'You have not had eyes on that ground',
   already_declared: 'Somebody has already called that one',
   too_many_pending: 'You have as many calls out as you can answer for',
@@ -462,6 +467,8 @@ export function registerBattleRoutes(app: FastifyInstance): void {
         updatedAt: now.toISOString(),
       });
       app.repos.bases.updateFleet(base.id, fleet);
+      // Whatever is already walking to this fight rides on the new set from here.
+      retimeColumns(app.repos, base, battleId, vehicles, now);
       return respond({ ...base, fleet }, now);
     },
   );

@@ -10,11 +10,10 @@ import { useSearchParams } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Icon, type IconName } from '../../components/ui/Icon';
-import { LoadFailure } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { useBuildAddon, useScrapyard } from '../../lib/queries';
-import { InfoNote, PageShell } from '../game/PageShell';
+import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 
 /**
  * The Scrapyard (§B9, §E1 to §E4): a screen with a menu, not a list on a shelf.
@@ -163,26 +162,26 @@ export function ScrapyardPage() {
   const data = query.data;
   if (!data) {
     /*
-     * A screen that cannot load has to say so.
+     * A screen that cannot load has to say so, *inside the frame*.
      *
      * This drew "Opening the yard..." for every state that was not data, so a 500 looked exactly
      * like a slow network and looked like it for ever. `GET /api/battles` shipped that way for
      * months and nobody could describe it well enough to report it, which is why `LoadFailure`
      * exists and why there is a permanent guard in `screens.spec.ts` walking every screen behind
-     * the nav. This page and the Garage were both added without one.
+     * the nav.
+     *
+     * The framed version, because a page that has not loaded has no `PageShell` of its own yet:
+     * the bare one is rendered into the shell's outlet at the top-left, under the standing bar,
+     * where the words are in the DOM and nowhere a player can read them.
      */
-    return query.isError ? (
-      <LoadFailure
+    return (
+      <ScreenLoadSheet
         what="The yard's board"
+        loading="Opening the yard…"
+        isError={query.isError}
         onRetry={() => void query.refetch()}
         detail="Nothing has been lost. Nothing was charged for."
       />
-    ) : (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-          Opening the yard…
-        </p>
-      </div>
     );
   }
 

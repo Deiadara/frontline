@@ -1,0 +1,16 @@
+-- A level-up that nothing was in a position to announce.
+--
+-- §I2's rule is that a level-up rides on the response of the request that paid for it: presence is
+-- the signal, so no client compares two numbers. That works whenever a route both settles and
+-- announces, and it loses the announcement everywhere else. Two paths in particular:
+--
+--   * the world clock brings a crew home every second and discards what it banked, so a mission
+--     that crossed a threshold at 03:00 was never announced at all;
+--   * every read route settles the base (`district/settle.ts`) and only `/me` and the district
+--     answer with a `levelUp`, so a build finishing on a poll of `/crew` was banked and silent.
+--
+-- One nullable column, holding the `LevelUp` shape as JSON. `awardPlayerXp` merges into it on every
+-- crossing and the responses that announce drain it, so a level-up is announced exactly once
+-- whichever door banked it. Deliberately *not* part of `rowToBase`: this is a delivery receipt for
+-- the shell, not a fact about a district, and it has no business on the wire inside `Base`.
+ALTER TABLE bases ADD COLUMN pending_level_up_json TEXT;

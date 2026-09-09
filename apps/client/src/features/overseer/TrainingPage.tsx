@@ -16,9 +16,8 @@ import {
   type AttributeName,
   type TrainingSubject,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
-import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
@@ -28,7 +27,7 @@ import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/r
 import { useStartTraining, useTraining } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
-import { PageShell } from '../game/PageShell';
+import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { OfficerPortrait } from './OfficerPortrait';
 import { OverseerPortrait } from './OverseerPortrait';
 import { IMPORTANCE_EDGE } from '../../lib/importance';
@@ -46,6 +45,68 @@ import { IMPORTANCE_EDGE } from '../../lib/importance';
  * and Logic is choosing between two sentences about their crew, and "+2 Cryptography" is not one
  * of them.
  */
+
+/** Where the sheet is cut, and how many rows that leaves under the cut. */
+interface Fold {
+  /** Height that ends on a row boundary; `undefined` while every row fits. */
+  readonly height: number | undefined;
+  /** Rows below the cut, which the line under the sheet has to own up to. */
+  readonly hidden: number;
+}
+
+const WHOLE: Fold = { height: undefined, hidden: 0 };
+
+/**
+ * Cut the sheet on a row boundary, and count what that leaves below.
+ *
+ * The sheet is a fixed region with a floor under it, and on a short viewport thirty-three rows do
+ * not fit: eleven Technical rows want 455px and a 900-tall laptop has 399 for them. It was a
+ * scrolling region already, so nothing was unreachable, but the cut landed wherever the frame
+ * happened to end, which sliced the last visible row through the middle of its digits and gave a
+ * player no sign at all that there was more under it. That reads as a rendering fault, which is
+ * the failure the board reported.
+ *
+ * Same move as the overseer roster on the character select screen, and for the same reason: end on
+ * a boundary, so an overflowing sheet simply shows fewer whole rows, and say how many were dropped.
+ *
+ * All four columns start at the same y and use the same row pitch, so a boundary taken from one is
+ * a boundary in all of them. Below `xl` the grid is two columns and the second grid row starts
+ * under the tallest of the first, which is past every boundary this can choose while the first row
+ * is still overflowing.
+ */
+function measureFold(sheet: HTMLElement, hint: HTMLElement | null): Fold {
+  const rows = [...sheet.querySelectorAll<HTMLElement>('[data-testid^="drill-"]')];
+  if (rows.length === 0) return WHOLE;
+
+  const frame = sheet.parentElement;
+  if (!frame) return WHOLE;
+
+  /*
+   * Whether there is a fold at all is judged against the *whole* frame, and only then is the
+   * line's own height taken off what is left.
+   *
+   * Measuring both against `room - hint` makes the line self-sustaining: at 1600x900 the sheet
+   * fits by two pixels, the line appears for one frame on some other transition, and from then on
+   * the twenty-one pixels it occupies are exactly what keeps the last row under the cut.
+   */
+  const room = frame.clientHeight;
+  const columns = [...sheet.children] as HTMLElement[];
+  const tallest = Math.max(...columns.map((column) => column.getBoundingClientRect().height));
+  if (tallest <= room + 0.5) return WHOLE;
+
+  // The line is drawn inside the frame, so it spends the space it advertises.
+  const available = room - (hint?.offsetHeight ?? 0);
+
+  // Content coordinates rather than viewport ones: the sheet may already be scrolled when a
+  // resize brings this back round.
+  const top = sheet.getBoundingClientRect().top - sheet.scrollTop;
+  const bottoms = rows.map((row) => row.getBoundingClientRect().bottom - top);
+  const boundaries = [...new Set(bottoms)].sort((a, b) => a - b);
+  // A row taller than the frame has nowhere to go but scroll; never collapse to nothing.
+  const height = boundaries.filter((bottom) => bottom <= available + 0.5).at(-1) ?? available;
+  return { height, hidden: bottoms.filter((bottom) => bottom > height + 0.5).length };
+}
+
 export function TrainingPage() {
   const query = useTraining();
   const start = useStartTraining();
@@ -56,10 +117,40 @@ export function TrainingPage() {
   /** The drill a player has opened, if any. Clicking a row opens it; it never trains. */
   const [opened, setOpened] = useState<AttributeName | null>(null);
 
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const hintRef = useRef<HTMLParagraphElement>(null);
+  const [fold, setFold] = useState<Fold>(WHOLE);
+
   const data = query.data;
+  // The sheet is not in the tree until the gym answers, and an effect that ran before it was
+  // there registered no observer and then never came back: the fold measured nothing at all.
+  const ready = data !== undefined;
+
+  // Re-runs when the line under the sheet appears or disappears, because that changes the room
+  // left for rows. Re-measuring on the sheet as well as the frame catches the font swap and a
+  // change of subject, both of which move the rows without resizing anything else.
+  useLayoutEffect(() => {
+    const sheet = sheetRef.current;
+    const frame = sheet?.parentElement;
+    if (!sheet || !frame) return undefined;
+
+    const measure = () => {
+      const next = measureFold(sheet, hintRef.current);
+      setFold((previous) =>
+        previous.height === next.height && previous.hidden === next.hidden ? previous : next,
+      );
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    observer.observe(sheet);
+    return () => observer.disconnect();
+  }, [fold.hidden, chosen, ready]);
+
   if (!data) {
     return (
-      <ScreenLoad
+      <ScreenLoadSheet
         what="The gym"
         loading="Finding the gym…"
         isError={query.isError}
@@ -251,20 +342,21 @@ export function TrainingPage() {
             )}
 
             {/*
-             * The sheet takes whatever height is left, and only scrolls if a viewport genuinely
-             * cannot hold thirty-three rows.
+             * The sheet takes whatever height is left, and gives up whole rows rather than half
+             * of one when a viewport cannot hold thirty-three of them.
              *
-             * From 1440x900 up it never does, which is the point: the rows and the banner above
-             * them are sized so the tallest column, the eleven technical ones, clears a 900-tall
-             * laptop with the page fixed. It is not a scrolling region by design; it is a fixed
-             * one with a floor under it, because below that height the
-             * alternative at a legible row height is a cut sheet, and cut content is the one thing
-             * the board's bar rules out outright.
+             * Eleven Technical rows want 455px; a 900-tall laptop leaves 399 for them and a
+             * 720-tall one 219, so a cut is unavoidable below about 1600x900 and the only
+             * question is whether it is an honest one. `measureFold` puts it on a row boundary
+             * and the line underneath says how many rows are under it: cut content is the one
+             * thing the board's bar rules out outright, and a sliced row with no sign that
+             * scrolling recovers it is cut content whatever the overflow rule says.
              */}
-            <div className="relative min-h-0 flex-1">
+            <div className="relative flex min-h-0 flex-1 flex-col" data-testid="training-sheet">
               <div
-                className="grid h-full items-start gap-3 overflow-y-auto md:grid-cols-2 xl:grid-cols-4"
-                data-testid="training-sheet"
+                ref={sheetRef}
+                className="grid min-h-0 flex-1 items-start gap-3 overflow-y-auto md:grid-cols-2 xl:grid-cols-4"
+                style={fold.height === undefined ? undefined : { maxHeight: fold.height }}
               >
                 {ATTRIBUTE_GROUPS.map((group) => (
                   <GroupSheet
@@ -278,6 +370,16 @@ export function TrainingPage() {
                   />
                 ))}
               </div>
+              {fold.hidden > 0 && (
+                <p
+                  ref={hintRef}
+                  // Padding, not margin: `measureFold` budgets for this line by `offsetHeight`.
+                  className="shrink-0 pt-1.5 text-center font-display text-[10px] uppercase tracking-[0.2em] text-brass-300"
+                  data-testid="training-fold"
+                >
+                  ▼ Scroll for {fold.hidden} more {fold.hidden === 1 ? 'drill' : 'drills'}
+                </p>
+              )}
             </div>
           </div>
         )}

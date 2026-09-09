@@ -125,6 +125,16 @@ export function TooltipLayer() {
   }, [tip]);
 
   if (tip === null) return null;
+  /*
+   * A name is stamped; a sentence is set.
+   *
+   * Most tips are a label: "Battles", "Oil", "Bed Plating". Those read best the way every other
+   * label in the chrome reads, small capitals with tracking. A few are a sentence, and the same
+   * treatment turns "Send enough bags or you leave some of it on the floor" into a wall of spaced
+   * capitals nobody finishes. So a tip past a label's length, or with a full stop in it, is set in
+   * the body face at reading size, like the note under a card.
+   */
+  const sentence = tip.text.length > 36 || /[.!?]/.test(tip.text);
   return (
     <div
       ref={boxRef}
@@ -136,7 +146,9 @@ export function TooltipLayer() {
         'pointer-events-none fixed max-w-xs rounded-md px-2.5 py-1.5',
         LAYER,
         'border border-iris-300/25 bg-surface-950/95 shadow-panel backdrop-blur-sm',
-        'font-display text-[11px] font-bold uppercase leading-tight tracking-[0.16em] text-ink-100',
+        sentence
+          ? 'font-body text-[12.5px] leading-snug text-ink-100'
+          : 'font-display text-[11px] font-bold uppercase leading-tight tracking-[0.16em] text-ink-100',
         // Drawn transparent until it has been measured, so it cannot flash in the corner first.
         at === null && 'opacity-0',
       )}

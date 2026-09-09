@@ -73,7 +73,12 @@ test('shows a crew with no pages nothing at all', async ({ page }) => {
   });
 
   await page.goto('/game/research/blueprints');
-  await expect(page.getByText('How a blueprint is put together')).toBeVisible();
+  // Printed on the page, not folded into a hover chip: collapsed, that chip was the whole of this
+  // screen for a crew with nothing in the satchel, and a blank sheet is indistinguishable from a
+  // read that failed.
+  await expect(page.getByTestId('blueprints-empty')).toContainText(
+    'A blueprint is a set of named pages, and you have none of them',
+  );
   await expect(page.locator('[data-testid^="blueprint-"]')).toHaveCount(0);
   await settleFonts(page);
   await expectNothingClippedVertically(page);

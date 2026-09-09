@@ -1,7 +1,8 @@
 import { storageCapacity } from '@frontline/shared';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { CrewLevelChip } from './Meters';
+import { CrewLevelChip, InfamyChip } from './Meters';
 import { fillFraction, ResourceChip, STORAGE_WARN_AT } from './Resources';
 
 /**
@@ -130,6 +131,24 @@ describe('what the standing chips say when you look at them', () => {
     fireEvent.focus(screen.getByTestId('level-hover'));
     const card = screen.getByRole('tooltip');
     expect(card.textContent).not.toMatch(/what pays it|recruit slot|every level/i);
+  });
+
+  /**
+   * The chip beside it says `40K` because it is 58px wide. The card is where the exact figure
+   * lives, and it printed `40000`: the one number in that window without separators, beside a
+   * price that had them.
+   */
+  it('groups the exact infamy figure the compact chip is hiding', () => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <InfamyChip infamy={40_000} notoriety={4} />
+      </QueryClientProvider>,
+    );
+    fireEvent.focus(screen.getByTestId('infamy-hover'));
+    const card = screen.getByRole('tooltip');
+    expect(within(card).getByText('40,000')).toBeInTheDocument();
+    expect(card.textContent).not.toContain('40000');
   });
 
   it('closes again when the pointer leaves', () => {

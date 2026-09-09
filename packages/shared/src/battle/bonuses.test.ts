@@ -179,14 +179,17 @@ describe('the ground and the crew', () => {
   });
 
   /**
-   * Speed is not a combat stat, and this is where it is spent.
+   * The second thing speed buys, and the one a losing side cares about.
    *
-   * Nothing in the round loop reads it: measured on a 40-v-40 mirror, `unitSpeedPercent` at +20
-   * moves the surviving share by 0.000. That is correct rather than broken, and it is worth a test
-   * saying so, because "the speed bonus does nothing" is otherwise a true sentence that reads like
-   * a bug report. What speed buys is getting away from a fight that was lost.
+   * The first is `engagementEdge`, in the round loop, where speed is spent as a **difference**
+   * against the other side's (`reach = range - their speed`, `closing = speed - their speed`).
+   * Both terms cancel when the two sides move at the same pace, which is why a uniform rebalance
+   * of every sheet is nearly invisible and why this comment used to claim the loop read speed not
+   * at all. Give one side the bonus and it is worth plenty: +20% `unitSpeedPercent` on 20 Razors
+   * against 20 Snipers takes the Razors' survivors from 10.8% to 13.6% over 1500 runs. What is
+   * pinned below is the other half: getting away from a fight that was lost.
    */
-  it('spends speed on the withdrawal rather than on the fight', () => {
+  it('spends speed on the withdrawal as well as on the engagement', () => {
     const quick = { effective: { speed: 80, stealth: 0 }, brokeAt: null } as never;
     const slow = { effective: { speed: 20, stealth: 0 }, brokeAt: null } as never;
     const context = { pursuit: 50, lastRound: 4, away: true };

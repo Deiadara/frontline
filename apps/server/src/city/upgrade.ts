@@ -1,6 +1,5 @@
 import {
   LOCATION_CATALOG,
-  MAX_LOCATION_LEVEL,
   canAfford,
   spendResources,
   upgradeCost,
@@ -57,16 +56,15 @@ export type UpgradeOutcome =
   | { kind: 'refused'; reason: UpgradeRefusal }
   | { kind: 'started'; control: LocationControl; base: Base; note: string; until: string };
 
-/** Banks a finished upgrade. Called on every read of the city, the way every clock here settles. */
-export function settleUpgrade(control: LocationControl, now: Date): LocationControl {
-  if (control.upgradingUntil === null) return control;
-  if (Date.parse(control.upgradingUntil) > now.getTime()) return control;
-  return {
-    ...control,
-    level: Math.min(MAX_LOCATION_LEVEL, control.level + 1),
-    upgradingUntil: null,
-  };
-}
+/*
+ * There is no `settleUpgrade` here.
+ *
+ * There was, and its doc said "called on every read of the city, the way every clock here settles",
+ * and nothing called it: `settleFortifications` in `city/actions.ts` banks both clocks on the row
+ * in one pass, which is where it belongs, because they live on the same row and a second settler
+ * over the same table is a second chance to forget one. A second implementation sitting beside the
+ * live one under a name that reads like the live one is worse than no implementation at all.
+ */
 
 export function startUpgrade(
   repos: Repositories,

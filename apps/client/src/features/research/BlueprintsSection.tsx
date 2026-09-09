@@ -25,7 +25,6 @@ import { Panel } from '../../components/ui/Panel';
 import { PanelSection } from '../../components/ui/PanelSection';
 import { cn } from '../../lib/cn';
 import { useMarket, useReimagine, useUnlockBlueprint } from '../../lib/queries';
-import { InfoNote } from '../game/PageShell';
 import { BlueprintGlyph } from './BlueprintGlyph';
 
 /**
@@ -77,12 +76,24 @@ export function BlueprintsSection() {
 
   return (
     <div className="flex flex-col gap-4" data-testid="blueprints-section">
+      {/*
+       * Said on the page, not folded into the note chip.
+       *
+       * `InfoNote` is a hover: collapsed, it is a 150px chip and nothing else, so a crew holding
+       * no pages opened this door on an empty screen with one word on it and no way to tell that
+       * from a failed read. The chip is right for a rule somebody might want and wrong for the
+       * only sentence explaining why the screen is bare, which is the call the crew screen already
+       * made for its own empty state.
+       */}
       {known.length === 0 && (
-        <InfoNote label="How a blueprint is put together">
+        <p
+          className="max-w-prose font-body text-[13px] leading-relaxed text-ink-300"
+          data-testid="blueprints-empty"
+        >
           Nothing here yet. A blueprint is a set of named pages, and you have none of them. Pages
           come back from missions, turn up on the Black Market for infamy, and once in a while the
           Runner is carrying one. Collect every page of a document and you can unlock it for good.
-        </InfoNote>
+        </p>
       )}
 
       {known.length > 0 && (
@@ -304,7 +315,7 @@ function PageSquares({ holding }: { holding: BlueprintHolding }) {
         return (
           <li
             key={page.id}
-            title={page.name}
+            data-tip={page.name}
             data-held={filled ? 'yes' : 'no'}
             className={cn(
               'flex h-5 w-5 items-center justify-center rounded-[2px] border',

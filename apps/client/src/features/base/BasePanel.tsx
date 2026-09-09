@@ -211,6 +211,9 @@ export function BasePanel() {
         <StructureDialog
           kind={selectedPlot}
           base={base}
+          // The server's own price for every plot, off the call the shell polls. See the prop.
+          quotes={me.data?.buildQuotes}
+          clocks={me.data?.buildClocks}
           pending={build.isPending}
           error={build.error ?? boost.error ?? fit.error ?? clear.error}
           onBuild={() => build.mutate({ kind: selectedPlot })}
@@ -440,11 +443,14 @@ function PayrollRows({ base }: { base: Base }) {
   return (
     <dl className="flex flex-col divide-y divide-surface-700">
       <StatRow label="Officers on the books" value={String(officers)} />
+      {/* Grouped, like every other cap figure. The book runs past a thousand as soon as a crew
+          buys a handful of steps (`PAYROLL_STEP`), and `1150 / 1450 caps` is the one row on this
+          panel a player is doing arithmetic on. */}
       <StatRow
         label="Payroll committed"
-        value={`${committedPayroll(base.economy.payroll.commitments)} / ${ledger.capacity} caps`}
+        value={`${committedPayroll(base.economy.payroll.commitments).toLocaleString()} / ${ledger.capacity.toLocaleString()} caps`}
       />
-      <StatRow label="Payroll left" value={`${ledger.available} caps`} />
+      <StatRow label="Payroll left" value={`${ledger.available.toLocaleString()} caps`} />
     </dl>
   );
 }

@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes } from 'react';
 import { cn } from '../../lib/cn';
+import type { SoundKind } from '../../lib/sound';
 
 type Variant = 'primary' | 'danger' | 'ghost';
 type Size = 'sm' | 'md';
@@ -28,6 +29,21 @@ const VARIANTS: Record<Variant, string> = {
   ghost:
     'border-surface-600 bg-surface-800/70 text-ink-200 hover:border-brass-500/70 ' +
     'hover:bg-surface-700/80 hover:text-brass-100 active:translate-y-px',
+};
+
+/**
+ * What each variant sounds like when it is pressed.
+ *
+ * A press that spends, commits or destroys gets the firmer confirm; a ghost is a secondary action
+ * (cancel, close, switch tab) and gets the ordinary click. Read by the delegated listener in
+ * `lib/sound.ts`, which is why it is an attribute rather than an `onClick` here: a `Button` whose
+ * caller passes its own `data-sound` overrides this, and `buttonSkin` sites carry theirs on the
+ * element they dress.
+ */
+const SOUNDS: Record<Variant, SoundKind> = {
+  primary: 'confirm',
+  danger: 'confirm',
+  ghost: 'click',
 };
 
 const SIZES: Record<Size, string> = {
@@ -76,5 +92,12 @@ export function Button({
   type = 'button',
   ...rest
 }: ButtonProps) {
-  return <button type={type} className={buttonSkin({ variant, size, className })} {...rest} />;
+  return (
+    <button
+      type={type}
+      data-sound={SOUNDS[variant]}
+      className={buttonSkin({ variant, size, className })}
+      {...rest}
+    />
+  );
 }

@@ -15,15 +15,24 @@ import {
 import { useState } from 'react';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { DeltaFloat } from '../../components/ui/Delta';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { NumberField } from '../../components/ui/NumberField';
 import { InfoWindow, WindowSection } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
+import type { DeltaMark } from '../../lib/deltas';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { formatDuration } from '../base/format';
+import { RULE_CHIP, RULE_INK, RULE_WINDOW_TONE, ruleTone } from './rules';
 import { UnitPortrait } from './UnitPortrait';
 import { UpgradeSlots } from './UpgradeSlots';
+
+/**
+ * How many of a locked unit's clauses the card itself prints; the rest are counted and the whole
+ * list is on the hover. Two is what the fixed-height box holds without wrapping past two lines.
+ */
+const CLAUSES_ON_THE_CARD = 2;
 
 export interface UnitCardProps {
   unit: UnitOption;
@@ -41,6 +50,13 @@ export interface UnitCardProps {
    * still read one card rather than two that drift.
    */
   training?: UnitCardTraining;
+  /**
+   * What this count just did: a batch landing off the bench, or bodies leaving for a fight.
+   *
+   * From the page's one `useDeltaMarks`, for the reason the standing bar's chips take theirs from
+   * the HUD's: one diff of one payload rather than one per card.
+   */
+  deltas?: readonly DeltaMark[];
 }
 
 /** Everything the price box needs, and nothing anything above it does. */
@@ -80,12 +96,19 @@ export interface UnitCardTraining {
  *   3. The action. Price and Train, or the padlock and what is in the way. Same box, same place,
  *      whichever it is.
  *
+ * The one part that is allowed to grow is the marks (board request, 2026-09-08): every rule, every
+ * modifier and every characteristic this unit notices is printed, wrapping into as many rows as it
+ * takes, because a `+3` chip hides exactly the thing a player opened the roster to compare. So the
+ * frame carries a floor rather than a height, and the grid stretches every card in a row to the
+ * tallest of them: the price boxes still land on one line across a row, which is what the fixed
+ * height was ever for.
+ *
  * The portrait fills the left column at whatever height the rest settles on, cropping rather than
- * setting it. The prose, the modifiers and the ground affinities are *not* on the card at all any
- * more: they are hover cards on the name and on a single row of marks under the header, which is
- * where a player looks for detail once they have already decided which unit they are reading.
+ * setting it. The prose and the full text of each mark are *not* on the card: they are hover cards
+ * on the name and on each chip, which is where a player looks for detail once they have already
+ * decided which unit they are reading.
  */
-export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCardProps) {
+export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: UnitCardProps) {
   return (
     <section
       data-testid={`unit-${unit.id}`}
@@ -103,7 +126,25 @@ export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCard
         // with no height gives it nothing to be full of. Without the price box the frame is that
         // box shorter and nothing else moves, so the card a hover shows is the card the roster
         // shows with its last row taken off.
-        training ? 'h-[25.5rem]' : 'h-[19.5rem]',
+        //
+        // The picture fills the frame with the same 12px over it and under it (board request,
+        // 2026-09-08; it had a 30px strip of card under it, which was the marks band's headroom
+        // showing through a capped portrait). So the frame is the column beside the picture,
+        // budgeted to the pixel for the tallest card in the game, and the sheet (`flex-1`, below)
+        // takes up whatever a shorter card leaves, so the brackets and the price box sit at the
+        // same height on every card and the box lands on the picture's bottom edge.
+        //
+        // The budget, measured at 1440 two-up: header 39, gap 8, sheet 199 with two rows of
+        // marks (the Colossus, eight of them), 12 to the brackets, 24 of brackets, 12 to the
+        // price box, and the box at 92, which is what a price that wraps to two lines needs
+        // (five materials wrap at every width the card is drawn at, and none reach three). That
+        // is 386 of column, plus 24 of padding and 2 of border: 412px, 25.75rem. A `min-h` does
+        // not work instead: the marks are a `flex-wrap` row, and a wrapping row's contribution
+        // to an auto grid track is measured as though it never wrapped, so the frame would
+        // squash the price box rather than grow. The roster sweep in `visual.spec.ts` walks every
+        // tier looking for a chip or a box pushed out, which is why the price box below is
+        // `shrink-0`: left shrinkable it absorbs an overflow silently instead.
+        training ? 'h-[25.75rem]' : 'h-[21.5rem]',
         // And a ceiling on the width while it is one to a row, so a single card does not become a
         // 1200px band with a stat table stretched across it. 52rem is about what two of them
         // measure at 1440, so a card is the same object at every width: it just stops sharing.
@@ -123,6 +164,12 @@ export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCard
         The height is a constant rather than a measurement because the sheet beside it is one: a
         header, twelve stats, a row of marks and the price box are the same rows on every card in
         the game.
+
+        And the frame is kept as short as the column allows, because a 3:4 picture that follows a
+        taller frame gets *wider*: at 1440 two-up a 26rem portrait took 46% of the card, and the
+        roster's own layout gate calls anything past 45% a sheet being squeezed for the picture's
+        sake. The frame is sized to the column rather than the picture capped inside the frame,
+        so there is no strip of card under it.
       */}
       <div className="relative h-full shrink-0">
         <UnitPortrait
@@ -140,6 +187,7 @@ export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCard
           is a fight, matching the colour each of those screens already uses.
         */}
         <span className="absolute right-1.5 top-1.5 rounded-sm border border-surface-600 bg-surface-950/85 px-2 py-0.5 font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
+          <DeltaFloat marks={deltas ?? []} data-testid={`delta-unit-${unit.id}`} />
           {unit.owned}
           {garrisoned > 0 && (
             <span className="text-brass-300" data-tip={`${garrisoned} on held ground`}>
@@ -156,7 +204,7 @@ export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCard
         </span>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
         {/* Row 1. The name is the door to everything that used to be printed on the card, and the
             carry sits opposite it: one figure, top right, where a card puts a capacity. */}
         <header className="flex min-w-0 items-start justify-between gap-3">
@@ -201,8 +249,13 @@ export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCard
 
           The row count is fixed either way, which is what lets the card promise a height: two
           figures, four rows of paired bars, one line for the load.
+
+          `flex-1`: this is the one band that stretches. A card with one row of marks has 20px
+          less to say than a card with two, and the room goes under the marks, inside the sheet's
+          own rules, rather than between the brackets and the price box, so those two sit at the
+          same height on every card and the price box lands on the portrait's bottom edge.
         */}
-        <div className="border-y border-surface-600/50 py-2.5">
+        <div className="flex-1 border-y border-surface-600/50 py-2">
           <dl className="grid grid-cols-2 gap-2">
             {UNIT_HEADLINE_KEYS.map((key) => (
               <div
@@ -260,16 +313,16 @@ export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCard
             })}
           </dl>
 
-          {/* The keywords take the line the carry used to have: one row, side by side, still a
-              fixed height so the box under it never moves. */}
-          <div className="mt-1.5 border-t border-surface-700/70 pt-1.5">
+          {/* Every keyword the unit carries, wrapping: one row on most cards, two on the widest. */}
+          <div className="mt-1 border-t border-surface-700/70 pt-1">
             <Marks unit={unit} />
           </div>
         </div>
 
         {/* The three brackets (§A5). Under the sheet rather than in it, because what is bolted on
-            is a decision the player makes and everything above is a number they read. */}
-        <div className="mt-2">
+            is a decision the player makes and everything above is a number they read. `mt-1` on
+            top of the column's gap: 12px, and the price box keeps the same 12px under them. */}
+        <div className="mt-1">
           <UpgradeSlots unit={unit} built={built} />
         </div>
 
@@ -278,9 +331,14 @@ export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCard
             materials and stays on one for a unit that costs two, and a locked unit's clause list is
             one line or two depending on how many things are in the way. Any of those makes the
             neighbouring card taller. The box is the same size whatever goes in it and its contents
-            are centred in it. */}
+            are centred in it. 92px is a two-line price, the stepper row, the box's padding and
+            its border (36 + 6 + 35 + 12 + 2 = 91), and it is what closes the column to the
+            portrait's height. */}
         {training && (
-          <div className="mt-auto flex h-24 items-stretch" data-testid={`action-${unit.id}`}>
+          <div
+            className="mt-1 flex h-[5.75rem] shrink-0 items-stretch"
+            data-testid={`action-${unit.id}`}
+          >
             {unit.unlocked ? (
               <TrainBox unit={unit} training={training} />
             ) : (
@@ -299,8 +357,20 @@ export function UnitCard({ unit, built, garrisoned, abroad, training }: UnitCard
                     <Icon name="lock" aria-hidden className="h-3.5 w-3.5" />
                     Locked
                   </span>
-                  <span className="line-clamp-2 text-center font-display text-[11px] uppercase leading-snug tracking-[0.1em] text-oxblood-300">
-                    {unit.missing.join(' · ')}
+                  {/* Counted, not clamped.
+                   *
+                   * The whole list joined and cut at two lines is text the box slices mid-word:
+                   * the Abomination's four clauses ended `hold the Mad Scientist'…`, and the
+                   * Colossus's the same. `line-clamp` has no idea where a clause ends. Two
+                   * clauses and a tally of the rest is the same two lines, says how much is
+                   * still hidden, and never cuts a word in half. */}
+                  <span className="text-center font-display text-[11px] uppercase leading-snug tracking-[0.1em] text-oxblood-300">
+                    {[
+                      ...unit.missing.slice(0, CLAUSES_ON_THE_CARD),
+                      ...(unit.missing.length > CLAUSES_ON_THE_CARD
+                        ? [`${unit.missing.length - CLAUSES_ON_THE_CARD} more`]
+                        : []),
+                    ].join(' · ')}
                   </span>
                 </span>
               </HoverCard>
@@ -325,7 +395,7 @@ function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTrai
   const most = spec ? maxTrainable(spec, resources, spare, discountPercent, suppliesPercent) : 0;
 
   return (
-    <div className="flex w-full flex-col items-center justify-center gap-2 rounded-sm border border-brass-500/35 bg-surface-950/45 px-3 py-2">
+    <div className="flex w-full flex-col items-center justify-center gap-1.5 rounded-sm border border-brass-500/35 bg-surface-950/45 px-3 py-1.5">
       <CostLine cost={unit.cost} stock={resources} />
       <div className="flex items-center gap-2">
         <NumberField
@@ -346,7 +416,7 @@ function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTrai
             disabled={pending || most < 1}
             onClick={() => setCount(most)}
             data-testid={`max-${unit.id}`}
-            title={`As many as you can afford and house: ${most}`}
+            data-tip={`As many as you can afford and house: ${most}`}
           >
             Max
           </Button>
@@ -361,20 +431,6 @@ function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTrai
     </div>
   );
 }
-
-/**
- * One reserved line of marks: what this unit does, and where it is unusually good or bad.
- *
- * Always rendered, even when a unit has neither, because an empty line that holds its place is what
- * lets the price box below it land on the same pixel on every card.
- *
- * Two marks at most, and a `+N` for the rest rather than a row that runs off the edge: the widest
- * unit in the game carries two modifiers and four ground affinities, and letting those wrap is
- * exactly what made the cards different heights in the first place. Two, not three, because the
- * narrowest card the grid produces is about 270px of sheet at 1024 and a third chip pushed
- * `CLOSE QUARTERS` onto a second line, where the row's own fixed height then cut it in half.
- */
-const MARKS_SHOWN = 2;
 
 /** A stat's name, with its explainer one hover away. Shared by the figures and the bars. */
 function StatLabel({ statKey }: { statKey: StatKey }) {
@@ -409,24 +465,27 @@ function StatLabel({ statKey }: { statKey: StatKey }) {
   );
 }
 
+/**
+ * Every mark this unit carries: what it does, what it cannot do, and where it is unusually good or
+ * bad (board request, 2026-09-08).
+ *
+ * All of them, wrapping. It used to print two and count the rest into a `+N` chip, which kept the
+ * card a fixed height and hid the one thing a player opens a roster to compare: a Colossus reading
+ * `SHIELD LINE +3` says nothing about the three. The row takes as many lines as the marks need and
+ * the card grows with it; the grid stretches the row, so the price boxes still line up across it.
+ *
+ * Rules first, then modifiers, then characteristics. A shield line is the most important thing
+ * anybody can know about a stack, and a rule that says a unit will not board a vehicle is the
+ * second, so neither sits below a percentage.
+ *
+ * Always rendered, even when a unit has none, because an empty band that holds its own line is what
+ * keeps the sheet's bottom rule where the neighbouring card puts it.
+ */
 function Marks({ unit }: { unit: UnitOption }) {
-  // Rules first, then modifiers, then ground. A shield line is the most important thing anybody
-  // can know about a unit and it must not be the mark that gets counted into the `+N`.
-  const rules = unit.rules.slice(0, MARKS_SHOWN);
-  const modifiers = unit.modifiers.slice(0, MARKS_SHOWN - rules.length);
-  const room = MARKS_SHOWN - rules.length - modifiers.length;
-  const affinities = unit.affinities.slice(0, room);
-  const hidden =
-    unit.rules.length -
-    rules.length +
-    (unit.modifiers.length - modifiers.length) +
-    (unit.affinities.length - affinities.length);
+  const { rules, modifiers, affinities } = unit;
 
   return (
-    <ul
-      className="flex h-6 flex-nowrap items-center gap-1 whitespace-nowrap"
-      data-testid={`marks-${unit.id}`}
-    >
+    <ul className="flex min-h-6 flex-wrap items-center gap-1" data-testid={`marks-${unit.id}`}>
       {rules.map((rule) => (
         <li key={rule.id} className="min-w-0">
           <RuleTag rule={rule} unit={unit.name} />
@@ -448,8 +507,8 @@ function Marks({ unit }: { unit: UnitOption }) {
                 </p>
                 <p className="font-body text-[13px] leading-relaxed text-ink-100">
                   {affinity.good
-                    ? `${unit.name} fight better on this ground: ${affinity.note}.`
-                    : `${unit.name} suffer on this ground: ${affinity.note}.`}
+                    ? `${unit.name} fight better where this holds: ${affinity.note}.`
+                    : `${unit.name} suffer where this holds: ${affinity.note}.`}
                 </p>
               </div>
             }
@@ -468,18 +527,6 @@ function Marks({ unit }: { unit: UnitOption }) {
           </HoverCard>
         </li>
       ))}
-      {/* Counted, never clipped. A row that simply overflowed cut the last chip down its middle,
-          which is a defect however small; a chip that says how many are left is an invitation to
-          the dossier, which has all of them. */}
-      {hidden > 0 && (
-        <li className="shrink-0">
-          <HoverCard label={`${hidden} more`} size="window" card={<UnitDossier unit={unit} />}>
-            <span className="flex h-5 items-center rounded-sm border border-surface-600 bg-surface-800/80 px-1.5 font-display text-[10px] uppercase tracking-[0.08em] tabular-nums text-ink-300">
-              +{hidden}
-            </span>
-          </HoverCard>
-        </li>
-      )}
     </ul>
   );
 }
@@ -523,11 +570,17 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
       {unit.rules.length > 0 && (
         <WindowSection label="How they fight">
           {/* Above "What they do", because a rule outranks a percentage: whether the enemy has to
-              shoot this stack first is the first thing anybody needs to know about it. */}
+              shoot this stack first is the first thing anybody needs to know about it. Oxblood for
+              a rule that takes something away, the same red the locked box wears. */}
           <ul className="flex flex-col gap-2">
             {unit.rules.map((rule) => (
               <li key={rule.id}>
-                <span className="block font-display text-[11px] font-bold uppercase leading-snug tracking-[0.14em] text-brass-100">
+                <span
+                  className={cn(
+                    'block font-display text-[11px] font-bold uppercase leading-snug tracking-[0.14em]',
+                    RULE_INK[ruleTone(rule)],
+                  )}
+                >
                   {rule.label}
                 </span>
                 <span className="block font-body text-[13px] leading-snug text-ink-100">
@@ -564,7 +617,7 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
       )}
 
       {unit.affinities.length > 0 && (
-        <WindowSection label="Ground they notice">
+        <WindowSection label="Characteristics they notice">
           <ul className="flex flex-col">
             {unit.affinities.map((affinity) => (
               <li
@@ -602,9 +655,15 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
  * `taunts` and `mends` change what *happens* rather than what a number is, and a player who reads
  * `SHIELD LINE` in the same verdigris chip as `CLOSE QUARTERS` will file it as another +25%. Brass,
  * which is the chrome the interface already uses for "this is a mechanism", and always first in the
- * row: a rule outranks a percentage when there is only room for two marks.
+ * row: a rule outranks a percentage.
+ *
+ * A rule can also take something away, and then it is oxblood (board request, 2026-09-08): the
+ * Colossus is too big to ride, and a red chip is the difference between reading that as a perk and
+ * reading it as the reason the column is walking. Same red as the locked box and the missing
+ * clauses, so the card has one colour for "this is against you".
  */
 function RuleTag({ rule, unit }: { rule: UnitOption['rules'][number]; unit: string }) {
+  const tone = ruleTone(rule);
   return (
     <HoverCard
       label={rule.label}
@@ -613,7 +672,7 @@ function RuleTag({ rule, unit }: { rule: UnitOption['rules'][number]; unit: stri
         <InfoWindow
           eyebrow={unit}
           title={rule.label}
-          tone="brass"
+          tone={RULE_WINDOW_TONE[tone]}
           icon={<Icon name="spark" className="h-full w-full text-surface-950" />}
         >
           <WindowSection label="What it does">
@@ -622,7 +681,13 @@ function RuleTag({ rule, unit }: { rule: UnitOption['rules'][number]; unit: stri
         </InfoWindow>
       }
     >
-      <span className="flex h-5 items-center whitespace-nowrap rounded-sm border border-brass-300/70 bg-brass-300/20 px-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-brass-100">
+      <span
+        className={cn(
+          'flex h-5 items-center whitespace-nowrap rounded-sm border px-1.5',
+          'font-display text-[10px] font-semibold uppercase tracking-[0.08em]',
+          RULE_CHIP[tone],
+        )}
+      >
         {rule.label}
       </span>
     </HoverCard>

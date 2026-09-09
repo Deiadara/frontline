@@ -58,6 +58,7 @@ import {
   breachExpiry,
   declarationRefusal,
   deployedSize,
+  districtIsShut,
   gateArmed,
   gateIsBroken,
   isBattleDue,
@@ -125,7 +126,7 @@ describe('when a fight may be called for (§A4)', () => {
 describe('what may be declared against (§A4)', () => {
   const location: BattleTarget = { kind: 'location', districtId: 'd', locationId: 'p' };
   const gate: BattleTarget = { kind: 'gate', districtId: 'd' };
-  const building: BattleTarget = { kind: 'building', districtId: 'd', buildingId: 'b' };
+  const raid: BattleTarget = { kind: 'district', districtId: 'd' };
 
   it('sends you at the gate when one party holds the whole district', () => {
     const shut = { shut: true, breached: false, inhabited: true };
@@ -139,19 +140,45 @@ describe('what may be declared against (§A4)', () => {
     expect(declarationRefusal(location, open)).toBeNull();
   });
 
-  it('keeps the structures behind a standing gate out of reach, and opens them once it is down', () => {
-    expect(declarationRefusal(building, { shut: true, breached: false, inhabited: true })).toBe(
+  it('keeps the home behind a standing gate out of reach, and opens it once the gate is down', () => {
+    expect(declarationRefusal(raid, { shut: true, breached: false, inhabited: true })).toBe(
       'gate_intact',
     );
-    expect(
-      declarationRefusal(building, { shut: true, breached: true, inhabited: true }),
-    ).toBeNull();
+    expect(declarationRefusal(raid, { shut: true, breached: true, inhabited: true })).toBeNull();
   });
 
-  it('has nothing to break in a breached district nobody lives in', () => {
-    expect(declarationRefusal(building, { shut: true, breached: true, inhabited: false })).toBe(
+  it('has nothing to raid in a breached district nobody lives in', () => {
+    expect(declarationRefusal(raid, { shut: true, breached: true, inhabited: false })).toBe(
       'nothing_to_break',
     );
+  });
+
+  /**
+   * §A4, board 2026-09-09: **a home is shut.**
+   *
+   * A residential district holds no locations, so `districtHolder` answers null for one and
+   * `gateArmed` therefore answers false: every crew's home was permanently open ground. The
+   * resident is what shuts it, which is why `districtIsShut` takes both facts and why the two
+   * callers that decide what may be attacked (`districtStandingFor`, the board's `gates` list) both
+   * go through it.
+   */
+  it('shuts a home on its resident, and leaves an empty plot open', () => {
+    // The state a residential district is actually in: nobody holds a location, somebody lives here.
+    expect(districtIsShut(null, true)).toBe(true);
+    expect(districtIsShut(null, false)).toBe(false);
+    // And the contested rule is untouched underneath it.
+    expect(districtIsShut({ kind: 'crew', baseId: 'b1' }, false)).toBe(true);
+    expect(districtIsShut({ kind: 'unoccupied' }, false)).toBe(false);
+  });
+
+  it('sends you at the gate of a home while it stands, and never refuses it for want of a gate', () => {
+    const home = { shut: districtIsShut(null, true), breached: false, inhabited: true };
+    expect(declarationRefusal(gate, home)).toBeNull();
+    // The raid behind it waits for the door to come off.
+    expect(declarationRefusal(raid, home)).toBe('gate_intact');
+    // And inside the breach it is the raid that is legal.
+    const open = { ...home, breached: true };
+    expect(declarationRefusal(raid, open)).toBeNull();
   });
 
   /** A breach re-opens the ordinary route in as well: the door is off its hinges. */

@@ -185,6 +185,7 @@ export function FactionPage() {
           isSelf={openMember.userId === myUserId}
           pending={pending}
           onAction={(action) => memberAction.mutate({ userId: openMember.userId, action })}
+          onLeave={() => leave.mutate(undefined)}
           onClose={() => setOpenMemberId(null)}
         />
       )}
@@ -225,10 +226,9 @@ export function FactionPage() {
           faction={faction}
           onIdentity={(name, badge) => identity.mutate({ name, badge })}
           onDescription={(blurb) => describe.mutate({ blurb })}
-          onLeave={() => leave.mutate(undefined)}
           onDisband={() => disband.mutate(undefined)}
           onClose={() => setDoor(null)}
-          busy={identity.isPending || describe.isPending || leave.isPending}
+          busy={identity.isPending || describe.isPending || disband.isPending}
         />
       )}
 

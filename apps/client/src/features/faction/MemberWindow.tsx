@@ -5,6 +5,7 @@ import {
   FACTION_RANK_LABELS,
   canKick,
   canSetRank,
+  leavingDisbands,
   type FactionMember,
   type FactionResponse,
 } from '@frontline/shared';
@@ -28,6 +29,9 @@ import { ArmyTags, Heading, WindowHead } from './parts';
  *
  * Both still ask before they act, and Promote and Demote still do not: those two are one press to
  * undo, and a confirmation on a reversible act teaches players to click through confirmations.
+ *
+ * Your own file carries the door. Leaving is something you do to yourself, so it sits with your
+ * own name and your own reading rather than in the book beside the badge swatches.
  */
 export function MemberWindow({
   member,
@@ -35,6 +39,7 @@ export function MemberWindow({
   isSelf,
   pending,
   onAction,
+  onLeave,
   onClose,
 }: {
   member: FactionMember;
@@ -42,6 +47,7 @@ export function MemberWindow({
   isSelf: boolean;
   pending: boolean;
   onAction: (action: 'kick' | 'promote' | 'demote' | 'hand_over') => void;
+  onLeave: () => void;
   onClose: () => void;
 }) {
   // Both questions are asked of the domain rather than re-derived here, so a greyed-out button and
@@ -49,8 +55,10 @@ export function MemberWindow({
   const rank = data.rank;
   const mayKick = rank !== null && !isSelf && canKick(rank, member.rank);
   const mayRank = rank !== null && !isSelf && canSetRank(rank) && member.rank !== 'leader';
-  const [asking, setAsking] = useState<'kick' | 'hand_over' | null>(null);
+  const [asking, setAsking] = useState<'kick' | 'hand_over' | 'leave' | null>(null);
   const theirArmy = data.armies.find((entry) => entry.memberUserId === member.userId);
+  const takesItWithYou = isSelf && rank !== null && leavingDisbands(rank, data.members.length);
+  const factionName = data.faction?.name ?? 'the faction';
 
   const readings: readonly [label: string, value: string][] = [
     ['Level', String(member.level)],
@@ -140,7 +148,7 @@ export function MemberWindow({
               <MarkStamp
                 mark={member.cardMark}
                 className="inset-0 text-oxblood-300/90"
-                title={`${FACTION_CARD_SPECS[member.card].aspect}: ${member.cardMark}`}
+                tip={`${FACTION_CARD_SPECS[member.card].aspect}: ${member.cardMark}`}
               />
             </span>
           </div>
@@ -199,7 +207,47 @@ export function MemberWindow({
             </div>
           </section>
         )}
+
+        {isSelf && (
+          <section className="flex flex-col gap-2">
+            <Heading>The door</Heading>
+            <p className="font-body text-[13px] leading-relaxed text-ink-300">
+              {takesItWithYou
+                ? data.members.length > 1
+                  ? 'You lead this faction, so leaving ends it for everybody at the table. Hand it to somebody first if you want it to carry on without you.'
+                  : 'You are the only one here, so leaving ends it.'
+                : 'You can walk out whenever you like. What you have sent to a fight already in flight stays sent.'}
+            </p>
+            <Button
+              variant="danger"
+              className="self-start"
+              disabled={pending}
+              data-testid="leave-faction"
+              onClick={() => setAsking('leave')}
+            >
+              Leave the faction
+            </Button>
+          </section>
+        )}
       </div>
+
+      {asking === 'leave' && (
+        <Confirm
+          title={takesItWithYou ? 'This ends the faction' : 'Leave the faction?'}
+          body={
+            takesItWithYou
+              ? `${factionName} is disbanded the moment you go, for all ${data.members.length} of you. This cannot be undone.`
+              : `You leave ${factionName}. Its fights stop showing up on your screen.`
+          }
+          confirm={takesItWithYou ? 'Leave and disband it' : 'Leave'}
+          testId="confirm-leave"
+          onCancel={() => setAsking(null)}
+          onConfirm={() => {
+            setAsking(null);
+            onLeave();
+          }}
+        />
+      )}
 
       {asking === 'kick' && (
         <Confirm

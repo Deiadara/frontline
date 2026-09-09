@@ -3,7 +3,9 @@ import {
   UNIT_UPGRADE_SLOTS,
   battlefieldFor,
   findUnit,
+  type Army,
   type BattleView,
+  type UnitLoadouts,
   type UnitOption,
   type UnitsResponse,
 } from '@frontline/shared';
@@ -141,15 +143,22 @@ function stubApi(): void {
 
 const confirmed = vi.fn();
 
-function open(mode: DeployMode) {
+function open(
+  mode: DeployMode,
+  over: Partial<BattleView> = {},
+  army: Army = ARMY,
+  loadouts: UnitLoadouts = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <DeployDialog
-        view={view}
-        army={ARMY}
+        view={{ ...view, ...over }}
+        army={army}
+        loadouts={loadouts}
+        homeDistrictId="neon-docks"
         // Above every gate in the catalogue, so nothing in this fixture is locked out by rank.
         notoriety={100_000}
         mode={mode}
@@ -240,5 +249,45 @@ describe('the deploy dialog (§A4)', () => {
     expect(within(card).getByTestId('marks-razors')).toBeInTheDocument();
     // The card is read, not acted on: no price box, so no Train order from a battle window.
     expect(within(card).queryByTestId('action-razors')).toBeNull();
+  });
+});
+
+/**
+ * §C3: who is not getting on the truck, and what the column is therefore held to.
+ *
+ * The Colossus carries the `no_ride` rule, so no seat in the city takes one and the whole column
+ * walks at its pace. Both halves are asserted, because either alone is satisfied by a screen that
+ * is wrong: a note that is always there says nothing about the machines, and a note that is never
+ * there passes on a fixture with nothing loaded.
+ */
+describe('a unit that will not board', () => {
+  const WALKER: Army = { ...ARMY, the_colossus: 1 };
+
+  it('says nothing while the yard is empty, because everybody walks anyway', () => {
+    open('line', { vehicles: {} }, WALKER);
+    expect(screen.queryByTestId('walks-the_colossus')).toBeNull();
+  });
+
+  it('is marked once anything is loaded, and it alone', () => {
+    open('line', { vehicles: { armoured_car: 1 } }, WALKER);
+    expect(screen.getByTestId('walks-the_colossus')).toHaveTextContent('walks');
+    // The bodies that do fit are not marked: the note is about the sheet, not about the fight.
+    expect(screen.queryByTestId('walks-razors')).toBeNull();
+  });
+
+  it('holds the column at its own pace, and the window names it', () => {
+    open('line', { vehicles: { armoured_car: 1 } }, WALKER);
+    // Nothing picked yet, so there is no column and no pace to quote.
+    expect(screen.getByTestId('deploy-column')).toHaveTextContent('');
+
+    fireEvent.change(field('line-the_colossus'), { target: { value: '1' } });
+    fireEvent.change(field('line-razors'), { target: { value: '4' } });
+
+    const colossus = findUnit('the_colossus');
+    const line = screen.getByTestId('deploy-column');
+    expect(line).toHaveTextContent(
+      `Held to ${colossus?.stats.speed} by 1 ${colossus?.name} walking`,
+    );
+    expect(line).toHaveTextContent('on the road at most');
   });
 });

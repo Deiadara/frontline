@@ -66,8 +66,8 @@ export type MarketOffer = z.infer<typeof MarketOfferSchema>;
 /** How long a listing stands before the goods go home. */
 export const OFFER_LIFETIME_HOURS = 48;
 
-/** The most listings one crew may have standing at once, counters included. */
-export const MAX_OPEN_OFFERS = 8;
+/** The most listings one crew may have standing at once, counters included. The board's five. */
+export const MAX_OPEN_OFFERS = 5;
 
 export function emptyBundle(): TradeBundle {
   return { resources: {}, items: {} };

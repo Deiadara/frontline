@@ -1246,6 +1246,972 @@ retired from the shelves or turned into page sets is a content call nobody has m
 - Marks gate research (C2) and communicate progress. Nothing pays out from them: every bonus reads
   the score (C3b).
 
+## W. The Garage: documents named after their machines, and the Offie (2026-09-07)
+
+- [x] W1. Every vehicle document is named after the machine as the yard lists it. "Motorbike
+      Blueprint" became "Scrappy Blueprint"; a leading "The" is dropped the way the unit documents
+      drop the plural. Pinned in `blueprints.test.ts` (control: the old name fails it).
+- [x] W2. The Dirt Runner is gone. In its place the board's Offie, a reinforced pickup, painted in
+      `images/offie-portrait-pickup.png`. It is the middle car now rather than a second bike:
+      Garage level 5, 10 seats, 26% off the road, priced above the Scar.
+      The class ladder tests in `vehicles.test.ts` still hold.
+- [x] W3. The ids stay: `dirt_runner`, `bp_dirt_runner`, the three `pg_dirt_runner_*` pages and the
+      `vehicle-dirt-runner` asset key. The Scar set the precedent (`scrap_car`): the id keys every
+      stored fleet and every page already in a satchel, and a label change is not worth a
+      migration. The pages read Bed Plating, Bull Bar and Lift Kit.
+- [x] W4. Portrait through the pipeline: master at `art-src/vehicle-dirt-runner.png`, shipped as
+      `assets/vehicle-dirt-runner.webp` (opaque 1024 square, no matte, as the Scrappy and the
+      Scar), ART-BIBLE row, prompt subject rewritten in `prompts.ts` and transcribed into
+      ART-PROMPTS.md, ART-ORDER.md regenerated. Checked on the Garage page in a screenshot.
+- [x] W5. The Armoured Car is gone. In its place the board's Cheese Wagon, a school bus in plate,
+      painted in `images/cheese-wagon-portrait.png`. A truck by the numbers: Garage level 7, 30
+      seats, 16% off the road, priced between the Flatbed and the War Hauler. Same id policy as
+      W3: `armoured_car`, `bp_armoured_car` and its four pages keep their ids; the pages read Hull
+      Plating, Window Mesh, Ram Plough and Roof Rack. Portrait through the same pipeline as W4.
+- [x] W6. No class sections on the Garage page. One list, every machine, in the order the Garage
+      lets them out. The catalogue is now written in Garage-level order and `vehicles.test.ts`
+      pins that (control: swapping two rows fails it). The class stays in the domain as the rule
+      behind the speed and seats ladder; its labels and blurbs had no reader left and are gone.
+
+## X. Vehicles: a wiring, bug and balance pass (2026-09-07)
+
+Read end to end: the Garage builds into `base.fleet`; a fight takes machines off it on
+`/battles/vehicles` and holds them on the deployment row; `sendColumn` prices the walk off that
+row; the settle wrecks a share and hands the rest back; a mission takes them at launch and returns
+them at settle, never wrecking one. Six things were not as intended.
+
+- [x] X1. **An ally's machines were never settled.** The settle handled the declarer's row and the
+      defending base's row and nobody else's, so a faction member who loaded their yard onto a
+      friend's fight had it sit on the deployment row for ever. `settleSideVehicles` now settles
+      every row on both sides, each against its own share of the survivors (`splitSurvivors`).
+- [x] X2. **A column's clock ignored machines picked after it left.** The picker and the deploy
+      share a screen and nothing orders them. `/battles/vehicles` now re-times this crew's columns
+      still walking to that fight, from departure, so a narrower set lengthens the walk the same
+      way (`retimeColumns`, `battle/movement.ts`).
+- [x] X3. **Empty machines could be wrecked, and a crew that fielded nobody lost everything.** Two
+      War Haulers under ten bodies wrecked both on a wipe and paid the enemy eighty infamy for a
+      seating plan. Only what the force could fill is at risk now (`loadable`, which existed and
+      was called by nothing); the idle ones and a fielded-nobody yard go home.
+- [x] X4. **Riding cut a mission's pay and XP** (the open finding from Section Q). The launch
+      froze the machines' cut into `travelMinutes` and the settle priced rewards, salvage and XP
+      off that clock: about 12% less for using the Garage on a long road. The row now carries
+      `pricedMinutes`, the card's own total without the machines (migration 0081, zero on old rows
+      meaning "price off the row's clock"), and everything is priced off it.
+- [x] X5. **The road cap made the Garage's top half pointless.** Battle roads capped at 60 and
+      mission roads at 50 (the job cap). The machine ladder runs 34 to 52 before the ground's own
+      +28 (Rail Yard, Tram Depot), so with both held any machine at all hit the cap and a
+      Rotorcraft on a mission was capped alone. `MAX_ROAD_SPEED_BONUS = 100` now governs both
+      roads (`hastenedRoadMinutes` for the mission leg); the job leg keeps its 50. The best column
+      in the game halves the walk and every rung still moves the clock.
+- [x] X6. **Where the machines are.** The road screen showed the walkers and nothing they rode in:
+      columns and forces at a fight now carry ride chips like jobs do (`MovementView.vehicles`).
+      The Garage row says "1 in the yard · 2 out" instead of "none" for a committed yard
+      (`GarageVehicle.out`). The battle receipt names what was wrecked ("Wrecked on the way: 1
+      Cheese Wagon"), since the report's table has no row for machines. A crew defending its own
+      district gets no picker: there is no road to shorten, only a yard to put at risk.
+- [x] X7. Tests: idle machines, fielded-nobody, re-timing, out counts and an ally's row in
+      `officer-in-battle.test.ts`; pay parity in `missions.test.ts`; the road cap in the shared
+      `missions.test.ts`; ride chips in `bench.spec.ts`. Each watched failing with its fix
+      reverted.
+
+Left alone, and recorded: a defender side's allied _survivors_ (bodies, not machines) all go to
+the defending base (`resolve.ts`, "A home defence's survivors are the roster"); an ally who came
+to hold a friend's ground gets none of their people back. Same shape as X1, older, and outside a
+vehicle pass.
+
+## Y. Hovers: one tooltip, drawn by the game (2026-09-07)
+
+Every explanation on hover goes through two things the game draws: `HoverCard` (a portalled card,
+the info windows) and `TooltipLayer` (the delegated `data-tip` name). The pass found the browser's
+own tooltip still in nine places, one tooltip nothing could open, and two browser widgets.
+
+- [x] Y1. Native `title` attributes converted to `data-tip`: the deploy dialog's Half and
+      Everybody buttons, the unit card's Max, the attribute rows' importance, the blueprint page
+      squares, the faction fights' side plate and the `Figure` chips. The card glyph dropped its
+      SVG `<title>`, which browsers draw as an OS tooltip over every seat; the `aria-label` still
+      names it.
+- [x] Y2. `MarkStamp` carried a `title` on a `pointer-events-none` span: a tooltip on an element
+      the pointer passes through, so "Head of Research: C+" had never once shown. It is a
+      `data-tip` on a span that takes the pointer now (clicks still reach the card under it), and
+      the prop is `tip`.
+- [x] Y3. `TooltipLayer` sets a sentence in the body face. A name ("Battles", "Bed Plating") stays
+      in the chrome's small capitals; a tip past a label's length or with a full stop in it was
+      the same spaced capitals across two lines, and now reads like the note under a card.
+- [x] Y4. The last native `<select>` on a game screen, in the faction fights drawer, is the
+      painted `Dropdown`; the admin page's range slider is the `NumberField` every other count
+      uses. `Reinforce.test.tsx` drives the combobox instead of a select element.
+- [x] Y5. Checked and left: no native confirm/alert/prompt anywhere; every input carries the
+      chrome's classes; the nav's `title` props are `aria-label` text, not attributes. The tips
+      read as needed: none repeats a visible label, and the HUD icons, swatches, page squares and
+      stamps are the ones that have no words of their own.
+
+## Z. The Bar is an auction (2026-09-07)
+
+The board replaced the wage haggle with a city-wide daily auction. The rules as built, with the
+gaps the brief left filled in and recorded here so they can be reversed on purpose:
+
+- [x] Z1. **One room, one day.** The roster is the same eight (plus a crew's Charisma seats) for
+      everybody, generated from the Athens date, and it turns over whole at Athens midnight. A
+      seat is not refilled when somebody wins it: the ids keep their `bar-<day>-<seat>-0` grammar
+      and the seat turnover machinery (`bar_slots`) is gone.
+- [x] Z2. **Open until thirty minutes before midnight.** Every bid is public: amount, crew, time,
+      who leads. A bid must beat the leader by 5% and at least one cap (`nextMinimumBid`); the
+      table opens at the officer's floor (`reservationWage` of the asking price, printed on the
+      card); a leader cannot raise their own bid.
+- [x] Z3. **Sealed for the last thirty minutes.** One secret final value per crew per table, locked
+      once, never lower than the reserve, the crew's own open bid or the leading open bid. A crew
+      with no open bid may still seal. Nobody sees anybody's value; the bidder count still counts
+      them.
+- [x] Z4. **The close.** Each crew's final is the higher of its open bid and its sealed value.
+      Highest signs, onto the bench, at that price; a tie goes to a coin hashed off the auction and
+      the crew (`rankBids`), so two settles agree and bid order does not matter. Every gate a hire
+      always had stands at midnight: a free chair, the officer's doors, a wage the book can hold.
+      A winner who cannot take them passes to the next final; a table nobody can take goes unsold.
+      Settled lazily on the first Bar read after midnight and by the world clock.
+- [x] Z5. **Two tables at once** (`MAX_OPEN_AUCTIONS`), counted from a crew's first bid until the
+      table closes. The level-40 milestone that bought a second signing a day buys a third table.
+- [x] Z6. **Payroll, still.** Nothing is charged. The price is the weekly wage committed to the
+      book, talked down by the winner's own negotiators (`committedWage`, the sink for
+      `wageDiscountPercent`); the price everybody sees and the result rows carry stay the shared
+      number. The payroll-fit gate reads the discounted figure at the bid and at the close.
+- [x] Z7. **Told.** The winner gets `officer_hired` ("X signed with you at N a week"); everybody
+      else at the table gets `bar_outbid`. The Bar's "Last night" door lists yesterday's tables the
+      reader sat at: won, lost, passed, unsold.
+- [x] Z8. **Drawn.** The room keeps its painting and stool. Each seat carries the table: reserve or
+      leader, who holds it, crews in, a live countdown to the seal or the close, a phase badge. The
+      bidding window is the auction screen: the person on the left, the leading figure, the clock
+      (oxblood in the last five minutes), payroll headroom and the table cap, the painted stepper
+      with +1 step / +5% / +10%, the history newest first with the reader's rows marked, and in the
+      sealed phase the lock behind a confirmation and then the sealed card. A "Your tables" strip on
+      the painting counts the cap. The bar query polls every ten seconds; every clock runs off
+      `serverNow`.
+- [x] Z9. Server: migration 0082 (drops `bar_negotiations`, `bar_standoffs`, `bar_slots`; adds
+      `bar_bids`, `bar_auction_results`), `bar/auction.ts`, `POST /bar/bid`, `POST /bar/seal`,
+      `/bar/negotiate` and `/bar/hire` removed, 45 bar tests with controls on the increment, the
+      cap, the sealed refusal, the tie and the discount. Client: `AuctionWindow`, `AuctionParts`,
+      the strip and results on `BarPage`, `NegotiationDialog` gone, `bidding.spec.ts` replacing
+      `negotiation.spec.ts`. Docs: GDD H7a, SPEC-server, SPEC-client, INTERFACES, ARCHITECTURE,
+      STATUS.
+
+- [x] Z10. **Bug dive** (2026-09-07, after the build). Read end to end for several crews reading
+      one table, live reads, floors and the numbers a player is offered. The engine held: one
+      process, synchronous storage, every bid inside a transaction against a fresh read of the
+      table, so two crews at the same number are served in order and the second hears the new
+      minimum; the close is one function of stored rows with the tie coin hashed, so the world
+      clock and a page read agree; a crew winning two tables in one close is re-read between them.
+      Five things were off and are fixed: bid times printed in UTC (now the player's own clock,
+      `formatClock`); the window capped the field at the raw book while the server takes bids up
+      to the talked-down figure, so `BarResponse.bidCeiling` carries the exact edge and the field
+      and the gate agree (`bidCeilingFor`, with an off-by-one at the rounding edge caught by its
+      own test); a full roster was refused only by the server (the window says so first); a crew
+      leading more tables than it has chairs is now warned before the bid ("One chair free for 2
+      tables"); the results panel only ever read last night, so a crew that skipped a night found
+      it empty (it reads back a week for the last night it sat at a table, and prints the date).
+      The settings layout gate's fixed probe height was a knife edge the new notification row
+      tripped; it grows to the content now.
+
+Calls the board may want to reverse: the close applies no admin waivers (an admin build can bid on
+somebody it cannot hold and lose them as `passed`); the roster for a past day is regenerated at
+today's city average, so an officer signed at the close can be a shade stronger than the card that
+was bid on if the city levelled overnight; `BarRecruit.hired` is always false now and nothing
+draws it; the bid field is floored at the reserve rather than at the moving minimum, with a warning
+on screen and the server having the last word.
+
+## AA. A server bug pass, and three numbers to plan against (2026-09-07)
+
+The brief: walk every module in `packages/shared/src` and `apps/server/src` looking for a settle that
+runs twice or never, a gate on one side of the wire and not the other, money made outside the ledger
+that names it, and anything exported, catalogued or migrated that nothing reads. Then re-run §V's
+table and price three things the last two days changed.
+
+- [x] AA1. **§V's table has not moved.** `pnpm --filter @frontline/scripts battle-sim` at 3000 runs
+      reproduces every row of §V to the digit: the Razors mirror at 46%, 18 vs 20 at 0.4%, 22 vs 20
+      at 98.4%, two Ironside walls at 0% on the round cap with nobody scratched, and 0 ledger
+      mismatches in 500. Nothing in this pass touched the engine, and the sim says so.
+- [x] AA2. **The vehicle ladder, after the Offie and the Cheese Wagon.** Every rung still moves the
+      clock and no class inverts. Corner to corner (Neon Docks to the Combine Spire, 75 minutes on
+      foot), one machine carrying a full load, no ground bonus:
+
+| Machine      | Garage | Seats | Road | Corner to corner |
+| ------------ | ------ | ----- | ---- | ---------------- |
+| on foot      |        |       |      | 75m              |
+| The Scrappy  | 1      | 2     | +34% | 56m              |
+| Scar         | 4      | 8     | +24% | 60m              |
+| The Offie    | 5      | 10    | +26% | 59m              |
+| Flatbed      | 6      | 24    | +14% | 65m              |
+| Cheese Wagon | 7      | 30    | +16% | 64m              |
+| Gas Balloon  | 9      | 10    | +44% | 52m              |
+| War Hauler   | 10     | 40    | +18% | 63m              |
+| Rotorcraft   | 12     | 18    | +52% | 49m              |
+
+A later machine being slower than an earlier one is the class trade rather than an inversion:
+the Scar seats four Scrappies and the War Hauler seats twenty. Within a class the ladder is
+strictly monotone on seats, speed, price and build time, which was a sentence in `vehicles.ts`
+with nothing asking it and is now a test (`vehicles.test.ts`, control: swapping the Scar and
+the Offie fails it). The cross-class bands are unchanged: no car keeps up with a bike, no
+truck keeps up with a car, and both flyers outrun everything on the ground.
+
+- [x] AA3. **§X5 raised the road cap to 100 and the ground catches it again at location level 3.**
+      X5 measured the ground at +28, which is the Rail Yard and the Tram Depot at **level 1**. Both
+      scale on `LEVEL_SCALE`, so a crew that works them up runs out of road again:
+
+| Rail Yard + Tram Depot | Ground | On foot | Scrappy | Rotorcraft |
+| ---------------------- | ------ | ------- | ------- | ---------- |
+| level 1                | +28    | 58m     | 46m     | 41m        |
+| level 2                | +42    | 53m     | 42m     | 38m        |
+| level 3                | +56    | 48m     | 39m     | 37m        |
+| level 5                | +84    | 41m     | 37m     | 37m        |
+| level 10               | +154   | 37m     | 37m     | 37m        |
+
+From level 3 the best machine in the game is already at the ceiling; from level 6 the walk is,
+and the whole Garage buys nothing on that road. The mission road has the same shape one
+location kind along: two Smuggler's Tunnels at level 5 (+72) put a Rotorcraft on the cap, and
+two at level 10 (+132) put the walk there. This is the same finding X5 fixed, one level of the
+upgrade ladder further out, and it is a balance call rather than a bug: either the cap moves
+again, or `travel_speed` and `mission_speed` stop scaling with the location's level. Recorded,
+not changed.
+
+- [x] AA4. **No mission is strictly better per minute than every other at its difficulty**, walking
+      or riding, on value or on XP. Priced at level 1 off the misc board, value counted in
+      `RESOURCE_KG` (the carry weight, which is the game's only ordering on what a resource is
+      worth), against the best column in the game (+80 on the road):
+
+| Difficulty | Best value per real minute | Best XP per real minute   |
+| ---------- | -------------------------- | ------------------------- |
+| easy       | water-run, 13.0 riding     | debt-collection, 7.4      |
+| hard       | convoy-ambush, 15.8 riding | checkpoint-shakedown, 7.9 |
+
+The two leaders are different jobs in both bands, which is the property that matters: a player
+optimising for materials and a player optimising for levels are not sent to the same card. The
+spread inside a band is wide (easy runs from 2.3 to 13.0 value per minute) and it is the
+travel band doing it, not the reward table: the short jobs are the efficient ones and the long
+ones pay in a lump. Riding shortens the road and not the job, so its edge is 3% on
+`deep-expedition` (26 hours, one hour of it road) and 22% on `water-run` (18 minutes, most of
+it road), which is the intended shape of §C3 and is what makes the Garage a mid-game purchase
+rather than an opening one.
+
+- [x] AA5. **The Bar's floor is inside the payroll book at every stage, and the chairs run out after
+      the book does.** Reserves measured over seven consecutive rooms, eight seats each:
+
+| City level | Room calibre | Open-door reserve | Whole room | Book at that stage        |
+| ---------- | ------------ | ----------------- | ---------- | ------------------------- |
+| 1          | 0            | 30 to 52          | 30 to 52   | 225 (Nexus 1, no steps)   |
+| 10         | 3            | 56 to 85          | 56 to 85   | 450 (Nexus 10, no steps)  |
+| 20         | 6            | 92 to 124         | 92 to 124  | 600 (Nexus 10, 5 steps)   |
+| 30         | 10           | 145 to 177        | 145 to 177 | 1000 (Nexus 20, 10 steps) |
+
+A day-one crew can open **any** table in the room: its whole book is 225 and the dearest seat
+opens at 52, so both its chairs are affordable at the floor with 120 left over. §H2a's
+three-seat open-door floor means at least three of them are reachable whatever the §H3 rolls
+do. At the other end a level-10 crew (eleven chairs by §H8) has a 450 book against a room
+asking 56 to 85, so it can take the best person on any table easily and can fill about five of
+its eleven chairs before the book, not the chairs, refuses the sixth. That is the book working
+as designed (§H7: "payroll is a capacity") rather than a gap, and it is the reason
+`Increase Payroll` exists; worth knowing that the chair count and the book diverge by a factor
+of two from level 10 onwards. Nothing in the room ever approaches the theoretical ceiling: a
+perfect sheet would ask 1447 and open at 1158, and the strongest room the generator produces
+at `MAX_CALIBRE` tops out at 177.
+
+- [x] AA6. **Six defects fixed, each watched failing with its fix reverted.** A mission's pay and
+      salvage were still priced off the ridden clock (§X4 landed `pricedMinutes` at the launch and
+      the settle went on reading `missionTimings`, so the Garage still cost a crew about 3 to 12%
+      of its take); `district_attacked` had no emitter anywhere in the server, so §A4's "the
+      defender is told" was never true; §A4's raid disruption had a reader in `settleDistrict` and
+      no writer at all, so the one thing a raid victim cannot buy back never happened; the Lab
+      settled on its own two routes and nowhere else, so a finished rung's doors stayed shut and
+      its bell stayed silent until the player opened Research; `MAX_PER_VEHICLE` was counted against
+      the yard rather than against the machines out on the road, so sending a full yard out and
+      building another doubled it; and a level-up the world clock banked reached nobody, which is
+      the last of §Q's open findings (migration 0083, a durable marker drained by whichever response
+      announces). `payroll_due` is gone from the notification catalogue: the weekly wage draw it
+      described was removed with §H7's book.
+
+## AB. The file-by-file pass, and the receipts on the HUD (2026-09-07)
+
+Two engineers walked the tree in parallel, one on the client and one on server and shared, with
+the orchestrator on the cross-cutting leftovers. Everything below has a test that was watched
+failing with its fix reverted unless it says otherwise.
+
+- [x] AB1. **Receipts.** Every stockpile chip, the infamy chip, the unit counts and the satchel's
+      item counts throw a figure the moment they move: `-1,200` in oxblood for a spend, `+400` in
+      verdigris for a gain, on a plate with the readout's icon, 18px, rising and fading over 2.4
+      seconds, several in a row in their own lanes (`lib/deltas.ts`, `components/ui/Delta.tsx`).
+      The passive trickle is not a receipt: a rise no larger than the district's own per-hour rate
+      (plus a margin for held ground and perks, which `/me` does not carry) over the server-clock
+      gap between two readings is suppressed; falls never are. Reduced motion fades without the
+      rise. The training and cancel harness stubs now charge and refund, so the e2e sees a real
+      stockpile move.
+- [x] AB2. **Server bugs.** A mission's pay and salvage were still priced off the ridden clock at
+      the settle (X4 froze the XP and missed the resources). `district_attacked` had no emitter, on
+      a kind a player cannot mute. The §A4 raid disruption had a reader and no writer, so a raid
+      never cost the victim its quarter of production. The Lab only settled on its own routes, so
+      a rung finishing elsewhere opened nothing until the page was visited (`settleResearchFor` in
+      `settleBase`). `MAX_PER_VEHICLE` counted the yard and not the machines out (build twelve,
+      send twelve, build twelve more). Level-ups the world clock banked reached nobody; a durable
+      marker (migration 0083) is drained by the announcing responses.
+- [x] AB3. **Client bugs.** The build dialog quoted the catalogue price and measured affordability
+      against it while `/me` carried the real quote nobody read. The build clock was derived twice;
+      `/me` now carries `buildClocks`, the exact seconds the order freezes (`orderSeconds`, one
+      writer). `GET /overseer/me` returned the sheet's fold with every perk-only channel at zero,
+      so the district panel quoted the payroll step at full price and greyed a button the route
+      would take; it returns every numeric channel of the crew fold now. The level-up card
+      re-showed on any redelivery (latched on the level, not object identity). Stale Bar copy on
+      the crew screen. Figures without separators on six screens. Fixture drift: a zero priced clock and two missing notification kinds.
+- [x] AB4. **Leftovers.** The delivered Gas Balloon portrait was never encoded (it is the fifth
+      painted machine now); the removed Cistern still shipped two assets; `payroll_due` described a
+      draw §H7 deleted; `settleUpgrade` was a second, uncalled settle beside the live one; a dead
+      modal, three CSS classes, a dead skyline table and two plot helpers. Left on purpose and
+      recorded: `src/render/` is imported by nothing (the art policy names it, so a board call);
+      129 officer faces delivered against a pool of 99 (widening re-maps every face); 36 exported
+      symbols nothing imports (listed in the server report, a cleanup for a quiet tree); the
+      residential gate and the break-in against `residentOf` stay as Q left them; `battle_incoming`
+      and `training_done` are still emitted by nothing, named in a receipts test that refuses any
+      new kind without an emitter.
+- [x] AB5. **Edge cases and balance.** Tests at the reserve and one under, a sealed value level
+      with the leader, the Athens boundary on both summer-time nights, an officer injured through
+      midnight, a recall at the exact turnaround, a vehicle ladder monotone within each class, and a
+      training batch half-delivered. Section V reproduces to the digit. One balance call recorded
+      in Section AA rather than changed: the road cap catches the ground again once the speed
+      locations reach level 3, and the whole Garage buys nothing at level 6.
+
+## AC. Receipts that mean something, experience on the chip, the joker, and sound (2026-09-08)
+
+- [x] AC1. **No passive receipts.** The +1 oil and +1 planks after a mission launch were the
+      trickle: the launch refreshed the HUD, that read settled a few seconds of production, and a
+      one-unit rise cleared an allowance that was a fraction of a unit. The rule now: a fall always
+      shows; a rise on a stockpile shows only past `max(2, allowance)`, with the allowance floored
+      at one whole unit because a settle banks whole units however slow the rate; readouts with no
+      passive source (infamy, units, items, XP) announce every move. Measured cost: no job in the
+      catalogue is small enough in every line to go silent; a one-line rounding refund can.
+- [x] AC2. **Every click that spends refreshes the HUD on the same read.** The audit of all 31
+      mutation hooks found the training path already correct and two that were not: fitting an
+      upgrade slot never refreshed the stockpile, and the faction mutation refreshed only on
+      success while the reinforce route settles before it refuses. Research starts now have a
+      harness handler (they were driving a route the harness did not stub) and an e2e receipt.
+- [x] AC3. **Experience.** Missions pay the figure frozen at launch, at the settle, and they are
+      the main source by five to ten times over any other event: a median job is 388 XP against a
+      100 XP first level, 543 against 1,500 at level five, 737 against 5,500 at ten (7.5 missions
+      a level). The curve is unchanged; the lever if the tail should be longer is
+      `PLAYER_XP_LEVEL_STEP` (100 to 160 gives 12 missions a level at ten). The level chip throws
+      `+120 XP` in verdigris, diffed on XP behind the level so a crossing never reads as a loss.
+- [x] AC4. **The joker** carries the word JOKER across the top of the face, star kept, legible at
+      the seat's 44px and the file's 64px with clear edges.
+- [x] AC5. **Sound.** Six CC0 sounds from Kenney's UI Audio and Interface Sounds packs (recorded in
+      ART-BIBLE §11 with sha256), 47 KB in all: `click` on any button, `confirm` on primary and
+      danger buttons, `page` on any link, `done` on a live base or notification event, `call` on a
+      battle event and on calling a fight, `refuse` when an alert appears. One delegated listener
+      at the root, the tooltip layer's pattern; `data-sound` overrides or silences a subtree. One
+      decode per file, a gain node per play, rate-limited so a batch of settles plays once, silent
+      until the first gesture as the platform demands, and a no-op at zero. A "Sounds" bar in the
+      settings, painted and keyboard-operable, persisted on the user (`soundVolume`, default 60,
+      migration 0084) and mirrored to local storage for the first frame. The curve is
+      `(percent / 100) ^ (5/3)`, so the middle of the bar is half as loud rather than a quarter.
+      Research and the rules for what stays silent (hover, typing, scrolling, polls) are in
+      docs/SOUND.md. Background sound comes later, as the board said.
+- [x] AC6. **The board's picks** (2026-09-08), off a listening board of all 151 files in the two
+      packs: the tab change is `switch9` (the rising swish was rejected), the battle call is
+      `scratch_005`, the refusal is `error_001`; the click, the confirm and the done chime stand.
+      Gains re-measured so the interface still sits under the events.
+
+## AD. The red mark, and a fight on demand (2026-09-08)
+
+- [x] AD1. **One sound for a fight called and a fight coming.** Both already play the `call` kind:
+      the "Call it" button carries it, and the `district_attacked` bell arrives as a live `battle`
+      event, which the announcer plays as `call` over the chime when the two land together. The
+      file behind it is the board's pick, `scratch_005`.
+- [x] AD2. **The red mark.** `UnreadCounts.fightsOnYou` rides the `/me` poll: fights still to come
+      that somebody else called on ground this crew defends (`fightsCalledOn`, counted the way the
+      settler finds the defender). The bottom bar draws it on the left as a pulsing oxblood tile
+      with the road-sign triangle and a count past one, a link straight to the board, on every
+      screen; a quiet day draws nothing.
+- [x] AD3. **The console calls a fight on you.** `POST /admin/mock-battle`: the seeded rival (or
+      any other crew) declares on the reviewer's ground through `declareBattle` itself, at the
+      earliest mark, so the bell, the mark and the board are the real ones. A crew holding nothing
+      is handed one unheld location first, since a residential district has no gate and no
+      locations to be called on (Section Q, still true); the caller is marked as having scouted
+      the ground. Tests: the server route end to end (declaration, handed ground, the count, the
+      bell; 404 without the console), the mark and its link in `battles.spec.ts`, the console
+      button in `backroom.spec.ts`.
+- [x] AD4. **Every press makes its sound.** The faction book, the badge swatches, the member file,
+      the bidding window and every other window were silent because `Modal`'s panel stops click
+      propagation (so a press does not fall through to the backdrop) and the sound layer listened
+      in the bubbling phase. It captures now, so nothing in the tree can hide a press from it. The
+      pressable set grew from buttons and links to checkboxes, radios, `summary` and the `button`,
+      `option`, `switch`, `tab` and `menuitem` roles, so the settings switches, the board's
+      filters, the hold-the-ground tick and the painted picker's options click. Starting a
+      research programme and burning an upgrade say `confirm`; a tooltip trigger that only
+      explains itself says nothing. Test: a press inside a panel that stops propagation is heard
+      (control: the bubbling listener fails it).
+- [x] AD5. **The picker's second frame.** The painted frame (`.painted::before`, the rivet dots)
+      sat on the scrolling list, so once a picker held more than eighteen rems of chairs the frame
+      scrolled with the options and drew a second brass box across the menu. The frame is on a
+      wrapper that never scrolls; the options scroll inside it.
+
+## AE. Speed is one stat, and one clock runs on it (brief of 2026-09-08)
+
+The board: _"the total population riding the vehicle has exactly the speed of the vehicle, so no
+off-the-road percentage. Everything is calculated based on the speed itself... A 30 speed unit makes
+it 30% faster to go there, and a 100 speed unit makes it 100% faster, e.g. 20 mins down to 10
+mins... Other bonuses like 10% less travel time stack on top."_
+
+Two quantities had been sharing one name. A machine carried a "percentage off the road" that was
+added into the ground's travel bonus and divided in; a unit carried a `speed` the road had never
+read at all. So a Rotorcraft and a Rail Yard were the same kind of thing, a Cyberhound walked at the
+pace of an Ironside, and `carriedSpeedPercent` handed forty walkers the average of the two bikes in
+front of them.
+
+- [x] AE1. **`roadMinutes(base, speed, reductionPercent)`** (`time/speed.ts`), and every road in the
+      game goes through it: `travelMinutesBetween` for a march and a scouting run,
+      `hastenedRoadMinutes` for a mission's travel leg. Speed **divides** (`base / (1 + speed/100)`,
+      so 100 halves the road and 30 takes twenty minutes to fifteen), the reduction **multiplies**
+      what is left, and the two compose in that order. A walk with nobody quick and no holdings is
+      the base, which is what made this safe to put under a road that had no speed in it before.
+      `MAX_TRAVEL_SPEED_BONUS` survives as the reduction's ceiling, reread as a percent off and
+      lowered to 60; `MAX_ROAD_SPEED_BONUS` had no reader left and is gone; the job leg keeps its
+      own divisor and its 50 (`MAX_MISSION_SPEED_BONUS`), because there is no column on a job.
+      `travelMinutesBetween(from, to, pace)` takes an object now: the third argument used to mean
+      the reduction, and a caller that kept passing its old number positionally would have been
+      claiming its ground makes the walkers faster.
+- [x] AE2. **`columnSpeed(fleet, force, effectiveSpeedOf)`** replaces `carriedSpeedPercent`
+      everywhere (`battle/movement.ts`, `missions/launch.ts`, the Garage projection, and the
+      client's own quote). A column is a set of groups, each at one speed: every unit type still on
+      foot at its own effective speed, every machine carrying anybody at that machine's. The answer
+      is the **minimum**, because a column arrives when its last people do, which `vehicles.ts` has
+      promised in prose since the vehicles were rewritten and the weighted average never delivered.
+      Seats are filled fastest machine first, and the **slowest walkers board first**: seating the
+      Cyberhounds and leaving the Ironsides on foot buys nothing at all.
+- [x] AE3. **Vehicles carry `speed`, 0 to 100, on the units' own scale.** `VehicleSpec.speedPercent`
+      is gone. `GarageVehicle.speed` is the wire field; `GarageVehicle.speedPercent` ships equal to
+      it for one release as a deprecated duplicate and then goes.
+- [x] AE4. **The Heli Porter** (`heli_porter`), the board's strongest machine and the top of the
+      catalogue: flying, speed 95, 30 seats, Garage 14, 15000 scrap / 5800 oil / 3400 high-quality
+      metal, an eleven-hour build, behind the new four-page `bp_heli_porter`. Painted from
+      `images/heli-porter-portrait.png` through the usual pipeline (`art-src/`, `vehicle-heli-porter`
+      at seed 161009, ART-BIBLE row, ART-PROMPTS transcription, ART-ORDER regenerated). The
+      **Rotorcraft** sits below it at 78 with 18 seats and gets the first painting of its own, and it
+      is the only `fragile: true` machine in the yard: at any loss share `wrecked` writes off the
+      fragile machines before the sound ones, so a crew flying both into the same mauling loses the
+      Rotorcraft. Nothing else reads the flag, and its description says so in the Garage.
+- [x] AE5. **The Colossus does not ride.** `UNIT_RULES.no_ride` ("Too big to ride"), the first
+      negative rule on a sheet and the reason `UnitRuleSpec.tone` exists (`'positive'` by default,
+      `'negative'` here, so the card can draw it red). `columnSpeed` never seats such a unit and
+      `loadable` is not asked to keep a truck on the road for one, so a Colossus holds its whole
+      column to 15 whatever is in the yard. The blurb has said "it arrives slowly" since the first
+      draft and nothing enforced it.
+- [x] AE6. **The two ladders, rebalanced.** Corner to corner, Neon Docks to the Combine Spire, a
+      74.6-minute road before anything:
+
+| Machine      | Class     | Garage | Seats | Speed | Corner to corner |
+| ------------ | --------- | ------ | ----- | ----- | ---------------- |
+| nobody quick |           |        |       | 0     | 75m              |
+| The Scrappy  | motorbike | 1      | 2     | 65    | 45m              |
+| Scar         | car       | 4      | 8     | 55    | 48m              |
+| The Offie    | car       | 5      | 10    | 58    | 47m              |
+| Flatbed      | truck     | 6      | 24    | 45    | 51m              |
+| Cheese Wagon | truck     | 7      | 30    | 48    | 50m              |
+| War Hauler   | truck     | 10     | 40    | 50    | 50m              |
+| Gas Balloon  | flying    | 9      | 10    | 70    | 44m              |
+| Rotorcraft   | flying    | 12     | 18    | 78    | 42m              |
+| Heli Porter  | flying    | 14     | 30    | 95    | 38m              |
+
+The class rule is unchanged and is still a test rather than a taste: within a class the later
+machine is faster, bigger and dearer; no car keeps up with a bike, no truck with a car, and both
+bands of flyer outrun everything on the ground. The Road Reavers ride the Scrappy and are written
+at exactly its 65, which is the board's own rule and its own test.
+
+Units, fastest first. Everything not named as an exception sits at or under 50, which is under
+every machine above the Flatbed:
+
+| Unit               | Tier       | Speed | Unit            | Tier       | Speed |
+| ------------------ | ---------- | ----- | --------------- | ---------- | ----- |
+| The Loose End      | legendary  | 95    | The Abomination | legendary  | 40    |
+| The Crimson Dancer | legendary  | 92    | Ash Walkers     | rabble     | 35    |
+| Cyberhounds        | wonder     | 90    | Stitchers       | specialist | 35    |
+| The Cartographer   | legendary  | 88    | Snipers         | specialist | 30    |
+| Kite Crews         | wonder     | 85    | The Twins       | wonder     | 30    |
+| The Specter        | legendary  | 80    | Scavengers      | carrier    | 30    |
+| Road Reavers       | wonder     | 65    | Sluggers        | heavy      | 30    |
+| Scrapers           | rabble     | 50    | Wardens         | heavy      | 28    |
+| Ghosts             | specialist | 50    | Demolishers     | specialist | 28    |
+| Razors             | rabble     | 45    | Juggernauts     | heavy      | 25    |
+| Hollow Men         | wonder     | 45    | Ironsides       | heavy      | 22    |
+| The Saint          | legendary  | 45    | Haulers         | carrier    | 22    |
+| Anodics            | rabble     | 40    | The Colossus    | legendary  | 15    |
+| Sparks             | rabble     | 40    |                 |            |       |
+| Breakers           | heavy      | 40    |                 |            |       |
+| Netrunners         | specialist | 40    |                 |            |       |
+| Sleepers           | specialist | 40    |                 |            |       |
+| The Condemned      | rabble     | 40    |                 |            |       |
+
+One number moved off the brief's proposal: the Specter went to **80** rather than 75. At 75 it was
+slower than the Rotorcraft, so "the named exceptions beat every machine but the Heli Porter" was not
+a property the roster had and could not be a test. 80 puts it one rung above the Rotorcraft's 78 and
+well under the Porter's 95.
+
+- [x] AE7. **§V's table has not moved, and the engine was not compensated.** Speed reaches a fight
+      through `engagementEdge` alone (`reach = range - their speed`, `closing = speed - their speed`
+      weighted by their range) and through `pursuitSpeed` and the perimeter roll. Every sheet in the
+      sim's matrix moved, most of them down by 2 to 10 points, and because both terms are
+      _differences_ the matrix is nearly invariant to a uniform shift. `battle-sim` at 3000 runs,
+      before and after, attacker's win rate:
+
+| Matchup                               | Before   | After    |
+| ------------------------------------- | -------- | -------- |
+| Razors 20 vs 20 Razors                | 46%      | 46%      |
+| Snipers 20 vs 20 Snipers              | 45%      | 46%      |
+| Ghosts 20 vs 20 Ghosts                | 49%      | 49%      |
+| Breakers 20 vs 20 Breakers            | 39%      | 39%      |
+| Wardens 20 vs 20 Wardens              | 0.0%     | 0.0%     |
+| Sluggers 20 vs 20 Sluggers            | 0.1%     | 0.1%     |
+| Juggernauts 20 vs 20 Juggernauts      | 0.2%     | 0.2%     |
+| Ironsides 20 vs 20 Ironsides          | 0% (cap) | 0% (cap) |
+| Razors 18 vs 20                       | 0.4%     | 0.4%     |
+| Razors 22 vs 20                       | 98.4%    | 98.4%    |
+| Razors 30 vs 20                       | 100%     | 100%     |
+| Razors 30 vs 20, press dug in to 3    | 100%     | 100%     |
+| 60 vs 30 Razors, frontage 12          | 100%     | 100%     |
+| ...the same with 50% cohesion         | 100%     | 100%     |
+| Snipers 20 vs 20 Razors               | 100%     | 100%     |
+| Razors 20 vs 20 Snipers               | 0%       | 0%       |
+| Breakers 20 vs 20 Ironsides           | 0%       | 0%       |
+| Ironsides 10 vs 30 Razors             | 0.4%     | 0.4%     |
+| Juggernauts 5 vs 30 Razors            | 100%     | 100%     |
+| 10 Razors 6 Snipers 4 Ironsides vs 20 | 100%     | 100%     |
+| 20 Razors 6 Stitchers vs 24 Razors    | 100%     | 100%     |
+| 20 Razors vs 40 Scavengers            | 100%     | 100%     |
+
+The largest move is one point, on the Snipers mirror, inside its own ±1.8 interval. Rounds and
+survivor shares are within a point everywhere too: the sharpest is Snipers against Razors, where the
+defenders' survival goes 14% to 11% because the Razors' 55 to 45 widens the sniper's reach. Nothing
+in the engine was touched and no normalisation was needed. The forecast still agrees with the long
+run and the wrapper's ledger is 0 mismatches in 500.
+
+Two roster facts moved with the numbers, and two tests were retuned to follow them rather than to be
+made to pass. `matchup.test.ts` used the Road Reavers as its exemplar of "the fast unit"; at 65 they
+are a quick brawler and the Cyberhounds (90) are the extreme, so the three tests in "range works
+against slow units" and "fast units kill snipers easier" name the hounds. `morale.test.ts` pins
+`pursuitSpeed` at the fastest sheet on the winning side, which is 65 now rather than 92.
+
+- [x] AE8. **Scouting is on the same arithmetic**, and it walks at the scout's own speed
+      (`officerBattleStats().speed`) rather than at a crew's ordinary nothing. Sending the Finance
+      Officer to case the Undergrid is a slow night in two ways now: the looking and the road. The
+      city view's travel estimates go through `roadMinutes` too, at speed 0, because a distance on
+      the map is not a column.
+- [x] AE9. **A mission's pay is still the card's number.** `pricedMinutes` is frozen at speed 0 and
+      the ground's reduction only, which is exactly what `offerFor` quotes: the card is drawn before
+      a crew is picked, so a fast unit shortens the road for free the same way a machine does and
+      neither is a discount on the take (§X4, §AA6).
+- [x] AE10. **Tests, each watched failing with its fix reverted.** New: `time/speed.test.ts`
+      (`roadMinutes` at 0, 30 and 100, the reduction stacking on top, both ceilings, the minute
+      floor; `effectiveSpeed` and the flat +3 that cannot pass 100); `vehicles.test.ts`
+      (`columnSpeed` with nobody riding, everybody riding, seats short of the force, the slowest
+      walkers boarding first with a naive-order control, seats past the force, a `no_ride` unit
+      dragging a Heli Porter column to 15 with the trait-off control; `wrecked` taking the fragile
+      machine first written both ways round; the Road Reavers equal to the Scrappy; the named
+      exceptions above every machine but the Porter; the Porter unbeaten); `city.test.ts` (the
+      divide-then-multiply order); `officer-in-battle.test.ts` (the battle road and the mission road
+      landing on the same minutes for the same length and the same two speeds);
+      `scouting.test.ts` (the road is the officer's own, out and back, plus the ground). Retuned and
+      why: `missions.test.ts`'s timer read the template's clock where the row's is now shorter,
+      because the walkers' own speed shortens it; its three riding tests moved to the longest road
+      the board authors, because `roadMinutes` rounds to the minute and a five-minute leg cannot
+      tell 45 from 65; the settled-ride test now seats its whole four hundred, because a fleet that
+      leaves 184 people walking is a column at the walkers' pace, correctly.
+
+Left alone, and recorded: `MAX_TRAVEL_SPEED_BONUS` at 60 means a crew holding the Rail Yard and the
+Tram Depot at level 3 (+56, §AA3) is close to the reduction ceiling again, but the shape of §AA3's
+finding is gone: the ceiling now bounds only the _ground's_ cut, and the column's own speed is
+uncapped by it, so every rung of the Garage still moves the clock however much ground a crew holds.
+Whether `travel_speed` should keep scaling with a location's level is still the open balance call
+§AA3 recorded.
+
+### AE11. The bug pass over AE, and what the clock actually reads (review of 2026-09-08)
+
+Five bugs, each fixed, each with a test watched failing with the fix reverted.
+
+1. **A seat could make somebody slower.** `columnSpeed` filled machines unconditionally, so two
+   Cyberhounds (90) handed a Scrappy (65) climbed on and the column reported 65. Owning the
+   cheapest machine in the game made the fastest sheet in it a quarter slower, and the only way to
+   travel at the pace the roster promised was to leave a bike at home, which is the exact opposite
+   of the module's own promise that "a crew that owns a truck is never punished for it". `boarding`
+   is slowest first, so one line stops at the first group the machine cannot outrun: nobody behind
+   it would be helped either. The seats a fast group declines are still spent on the slow group
+   behind them, which a plain "skip the machine" would have got wrong, and that case is a control
+   in the test.
+2. **The settle counted a Colossus as a rider.** `settleSideVehicles` passed `forceSize` to
+   `loadable`, whose contract has said `bodies` means the **riders** since it was written (the
+   client's own quote reads it that way). One Colossus therefore made a thirty-seat Cheese Wagon
+   "carrying somebody": on a wipe the crew lost a bus nobody was ever in and handed the enemy thirty
+   infamy for a seating plan. `ridingBodies` (`units/catalog.ts`) is the count, next to
+   `unitColumnSpeed` because both need a sheet that `building/` cannot see.
+3. **A mission's road ignored `unitSpeedPercent`.** `battle/movement.ts` has fed the channel to
+   `columnSpeed` since the column had a speed at all; `launchMission` called
+   `columnSpeed(vehicles, force, unitColumnSpeed)` with no bonus. So the same Razors walked to a
+   fight quicker than to a job on the same streets, and the Skate Ground, whose entire reward line
+   is "everything you field moves faster", bought nothing on the screen a player uses it on most.
+   The route folds it in beside `missionSpeedPercent`, which stays a separate number because the
+   two are spent differently: this one divides, that one is a percentage off what is left.
+4. **Neither road read the workshop.** `upgradedStats` is what `battle/effects.ts` hands the engine,
+   so a Neural Lace is twelve points of speed inside a fight; both roads read `unit.stats.speed`
+   straight off the catalogue. The same body crossed the city slower than it crossed the
+   battlefield it was crossing the city to reach, and the armour line's "survivability paid for in
+   speed" was paid for on one clock only. `unitColumnSpeed` takes `fitted` now and folds it exactly
+   as the engine does. Two call sites, `battle/movement.ts` and `missions/launch.ts`, and one
+   line-anchored control each.
+5. **The engine doc said speed does nothing in a fight.** `BATTLE-ENGINE.md` and
+   `bonuses.test.ts` both claimed the round loop never reads speed, on a measurement taken where
+   both sides move at the same pace: `engagementEdge` is a **difference**, so a mirror cancels it by
+   construction. Give one side the bonus and it is worth plenty. Measured, 1500 runs: +20%
+   `unitSpeedPercent` on 20 Razors against 20 Snipers takes the Razors' survivors from 10.8% to
+   13.6%, and the Razors mirror from 44.4% to 46.9% attacker wins. §AE7's finding is unaffected and
+   is the same fact from the other side: a **uniform** rebalance of every sheet is nearly invisible.
+   `upgrades.ts`'s worked example of the clamp-ordering fix was also written on the Cyberhounds at
+   92; at 90 the example no longer clamps at all, so it is the Loose End at 95 now.
+
+`battle-sim` at 3000 runs reproduces §AE7's after-table to the digit, every row, and the ledger is
+still 0 mismatches in 500.
+
+**What the clock reads, in minutes.** Corner to corner is Neon Docks to the CCS, 74.6 minutes raw.
+Every machine carrying a full load, against the same people walking:
+
+| Machine      | Class     | Seats | Speed | Riders           | Ride | They walk |
+| ------------ | --------- | ----- | ----- | ---------------- | ---- | --------- |
+| The Scrappy  | motorbike | 2     | 65    | 2 Razors (45)    | 45m  | 51m       |
+| Scar         | car       | 8     | 55    | 8 Razors         | 48m  | 51m       |
+| The Offie    | car       | 10    | 58    | 10 Razors        | 47m  | 51m       |
+| Flatbed      | truck     | 24    | 45    | 24 Razors        | 51m  | 51m       |
+| Cheese Wagon | truck     | 30    | 48    | 30 Razors        | 50m  | 51m       |
+| War Hauler   | truck     | 40    | 50    | 40 Razors        | 50m  | 51m       |
+| Gas Balloon  | flying    | 10    | 70    | 10 Razors        | 44m  | 51m       |
+| Rotorcraft   | flying    | 18    | 78    | 18 Razors        | 42m  | 51m       |
+| Heli Porter  | flying    | 30    | 95    | 30 Sluggers (30) | 38m  | 57m       |
+
+Nobody quick at all is 75m, which is the base back, as AE1 promises.
+
+The mission's long leg (`furthest`, 60 minutes), no ground held:
+
+| Column                     | Pace | Leg |
+| -------------------------- | ---- | --- |
+| 10 Scavengers on foot      | 30   | 46m |
+| 10 Scavengers in the Offie | 58   | 38m |
+| 20 Scavengers in the Offie | 30   | 46m |
+| 10 Razors on foot          | 45   | 41m |
+
+A scouting run, corner to corner and back (`scoutRunMinutes` adds the looking on top of this):
+
+| Officer speed | One way | Out and back |
+| ------------- | ------- | ------------ |
+| 0             | 75m     | 150m         |
+| 40            | 53m     | 106m         |
+| 80            | 41m     | 82m          |
+
+And the ground's cut on top, corner to corner. Rail Yard (10) plus Tram Depot (18) is 28% at level
+1 and 56% at level 3 (`LEVEL_SCALE` is linear, so level 3 is 2x):
+
+| Held                      | Off | Nobody quick | Razors | Heli Porter |
+| ------------------------- | --- | ------------ | ------ | ----------- |
+| nothing                   | 0%  | 75m          | 51m    | 38m         |
+| Rail Yard + Tram Depot L1 | 28% | 54m          | 37m    | 28m         |
+| Rail Yard + Tram Depot L3 | 56% | 33m          | 23m    | 17m         |
+| the ceiling               | 60% | 30m          | 21m    | 15m         |
+
+The cap bites at 60% and level 3 of both is already 56, so for a crew holding both, the Tram Depot's
+fourth level buys the last four points and its top six levels buy nothing at all. That is §AA3's
+open call, still open and now measurable: a question about `travel_speed` scaling with a location's
+level, not about the ceiling.
+
+**Two things for the board, not fixed here.**
+
+- **The Flatbed is worth nothing to a Razor column.** At 45 it is exactly the Razors' own speed, so
+  a Garage-6 machine costing 5200 scrap moves a column of the game's commonest unit by zero minutes.
+  It is worth real time to anything slower (Sluggers 30, Ironsides 22), so this is a gap in the
+  ladder rather than a broken machine, and moving it is a balance call the board should make.
+- **The Heli Porter's blueprint is the easiest vehicle document in the game.** Four pages, against
+  the Rotorcraft's seven, the War Hauler's six and the Gas Balloon's five. Pages drop uniformly
+  over the category, so page count _is_ the gate, and the strongest machine in the catalogue is
+  currently the quickest one to unlock once the Garage reaches 14. AE4 wrote "four-page" so this may
+  be deliberate; if it is not, six or seven pages puts it back in order.
+
+## AF. The bug pass on the speed round (2026-09-08)
+
+Two reviewers, one on shared and server, one on the client, over everything Section AE touched.
+Nine faults, each fixed with a test watched failing under the fix reverted:
+
+- [x] AF1. A seat could make somebody slower: two Cyberhounds handed a Scrappy climbed on and the
+      column read 65. Nobody boards a machine slower than their own legs now, and the seats a
+      fast group declines still go to the slow group behind them.
+- [x] AF2. The settle counted a Colossus as a rider, so a wipe wrecked a bus nobody was in and paid
+      the enemy thirty infamy for it. `ridingBodies` counts only who can board.
+- [x] AF3. A mission's road ignored `unitSpeedPercent` (the Skate Ground bought nothing on the one
+      screen it is for), and neither road read the workshop's refits while the fight did. Both
+      roads fold the crew's channel and the fitted sheet, exactly as the engine does.
+- [x] AF4. The engine doc claimed speed did nothing in a fight; measured, a +20% speed channel is
+      worth about three points of survivors and two of the mirror, hidden on a mirror because
+      `engagementEdge` is a difference.
+- [x] AF5. The screen's column sentence named the wrong holder (a Flatbed carrying nobody), and its
+      quotes read the printed sheet rather than the refitted one, under a label that says "at
+      most". The quote runs all three seating rules and takes the crew's loadouts. It stays a
+      bound: the territory half of `unitSpeedPercent` and the crew's `travelSpeedPercent` are not
+      on the battle or mission payloads, and both only shorten a road. Putting the standing fold's
+      two figures on `BattleView` and `MissionsResponse` would make it exact; recorded, not done.
+- [x] AF6. The battle board announced units by their wire id; "Rides at 0" while the roster was
+      still loading; the Garage note and the picker's doc still told the weighted-average story;
+      the travel bonus read "+12% travel speed" where it is 12% off the clock; the Speed stat's
+      explainer was fight-only.
+- [x] AF7. Nothing reads the old model: no `speedPercent` reader but the one-release wire shim, no
+      hand-rolled road arithmetic, no old-scale threshold, no "ground" in copy. Battle-sim
+      reproduces Section AE's table to the digit; the road table is AE11. The two e2e cases seen
+      flaky under load passed 5 of 5 alone and inside their files; the likely mechanism (a Vite
+      dependency re-optimisation reloading the page inside the live test's window) is written
+      down with a diagnostic for the next time.
+
+Left for the board: the Heli Porter's four-page blueprint against the Rotorcraft's seven makes the
+strongest machine the quickest to unlock; the Flatbed's 45 equals the Razors' speed; the oxblood
+rule chip shares its colour with a bad characteristic chip; the roster fixture ships the printed
+sheet beside a filled bracket.
+
+## AG. The card closes on its picture, and the machines join the roster (2026-09-08)
+
+Three board requests in one message, on the units screen and the yard.
+
+- [x] AG1. **The unit card closes on its portrait.** The picture had 12px over it and 42px under
+      it: the frame had grown 2rem for the marks band's headroom while the portrait stayed capped
+      at 24rem, and the difference showed as a strip of card. Now the frame is the column beside
+      the picture, budgeted to the pixel for the tallest card in the game (header 39, gap 8, sheet
+      199 with two rows of marks, 12 to the brackets, 24 of brackets, 12 to the price box, box 92,
+      plus padding and border: 25.75rem), and the sheet stretches to take what a shorter card
+      leaves. The portrait fills the frame with the same 12px over and under it. The brackets sit
+      12px under the sheet's rule and the price box 12px under them, and the box's bottom edge is
+      the portrait's bottom edge on every card of every tier. The box came down from 96px to 92,
+      which is a two-line price (five materials wrap at every width the card is drawn at, and none
+      reach three), the stepper row, and the box's own padding and border, measured. A new gate in
+      `visual.spec.ts` unlocks every unit (the late-game fixture locks most of the roster, so the
+      old sweep had never laid out a five-material price) and measures the four claims on every
+      card at five viewports; each was watched failing under its own mutant (the sheet not
+      stretching, the box floating up, the box at 80px eating its padding).
+- [x] AG2. **Vehicles is the roster's last tab.** The Garage's catalogue is a tab on the units
+      screen after the six tiers, in the units' own two-up grid, with the same cards (the card and
+      the catalogue moved to `features/garage/VehicleCard.tsx` and `VehicleCatalogue.tsx`, which
+      owns the yard query and the Build). The open tab lives in the URL (`?tab=vehicles`, the way
+      the Scrapyard's bench does), replacing rather than pushing, so one press of Back leaves the
+      roster. The Garage page keeps its note and the yard panel (level, seats) and is a door: one
+      button, "See the machines", that lands on the tab. `garage.spec.ts` covers the door, the
+      list (every machine in catalogue order, a Build that posts) and the history; the roster's
+      visual sweep walks the tab at every viewport with its own screenshot.
+- [x] AG3. **The War Hauler and the Flatbed are gone** (by agent, reviewed). Out of the vehicle
+      catalogue, the blueprint catalogue (ten pages between them), the art subjects and the
+      manifest (the vehicle seeds after them renumbered, the order sheet regenerated, the prompt
+      transcription edited by hand because it is not generated), and every comment, doc and test
+      that used them as the example. The tests keep their intent on machines that exist: the
+      Cheese Wagon is the big prize and the bus nobody was in, the Scrappy and the Road Reavers
+      are the equal-speed pair, and two tests got teeth they lacked (the "wastes seats" case had
+      no bite with one machine type; the Garage-too-low case was refused for the missing
+      blueprint whatever the level check did). Stored fleets are swept both ways: migration 0085
+      strips the two keys from every fleet column, and the missions repo now repairs a retired
+      id on read the way sieges and bases already did, which was a live fault (a stored mission
+      carrying one would have thrown out of its schema). Left on purpose: the "Flatbeds and a
+      crane" loot-capacity upgrade and the rail yard's parked flatbeds in its art prompt, neither
+      of which is the machine. The Flatbed's open balance call in Section AF closes with it.
+
+## AH. The market reworked: one frame, a centred Broker, an auction at the barrow (2026-09-09)
+
+The board's brief, in order, and what was built for each:
+
+- [x] AH1. **The Broker on the centre line.** Hand over (six tiles), the number with its
+      fractions and the deal it makes on one line, walk away with (six tiles), Trade: every row
+      centred, so the trade is read straight down. The pickers grew a `sm` size for it.
+- [x] AH2. **The market's own furniture.** A tape of the street's figures running under the tabs
+      (built from the board: every lot's leading bid, the Broker's rate, the run's ration, the
+      offers standing), neon on the Runner's clock and the Broker's plaque, an awning over the
+      barrow, and holographic price tags on the lots. All of it lives in `index.css` under the
+      market's own comment, honours reduced motion, and appears on no other screen.
+- [x] AH3. **Offers on their own page** (by agent, reviewed). `/game/market/offers`, the second
+      tab: They offer and You offer as two halves, one big card per listing with the piles as
+      chips, the seller, how long it stands and the verdict from the reader's side; the composer
+      as the obvious "put something up" card at the top of You offer, and a counter opens it
+      named at the crew it answers. The verdict on a crew's own listings now reads from their
+      side (it called a giveaway "in your favour").
+- [x] AH4. **The front does not scroll.** `PageShell fills`; the Runner over the supply run, the
+      Broker beside them, the Runner's row floored at one row of lots so the run is what gives.
+      Measured to the pixel at 1280x720 (quote 26, tabs 36, the two rows 345) and pinned by a
+      gate in the market's visual sweep that reads the sheet's and the panels' scroll heights,
+      watched failing with the floor removed. The one concession is 1024 wide, where six lots
+      cannot share a row and the barrow's second row scrolls.
+- [x] AH5. **The Runner's hours on the tab row**, right-aligned, as the page's standing note with
+      the live clock in its label and the rules on its hover. The hours themselves are also on the
+      barrow's head at 1200 and up.
+- [x] AH6. **The quote**: "Nobody owns the market. Some people just think they do."
+- [x] AH7. **The barrow is an auction** (server by agent, reviewed; wire and screen by hand).
+      Every line is a lot on each visit; bids in the open under the crew's name; the highest when
+      he packs up takes one and pays their bid, their own ground discount coming off what they pay
+      the way negotiators come off a wage. Nothing escrowed at the bid; a winner who cannot cover
+      it at the close passes to the next; a tie to a coin seeded on the lot; the close runs on the
+      world clock and on the next read of the market. Migration 0086 (`vendor_bids`,
+      `vendor_lot_results`), `POST /market/bid`, `market_won` and `market_outbid` bells, results
+      from the last visit on the wire and on a hover off the barrow's head. The bid window is the
+      Bar's without the sealed phase, and the harness judges a bid with the shared step so an
+      under-bid is refused in the server's words. Buying off the barrow is gone.
+
+Left for the board: the line price on the wire is the city's number now, so a crew holding the
+Downtown Market sees its discount at the close rather than on the card (the reserve has to be one
+figure for everybody); and a crew may sit at any number of lots at once, unlike the Bar's two.
+
+## AI. A general UI and UX pass (2026-09-09)
+
+Two lanes, each over half the screens: every screen and everything it opens, at 1280x720,
+1440x900 and 1920x1080, looked at as pictures and read as code. The first half (city, district,
+units, missions, bar, crew, research) is in; the second (faction, training, market, workshop,
+satchel, settings, garage, scrapyard, battles, the social screens, the shell) follows below when it
+lands.
+
+- [x] AI1. **The row of doors was three rows.** The bottom bar aligned its doors to their bottoms,
+      so a door behind a level (which carries an extra line) sat 13px above its neighbours, and the
+      two pinned doors (Settings and the red fight mark) were centred in the bar rather than on
+      the row: three baselines in one row. Aligned to the top, pinned at the bar's own padding,
+      gated by a sweep in `screens.spec.ts` that reads every door's top at two widths.
+- [x] AI2. **The crew screen opened on four empty chairs** with every officer below the fold, and
+      a vacancy was drawn at a portrait's height (a 410px box for a 58px chair). People first, the
+      empties after them in catalogue order, and a vacancy no taller than it needs; a card only
+      moves when somebody sits down.
+- [x] AI3. **A locked unit cut a word in half.** The locked box joined every clause into one line
+      and clamped it; it now prints two clauses and "N more", the whole list still on the hover.
+- [x] AI4. **The Blueprints view had no empty state**: with nothing in the satchel the body was a
+      collapsed hover chip, indistinguishable from a failed read. The sentence is printed.
+- [x] AI5. **The level-up notice's only way off did not look like a control.** It is a button.
+- [x] AI6. Two seeds from the orchestrator's own look were measured and dismissed: the Research
+      door is lit on its page, and there is no browser checkbox on the desk.
+
+Reported, not changed: `/game/overseer`, `/game/garage` and `/game/scrapyard` light no door
+(there is none to light; a design call); the missions board at 1280x720 puts "Send a crew" at the
+foot of a card taller than the first screen; the ALL CITIES view has two controls for the way back
+(deliberate, per its own comment); the late-game fixture queues an upgrade on a Quarters it does
+not carry.
+
+The second half:
+
+- [x] AI7. **Seven screens drew their loading and failure states under the top bar.** The market,
+      offers, the black market, the workshop, the scrapyard, the garage and the gym returned a
+      bare `ScreenLoad` into the outlet at the top of the frame, behind the opaque standing bar: a
+      failed read drew a blurred district and nothing else. Settings drew "Pulling your file" for
+      every state that was not data. A `ScreenLoadSheet` in `PageShell` puts both states on the
+      sheet where the screen would be, and all eight use it.
+- [x] AI8. **The training sheet cut its last row through the digits.** The sheet is a scroller
+      and can never fit at every size (455px of rows against 187 at 1024x768), so its height snaps
+      to a whole row and prints "Scroll for N more drills" under it, the character select's own
+      move; gated at every viewport by a whole-row sweep.
+- [x] AI9. **The battle pane kept its scroll offset** between fights, so the next fight opened
+      halfway down its page; the report's side heading cut a crew's name mid-word.
+- [x] AI10. **The leaderboard's faction column had two left edges**, the badge slot now
+      reserved; the console's fog list named every unclaimed plot "Player District", now I, II
+      and III through the map's own rule.
+- [x] AI11. **Your own listing on the offers board was below the fold** behind the empty
+      composer; listings first, composer under. The character select's bios were clamped
+      mid-word on the one screen where you choose on the description; the whole bio is on the
+      hover. The settings' twelve mark glyphs wrapped to an orphan; two rows of six.
+
+Reported, not changed: the messages fixture's unread count disagrees with its rows; the satchel's
+"Blueprints, no pages" door sits over a "Blueprint" panel (two item kinds share the word); the
+Garage page is two one-line panels over empty sheet since the machines moved; the faction log and a
+seat's file print ISO dates; the notifications screen's two controls wear two type registers; the
+faction founding sheet does not close on Escape (an inline sheet, not a Modal); the drill dialog's
+"Already in a session" says nothing about what to do; a finished fight's report carries no date;
+the scrapyard rail repeats one sentence six times.
+
+## AJ. Raiding another crew's district (2026-09-09)
+
+The board's rules, as built (by agent, reviewed; one follow-up on the production channel):
+
+- [x] AJ1. **Their name over their district.** Visiting a residential district prints its display
+      name on the same brass plate the standing bar draws your own crew's name on.
+- [x] AJ2. **A home is shut.** A residential district with a resident counts as shut, so the only
+      fight that can be called on somebody's home while their Gate stands is at the gate. Before
+      this a home had no gate in the rules at all: the plates offered fights the server refused.
+      The gate's defence reads the resident's own Gate level, as it already did.
+- [x] AJ3. **A breach lasts a day.** 24 hours, one reader (`gateIsBroken`) everywhere.
+- [x] AJ4. **One raid, not a fight per building.** The `building` target is gone; inside a breach
+      the only target on a home is the district itself. Migration 0087 rebuilds the battles table
+      (every row rewritten, history included, under the original name so the two child tables'
+      references survive the rebuild; the migration test plants a row in each child).
+- [x] AJ5. **What a won raid does.** A quarter of every stored line except caps, in the raid
+      priority order, bounded by what the force can carry; the district disrupted for six hours
+      (production down 25% on the settle's walk, and the same 25% off every positive percent bonus
+      the crew holds, 36 channels, production itself exempt so it is not cut twice, the exemption
+      pinned by a literal after a mutant slipped through the derived list); and three standing
+      structures damaged, tallest first, as a building fight did. The report and the bell read
+      "a raid on <district>".
+- [x] AJ6. **The visited screen has one call**: Break the gate while it stands, Raid the district
+      with the time left while it is down; the plates open an information-only dialog.
+
+Left for the board: the disruption's bonus cut is read at the moment of the settle while
+production is cut per segment, so a settle spanning the expiry is exact on production and all or
+nothing on the bonuses; the storage ceiling is among the channels cut (a raided crew's store is
+tighter for six hours), which reads as intended but is a call.
+
+## AK. Bonuses that change a rule (2026-09-09)
+
+The board's brief: bonuses and labels across the units and the one-time bonuses that add or change
+something rather than scale a number. The inventory first (by agent): unit modifiers 100% percent,
+crew perks 92%, officer channels 85%, faction cards 100%, research rungs 92%, location bonuses 87%;
+the milestones and the three unit rules were the only rule-shaped bonuses in the game. Twelve new
+kinds, each honoured end to end and each with a mutant watched failing:
+
+- [x] AK1. **Unit marks**: Opening Volley (35% of a round fired before the exchange: Snipers,
+      Crimson Dancer), Holds the Line (cannot rout over half strength: Wardens, the Saint), Wall
+      Breaker (cuts the defender's fortification by up to 40% at a quarter of the line:
+      Demolishers, Colossus), Runs in Packs (0.6 offense per other body of the same unit, capped
+      at 25: Cyberhounds, the Condemned), Picks the Field (12 flat load per body after the carry
+      percentage: Scavengers, Ash Walkers).
+- [x] AK2. **Holdings, perks and rungs share seven kinds**: a flat road cut in minutes (Tram
+      Depot 4, a perk 3, a rung 2), porters fight at half strength, anything can be put on a
+      machine (the one counter to a legend holding a column to 15), a named unit granted a mark
+      (a location, a perk and a rung each grant one), steady nerve (the morale cascade cut, the
+      line still breaks from its own losses), a second scouting party, and a structure priced a
+      level lower (worth a constant 28% of the bill).
+- [x] AK3. **A bug the pass found**: the Lab's effect fold ended in a count merge that read a
+      boolean as an empty record, so every crew held all three permissions and no readout showed
+      it. Fixed with a boolean arm and pinned.
+
+Left for the board: twelve kinds is the floor of the range asked for; a second trap per fight and a
+free defensive garrison are designed but not built (one needs the report's trap note to become a
+list, the other the survivors ledger to skip stacks nobody owns); workshop refits still move only
+numbers, the rule-changing refits arriving as rungs and holdings instead.
+
+## AL. The board's notes on the crew and the market (2026-09-09)
+
+- [x] AL1. **Every crew card the same height.** With the people first, a vacancy in a row of its
+      own had shrunk to the chair drawing while one beside a portrait stood at the portrait's
+      height. The rows are one height (`auto-rows-fr`); the gate reads every card rather than
+      the leanest.
+- [x] AL2. **A benched officer carries an Assign door.** The card's footer has a drawn button
+      that opens their file with the chair list in it; the picture still opens the file too.
+- [x] AL3. **The market, again.** The tape under the tabs is gone with its stylesheet and the
+      gate exemption it needed. The hours line and the In / Back in chip left the Runner's head,
+      since the standing note on the tab row carries both. The Broker's rows spread down the
+      column and the tiles take their full size on a screen 800px tall or more, so the counter is
+      filled rather than huddled on its centre line. The supply run is one line, three parts with
+      a hairline between each: the material, how many, the price with the button on it; it wraps
+      whole at 1280 wide.
+- [x] AL4. **Faction Offers.** The tab reads Faction Offers, and the board's note is on the tab
+      row as "How Faction Offers Work", two sentences.
+- [x] AL6. **Typing a count.** The number field is a text input with a numeric keypad holding a
+      draft while it has focus: it can be emptied, an exact figure typed, a leading zero is never
+      kept, the figure opens selected so the first key replaces it, the ceiling holds while typing
+      and the floor waits for the field to be left. It is sized to six digits in tabular figures
+      rather than to the number in it, and the supply run's two figures sit in seven-character
+      slots, so a count growing from 1 to 123,456 moves nothing beside it (measured: the Buy
+      button's box before and after). The run's column took more of the width so the line holds
+      at 1440.
+- [x] AL7. **The board's second set of notes.** The Runner's hours chip sits on the Runner's
+      own head, right-aligned beside the last visit; the offers page prints no verdict badge and
+      offers no item slot (materials only; the wire keeps items so a listing is one shape); a crew
+      may have five listings standing, not eight, pinned by a literal; the shelf's "How the shelf
+      works" note is gone; the Research rail's caps box is gone (the standing bar prints the
+      figure); the Bar's Your tables strip sits at the top left of the room, the note and the
+      readouts keeping the foot.
+- [x] AL5. A flaky gate found and fixed on the way: the market's washed-out sweep screenshotted
+      the first sheet on the page, which is the loading sheet now and is replaced a frame later.
+      It waits for the barrow.
+
 ## Gates
 
 Nothing above counts as done until `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`

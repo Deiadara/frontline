@@ -265,10 +265,9 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['vehicle-dirt-runner', 'vehicle-dirt-runner.webp', 161002],
   ['vehicle-scrap-car', 'vehicle-scrap-car.webp', 161003],
   ['vehicle-armoured-car', 'vehicle-armoured-car.webp', 161004],
-  ['vehicle-flatbed', 'vehicle-flatbed.webp', 161005],
-  ['vehicle-war-hauler', 'vehicle-war-hauler.webp', 161006],
-  ['vehicle-gas-balloon', 'vehicle-gas-balloon.webp', 161007],
-  ['vehicle-rotorcraft', 'vehicle-rotorcraft.webp', 161008],
+  ['vehicle-gas-balloon', 'vehicle-gas-balloon.webp', 161005],
+  ['vehicle-rotorcraft', 'vehicle-rotorcraft.webp', 161006],
+  ['vehicle-heli-porter', 'vehicle-heli-porter.webp', 161007],
 ];
 
 /**
@@ -340,8 +339,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 238 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(238);
+  it('holds the 237 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(237);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(

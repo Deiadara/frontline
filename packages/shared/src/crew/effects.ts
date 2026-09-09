@@ -200,6 +200,8 @@ export interface ConditionalCrewEffects {
   wholeDistrictPercent: number;
   /** Per structure: taken off what that one costs to raise. */
   buildingCostPercent: Partial<Record<BuildingKind, number>>;
+  /** Per structure: levels the bill is discounted *down* the curve. See `building_credit`. */
+  buildingCreditLevels: Partial<Record<BuildingKind, number>>;
   /** Per unit id, per stat: one named unit is better at one thing. */
   unitKindPercent: Record<string, Partial<Record<UnitTierStat, number>>>;
   /** Added to everything that pays experience. */
@@ -250,6 +252,43 @@ export type NumericEffectChannel = {
   [K in keyof CrewEffects]: CrewEffects[K] extends number ? K : never;
 }[keyof CrewEffects];
 
+/**
+ * The numeric channels that hold a percentage, as opposed to flat points or a record.
+ *
+ * Derived from the struct rather than listed, so a channel added tomorrow lands in the right half
+ * on its own. The `Percent` suffix is the discriminator and `crew.test.ts` pins the resulting set,
+ * which is what turns a naming convention into something a reader can rely on: a channel that ends
+ * in `Percent` and is *not* a percentage would show up as a diff on that list rather than as a
+ * silently mis-scaled bonus.
+ */
+export type PercentEffectChannel = Extract<NumericEffectChannel, `${string}Percent`>;
+
+/**
+ * How much of every bonus a raid's disruption takes away while it lasts (§A4).
+ *
+ * The second half of what a raid costs. Production loses `RAID_DISRUPTION_PERCENT` of its hours in
+ * the settle walk (`district/settle.ts`), and that is a fact about the district; this is a fact
+ * about the *crew*, and it is what makes a raided crew weaker everywhere for the rest of the
+ * evening rather than only slower at making scrap. The two do not overlap: see
+ * {@link DISRUPTION_EXEMPT_CHANNELS} for the one channel that would have been charged twice.
+ *
+ * **Positive percentages only.** A negative value on a percent channel is a penalty somebody is
+ * carrying, and scaling it down would hand the victim a bonus for having been robbed. Flat channels
+ * are left alone for the same reason they are flat: `unitMoraleFlat` is points on a 0..100 rating
+ * and `declarationsFlat` is a whole extra fight, and taking a quarter off either is not a smaller
+ * version of the thing, it is a different thing.
+ */
+export function disrupted(effects: CrewEffects, percent: number): CrewEffects {
+  const off = Math.min(100, Math.max(0, percent));
+  if (off === 0) return effects;
+  const scale = 1 - off / 100;
+  const cut: CrewEffects = { ...effects };
+  for (const channel of DISRUPTED_CHANNELS) {
+    if (cut[channel] > 0) cut[channel] = cut[channel] * scale;
+  }
+  return cut;
+}
+
 export function noCrewEffects(): CrewEffects {
   return {
     ...noTerritoryEffects(),
@@ -267,6 +306,7 @@ export function noCrewEffects(): CrewEffects {
     gateDefensePercent: 0,
     wholeDistrictPercent: 0,
     buildingCostPercent: {},
+    buildingCreditLevels: {},
     unitKindPercent: {},
     xpGainPercent: 0,
     officerAttributeFlat: {},
@@ -282,6 +322,48 @@ export function noCrewEffects(): CrewEffects {
     leadArrivalPercent: 0,
   };
 }
+
+/**
+ * Every percent channel, in the order the struct declares them.
+ *
+ * Built off a fresh `noCrewEffects()` rather than typed out, because a hand-kept list of thirty-odd
+ * channel names is a list that goes stale the first time somebody adds the thirty-first.
+ */
+export const PERCENT_EFFECT_CHANNELS: readonly PercentEffectChannel[] = Object.entries(
+  noCrewEffects(),
+).flatMap(([channel, value]) =>
+  typeof value === 'number' && channel.endsWith('Percent') ? [channel as PercentEffectChannel] : [],
+);
+
+/**
+ * The percent channels a raid's disruption deliberately does **not** touch.
+ *
+ * One, and it is the one the production walk has already charged for.
+ * `district/settle.ts` cuts `RAID_DISRUPTION_PERCENT` off the *hours* of every disrupted segment,
+ * and `accrueProduction` then multiplies those hours by `1 + productionPercent / 100`. Both scale
+ * the same output, so cutting the channel here as well charges a raided crew twice for one raid:
+ * 25% off the hours and another 25% off the bonus that multiplies them.
+ *
+ * Two near misses, named so the next reader does not have to work them out again:
+ *
+ *   * `resourceYieldPercent` is the walk's *other* output multiplier and would double the same
+ *     way. It is a record rather than a number, so it was never in {@link PERCENT_EFFECT_CHANNELS}
+ *     and needs no exemption. If it ever becomes a flat channel it belongs on this list.
+ *   * `storageCapacityPercent` is read by the walk and is **not** exempt. It sets the warehouse
+ *     ceiling rather than the output, and the hour cut does not touch a ceiling, so cutting it is
+ *     one effect applied once: a raided crew's store is tighter, which is what the board asked for.
+ */
+export const DISRUPTION_EXEMPT_CHANNELS = ['productionPercent'] as const;
+
+/**
+ * Every percent channel a raid's disruption actually cuts.
+ *
+ * The derived list minus {@link DISRUPTION_EXEMPT_CHANNELS}, so a channel added tomorrow is cut by
+ * default and staying out of the cut is the thing somebody has to write down.
+ */
+export const DISRUPTED_CHANNELS: readonly PercentEffectChannel[] = PERCENT_EFFECT_CHANNELS.filter(
+  (channel) => !(DISRUPTION_EXEMPT_CHANNELS as readonly string[]).includes(channel),
+);
 
 /**
  * The perk-only channels, and when each one pays.
@@ -808,6 +890,12 @@ export function applyPerkBonus(into: CrewEffects, bonus: PerkBonus): CrewEffects
         [bonus.building]: (into.buildingCostPercent[bonus.building] ?? 0) + bonus.percent,
       };
       return into;
+    case 'building_credit':
+      into.buildingCreditLevels = {
+        ...into.buildingCreditLevels,
+        [bonus.building]: (into.buildingCreditLevels[bonus.building] ?? 0) + bonus.levels,
+      };
+      return into;
     case 'unit_kind':
       into.unitKindPercent = {
         ...into.unitKindPercent,
@@ -968,6 +1056,12 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     resourceYieldPercent: mergeCounts(crew.resourceYieldPercent, territory.resourceYieldPercent),
     officerGroupFlat: mergeCounts(crew.officerGroupFlat, territory.officerGroupFlat),
     unitTierPercent: mergeTierCounts(crew.unitTierPercent, territory.unitTierPercent),
+    unitMarks: mergeMarks(crew.unitMarks, territory.unitMarks),
+    // The switches are ORed, not added: ground and people are two ways of buying the same
+    // permission, and holding both does not buy it twice. See `applyHoldBonus`.
+    carriersFight: crew.carriersFight || territory.carriersFight,
+    anyRide: crew.anyRide || territory.anyRide,
+    steadyNerve: crew.steadyNerve || territory.steadyNerve,
   };
   for (const key of Object.keys(territory) as (keyof TerritoryEffects)[]) {
     // The record-valued channels are merged above; everything else is a plain number, and
@@ -998,13 +1092,27 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
  * A `Set` rather than a chain of `===`, because the list has grown twice and a fourth entry
  * appended to a boolean chain is how one of them quietly stops being skipped.
  */
-type RecordChannel = 'perHour' | 'resourceYieldPercent' | 'officerGroupFlat' | 'unitTierPercent';
+type RecordChannel =
+  | 'perHour'
+  | 'resourceYieldPercent'
+  | 'officerGroupFlat'
+  | 'unitTierPercent'
+  | 'unitMarks'
+  // The three switches are folded above too. They are not records, but they are not summable
+  // either, and this is the one list `combineEffects` narrows against.
+  | 'carriersFight'
+  | 'anyRide'
+  | 'steadyNerve';
 
 const RECORD_CHANNELS = new Set<string>([
   'perHour',
   'resourceYieldPercent',
   'officerGroupFlat',
   'unitTierPercent',
+  'unitMarks',
+  'carriersFight',
+  'anyRide',
+  'steadyNerve',
 ] satisfies RecordChannel[]);
 
 /**
@@ -1014,6 +1122,23 @@ const RECORD_CHANNELS = new Set<string>([
  */
 function isRecordChannel(key: keyof TerritoryEffects): key is RecordChannel {
   return RECORD_CHANNELS.has(key);
+}
+
+/**
+ * Two `{ unitId: marks[] }` maps, unioned.
+ *
+ * A set union rather than a concatenation: a mark granted by a location and by a rung is one mark,
+ * and a duplicate in the list would be read twice by whatever consumes it later.
+ */
+function mergeMarks(
+  a: TerritoryEffects['unitMarks'],
+  b: TerritoryEffects['unitMarks'],
+): TerritoryEffects['unitMarks'] {
+  const total: TerritoryEffects['unitMarks'] = { ...a };
+  for (const [unitId, marks] of Object.entries(b)) {
+    total[unitId] = [...new Set([...(total[unitId] ?? []), ...marks])];
+  }
+  return total;
 }
 
 /** Adds two `{ tier: { stat: number } }` maps: `mergeCounts`, one level further down. */
@@ -1151,6 +1276,21 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
     const b = theirs[key];
     if (typeof a === 'number' && typeof b === 'number') {
       total[key] = key === 'visionRange' ? Math.max(a, b) : a + b;
+    } else if (typeof a === 'boolean' || typeof b === 'boolean') {
+      // The switch channels (`carriers_fight`, `any_ride`, `steady_nerve`). Ored, the way
+      // `combineEffects` ors them: two sources of one permission grant it once.
+      //
+      // This arm is why the fold is written as a chain of shapes rather than a list of names. The
+      // `else` below is `mergeCounts`, which reads a boolean as an empty record and hands back
+      // `{}`: truthy, so every crew in the game could seat a Colossus, and no channel list anywhere
+      // would have shown it. `officer-in-battle.test.ts` is what caught it.
+      total[key] = a === true || b === true;
+    } else if (key === 'unitMarks') {
+      const marks: Record<string, readonly string[]> = { ...(a as object) };
+      for (const [unitId, granted] of Object.entries((b ?? {}) as Record<string, string[]>)) {
+        marks[unitId] = [...new Set([...(marks[unitId] ?? []), ...granted])];
+      }
+      total[key] = marks;
     } else if (key === 'unitTierPercent' || key === 'unitKindPercent') {
       total[key] = mergeTierCounts(
         a as TerritoryEffects['unitTierPercent'],

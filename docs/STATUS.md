@@ -85,8 +85,9 @@ three an officer, summed across the roster. They replaced traits, which moved th
 attributes and so told a player nothing the sheet did not already say.
 ✅ 19 officer roles; the requirement table is server-side only, with a leak test over the real
 response body (§B8a).
-✅ The Bar (§H): shared daily roster, §H3 gates, §H7 wage negotiation. The haggle reads patience and
-concession off the recruit's own Composure and Negotiation, both printed on the card.
+✅ The Bar (§H): shared daily roster, §H3 gates, and the §H7a city-wide daily auction. Open bids all
+day, one sealed final value in the last half hour, and a close at midnight Athens that ranks the
+finals and signs the first crew that can take them.
 ❌ §H4 dispositions, §H5 alignment drift and §H6 character levels are **cut** (see GDD §H4-H6
 superseded). An officer is their sheet, their perks and their wage; nothing about them changes
 behind the player's back.
@@ -99,8 +100,10 @@ reskilling.
 ### The city (GDD §A4)
 
 ✅ **Ten districts**, hard-authored: three residential (crews live there) and seven contested.
-Nicknames on some and not others. Relative geography: travel time scales with real distance and
-is shortened by a Rail Yard, a Skate Ground or a district's unified bonus.
+Nicknames on some and not others. Relative geography: travel time scales with real distance, is
+divided by the pace of whoever is walking, and is then cut by whatever the crew's ground takes off
+the clock (a Rail Yard, a Tram Depot, a district's unified bonus, an officer's Navigation). One function does that
+arithmetic for every road in the game: `roadMinutes` in `packages/shared/src/time/speed.ts`.
 
 ✅ **31 capturable places** across 20 kinds, each with an authored name, a hold bonus wired to a
 real mechanic, and a fortify difficulty. Holding every place in a district pays a **unified bonus**
@@ -121,6 +124,14 @@ and what you can add to it is marginal.
 ✅ **Raiding a home district.** It can never be captured. A successful raid takes a share of the
 stockpile bounded by what the force can physically carry in **kilograms**, and leaves the district's
 structures running at reduced effectiveness for six hours.
+
+✅ **Nine machines in the Garage**, four classes, in the order the Garage lets them out: the
+Scrappy at level 1 up to the Heli Porter at 14. Each carries a population and a `speed` on the
+units' own 0 to 100 scale, is gated on a blueprint document assembled from pages missions drop, and
+is worth infamy equal to its seats to whoever wrecks it. A column moves at its **slowest group**
+(`columnSpeed`): what is parked at home is worth nothing, two bikes in front of forty walkers are
+worth nothing to the walkers, the Colossus rides in nothing at all, and a fragile Rotorcraft is
+written off before the sound machines beside it.
 
 ### Battle units (GDD §A5)
 

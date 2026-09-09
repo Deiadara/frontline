@@ -6,7 +6,7 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
 import { effortScale, EFFORT_BASELINE_MINUTES, EFFORT_EXPONENT } from './progression/effort.js';
-import { MAX_MISSION_SPEED_BONUS } from './time/speed.js';
+import { MAX_MISSION_SPEED_BONUS, roadMinutes } from './time/speed.js';
 import { BlueprintCategorySchema, BlueprintPageIdSchema } from './blueprints/catalog.js';
 
 /**
@@ -462,6 +462,33 @@ export function hastenedMinutes(minutes: number, speedPercent: number): number {
   return Math.max(1, Math.round(minutes / (1 + bonus / 100)));
 }
 
+/**
+ * §C3: the travel leg, which is the one leg a machine or a fast pair of legs can shorten.
+ *
+ * A thin name over {@link roadMinutes}, so the mission road and the battle road are the same
+ * arithmetic rather than two that agree by inspection. `speed` is the column's pace and divides;
+ * `reductionPercent` is the ground's own cut and multiplies on top. The job leg keeps its own
+ * divisor and its own 50 (`hastenedMinutes`): a shorter way across the city does not make the work
+ * at the far end go faster.
+ */
+export function hastenedRoadMinutes(
+  minutes: number,
+  speed = 0,
+  reductionPercent = 0,
+  flatMinutesOff = 0,
+): number {
+  return roadMinutes(minutes, speed, reductionPercent, flatMinutesOff);
+}
+
+/** The minutes a run's pay and XP are priced on: what the card quoted, or the row's own clock. */
+export function pricedTotalMinutes(mission: {
+  pricedMinutes: number;
+  travelMinutes: number;
+  durationMinutes: number;
+}): number {
+  return mission.pricedMinutes > 0 ? mission.pricedMinutes : missionTimings(mission).totalMinutes;
+}
+
 export function findMissionTemplate(templateId: string): MissionTemplate | undefined {
   return MISSION_TEMPLATES.find((template) => template.id === templateId);
 }
@@ -639,6 +666,17 @@ export const MissionSchema = z.object({
    * the pay. So these always come home, on a clean run and on a disaster alike.
    */
   vehicles: FleetSchema.default({}),
+  /**
+   * §C3: the clock the pay was quoted on, which is not the clock the crew is running to.
+   *
+   * `missionRewards` and `missionXp` scale with the total minutes, and the row's `travelMinutes`
+   * has the machines' cut already taken off it. Pricing off the row therefore paid a crew *less*
+   * for riding, about 12% on a long road, while the card and this module's own notes both said the
+   * pay was untouched by vehicles. This is the total the card quoted: the crew's own speed and any
+   * delegation terms applied, the machines not. Zero on a row written before it existed, which
+   * reads as "price off the row's own clock", the way `xp: 0` falls back to the table.
+   */
+  pricedMinutes: z.number().int().nonnegative().default(0),
   startedAt: IsoDateTimeSchema,
   travelMinutes: z.number().int().nonnegative(),
   durationMinutes: z.number().int().positive(),

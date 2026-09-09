@@ -1,49 +1,44 @@
 import {
-  HireRecruitRequestSchema,
-  NegotiateRequestSchema,
-  barHiresPerDay,
-  negotiate,
-  negotiationLine,
-  negotiationVoice,
-  openNegotiation,
   IncreasePayrollRequestSchema,
+  PlaceBidRequestSchema,
   ReleaseOfficerRequestSchema,
-  inStandoff,
+  SealBidRequestSchema,
+  auctionWindow,
+  maxOpenAuctionsFor,
   payrollStepCost,
-  standoffAfterWalkout,
-  standoffRemainingMs,
-  type Base,
   type BarResponse,
-  type HireRecruitResponse,
+  type BidResponse,
+  type Base,
   type IncreasePayrollResponse,
-  type NegotiateResponse,
   type ReleaseOfficerResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import {
-  assessAgainst,
-  hireRecruit,
-  ledgerFor,
-  releaseOfficer,
-  wageAskedOf,
-  type HireRefusal,
-  recruitSlotsFor,
-} from '../bar/hire.js';
+  latestResultsFor,
+  placeBid,
+  projectAuction,
+  sealBid,
+  settleBarAuctions,
+  type BidRefusal,
+  type BidRequest,
+  type BidResult,
+} from '../bar/auction.js';
+import { bidCeilingFor, ledgerFor, recruitSlotsFor, releaseOfficer } from '../bar/hire.js';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
-import { barSeatsFor, barDay, barRoster, findBarRecruit, seatOf } from '../bar/roster.js';
+import { barSeatsFor, barDay, barRoster, findBarRecruit } from '../bar/roster.js';
+import { seatedRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
+import type { BarBid } from '../db/repos/bar.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
-import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
-import { seatedRoles } from '../crew/roster.js';
 
 /**
- * The Bar (GDD §H).
+ * The Bar (GDD §H, §H7a).
  *
- * The roster is never read from the database: §H2a makes it a pure function of the UTC date, so
- * every request recomputes it and two accounts asking on the same day are served the same eight
- * people. What *is* stored is only what a player changed, who they hired, how those officers feel
- * (§H5), what level they are (§H6) and what they agreed to pay (§H7, in W2's payroll book).
+ * The roster is never read from the database: §H2a makes it a pure function of the game date, so
+ * every request recomputes it and two accounts asking on the same day are served the same people.
+ * What is stored is what the players did: the bids on the table, the results of yesterday's close,
+ * and the officers somebody won (§H7, in W2's payroll book).
  */
 
 /** A player recruits into their one base or into nowhere. */
@@ -53,70 +48,164 @@ function requireOwnBase(app: FastifyInstance, ownerId: string): Base {
   return base;
 }
 
-/**
- * Settle everything the Bar reads off before reading it: wages and upkeep (§H7/§D1).
- *
- * There used to be a second step here for the §H5 alignment drift. Officers do not drift any more:
- * nothing about somebody on the books changes between reads except the wage the payroll book is
- * charged, which is what `settleBase` already does.
- */
+/** Settle everything the Bar reads off before reading it: wages and upkeep (§H7/§D1). */
 function settledBase(app: FastifyInstance, ownerId: string, now: Date): Base {
   return settleBase(app.repos, requireOwnBase(app, ownerId), now).base;
 }
 
 /**
- * Every refusal is a 409: the request was well-formed and the character exists, the crew just is
- * not in a state where the hire can happen. The three §H3/§H4 refusals share a code because the
- * roster read already tells the client *which* gate is shut, in `assessment.blockers`.
+ * Who has bid, by name.
+ *
+ * One lookup per distinct account at the tables on screen, which is at most a handful: everybody
+ * in the city can bid, but only the crews at these eight or twelve tables are on this payload.
  */
-const REFUSAL_ERRORS: Record<HireRefusal, { code: ErrorCode; message: string }> = {
-  already_hired: { code: 'RECRUIT_UNAVAILABLE', message: 'They already work for you' },
-  daily_limit: {
-    code: 'DAILY_HIRE_LIMIT',
-    message: 'You have already signed somebody today. The room restocks tomorrow',
+function usernamesFor(app: FastifyInstance, bids: readonly BarBid[]): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const bid of bids) {
+    if (names.has(bid.userId)) continue;
+    names.set(bid.userId, app.repos.users.findById(bid.userId)?.username ?? 'Somebody');
+  }
+  return names;
+}
+
+/**
+ * Every refusal is a 409: the request was well-formed and the person exists, the table just will
+ * not take that bid. The §H3 refusals share a code because the roster read already says *which*
+ * door is shut, in `assessment.blockers`.
+ *
+ * The messages carry the numbers a player needs in order to fix the bid, which is why `too_low`
+ * is a function rather than a string: "somebody is at 40" and "beat it by at least 42" are the
+ * whole of what the screen has to say, and a client that had to derive the second one from a
+ * stale read would print a number the server would refuse.
+ */
+const BID_ERRORS: Record<BidRefusal, { code: ErrorCode; message: (minimum: number) => string }> = {
+  closed: {
+    code: 'BID_REFUSED',
+    message: () => 'That table closed at midnight. Tonight is a new room',
   },
-  no_slots: { code: 'NO_RECRUIT_SLOTS', message: 'You have no room for another recruit' },
-  role_taken: { code: 'ROLE_TAKEN', message: 'Someone already holds that position' },
-  requirement: {
-    code: 'RECRUIT_UNAVAILABLE',
-    message: 'They will not work for a crew this far off the street',
+  sealed: {
+    code: 'BID_REFUSED',
+    message: () => 'The table is sealed. Lock a final value instead',
   },
-  level: {
-    code: 'RECRUIT_UNAVAILABLE',
-    message: 'They want a crew that has been doing this longer',
+  not_sealed: {
+    code: 'BID_REFUSED',
+    message: () => 'Nothing is sealed yet. Bid in the open while you can',
   },
-  standoff: {
+  not_interested: {
     code: 'RECRUIT_UNAVAILABLE',
-    message: 'You walked out on them. They are not ready to talk again',
+    message: () => 'They will not work for a crew like yours at any price',
+  },
+  already_hired: { code: 'RECRUIT_UNAVAILABLE', message: () => 'They already work for you' },
+  no_slots: { code: 'NO_RECRUIT_SLOTS', message: () => 'You have no room for another recruit' },
+  too_many_auctions: {
+    code: 'TOO_MANY_AUCTIONS',
+    // Not "at two tables": a level-40 crew may sit at three, and the count the screen prints is
+    // `auctionsAllowed` on every read rather than a number baked into a refusal.
+    message: () => 'You are already at every table you can hold. Let one close first',
+  },
+  outbid_yourself: {
+    code: 'BID_REFUSED',
+    message: () => 'You are already the highest bid. Save your caps',
+  },
+  already_sealed: {
+    code: 'BID_REFUSED',
+    message: () => 'You have locked your final value. That is your answer',
+  },
+  too_low: {
+    code: 'BID_REFUSED',
+    message: (minimum) => `Not enough. It takes ${minimum} a week to lead this table`,
   },
   no_payroll: {
     code: 'NO_PAYROLL',
-    message: 'Your payroll will not stretch that far. Raise it at the Nexus',
+    message: () => 'Your payroll will not stretch that far. Raise it at the Nexus',
   },
 };
 
 export function registerBarRoutes(app: FastifyInstance): void {
-  app.get('/bar', { preHandler: app.authenticate }, (request): BarResponse => {
+  /**
+   * Resolves the person a bid names on today's roster, or 404s.
+   *
+   * The room is the same all day now, so there is one way to land here: an id from yesterday, in a
+   * tab left open across midnight. The answer is the same as it always was.
+   */
+  function recruitOnTheRoster(base: Base, day: string, recruitId: string) {
+    const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
+    const recruit = findBarRecruit(day, recruitId, seats, app.repos.bases.averageLevel());
+    if (!recruit) throw new AppError('NOT_FOUND', 'They are not at the Bar today');
+    return recruit;
+  }
+
+  /** Both bid routes answer with the table as it now stands, so the screen never guesses. */
+  function bidResponse(base: Base, userId: string, recruitId: string, now: Date): BidResponse {
+    const window = auctionWindow(now);
+    const recruit = recruitOnTheRoster(base, window.day, recruitId);
+    const bids = app.repos.bar.bidsFor(window.day, recruitId);
+    return {
+      auction: projectAuction({
+        reader: userId,
+        window,
+        now,
+        recruit,
+        bids,
+        usernames: usernamesFor(app, bids),
+      }),
+      auctionsUsed: app.repos.bar.bidsBy(userId, window.day).length,
+      auctionsAllowed: maxOpenAuctionsFor(base.level),
+    };
+  }
+
+  function bid(
+    request: { currentUser: { id: string }; body: unknown },
+    place: (repos: typeof app.repos, input: BidRequest) => BidResult,
+    schema: typeof PlaceBidRequestSchema,
+  ): BidResponse {
+    const { recruitId, amount } = parseBody(schema, request.body);
     const now = new Date();
     const base = settledBase(app, request.currentUser.id, now);
-    const day = barDay(now);
-    // §H2: the room as it stands for everyone, including whoever has walked in to replace the
-    // people already hired out of it today.
+    const recruit = recruitOnTheRoster(base, barDay(now), recruitId);
+
+    const result = app.db.transaction(() =>
+      place(app.repos, {
+        base,
+        userId: request.currentUser.id,
+        recruit,
+        amount,
+        now,
+        admin: app.config.admin,
+      }),
+    )();
+    if (result.kind === 'refused') {
+      const { code, message } = BID_ERRORS[result.reason];
+      throw new AppError(code, message(result.minimum));
+    }
+    return bidResponse(base, request.currentUser.id, recruitId, now);
+  }
+
+  app.get('/bar', { preHandler: app.authenticate }, (request): BarResponse => {
+    const now = new Date();
+    // Before anything else: last night's tables. A player who opens the Bar at ten past midnight
+    // is the one who closes them if the world clock has not got there first, and they must see the
+    // officer they won on this very read rather than on the next one.
+    settleBarAuctions(app.repos, now);
+
+    const base = settledBase(app, request.currentUser.id, now);
+    const window = auctionWindow(now);
+    const day = window.day;
     // §F2: Charisma and Diplomacy widen the room. Word gets around about who is hiring.
     const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
-    const generations = app.repos.bar.generations(day, seats);
     // §H2: the room scales with the city. Averaged across every base standing in it, so it is the
     // whole city's standing that raises the calibre rather than the reader's own.
-    const standoffs = app.repos.bar.standoffs(request.currentUser.id);
-    // §H7: read once for the whole roster. Two calls would be two settles of the same effects.
-    const wageDiscount = crewEffectsFor(app.repos, base).wageDiscountPercent;
+    const roster = barRoster(day, seats, app.repos.bases.averageLevel());
+    const bids = app.repos.bar.bidsOn(day);
+    const usernames = usernamesFor(app, bids);
+    // Read once: the book and the discount feed the ledger, the bid ceiling and the payroll gate.
+    const effects = crewEffectsFor(app.repos, base);
+    const ledger = ledgerFor(base, effects.payrollStepDiscountPercent);
 
     return {
       day,
       serverNow: now.toISOString(),
-      recruits: barRoster(day, generations, seats, app.repos.bases.averageLevel()).map((recruit) =>
-        projectRecruit(base, recruit, standoffs[recruit.id], wageDiscount),
-      ),
+      recruits: roster.map((recruit) => projectRecruit(base, recruit)),
       officers: base.commanders.map((officer) => projectOfficer(base, officer)),
       slotsUsed: base.commanders.length,
       slotsTotal: recruitSlotsFor(app.repos, base),
@@ -124,170 +213,39 @@ export function registerBarRoutes(app: FastifyInstance): void {
       notoriety: base.economy.notoriety,
       level: base.level,
       caps: base.resources.caps,
-      payroll: ledgerFor(base, crewEffectsFor(app.repos, base).payrollStepDiscountPercent),
+      payroll: ledger,
       // Chairs that are actually taken. Somebody on the bench fills none of them, which is what
       // makes the bench worth having: they are signed and every seat is still open to them.
       filledRoles: seatedRoles(base.commanders),
-      hiresLeftToday: Math.max(
-        0,
-        barHiresPerDay(base.level) - app.repos.bar.hiresBy(request.currentUser.id, day),
+      // In roster order, so the card and its table are the same index on the screen.
+      auctions: roster.map((recruit) =>
+        projectAuction({
+          reader: request.currentUser.id,
+          window,
+          now,
+          recruit,
+          bids: bids.filter((entry) => entry.recruitId === recruit.id),
+          usernames,
+        }),
       ),
-      // §H7: conversations already under way. Sent whole rather than as a count, because the
-      // window has to be able to re-open on the exact exchange the player left it on.
-      negotiations: app.repos.bar.negotiations(request.currentUser.id, day),
+      auctionsUsed: app.repos.bar.bidsBy(request.currentUser.id, day).length,
+      auctionsAllowed: maxOpenAuctionsFor(base.level),
+      // The most this crew can put on a table: what the book holds after its own negotiators.
+      bidCeiling: bidCeilingFor(ledger.available, effects.wageDiscountPercent),
+      // Only the tables this crew sat at, from the last night it sat at any. A results panel that
+      // carried every close in the city would be a leaderboard nobody asked for.
+      results: latestResultsFor(app.repos, request.currentUser.id, day),
     };
   });
 
-  /**
-   * §H7: one exchange of a wage negotiation.
-   *
-   * Server-owned on purpose. Patience, a walk-away and a demand that only moves when the player
-   * moves are all rules a client could simply decline to enforce, and the whole point of the
-   * conversation is that a bad offer costs something you cannot reload away.
-   *
-   * Agreeing a number does **not** hire anybody. The player still sends it to `/bar/hire`, which is
-   * where §H8 housing, the §H2b daily limit and the first payment are checked: a negotiation is a
-   * handshake, not a contract.
-   */
-  app.post('/bar/negotiate', { preHandler: app.authenticate }, (request): NegotiateResponse => {
-    const { recruitId, offerWage } = parseBody(NegotiateRequestSchema, request.body);
-    const now = new Date();
-    const base = settledBase(app, request.currentUser.id, now);
-    const day = barDay(now);
-
-    const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
-    const recruit = findBarRecruit(
-      day,
-      recruitId,
-      app.repos.bar.generations(day, seats),
-      seats,
-      app.repos.bases.averageLevel(),
-    );
-    if (!recruit) throw new AppError('NOT_FOUND', 'They are not at the Bar today');
-
-    const { blockers } = assessAgainst(base, recruit);
-    // §H3 comes first: somebody who will not work for this crew at any price is not somebody to
-    // haggle with, and letting the conversation open would teach the player nothing true.
-    if (blockers.length > 0) {
-      throw new AppError('RECRUIT_UNAVAILABLE', 'They will not talk terms with a crew like yours');
-    }
-
-    // And a walkout is a closed door with a clock on it. Six hours, and their price has already
-    // gone up ten percent for the next conversation: see `standoffAfterWalkout`.
-    const standoff = app.repos.bar.standoff(request.currentUser.id, recruitId);
-    if (inStandoff(standoff, now)) {
-      const hours = Math.ceil(standoffRemainingMs(standoff, now) / (60 * 60 * 1000));
-      throw new AppError(
-        'RECRUIT_UNAVAILABLE',
-        `You walked out on them. They will not sit down again for another ${hours}h`,
-      );
-    }
-
-    // The same discount the roster printed and `hireRecruit` will charge against.
-    const asking = wageAskedOf(
-      recruit,
-      standoff,
-      crewEffectsFor(app.repos, base).wageDiscountPercent,
-    );
-    const current =
-      app.repos.bar.negotiation(request.currentUser.id, day, recruitId) ??
-      openNegotiation(asking, recruit.attributes);
-    if (current.closed) {
-      throw new AppError('NEGOTIATION_CLOSED', 'That conversation is over');
-    }
-
-    const turn = negotiate({
-      negotiation: current,
-      offer: offerWage,
-      asking,
-      attributes: recruit.attributes,
-    });
-    app.repos.bar.saveNegotiation(
-      request.currentUser.id,
-      day,
-      recruitId,
-      turn.negotiation,
-      now.toISOString(),
-    );
-    // The half of a walkout that outlives the roster: six hours of silence, and ten percent on
-    // the price for good. Written here rather than inside `negotiate` because it is a fact about
-    // this crew and this person rather than about the conversation.
-    if (turn.walkedAway) {
-      app.repos.bar.saveStandoff(
-        request.currentUser.id,
-        recruitId,
-        standoffAfterWalkout(standoff, now),
-      );
-    }
-
-    return {
-      negotiation: turn.negotiation,
-      line: negotiationLine(
-        negotiationVoice(recruit.id),
-        turn.negotiation.mood,
-        turn.negotiation.rounds,
-      ),
-      accepted: turn.accepted,
-      walkedAway: turn.walkedAway,
-    };
+  /** §H7a: a public bid. Live, visible to the whole city, and it has to beat the leader. */
+  app.post('/bar/bid', { preHandler: app.authenticate }, (request): BidResponse => {
+    return bid(request, placeBid, PlaceBidRequestSchema);
   });
 
-  app.post('/bar/hire', { preHandler: app.authenticate }, (request): HireRecruitResponse => {
-    const { recruitId, role, offerWage } = parseBody(HireRecruitRequestSchema, request.body);
-    const now = new Date();
-    const base = settledBase(app, request.currentUser.id, now);
-
-    const day = barDay(now);
-    const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
-    const generations = app.repos.bar.generations(day, seats);
-    const recruit = findBarRecruit(
-      day,
-      recruitId,
-      generations,
-      seats,
-      app.repos.bases.averageLevel(),
-    );
-    const seat = seatOf(day, recruitId);
-    const standoff = app.repos.bar.standoff(request.currentUser.id, recruitId);
-    if (!recruit || seat === null) {
-      // Two ways to land here and one honest answer for both: the roster turned over at midnight
-      // UTC (§H2), or somebody else signed this person and their seat has already moved on
-      // (§H2b). A stale tab must not be able to hire the replacement by accident, which is why
-      // the generation is part of the id it sends back.
-      throw new AppError('NOT_FOUND', 'They are not at the Bar today');
-    }
-
-    const result = app.db.transaction(() =>
-      hireRecruit(app.repos, {
-        base,
-        userId: request.currentUser.id,
-        seat,
-        recruit,
-        role,
-        offerWage,
-        ...(standoff ? { standoff } : {}),
-        now,
-        admin: app.config.admin,
-      }),
-    )();
-    if (result.kind === 'refused') {
-      const { code, message } = REFUSAL_ERRORS[result.reason];
-      throw new AppError(code, message);
-    }
-    if (result.kind === 'countered') {
-      return { accepted: false, wage: result.wage, officer: null, payroll: null };
-    }
-    // §I1: signing somebody is one of the two or three things a player does in a session that
-    // takes a real decision, so it pays. Outside the hire transaction deliberately: the XP ledger
-    // is W6's and a level-up must not be able to roll a signed contract back.
-    const { award } = awardPlayerXp(app.repos, result.base, 'officerHired');
-    return {
-      accepted: true,
-      wage: result.wage,
-      officer: result.officer,
-      payroll: result.payroll,
-      levelUp: levelUpFrom([award]),
-    };
+  /** §H7a: the one sealed final value, in the last half hour. No changes after it lands. */
+  app.post('/bar/seal', { preHandler: app.authenticate }, (request): BidResponse => {
+    return bid(request, sealBid, SealBidRequestSchema);
   });
 
   /**

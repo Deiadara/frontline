@@ -9,10 +9,13 @@ import {
   type ItemKind,
 } from '@frontline/shared';
 import { Link } from 'react-router-dom';
+import { DeltaFloat } from '../../components/ui/Delta';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
+import type { DeltaMark } from '../../lib/deltas';
+import { useDeltaMarks } from '../../lib/deltas';
 import { useMarket } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
 import { ItemWindow } from '../market/MarketPage';
@@ -33,6 +36,16 @@ export function InventoryPage() {
   const query = useMarket();
 
   const data = query.data;
+  /*
+   * What the satchel just gained or lost: a mission's haul landing on a poll, a trap built out of
+   * components, a relic sold on.
+   *
+   * Nothing trickles into the satchel, so there is no rate to write off. Above the early return
+   * below because a hook cannot be called conditionally. An item spent down to nothing loses its
+   * row entirely, and a figure with nothing left to hang from is not drawn: the row disappearing
+   * is the signal there.
+   */
+  const taken = useDeltaMarks(data?.inventory);
   if (!data) {
     return (
       <ScreenLoad
@@ -67,6 +80,7 @@ export function InventoryPage() {
             key={kind}
             kind={kind}
             entries={held.filter(([id]) => ITEM_CATALOG[id].kind === kind)}
+            deltas={taken}
           />
         ))}
       </div>
@@ -111,7 +125,15 @@ const EMPTY_COPY: Record<ItemKind, string> = {
   consumable: 'Nothing to spend. The Scrapyard builds traps, once you hold the drawings.',
 };
 
-function KindPanel({ kind, entries }: { kind: ItemKind; entries: [ItemId, number][] }) {
+function KindPanel({
+  kind,
+  entries,
+  deltas,
+}: {
+  kind: ItemKind;
+  entries: [ItemId, number][];
+  deltas: Record<string, readonly DeltaMark[]>;
+}) {
   return (
     <Panel
       title={ITEM_KIND_LABELS[kind]}
@@ -152,10 +174,11 @@ function KindPanel({ kind, entries }: { kind: ItemKind; entries: [ItemId, number
                   </span>
                   <span
                     className={cn(
-                      'shrink-0 rounded-sm border border-surface-600 px-2.5 py-1',
+                      'relative shrink-0 rounded-sm border border-surface-600 px-2.5 py-1',
                       'font-display text-[15px] font-bold tabular-nums text-ink-100',
                     )}
                   >
+                    <DeltaFloat marks={deltas[id] ?? []} data-testid={`delta-item-${id}`} />
                     {count}
                   </span>
                 </span>

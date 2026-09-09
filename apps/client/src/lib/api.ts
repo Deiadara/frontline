@@ -52,8 +52,7 @@ import {
   RenameDistrictResponseSchema,
   CityResponseSchema,
   CreateOverseerResponseSchema,
-  HireRecruitResponseSchema,
-  NegotiateResponseSchema,
+  BidResponseSchema,
   LaunchMissionResponseSchema,
   MeResponseSchema,
   MissionsResponseSchema,
@@ -85,15 +84,15 @@ import {
   type RenameDistrictRequest,
   type CreateOverseerRequest,
   type BuySupplyRequest,
-  type HireRecruitRequest,
-  type NegotiateRequest,
+  type PlaceBidRequest,
+  type SealBidRequest,
   type LaunchMissionInput,
   type LevelUp,
   type LoginRequest,
   type RegisterRequest,
   type StartTrainingRequest,
   type StartTechRequest,
-  type BuyFromVendorRequest,
+  type PlaceVendorBidRequest,
   type UnlockBlueprintRequest,
   type BarterRequest,
   type PostOfferRequest,
@@ -292,11 +291,19 @@ export const launchMission = (body: LaunchMissionInput) =>
 
 export const getBar = () => apiFetch('/bar', BarResponseSchema);
 
-export const hireRecruit = (body: HireRecruitRequest) =>
-  apiFetch('/bar/hire', HireRecruitResponseSchema, jsonBody(body));
+/**
+ * §H7: an open bid on one of tonight's tables.
+ *
+ * Refused with an ordinary `AppError` when the table has sealed, when the crew is already at its
+ * table cap, or when the amount does not clear the leader by the increment. The reason is the
+ * server's own sentence, so the screen prints it rather than guessing which of the three it was.
+ */
+export const placeBid = (body: PlaceBidRequest) =>
+  apiFetch('/bar/bid', BidResponseSchema, jsonBody(body));
 
-export const negotiateWithRecruit = (body: NegotiateRequest) =>
-  apiFetch('/bar/negotiate', NegotiateResponseSchema, jsonBody(body));
+/** §H7: the one secret final value a crew may lock in the last half hour. It cannot be changed. */
+export const sealBid = (body: SealBidRequest) =>
+  apiFetch('/bar/seal', BidResponseSchema, jsonBody(body));
 
 export const getResearch = () => apiFetch('/research', ResearchResponseSchema);
 
@@ -314,8 +321,14 @@ export const getCrewStanding = () => apiFetch('/overseer/me', CrewStandingRespon
 
 export const getMarket = () => apiFetch('/market', MarketResponseSchema);
 
-export const buyFromVendor = (body: BuyFromVendorRequest) =>
-  apiFetch('/market/buy', MarketMutationResponseSchema, jsonBody(body));
+/**
+ * A bid on one of the Runner's lots. Every line on the barrow is an auction now: the highest
+ * bidder when he packs up takes one and pays what they bid, so there is no buying, only bidding.
+ * Refused in the server's own words when he is out, the lot is gone, the crew is already leading,
+ * the figure does not clear the leader by the step, or the caps are not there.
+ */
+export const placeVendorBid = (body: PlaceVendorBidRequest) =>
+  apiFetch('/market/bid', MarketMutationResponseSchema, jsonBody(body));
 
 /** §D10: spend one of every page and take the finished document. Answers with the satchel. */
 export const unlockBlueprint = (body: UnlockBlueprintRequest) =>
@@ -374,6 +387,10 @@ export const setAdminKnobs = (body: AdminKnobsRequest) =>
 /** Show or hide one district on the Console's fog of war. */
 export const setAdminFog = (body: AdminFogRequest) =>
   apiFetch('/admin/fog', AdminMutationResponseSchema, jsonBody(body));
+
+/** The console's mock: somebody else in the city calls a fight on the reviewer's ground. */
+export const mockBattleOnMe = () =>
+  apiFetch('/admin/mock-battle', AdminMutationResponseSchema, jsonBody({}));
 
 export const getWorkshop = () => apiFetch('/workshop', WorkshopResponseSchema);
 

@@ -1,5 +1,4 @@
 import { BADGE_COLOR_VALUES, FACTION_RANK_LABELS, type FactionResponse } from '@frontline/shared';
-import { Icon } from '../../components/ui/Icon';
 import { OnArt } from '../game/PlateRoom';
 import { FactionBadge, PropGlyph } from './FactionBadge';
 import { seatTicks } from './geometry';
@@ -65,7 +64,6 @@ export function Crest({
           </div>
         </div>
         <p className="relative z-[1] mt-1.5 line-clamp-2 font-body text-[11.5px] italic leading-snug text-ink-300">
-          <Icon name="edit" aria-hidden className="mr-1 inline h-3 w-3 text-brass-300" />
           {faction.blurb || 'Nothing written down about what this table is for.'}
         </p>
       </div>

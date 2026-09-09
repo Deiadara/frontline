@@ -1,6 +1,7 @@
 import { UNIT_CATALOG, findUnit, type AllyBattle, type Army } from '@frontline/shared';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
@@ -158,7 +159,8 @@ function FightCard({
               'icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm',
               attacking ? 'text-oxblood-300' : 'text-verdigris-300',
             )}
-            title={attacking ? 'Called by one of us' : 'One of us is being come for'}
+            data-tip={attacking ? 'Called by one of us' : 'One of us is being come for'}
+            aria-label={attacking ? 'Called by one of us' : 'One of us is being come for'}
           >
             <Icon name={attacking ? 'sword' : 'shield'} className="h-5 w-5" />
           </span>
@@ -228,23 +230,23 @@ function FightCard({
               </p>
             ) : (
               <div className="flex min-w-0 flex-wrap items-end gap-2">
-                <label className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
                     Send
                   </span>
-                  <select
+                  {/* The painted picker, not the browser's: this was the last native `<select>`
+                      on a game screen, grey and system-fonted in a hand-inked drawer. */}
+                  <Dropdown
+                    label="Send"
                     value={unitId}
-                    onChange={(event) => setPicked(event.target.value)}
+                    onChange={setPicked}
                     data-testid={`reinforce-unit-${battle.battleId}`}
-                    className="min-w-0 rounded-sm border border-surface-500 bg-surface-900 px-2 py-1.5 font-body text-[13px] text-ink-100"
-                  >
-                    {fieldable.map(([id, have]) => (
-                      <option key={id} value={id}>
-                        {UNIT_CATALOG.find((unit) => unit.id === id)?.name ?? id} ({have})
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    options={fieldable.map(([id, have]) => ({
+                      value: id,
+                      label: `${UNIT_CATALOG.find((unit) => unit.id === id)?.name ?? id} (${have})`,
+                    }))}
+                  />
+                </div>
                 <NumberField
                   label="How many"
                   value={count}

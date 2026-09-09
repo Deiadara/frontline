@@ -58,6 +58,7 @@ const me: MeResponse = {
     displayName: null,
     icon: 'shield',
     timezone: 'Europe/Athens',
+    soundVolume: 60,
   },
   overseer: null,
   base,
@@ -149,6 +150,7 @@ const walking: ActionsResponse = {
       departedAt: NOW,
       arrivesAt: '2026-08-13T10:20:00.000Z',
       recallable: true,
+      vehicles: {},
     },
   ],
   serverNow: NOW,
@@ -269,7 +271,15 @@ describe('sending a column from the battle board (§A4)', () => {
 
     // The screen the player is returned to has to say where they went. `muster` is only what has
     // landed, so without this the detail reads "Nobody yet" over a roster that just lost two.
-    expect(await screen.findByTestId('battle-walking-razors')).toBeInTheDocument();
+    const chip = await screen.findByTestId('battle-walking-razors');
+    expect(chip).toBeInTheDocument();
+    /*
+     * §A4: every chip in a fight opens `EffectiveCard`, and the trigger's `aria-label` is the only
+     * name anybody who cannot see the chip gets. It was built from the wire id, so the board
+     * announced a stack as "road_reavers on this ground". Asserted on the attribute rather than on
+     * the rendered text, because that is the half no screenshot and no text query can see.
+     */
+    expect(chip.closest('button')).toHaveAttribute('aria-label', 'Razors on this ground');
 
     fireEvent.click(screen.getByRole('link', { name: 'On the road' }));
     expect(await screen.findByTestId('walking-razors')).toBeInTheDocument();

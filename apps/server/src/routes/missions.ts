@@ -26,6 +26,7 @@ import { launchMission } from '../missions/launch.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { OFFICER_DUTY_MESSAGES, officerDuty } from '../crew/duty.js';
 import { resolveDueMissions } from '../missions/resolve.js';
+import { takeLevelUp } from '../progression/award.js';
 
 /** Why a crew cannot go, in the player's words. */
 const FORCE_ERRORS: Record<MissionForceRefusal, { code: ErrorCode; message: string }> = {
@@ -64,6 +65,11 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     // In a transaction, the way the world clock runs it: the settle marks a run resolved before it
     // pays, so a write failing halfway left a crew marked home with its bodies and its haul gone.
     const settlement = app.repos.tx(() => resolveDueMissions(app.repos, own, now));
+    // Whatever this crew is owed, including a level the *world clock* banked while nobody was
+    // looking: `takeLevelUp` reads the durable marker and clears it (migration 0083). Read off the
+    // marker rather than off `settlement.levelUp`, so a threshold the clock crossed at 03:00 is
+    // announced here rather than lost.
+    const levelUp = takeLevelUp(app.repos, settlement.base.id);
 
     const stored = app.repos.missions.listByBaseId(settlement.base.id);
     const active = stored.filter((entry) => entry.mission.status === 'active');
@@ -89,7 +95,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       ),
       army: settlement.base.army,
       serverNow: now.toISOString(),
-      levelUp: settlement.levelUp,
+      levelUp,
     };
   });
 
@@ -135,7 +141,9 @@ export function registerMissionRoutes(app: FastifyInstance): void {
 
     // Settle first: a mission that came home while the player was reading the board frees a slot
     // they should be allowed to use on this very request.
-    const { base, levelUp } = app.repos.tx(() => resolveDueMissions(app.repos, own, now));
+    const { base } = app.repos.tx(() => resolveDueMissions(app.repos, own, now));
+    // Drained here, before any refusal below, because every exit from this handler carries it.
+    const levelUp = takeLevelUp(app.repos, base.id);
     // The active runs, not the whole history filtered down to them: the repo has a query for this
     // and the launch path was loading a month of finished work to count what is out.
     const active = app.repos.missions.listActiveByBaseId(base.id);
@@ -235,9 +243,12 @@ export function registerMissionRoutes(app: FastifyInstance): void {
        * and a Smuggler's Tunnel add up rather than arriving through two parallel paths. Skipped
        * outright when nobody is leading, which is the whole condition on the channel.
        */
-      ...(({ missionSpeedPercent, missionSpoilsPercent, leadLootPercent }) => ({
+      ...(({ missionSpeedPercent, missionSpoilsPercent, leadLootPercent, unitSpeedPercent }) => ({
         missionSpeedPercent,
         missionSpoilsPercent: missionSpoilsPercent + (officer ? leadLootPercent : 0),
+        // §C3: the same channel the march reads (`battle/movement.ts`). The Skate Ground says
+        // "everything you field moves faster" and the road to a job is a road.
+        unitSpeedPercent,
       }))(
         officer
           ? leading(standingEffectsFor(app.repos, base, now))
@@ -284,6 +295,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       // would show: a crew that came home while the order was given frees its slot here.
       const settlement = resolveDueMissions(app.repos, base, now);
       const settled = settlement.base;
+      const levelUp = takeLevelUp(app.repos, settled.id);
       const all = app.repos.missions.listByBaseId(settled.id);
       return {
         missions: all.map((entry) => entry.mission),
@@ -305,7 +317,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         ),
         army: settled.army,
         serverNow: now.toISOString(),
-        levelUp: settlement.levelUp,
+        levelUp,
       };
     })();
   });

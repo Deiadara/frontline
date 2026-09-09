@@ -199,7 +199,13 @@ function PlayerTable({ entries, youUserId }: { entries: PlayerStanding[]; youUse
               </span>
             </span>
             <span className="hidden w-40 shrink-0 items-center gap-2 sm:flex">
-              {entry.factionBadge && <FactionBadge badge={entry.factionBadge} size={22} />}
+              {/* The badge keeps its slot whether or not there is a badge in it. Rendered only
+                  when a player is at a table, the column had two left edges: a crew with a faction
+                  started its name 30px in and a crew without one started at the column's own edge,
+                  so four rows of a ranking read as two ragged lists side by side. */}
+              <span className="flex h-[22px] w-[22px] shrink-0 items-center">
+                {entry.factionBadge && <FactionBadge badge={entry.factionBadge} size={22} />}
+              </span>
               <span className="truncate font-body text-[12px] text-ink-300">
                 {entry.factionName ?? <span className="text-ink-500">none</span>}
               </span>

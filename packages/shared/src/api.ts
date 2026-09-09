@@ -8,8 +8,8 @@ import { AttributeNameSchema, AttributesSchema } from './attributes.js';
 import {
   JOIN_BLOCKERS,
   JoinRequirementSchema,
-  NegotiationSchema,
-  StandoffSchema,
+  BarAuctionResultSchema,
+  BarAuctionSchema,
 } from './bar/index.js';
 import { BaseSchema, BaseSummarySchema, DistrictNameSchema } from './base.js';
 import { PayrollLedgerSchema } from './economy/payroll.js';
@@ -40,6 +40,7 @@ import { InventorySchema } from './items/inventory.js';
 import { ResourceKeySchema } from './resources.js';
 import { MarketOfferSchema, TradeBundleSchema } from './market/offers.js';
 import { SupplyBoardSchema, SupplyResourceSchema } from './market/supply.js';
+import { VendorAuctionResultSchema, VendorAuctionSchema } from './market/auction.js';
 import { VendorLineSchema, VendorSessionSchema } from './market/vendor.js';
 import { UpgradeLineSchema } from './units/upgrades.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
@@ -142,6 +143,15 @@ export type AuthResponse = z.infer<typeof AuthResponseSchema>;
 export const BuildQuotesSchema = z.partialRecord(BuildingKindSchema, PartialResourcesSchema);
 export type BuildQuotes = z.infer<typeof BuildQuotesSchema>;
 
+/**
+ * How long each structure's next level would take if ordered now, in seconds, after everything
+ * the order itself applies: the crew's build-speed fold and the Generator's burn. The dialog used
+ * to quote the catalogue's bare figure, which overstated the clock for any crew with a build-speed
+ * effect, and none of that fold reaches the client.
+ */
+export const BuildClocksSchema = z.partialRecord(BuildingKindSchema, z.number().int().positive());
+export type BuildClocks = z.infer<typeof BuildClocksSchema>;
+
 export const MeResponseSchema = z.object({
   user: UserSchema,
   overseer: OverseerSchema.nullable(),
@@ -162,6 +172,8 @@ export const MeResponseSchema = z.object({
    * back to the catalogue price, which is what it drew before.
    */
   buildQuotes: BuildQuotesSchema.optional(),
+  /** The clock beside each quote. See {@link BuildClocksSchema}. Optional for the same reason. */
+  buildClocks: BuildClocksSchema.optional(),
   /**
    * The two badges the HUD draws, on every screen.
    *
@@ -440,7 +452,7 @@ export const UnitOptionSchema = z.object({
    */
   rules: z.array(z.object({ id: z.string(), label: z.string(), description: z.string() })),
   /**
-   * §A4: the ground this unit is unusually good or bad in.
+   * §A4: the location characteristics this unit is unusually good or bad in.
    *
    * Only the labels where it differs from what its own sheet would predict: the Juggernaut's
    * misery in the heat is already legible from ninety-five points of armour, and listing it here
@@ -814,13 +826,6 @@ export const BarRecruitSchema = z.object({
   askingWage: z.number().int().positive().nullable(),
   /** Already on this crew's books: the roster is global, the hiring is not (§H2). */
   hired: z.boolean(),
-  /**
-   * Set while this crew has walked out on them and they will not sit down again yet.
-   *
-   * On the wire rather than derived, because the screen has to say *when* rather than only that
-   * the chair is cold, and the clock the countdown runs against is the server's.
-   */
-  standoff: StandoffSchema.nullable(),
 });
 export type BarRecruit = z.infer<typeof BarRecruitSchema>;
 
@@ -844,9 +849,10 @@ export type BarOfficer = z.infer<typeof BarOfficerSchema>;
 /**
  * The Bar screen in one call (GDD §H).
  *
- * `day` is the UTC date the roster was generated from and `serverNow` is the clock it came from:
+ * `day` is the game date the roster was generated from and `serverNow` is the clock it came from:
  * §H2a makes the roster a pure function of the date, so a client with a skewed clock must still
- * be told which day it is looking at rather than working it out locally.
+ * be told which day it is looking at rather than working it out locally. Every countdown on the
+ * screen runs against `serverNow`, never the browser's clock.
  */
 export const BarResponseSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -865,76 +871,32 @@ export const BarResponseSchema = z.object({
   payroll: PayrollLedgerSchema,
   /** Roles §C3 says are already filled, so the hire form cannot offer them. */
   filledRoles: z.array(OfficerRoleSchema),
-  /** §H2b: how many hires this player has left today, and when the limit resets. */
-  hiresLeftToday: z.number().int().nonnegative(),
   /**
-   * §H7: conversations already under way today, keyed by recruit id.
+   * §H7: one auction per recruit on the roster, in roster order.
    *
-   * Only the ones that have been opened, so a fresh Bar sends nothing. A character who has walked
-   * out is in here with `closed` set, which is how the screen knows to grey the chair rather than
-   * offering the player a conversation the server would refuse.
+   * The whole table is public: every open bid, who made it, who is leading, and when it seals and
+   * closes. Only the reader's own sealed value is on it, and only to the reader.
    */
-  negotiations: z.record(IdSchema, NegotiationSchema),
+  auctions: z.array(BarAuctionSchema),
+  /** How many auctions the reader is in today, and how many they may be in at once. */
+  auctionsUsed: z.number().int().nonnegative(),
+  auctionsAllowed: z.number().int().positive(),
+  /**
+   * §H7a: the most this crew can put on any table, in caps a week.
+   *
+   * Not `payroll.available`. The book is charged the winning price after the crew's own negotiators
+   * have talked it down (`committedWage`), so a crew with a good fixer can bid past what the raw
+   * book shows and still hold the contract. The server refuses a bid above this and nothing else
+   * about the book, so the screen can cap the field here and never draw a refusal it cannot
+   * explain.
+   */
+  bidCeiling: z.number().int().nonnegative(),
+  /** How yesterday's tables the reader sat at ended. Empty for a crew that bid on nobody. */
+  results: z.array(BarAuctionResultSchema).default([]),
   /** Set when this read's settlement crossed a level (§I1). */
   levelUp: LevelUpSchema.optional(),
 });
 export type BarResponse = z.infer<typeof BarResponseSchema>;
-
-/** §H7: one exchange in a negotiation. The offer, and nothing else: the state is the server's. */
-export const NegotiateRequestSchema = z.object({
-  recruitId: IdSchema,
-  offerWage: z.number().int().nonnegative(),
-});
-export type NegotiateRequest = z.infer<typeof NegotiateRequestSchema>;
-
-/**
- * §H7: what they said back.
- *
- * `line` is the character speaking and is the point of the whole exchange; `negotiation` is the
- * state the window draws. An accepted offer does **not** hire anybody: agreeing a number and
- * signing a contract are two acts, and the second one still has to clear §H8 housing, the §H2b
- * daily limit and the first payment. The screen sends the agreed number to `/bar/hire`.
- */
-export const NegotiateResponseSchema = z.object({
-  negotiation: NegotiationSchema,
-  /** What the character says this turn. */
-  line: z.string().min(1),
-  accepted: z.boolean(),
-  walkedAway: z.boolean(),
-});
-export type NegotiateResponse = z.infer<typeof NegotiateResponseSchema>;
-
-export const HireRecruitRequestSchema = z.object({
-  recruitId: IdSchema,
-  /**
-   * §C2/§C3: a character is hired *into* a role, and a role holds one officer.
-   *
-   * `null` signs them to the bench instead (board request): on the books, drawing a wage, in no
-   * chair. The Bar's whole pressure is that a good sheet walks away at dawn, and before this the
-   * only way to keep one was to have a chair free *and* to have decided which; now the decision
-   * can be made later, at the price of the off-duty share until it is.
-   */
-  role: OfficerRoleSchema.nullable(),
-  /** §H7: the weekly wage in caps being offered. */
-  offerWage: z.number().int().nonnegative(),
-});
-export type HireRecruitRequest = z.infer<typeof HireRecruitRequestSchema>;
-
-/**
- * §H7: the answer to an offer. A rejected offer is a 200, not an error: the character countering
- * is the negotiation working, and `wage` is what they came back with.
- */
-export const HireRecruitResponseSchema = z.object({
-  accepted: z.boolean(),
-  wage: z.number().int().nonnegative(),
-  /** Present only when the offer was accepted. */
-  officer: CommanderSchema.nullable(),
-  /** §H7: the book after the signing. Nothing is charged; a slice of it is spoken for. */
-  payroll: PayrollLedgerSchema.nullable(),
-  /** §I1: signing somebody pays, so a hire can be the thing that crosses a level. */
-  levelUp: LevelUpSchema.optional(),
-});
-export type HireRecruitResponse = z.infer<typeof HireRecruitResponseSchema>;
 
 /** §H7: let an officer go. Frees their slice of the book and charges five weeks of it in caps. */
 export const ReleaseOfficerRequestSchema = z.object({ officerId: IdSchema });
@@ -1192,11 +1154,15 @@ export type CrewStandingResponse = z.infer<typeof CrewStandingResponseSchema>;
 
 // --- the market, the satchel and the workshop ---
 
-/** One line on the Runner's barrow, as a player sees it. */
+/**
+ * One line on the Runner's barrow, as a player sees it.
+ *
+ * The line is a lot now (`market/auction.ts`): what is on the wire beside it is the auction as
+ * this reader sees it, or null on a line with nothing left to sell this visit.
+ */
 export const VendorOfferSchema = z.object({
   line: VendorLineSchema,
-  /** Whether this crew can pay for one right now. */
-  affordable: z.boolean(),
+  auction: VendorAuctionSchema.nullable(),
 });
 export type VendorOffer = z.infer<typeof VendorOfferSchema>;
 
@@ -1209,9 +1175,13 @@ export const MarketResponseSchema = z.object({
   vendor: z.object({
     open: z.boolean(),
     sessions: z.array(VendorSessionSchema),
+    /** Which of today's sessions is running, or null while he is away. */
+    session: z.number().int().nonnegative().nullable(),
     closesAt: IsoDateTimeSchema.nullable(),
     opensAt: IsoDateTimeSchema,
     stock: z.array(VendorOfferSchema),
+    /** How the lots this crew bid on ended, from the last visit it bid at. */
+    results: z.array(VendorAuctionResultSchema),
   }),
   /** The public board, plus any counter aimed at this crew. */
   offers: z.array(MarketOfferSchema),
@@ -1244,11 +1214,8 @@ export const BuySupplyRequestSchema = z.object({
 });
 export type BuySupplyRequest = z.infer<typeof BuySupplyRequestSchema>;
 
-export const BuyFromVendorRequestSchema = z.object({
-  lineId: z.string().min(1),
-  count: z.number().int().min(1).max(20),
-});
-export type BuyFromVendorRequest = z.infer<typeof BuyFromVendorRequestSchema>;
+// Buying off the barrow went with the board's 2026-09-08 rework: every line is a lot, and the
+// request for one is `PlaceVendorBidRequestSchema` in `market/auction.ts`.
 
 /** The Broker: give one resource, take half as much of another. */
 export const BarterRequestSchema = z.object({

@@ -132,7 +132,7 @@ function MemberRow({
           <MarkStamp
             mark={member.cardMark}
             className="inset-0 text-oxblood-300/90"
-            title={`${spec.aspect}: ${member.cardMark}`}
+            tip={`${spec.aspect}: ${member.cardMark}`}
           />
         </span>
 

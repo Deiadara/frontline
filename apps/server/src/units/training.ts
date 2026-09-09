@@ -170,6 +170,14 @@ export interface TrainingSettlement {
   base: Base;
   /** §I1: one award per batch that landed. Empty on a read that finished nothing. */
   awards: PlayerXpAward[];
+  /**
+   * Orders that handed over their **last** body on this read.
+   *
+   * Not the same thing as `delivered`: a batch trickles out one body at a time, so a receipt per
+   * body would ring every forty-five seconds for an order of ten. `unit_trained` says "a batch has
+   * finished training", and this is the set that has.
+   */
+  finished: TrainingOrder[];
 }
 
 /**
@@ -185,7 +193,12 @@ export interface TrainingSettlement {
  */
 export function settleTraining(repos: Repositories, base: Base, now: Date): TrainingSettlement {
   const { delivered, pending } = splitDueTraining(base.trainingQueue, now);
-  if (delivered.length === 0) return { base, awards: [] };
+  if (delivered.length === 0) return { base, awards: [], finished: [] };
+
+  // An order only leaves the queue when it has handed over its last body, so what is missing from
+  // `pending` is exactly what finished on this read.
+  const stillWaiting = new Set(pending.map((order) => order.id));
+  const finished = base.trainingQueue.filter((order) => !stillWaiting.has(order.id));
 
   const army: Army = delivered.reduce(
     (into, batch) => addToArmy(into, batch.unitId, batch.count),
@@ -215,7 +228,7 @@ export function settleTraining(repos: Repositories, base: Base, now: Date): Trai
       awards.push(award);
     }
   }
-  return { base: carried, awards };
+  return { base: carried, awards, finished };
 }
 
 export interface TrainInput {

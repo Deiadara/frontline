@@ -61,7 +61,7 @@ function AttributeRow({
     <li
       data-testid={importance === null ? undefined : `attr-${name}`}
       data-importance={importance ?? undefined}
-      title={importance === null ? undefined : IMPORTANCE_LABELS[importance]}
+      data-tip={importance === null ? undefined : IMPORTANCE_LABELS[importance]}
       className={cn(
         'flex items-center',
         bar ? 'gap-2' : 'gap-1',

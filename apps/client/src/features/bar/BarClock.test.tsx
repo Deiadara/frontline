@@ -1,6 +1,6 @@
-import type { BarResponse } from '@frontline/shared';
+import { AUCTION_SEALED_WINDOW_MS, type BarResponse } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
@@ -8,30 +8,53 @@ import { BarPage } from './BarPage';
 import { useSession } from '../../store/session';
 
 /**
- * A walkout standoff has to thaw on a page nobody touches.
+ * A table's clock has to run on a page nobody is touching.
  *
- * `serverNow` was `new Date(data.serverNow)`, the response's own timestamp, evaluated once per
- * render of a component with no ticker: `useBar` sets no `refetchInterval`. `coldFor` derives the
- * standoff from it and `cold !== null` replaces the entire hiring door, so a six-hour standoff on a
- * tab left open read "Back in 5h 59m" six hours later and went on refusing a conversation the
- * server would have taken. Six hours is exactly the interval a player leaves a tab alone for.
+ * The Bar polls every ten seconds, which is the right interval for other crews' bids and much too
+ * slow to be a clock: a table three minutes off its close would sit on the same figure for ten
+ * seconds at a time, and the last minute of an auction would be read in six steps. So the
+ * countdown ticks locally, off `useServerClock`, and the poll only corrects it.
+ *
+ * That is the failure this pins, and the Bar has had it before: `serverNow` used to be the
+ * response's own timestamp evaluated once per render of a component with no ticker, so a walkout
+ * standoff on a tab left open read "Back in 5h 59m" six hours later. The assertion below is
+ * therefore made *between* two polls: the time on screen moves while nothing has been asked.
  */
 
 const NOW = Date.parse('2026-08-26T12:00:00.000Z');
+/** Ninety seconds off the close, so the table is sealed and the clock is in its `mm:ss` form. */
+const CLOSES_AT = NOW + 90_000;
 
-/** One person at the bar, and the crew walked out on them 90 seconds short of the thaw. */
-function barWithStandoff(secondsLeft: number): BarResponse {
-  const cold = F.bar.recruits.find((recruit) => recruit.standoff !== null);
-  if (!cold) throw new Error('the fixture has nobody in a standoff');
+/**
+ * One person, one table, and this crew is on it: the room draws its clock on the tables strip, so
+ * nothing has to be clicked for the countdown to be on screen.
+ */
+function barAt(clock: number): BarResponse {
+  const recruit = F.bar.recruits[0];
+  const table = F.bar.auctions[0];
+  if (!recruit || !table) throw new Error('the bar fixture has nobody in tonight');
   return {
     ...F.bar,
-    serverNow: new Date(NOW).toISOString(),
-    recruits: [
+    serverNow: new Date(clock).toISOString(),
+    recruits: [recruit],
+    auctions: [
       {
-        ...cold,
-        standoff: { until: new Date(NOW + secondsLeft * 1000).toISOString(), walkouts: 1 },
+        ...table,
+        recruitId: recruit.id,
+        sealedFrom: new Date(CLOSES_AT - AUCTION_SEALED_WINDOW_MS).toISOString(),
+        closesAt: new Date(CLOSES_AT).toISOString(),
+        phase: 'sealed',
+        yourBid: 120,
+        leading: {
+          username: 'operator',
+          amount: 120,
+          at: new Date(NOW - 60_000).toISOString(),
+          yours: true,
+        },
+        bidders: 2,
       },
     ],
+    auctionsUsed: 1,
   };
 }
 
@@ -61,6 +84,14 @@ function renderBar() {
   );
 }
 
+/** The `mm:ss` on the tables strip, as seconds. */
+function onTheClock(): number {
+  const chip = screen.getByTestId(`table-${F.bar.recruits[0]?.id ?? ''}`);
+  const shown = /(\d+):(\d\d)/.exec(chip.textContent ?? '');
+  if (!shown) throw new Error(`no mm:ss on the chip: ${chip.textContent}`);
+  return Number(shown[1]) * 60 + Number(shown[2]);
+}
+
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
@@ -74,27 +105,50 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('a cold chair', () => {
-  it('counts down and reopens while the page is left alone', async () => {
-    // 90 seconds of standoff left, and `/bar` will answer exactly once: nothing refetches.
+describe('a table’s clock', () => {
+  it('counts down between polls, on a page nobody touches', async () => {
+    // A live server: every answer carries the clock it was written at, which is what
+    // `useServerClock` corrects the browser against.
     fetchMock.mockImplementation((path: string) =>
-      path.endsWith('/bar') ? reply(barWithStandoff(90)) : reply({}),
+      path.endsWith('/bar') ? reply(barAt(Date.now())) : reply({}),
     );
 
     renderBar();
-    fireEvent.click(await screen.findByTestId('sit-down'));
-    await waitFor(() => expect(screen.getByText(/Back in/)).toHaveTextContent('Back in 1m'));
-
+    await waitFor(() => expect(onTheClock()).toBe(90));
     const readsBefore = fetchMock.mock.calls.length;
 
-    // Two minutes of wall clock, with no interaction and no new response.
+    // Five seconds of wall clock, which is less than the ten-second poll: nothing is asked in
+    // between, so anything that moves on screen moved because of the local tick.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(120_000);
+      await vi.advanceTimersByTimeAsync(5_000);
     });
 
-    // The door is back, so the standoff thawed on the clock rather than on a refetch...
-    await waitFor(() => expect(screen.queryByText(/You walked out on them/)).toBeNull());
-    // ...and the proof it was the clock: nothing asked the server anything in between.
-    expect(fetchMock.mock.calls.length).toBe(readsBefore);
+    expect(onTheClock()).toBe(85);
+    expect(
+      fetchMock.mock.calls.length,
+      'the clock was refreshed by a refetch rather than by ticking',
+    ).toBe(readsBefore);
+  });
+
+  it('runs the table out and closes it without being asked again', async () => {
+    fetchMock.mockImplementation((path: string) =>
+      path.endsWith('/bar') ? reply(barAt(Date.now())) : reply({}),
+    );
+
+    renderBar();
+    await waitFor(() => expect(onTheClock()).toBe(90));
+
+    // Past the close. The phase on the wire still says `sealed`, because it is a snapshot of the
+    // moment the response was built; the screen derives it from the two boundaries instead, so the
+    // table reads as closed the second it is.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(95_000);
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId(`table-${F.bar.recruits[0]?.id ?? ''}`)).toHaveTextContent(
+        'closed',
+      ),
+    );
   });
 });

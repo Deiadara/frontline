@@ -33,6 +33,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { projectMarket } from '../market/board.js';
+import { discountedCaps } from '../market/auction.js';
 import { settleBattles } from '../battle/resolve.js';
 import { standingEffectsFor } from '../crew/standing.js';
 
@@ -254,14 +255,17 @@ describe('the Statue of the Revolutionist', () => {
 
 describe('the Downtown Market', () => {
   /**
-   * The shelf and the till, from one read.
+   * The floor is on the till, not on the shelf.
    *
-   * The failure was not that the discount did nothing: the till applied it. It was that the card
-   * quoted the catalogue price and judged `affordable` against it, so a crew holding the floor was
-   * shown a price they would not pay and, at the margin, a dead button over a purchase that would
-   * have gone through.
+   * The failure this case was written for was the shelf quoting the catalogue price while the till
+   * charged the discounted one, which showed a crew a price it was never going to pay. Every line
+   * is a lot now (board 2026-09-08) and the answer is the other one: the reserve on the card is the
+   * city's number for everybody, because two crews bidding against each other have to be bidding
+   * against the same floor, and the winner's ground comes off what they are charged at the close
+   * where nobody they outbid can see it. So the assertion is that holding the Exchange moves the
+   * charge and leaves the quote exactly where it was.
    */
-  it('quotes the price it is going to charge', async () => {
+  it('leaves the reserve alone and takes its cut at the close', async () => {
     const stack = await makeStack();
     /*
      * Read through `projectMarket` at an hour the Runner is actually there, rather than over HTTP
@@ -288,12 +292,24 @@ describe('the Downtown Market', () => {
     give(stack, 'chrome-row-exchange');
     const after = read();
 
-    // Something is on the shelf to compare, or the assertion below is vacuous.
+    // Something is on the shelf to compare, or the assertions below are vacuous.
     expect(before.vendor.stock.length).toBeGreaterThan(0);
     for (const [index, offer] of after.vendor.stock.entries()) {
       const was = before.vendor.stock[index]?.line.price ?? 0;
-      expect(offer.line.price, 'the shelf still quotes the catalogue price').toBeLessThan(was);
+      expect(offer.line.price, 'a crew\u2019s ground moved the reserve everybody bids at').toBe(
+        was,
+      );
+      expect(offer.auction?.reserve).toBe(was);
     }
+
+    // And the floor is real: it is what the close charges the winner, off the same bid.
+    const percent = standingEffectsFor(
+      stack.app.repos,
+      stack.app.repos.bases.findById(stack.baseId)!,
+    ).marketDiscountPercent;
+    expect(percent, 'holding the Exchange bought no discount at all').toBeGreaterThan(0);
+    const reserve = after.vendor.stock[0]?.line.price ?? 0;
+    expect(discountedCaps(reserve, percent)).toBeLessThan(reserve);
   });
 });
 

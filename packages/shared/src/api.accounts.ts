@@ -4,7 +4,7 @@ import { BlackMarketSlotSchema, BoostStashSchema } from './market/blackmarket.js
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { PartialResourcesSchema } from './resources.js';
 import { TimezoneSchema } from './time/zone.js';
-import { PLAYER_ICONS, PlayerIconSchema, UserSchema } from './user.js';
+import { PLAYER_ICONS, PlayerIconSchema, SoundVolumeSchema, UserSchema } from './user.js';
 
 /**
  * The account half of the REST contract: who you are, what you have set, what the back room is
@@ -39,6 +39,8 @@ export const UpdateProfileRequestSchema = z
     displayName: z.string().trim().min(1).max(32).nullable().optional(),
     icon: PlayerIconSchema.optional(),
     timezone: TimezoneSchema.optional(),
+    /** How loud the interface is, 0 to 100. See {@link SoundVolumeSchema}. */
+    soundVolume: SoundVolumeSchema.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to change');
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;

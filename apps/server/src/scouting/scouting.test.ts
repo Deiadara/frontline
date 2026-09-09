@@ -1,9 +1,13 @@
 import {
   CITY_DISTRICTS,
   createCommander,
+  findDistrict,
   makeAttributes,
+  officerBattleStats,
   scoutMinutesFor,
+  travelMinutesBetween,
   type CityResponse,
+  type Commander,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,6 +15,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { tickWorld } from '../live/clock.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { defaultScout, planScout, sendScout, settleScouting } from './scouting.js';
 
 /**
@@ -84,12 +89,12 @@ async function darkDistrict(stack: Stack): Promise<string> {
   return dark.district.id;
 }
 
-const send = (stack: Stack, districtId: string) =>
+const send = (stack: Stack, districtId: string, officerId?: string) =>
   stack.app.inject({
     method: 'POST',
     url: '/api/city/scout',
     headers: auth(stack.token),
-    payload: { districtId },
+    payload: { districtId, ...(officerId === undefined ? {} : { officerId }) },
   });
 
 describe('sending somebody to look', () => {
@@ -209,10 +214,49 @@ describe('what it costs, and who pays it', () => {
     const fast = planScout(stack.app.repos, base, districtId, good!, now)!;
 
     expect(fast.minutes).toBeLessThan(slow.minutes);
-    // And the whole difference is the looking: the road is the same for both of them.
-    expect(slow.minutes - fast.minutes).toBe(
-      scoutMinutesFor(makeAttributes(5)) - scoutMinutesFor(makeAttributes(90)),
-    );
+    /*
+     * The difference used to be the looking alone, because the road was priced at the crew's
+     * ordinary pace whoever was walking it. It is the looking **and** the road now: a scouting run
+     * is a column of one, and `roadMinutes` divides by that one officer's own speed the same way it
+     * divides by a marching column's. So the gap is strictly wider than the looking on its own.
+     */
+    const looking = scoutMinutesFor(makeAttributes(5)) - scoutMinutesFor(makeAttributes(90));
+    expect(slow.minutes - fast.minutes).toBeGreaterThan(looking);
+  });
+
+  /**
+   * A scouting run is on the same arithmetic as every other road in the game.
+   *
+   * Two officers with identical sheets except for what decides `officerBattleStats().speed`, sent
+   * to the same district on the same day. The out-and-back is `roadMinutes(walk, speed)` twice, so
+   * the quick one's road is strictly shorter and the difference is nothing to do with the looking.
+   */
+  it('walks the road at the scout own speed, like any other column', async () => {
+    const stack = await makeStack('roadcrew');
+    hire(stack, 5, 'trader');
+    hire(stack, 90, 'trader');
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    const [poor, good] = base.commanders;
+    const districtId = await darkDistrict(stack);
+    const now = new Date();
+
+    const slow = planScout(stack.app.repos, base, districtId, poor!, now)!;
+    const fast = planScout(stack.app.repos, base, districtId, good!, now)!;
+
+    const roadFor = (officer: Commander): number =>
+      (officer === poor ? slow.minutes : fast.minutes) - scoutMinutesFor(officer.attributes);
+    expect(roadFor(good!)).toBeLessThan(roadFor(poor!));
+
+    // ...and it is exactly the shared clock, out and back, at that officer's speed with the crew's
+    // own ground taken off on top. Both halves, because a fresh crew already holds a little of the
+    // second one and leaving it out puts this a minute wide.
+    const home = findDistrict(base.districtId)!;
+    const to = findDistrict(districtId)!;
+    const walk = travelMinutesBetween(home, to, {
+      speed: officerBattleStats(good!.attributes).speed,
+      reductionPercent: standingEffectsFor(stack.app.repos, base).travelSpeedPercent,
+    });
+    expect(fast.minutes).toBe(walk * 2 + scoutMinutesFor(good!.attributes));
   });
 
   it('refuses a crew with nobody to send', async () => {
@@ -234,6 +278,41 @@ describe('what it costs, and who pays it', () => {
     expect((await send(stack, dark[0]!.district.id)).statusCode).toBe(200);
     const second = await send(stack, dark[1]!.district.id);
     expect(second.statusCode).not.toBe(200);
+  });
+
+  /**
+   * ...unless the crew has bought a second party (`scout_parties`, board brief 2026-09-09).
+   *
+   * The door's only limit is a count of officers on the road, so widening it is the one thing that
+   * buys a crew a second answer tonight: no percentage off `scoutRunMinutes` ever does, because a
+   * shorter run still finishes after the first question has been asked.
+   */
+  it('allows a second run for a crew that has bought a second party', async () => {
+    const stack = await makeStack('twoparties');
+    hire(stack);
+    hire(stack);
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    // The Second Glass perk, on somebody already on the books. `crew/perks.ts` grants `+1` here and
+    // the Watchtower grants the same, which is the design: ground and people push one channel.
+    stack.app.repos.bases.updateCommanders(base.id, [
+      { ...base.commanders[0]!, perks: ['second_glass'] },
+      ...base.commanders.slice(1),
+    ]);
+    expect(
+      standingEffectsFor(stack.app.repos, stack.app.repos.bases.findById(stack.baseId)!)
+        .scoutPartiesFlat,
+    ).toBe(1);
+
+    const dark = (await city(stack)).districts.filter((entry) => !entry.scouted).slice(0, 3);
+    expect(dark.length).toBe(3);
+
+    // Named, because the second party is a second *officer*: the one-job rule still holds, and
+    // `defaultScout` would otherwise pick the same person for both runs and refuse the second.
+    const [first, second] = stack.app.repos.bases.findById(stack.baseId)!.commanders;
+    expect((await send(stack, dark[0]!.district.id, first!.id)).statusCode).toBe(200);
+    expect((await send(stack, dark[1]!.district.id, second!.id)).statusCode).toBe(200);
+    // Two, not unlimited: the third is refused exactly as the second was without the holding.
+    expect((await send(stack, dark[2]!.district.id)).statusCode).not.toBe(200);
   });
 
   it('refuses ground the crew has already seen', async () => {

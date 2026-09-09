@@ -12,6 +12,7 @@ const USER: User = {
   displayName: null,
   icon: 'shield',
   timezone: 'Europe/Athens',
+  soundVolume: 60,
 };
 
 const ME: MeResponse = {

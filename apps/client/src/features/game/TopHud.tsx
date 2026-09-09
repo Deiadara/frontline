@@ -1,4 +1,5 @@
 import {
+  districtProduction,
   playerXpToNextLevel,
   storageCapacity,
   storageCapacityFor,
@@ -9,6 +10,7 @@ import {
   type ResourceKey,
   type Resources,
 } from '@frontline/shared';
+import { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import { DistrictPlaque } from '../../components/DistrictPlaque';
 import { CrewLevelChip, InfamyChip } from '../../components/Meters';
@@ -16,6 +18,7 @@ import { RESOURCE_ORDER, ResourceChip } from '../../components/Resources';
 import { OverseerPortrait } from '../overseer/OverseerPortrait';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
+import { useDeltaMarks, xpBehind } from '../../lib/deltas';
 import type { LiveStatus } from '../../lib/live';
 import { badgeCount, type UnreadCounts } from '@frontline/shared';
 
@@ -170,6 +173,43 @@ export function TopHud({
     return Number.isFinite(room) ? room : 'uncapped';
   };
 
+  /*
+   * What the crew just spent, and what just landed.
+   *
+   * Diffed here rather than in the chips, once for the whole bar: the six stockpiles and the
+   * wallet are one reading of one payload, and a hook per chip would be seven copies of the same
+   * rule and seven chances for them to disagree about what counts as a trickle.
+   *
+   * The rates come from the same shared function the server settles with, off the structures on
+   * the wire, so nothing was added to `/me` for this. What they cannot see is the crew's own
+   * production perks and the ground it holds: `useDeltaMarks` writes both off with a margin rather
+   * than guessing at them, which is what makes a five-second poll's `+0.3 scrap` silent and a
+   * mission's `+400 caps` loud. The window they are measured over is `productionSettledAt`, the
+   * server's own clock, never the browser's.
+   */
+  const perHour = useMemo(() => districtProduction(buildings).perHour, [buildings]);
+  const trickle = useMemo(
+    () => ({ settledAt: economy.productionSettledAt, perHour }),
+    [economy.productionSettledAt, perHour],
+  );
+  const spent = useDeltaMarks(resources, trickle);
+  // The wallet has no trickle at all: infamy is only ever paid or spent, so every move shows.
+  const wallet = useMemo(() => ({ infamy: Math.round(economy.infamy) }), [economy.infamy]);
+  const walletMoved = useDeltaMarks(wallet);
+  /*
+   * And what the crew learned, which is the third thing on the bar that moves for a reason.
+   *
+   * Diffed on `xpBehind` rather than on `xpIntoLevel`, because the interesting award is exactly
+   * the one that resets it: a mission that levels the crew leaves the progress figure *lower*
+   * than it was, and a chip diffing that figure would throw a red minus at the best moment in the
+   * game. Nothing pays XP passively, so there is no trickle to write off here.
+   */
+  const learned = useMemo(
+    () => ({ xp: xpBehind(base.level, base.progression.xpIntoLevel) }),
+    [base.level, base.progression.xpIntoLevel],
+  );
+  const earned = useDeltaMarks(learned);
+
   return (
     /*
      * Three groups, and the middle one is dead centre.
@@ -218,7 +258,13 @@ export function TopHud({
           the screen away from the artwork. */}
       <div className="order-1 flex min-w-max items-center gap-1">
         {RESOURCE_ORDER.map((kind) => (
-          <ResourceChip key={kind} kind={kind} value={resources[kind]} capacity={ceiling(kind)} />
+          <ResourceChip
+            key={kind}
+            kind={kind}
+            value={resources[kind]}
+            capacity={ceiling(kind)}
+            deltas={spent[kind] ?? []}
+          />
         ))}
       </div>
 
@@ -285,8 +331,13 @@ export function TopHud({
           level={base.level}
           xpIntoLevel={base.progression.xpIntoLevel}
           xpToNextLevel={playerXpToNextLevel(base.level)}
+          deltas={earned['xp'] ?? []}
         />
-        <InfamyChip infamy={economy.infamy} notoriety={economy.notoriety} />
+        <InfamyChip
+          infamy={economy.infamy}
+          notoriety={economy.notoriety}
+          deltas={walletMoved['infamy'] ?? []}
+        />
 
         {/* The identity is a door, not a caption. It names the one person in the game the player
             *is*, and the sheet behind it is what every effect in the district is computed from, so

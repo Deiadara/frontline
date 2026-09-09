@@ -129,6 +129,10 @@ test('lists what is on the road, and offers to turn back only what is still clos
   await expect(page.getByTestId('working-razors')).toBeVisible();
   await expect(page.getByTestId('fight-press')).toContainText('Kessler Press');
   await expect(page.getByTestId('posted-razors')).toBeVisible();
+  // §C3: what a force rides in, beside the bodies, on the road and at the fight both. The screen
+  // listed the walkers and nothing they were riding in.
+  await expect(page.getByTestId('walking-ride-motorcycle')).toContainText('The Scrappy');
+  await expect(page.getByTestId('posted-ride-motorcycle')).toContainText('The Scrappy');
   await expect(page.getByTestId('scout-run')).toContainText('Vesper Kade');
   await expect(page.getByTestId('scout-run')).toContainText('The Rustyard');
   await expect(page.getByTestId('road-counts')).toContainText('a scout out');

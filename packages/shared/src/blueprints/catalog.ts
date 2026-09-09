@@ -288,7 +288,9 @@ export const BLUEPRINTS = [
   // §D12c: every machine, including the scrap motorcycle, which §D12b also hands to Road Reavers.
   {
     id: 'bp_motorcycle',
-    name: 'Motorbike Blueprint',
+    // Named after the machine as the Garage lists it, not after the class: a player holding the
+    // document and looking at "The Scrappy" on the yard should read the same word in both places.
+    name: 'Scrappy Blueprint',
     category: 'unit',
     blurb: 'A frame jig and a rebuilt engine. Also the only thing a Road Reaver ever needed.',
     targets: [
@@ -301,15 +303,18 @@ export const BLUEPRINTS = [
     ],
   },
   {
+    // The ids keep the old machine's name (`building/vehicles.ts` says why); the words are the
+    // Offie's. Pages already sitting in satchels keep counting towards the document.
     id: 'bp_dirt_runner',
-    name: 'Dirt Runner Blueprint',
+    name: 'Offie Blueprint',
     category: 'unit',
-    blurb: 'Long forks and knobbled rubber, for where the road stopped being a road.',
+    blurb:
+      'Bed plating, a bull bar and a lift kit, for a pickup that has to arrive with everybody.',
     targets: [{ kind: 'vehicle', id: 'dirt_runner' }],
     pages: [
-      { id: 'pg_dirt_runner_knobbled_tyres', name: 'Knobbled Tyres' },
-      { id: 'pg_dirt_runner_welded_frame', name: 'Welded Frame' },
-      { id: 'pg_dirt_runner_long_forks', name: 'Long Travel Forks' },
+      { id: 'pg_dirt_runner_knobbled_tyres', name: 'Bed Plating' },
+      { id: 'pg_dirt_runner_welded_frame', name: 'Bull Bar' },
+      { id: 'pg_dirt_runner_long_forks', name: 'Lift Kit' },
     ],
   },
   {
@@ -325,29 +330,18 @@ export const BLUEPRINTS = [
     ],
   },
   {
-    id: 'bp_flatbed',
-    name: 'Flatbed Blueprint',
-    category: 'unit',
-    blurb: 'A deck, a rail and enough axle under it to carry twenty people sitting down.',
-    targets: [{ kind: 'vehicle', id: 'flatbed' }],
-    pages: [
-      { id: 'pg_flatbed_deck_timbers', name: 'Deck Timbers' },
-      { id: 'pg_flatbed_rail_brackets', name: 'Rail Brackets' },
-      { id: 'pg_flatbed_axle_pairing', name: 'Axle Pairing' },
-      { id: 'pg_flatbed_tarpaulin_cut', name: 'Tarpaulin Cut' },
-    ],
-  },
-  {
+    // Ids kept, words the Cheese Wagon's: see `bp_dirt_runner` above.
     id: 'bp_armoured_car',
-    name: 'Armoured Car Blueprint',
+    name: 'Cheese Wagon Blueprint',
     category: 'unit',
-    blurb: 'Plated to the sills, with ports to shoot back out of.',
+    blurb:
+      'Hull plate, window mesh, a plough and a roof rack, for a school bus that stops for nobody.',
     targets: [{ kind: 'vehicle', id: 'armoured_car' }],
     pages: [
-      { id: 'pg_armoured_car_sill_plating', name: 'Sill Plating' },
-      { id: 'pg_armoured_car_glass_substitute', name: 'Glass Substitute' },
-      { id: 'pg_armoured_car_runflat_hubs', name: 'Run Flat Hubs' },
-      { id: 'pg_armoured_car_firing_ports', name: 'Firing Ports' },
+      { id: 'pg_armoured_car_sill_plating', name: 'Hull Plating' },
+      { id: 'pg_armoured_car_glass_substitute', name: 'Window Mesh' },
+      { id: 'pg_armoured_car_runflat_hubs', name: 'Ram Plough' },
+      { id: 'pg_armoured_car_firing_ports', name: 'Roof Rack' },
     ],
   },
   {
@@ -365,21 +359,6 @@ export const BLUEPRINTS = [
     ],
   },
   {
-    id: 'bp_war_hauler',
-    name: 'War Hauler Blueprint',
-    category: 'unit',
-    blurb: 'Six axles, an armoured cab and a ramp. The whole crew in one thing, at once.',
-    targets: [{ kind: 'vehicle', id: 'war_hauler' }],
-    pages: [
-      { id: 'pg_war_hauler_chassis_rails', name: 'Chassis Rails' },
-      { id: 'pg_war_hauler_axle_layout', name: 'Six Axle Layout' },
-      { id: 'pg_war_hauler_cab_armour', name: 'Cab Armour' },
-      { id: 'pg_war_hauler_transmission_notes', name: 'Transmission Notes' },
-      { id: 'pg_war_hauler_fuel_bladders', name: 'Fuel Bladders' },
-      { id: 'pg_war_hauler_loading_ramp', name: 'Loading Ramp' },
-    ],
-  },
-  {
     id: 'bp_rotorcraft',
     name: 'Rotorcraft Blueprint',
     category: 'unit',
@@ -393,6 +372,20 @@ export const BLUEPRINTS = [
       { id: 'pg_rotorcraft_blade_balancing', name: 'Blade Balancing' },
       { id: 'pg_rotorcraft_fuel_governor', name: 'Fuel Governor' },
       { id: 'pg_rotorcraft_flight_notes', name: 'Flight Notes' },
+    ],
+  },
+  {
+    id: 'bp_heli_porter',
+    name: 'Heli Porter Blueprint',
+    category: 'unit',
+    blurb:
+      'A factory manual, complete, with corrections pencilled in the margins where the factory was wrong.',
+    targets: [{ kind: 'vehicle', id: 'heli_porter' }],
+    pages: [
+      { id: 'pg_heli_porter_main_gearbox', name: 'Main Gearbox' },
+      { id: 'pg_heli_porter_rotor_head', name: 'Rotor Head' },
+      { id: 'pg_heli_porter_cabin_frame', name: 'Cabin Frame' },
+      { id: 'pg_heli_porter_twin_turbines', name: 'Twin Turbines' },
     ],
   },
 

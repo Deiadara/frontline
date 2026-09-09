@@ -1,15 +1,19 @@
 import { z } from 'zod';
+import { UNIT_RULES, UNIT_RULE_IDS, type UnitRuleId, type UnitRuleSpec } from './rules.js';
 import {
   BUILDING_KINDS,
   findModification,
   findVehicle,
   type BuildingKind,
+  type ColumnUnit,
 } from '../building/index.js';
 import { ENV_LABEL_IDS, type EnvLabelId } from '../city/labels.js';
 import { LOCATION_KINDS, type LocationKind } from '../city/locations.js';
 import type { PartialResources } from '../resources.js';
+import { effectiveSpeed } from '../time/speed.js';
 import { UNIT_MODIFIERS, type UnitModifierId, type UnitStats } from './stats.js';
 import type { UnitTier } from './tiers.js';
+import { upgradedStats, type FittedUpgrades } from './upgrades.js';
 
 // Re-exported so every existing `from './catalog.js'` import keeps working: the tiers moved to a
 // leaf module only to break an import cycle, which is not a fact callers should have to know.
@@ -120,6 +124,66 @@ export interface UnitSpec {
    * itself alive would be a cheap Warden, and a Stitcher standing behind Wardens is a Stitcher.
    */
   mends?: boolean;
+  /**
+   * Whether this one is simply too big to get into anything the Garage builds (§C3).
+   *
+   * The first **negative** rule on a sheet, and the reason `UnitRuleSpec.tone` exists. A Colossus
+   * is a war-machine hull on legs; there is no seat in the city it fits in, so it walks at its own
+   * 15 whatever is in the yard, and `columnSpeed` holds the whole column to it. Bringing one is a
+   * decision about the road as well as about the fight.
+   */
+  no_ride?: boolean;
+  /**
+   * Whether this stack gets its shot away before either line is in position.
+   *
+   * The second opening in the game and deliberately not the first. `ambush` is a *modifier*: it is
+   * the attacker's alone, it is bought with stealth, and a Cartographer looking the right way can
+   * cancel it outright. This is a rule on the sheet, so it is worth the same to a defender standing
+   * on its own doorstep as to a raiding party, and nothing on the other side turns it off. What it
+   * costs is that it is smaller: {@link FIRST_STRIKE_SHARE} against the ambush's 0.6, because a
+   * volley nobody can prevent has to be worth less than one somebody can.
+   */
+  strikes_first?: boolean;
+  /**
+   * Whether this stack stays in the line after the men beside it have gone.
+   *
+   * Morale is the fastest way to lose a fight in this engine: one stack breaks, the cascade term
+   * pushes the next one over, and a force that was winning on casualties walks off the ground. A
+   * stalwart sheet is the answer to that and it is deliberately not "high morale", which is a
+   * number the same cascade eats. It cannot rout while over half its bodies are standing, full
+   * stop, and once it is under half it breaks like anything else: the rule buys a line that holds
+   * long enough to be worth rallying behind, never a stack that cannot be beaten.
+   */
+  stalwart?: boolean;
+  /**
+   * Whether this stack takes the defender's works apart rather than shooting over them.
+   *
+   * Fortification is the one defensive number nothing on an attacking sheet could touch. Armour has
+   * `penetration`, evasion has `tracking`, and a level-10 barricade behind a Gate had no counter
+   * except bringing more people. A sapper cuts the ground's own contribution for the whole
+   * attacking side, so bringing two of them is a plan rather than a rounding error, and
+   * {@link MAX_SAPPER_CUT} keeps the works worth building.
+   */
+  sapper?: boolean;
+  /**
+   * Whether this unit fights better for every other one of itself in the line.
+   *
+   * The one bonus a player buys by *massing a single sheet*, which is a decision the roster had no
+   * way to reward: combat width punishes stacking, tier bonuses reward fielding a class, and
+   * nothing at all rewarded fielding forty of one thing. Per body of the same unit, capped at
+   * {@link MAX_PACK_BONUS}, so it is a reason to commit and never a reason to bring everything.
+   */
+  pack?: boolean;
+  /**
+   * Whether this unit comes back with more than its hands full.
+   *
+   * A flat {@link PICKER_EXTRA_LOAD} per body on top of the sheet's `lootCapacity`, and flat is the
+   * whole point: `lootCapacity` is multiplied by every carry percentage in the game, so raising it
+   * makes the crews that already carry well carry better. This is worth the same to everybody, which
+   * is what makes it a reason to bring a few of these along rather than a bigger number on a sheet
+   * that already had one.
+   */
+  picker?: boolean;
   requires: readonly UnitRequirement[];
   cost: PartialResources;
   trainSeconds: number;
@@ -149,38 +213,18 @@ export interface UnitSpec {
   immuneTo?: readonly EnvLabelId[];
 }
 
-/**
- * The flags that are **rules** rather than numbers, in the player's words.
- *
- * `taunts` and `mends` are the two things a unit can do that no percentage expresses: one changes
- * who gets shot at, the other undoes part of a round. They were on the sheet and on nothing else,
- * so the roster screen could not show them and a player had no way to learn that an Ironside is a
- * shield line or that a Stitcher does anything at all. A table rather than two literals in a React
- * file, because the wire, the roster and the dossier all have to say the same thing.
- *
- * Keyed on the `UnitSpec` field, so adding a third flag is a field, a row here, and nothing else.
- */
-export const UNIT_RULES = {
-  taunts: {
-    label: 'Shield Line',
-    description:
-      'The enemy has to deal with this stack before anything standing behind it. Most of their fire comes here whether or not it is the sensible target.',
-  },
-  mends: {
-    label: 'Field Medic',
-    description:
-      'Undoes part of every round of damage the rest of the line takes, before anybody counts the casualties. Never works on itself, so it is worth bringing beside fighters and worthless on its own.',
-  },
-} as const satisfies Record<string, { label: string; description: string }>;
-
-export type UnitRuleId = keyof typeof UNIT_RULES;
-export const UNIT_RULE_IDS = Object.keys(UNIT_RULES) as UnitRuleId[];
+export { UNIT_RULES, UNIT_RULE_IDS };
+export type { UnitRuleId, UnitRuleSpec };
 
 /** The rules this unit carries, in table order. Empty for most of the roster. */
 export function unitRules(
   unit: UnitSpec,
-): { id: UnitRuleId; label: string; description: string }[] {
-  return UNIT_RULE_IDS.filter((id) => unit[id] === true).map((id) => ({ id, ...UNIT_RULES[id] }));
+): { id: UnitRuleId; label: string; description: string; tone: 'positive' | 'negative' }[] {
+  return UNIT_RULE_IDS.filter((id) => unit[id] === true).map((id) => ({
+    id,
+    ...UNIT_RULES[id],
+    tone: (UNIT_RULES[id] as UnitRuleSpec).tone ?? 'positive',
+  }));
 }
 
 /** The middle of the road. Every unit below states only what makes it different from this. */
@@ -242,7 +286,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 45,
     supply: 1,
     stats: sheet({
-      speed: 55,
+      speed: 45,
       vitality: 75,
       morale: 40,
       armor: 5,
@@ -291,7 +335,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 60,
     supply: 2,
     stats: sheet({
-      speed: 46,
+      speed: 40,
       vitality: 140,
       morale: 66,
       armor: 15,
@@ -331,7 +375,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 50,
     supply: 1,
     stats: sheet({
-      speed: 45,
+      speed: 40,
       vitality: 55,
       morale: 30,
       armor: 3,
@@ -357,7 +401,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 55,
     supply: 1,
     stats: sheet({
-      speed: 70,
+      speed: 50,
       vitality: 78,
       morale: 45,
       armor: 6,
@@ -386,7 +430,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 150,
     supply: 2,
     stats: sheet({
-      speed: 45,
+      speed: 40,
       vitality: 122,
       morale: 60,
       armor: 24,
@@ -408,12 +452,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Defensive specialists. Considerably better at holding a location than at taking one.',
     trainedAt: 'gauntlet',
     unique: false,
+    // Riot shields and a standing order. The job is to be the thing that is still there.
+    stalwart: true,
     requires: [gauntlet(5)],
     cost: { caps: 130, supplies: 20, scrap: 80 },
     trainSeconds: 160,
     supply: 2,
     stats: sheet({
-      speed: 30,
+      speed: 28,
       vitality: 168,
       morale: 70,
       armor: 40,
@@ -440,7 +486,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 180,
     supply: 2,
     stats: sheet({
-      speed: 60,
+      speed: 50,
       vitality: 115,
       morale: 55,
       armor: 15,
@@ -468,7 +514,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 200,
     supply: 2,
     stats: sheet({
-      speed: 92,
+      speed: 65,
       vitality: 115,
       morale: 55,
       armor: 18,
@@ -512,7 +558,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 240,
     supply: 3,
     stats: sheet({
-      speed: 25,
+      speed: 22,
       vitality: 470,
       morale: 85,
       armor: 64,
@@ -542,12 +588,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Chem-suited troops who go where the air is wrong and come back out of it.',
     trainedAt: 'gauntlet',
     unique: false,
+    // Lived off the ash belt long before you hired them, and it shows in what they carry out.
+    picker: true,
     requires: [gauntlet(6), structure('greenhouse', 5)],
     cost: { caps: 190, supplies: 30, scrap: 70, oil: 40 },
     trainSeconds: 220,
     supply: 2,
     stats: sheet({
-      speed: 38,
+      speed: 35,
       vitality: 170,
       morale: 65,
       armor: 42,
@@ -576,12 +624,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Long range, one shot, one kill. Everything else is spent waiting for it.',
     trainedAt: 'gauntlet',
     unique: false,
+    // A rifle at 95 range is already firing while everybody else is still crossing the yard.
+    strikes_first: true,
     requires: [structure('gate', 7), fitted('gauntlet_live_fire_range')],
     cost: { caps: 260, supplies: 40, scrap: 60, highQualityMetal: 12 },
     trainSeconds: 300,
     supply: 2,
     stats: sheet({
-      speed: 35,
+      speed: 30,
       vitality: 85,
       morale: 60,
       armor: 8,
@@ -646,7 +696,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     supply: 1,
     stats: sheet({
-      speed: 40,
+      speed: 35,
       vitality: 120,
       morale: 70,
       armor: 20,
@@ -671,12 +721,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Explosive ordnance experts. Uninterested in your people; very interested in your walls.',
     trainedAt: 'gauntlet',
     unique: false,
+    // Charges cut for the wall rather than the man behind it.
+    sapper: true,
     requires: [structure('scrapyard', 6), structure('generator', 8)],
     cost: { caps: 280, supplies: 40, scrap: 120, oil: 80, highQualityMetal: 15 },
     trainSeconds: 330,
     supply: 3,
     stats: sheet({
-      speed: 30,
+      speed: 28,
       vitality: 180,
       morale: 55,
       armor: 32,
@@ -703,7 +755,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 310,
     supply: 2,
     stats: sheet({
-      speed: 55,
+      speed: 85,
       vitality: 135,
       morale: 55,
       armor: 16,
@@ -732,7 +784,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 380,
     supply: 3,
     stats: sheet({
-      speed: 42,
+      speed: 40,
       vitality: 150,
       morale: 65,
       armor: 20,
@@ -761,7 +813,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 360,
     supply: 2,
     stats: sheet({
-      speed: 45,
+      speed: 40,
       vitality: 125,
       morale: 75,
       armor: 14,
@@ -784,6 +836,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Augmented working dogs off the kennels under the flyover. They find what is hiding and they do not need to see it to do it.',
     trainedAt: 'infirmary',
     unique: false,
+    // They hunt as one animal, and a big pack is not a bigger dog.
+    pack: true,
     requires: [structure('infirmary', 6), holds('doghouse')],
     cost: { caps: 190, supplies: 90, highQualityMetal: 15 },
     trainSeconds: 420,
@@ -800,7 +854,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     supply: 2,
     stats: sheet({
-      speed: 92,
+      speed: 90,
       vitality: 90,
       morale: 72,
       armor: 8,
@@ -834,7 +888,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 900,
     supply: 6,
     stats: sheet({
-      speed: 30,
+      speed: 25,
       vitality: 365,
       morale: 85,
       armor: 68,
@@ -866,7 +920,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 840,
     supply: 5,
     stats: sheet({
-      speed: 55,
+      speed: 45,
       vitality: 225,
       morale: 100,
       armor: 45,
@@ -891,12 +945,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Death row, handed one last chance and a blade. Nothing left to threaten them with.',
     trainedAt: 'gauntlet',
     unique: false,
+    // Nobody in this crowd is brave. A crowd of them is a different problem.
+    pack: true,
     requires: [structure('quarters', 12), holds('fight_pit')],
     cost: { caps: 300, supplies: 120 },
     trainSeconds: 600,
     supply: 3,
     stats: sheet({
-      speed: 48,
+      speed: 40,
       vitality: 120,
       morale: 100,
       armor: 12,
@@ -928,7 +984,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 3600,
     supply: 8,
     stats: sheet({
-      speed: 75,
+      speed: 80,
       vitality: 300,
       morale: 90,
       armor: 35,
@@ -964,7 +1020,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 4200,
     supply: 10,
     stats: sheet({
-      speed: 45,
+      speed: 40,
       vitality: 700,
       morale: 100,
       armor: 55,
@@ -990,6 +1046,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A single massive machine that functions like a walking fortress. It arrives slowly.',
     trainedAt: 'garage',
     unique: true,
+    // It does not go round the barricade. It goes through, and takes the barricade with it.
+    sapper: true,
     /**
      * A crane, and there are two in the city.
      *
@@ -1003,8 +1061,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     cost: { caps: 2200, supplies: 330, scrap: 900, oil: 600, highQualityMetal: 400 },
     trainSeconds: 5400,
     supply: 12,
+    // §C3: the blurb has said "it arrives slowly" since the first draft and nothing enforced it, so
+    // a Colossus in a Heli Porter crossed the city at 95. It rides in nothing now, and the column
+    // it is in arrives when it does.
+    no_ride: true,
     stats: sheet({
-      speed: 18,
+      speed: 15,
       vitality: 1000,
       morale: 95,
       armor: 95,
@@ -1031,12 +1093,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A legendary fighter whose presence alone steadies everyone who can see them.',
     trainedAt: 'gauntlet',
     unique: true,
+    // Nobody runs while he is preaching, and he does not stop until they carry him off.
+    stalwart: true,
     requires: [structure('quarters', 12), structure('infirmary', 15), holds('tavern')],
     cost: { caps: 1200, supplies: 300, highQualityMetal: 120 },
     trainSeconds: 3000,
     supply: 6,
     stats: sheet({
-      speed: 50,
+      speed: 45,
       vitality: 265,
       morale: 100,
       armor: 30,
@@ -1168,6 +1232,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'They know which floors still hold weight and which pipes still have copper in them. Hand them a bag and point at a building.',
     trainedAt: 'nexus',
     unique: false,
+    // This is the job. They come back with pockets nobody issued.
+    picker: true,
     combat: false,
     requires: [gauntlet(1)],
     cost: { caps: 25, supplies: 15 },
@@ -1176,7 +1242,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     stats: sheet({
       // A little under average on the road, which is the trade: the biggest bag in the game on
       // the slowest legs that still count as quick.
-      speed: 34,
+      speed: 30,
       vitality: 60,
       morale: 45,
       armor: 0,
@@ -1207,7 +1273,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 90,
     supply: 2,
     stats: sheet({
-      speed: 26,
+      speed: 22,
       vitality: 75,
       morale: 50,
       armor: 2,
@@ -1238,6 +1304,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Went into the Fight Pit a dancer and came out on blades. Still counts the beats.',
     trainedAt: 'gauntlet',
     unique: true,
+    // She is across the ground and among them before the line has finished forming.
+    strikes_first: true,
     /**
      * Three clauses, as every legendary needs, and each one a different half of what it is: the
      * Gauntlet at the top for the fighter, a Lab deep enough to have built the legs, and the Fight
@@ -1291,7 +1359,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 230,
     supply: 2,
     stats: sheet({
-      speed: 32,
+      speed: 30,
       vitality: 135,
       morale: 70,
       armor: 30,
@@ -1387,6 +1455,65 @@ export function findUnit(unitId: string): UnitSpec | undefined {
 
 export function isUnitId(value: string): boolean {
   return BY_ID.has(value);
+}
+
+/**
+ * What one unit type is worth to a column on the road: `columnSpeed`'s third argument (§C3).
+ *
+ * `building/` sits below `units/` in the import graph and cannot read a sheet, so the lookup lives
+ * here and every caller passes `(unitId) => unitColumnSpeed(unitId, bonus)`. The cap at 100 is
+ * `effectiveSpeed`.
+ *
+ * The three things that move a unit's speed all belong here, and the road reads the same figure
+ * the fight does (`battle/effects.ts`): whatever the workshop bolted on (`fitted`, folded through
+ * `upgradedStats` exactly as the engine folds it), then the crew's `unitSpeedPercent` channel and
+ * any flat points on top. A Neural Lace is twelve points of speed on a sheet; a road that read the
+ * printed number instead had the same body crossing the city slower than it crosses a battlefield.
+ *
+ * A unit id with no sheet behind it walks at the roster's middle rather than at nothing. A body the
+ * catalogue has forgotten is a body that still has legs, and answering 0 would quietly hold an
+ * entire column at a standstill over a renamed row.
+ */
+export function unitColumnSpeed(
+  unitId: string,
+  bonus: {
+    percent?: number;
+    flat?: number;
+    fitted?: FittedUpgrades;
+    /**
+     * The crew's `any_ride` holding: the too-big rule is waived and everything gets a seat.
+     *
+     * A flag on the bonus rather than a second function, because the road already asks this one
+     * question through one call. Without it a Colossus holds a whole column to fifteen and there is
+     * no number anywhere that changes that: `columnSpeed` reads `rides` as a yes or a no.
+     */
+    anyRide?: boolean;
+  } = {},
+): ColumnUnit {
+  const unit = findUnit(unitId);
+  const printed = unit?.stats ?? BASE_STATS;
+  const fitted = bonus.fitted ?? [];
+  const sheet = fitted.length === 0 ? printed : upgradedStats(printed, fitted);
+  return {
+    speed: effectiveSpeed(sheet.speed, bonus),
+    rides: bonus.anyRide === true || unit?.no_ride !== true,
+  };
+}
+
+/**
+ * How many of a force can actually take a seat: what `loadable` means by `bodies` (§C3).
+ *
+ * A sheet carrying `no_ride` fills no seat whatever is in the yard, so counting it keeps a machine
+ * "on the road" that nobody was ever in. The settle spends that count, and an empty truck it
+ * believed was carrying somebody is a truck it wrecks on a bad day and pays the enemy its whole
+ * capacity in infamy for.
+ */
+export function ridingBodies(force: Readonly<Record<string, number>>, anyRide = false): number {
+  return Object.entries(force).reduce(
+    (total, [unitId, count]) =>
+      total + (!anyRide && findUnit(unitId)?.no_ride === true ? 0 : count),
+    0,
+  );
 }
 
 export const UNIT_IDS: readonly string[] = UNIT_CATALOG.map((unit) => unit.id);

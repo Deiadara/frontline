@@ -78,6 +78,7 @@ const onTheRoad: ActionsResponse = {
       departedAt: NOW,
       arrivesAt: '2026-08-26T13:00:00.000Z',
       recallable: true,
+      vehicles: {},
     },
   ],
 };

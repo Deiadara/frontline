@@ -28,6 +28,77 @@ import { cn } from './../lib/cn';
  */
 
 /**
+ * The plate itself, without anything that makes it a control.
+ *
+ * Exported because the district a *neighbour* lives on prints its name the same way (`DistrictView`,
+ * `VisitedDistrict`): the sign on their wall is the same sign as the one on yours, and two hand-copied
+ * class lists is how the two drift apart the first time either is retouched. What stays here is the
+ * hover, the lift and the rename, because those belong to a plate you own.
+ */
+export const PLAQUE_PLATE =
+  'glass painted edge-lit relative flex shrink-0 flex-col items-center justify-center rounded-md border-2 border-brass-500/60 px-4 py-1.5 shadow-panel';
+
+/**
+ * What is drawn on the plate: four corner rules, the name, and the lit line under it.
+ *
+ * A fragment rather than a wrapper, and it has to be: `.painted > *` sets `position: relative` on
+ * every *direct* child, which is what the corners' `!absolute` is fighting, and an extra div would
+ * put them one level too deep for that rule and for the flex centring both.
+ */
+export function PlaqueFace({ name }: { name: string }) {
+  return (
+    <>
+      {/* The four corner rules. Drawn, because a plate is a plate by its corners: a plain border
+          reads as a box around text and this has to read as something bolted to a wall.
+
+          `!absolute`, and it has to be. `.painted > *` sets `position: relative` on every direct
+          child (it is what lifts content above the soft-light texture layer), and a child
+          combinator outranks a plain class however the utilities are ordered. Without the
+          important flag these four sat in the flex flow and stacked into an I-beam at the top of
+          the sign. */}
+      {(
+        [
+          'left-1 top-1 border-l-2 border-t-2',
+          'right-1 top-1 border-r-2 border-t-2',
+          'left-1 bottom-1 border-b-2 border-l-2',
+          'right-1 bottom-1 border-b-2 border-r-2',
+        ] as const
+      ).map((corner) => (
+        <span
+          key={corner}
+          aria-hidden
+          className={cn(
+            '!absolute h-2.5 w-2.5 border-brass-300/70 transition-colors group-hover:border-brass-100',
+            corner,
+          )}
+        />
+      ))}
+
+      <span
+        className={cn(
+          'font-stamp font-bold leading-none text-brass-100 text-on-art',
+          plaqueType(name.length),
+        )}
+      >
+        {name}
+      </span>
+
+      {/* The lit rule under the name. Decoration, and the load-bearing kind: a name floating
+          inside four brackets reads as a label in a box, and a rule under it reads as a sign.
+
+          Taken out of the flow (`!absolute`, because `.painted > *` forces `relative` on a direct
+          child) so the name is the only thing being centred. In the flow it and its margin sat
+          below the letters, which pushed the name up and left visibly more air under it than
+          over it. */}
+      <span
+        aria-hidden
+        className="!absolute bottom-1.5 left-1/2 h-px w-1/2 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass-300/70 to-transparent transition-colors group-hover:via-brass-100"
+      />
+    </>
+  );
+}
+
+/**
  * How big the name is allowed to be, given how long it is.
  *
  * `DISTRICT_NAME_MAX` is 28 and every fixture uses about 20, so a name at the ceiling set at the
@@ -66,58 +137,13 @@ export function DistrictPlaque({ base }: { base: Base }) {
         data-tip={`${base.name} · rename`}
         aria-label={`${base.name}. Rename your district`}
         className={cn(
-          'group glass painted edge-lit pointer-events-auto relative flex shrink-0 flex-col items-center',
-          'justify-center rounded-md border-2 border-brass-500/60 px-4 py-1.5 shadow-panel',
+          'group pointer-events-auto',
+          PLAQUE_PLATE,
           'transition-all duration-150 hover:-translate-y-px hover:border-brass-300 hover:shadow-brass',
           'active:translate-y-0',
         )}
       >
-        {/* The four corner rules. Drawn, because a plate is a plate by its corners: a plain border
-            reads as a box around text and this has to read as something bolted to a wall.
-            
-            `!absolute`, and it has to be. `.painted > *` sets `position: relative` on every direct
-            child (it is what lifts content above the soft-light texture layer), and a child
-            combinator outranks a plain class however the utilities are ordered. Without the
-            important flag these four sat in the flex flow and stacked into an I-beam at the top of
-            the sign. */}
-        {(
-          [
-            'left-1 top-1 border-l-2 border-t-2',
-            'right-1 top-1 border-r-2 border-t-2',
-            'left-1 bottom-1 border-b-2 border-l-2',
-            'right-1 bottom-1 border-b-2 border-r-2',
-          ] as const
-        ).map((corner) => (
-          <span
-            key={corner}
-            aria-hidden
-            className={cn(
-              '!absolute h-2.5 w-2.5 border-brass-300/70 transition-colors group-hover:border-brass-100',
-              corner,
-            )}
-          />
-        ))}
-
-        <span
-          className={cn(
-            'font-stamp font-bold leading-none text-brass-100 text-on-art',
-            plaqueType(base.name.length),
-          )}
-        >
-          {base.name}
-        </span>
-
-        {/* The lit rule under the name. Decoration, and the load-bearing kind: a name floating
-            inside four brackets reads as a label in a box, and a rule under it reads as a sign.
-            
-            Taken out of the flow (`!absolute`, because `.painted > *` forces `relative` on a direct
-            child) so the name is the only thing being centred. In the flow it and its margin sat
-            below the letters, which pushed the name up and left visibly more air under it than
-            over it. */}
-        <span
-          aria-hidden
-          className="!absolute bottom-1.5 left-1/2 h-px w-1/2 -translate-x-1/2 bg-gradient-to-r from-transparent via-brass-300/70 to-transparent transition-colors group-hover:via-brass-100"
-        />
+        <PlaqueFace name={base.name} />
       </button>
     );
   }

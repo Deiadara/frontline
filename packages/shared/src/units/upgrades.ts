@@ -270,12 +270,13 @@ export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStat
    *
    * The clamp used to run inside the loop, so a rating that touched the ceiling lost the headroom a
    * later negative delta would have given back, and the answer depended on the *order* the upgrades
-   * happened to be fitted in. Cyberhounds (speed 92) with Hardshell Rig (-3), Neural Lace (+12) and
-   * Machined Barrels: cybernetics first is 92 -> 104 -> clamp 100 -> 97; armour first is
-   * 92 -> 89 -> 101 -> clamp 100. Three points of speed decided by which bracket the player dropped
+   * happened to be fitted in. The Loose End (speed 95) with Hardshell Rig (-3), Neural Lace (+12)
+   * and Machined Barrels: cybernetics first is 95 -> 107 -> clamp 100 -> 97; armour first is
+   * 95 -> 92 -> 104 -> clamp 100. Three points of speed decided by which bracket the player dropped
    * a refit into, with nothing on the screen saying bracket order means anything and this module's
    * own doc saying the opposite ("Order does not matter; the set does"). Speed feeds
-   * `engagementMultiplier` and the concentration term, so those points are real.
+   * `engagementMultiplier` and, since the speed rebalance, both roads as well
+   * (`units/catalog.ts`, `unitColumnSpeed`), so those points are real twice over.
    */
   const totals: Partial<Record<(typeof UNIT_STAT_KEYS)[number], number>> = {};
   for (const id of fitted) {

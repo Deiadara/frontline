@@ -1,9 +1,10 @@
-import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
+import { CITY_DISTRICTS, labelText, STARTING_RESOURCES } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
 import {
   adminGame,
   bar,
   city,
+  districtDetail,
   lateGame,
   UNSCOUTED_DISTRICT_ID,
   me,
@@ -201,6 +202,19 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   await expect(page.getByTestId('recruit-name')).toHaveText('Dorotea "The Undergrid Ghost"');
 
   /*
+   * §H7: the table under the dossier, which is what the Bar is now. Everything a player needs to
+   * decide whether to open the bidding screen is on the card: the phase, the floor, the standing
+   * figure and how long the open phase has left.
+   */
+  const table = page.getByTestId('auction-bar-1');
+  await expect(table.getByTestId('auction-phase')).toHaveAttribute('data-phase', 'open');
+  await expect(page.getByTestId('leading-bar-1')).toHaveText(
+    (bar.auctions[0]?.reserve ?? 0).toLocaleString(),
+  );
+  await expect(table).toContainText('nobody is in yet');
+  await expect(page.getByTestId('bid-bar-1')).toBeVisible();
+
+  /*
    * §H3 refusals say which door is shut rather than just greying the card out, and there are two:
    * the rank the city has given the crew, and how long the crew has been at it. Both are on the
    * dossier of the person they apply to, so the seat is stepped along until each turns up.
@@ -231,11 +245,32 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   await expect(page.getByText('caps/wk').first()).toBeVisible();
   await page.keyboard.press('Escape');
 
-  // §H7: the book is the constraint every offer on this screen answers to, one click away.
+  // §H7: the book is the constraint every bid on this screen answers to, one click away.
   await page.getByTestId('open-payroll').click();
   await expect(page.getByTestId('payroll-book')).toBeVisible();
   await expect(page.getByTestId('increase-payroll')).toBeVisible();
   await page.keyboard.press('Escape');
+
+  /*
+   * §H7: how last night's tables ended, which is the only place a player is ever told they won.
+   * All four outcomes, because three of them are consolations and each reads differently: lost
+   * names who took them, passed says the crew could not honour their own bid, unsold says nobody
+   * could.
+   */
+  await page.getByTestId('open-results').click();
+  await expect(page.getByTestId('auction-results')).toBeVisible();
+  for (const outcome of ['won', 'lost', 'passed', 'unsold']) {
+    await expect(page.getByTestId(`outcome-${outcome}`)).toBeVisible();
+  }
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/bar-results.png', fullPage: false });
+  await page.keyboard.press('Escape');
+
+  // The tables this crew has money on, standing on the room itself: the cap is the thing a player
+  // has to hold in their head all evening, so it is not behind a door.
+  await expect(page.getByTestId('your-tables')).toContainText(
+    `${bar.auctionsUsed} of ${bar.auctionsAllowed}`,
+  );
 
   await settleFonts(page);
 
@@ -390,7 +425,7 @@ test('a standing note opens fully on screen, on every screen that has one', asyn
     '/game/settings',
     '/game/workshop',
     '/game/market',
-    '/game/market/black',
+    '/game/market/offers',
     '/game/bar',
     // Not `/game/overseer` or `/game/training`: the board had the notes on both taken out. The
     // overseer's file lost "Whose numbers these are" when the crew's ledger moved to its own
@@ -532,6 +567,25 @@ test('the district view shows what is inside a scouted district (§A4)', async (
   // You cannot call a fight on ground you already hold.
   await expect(page.getByRole('button', { name: 'Call a fight' })).toHaveCount(0);
 
+  /*
+   * §A4: the location characteristics, titled, with their tiers.
+   *
+   * The board's name for these is location characteristics, and the card used to print the chips
+   * bare under the blurb where they read as decoration. Titled, they are the section that answers
+   * "what do I bring", which is the question the whole mechanic exists for. Read off the fixture's
+   * own payload rather than typed, so this cannot pass against a card drawing something else.
+   */
+  const carries = districtDetail.locations.find((view) => view.location.id === mine.id)!;
+  expect(carries.labels.length, 'the fixture location must have some').toBeGreaterThan(0);
+  const characteristics = page.getByTestId(`characteristics-${mine.id}`);
+  await expect(characteristics).toContainText('Characteristics');
+  for (const label of carries.labels) {
+    const chip = characteristics.getByTestId(`label-${label.id}`);
+    await expect(chip, label.id).toHaveText(labelText(label));
+    await expect(chip, label.id).toHaveAttribute('data-tier', String(label.tier));
+  }
+  await page.screenshot({ path: 'e2e-out/location-characteristics.png', fullPage: false });
+
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('location-window')).toHaveCount(0);
   await page.getByTestId(`site-${theirs.id}`).click();
@@ -582,7 +636,12 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
   // template produced "hold a The Doghouse", and the fix is the definite article everywhere. The
   // regex is anchored on the article for exactly that reason: a check for the place's name alone
   // would pass over the bug this wording exists to fix.
-  await expect(page.getByText(/Hold The Construction Site/i)).toBeVisible();
+  //
+  // Read off the hover rather than off the card, because that is where the whole list lives: the
+  // card names the first two clauses and counts the rest, so that a unit gated on four things is
+  // not a card cut off mid-word. The dossier prints every clause on a line of its own.
+  await page.getByTestId('unit-the_colossus').getByText('Locked').hover();
+  await expect(page.getByText('Hold The Construction Site', { exact: true })).toBeVisible();
 
   // The tier tabs carry `transition-colors`, and React flips the class a frame before the paint
   // catches up, so a screenshot taken the instant the cards change shows *Rabble* still lit over a
@@ -599,6 +658,41 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
   );
 
   await page.screenshot({ path: 'screenshots/units.png', fullPage: false });
+});
+
+/**
+ * Nothing in a locked unit's box is cut in half (board pass, 2026-09-09).
+ *
+ * The box joined every clause into one string and clamped it at two lines, which cuts wherever the
+ * second line happens to end: the Abomination read `hold the Mad Scientist'\u2026` and the Colossus the
+ * same. Measured rather than eyeballed, because a clamp leaves no overflow for the layout sweeps to
+ * find: what it leaves is a box whose content is taller than the box it is in.
+ *
+ * 1440x900, not this file's own 1280x800, and that is the whole reason it is a test of its own: the
+ * roster goes two cards to a row at 1440 and one below it, so a full-width card has room for the
+ * list that a half-width card cuts. The defect only exists at the width the board plays at.
+ */
+test('a locked unit says what is in the way without cutting a word in half', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installApi(page, me);
+  await page.goto('/game/units');
+  await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+  await page.getByRole('button', { name: 'Legendary' }).click();
+  await expect(page.getByTestId('unit-the_colossus')).toBeVisible();
+  await settleFonts(page);
+
+  const boxes = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-testid^="action-"] span')].map((el) => ({
+      text: (el.textContent ?? '').slice(0, 70),
+      cut: el.scrollHeight > el.clientHeight + 1,
+    })),
+  );
+  // The precondition: this tier really is drawn two to a row here, so there is a narrow box to cut.
+  expect(boxes.length, 'the legendaries must be on screen with their locked boxes').toBeGreaterThan(
+    1,
+  );
+  const cut = boxes.filter((box) => box.cut).map((box) => box.text);
+  expect(cut, `text cut inside a locked box: ${cut.join(' | ')}`).toEqual([]);
 });
 
 /*
@@ -891,6 +985,13 @@ test('a screen that cannot load says so, rather than spinning or going blank', a
     // Both added with this patch, and both shipped drawing "Opening the yard..." for a 500.
     ['/game/garage', '**/api/garage'],
     ['/game/scrapyard', '**/api/scrapyard'],
+    // Seven more that said it in the DOM and said it underneath the standing bar: see the
+    // viewport assertion below for what that looked like.
+    ['/game/workshop', '**/api/workshop'],
+    ['/game/training', '**/api/training'],
+    ['/game/market', '**/api/market'],
+    ['/game/market/black', '**/api/black-market'],
+    ['/game/settings', '**/api/settings'],
   ];
 
   for (const [route, api] of screens) {
@@ -908,6 +1009,23 @@ test('a screen that cannot load says so, rather than spinning or going blank', a
     await expect(page.getByTestId('load-failure'), `${route} hid a failed read`).toBeVisible();
     // ...and offers the one remedy that is actually available.
     await expect(page.getByTestId('load-retry')).toBeVisible();
+
+    /*
+     * ...where a player can actually read it, which `toBeVisible` cannot tell.
+     *
+     * A screen that has not loaded has not drawn its own frame yet, so seven of these returned the
+     * message straight into the shell's outlet: at the top-left of the viewport, under the opaque
+     * standing bar. Every assertion above passed on that build and the player got a blurred
+     * district with nothing on it. Measured against the bar's own box rather than a constant,
+     * because the bar's height is measured at runtime and changes with the chips in it.
+     */
+    const hud = await page.locator('header').first().boundingBox();
+    const said = await page.getByTestId('load-failure').boundingBox();
+    if (!hud || !said) throw new Error(`${route}: no box for the bar or the message`);
+    expect(said.y, `${route} drew its failure under the standing bar`).toBeGreaterThanOrEqual(
+      hud.y + hud.height,
+    );
+    await expect(page.getByTestId('load-retry')).toBeInViewport();
     await page.unroute(api);
   }
 });
@@ -1116,4 +1234,91 @@ test('a captured district offers its gate, and raising it reaches the server', a
   );
   await page.getByTestId('raise-gate-rustyard').click();
   expect(((await raised).postDataJSON() as { districtId: string }).districtId).toBe('rustyard');
+});
+
+/**
+ * The row of doors along the bottom of every screen sits on one line (board pass, 2026-09-09).
+ *
+ * The bar was `items-end`, which lines up the *bottoms* of its children, and a door behind a level
+ * (§I3) is a line taller than the rest because it prints `Lv N` under its label. So the Bar,
+ * Research, Training and Market plates sat 13px above City, District and Units in the same row,
+ * and the pinned Settings door, centred in the bar rather than aligned to the row, sat 8px above
+ * everything again.
+ *
+ * Measured on the links rather than on the plates inside them: the active door's plate carries a
+ * deliberate `-translate-y-1` lift, which is the one thing on this row that is *meant* to be off
+ * the line. The links themselves are untransformed, so their tops are the row's own geometry.
+ *
+ * Both widths matter and they are different code paths: below 1500 Settings is a flex item like
+ * every other door, above it the door is pinned out of the flow and has to be told where the row
+ * starts. `me` is level 1, so four of the thirteen doors are locked and carry the extra line.
+ */
+for (const width of [1280, 1600]) {
+  test(`every door in the bottom bar starts on one line at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await installApi(page, me);
+    await page.goto('/game');
+    await expect(page.getByTestId('nav-city')).toBeVisible();
+    await settleFonts(page);
+
+    const doors = await page.evaluate(() =>
+      [...document.querySelectorAll('nav[aria-label="Places"] a[data-testid^="nav-"]')].map(
+        (link) => ({
+          id: link.getAttribute('data-testid') ?? '',
+          top: Math.round(link.getBoundingClientRect().top),
+        }),
+      ),
+    );
+    // The precondition: one row, and a locked door in it. On two rows the tops differ by design.
+    expect(doors.length, 'every place must be drawn').toBe(13);
+    expect(
+      await page.getByTestId('nav-locked-bar').count(),
+      'this fixture must still have a door behind a level',
+    ).toBe(1);
+
+    const tops = [...new Set(doors.map((door) => door.top))];
+    expect(tops, `doors on different lines: ${JSON.stringify(doors)}`).toHaveLength(1);
+  });
+}
+
+/**
+ * The crew screen leads with the people, and every card is the same card.
+ *
+ * Two board requests, a day apart. The first: the hired officers were below the fold behind four
+ * empty chairs. The second: once the people came first, a vacancy in a row of its own shrank to
+ * the chair drawing while a vacancy beside a portrait stood at the portrait's height, so the
+ * roster read as two kinds of card. The rows are one height now (`auto-rows-fr`), and this reads
+ * every card rather than the leanest, so a card that is not the same card is the failure.
+ */
+test('the crew screen leads with the people, and every card stands at one height', async ({
+  page,
+}) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/crew');
+  await expect(page.getByTestId('crew-books')).toBeVisible();
+  await settleFonts(page);
+
+  const seats = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-testid^="seat-"]')].map((card) => ({
+      id: card.getAttribute('data-testid') ?? '',
+      vacant: (card.textContent ?? '').includes('Vacant'),
+      height: Math.round(card.getBoundingClientRect().height),
+    })),
+  );
+  const filled = seats.filter((seat) => !seat.vacant);
+  const vacant = seats.filter((seat) => seat.vacant);
+  expect(filled.length, 'the fixture must seat somebody').toBeGreaterThan(0);
+  expect(vacant.length, 'and leave chairs empty').toBeGreaterThan(filled.length);
+
+  // Everybody hired is ahead of every empty chair.
+  const firstVacant = seats.findIndex((seat) => seat.vacant);
+  expect(seats.slice(firstVacant).every((seat) => seat.vacant)).toBe(true);
+  expect(firstVacant).toBe(filled.length);
+
+  // And one height across the books: the leanest card within a pixel of the tallest.
+  const heights = seats.map((seat) => seat.height);
+  expect(
+    Math.max(...heights) - Math.min(...heights),
+    `cards run from ${Math.min(...heights)}px to ${Math.max(...heights)}px`,
+  ).toBeLessThanOrEqual(1);
 });

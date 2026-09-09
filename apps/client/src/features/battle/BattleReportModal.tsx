@@ -232,7 +232,11 @@ function SideTable({
       data-testid={`report-side-${tone}`}
     >
       <header className="flex items-baseline justify-between gap-2">
-        <h3 className="min-w-0 truncate font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
+        {/* Wrapped, not truncated. A crew name is the thing this line is for, and at 0.2em of
+            tracking in a 300px column `truncate` cut it mid-word on every report a full-length
+            name appeared in: "Yours · The Ninth Street Reclamation Comp…". Two lines cost 14px
+            and the panels stretch to each other anyway. */}
+        <h3 className="min-w-0 break-words font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
           {heading} · {side.name}
         </h3>
         <span className="shrink-0 font-display text-[11px] tabular-nums text-ink-300">

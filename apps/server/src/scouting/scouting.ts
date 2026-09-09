@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   findDistrict,
+  officerBattleStats,
   scoutMinutesFor,
   scoutRunMinutes,
   travelMinutesBetween,
@@ -66,10 +67,25 @@ export function planScout(
   const from = findDistrict(base.districtId);
   const to = findDistrict(districtId);
   if (!from || !to) return null;
-  // The same travel channel a column reads, so a Rail Yard shortens a scouting run exactly as much
-  // as it shortens a march. One map, one clock.
-  const speed = standingEffectsFor(repos, base).travelSpeedPercent;
-  const minutes = scoutRunMinutes(travelMinutesBetween(from, to, speed), officer.attributes);
+  /*
+   * The same arithmetic a column reads, so a Rail Yard shortens a scouting run exactly as much as
+   * it shortens a march. One map, one clock.
+   *
+   * A scouting run is a column of one, so the pace is the officer's own speed off their sheet
+   * rather than the crew's ordinary walking pace of nothing: sending the Finance Officer to case
+   * the Undergrid is a slow night, and sending somebody quick is not. The ground's reduction
+   * stacks on top of that, the way it does for a march.
+   */
+  const speed = officerBattleStats(officer.attributes).speed;
+  const effects = standingEffectsFor(repos, base);
+  const minutes = scoutRunMinutes(
+    travelMinutesBetween(from, to, {
+      speed,
+      reductionPercent: effects.travelSpeedPercent,
+      flatMinutesOff: effects.roadMinutesOff,
+    }),
+    officer.attributes,
+  );
   return { officer, minutes, returnsAt: new Date(now.getTime() + minutes * MINUTE_MS) };
 }
 
@@ -93,7 +109,15 @@ export function sendScout(
   if (repos.city.scouted(base.id).has(districtId)) {
     return { kind: 'refused', reason: 'already_scouted' };
   }
-  if (repos.scouting.activeFor(base.id).length > 0) {
+  /*
+   * One party out, plus whatever the crew's holdings buy (`scout_parties` in `city/locations.ts`).
+   *
+   * The limit is a count of officers on the road rather than a price, which is what made it worth a
+   * rule: a crew that has taken the ground for it answers two questions tonight instead of one, and
+   * the one-job rule below still stops the same officer being in both parties.
+   */
+  const parties = 1 + Math.max(0, standingEffectsFor(repos, base).scoutPartiesFlat);
+  if (repos.scouting.activeFor(base.id).length >= parties) {
     return { kind: 'refused', reason: 'already_out' };
   }
 

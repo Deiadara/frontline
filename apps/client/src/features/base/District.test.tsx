@@ -80,6 +80,7 @@ const me: MeResponse = {
     displayName: null,
     icon: 'shield',
     timezone: 'Europe/Athens',
+    soundVolume: 60,
   },
   overseer: null,
   base,
@@ -123,9 +124,13 @@ interface Stubbed {
   build?: { ok: boolean; status: number; body: unknown };
   /** The crew's effect channels, as `GET /overseer/me` answers them. */
   effects?: Record<string, number>;
+  /** `/me`'s `buildQuotes`: what the server will actually charge for each plot's next level. */
+  quotes?: MeResponse['buildQuotes'];
+  /** `/me`'s `buildClocks`: how long the server would actually take. */
+  clocks?: MeResponse['buildClocks'];
 }
 
-function stubApi({ detail = base, build, effects = {} }: Stubbed = {}): void {
+function stubApi({ detail = base, build, effects = {}, quotes, clocks }: Stubbed = {}): void {
   const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
     Promise.resolve({
       ok,
@@ -142,7 +147,13 @@ function stubApi({ detail = base, build, effects = {} }: Stubbed = {}): void {
       return reply({ base: { ...detail, name: 'Vermilion' } });
     // Before the bare `/me`, which it also ends with.
     if (path.endsWith('/overseer/me')) return reply(crewStanding(effects));
-    if (path.endsWith('/me')) return reply({ ...me, base: detail });
+    if (path.endsWith('/me'))
+      return reply({
+        ...me,
+        base: detail,
+        ...(quotes ? { buildQuotes: quotes } : {}),
+        ...(clocks ? { buildClocks: clocks } : {}),
+      });
     if (path.includes('/base/')) return reply({ base: detail });
     throw new Error(`unstubbed request: ${path}`);
   });
@@ -255,6 +266,66 @@ describe('§D3: building and upgrading consume materials, and take time', () => 
 
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Queue build' }));
     await waitFor(() => expect(buildBody()).toEqual({ kind: 'quarters' }));
+  });
+
+  /**
+   * The price is the server's, not the catalogue's.
+   *
+   * `queueBuild` takes `buildCostPercent` and the per-structure `buildingCostPercent[kind]` off the
+   * list price, and neither is reachable from the client, which is why `/me` carries `buildQuotes`
+   * at all. The dialog read the catalogue anyway for as long as the field had existed: it quoted a
+   * price nobody was charged, and it measured *affordability* against that price, so a crew with a
+   * discount and exactly enough for the real one had the button go dead on an order the server
+   * would have taken.
+   */
+  it('quotes what the server will charge rather than the catalogue price', async () => {
+    const list = buildingCost('quarters', 1, base.buildings);
+    const charged = { ...list, oil: Math.round((list.oil ?? 0) * 0.6) };
+    stubApi({ quotes: { quarters: charged } });
+    renderDistrict();
+
+    await waitFor(() => expect(plot('The Quarters')).toBeInTheDocument());
+    fireEvent.click(plot('The Quarters'));
+
+    expect(within(dialog()).getByText(String(charged.oil))).toBeInTheDocument();
+    expect(within(dialog()).queryByText(String(list.oil))).toBeNull();
+  });
+
+  /**
+   * The clock the same way as the price. The dialog quoted the catalogue's bare seconds, and no
+   * crew with a lit Generator or a build-speed effect was ever charged that: the order freezes the
+   * folded figure, which only the server can compute, so `/me` carries it beside the quote.
+   */
+  it('quotes the clock the server would freeze rather than the catalogue seconds', async () => {
+    const list = buildingBuildSeconds('quarters', 1, base.buildings);
+    const quoted = Math.round(list * 0.75);
+    stubApi({ clocks: { quarters: quoted } });
+    renderDistrict();
+
+    await waitFor(() => expect(plot('The Quarters')).toBeInTheDocument());
+    fireEvent.click(plot('The Quarters'));
+
+    expect(within(dialog()).getByText(formatDuration(quoted))).toBeInTheDocument();
+    expect(within(dialog()).queryByText(formatDuration(list))).toBeNull();
+  });
+
+  it('lets a discounted order through on a stockpile that could not cover the list price', async () => {
+    const list = buildingCost('quarters', 1, base.buildings);
+    const charged = Object.fromEntries(
+      Object.entries(list).map(([key, amount]) => [key, Math.round((amount ?? 0) * 0.5)]),
+    );
+    // Exactly the discounted bill and not a unit more: the button is live only if the screen is
+    // judging affordability against the figure the server is going to take.
+    stubApi({
+      detail: { ...base, resources: { ...BROKE, ...charged } },
+      quotes: { quarters: charged },
+    });
+    renderDistrict();
+
+    await waitFor(() => expect(plot('The Quarters')).toBeInTheDocument());
+    fireEvent.click(plot('The Quarters'));
+
+    expect(within(dialog()).getByRole('button', { name: 'Queue build' })).toBeEnabled();
   });
 
   it('shows the order in the queue, from the response and without a refetch', async () => {

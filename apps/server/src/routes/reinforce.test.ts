@@ -127,9 +127,7 @@ describe('reinforcing an ally who is being broken into', () => {
     app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
     app.repos.sieges.breakGate(HOME, new Date(Date.now() + 3_600_000).toISOString());
 
-    const building = app.repos.bases.findById(victim.baseId)?.buildings[0];
-    if (!building) throw new Error('fixture: the victim has nothing to break into');
-    const target: BattleTarget = { kind: 'building', districtId: HOME, buildingId: building.id };
+    const target: BattleTarget = { kind: 'district', districtId: HOME };
     const declared = await app.inject({
       method: 'POST',
       url: '/api/battles/declare',

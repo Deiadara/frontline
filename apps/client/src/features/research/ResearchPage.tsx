@@ -164,7 +164,7 @@ function TrackHeader({
             <MarkStamp
               mark={status.mark}
               className="inset-0 h-full w-full"
-              title={`${status.officerName ?? 'Your officer'} in this chair: ${status.mark}`}
+              tip={`${status.officerName ?? 'Your officer'} in this chair: ${status.mark}`}
             />
           </span>
         )}
@@ -311,6 +311,7 @@ function RungCard({
             <button
               type="button"
               disabled={item.blocker !== null || pending}
+              data-sound="confirm"
               onClick={onStart}
               className={cn(
                 'shrink-0 rounded-sm border px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
@@ -535,16 +536,8 @@ export function ResearchPage() {
               ))}
             </ul>
           </Panel>
-
-          {/* What the programmes are paid for out of, at the foot of the rail. */}
-          <div className="card-paper washed rivets edge-lit mt-auto flex shrink-0 items-center gap-2 rounded-sm border border-surface-600/70 px-3 py-2.5">
-            <span className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
-              Caps
-            </span>
-            <span className="ml-auto font-display text-[15px] font-bold tabular-nums text-ink-100">
-              {(data?.caps ?? 0).toLocaleString()}
-            </span>
-          </div>
+          {/* No caps readout at the foot of the rail (board request, 2026-09-09): the standing bar
+              prints the same figure on every screen. */}
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-col gap-3">

@@ -275,7 +275,7 @@ describe('the Bar roster response (INTERFACES R4)', () => {
 
   /** Exactly what `GET /api/bar` serialises, minus the clock. */
   const rosterResponse = (on: Base = base) => ({
-    recruits: barRoster(barDay(NOW)).map((recruit) => projectRecruit(on, recruit, undefined)),
+    recruits: barRoster(barDay(NOW)).map((recruit) => projectRecruit(on, recruit)),
     officers: on.commanders.map((officer) => projectOfficer(on, officer)),
     filledRoles: on.commanders.map((officer) => officer.role),
   });
@@ -316,12 +316,11 @@ describe('the Bar roster response (INTERFACES R4)', () => {
   it('derives every shipped figure from the visible sheet, not from role fit', () => {
     const day = barDay(NOW);
     for (const recruit of barRoster(day)) {
-      const straight = projectRecruit(base, recruit, undefined);
-      const permuted = projectRecruit(
-        base,
-        { ...recruit, attributes: rotateSheet(recruit.attributes) },
-        undefined,
-      );
+      const straight = projectRecruit(base, recruit);
+      const permuted = projectRecruit(base, {
+        ...recruit,
+        attributes: rotateSheet(recruit.attributes),
+      });
       expect(permuted.askingWage, `${recruit.id}'s wage moved when only the roles did`).toBe(
         straight.askingWage,
       );

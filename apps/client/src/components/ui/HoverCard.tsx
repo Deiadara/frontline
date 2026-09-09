@@ -202,6 +202,9 @@ export function HoverCard({
       <button
         ref={triggerRef}
         type="button"
+        // A press on a trigger that only explains itself does nothing, so it says nothing: the
+        // sound layer plays for a press that did something, and this one reveals a card on hover.
+        data-sound={onActivate === undefined ? 'none' : undefined}
         // A help cursor rather than a pointer: this reveals information, it does not navigate.
         // Saying "clickable" about something that only explains itself is a promise it cannot keep.
         // One that *does* something says so.

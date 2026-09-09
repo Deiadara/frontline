@@ -30,10 +30,27 @@ export type PlayerIcon = z.infer<typeof PlayerIconSchema>;
 export const DEFAULT_PLAYER_ICON: PlayerIcon = 'shield';
 
 /**
+ * How loud the interface is, 0 to 100.
+ *
+ * A percentage rather than a gain, because it is a number a player reads off a bar. The curve that
+ * turns it into an amplitude is the client's business and lives in `lib/sound.ts`: the server
+ * stores what the player set, and never a decibel.
+ *
+ * 60 by default. A browser strategy game that opens silent teaches the player it has no sound, and
+ * one that opens at full teaches them to find the mute; 60 is loud enough to be noticed over a
+ * laptop speaker and quiet enough not to be the first thing they turn off.
+ */
+export const SOUND_VOLUME_MIN = 0;
+export const SOUND_VOLUME_MAX = 100;
+export const DEFAULT_SOUND_VOLUME = 60;
+
+export const SoundVolumeSchema = z.number().int().min(SOUND_VOLUME_MIN).max(SOUND_VOLUME_MAX);
+
+/**
  * Client-facing user. The password hash is deliberately NOT part of this type:
  * it lives in a server-only type (see apps/server/src/types.ts).
  *
- * The three settings fields are **defaulted rather than required**, for the reason `Base.training`
+ * The four settings fields are **defaulted rather than required**, for the reason `Base.training`
  * and `Base.inventory` are: accounts existed before Settings did, and a schema that refused to
  * parse a row written last week would take those players offline instead of showing them a shield
  * and the house clock.
@@ -51,6 +68,8 @@ export const UserSchema = z.object({
   icon: PlayerIconSchema.default(DEFAULT_PLAYER_ICON),
   /** The IANA zone every clock is drawn in for this player. Athens unless they say otherwise. */
   timezone: z.string().min(1).default(GAME_TIMEZONE),
+  /** How loud the interface is for this player. See {@link SoundVolumeSchema}. */
+  soundVolume: SoundVolumeSchema.default(DEFAULT_SOUND_VOLUME),
 });
 export type User = z.infer<typeof UserSchema>;
 

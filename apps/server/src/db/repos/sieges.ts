@@ -1,6 +1,6 @@
 import {
   withoutRetiredUnits,
-  findVehicle,
+  withoutRetiredVehicles,
   BattleAnalysisSchema,
   BattleDeploymentSchema,
   LocationHolderSchema,
@@ -33,7 +33,6 @@ interface BattleRow {
   target_kind: BattleTarget['kind'];
   district_id: string;
   location_id: string | null;
-  building_id: string | null;
   defender_json: string;
   scheduled_for: string;
   declared_at: string;
@@ -59,14 +58,23 @@ interface DeploymentRow {
   updated_at: string;
 }
 
+/**
+ * The stored columns, back as a target.
+ *
+ * There is no legacy branch for the retired `building` kind and there does not need to be:
+ * migration `0087` rewrites every stored row, resolved history included, into the `district` target
+ * of the same district. A resolved row is read back by `resolvedFor` and parsed with the same
+ * schema as a pending one, so leaving old rows alone and reading them leniently here would have
+ * meant carrying a fourth kind through `ScheduledBattleSchema` for ever to serve a battle board.
+ */
 function targetOf(row: BattleRow): BattleTarget {
   switch (row.target_kind) {
     case 'location':
       return { kind: 'location', districtId: row.district_id, locationId: row.location_id ?? '' };
     case 'gate':
       return { kind: 'gate', districtId: row.district_id };
-    case 'building':
-      return { kind: 'building', districtId: row.district_id, buildingId: row.building_id ?? '' };
+    case 'district':
+      return { kind: 'district', districtId: row.district_id };
   }
 }
 
@@ -86,14 +94,6 @@ function rowToBattle(row: BattleRow): ScheduledBattle {
   });
 }
 
-/** Vehicle counts for a vehicle the catalogue still carries. See `db/repos/bases.ts`. */
-function knownVehicles(raw: unknown): unknown {
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
-  return Object.fromEntries(
-    Object.entries(raw as Record<string, unknown>).filter(([id]) => findVehicle(id) !== undefined),
-  );
-}
-
 function rowToDeployment(row: DeploymentRow): BattleDeployment {
   return BattleDeploymentSchema.parse({
     battleId: row.battle_id,
@@ -107,7 +107,7 @@ function rowToDeployment(row: DeploymentRow): BattleDeployment {
     // Same repair the army and the perimeter get above, and it matters more here: this row is read
     // by the global settler, so a retired vehicle id does not brick one save, it throws inside
     // `settleBattles` and takes the world tick down for everybody.
-    vehicles: knownVehicles(readJson(row.vehicles_json)),
+    vehicles: withoutRetiredVehicles(readJson(row.vehicles_json)),
     updatedAt: row.updated_at,
   });
 }
@@ -164,10 +164,10 @@ export interface SiegeRepo {
 export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   const insertStmt = db.prepare(
     `INSERT INTO scheduled_battles
-       (id, attacker_base_id, target_kind, district_id, location_id, building_id,
+       (id, attacker_base_id, target_kind, district_id, location_id,
         defender_json, scheduled_for, declared_at, resolved_at, seed, hold_after_capture,
         analysis_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
   );
   const findStmt = db.prepare('SELECT * FROM scheduled_battles WHERE id = ?');
   const dueStmt = db.prepare(
@@ -260,7 +260,6 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
         target.kind,
         target.districtId,
         target.kind === 'location' ? target.locationId : null,
-        target.kind === 'building' ? target.buildingId : null,
         JSON.stringify(battle.defender),
         battle.scheduledFor,
         battle.declaredAt,

@@ -1,5 +1,6 @@
 import type { TrainingOrder, UnitsResponse } from '@frontline/shared';
 import { render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const useUnits = vi.hoisted(() => vi.fn());
@@ -25,6 +26,15 @@ vi.mock('../../lib/queries', () => ({
 }));
 
 const { UnitsPage } = await import('./UnitsPage');
+
+/** The page reads its open tab off the URL, so it needs a router under it like the app gives it. */
+function Page() {
+  return (
+    <MemoryRouter>
+      <UnitsPage />
+    </MemoryRouter>
+  );
+}
 
 /*
  * The clock the page reads. Pinned rather than live so "fourteen seconds into the first order" is
@@ -96,7 +106,7 @@ describe('the training bench', () => {
       bench([order('done', 'sparks', 14, 10), order('running', 'razors', 4, 20)]),
     );
 
-    render(<UnitsPage />);
+    render(<Page />);
     const rows = within(screen.getByTestId('training-queue')).getAllByRole('listitem');
     expect(rows, 'a finished order is still on the bench').toHaveLength(1);
     expect(rows[0]).toHaveTextContent(/razors/i);
@@ -105,7 +115,7 @@ describe('the training bench', () => {
 
   it('re-reads the roster when somebody walks off the bench, so the army count catches up', () => {
     useUnits.mockReturnValue(bench([order('done', 'sparks', 14, 10)]));
-    render(<UnitsPage />);
+    render(<Page />);
     expect(refetch).toHaveBeenCalled();
   });
 
@@ -113,7 +123,7 @@ describe('the training bench', () => {
     useUnits.mockReturnValue(
       bench([order('first', 'sparks', 4, 20), order('second', 'razors', 0, 20)]),
     );
-    render(<UnitsPage />);
+    render(<Page />);
     expect(within(screen.getByTestId('training-queue')).getAllByRole('listitem')).toHaveLength(2);
     expect(refetch, 'nothing settled, so nothing to re-read').not.toHaveBeenCalled();
   });
@@ -134,7 +144,7 @@ describe('when a write is refused', () => {
     train.error = new Error('Not enough supplies for twenty Razors.');
     train.variables = { unitId: 'razors', count: 20 };
 
-    render(<UnitsPage />);
+    render(<Page />);
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('Razors');
     expect(alert).toHaveTextContent('Not enough supplies for twenty Razors.');
@@ -144,7 +154,7 @@ describe('when a write is refused', () => {
     useUnits.mockReturnValue(bench([order('running', 'razors', 4, 20)]));
     cancel.error = new Error('Too late: the first one is already out.');
 
-    render(<UnitsPage />);
+    render(<Page />);
     expect(screen.getByRole('alert')).toHaveTextContent('Too late: the first one is already out.');
   });
 });
@@ -163,9 +173,9 @@ describe('re-reading a settled bench', () => {
   it('asks once however many times the page re-renders', () => {
     useUnits.mockImplementation(() => bench([order('done', 'sparks', 14, 10)]));
 
-    const { rerender } = render(<UnitsPage />);
-    rerender(<UnitsPage />);
-    rerender(<UnitsPage />);
+    const { rerender } = render(<Page />);
+    rerender(<Page />);
+    rerender(<Page />);
 
     expect(refetch).toHaveBeenCalledTimes(1);
   });

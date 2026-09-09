@@ -1,13 +1,12 @@
-import type { Negotiation, Standoff } from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
 
 /**
- * The Bar's shared state (GDD §H2, §H2b) and the private half of it (§H7).
+ * The Bar's shared state (GDD §H2, §H7): every bid in the city, and how each table ended.
  *
- * The roster itself is still never stored. It is computed from the UTC date and the per-seat
- * turnover counts this repo holds, so two players asking on the same day with the same counters are
- * served the same room. What is stored is only what a player has *done* to it: who they hired, and
- * how far into a conversation they have talked themselves.
+ * The roster itself is still never stored. It is a pure function of the game day again, now that
+ * winning somebody no longer turns their seat over, so two players asking on the same day are
+ * served the same room whatever anybody has bid. What is stored is what the players did to it:
+ * their positions, and the result the close wrote.
  */
 
 export interface BarHire {
@@ -18,183 +17,215 @@ export interface BarHire {
   hiredAt: string;
 }
 
+/** One crew's position at one table: the public bid, the sealed one, or both. */
+export interface BarBid {
+  day: string;
+  recruitId: string;
+  userId: string;
+  /** The district that signs them if this wins. */
+  baseId: string;
+  open: number | null;
+  openAt: string | null;
+  sealed: number | null;
+  sealedAt: string | null;
+}
+
+/** How one table ended, written once by the close. */
+export interface BarResult {
+  day: string;
+  recruitId: string;
+  /** Denormalised: yesterday's sheet cannot be regenerated once the city has levelled. */
+  recruitName: string;
+  /** Null when nobody in the ranking could take them. */
+  winnerUserId: string | null;
+  price: number | null;
+  settledAt: string;
+}
+
+/** A table the close has not written a result for yet. */
+export interface UnsettledAuction {
+  day: string;
+  recruitId: string;
+}
+
 export interface BarRepo {
+  /** The signing log. Read by nothing: a hire is not a limit any more, it is a record. */
+  recordHire(hire: BarHire): void;
+  /** Every position at one table, for the leader board and for the close. */
+  bidsFor(day: string, recruitId: string): BarBid[];
+  /** Every position one crew holds on one day: the cap counts these. */
+  bidsBy(userId: string, day: string): BarBid[];
+  /** Every position on one day, so a whole screen of tables costs one query. */
+  bidsOn(day: string): BarBid[];
   /**
-   * Turnover per seat for `day`, indexed by seat number: `[0, 2, 0, ...]` meaning seat 1 has been
-   * hired out of twice. Seats nobody has taken have no row and read as 0, so a fresh day needs no
-   * rows written before it can be read.
-   */
-  generations(day: string, seats: number): number[];
-  /** How many people this player has hired today: the §H2b limit reads this. */
-  hiresBy(userId: string, day: string): number;
-  /**
-   * Records a hire and moves the seat on, as one statement pair inside the caller's transaction.
-   * The two must not be separable: a hire that did not turn the seat over would leave the same
-   * person standing there for the next player to hire again.
-   */
-  recordHire(hire: BarHire, slot: number): void;
-  /** §H7: every conversation this player has open today, keyed by recruit id. */
-  negotiations(userId: string, day: string): Record<string, Negotiation>;
-  /** One conversation, or `undefined` when they have not spoken to this character yet. */
-  negotiation(userId: string, day: string, recruitId: string): Negotiation | undefined;
-  /** Writes a conversation's new state. Upserts: the first exchange has no row to update. */
-  saveNegotiation(
-    userId: string,
-    day: string,
-    recruitId: string,
-    negotiation: Negotiation,
-    at: string,
-  ): void;
-  /**
-   * Every recruit this player has walked out on, keyed by recruit id.
+   * Writes an open bid, keeping any sealed value already on the row.
    *
-   * Not scoped to a day: a standoff outlives the roster it was earned on, which is the only way
-   * six hours can mean six hours across the midnight UTC boundary.
+   * An upsert because a crew raising itself out of second place has a row already, and because the
+   * first bid at a table has none. The sealed columns are deliberately not in the SET list: the
+   * phases do not overlap, but a write that could blank a locked value is a write that eventually
+   * will.
    */
-  standoffs(userId: string): Record<string, Standoff>;
-  standoff(userId: string, recruitId: string): Standoff | undefined;
-  /** Records a walkout: pushes the clock out and adds one to the count. */
-  saveStandoff(userId: string, recruitId: string, standoff: Standoff): void;
+  placeOpenBid(bid: {
+    day: string;
+    recruitId: string;
+    userId: string;
+    baseId: string;
+    amount: number;
+    at: string;
+  }): void;
+  /** Locks a final value. Same upsert shape, and it never touches the open columns. */
+  sealBid(bid: {
+    day: string;
+    recruitId: string;
+    userId: string;
+    baseId: string;
+    amount: number;
+    at: string;
+  }): void;
+  /** Tables with bids on them and no result row, on any day before `beforeDay`. */
+  unsettled(beforeDay: string): UnsettledAuction[];
+  results(day: string): BarResult[];
+  recordResult(result: BarResult): void;
 }
 
-interface StandoffRow {
+interface BidRow {
+  day: string;
   recruit_id: string;
-  until: string;
-  walkouts: number;
+  user_id: string;
+  base_id: string;
+  open_amount: number | null;
+  open_at: string | null;
+  sealed_amount: number | null;
+  sealed_at: string | null;
 }
 
-interface GenerationRow {
-  slot: number;
-  generation: number;
-}
-
-interface NegotiationRow {
+interface ResultRow {
+  day: string;
   recruit_id: string;
-  rounds: number;
-  patience: number;
-  standing: number;
-  last_offer: number | null;
-  mood: string;
-  closed: number;
+  recruit_name: string;
+  winner_user_id: string | null;
+  price: number | null;
+  settled_at: string;
 }
 
-/**
- * A stored row as the domain reads it.
- *
- * `mood` is widened back to the enum by the caller's schema rather than validated here: the repo's
- * job is the shape, and a mood this build does not know about is a parse error worth seeing at the
- * boundary rather than a silent fallback five layers in.
- */
-function rowToNegotiation(row: NegotiationRow): Negotiation {
+function rowToBid(row: BidRow): BarBid {
   return {
-    rounds: row.rounds,
-    patience: row.patience,
-    standing: row.standing,
-    lastOffer: row.last_offer,
-    mood: row.mood as Negotiation['mood'],
-    closed: row.closed === 1,
+    day: row.day,
+    recruitId: row.recruit_id,
+    userId: row.user_id,
+    baseId: row.base_id,
+    open: row.open_amount,
+    openAt: row.open_at,
+    sealed: row.sealed_amount,
+    sealedAt: row.sealed_at,
   };
 }
 
+function rowToResult(row: ResultRow): BarResult {
+  return {
+    day: row.day,
+    recruitId: row.recruit_id,
+    recruitName: row.recruit_name,
+    winnerUserId: row.winner_user_id,
+    price: row.price,
+    settledAt: row.settled_at,
+  };
+}
+
+const BID_COLUMNS =
+  'day, recruit_id, user_id, base_id, open_amount, open_at, sealed_amount, sealed_at';
+
 export function createBarRepo(db: AppDatabase): BarRepo {
-  const generationsStmt = db.prepare('SELECT slot, generation FROM bar_slots WHERE day = ?');
-  const hireCountStmt = db.prepare(
-    'SELECT count(*) AS n FROM bar_hires WHERE user_id = ? AND day = ?',
-  );
   const insertHireStmt = db.prepare(
     'INSERT INTO bar_hires (id, day, user_id, recruit_id, hired_at) VALUES (?, ?, ?, ?, ?)',
   );
-  // Upsert, because a seat's first hire has no row to increment yet.
-  const bumpSlotStmt = db.prepare(
-    `INSERT INTO bar_slots (day, slot, generation) VALUES (?, ?, 1)
-     ON CONFLICT (day, slot) DO UPDATE SET generation = generation + 1`,
+  const bidsForStmt = db.prepare(
+    `SELECT ${BID_COLUMNS} FROM bar_bids WHERE day = ? AND recruit_id = ?`,
   );
-  const negotiationsStmt = db.prepare(
-    `SELECT recruit_id, rounds, patience, standing, last_offer, mood, closed
-       FROM bar_negotiations WHERE user_id = ? AND day = ?`,
+  const bidsByStmt = db.prepare(
+    `SELECT ${BID_COLUMNS} FROM bar_bids WHERE user_id = ? AND day = ?`,
   );
-  const negotiationStmt = db.prepare(
-    `SELECT recruit_id, rounds, patience, standing, last_offer, mood, closed
-       FROM bar_negotiations WHERE user_id = ? AND day = ? AND recruit_id = ?`,
-  );
-  const saveNegotiationStmt = db.prepare(
-    `INSERT INTO bar_negotiations
-       (user_id, day, recruit_id, rounds, patience, standing, last_offer, mood, closed, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (user_id, day, recruit_id) DO UPDATE SET
-       rounds = excluded.rounds,
-       patience = excluded.patience,
-       standing = excluded.standing,
-       last_offer = excluded.last_offer,
-       mood = excluded.mood,
-       closed = excluded.closed,
+  const bidsOnStmt = db.prepare(`SELECT ${BID_COLUMNS} FROM bar_bids WHERE day = ?`);
+  const placeOpenStmt = db.prepare(
+    `INSERT INTO bar_bids (day, recruit_id, user_id, base_id, open_amount, open_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (day, recruit_id, user_id) DO UPDATE SET
+       base_id = excluded.base_id,
+       open_amount = excluded.open_amount,
+       open_at = excluded.open_at,
        updated_at = excluded.updated_at`,
   );
-
-  const standoffsStmt = db.prepare(
-    'SELECT recruit_id, until, walkouts FROM bar_standoffs WHERE user_id = ?',
+  const sealStmt = db.prepare(
+    `INSERT INTO bar_bids (day, recruit_id, user_id, base_id, sealed_amount, sealed_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (day, recruit_id, user_id) DO UPDATE SET
+       base_id = excluded.base_id,
+       sealed_amount = excluded.sealed_amount,
+       sealed_at = excluded.sealed_at,
+       updated_at = excluded.updated_at`,
   );
-  const standoffStmt = db.prepare(
-    'SELECT recruit_id, until, walkouts FROM bar_standoffs WHERE user_id = ? AND recruit_id = ?',
+  // Grouped rather than DISTINCT so the shape of the answer is one row per table, which is what
+  // the settler walks. The NOT EXISTS is per table and not per day: a close that fell over halfway
+  // through a day leaves the tables it did write settled and the rest still due.
+  const unsettledStmt = db.prepare(
+    `SELECT b.day AS day, b.recruit_id AS recruit_id
+       FROM bar_bids b
+      WHERE b.day < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM bar_auction_results r
+           WHERE r.day = b.day AND r.recruit_id = b.recruit_id
+        )
+      GROUP BY b.day, b.recruit_id
+      ORDER BY b.day, b.recruit_id`,
   );
-  const saveStandoffStmt = db.prepare(
-    `INSERT INTO bar_standoffs (user_id, recruit_id, until, walkouts) VALUES (?, ?, ?, ?)
-     ON CONFLICT (user_id, recruit_id) DO UPDATE SET
-       until = excluded.until,
-       walkouts = excluded.walkouts`,
+  const resultsStmt = db.prepare(
+    `SELECT day, recruit_id, recruit_name, winner_user_id, price, settled_at
+       FROM bar_auction_results WHERE day = ?`,
+  );
+  const recordResultStmt = db.prepare(
+    `INSERT INTO bar_auction_results
+       (day, recruit_id, recruit_name, winner_user_id, price, settled_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (day, recruit_id) DO NOTHING`,
   );
 
   return {
-    generations(day, seats) {
-      const rows = generationsStmt.all(day) as GenerationRow[];
-      const counts = new Array<number>(seats).fill(0);
-      for (const row of rows) {
-        if (row.slot >= 0 && row.slot < seats) counts[row.slot] = row.generation;
-      }
-      return counts;
-    },
-    hiresBy(userId, day) {
-      const row = hireCountStmt.get(userId, day) as { n: number } | undefined;
-      return row?.n ?? 0;
-    },
-    recordHire(hire, slot) {
+    recordHire(hire) {
       insertHireStmt.run(hire.id, hire.day, hire.userId, hire.recruitId, hire.hiredAt);
-      bumpSlotStmt.run(hire.day, slot);
     },
-    negotiations(userId, day) {
-      const rows = negotiationsStmt.all(userId, day) as NegotiationRow[];
-      return Object.fromEntries(rows.map((row) => [row.recruit_id, rowToNegotiation(row)]));
+    bidsFor(day, recruitId) {
+      return (bidsForStmt.all(day, recruitId) as BidRow[]).map(rowToBid);
     },
-    negotiation(userId, day, recruitId) {
-      const row = negotiationStmt.get(userId, day, recruitId) as NegotiationRow | undefined;
-      return row ? rowToNegotiation(row) : undefined;
+    bidsBy(userId, day) {
+      return (bidsByStmt.all(userId, day) as BidRow[]).map(rowToBid);
     },
-    saveNegotiation(userId, day, recruitId, negotiation, at) {
-      saveNegotiationStmt.run(
-        userId,
-        day,
-        recruitId,
-        negotiation.rounds,
-        negotiation.patience,
-        negotiation.standing,
-        negotiation.lastOffer,
-        negotiation.mood,
-        negotiation.closed ? 1 : 0,
-        at,
+    bidsOn(day) {
+      return (bidsOnStmt.all(day) as BidRow[]).map(rowToBid);
+    },
+    placeOpenBid(bid) {
+      placeOpenStmt.run(bid.day, bid.recruitId, bid.userId, bid.baseId, bid.amount, bid.at, bid.at);
+    },
+    sealBid(bid) {
+      sealStmt.run(bid.day, bid.recruitId, bid.userId, bid.baseId, bid.amount, bid.at, bid.at);
+    },
+    unsettled(beforeDay) {
+      return (unsettledStmt.all(beforeDay) as { day: string; recruit_id: string }[]).map((row) => ({
+        day: row.day,
+        recruitId: row.recruit_id,
+      }));
+    },
+    results(day) {
+      return (resultsStmt.all(day) as ResultRow[]).map(rowToResult);
+    },
+    recordResult(result) {
+      recordResultStmt.run(
+        result.day,
+        result.recruitId,
+        result.recruitName,
+        result.winnerUserId,
+        result.price,
+        result.settledAt,
       );
-    },
-    standoffs(userId) {
-      const rows = standoffsStmt.all(userId) as StandoffRow[];
-      return Object.fromEntries(
-        rows.map((row) => [row.recruit_id, { until: row.until, walkouts: row.walkouts }]),
-      );
-    },
-    standoff(userId, recruitId) {
-      const row = standoffStmt.get(userId, recruitId) as StandoffRow | undefined;
-      return row ? { until: row.until, walkouts: row.walkouts } : undefined;
-    },
-    saveStandoff(userId, recruitId, standoff) {
-      saveStandoffStmt.run(userId, recruitId, standoff.until, standoff.walkouts);
     },
   };
 }

@@ -92,16 +92,6 @@ export const DISTRICT_BACK_EDGE = 5;
  */
 export const MAX_SQUASH = 0.16;
 
-/** The outline in `viewBox` units, ready for an SVG `points` attribute. */
-export function sitePoints(site: DistrictSite): string {
-  return site.shape
-    .map(
-      ([x, y]) =>
-        `${((x / 100) * DISTRICT_PLATE.width).toFixed(1)},${((y / 100) * DISTRICT_PLATE.height).toFixed(1)}`,
-    )
-    .join(' ');
-}
-
 /** Twice the signed area of the outline. Positive because the vertices run clockwise on screen. */
 export function siteArea(site: DistrictSite): number {
   const points = site.shape;
@@ -134,20 +124,6 @@ export function siteCentroid(site: DistrictSite): { x: number; y: number } {
     cy += (y1 + y2) * cross;
   }
   return { x: cx / (6 * area), y: cy / (6 * area) };
-}
-
-/** The outline's bounding box, in percent of the scene: what a badge hung on it is sized from. */
-export function siteBounds(site: DistrictSite): {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} {
-  const xs = site.shape.map(([x]) => x);
-  const ys = site.shape.map(([, y]) => y);
-  const x = Math.min(...xs);
-  const y = Math.min(...ys);
-  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
 /**

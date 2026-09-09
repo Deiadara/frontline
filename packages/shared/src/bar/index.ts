@@ -5,6 +5,6 @@
  * roster itself is *not* here: it needs `generateCharacter`, which reads the hidden role
  * requirement table, so it lives server-side in `apps/server/src/bar/` (§B8a, INTERFACES R4).
  */
+export * from './auction.js';
 export * from './join.js';
-export * from './negotiation.js';
 export * from './wage.js';

@@ -4,6 +4,7 @@ import {
   applyQueueEntry,
   BUILDING_CATALOG,
   disruptionPercentAt,
+  findUnit,
   queueCompletesAt,
   splitDueQueue,
   repairedDistrict,
@@ -19,6 +20,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
+import { settleResearchFor } from '../research/settle.js';
 import { settleTraining } from '../units/training.js';
 import { notifyBase } from '../social/notify.js';
 
@@ -248,11 +250,18 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
  * the two, and the order mattered because the Greenhouse had to have grown the week's rations
  * before they were eaten; no recurring charge is left in the game, so what is left is production
  * and then the batches it paid for.
+ *
+ * The Lab is third, and it is here because it was nowhere. `settleResearch` ran on the two
+ * research routes alone, so a rung that landed while the player was on any other screen was not
+ * finished: not in `technologies`, so every door it opens stayed shut, and its receipt did not
+ * ring until the player opened the page it points at. It goes last because nothing above it reads
+ * a technology, and its own due check keeps a read that finished nothing to one comparison.
  */
 export function settleBase(repos: Repositories, base: Base, now: Date): DistrictSettlement {
   const district = settleDistrict(repos, base, now);
-  // Training last: a batch landing does not feed anything else in the settle.
+  // Training second: a batch landing does not feed anything else in the settle.
   const trained = settleTraining(repos, district.base, now);
+  const researched = settleResearchFor(repos, trained.base, now);
 
   /*
    * The receipts, written once, here.
@@ -273,5 +282,28 @@ export function settleBase(repos: Repositories, base: Base, now: Date): District
     });
   }
 
-  return { ...district, base: trained.base, awards: [...district.awards, ...trained.awards] };
+  /*
+   * And the bench, which had a notification kind and no emitter at all.
+   *
+   * One per *batch*, not per body: a batch hands its units over one at a time (see
+   * `settleTraining`), so a receipt per delivery would ring every forty-five seconds for an order
+   * of ten Razors. `finished` is the set that handed over its last one on this read.
+   */
+  for (const order of trained.finished) {
+    const unit = findUnit(order.unitId);
+    notifyBase(repos, base.id, {
+      kind: 'unit_trained',
+      title: `${order.count} ${unit?.name ?? order.unitId} off the bench`,
+      body: 'They are on the roster.',
+      link: '/game/units',
+      subjectId: order.unitId,
+      now,
+    });
+  }
+
+  return {
+    ...district,
+    base: researched.base,
+    awards: [...district.awards, ...trained.awards, ...researched.awards],
+  };
 }

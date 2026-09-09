@@ -7,13 +7,14 @@ import {
   notorietyTier,
   officerPortraitId,
   plateAspect,
+  type BarAuction,
+  type BarAuctionResult,
   type BarOfficer,
   type BarRecruit,
   type JoinBlocker,
-  type Negotiation,
   type OfficerRole,
 } from '@frontline/shared';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { LevelUpBanner } from '../../components/LevelUp';
 import { Button } from '../../components/ui/Button';
@@ -24,11 +25,23 @@ import { Dropdown } from '../../components/ui/Dropdown';
 import { OfficerPortrait } from '../overseer/OfficerPortrait';
 import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
-import { useBar, useHireRecruit, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
+import { useBar, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote } from '../game/PageShell';
 import { OnArt, OnPlate, PlateRoom } from '../game/PlateRoom';
 import { useServerClock } from '../missions/useServerClock';
-import { NegotiationDialog } from './NegotiationDialog';
+import { AuctionWindow } from './AuctionWindow';
+import {
+  AuctionClock,
+  LAST_CALL_MS,
+  LockedChip,
+  PhaseBadge,
+  StandingChip,
+  countdownText,
+  deadlineOf,
+  leaderName,
+  phaseOf,
+  standingOf,
+} from './AuctionParts';
 import { PerkTags } from '../../components/PerkTags';
 import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
 
@@ -50,21 +63,12 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** A trait's whole mechanical effect, written out. `+8 stealth` is the rule; the name is flavour. */
 interface RecruitCardProps {
   recruit: BarRecruit;
+  /** §H7: this person's table, as this reader sees it. */
+  auction: BarAuction | undefined;
   filledRoles: readonly OfficerRole[];
-  /** §H7: caps a week still uncommitted on the payroll book. */
-  payrollLeft: number;
-  /** §H8: every slot is taken, so no offer can be made however willing the character is. */
-  full: boolean;
-  /** §H2b: this crew has already signed somebody today. Same effect, different reason. */
-  signedToday: boolean;
-  /** §H7: a fee struck in the negotiation window, so the card can say so once it closes. */
-  agreed: number | null;
-  /** §H7: the conversation with this character, if one has been opened today. */
-  negotiation: Negotiation | undefined;
-  /** The server's clock, so a standoff counts down against the same one that enforces it. */
+  /** The server's clock, so every countdown runs against the one that enforces the deadline. */
   now: Date;
   /**
    * §C2: which chair to read this person's sheet against, if the player has picked one.
@@ -75,25 +79,9 @@ interface RecruitCardProps {
    */
   highlightRole: OfficerRole | null;
   onHighlightRole: (role: OfficerRole | null) => void;
-  onNegotiate: (recruitId: string) => void;
+  onBid: (recruitId: string) => void;
 }
 
-/** `4h 12m` until they will sit down again, or `null` once the chair is warm. */
-function coldFor(recruit: BarRecruit, now: Date): string | null {
-  if (!recruit.standoff) return null;
-  const remaining = Date.parse(recruit.standoff.until) - now.getTime();
-  if (remaining <= 0) return null;
-  const hours = Math.floor(remaining / (60 * 60 * 1000));
-  const minutes = Math.floor((remaining % (60 * 60 * 1000)) / 60_000);
-  return hours > 0 ? `${hours}h ${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
-}
-
-/**
- * One person at the Bar (§H1-§H4, §H7).
- *
- * Nothing on this card says what role they would be *good* at: the player reads the sheet and
- * decides, which is what §B8 asks for. The role picker is a hiring choice (§C2), not a hint.
- */
 /**
  * Where `Sit down` stands, in fractions of the painting.
  *
@@ -128,87 +116,59 @@ const BAR_ASPECT = plateAspect('bar');
 
 export function BarPage() {
   const barQuery = useBar();
-  const hire = useHireRecruit();
-  /**
-   * Wages struck in the negotiation window and not yet signed.
-   *
-   * Deliberately **not** the same map as `counters`. A counter-offer is a refusal carrying a price
-   * ("turned it down; they will sign for N"); an agreement is a yes. Writing an accepted wage into
-   * the counter map is the bug this pair of maps exists to make impossible: it made the card
-   * announce "Turned it down" the moment somebody said yes, and hired nobody.
-   */
-  const [agreed, setAgreed] = useState<Record<string, number>>({});
-  /** §H7, which conversation is open, if any. One at a time: it is a table, not a phone bank. */
-  const [talkingTo, setTalkingTo] = useState<string | null>(null);
-  /**
-   * Conversations this session has moved on, over the ones the read arrived with.
-   *
-   * The negotiate call deliberately does not refetch the Bar: a whole-roster reload mid-sentence
-   * would swap the window's state out from under the player, so the card behind the window needs
-   * somewhere to learn that the standing demand has changed.
-   */
-  const [talks, setTalks] = useState<Record<string, Negotiation>>({});
-  /** Which screen is over the room: the stool, the book, the crew, or none of them. */
-  const [open, setOpen] = useState<'stool' | 'payroll' | 'crew' | null>(null);
+  /** Which screen is over the room: the stool, the book, the crew, the results, or none of them. */
+  const [open, setOpen] = useState<'stool' | 'payroll' | 'crew' | 'results' | null>(null);
   /** Which chair the stool screen is showing. An index, so the arrows are arithmetic. */
   const [seat, setSeat] = useState(0);
+  /** §H7: which table's bidding screen is open, if any. */
+  const [biddingOn, setBiddingOn] = useState<string | null>(null);
   /*
-   * Signing somebody pays (§I1), so a hire can be the thing that crosses a level, and the hire
-   * response is the only thing that knows. Latched, because the next `/bar` read carries nothing
-   * about it: a settle nobody announces has no second chance.
+   * §I1: the Bar settles yesterday's tables on read, and a signing pays, so the read that runs
+   * the settle is the only one that ever knows a level was crossed. Latched, because the next
+   * `/bar` poll carries nothing about it: an announcement nobody catches has no second chance.
    */
   const [levelUp, setLevelUp] = useState<LevelUp | null>(null);
+  const announced = barQuery.data?.levelUp;
+  useEffect(() => {
+    if (announced) setLevelUp(announced);
+  }, [announced]);
 
   const data = barQuery.data;
   const recruits = data?.recruits ?? [];
   const officers = data?.officers ?? [];
+  const auctions = data?.auctions ?? [];
+  const results = data?.results ?? [];
   const full = data !== undefined && data.slotsUsed >= data.slotsTotal;
-  // §H2b: the shared room's other limit. Distinct from `full`: one is about the crew's own
-  // recruit slots, the other about how many people the whole city may take out of the room today.
-  const signedToday = data !== undefined && data.hiresLeftToday === 0;
 
-  const onOffer = (recruitId: string, role: OfficerRole | null, offerWage: number) => {
-    hire.reset();
-    hire.mutate(
-      { recruitId, role, offerWage },
-      {
-        onSuccess: (result) => {
-          if (result.levelUp) setLevelUp(result.levelUp);
-          if (result.accepted) {
-            // Signed: the deal is spent, and the window (if this came from one) has done its job.
-            setAgreed((current) => {
-              const { [recruitId]: _done, ...rest } = current;
-              return rest;
-            });
-            setTalkingTo((talking) => (talking === recruitId ? null : talking));
-          }
-        },
-      },
-    );
-  };
-
-  // Derived once here rather than per card: the negotiation window needs the same list, and two
+  // Derived once here rather than per card: the bidding window needs the same list, and two
   // derivations of "which roles are open" is how a window offers a seat the card says is taken.
   const filledRoles = data?.filledRoles ?? [];
-  const openRoles = OFFICER_ROLES.filter((role) => !filledRoles.includes(role));
 
-  const negotiationFor = (recruitId: string): Negotiation | undefined =>
-    talks[recruitId] ?? data?.negotiations[recruitId];
+  /*
+   * The auctions are sent in roster order, so the pairing is by index in principle and by id in
+   * fact. By id, because "in roster order" is a promise about two arrays staying in step, and a
+   * screen that reads a wage off the wrong person because one of them was filtered is a defect
+   * nothing on the page can show.
+   */
+  const auctionFor = (recruitId: string): BarAuction | undefined =>
+    auctions.find((auction) => auction.recruitId === recruitId);
 
-  const talking = recruits.find((recruit) => recruit.id === talkingTo);
+  /** The tables this crew has money on, in roster order, which is the order the room is read in. */
+  const yourTables = auctions.filter(
+    (auction) => auction.yourBid !== null || auction.yourSealed !== null,
+  );
+
   /*
    * The server's clock, and it has to *tick*.
    *
-   * `new Date(data.serverNow)` is the response's timestamp evaluated once per render, and `useBar`
-   * sets no `refetchInterval`, so on a page left alone it never moved. `coldFor` derives the
-   * walkout standoff from it and `cold !== null` replaces the whole hiring door, so a six-hour
-   * standoff read "Back in 5h 59m" six hours later and still refused a hire the server would have
-   * taken. `useServerClock` keeps the correction and adds the second hand.
+   * Every deadline on this screen belongs to the server: when the open phase ends, when the table
+   * signs. `useServerClock` corrects for a skewed browser clock and adds the second hand, so a
+   * countdown on a page nobody is touching is still the real remaining time.
    */
   const serverNow = useServerClock(data?.serverNow, barQuery.dataUpdatedAt);
 
-  // Clamped rather than wrapped on read: the roster can shrink under an open screen when somebody
-  // is signed, and an index past the end would render nothing with no way back.
+  // Clamped rather than wrapped on read: the roster can shrink under an open screen when the room
+  // turns over, and an index past the end would render nothing with no way back.
   const chair = recruits.length === 0 ? 0 : Math.min(seat, recruits.length - 1);
   const shown = recruits[chair];
   /*
@@ -223,6 +183,9 @@ export function BarPage() {
       const from = Math.min(current, recruits.length - 1);
       return Math.max(0, Math.min(recruits.length - 1, from + by));
     });
+
+  const bidding = recruits.find((recruit) => recruit.id === biddingOn);
+  const biddingTable = biddingOn === null ? undefined : auctionFor(biddingOn);
 
   /*
    * A failed read used to draw the room as an empty one.
@@ -283,19 +246,34 @@ export function BarPage() {
         </div>
       )}
 
-      {/* The two standing readouts, on the glass over the room. */}
-      {/* The same inset the room takes, or the two readouts sit under the nav: this layer is over
-          the whole viewport, and the chrome floats on top of it. */}
+      {/* The standing readouts, on the glass over the room. */}
+      {/* The same inset the room takes, or they sit under the nav: this layer is over the whole
+          viewport, and the chrome floats on top of it. */}
       <div
-        className="pointer-events-none absolute inset-0 flex flex-col justify-end p-4"
+        className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-4"
         style={{ paddingTop: 'var(--hud-h, 0px)', paddingBottom: 'calc(var(--nav-h, 0px) + 16px)' }}
       >
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        {/* Your tables at the top left of the room (board request, 2026-09-09); the note and the
+            readouts keep the foot, pushed there by `mt-auto` so they stay put whether or not this
+            crew has a table. */}
+        {yourTables.length > 0 && (
+          <YourTables
+            auctions={yourTables}
+            recruits={recruits}
+            used={data?.auctionsUsed ?? yourTables.length}
+            allowed={data?.auctionsAllowed ?? 0}
+            now={serverNow}
+            onOpen={setBiddingOn}
+          />
+        )}
+
+        <div className="mt-auto flex flex-wrap items-end justify-between gap-3">
           <OnArt className="max-w-sm p-1">
             <InfoNote tone="warn" label="How the Bar works">
-              Every crew in the city is reading this same list, and signing somebody takes them off
-              it for all of them. You get one signature a day. So the question is never whether you
-              can afford this person. It is whether they are the one worth spending today on.
+              Every crew in the city is bidding on these same people, and the bids are open until
+              half an hour before midnight. After that everybody gets one sealed final value, and at
+              midnight the highest signs them at exactly what they bid. Nothing is negotiated: what
+              you put down is what they cost you every week.
             </InfoNote>
           </OnArt>
 
@@ -348,6 +326,30 @@ export function BarPage() {
                 </span>
               </span>
             </button>
+
+            {/* §H7: how yesterday's tables ended. A door rather than a panel, because it is a
+                thing a player reads once a day and then stops thinking about. */}
+            <button
+              type="button"
+              onClick={() => setOpen('results')}
+              data-testid="open-results"
+              className="group flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-brass-300/10"
+            >
+              <span
+                aria-hidden
+                className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+              >
+                <Icon name="standings" />
+              </span>
+              <span className="flex flex-col leading-none">
+                <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+                  Last night
+                </span>
+                <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-ink-100">
+                  {results.length}
+                </span>
+              </span>
+            </button>
           </OnArt>
         </div>
       </div>
@@ -355,18 +357,14 @@ export function BarPage() {
       {open === 'stool' && shown !== undefined && (
         <StoolDialog
           recruit={shown}
+          auction={auctionFor(shown.id)}
           seat={chair}
           of={recruits.length}
           filledRoles={filledRoles}
-          agreed={agreed[shown.id] ?? null}
-          signedToday={signedToday}
-          payrollLeft={data?.payroll.available ?? 0}
-          full={full}
-          negotiation={negotiationFor(shown.id)}
           now={serverNow}
           day={data?.day ?? ''}
           onStep={step}
-          onNegotiate={setTalkingTo}
+          onBid={setBiddingOn}
           onClose={() => setOpen(null)}
         />
       )}
@@ -390,31 +388,18 @@ export function BarPage() {
         />
       )}
 
-      {talking !== undefined && (
-        <NegotiationDialog
-          recruit={talking}
-          standing={negotiationFor(talking.id) ?? null}
-          payrollLeft={data?.payroll.available ?? 0}
-          onClose={() => setTalkingTo(null)}
-          onTurn={(negotiation) =>
-            setTalks((current) => ({ ...current, [talking.id]: negotiation }))
-          }
-          onAgreed={(wage) => setAgreed((current) => ({ ...current, [talking.id]: wage }))}
-          openRoles={openRoles}
-          onSign={(role, wage) => onOffer(talking.id, role, wage)}
-          signing={hire.isPending && hire.variables?.recruitId === talking.id}
-          signBlocked={
-            full
-              ? 'Your crew is full. Free a recruit slot and they will still be here tomorrow.'
-              : signedToday
-                ? 'You have already signed somebody today. This one keeps until tomorrow.'
-                : null
-          }
-          signError={
-            hire.error !== null && hire.variables?.recruitId === talking.id
-              ? hire.error.message
-              : null
-          }
+      {open === 'results' && <ResultsDialog results={results} onClose={() => setOpen(null)} />}
+
+      {bidding !== undefined && biddingTable !== undefined && data !== undefined && (
+        <AuctionWindow
+          recruit={bidding}
+          auction={biddingTable}
+          now={serverNow}
+          bidCeiling={data.bidCeiling}
+          auctionsUsed={data.auctionsUsed}
+          auctionsAllowed={data.auctionsAllowed}
+          chairsFree={Math.max(0, data.slotsTotal - data.slotsUsed)}
+          onClose={() => setBiddingOn(null)}
         />
       )}
     </div>
@@ -469,10 +454,93 @@ function SitDown({
           Sit down
         </span>
       </span>
-      <span className="rounded-sm bg-surface-950/70 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.16em] text-brass-300 shadow-panel">
+      <span className="rounded-sm bg-surface-950/70 px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.16em] text-brass-300">
         {count === 0 ? 'Nobody in tonight' : `${count} in tonight`}
       </span>
     </button>
+  );
+}
+
+/**
+ * The tables this crew has money on, standing on the room itself (§H7).
+ *
+ * The cap is the thing a player has to hold in their head all evening: two tables, three past
+ * level 40, and a bid is a commitment until the table closes. Putting it behind the stool would
+ * make "can I afford to get into this one" a question you answer by opening something.
+ */
+function YourTables({
+  auctions,
+  recruits,
+  used,
+  allowed,
+  now,
+  onOpen,
+}: {
+  auctions: readonly BarAuction[];
+  recruits: readonly BarRecruit[];
+  used: number;
+  allowed: number;
+  now: Date;
+  onOpen: (recruitId: string) => void;
+}) {
+  return (
+    <OnArt className="max-w-lg self-start p-2.5" data-testid="your-tables">
+      <div className="flex min-w-0 flex-col gap-2">
+        <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
+          Your tables{' '}
+          <span className={cn('tabular-nums', used >= allowed ? 'text-warning' : 'text-ink-100')}>
+            {used}
+          </span>
+          <span className="tabular-nums text-ink-100"> of {allowed}</span>
+        </span>
+        <div className="flex min-w-0 flex-wrap gap-1.5">
+          {auctions.map((auction) => {
+            const name =
+              recruits.find((recruit) => recruit.id === auction.recruitId)?.name ?? 'Somebody';
+            const phase = phaseOf(auction, now);
+            const standing = standingOf(auction);
+            const mark =
+              auction.yourSealed !== null
+                ? 'Locked'
+                : standing === 'leading'
+                  ? 'Leading'
+                  : 'Outbid';
+            const left = phase === 'closed' ? null : deadlineOf(auction, phase) - now.getTime();
+            return (
+              <button
+                key={auction.recruitId}
+                type="button"
+                onClick={() => onOpen(auction.recruitId)}
+                data-testid={`table-${auction.recruitId}`}
+                className={cn(
+                  'flex min-w-0 items-center gap-2 rounded-sm border px-2 py-1 text-left transition-colors',
+                  standing === 'leading' && auction.yourSealed === null
+                    ? 'border-verdigris-300/50 hover:bg-verdigris-300/10'
+                    : auction.yourSealed !== null
+                      ? 'border-brass-300/60 hover:bg-brass-300/10'
+                      : 'border-oxblood-300/50 hover:bg-oxblood-500/10',
+                )}
+              >
+                <span className="min-w-0 max-w-[11rem] truncate font-body text-[12px] text-ink-100">
+                  {name}
+                </span>
+                <span className="shrink-0 font-display text-[10px] font-bold uppercase tracking-[0.14em] text-ink-300">
+                  {mark}
+                </span>
+                <span
+                  className={cn(
+                    'shrink-0 font-display text-[12px] font-bold tabular-nums',
+                    left !== null && left <= LAST_CALL_MS ? 'text-oxblood-300' : 'text-brass-100',
+                  )}
+                >
+                  {left === null ? 'closed' : countdownText(left)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </OnArt>
   );
 }
 
@@ -486,33 +554,25 @@ function SitDown({
  */
 function StoolDialog({
   recruit,
+  auction,
   seat,
   of,
   filledRoles,
-  agreed,
-  signedToday,
-  payrollLeft,
-  full,
-  negotiation,
   now,
   day,
   onStep,
-  onNegotiate,
+  onBid,
   onClose,
 }: {
   recruit: BarRecruit;
+  auction: BarAuction | undefined;
   seat: number;
   of: number;
   filledRoles: readonly OfficerRole[];
-  agreed: number | null;
-  signedToday: boolean;
-  payrollLeft: number;
-  full: boolean;
-  negotiation: Negotiation | undefined;
   now: Date;
   day: string;
   onStep: (by: number) => void;
-  onNegotiate: (id: string) => void;
+  onBid: (id: string) => void;
   onClose: () => void;
 }) {
   /**
@@ -525,7 +585,7 @@ function StoolDialog({
   const [highlightRole, setHighlightRole] = useState<OfficerRole | null>(null);
 
   // Through the window's own stack rather than a listener of its own, so the arrows go quiet while
-  // the negotiation is open on top of this screen. See `Modal`'s `onKey`.
+  // the bidding screen is open on top of this one. See `Modal`'s `onKey`.
   const onArrow = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft') onStep(-1);
@@ -599,16 +659,12 @@ function StoolDialog({
         <div className="flex min-h-0 min-w-0 flex-1 overflow-y-auto" data-testid="bar-file">
           <RecruitCard
             recruit={recruit}
+            auction={auction}
             filledRoles={filledRoles}
-            agreed={agreed}
-            signedToday={signedToday}
-            payrollLeft={payrollLeft}
-            full={full}
-            negotiation={negotiation}
             now={now}
             highlightRole={highlightRole}
             onHighlightRole={setHighlightRole}
-            onNegotiate={onNegotiate}
+            onBid={onBid}
           />
         </div>
         <StepArrow
@@ -651,6 +707,105 @@ function PayrollDialog({
       </div>
       <div className="min-h-0 overflow-y-auto">
         <PayrollPanel ledger={ledger} caps={caps} />
+      </div>
+    </Modal>
+  );
+}
+
+/** How each of yesterday's tables ended for this crew (§H7). */
+const OUTCOME_FACE: Record<BarAuctionResult['outcome'], string> = {
+  won: 'border-verdigris-300/60 bg-verdigris-300/10 text-verdigris-100',
+  lost: 'border-oxblood-300/60 bg-oxblood-500/15 text-oxblood-100',
+  passed: 'border-brass-300/60 bg-brass-300/10 text-brass-100',
+  unsold: 'border-surface-500 bg-surface-900/80 text-ink-300',
+};
+
+const OUTCOME_WORD: Record<BarAuctionResult['outcome'], string> = {
+  won: 'Signed',
+  lost: 'Lost',
+  passed: 'Passed',
+  unsold: 'Unsold',
+};
+
+/** What happened, in one sentence, with the figures a player would want to argue with. */
+function resultLine(result: BarAuctionResult): string {
+  const price = result.price?.toLocaleString() ?? '';
+  switch (result.outcome) {
+    case 'won':
+      return `Yours at ${price} a week.`;
+    case 'lost':
+      return `${result.winner ?? 'Somebody'} took them at ${price}. You were at ${result.yourFinal.toLocaleString()}.`;
+    case 'passed':
+      return `You were highest at ${result.yourFinal.toLocaleString()} and could not take them, so they went to ${result.winner ?? 'the next bid'} at ${price}.`;
+    case 'unsold':
+      return `Nobody could take them. You were at ${result.yourFinal.toLocaleString()}.`;
+  }
+}
+
+function ResultsDialog({
+  results,
+  onClose,
+}: {
+  results: readonly BarAuctionResult[];
+  onClose: () => void;
+}) {
+  return (
+    <Modal onClose={onClose} labelledBy="results-dialog-title" className="border-brass-300/30">
+      <div className="flex shrink-0 items-center gap-3 border-b border-surface-600/60 px-5 py-4">
+        <span
+          aria-hidden
+          className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+        >
+          <Icon name="standings" />
+        </span>
+        <span className="flex min-w-0 flex-col">
+          <h2
+            id="results-dialog-title"
+            className="font-stamp text-[19px] leading-tight text-ink-100"
+          >
+            How the night ended
+          </h2>
+          {results[0] !== undefined && (
+            <span
+              className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300"
+              data-testid="results-day"
+            >
+              The tables of {results[0].day}
+            </span>
+          )}
+        </span>
+        <Button size="sm" variant="ghost" className="ml-auto" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+      <div className="min-h-0 overflow-y-auto" data-testid="auction-results">
+        {results.length === 0 ? (
+          <EmptyRow text="You bid on nobody" />
+        ) : (
+          <ul className="flex flex-col divide-y divide-surface-700">
+            {results.map((result) => (
+              <li key={result.recruitId} className="flex min-w-0 flex-col gap-1.5 px-4 py-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 flex-1 break-words font-stamp text-[15px] leading-tight text-ink-100">
+                    {result.name}
+                  </span>
+                  <span
+                    data-testid={`outcome-${result.outcome}`}
+                    className={cn(
+                      'shrink-0 rounded-sm border px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.14em]',
+                      OUTCOME_FACE[result.outcome],
+                    )}
+                  >
+                    {OUTCOME_WORD[result.outcome]}
+                  </span>
+                </div>
+                <p className="min-w-0 break-words font-body text-[12px] leading-relaxed text-ink-200">
+                  {resultLine(result)}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </Modal>
   );
@@ -712,19 +867,6 @@ function CrewDialog({
 }
 
 /**
- * One person, as a dossier on the bar.
- *
- * The whole file, laid out the way somebody would actually read it across a counter: who they are
- * and what they want down the left, the thirty-three numbers across the right, and the one door at
- * the bottom of the left column where a hand would be.
- *
- * The split is not decoration. It was four columns of the sheet across the full width of a modal,
- * which left each column about 130px and cut `Communication` to `Communicati…`: fixed copy that
- * ellipsises is a permanent defect rather than a fat-content edge case, and the board's bar rules
- * it out. Giving the sheet the wide side and the identity the narrow one fixes the arithmetic and
- * reads better besides.
- */
-/**
  * "Highlight important attributes for role": read this sheet against a chair.
  *
  * The four tiers are a property of the *seat*, and at the Bar nobody is in one yet, so a candidate's
@@ -773,98 +915,23 @@ function RoleHighlight({
   );
 }
 
+/**
+ * One person, as a dossier on the bar, with their table under it.
+ *
+ * The whole file, laid out the way somebody would actually read it across a counter: who they are
+ * and what the room is currently paying for them down the left, the thirty-three numbers across
+ * the right, and the one door at the bottom of the left column where a hand would be.
+ */
 function RecruitCard({
   recruit,
+  auction,
   filledRoles,
-  payrollLeft,
-  full,
-  signedToday,
-  agreed,
-  negotiation,
   now,
   highlightRole,
   onHighlightRole,
-  onNegotiate,
+  onBid,
 }: RecruitCardProps) {
   const open = OFFICER_ROLES.filter((role) => !filledRoles.includes(role));
-  const asking = recruit.askingWage;
-  // Whether their opening price fits what is left of the book. Shown before the conversation
-  // rather than after it, because a fee that cannot be committed is not a fee worth haggling over.
-  const fits = asking === null || asking <= payrollLeft;
-  const cold = coldFor(recruit, now);
-
-  const door = recruit.hired ? null : cold !== null ? (
-    /*
-     * A chair this crew walked out of. Six hours, and their price has already gone up ten
-     * percent for the next conversation, which is the half that persists: see
-     * `standoffAfterWalkout`.
-     */
-    <div className="flex min-w-0 flex-col gap-1">
-      <p className="min-w-0 break-words font-stamp text-[15px] leading-snug text-oxblood-300">
-        You walked out on them.
-      </p>
-      <p className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-        Back in {cold} · their price is up {recruit.standoff?.walkouts ?? 1}0%
-      </p>
-    </div>
-  ) : recruit.assessment.interested ? (
-    <div className="flex min-w-0 flex-col gap-2">
-      {negotiation !== undefined && !negotiation.closed && (
-        <p className="min-w-0 break-words font-stamp text-[15px] leading-snug text-brass-100">
-          Mid-conversation. They are asking {negotiation.standing.toLocaleString()} a week.
-        </p>
-      )}
-      {agreed !== null && (
-        <p
-          className="min-w-0 break-words font-body text-[13px] leading-relaxed text-verdigris-100"
-          data-testid={`signed-${recruit.id}`}
-        >
-          Signed at {agreed.toLocaleString()} caps a week.
-        </p>
-      )}
-      {/*
-       * One door, and it is a window (§H7).
-       *
-       * The card used to carry a number field and an Offer button beside the Negotiate one,
-       * which meant the whole conversation was optional and the two paths could disagree about
-       * what had been agreed: a player could shake on a figure in the window, close it, and
-       * have the card report "Turned it down" from a stale counter. Hiring now happens in one
-       * place, in front of the person doing it.
-       */}
-      <Button
-        disabled={negotiation?.closed === true || signedToday || full || open.length === 0}
-        onClick={() => onNegotiate(recruit.id)}
-        data-testid={`negotiate-${recruit.id}`}
-      >
-        {negotiation?.closed === true
-          ? 'Finished'
-          : signedToday
-            ? 'Not today'
-            : full
-              ? 'No room'
-              : open.length === 0
-                ? 'No post open'
-                : 'Sit down with them'}
-      </Button>
-      {asking !== null && !fits && (
-        <p className="font-body text-[12px] leading-relaxed text-oxblood-300">
-          Your payroll will not stretch to {asking.toLocaleString()} a week. Raise it at the Nexus.
-        </p>
-      )}
-    </div>
-  ) : (
-    <ul className="flex min-w-0 flex-col gap-1">
-      {recruit.assessment.blockers.map((blocker) => (
-        <li
-          key={blocker}
-          className="flex items-start gap-1.5 font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-oxblood-300/90"
-        >
-          <Icon name="lock" className="mt-px h-3 w-3 shrink-0" />
-          {BLOCKER_LABEL[blocker]}
-        </li>
-      ))}
-    </ul>
-  );
 
   return (
     <article
@@ -872,7 +939,7 @@ function RecruitCard({
       data-testid={`recruit-${recruit.id}`}
     >
       {/*
-       * Who they are, across the top, and what they cost on the right of it.
+       * Who they are, across the top, and what the room is bidding on the right of it.
        *
        * The card used to be a tall left column against the attribute sheet, which meant the three
        * attribute groups sat in a block and the fourth dropped underneath: an L, and an L reads as
@@ -881,12 +948,7 @@ function RecruitCard({
        */}
       <div className="grid min-w-0 gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
         {/*
-         * The dossier column: their name, their face, and what they want, in that order.
-         *
-         * Name on top, the painting under it, everything else under that: what they want, what
-         * they carry, what they cost, and the door. The face used to be a 96px thumbnail tucked
-         * beside the heading, which is a stamp on a form; this screen asks one question about one
-         * person, so the person is the column. Board's layout.
+         * The dossier column: their name, their face, and their table, in that order.
          */}
         <div className="flex min-w-0 flex-col gap-2.5">
           {/*
@@ -908,8 +970,7 @@ function RecruitCard({
            * The portrait, mounted rather than floated.
            *
            * A ring of the card's own brass with a dark mount inside it, so the picture reads as
-           * something set into the card instead of an image dropped on top of one. Full column
-           * width at 4:5, which is about two and a half times what it was.
+           * something set into the card instead of an image dropped on top of one.
            */}
           <div className="edge-lit rounded-sm border-2 border-brass-500/45 bg-surface-950 p-1 shadow-panel">
             <OfficerPortrait
@@ -923,10 +984,7 @@ function RecruitCard({
           {/*
            * What they bring, under their face.
            *
-           * This slot held "What they are after": an ambition and a moral compass, two personality
-           * tags that told a player something true about the character and nothing at all about
-           * what hiring them would do. The perks are the opposite, and they are the reason to read
-           * this card rather than the one beside it.
+           * The perks are the reason to read this card rather than the one beside it.
            */}
           <Field label="What they bring">
             {recruit.perks.length > 0 ? (
@@ -938,46 +996,12 @@ function RecruitCard({
             )}
           </Field>
 
-          {/* The price and the door, stacked under the dossier: they are one decision and they
-              belong with the person they are about, not across the card from them. */}
-          <div className="flex min-w-0 flex-col gap-3">
-            <div
-              className={cn(
-                'edge-lit flex items-center gap-3 rounded-md border px-3 py-2.5',
-                recruit.hired
-                  ? 'border-bile-300/50'
-                  : recruit.assessment.interested
-                    ? 'border-brass-300/60'
-                    : 'border-oxblood-500/50',
-              )}
-            >
-              <span
-                aria-hidden
-                className="icon-plate flex h-11 w-11 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-6 [&_svg]:w-6"
-              >
-                <Icon name={recruit.hired ? 'check' : 'caps'} />
-              </span>
-              <span className="flex min-w-0 flex-col leading-none">
-                <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-300">
-                  {recruit.hired
-                    ? 'On your books'
-                    : recruit.assessment.interested
-                      ? 'Opens at'
-                      : 'Not talking'}
-                </span>
-                {/* Only when there is a figure. The two other states are already named on the line
-                    above, and a placeholder glyph under `Not talking` is a second way of saying the
-                    same nothing. */}
-                {recruit.assessment.interested && !recruit.hired && (
-                  <span className="mt-1.5 font-display text-[20px] font-bold tabular-nums text-brass-100">
-                    {(asking ?? 0).toLocaleString()} / wk
-                  </span>
-                )}
-              </span>
-            </div>
-
-            <div className="min-w-0">{door}</div>
-          </div>
+          <AuctionStrip
+            recruit={recruit}
+            auction={auction}
+            now={now}
+            onBid={() => onBid(recruit.id)}
+          />
 
           {(recruit.requirement.minNotoriety > 0 || recruit.requirement.minLevel > 1) && (
             <div className="flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
@@ -1005,8 +1029,6 @@ function RecruitCard({
          * **Two groups across, not four**, and that is what makes it fit here: the sheet needs
          * about 210px a group before `Communication` truncates, four of them do not fit next to a
          * portrait, and a 2x2 gives each group half of a column that is already most of the card.
-         * It also comes out about as tall as the dossier beside it, so the card is a rectangle
-         * with nothing empty in it rather than a tall left column against a short right one.
          */}
         <div className="flex min-w-0 flex-col gap-2.5">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
@@ -1020,6 +1042,96 @@ function RecruitCard({
         </div>
       </div>
     </article>
+  );
+}
+
+/**
+ * This person's table, on their card (§H7).
+ *
+ * Everything a player needs to decide whether to open the bidding screen: where the price is now,
+ * who is holding it, how many crews are in, what phase the table is in and how long that lasts.
+ * The door itself is one press, because the decision is made in front of the figures rather than
+ * inside the window.
+ */
+function AuctionStrip({
+  recruit,
+  auction,
+  now,
+  onBid,
+}: {
+  recruit: BarRecruit;
+  auction: BarAuction | undefined;
+  now: Date;
+  onBid: () => void;
+}) {
+  if (auction === undefined) {
+    return (
+      <p className="font-body text-[12px] leading-relaxed text-ink-400">
+        No table on them tonight.
+      </p>
+    );
+  }
+
+  const phase = phaseOf(auction, now);
+  const standing = standingOf(auction);
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2.5" data-testid={`auction-${recruit.id}`}>
+      <div
+        className={cn(
+          'edge-lit flex min-w-0 flex-col gap-2 rounded-md border px-3 py-2.5',
+          standing === 'leading'
+            ? 'border-verdigris-300/50'
+            : standing === 'outbid'
+              ? 'border-oxblood-300/50'
+              : 'border-brass-300/60',
+        )}
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <PhaseBadge phase={phase} />
+          <StandingChip standing={standing} />
+          {auction.yourSealed !== null && <LockedChip amount={auction.yourSealed} />}
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="font-display text-[9.5px] font-bold uppercase tracking-[0.18em] text-ink-300">
+            {auction.leading === null ? 'Opens at' : 'Leading bid'}
+          </span>
+          <span
+            className="font-display text-[22px] font-bold leading-none tabular-nums text-brass-100"
+            data-testid={`leading-${recruit.id}`}
+          >
+            {(auction.leading?.amount ?? auction.reserve).toLocaleString()}
+          </span>
+        </div>
+
+        <span className="min-w-0 truncate font-body text-[11px] leading-snug text-ink-300">
+          {auction.leading === null
+            ? 'Their floor, and nobody is in yet.'
+            : `Held by ${leaderName(auction)} · their floor is ${auction.reserve.toLocaleString()} · ${auction.bidders.toLocaleString()} ${auction.bidders === 1 ? 'crew is' : 'crews are'} in`}
+        </span>
+
+        <AuctionClock auction={auction} now={now} testId={`clock-${recruit.id}`} />
+      </div>
+
+      {!recruit.assessment.interested ? (
+        <ul className="flex min-w-0 flex-col gap-1">
+          {recruit.assessment.blockers.map((blocker) => (
+            <li
+              key={blocker}
+              className="flex items-start gap-1.5 font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-oxblood-300/90"
+            >
+              <Icon name="lock" className="mt-px h-3 w-3 shrink-0" />
+              {BLOCKER_LABEL[blocker]}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <Button onClick={onBid} data-testid={`bid-${recruit.id}`}>
+          {phase === 'closed' ? 'See the table' : phase === 'sealed' ? 'Final value' : 'Bid'}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -1050,7 +1162,8 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
             {commander.role === null ? BENCH_LABEL : OFFICER_ROLE_LABELS[commander.role]}
           </span>
           <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-            <span className="tabular-nums text-ink-200">{officer.weeklyWage}</span> caps/wk
+            <span className="tabular-nums text-ink-200">{officer.weeklyWage.toLocaleString()}</span>{' '}
+            caps/wk
           </span>
         </div>
         {/* What they bring to the crew. This row used to carry an alignment meter and a line of
@@ -1160,8 +1273,8 @@ function EmptyRow({ text }: { text: string }) {
 }
 
 /**
- * The Bar (GDD §H1): today's roster and the crew it has already given you.
+ * The Bar (GDD §H1): tonight's tables and the crew they have already given you.
  *
- * The roster is the same for every player on the same UTC day (§H2), which the header says out
- * loud: it is a shared room, not a personalised shortlist.
+ * The roster is the same for every player on the same game day (§H2), and so is the bidding: the
+ * header says so out loud, because it is a shared room and not a personalised shortlist.
  */

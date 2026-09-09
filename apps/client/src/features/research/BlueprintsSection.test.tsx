@@ -42,7 +42,15 @@ function marketWith(
     caps: resources.caps,
     resources,
     inventory,
-    vendor: { open: false, sessions: [], closesAt: null, opensAt: NOW, stock: [] },
+    vendor: {
+      open: false,
+      sessions: [],
+      session: null,
+      closesAt: null,
+      opensAt: NOW,
+      stock: [],
+      results: [],
+    },
     offers: [],
     mine: [],
     supply: supplyBoard(12, resources, 10_000, 0, (key) =>
@@ -145,8 +153,11 @@ describe('what a crew is allowed to see (§D5)', () => {
   it('shows no blueprint at all to a crew holding no pages', async () => {
     stub({});
     renderPage();
-    // The note itself is a hover card, so what is on screen is its chip.
-    expect(await screen.findByText('How a blueprint is put together')).toBeVisible();
+    // The sentence is printed on the page rather than folded into a hover chip: collapsed, that
+    // chip was the entire content of this screen for a crew with nothing in the satchel.
+    expect(await screen.findByTestId('blueprints-empty')).toHaveTextContent(
+      /A blueprint is a set of named pages, and you have none of them/,
+    );
     // Not one row, and not one name: the Colossus is not a thing this player knows exists.
     expect(screen.queryByText('Colossus Blueprint')).toBeNull();
     expect(document.querySelectorAll('[data-testid^="blueprint-"]')).toHaveLength(0);

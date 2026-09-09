@@ -244,6 +244,14 @@ export const MovementViewSchema = z.object({
   arrivesAt: IsoDateTimeSchema,
   /** Whether the column can still be turned around. See `movementCancellable`. */
   recallable: z.boolean(),
+  /**
+   * §C3: the machines under this column, read off the crew's deployment for the fight.
+   *
+   * The road screen listed every unit walking and nothing it was riding in, so a crew that had
+   * committed the yard to a fight could not see the machines anywhere between the picker and the
+   * settle. Defaulted, so a payload from before the field parses as a column that walks.
+   */
+  vehicles: FleetSchema.default({}),
 });
 export type MovementView = z.infer<typeof MovementViewSchema>;
 

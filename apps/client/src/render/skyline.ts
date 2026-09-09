@@ -601,6 +601,3 @@ export function generateSkyline(
     struts: strutsBetween(towers, profile, width, height, rng),
   };
 }
-
-/** Window emissive colours: ART-BIBLE §3.3, warm sodium interiors against the cold key. */
-export const WINDOW_FILLS = { warm: ramps.ember[300], cold: ramps.hextech[300] } as const;

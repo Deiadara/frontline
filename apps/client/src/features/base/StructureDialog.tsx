@@ -36,6 +36,8 @@ import {
   nexusLevelForUpgrade,
   shelvedModifications,
   type Base,
+  type BuildClocks,
+  type BuildQuotes,
   type BuildingKind,
   type ItemId,
   type ModificationSlot,
@@ -67,6 +69,22 @@ import { useServerClock } from '../missions/useServerClock';
 interface StructureDialogProps {
   kind: BuildingKind;
   base: Base;
+  /**
+   * What the server will actually charge for each structure's next level (`/me`'s `buildQuotes`).
+   *
+   * The catalogue price is not the price. `queueBuild` takes `buildCostPercent` off everything and
+   * `buildingCostPercent[kind]` off the one structure a §B7 perk names, and neither is a number
+   * the client can reach: the effects on the wire are flat, and the per-structure record is not on
+   * them at all. So the server prices every plot once on the call the shell already polls and this
+   * dialog reads the answer.
+   *
+   * Optional, and absent means "no quote for this plot": either the server is older than the
+   * field or there is nothing left to queue. The catalogue price is the fallback, which is what
+   * this drew before.
+   */
+  quotes?: BuildQuotes | undefined;
+  /** `/me`'s `buildClocks`: how long the server would take, after the crew's speed and the burn. */
+  clocks?: BuildClocks | undefined;
   pending: boolean;
   error: unknown;
   onBuild: () => void;
@@ -84,6 +102,8 @@ interface StructureDialogProps {
 export function StructureDialog({
   kind,
   base,
+  quotes,
+  clocks,
   pending,
   error,
   onBuild,
@@ -100,8 +120,22 @@ export function StructureDialog({
 
   const unlocked = isUnlockedForQueue(kind, buildings, buildQueue, base.level);
   const nextLevel = unlocked ? nextQueuedLevel(kind, buildings, buildQueue) : null;
-  const cost = nextLevel === null ? null : buildingCost(kind, nextLevel, buildings);
-  const seconds = nextLevel === null ? null : buildingBuildSeconds(kind, nextLevel, buildings);
+  /*
+   * The quote, not the catalogue.
+   *
+   * This used to be `buildingCost(...)` alone, which is the list price. A crew with any build
+   * discount was quoted more than it was charged, and, worse, `affordable` below was measured
+   * against that inflated figure: the Build button went dead on an order the server would have
+   * taken. `buildQuotes` was put on `/me` to fix exactly this and nothing had ever read it.
+   */
+  const cost =
+    nextLevel === null ? null : (quotes?.[kind] ?? buildingCost(kind, nextLevel, buildings));
+  // The clock the same way: the order freezes the catalogue's seconds after the crew's build-speed
+  // fold and the Generator's burn, and neither reaches the client, so the server quotes it.
+  const seconds =
+    nextLevel === null
+      ? null
+      : (clocks?.[kind] ?? buildingBuildSeconds(kind, nextLevel, buildings));
   const affordable = cost !== null && canAfford(resources, cost);
   const partsInHand =
     nextLevel === null || hasItems(base.inventory, buildingParts(kind, nextLevel));

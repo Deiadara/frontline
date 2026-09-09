@@ -112,6 +112,10 @@ function fakeRepos(): {
         written.level = level;
         written.xpIntoLevel = progression.xpIntoLevel;
       },
+      // §I2's durable marker (migration 0083): `awardPlayerXp` merges a crossing into it so a
+      // settle nobody can answer for still gets announced later. Nothing here asserts on it.
+      pendingLevelUp: () => undefined,
+      setPendingLevelUp: () => undefined,
       updateDistrict: () => undefined,
     },
     overseers: { updateAttributes: () => undefined },
@@ -429,6 +433,62 @@ describe('GET /research and POST /research/tech', () => {
     expect(after.active, 'the bench is free again').toBeNull();
     expect(after.technologies.find((rung) => rung.id === FIRST_MEDIC.id)?.known).toBe(true);
     expect(baseOf(app, token).research.technologies).toEqual([FIRST_MEDIC.id]);
+  });
+
+  /**
+   * And it banks on **any** read, not only on the Lab's own screen.
+   *
+   * `settleResearch` used to be called from these two routes and from nowhere else, which made the
+   * Lab the one clock in the game that does not run unless the player is looking at it. A rung
+   * finished at 03:00 was still "running" to every other route: the technology it grants was
+   * absent from `base.research.technologies`, so the declaration slot, the mission slot, the chair
+   * at the Bar and every percentage in the standing fold that rung opens stayed shut until
+   * somebody happened to open Research. The `research_done` receipt had the same shape: the bell
+   * only rang when the player opened the page it points at.
+   */
+  it('banks a finished rung on a read of a completely different screen', async () => {
+    const app = await makeApp();
+    const token = await makePlayer(app, 'elsewhere');
+    app.repos.bases.updateCommanders(baseOf(app, token).id, chairs('chief_medic'));
+
+    const started = await startTech(app, token, FIRST_MEDIC.id);
+    expect(started.statusCode, started.body.slice(0, 200)).toBe(200);
+
+    const stored = baseOf(app, token);
+    const past = new Date(
+      Date.now() - stored.research.active!.durationMinutes * MINUTE_MS * 2,
+    ).toISOString();
+    app.repos.bases.updateResearch(stored.id, {
+      active: { ...stored.research.active!, startedAt: past },
+      technologies: [],
+    });
+
+    // The shell's own poll, which is the read a player makes without meaning to.
+    const me = await app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(me.statusCode, me.body.slice(0, 200)).toBe(200);
+
+    const banked = baseOf(app, token);
+    expect(banked.research.active, 'the bench is free').toBeNull();
+    expect(banked.research.technologies).toEqual([FIRST_MEDIC.id]);
+
+    // ...and the bell rang on that read rather than waiting for the Lab's own page.
+    const userId = userIdOf(app, token);
+    const bells = app.repos.social
+      .notifications(userId, 50)
+      .filter((note) => note.kind === 'research_done');
+    expect(bells).toHaveLength(1);
+
+    // Read twice, banked once: the Lab's own screen finds nothing left to do.
+    const page = await read(app, token);
+    expect(page.active).toBeNull();
+    expect(baseOf(app, token).research.technologies).toEqual([FIRST_MEDIC.id]);
+    expect(
+      app.repos.social.notifications(userId, 50).filter((n) => n.kind === 'research_done'),
+    ).toHaveLength(1);
   });
 
   /**

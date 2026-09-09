@@ -1,5 +1,4 @@
 import {
-  BAR_HIRES_PER_DAY,
   RECRUIT_MAX_MIN_LEVEL,
   RECRUIT_MAX_MIN_NOTORIETY,
   RECRUIT_MIN_LEVEL_GATE,
@@ -14,25 +13,33 @@ import { MAX_CALIBRE, generateCharacter } from '../characters/generate.js';
 import { createRng, randomInt, type Rng } from '../characters/rng.js';
 import { rollName } from './names.js';
 
-export { BAR_HIRES_PER_DAY };
-
 /**
- * The Bar's shared roster (GDD §H1, §H2, §H2a, §H2b).
+ * The Bar's shared roster (GDD §H1, §H2, §H2a).
  *
- * §H2 makes this "the same for every player": one room, not a private roll per account. It is still
- * a pure function with no roster table and no scheduled job: what it is a function *of* is now the
- * UTC date **and** the per-seat turnover counts, because the room is no longer read-only.
+ * §H2 makes this "the same for every player": one room, not a private roll per account, and a pure
+ * function of the game day with no roster table and no scheduled job.
  *
- * Hiring somebody takes them out of the room for everybody, and the seat immediately produces
- * somebody else (§H2b). That is what `generation` is: how many people have already been hired out
- * of this seat today. It goes into the seed, so seat 3's second occupant is a different person from
- * their first, deterministically, and every player sees the same replacement.
+ * It was briefly a function of the day *and* of per-seat turnover, because hiring somebody used to
+ * take them out of the room and drop a replacement into their chair. The auction ended that. A
+ * table has to stand all day for everybody bidding at it, so nobody leaves the room before
+ * midnight, and the roster is once again a function of the date alone.
  *
  * Note what is *not* generated here: a role. A character at the Bar has not been hired into
  * anything yet (§C2), and the affinity that shaped their sheet is dropped by `generateCharacter`
  * on the way out (§B8a, INTERFACES R4), which is why this module calls that and never
  * `rollRecruit`.
  */
+
+/**
+ * The generation segment of a recruit id and of the seeds behind them, frozen at zero.
+ *
+ * It used to count how many people had been hired out of a seat today. Nothing turns a seat over
+ * any more, so it is a constant, and it is kept rather than deleted for two reasons: the id
+ * grammar `bar-<day>-<seat>-0` is parsed in three places and stored in `bar_bids`, `bar_hires` and
+ * `bar_auction_results`, and leaving it in the seed keeps every room the roster tests have already
+ * measured exactly the room they measured.
+ */
+const SEAT_GENERATION = 0;
 
 /** How many people are drinking here on any given day. */
 export const BAR_ROSTER_SIZE = 8;
@@ -87,29 +94,22 @@ export interface BarCharacter {
 }
 
 /**
- * The recruit sitting in seat `index` of `day`'s roster, after `generation` people have already
- * been hired out of that seat.
+ * The recruit sitting in seat `index` of `day`'s roster.
  *
  * Two independent seeds on purpose. `generateCharacter` consumes a whole rng stream and its draw
  * order is W1's to change; drawing the name and disposition from a *separate* stream means a
- * retune of the attribute roll cannot silently rename everyone. Both carry the generation, so a
- * seat's replacement differs on every axis rather than being the same person under a new name.
+ * retune of the attribute roll cannot silently rename everyone.
  */
-function recruitAt(
-  day: string,
-  index: number,
-  generation: number,
-  cityLevel: number,
-): BarCharacter {
+function recruitAt(day: string, index: number, cityLevel: number): BarCharacter {
   const { attributes, perks } = generateCharacter(
-    seedFrom(`${day}:${index}:${generation}:sheet`),
+    seedFrom(`${day}:${index}:${SEAT_GENERATION}:sheet`),
     barCalibre(cityLevel),
   );
-  const rng = createRng(seedFrom(`${day}:${index}:${generation}:disposition`));
+  const rng = createRng(seedFrom(`${day}:${index}:${SEAT_GENERATION}:disposition`));
   const openDoor = index < BAR_OPEN_DOOR_FLOOR;
 
   return {
-    id: recruitId(day, index, generation),
+    id: recruitId(day, index),
     name: rollName(rng),
     attributes,
     perks,
@@ -134,29 +134,22 @@ export function barCalibre(cityLevel: number): number {
 /**
  * The id grammar, authored here and nowhere else.
  *
- * The generation is *in* the id, which is what makes a stale tab safe: an id naming a generation
- * the seat has moved past cannot be found on the current roster, so hiring somebody who has
- * already left with somebody else fails with "not at the Bar today" rather than signing the
- * replacement by accident.
+ * The trailing zero is {@link SEAT_GENERATION}. It is still in the grammar because ids from before
+ * the auction are stored in the signing log and would otherwise stop parsing, and because a bid
+ * carries this string across a midnight boundary: an id has to name a day and a seat for ever.
  */
-export function recruitId(day: string, index: number, generation: number): string {
-  return `bar-${day}-${index}-${generation}`;
+export function recruitId(day: string, index: number): string {
+  return `bar-${day}-${index}-${SEAT_GENERATION}`;
 }
 
-/**
- * §H2: the whole room for a UTC day, given how far each seat has turned over.
- *
- * `generations` is indexed by seat; a short or missing entry reads as an untouched seat, so a
- * caller that has not written a single row yet gets exactly the roster §H2a always produced.
- */
+/** §H2: the whole room for one game day. */
 export function barRoster(
   day: string,
-  generations: readonly number[] = [],
   seats: number = BAR_ROSTER_SIZE,
   cityLevel = 0,
 ): BarCharacter[] {
   return Array.from({ length: Math.max(BAR_ROSTER_SIZE, seats) }, (_, index) =>
-    recruitAt(day, index, generations[index] ?? 0, cityLevel),
+    recruitAt(day, index, cityLevel),
   );
 }
 
@@ -178,9 +171,8 @@ export function barSeatsFor(recruitPoolPercent: number): number {
 /**
  * Which seat this recruit id names, or `null` when it names none of `day`'s.
  *
- * Parsed rather than searched, because the caller needs the seat number in order to turn that seat
- * over, and it needs it for an id it has already matched against the live roster, so there is
- * nothing left to validate here beyond the grammar itself.
+ * Parsed rather than searched, because a table settled the morning after has to be rebuilt from
+ * its id alone: the room it sat in is a day old and nothing stored it.
  */
 export function seatOf(day: string, id: string): number | null {
   const match = new RegExp(`^bar-${day}-(\\d+)-(\\d+)$`).exec(id);
@@ -189,16 +181,13 @@ export function seatOf(day: string, id: string): number | null {
 }
 
 /**
- * The one recruit with this id in the room right now, or `undefined`.
- *
- * `undefined` covers both "no such seat" and "that seat has moved on", and the caller wants the
- * same answer for both: the person named is not here.
+ * The one recruit with this id in `day`'s room, or `undefined` when the id names nobody in it.
  *
  * ## `cityLevel` is not optional in practice
  *
- * It defaults to 0 for the same reason `barRoster`'s does, and every caller that resolves somebody
- * a player is about to *sign* must pass the real one. The roster route was passing the city's
- * average level and the hire and negotiate routes were not, so the sheet on the card and the sheet
+ * It defaults to 0 for the same reason `barRoster`'s does, and every caller resolving somebody a
+ * player is about to bid on or sign must pass the real one. The roster route passed the city's
+ * average level and the hire and negotiate routes did not, so the sheet on the card and the sheet
  * on the contract were generated at two different calibres: a player at a mature Bar was shown a
  * strong recruit and handed the level-1 version of them. The seed grammar makes that silent, since
  * both are legitimate people with the same id.
@@ -206,9 +195,8 @@ export function seatOf(day: string, id: string): number | null {
 export function findBarRecruit(
   day: string,
   recruitId: string,
-  generations: readonly number[] = [],
   seats: number = BAR_ROSTER_SIZE,
   cityLevel = 0,
 ): BarCharacter | undefined {
-  return barRoster(day, generations, seats, cityLevel).find((recruit) => recruit.id === recruitId);
+  return barRoster(day, seats, cityLevel).find((recruit) => recruit.id === recruitId);
 }

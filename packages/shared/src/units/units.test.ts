@@ -925,7 +925,7 @@ describe('the bench clock climbs with the campaign', () => {
 });
 
 /**
- * The two flags that are rules rather than numbers, and the one table that names them.
+ * The flags that are rules rather than numbers, and the one table that names them.
  *
  * They were readable only by the engine: no screen could show them, so a player could field an
  * Ironside without ever learning it is a shield line, or a Stitcher without learning it does
@@ -960,9 +960,29 @@ describe('the rule flags are visible content, not engine trivia', () => {
     }
   });
 
+  /**
+   * Scarcity, now measured in the dimension that actually decides whether a rule is a distinction.
+   *
+   * The bound used to be a third of the roster, from when the table held three rules. It holds
+   * eight, and a third stopped being the right number the moment the marks pass added five: the
+   * board asked for sheets that change what happens rather than scale a figure, and a bound tuned
+   * to a three-row table would have capped that at ten units whatever the rules were.
+   *
+   * So the guard is split in two. Most of the roster still carries nothing, which is what keeps a
+   * mark worth reading; and **no single rule may be on more than a fifth of it**, which is the
+   * stricter half and the one the old check never made. Eight rules spread thin is a vocabulary.
+   * One rule on half the roster is a stat with a name, and that is what this refuses.
+   */
   it('leaves most of the roster carrying none, so a rule stays a distinction', () => {
     const carrying = UNIT_CATALOG.filter((unit) => unitRules(unit).length > 0);
-    expect(carrying.length).toBeLessThan(UNIT_CATALOG.length / 3);
+    expect(carrying.length).toBeLessThan(UNIT_CATALOG.length / 2);
+  });
+
+  it('keeps any one rule off most of the roster', () => {
+    for (const id of UNIT_RULE_IDS) {
+      const carrying = UNIT_CATALOG.filter((unit) => unit[id] === true);
+      expect(carrying.length, id).toBeLessThanOrEqual(UNIT_CATALOG.length / 5);
+    }
   });
 });
 

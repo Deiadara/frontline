@@ -1,28 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { makeAttributes } from '../attributes.js';
 import {
-  MAX_ATTRIBUTE,
-  MAX_RECRUITMENT_ATTRIBUTE,
-  makeAttributes,
-  type Attributes,
-} from '../attributes.js';
-import {
-  INSULT_FRACTION,
-  MAX_PATIENCE,
-  MIN_PATIENCE,
-  NEGOTIATION_MOODS,
-  negotiate,
-  negotiationLine,
-  negotiationTemper,
-  negotiationVoice,
-  NEGOTIATION_VOICES,
-  openNegotiation,
-  type Negotiation,
-} from './negotiation.js';
+  AUCTION_SEALED_WINDOW_MS,
+  MAX_OPEN_AUCTIONS,
+  auctionPhaseAt,
+  auctionWindow,
+  finalValue,
+  maxOpenAuctionsFor,
+  nextMinimumBid,
+  rankBids,
+} from './auction.js';
 import { assessJoin } from './join.js';
+import { dayInZone } from '../time/zone.js';
 import {
   RECRUIT_BASE_WAGE,
   WAGE_RESERVATION_FRACTION,
-  WALKOUT_MARKUP,
   askingWage,
   reservationWage,
 } from './wage.js';
@@ -70,15 +62,6 @@ describe('§H7: what a contract costs', () => {
    * The whole cost of haggling badly. The six-hour standoff is a delay; this is the part that
    * persists, and it is what makes an opening lowball a decision rather than a free roll.
    */
-  it('marks the price up ten percent for every conversation they walked out of', () => {
-    const flat = askingWage(sheet(30));
-    const once = askingWage(sheet(30), 1);
-    const twice = askingWage(sheet(30), 2);
-    expect(once).toBeGreaterThan(flat);
-    expect(twice).toBeGreaterThan(once);
-    expect(once / flat).toBeCloseTo(1 + WALKOUT_MARKUP, 1);
-  });
-
   it('puts the floor at a fixed share of the asking price', () => {
     for (const asking of [12, 40, 137]) {
       expect(reservationWage(asking)).toBe(Math.ceil(asking * WAGE_RESERVATION_FRACTION));
@@ -106,163 +89,123 @@ describe('the shared package keeps no role-shaped data', () => {
  * and this one had to grow: a floor that does not move, a demand that does, a personality behind
  * both, patience that runs out, and a door.
  */
-describe('haggling with somebody who has an opinion about you (§H7)', () => {
-  const ASKING = 100;
-  const FLOOR = reservationWage(ASKING); // 80
-
-  /* A middling sheet: neither a pushover nor a professional. */
-  const SHEET = makeAttributes(20);
-  /* Holds the line, and does this for a living: the hardest sit-down the model produces. */
-  const HARD = {
-    ...makeAttributes(20),
-    composure: MAX_RECRUITMENT_ATTRIBUTE,
-    negotiation: MAX_RECRUITMENT_ATTRIBUTE,
-  };
-  /* Rattles, and has never haggled before. */
-  const SOFT = { ...makeAttributes(20), composure: 0, negotiation: 0 };
-
-  const open = (attributes: Attributes = SHEET) => openNegotiation(ASKING, attributes);
-
-  const say = (negotiation: Negotiation, offer: number, attributes: Attributes = SHEET) =>
-    negotiate({ negotiation, offer, asking: ASKING, attributes });
-
-  it('opens at the asking price with the whole of their patience', () => {
-    const started = open();
-    expect(started.standing).toBe(ASKING);
-    expect(started.rounds).toBe(0);
-    expect(started.closed).toBe(false);
-    expect(started.patience).toBe(negotiationTemper(SHEET).patience);
+describe('bidding for people (§H7, the auction)', () => {
+  it('opens at the reserve and steps by five percent, never by less than a cap', () => {
+    expect(nextMinimumBid(40, null)).toBe(40);
+    expect(nextMinimumBid(40, 40)).toBe(42);
+    expect(nextMinimumBid(40, 100)).toBe(105);
+    // A leader under the reserve cannot happen, but the floor still holds if it did.
+    expect(nextMinimumBid(40, 10)).toBe(40);
+    expect(nextMinimumBid(12, 12)).toBe(13);
   });
 
-  it('takes an offer at the reservation value, and not one cap under it', () => {
-    expect(say(open(), FLOOR).accepted).toBe(true);
-    expect(say(open(), FLOOR - 1).accepted).toBe(false);
+  it('seals the last thirty minutes of the game day and closes at its turn', () => {
+    const now = new Date('2026-09-07T10:00:00Z');
+    const window = auctionWindow(now);
+    expect(window.day).toBe('2026-09-07');
+    expect(window.closesAt.getTime() - window.sealedFrom.getTime()).toBe(AUCTION_SEALED_WINDOW_MS);
+    // Athens is three hours ahead in September: the day turns at 21:00Z.
+    expect(window.closesAt.toISOString()).toBe('2026-09-07T21:00:00.000Z');
+    expect(auctionPhaseAt(now, window)).toBe('open');
+    expect(auctionPhaseAt(new Date('2026-09-07T20:29:59Z'), window)).toBe('open');
+    expect(auctionPhaseAt(new Date('2026-09-07T20:30:00Z'), window)).toBe('sealed');
+    expect(auctionPhaseAt(new Date('2026-09-07T21:00:00Z'), window)).toBe('closed');
   });
 
-  it('agrees at the number offered: haggling well is worth caps', () => {
-    const turn = say(open(), FLOOR);
-    expect(turn.negotiation.lastOffer).toBe(FLOOR);
-    expect(turn.negotiation.standing).toBe(FLOOR);
-    expect(turn.negotiation.closed).toBe(true);
-  });
-
-  it('knows the difference between agreeing and being overpaid', () => {
-    expect(say(open(), FLOOR).negotiation.mood).toBe('agreed');
-    expect(say(open(), ASKING + 20).negotiation.mood).toBe('overpaid');
-  });
-
-  it('comes down when you move up, and never below the floor', () => {
-    let state = open();
-    let previous = state.standing;
-    for (const offer of [40, 55, 65, 72, 76]) {
-      const turn = say(state, offer);
-      if (turn.negotiation.closed) break;
-      expect(turn.negotiation.standing).toBeLessThanOrEqual(previous);
-      expect(turn.negotiation.standing).toBeGreaterThanOrEqual(FLOOR);
-      previous = turn.negotiation.standing;
-      state = turn.negotiation;
-    }
-    expect(previous).toBeLessThan(ASKING);
-  });
-
-  it('gives almost nothing to a player who repeats themselves', () => {
-    const first = say(open(), 60);
-    const movedOn = say(first.negotiation, 70);
-    const repeated = say(first.negotiation, 60);
-
-    const concededByMoving = first.negotiation.standing - movedOn.negotiation.standing;
-    const concededByRepeating = first.negotiation.standing - repeated.negotiation.standing;
-    expect(concededByRepeating).toBeLessThan(concededByMoving);
-    // And it costs more patience than moving does, which is what makes stubbornness a bad plan.
-    expect(repeated.negotiation.patience).toBeLessThan(movedOn.negotiation.patience);
-    expect(repeated.negotiation.mood).toBe('stonewalled');
-  });
-
-  it('treats a lowball as an insult and burns patience for it', () => {
-    const insulting = say(open(), Math.floor(FLOOR * INSULT_FRACTION) - 1);
-    const merelyLow = say(open(), FLOOR - 1);
-    expect(insulting.negotiation.mood).toBe('insulted');
-    expect(insulting.negotiation.patience).toBeLessThan(merelyLow.negotiation.patience);
-  });
-
-  it('walks away when patience runs out, and stays gone', () => {
-    let state = open(SOFT);
-    let walked = false;
-    for (let round = 0; round < 20 && !walked; round++) {
-      const turn = say(state, 1, SOFT);
-      state = turn.negotiation;
-      walked = turn.walkedAway;
-    }
-    expect(walked, 'a stream of insulting offers has to end the conversation').toBe(true);
-    expect(state.closed).toBe(true);
-    expect(state.mood).toBe('walked');
-
-    // And a further offer changes nothing at all, however good it is.
-    const after = say(state, ASKING * 10, HARD);
-    expect(after.accepted).toBe(false);
-    expect(after.negotiation).toEqual(state);
-  });
-
-  /*
-   * The temper is read off the sheet now, and this is the property that makes that worth doing:
-   * the card the player is looking at *predicts the haggle*. Composure is how long they sit there;
-   * Negotiation is how little they give up. Both are printed before you decide to sit down.
+  /**
+   * The two nights of the year the arithmetic answer is wrong.
+   *
+   * A day is 23 hours long in Athens on the last Sunday of March and 25 on the last Sunday of
+   * October, so "midnight plus 24 hours" is an hour out on both, and a table that closed an hour
+   * early or an hour late is a table somebody was still bidding at. `nextDayBoundary` searches
+   * rather than adds, and this is what says so at the seam the Bar actually uses.
+   *
+   * The assertions are stated as facts about the *day key* rather than as UTC instants wherever
+   * they can be, so they stay true if a tz database update moves a boundary: the last instant of
+   * the auction has to be inside the day it belongs to, and the close has to be the first instant
+   * of the next one.
    */
-  it('makes a composed professional a harder sit-down than somebody who rattles', () => {
-    expect(negotiationTemper(HARD).patience).toBeGreaterThan(negotiationTemper(SOFT).patience);
-    expect(negotiationTemper(SOFT).concession).toBeGreaterThan(negotiationTemper(HARD).concession);
-  });
+  it('closes at the real Athens midnight on both summer-time nights', () => {
+    const nights = [
+      // Spring forward: 29 March 2026 is 23 hours long. Athens is EEST (+3) by the evening, so
+      // the day turns at 21:00Z rather than at 22:00Z.
+      { during: '2026-03-29T12:00:00Z', day: '2026-03-29', closes: '2026-03-29T21:00:00.000Z' },
+      // The day *before* it, which is still EET (+2) and turns at 22:00Z.
+      { during: '2026-03-28T12:00:00Z', day: '2026-03-28', closes: '2026-03-28T22:00:00.000Z' },
+      // Fall back: 25 October 2026 is 25 hours long and ends in EET (+2).
+      { during: '2026-10-25T12:00:00Z', day: '2026-10-25', closes: '2026-10-25T22:00:00.000Z' },
+      { during: '2026-10-24T12:00:00Z', day: '2026-10-24', closes: '2026-10-24T21:00:00.000Z' },
+    ];
 
-  it('keeps every temper inside the bounds the model promises, across the whole scale', () => {
-    for (let composure = 0; composure <= MAX_ATTRIBUTE; composure += 1) {
-      for (const negotiation of [0, MAX_RECRUITMENT_ATTRIBUTE, MAX_ATTRIBUTE]) {
-        const temper = negotiationTemper({ ...makeAttributes(20), composure, negotiation });
-        expect(temper.patience).toBeGreaterThanOrEqual(MIN_PATIENCE);
-        expect(temper.patience).toBeLessThanOrEqual(MAX_PATIENCE);
-        expect(temper.concession).toBeGreaterThan(0);
-        expect(temper.concession).toBeLessThanOrEqual(0.7);
-      }
+    for (const night of nights) {
+      const window = auctionWindow(new Date(night.during));
+      expect(window.day, night.during).toBe(night.day);
+      expect(window.closesAt.toISOString(), night.during).toBe(night.closes);
+      // The seal is thirty minutes of wall clock, whatever the day's length.
+      expect(window.closesAt.getTime() - window.sealedFrom.getTime()).toBe(
+        AUCTION_SEALED_WINDOW_MS,
+      );
+      // The last instant of the auction is inside its own day, and the close is not.
+      expect(dayInZone(new Date(window.closesAt.getTime() - 1))).toBe(night.day);
+      expect(dayInZone(window.closesAt)).not.toBe(night.day);
+      // And the phases line up on the boundary itself.
+      expect(auctionPhaseAt(new Date(window.sealedFrom.getTime() - 1), window)).toBe('open');
+      expect(auctionPhaseAt(window.sealedFrom, window)).toBe('sealed');
+      expect(auctionPhaseAt(new Date(window.closesAt.getTime() - 1), window)).toBe('sealed');
+      expect(auctionPhaseAt(window.closesAt, window)).toBe('closed');
     }
   });
 
-  /** Four written voices, and a recruit always sounds like the same one. */
-  it('gives a recruit one voice and keeps them in it', () => {
-    for (const id of ['recruit-1', 'recruit-2', 'someone-else']) {
-      expect(negotiationVoice(id)).toBe(negotiationVoice(id));
-      expect(NEGOTIATION_VOICES).toContain(negotiationVoice(id));
+  /**
+   * A crew bidding through the change, minute by minute.
+   *
+   * The seal must open exactly once and stay open: an off-by-an-hour in the boundary shows up here
+   * as a table that seals twice, or never, on the one night of the year it matters.
+   */
+  it('runs one uninterrupted open phase and one seal across a 23-hour day', () => {
+    const day = '2026-03-29';
+    // Every ten minutes of the short day, from its first instant to its last.
+    const start = new Date('2026-03-28T22:00:00Z').getTime();
+    const seen: string[] = [];
+    for (let at = start; at < start + 23 * 3_600_000; at += 10 * 60_000) {
+      const now = new Date(at);
+      const window = auctionWindow(now);
+      expect(window.day, now.toISOString()).toBe(day);
+      const phase = auctionPhaseAt(now, window);
+      if (seen[seen.length - 1] !== phase) seen.push(phase);
     }
-    const voices = new Set(
-      Array.from({ length: 200 }, (_, index) => negotiationVoice(`recruit-${index}`)),
+    expect(seen, 'open, then sealed, and nothing in between or after').toEqual(['open', 'sealed']);
+  });
+
+  it('counts a crew in for the higher of its open bid and its sealed value', () => {
+    expect(finalValue({ userId: 'a', open: 50, sealed: null })).toBe(50);
+    expect(finalValue({ userId: 'a', open: 50, sealed: 80 })).toBe(80);
+    expect(finalValue({ userId: 'a', open: null, sealed: 30 })).toBe(30);
+  });
+
+  it('ranks by final, drops anybody under the reserve, and breaks a tie the same way twice', () => {
+    const bids = [
+      { userId: 'open-leader', open: 60, sealed: null },
+      { userId: 'sniper', open: 45, sealed: 75 },
+      { userId: 'under', open: null, sealed: 20 },
+      { userId: 'tied-a', open: 75, sealed: null },
+    ];
+    const first = rankBids(bids, 40, 'day:seat');
+    const second = rankBids(bids, 40, 'day:seat');
+    expect(first.ranked.map((entry) => entry.final)).toEqual([75, 75, 60]);
+    expect(first.ranked.map((entry) => entry.userId)).toEqual(second.ranked.map((e) => e.userId));
+    expect(first.ranked.some((entry) => entry.userId === 'under')).toBe(false);
+    // And the coin is the auction's, not the order's: a different seed can flip the tie.
+    const flips = ['a', 'b', 'c', 'd', 'e', 'f'].map(
+      (seed) => rankBids(bids, 40, seed).ranked[0]!.userId,
     );
-    expect(voices.size, 'every recruit sounds the same').toBeGreaterThan(1);
+    expect(new Set(flips).size).toBe(2);
   });
 
-  it('agrees on exactly the number the hire gate would accept', () => {
-    // The one invariant that stops the conversation being theatre: `/bar/hire` re-checks the
-    // agreed figure against `reservationWage`, and that must never disagree with what the
-    // character just said yes to across the table.
-    for (let offer = 0; offer <= ASKING + 40; offer++) {
-      expect(say(open(), offer).accepted).toBe(offer >= reservationWage(ASKING));
-    }
-  });
-
-  it('says something in character, and says the same thing twice', () => {
-    const turn = say(open(), 10);
-    const line = negotiationLine('ruthless', turn.negotiation.mood, turn.negotiation.rounds);
-    expect(line.length).toBeGreaterThan(0);
-    expect(negotiationLine('ruthless', turn.negotiation.mood, turn.negotiation.rounds)).toBe(line);
-    // Four voices, not one bank with a name on it.
-    expect(negotiationLine('idealist', 'insulted', 0)).not.toBe(
-      negotiationLine('ruthless', 'insulted', 0),
-    );
-  });
-
-  it('has a line for every mood a conversation can actually reach', () => {
-    for (const compass of NEGOTIATION_VOICES) {
-      for (const mood of NEGOTIATION_MOODS) {
-        expect(negotiationLine(compass, mood, 0).length).toBeGreaterThan(0);
-        expect(negotiationLine(compass, mood, 7).length).toBeGreaterThan(0);
-      }
-    }
+  it('lets a crew sit at two tables, three past the level-40 milestone', () => {
+    expect(MAX_OPEN_AUCTIONS).toBe(2);
+    expect(maxOpenAuctionsFor(1)).toBe(2);
+    expect(maxOpenAuctionsFor(39)).toBe(2);
+    expect(maxOpenAuctionsFor(40)).toBe(3);
   });
 });

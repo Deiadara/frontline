@@ -3,8 +3,10 @@ import {
   findUnit,
   isCombatUnit,
   fittedFor,
+  UNIT_RULES,
   type Army,
   type UnitLoadouts,
+  type UnitRuleId,
   type UnitSpec,
 } from '../units/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
@@ -135,6 +137,55 @@ export function frontageShare(side: SideState, frontage: number): number {
  */
 export const AMBUSH_ROUND_SHARE = 0.6;
 
+/**
+ * What an Opening Volley is worth, as a share of one round's fire (`UnitSpec.strikes_first`).
+ *
+ * Deliberately smaller than {@link AMBUSH_ROUND_SHARE}. An ambush is the attacker's alone, it is
+ * paid for in stealth, and a side that can see gets most of it back; this one is on the sheet, both
+ * sides get it, and nothing the enemy brings turns it off. A volley that cannot be prevented has to
+ * be worth less than one that can, or the counterplay stops being worth buying.
+ *
+ * Sized against the strongest thing on the same surface. `bulwark` is +70% toughness on one sheet
+ * and `tracking` is +45% damage against an evasive target, both of which are worth more than a
+ * third of a round to the stacks that carry them; this is under both and it is unconditional.
+ */
+export const FIRST_STRIKE_SHARE = 0.35;
+
+/**
+ * The share of an attacking line that has to be sappers before the works come down as far as they
+ * are going to (`UnitSpec.sapper`).
+ *
+ * A quarter, which is {@link MEND_FULL_COVER}'s ratio and for the same reason: how much a
+ * speciality is worth depends on how big the line it is working for is, so this is a ratio and not
+ * a rate. Four Demolishers in a raiding party of sixteen bring the whole wall down as far as it
+ * goes; four in a party of a hundred bring a sixth of it.
+ */
+export const SAPPER_FULL_SHARE = 0.25;
+
+/**
+ * The most of a defender's fortification a sapping line can take away, as a percentage of it.
+ *
+ * Forty per cent of the works, never the works themselves. Fortification is the whole return on a
+ * barricade and a Gate, and a sheet that could cancel it would make every defensive structure in
+ * the game a purchase you regret the first time somebody brings the right unit. What this buys is
+ * that a dug-in defender is a problem with an answer, which is what `penetration` is to armour and
+ * `tracking` is to evasion.
+ */
+export const MAX_SAPPER_CUT = 40;
+
+/** Percentage points of offense per other body of the same unit in the line (`UnitSpec.pack`). */
+export const PACK_STEP = 0.6;
+
+/**
+ * The most massing one sheet can be worth, in percentage points of offense.
+ *
+ * Reached at 42 bodies, which is a real commitment on a roster this size, and capped under the
+ * biggest context modifier in the table (`tracking`, 45) because that one is conditional on the
+ * enemy and this one is not. Combat width still charges for the bodies, so a pack that is over the
+ * frontage is paying in silenced rank for the bonus it is drawing.
+ */
+export const MAX_PACK_BONUS = 25;
+
 /** Per-round swing, the Grepolis "luck" idea at a tighter spread so it averages out over a fight. */
 export const ROUND_LUCK = 0.12;
 
@@ -227,6 +278,16 @@ export interface SideState {
    * and a hundred *fighting* when the ground is a corridor.
    */
   cohesionPercent: number;
+  /**
+   * Whether a stack breaking on this side can shake the ones beside it (`steady_nerve`).
+   *
+   * On the side rather than on the sheet, because that is what it is: the cascade is a fact about a
+   * line watching itself come apart, and a rule that made one stack immune while the stack next to
+   * it caught the panic would be describing something else. Lifted off `TerritoryEffects` in
+   * `simulate`, beside `cohesionPercent`, which reaches the engine the same way and for the same
+   * reason.
+   */
+  steadyNerve: boolean;
 }
 
 const clamp = (value: number, low: number, high: number): number =>
@@ -355,6 +416,110 @@ export function cow(side: SideState, against: number): number {
   return silenced;
 }
 
+/**
+ * The two crew channels that change what a *sheet* is, rather than what a number on it is.
+ *
+ * A `Pick` of `TerritoryEffects` rather than the whole struct, so the helpers below can be called
+ * from a test or from `sapperCutPercent` with a two-field literal instead of a fold nobody in that
+ * context has. Every real caller passes a `CrewEffects`, which satisfies it.
+ */
+export type LineRules = Pick<TerritoryEffects, 'carriersFight' | 'unitMarks'>;
+
+/** Nothing granted and nobody promoted: what a fight with no holdings behind it reads. */
+export const bareLineRules = (): LineRules => ({ carriersFight: false, unitMarks: {} });
+
+/**
+ * Whether this unit takes a place in the line at all (`carriers_fight` in `city/locations.ts`).
+ *
+ * `combat: false` is otherwise the hardest rule in the game: the porters are not in the fight, and
+ * the check lives in the engine rather than at the doors precisely so nothing can forget it. This
+ * is the one thing that lifts it, and it is a crew's own holding rather than a caller's argument,
+ * so a defender who never chose their force is covered by it exactly as an attacker is.
+ */
+export function standsInLine(unit: UnitSpec, rules: LineRules): boolean {
+  return isCombatUnit(unit) || rules.carriersFight;
+}
+
+/**
+ * The sheet this crew actually fields, with whatever marks it has been granted written on.
+ *
+ * A copy of the spec with the flags set, rather than a second lookup at every read site. Every rule
+ * in the engine asks `unit.<mark> === true`, so granting one here wires it into the round loop, the
+ * targeting split, the medics and the report at once, and a mark added to `units/rules.ts` tomorrow
+ * is grantable with no change to this function.
+ */
+export function markedUnit(unit: UnitSpec, rules: LineRules): UnitSpec {
+  const granted = rules.unitMarks[unit.id];
+  if (granted === undefined || granted.length === 0) return unit;
+  const marks = Object.fromEntries(granted.map((mark: UnitRuleId) => [mark, true]));
+  return { ...unit, ...marks };
+}
+
+/**
+ * What a porter standing in the line is worth, against what it would be as a fighter.
+ *
+ * Half, and the half is what stops `carriers_fight` making the cheapest sheet in the game the best
+ * one: a Scavenger costs a fraction of a Razor and there is no supply ceiling on porters worth
+ * speaking of. Applied to damage and to hit points both, so a crew that turns its porters out gets
+ * bodies on the ground rather than a second army.
+ */
+export const CARRIER_STRENGTH = 0.5;
+
+/**
+ * What massing this many bodies of one packing unit is worth, in percentage points of offense.
+ *
+ * Linear in the *other* bodies, so one on its own is worth nothing at all and the sheet is honest:
+ * the rule says "for every other one of itself in the line". Capped at {@link MAX_PACK_BONUS}.
+ */
+export function packBonusPercent(bodies: number): number {
+  return Math.min(MAX_PACK_BONUS, Math.max(0, bodies - 1) * PACK_STEP);
+}
+
+/**
+ * How much of the defender's fortification this attacking force takes down, as a percentage of it.
+ *
+ * Read off the raw roster rather than off the built stacks, which matters: `simulate` builds the
+ * two sides in sequence, and a cut computed from one side's finished stacks would depend on which
+ * of them happened to be built first. Porters are skipped for the same reason they are skipped
+ * everywhere else, they are not on the line.
+ */
+export function sapperCutPercent(army: Army, rules: LineRules = bareLineRules()): number {
+  let sappers = 0;
+  let line = 0;
+  for (const [unitId, count] of Object.entries(army)) {
+    const found = findUnit(unitId);
+    if (!found || (count ?? 0) <= 0 || !standsInLine(found, rules)) continue;
+    const unit = markedUnit(found, rules);
+    line += count ?? 0;
+    if (unit.sapper === true) sappers += count ?? 0;
+  }
+  if (sappers <= 0 || line <= 0) return 0;
+  return MAX_SAPPER_CUT * Math.min(1, sappers / (line * SAPPER_FULL_SHARE));
+}
+
+/** The ground as the defender actually finds it, once the attacker's sappers have been at it. */
+export function sappedGround(
+  battlefield: Battlefield,
+  attacking: Army,
+  rules: LineRules = bareLineRules(),
+): Battlefield {
+  const cut = sapperCutPercent(attacking, rules);
+  if (cut <= 0) return battlefield;
+  return { ...battlefield, fortifyPercent: battlefield.fortifyPercent * (1 - cut / 100) };
+}
+
+/** Whether this stack keeps standing at a morale that would rout anybody else (`stalwart`). */
+export function holdsTheLine(stack: Stack): boolean {
+  return stack.unit.stalwart === true && stack.alive * 2 > stack.started;
+}
+
+/** Whether anything on this side gets a shot away before the lines form (`strikes_first`). */
+export function opensFire(side: SideState): boolean {
+  return side.stacks.some(
+    (stack) => stack.unit.strikes_first === true && stack.alive > 0 && stack.brokeAt === null,
+  );
+}
+
 function buildStacks(
   army: Army,
   battlefield: Battlefield,
@@ -367,7 +532,7 @@ function buildStacks(
 ): Stack[] {
   const stacks: Stack[] = [];
   for (const [unitId, count] of Object.entries(army)) {
-    const unit = findUnit(unitId);
+    const found = findUnit(unitId);
     /*
      * The porters are not in the line, and the rule lives **here** rather than at the doors.
      *
@@ -383,14 +548,41 @@ function buildStacks(
      * which is the correct reading of the rule rather than a special case: there is nobody there to
      * fight, so the other side walks in.
      */
-    if (!unit || count <= 0 || !isCombatUnit(unit)) continue;
-    const effective = effectiveStats(
+    if (!found || count <= 0 || !standsInLine(found, territory)) continue;
+    const unit = markedUnit(found, territory);
+    const bare = effectiveStats(
       unit,
       battlefield,
       { defending, outnumbered },
       territory,
       fittedFor(upgrades, unitId),
     );
+    /*
+     * `pack` is the one bonus that cannot be worked out from a sheet (`UnitSpec.pack`).
+     *
+     * `effectiveStats` is handed one unit and the ground it is standing on; it has no idea how many
+     * of them turned up, and giving it the count would make every other caller invent one. So it is
+     * folded here, where the roster row is, and it lands on the same `Effective` struct as
+     * everything else so the report can name it beside the terrain reasons.
+     */
+    const packed = unit.pack === true ? packBonusPercent(count) : 0;
+    // A porter turned out under `carriers_fight` fights at half of what it is. Applied to the two
+    // figures the exchange reads, and after the pack bonus, so the halving is of the finished
+    // number rather than of the sheet: there is no order of these two that is not this one.
+    const turnedOut = isCombatUnit(unit) ? 1 : CARRIER_STRENGTH;
+    const effective =
+      packed > 0 || turnedOut < 1
+        ? {
+            ...bare,
+            offense: bare.offense * (1 + packed / 100) * turnedOut,
+            vitality: bare.vitality * turnedOut,
+            reasons: [
+              ...bare.reasons,
+              ...(packed > 0 ? [UNIT_RULES.pack.label] : []),
+              ...(turnedOut < 1 ? ['Turned out to fight'] : []),
+            ],
+          }
+        : bare;
     stacks.push({
       unit,
       effective,
@@ -684,7 +876,10 @@ function moralePhase(
     enemyCasualtyFraction: enemyLost,
     enemyIntimidation: intimidation(enemy),
     outnumberedRatio: bodies(enemy) / ownBodies,
-    alliesBroken: cascadeFrom,
+    // `steady_nerve` cuts exactly this term and nothing else: the line still breaks from its own
+    // losses, from being outnumbered and from what is opposite it, and never from the panic beside
+    // it. See `SideState.steadyNerve`.
+    alliesBroken: side.steadyNerve ? 0 : cascadeFrom,
     resolvePercent: side.defending ? battlefield.fortifyPercent : 0,
   };
 
@@ -697,7 +892,11 @@ function moralePhase(
       0,
       100,
     );
-    if (moraleState(stack.morale) === 'routed') {
+    // `stalwart` is checked after the morale is written, not instead of it: the stack still loses
+    // its nerve on the ledger, it simply does not leave. That is what makes the rule bite exactly
+    // once, when the losses finally take it under half and it breaks in the same round it would
+    // have broken in without the check.
+    if (moraleState(stack.morale) === 'routed' && !holdsTheLine(stack)) {
       stack.brokeAt = round;
       broke.push(stack);
     }
@@ -780,24 +979,41 @@ export function simulate(input: SimulateInput): Simulation {
   // cannot resolve and leaves the porters out, so counting the record could tell a side it was
   // outnumbered by bodies that never reached the field. Forty Scavengers behind twenty Razors were
   // handing every Warden and Juggernaut sent against them a last stand it had not earned.
-  const roster = (army: Army): number =>
+  const roster = (army: Army, rules: LineRules): number =>
     Object.entries(army).reduce((total, [unitId, count]) => {
       const unit = findUnit(unitId);
-      return unit && count > 0 && isCombatUnit(unit) ? total + count : total;
+      return unit && count > 0 && standsInLine(unit, rules) ? total + count : total;
     }, 0);
-  const attackerCount = roster(input.attacker.army);
-  const defenderCount = roster(input.defender.army);
+  const rulesFor = (setup: SideSetup): LineRules => setup.territory ?? bareLineRules();
+  const attackerCount = roster(input.attacker.army, rulesFor(input.attacker));
+  const defenderCount = roster(input.defender.army, rulesFor(input.defender));
 
-  const build = (setup: SideSetup, otherCount: number, ownCount: number): SideState => ({
+  /*
+   * §A4: the works, once the attacker's sappers have been at them (`UnitSpec.sapper`).
+   *
+   * Cut here rather than inside `effectiveStats` because it is a fact about the ground and about
+   * the force that came for it, not about any one defending unit: every stack behind the barricade
+   * finds the same barricade. The defender is built against this and so is the defender's morale
+   * phase, which reads `fortifyPercent` as the resolve that holding built ground buys.
+   */
+  const defenderGround = sappedGround(battlefield, input.attacker.army, rulesFor(input.attacker));
+
+  const build = (
+    setup: SideSetup,
+    otherCount: number,
+    ownCount: number,
+    ground: Battlefield,
+  ): SideState => ({
     name: setup.name,
     defending: setup.defending,
     swing: 1 + (next() * 2 - 1) * BATTLE_LUCK,
     // Filled in below: every force is registered before any luck is drawn.
     luck: 0,
     cohesionPercent: setup.cohesionPercent ?? 0,
+    steadyNerve: setup.territory?.steadyNerve ?? false,
     stacks: buildStacks(
       setup.army,
-      battlefield,
+      ground,
       setup.defending,
       ownCount > 0 && otherCount / ownCount >= OUTNUMBERED_RATIO,
       setup.territory ?? noTerritoryEffects(),
@@ -806,8 +1022,8 @@ export function simulate(input: SimulateInput): Simulation {
     ),
   });
 
-  const attacker = build(input.attacker, defenderCount, attackerCount);
-  const defender = build(input.defender, attackerCount, defenderCount);
+  const attacker = build(input.attacker, defenderCount, attackerCount, battlefield);
+  const defender = build(input.defender, attackerCount, defenderCount, defenderGround);
 
   // Both forces are on the field; now the day decides. Drawn here rather than inside `build` so
   // that neither side's luck can depend on how the other side's roster happened to be shaped.
@@ -845,6 +1061,38 @@ export function simulate(input: SimulateInput): Simulation {
         )
       : new Map<Stack, number>();
 
+  /*
+   * The Opening Volley (`UnitSpec.strikes_first`), after the ambush and before the exchange.
+   *
+   * Both sides' volleys are *computed* before either is applied, for the reason the round loop
+   * gives: fire from a shared snapshot, or whichever side is written first shoots at bodies that
+   * are already down. Taken after the ambush on purpose, so a force that is walked into is already
+   * short of people when it gets its own shot away, which is the one thing that makes bringing an
+   * ambush worth more than bringing this.
+   */
+  const openingOnDefender = opensFire(attacker)
+    ? fireRound(
+        attacker,
+        defender,
+        1,
+        FIRST_STRIKE_SHARE,
+        battlefield.frontage,
+        (stack) => stack.unit.strikes_first === true,
+      )
+    : new Map<Stack, number>();
+  const openingOnAttacker = opensFire(defender)
+    ? fireRound(
+        defender,
+        attacker,
+        1,
+        FIRST_STRIKE_SHARE,
+        battlefield.frontage,
+        (stack) => stack.unit.strikes_first === true,
+      )
+    : new Map<Stack, number>();
+  const openedDefender = applyDamage(defender, openingOnDefender);
+  const openedAttacker = applyDamage(attacker, openingOnAttacker);
+
   let attackerCascade = 0;
   let defenderCascade = 0;
   let round = 0;
@@ -871,11 +1119,16 @@ export function simulate(input: SimulateInput): Simulation {
       attacker,
       fireRound(defender, attacker, defenderConcentration, defenderSwing, battlefield.frontage),
     );
+    // Round one carries whatever happened before it: the ambush and either side's opening volley.
+    // `mergeLosses` composes fractions of different starting numbers, so chaining is exact.
     const defenderLost = mergeLosses(
-      applyDamage(defender, ontoDefender),
-      round === 1 ? ambushed : undefined,
+      mergeLosses(applyDamage(defender, ontoDefender), round === 1 ? ambushed : undefined),
+      round === 1 ? openedDefender : undefined,
     );
-    const attackerLost = applyDamage(attacker, ontoAttacker);
+    const attackerLost = mergeLosses(
+      applyDamage(attacker, ontoAttacker),
+      round === 1 ? openedAttacker : undefined,
+    );
 
     // Averaged over the stacks that took anything, so "how the other side is doing" is a figure
     // about the enemy force rather than about whichever of its stacks happened to be focused.
@@ -895,7 +1148,7 @@ export function simulate(input: SimulateInput): Simulation {
       attacker,
       defenderLost,
       attackerLossShare,
-      battlefield,
+      defenderGround,
       round,
       defenderCascade,
     );

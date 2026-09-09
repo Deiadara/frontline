@@ -1,6 +1,6 @@
 import {
   MISC_AREA_ID,
-  hastenedMinutes,
+  hastenedRoadMinutes,
   missionOffers,
   missionTimings,
   templateTimings,
@@ -23,7 +23,7 @@ import { useSession } from '../../store/session';
  * The send dialog's clock moves with the machines it prints two sections below.
  *
  * `offer.totalMinutes` is the bare template: `missions/board.ts` builds the board with
- * `templateTimings`. The launch runs `hastenedMinutes(TRAVEL_BAND_MINUTES[band],
+ * `templateTimings`. The launch runs `hastenedRoadMinutes(TRAVEL_BAND_MINUTES[band],
  * missionSpeedPercent + carried)` on the road, so a crew loading a Rotorcraft read
  * "-55% off the road" beside a total that did not know about it: neither number described the run.
  *
@@ -39,12 +39,12 @@ const FLEET = { rotorcraft: 1 } as const;
 /*
  * Read out of the catalogue rather than typed in.
  *
- * It was `55`, in three places, and the vehicle rebalance moved it. This file is about whether the
- * dialog's clock and its vehicle line agree with each other and with `hastenedMinutes`; the speed
- * table is `building/vehicles.test.ts`'s to pin, and duplicating it here turned a tuning pass into
- * a failing clock test.
+ * It was a literal, in three places, and the vehicle rebalance moved it. This file is about whether
+ * the dialog's clock and its vehicle line agree with each other and with `hastenedRoadMinutes`; the
+ * speed table is `building/vehicles.test.ts`'s to pin, and duplicating it here turned a tuning pass
+ * into a failing clock test.
  */
-const ROTOR_PERCENT = findVehicle('rotorcraft')!.speedPercent;
+const ROTOR_SPEED = findVehicle('rotorcraft')!.speed;
 
 function areaOf(id: string, name: string): MissionArea {
   return {
@@ -81,7 +81,9 @@ const board: MissionsResponse = {
   resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
   activeLimit: 2,
   areas: [MISC],
-  army: { razors: 6 },
+  // A Colossus among them, because §C3's other half is on this screen: the one sheet no vehicle
+  // takes drags the column, and the row has to say so before anybody presses Send.
+  army: { razors: 6, the_colossus: 1 },
   serverNow: NOW,
 };
 
@@ -120,7 +122,7 @@ const OFFER = MISC.offers[0];
 if (!OFFER) throw new Error('the miscellaneous board offers nothing');
 
 describe('the send dialog clock', () => {
-  it('takes the loaded machines off the road, and says the rest only shortens it', async () => {
+  it('moves with the column the machines produce, and says the rest only shortens it', async () => {
     render(
       <QueryClientProvider
         client={
@@ -149,7 +151,7 @@ describe('the send dialog clock', () => {
     });
 
     const hastened = missionTimings({
-      travelMinutes: hastenedMinutes(OFFER.travelMinutes, ROTOR_PERCENT),
+      travelMinutes: hastenedRoadMinutes(OFFER.travelMinutes, ROTOR_SPEED),
       durationMinutes: OFFER.durationMinutes,
     }).totalMinutes;
     // The precondition the assertion rests on: the two clocks are actually different.
@@ -158,6 +160,50 @@ describe('the send dialog clock', () => {
     await waitFor(() =>
       expect(dialog).toHaveTextContent(`${formatDuration(hastened)} there and back at most`),
     );
-    expect(within(dialog).getByTestId('mission-vehicles')).toHaveTextContent(`${ROTOR_PERCENT}%`);
+    /*
+     * ...and the line says which group set that pace, not a percentage.
+     *
+     * Six bodies in eighteen seats, so nobody walks and the machine itself is the slowest group in
+     * the column: `columnSpeed` returns the Rotorcraft's own speed and the dialog names it.
+     */
+    expect(within(dialog).getByTestId('mission-column')).toHaveTextContent(
+      `Held to ${ROTOR_SPEED} by the Rotorcraft`,
+    );
+  });
+});
+
+/**
+ * §C3: the sheet that will not board, marked on the row that offers it.
+ *
+ * The Colossus is the only unit in the game a machine cannot carry, and a crew that ticks it into a
+ * column has bought a truck that is now waiting for it. The note is on the count line where the
+ * decision is made rather than in the report afterwards, and it only appears once something is
+ * actually loaded: with an empty yard every unit walks and a note on every row says nothing.
+ */
+describe('the send dialog and a unit that walks', () => {
+  it('marks it only once a machine is picked', async () => {
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+          })
+        }
+      >
+        <MissionsPage />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId('board-area');
+    fireEvent.click(await screen.findByTestId(`send-${OFFER.templateId}`));
+    const dialog = screen.getByRole('dialog');
+
+    expect(within(dialog).queryByTestId('walks-the_colossus')).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText('How many Rotorcraft'), {
+      target: { value: '1' },
+    });
+    await waitFor(() =>
+      expect(within(dialog).getByTestId('walks-the_colossus')).toHaveTextContent('walks'),
+    );
+    expect(within(dialog).queryByTestId('walks-razors')).toBeNull();
   });
 });

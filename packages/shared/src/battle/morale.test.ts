@@ -226,6 +226,7 @@ describe('who gets away', () => {
       swing: 1,
       luck: 0,
       cohesionPercent: 0,
+      steadyNerve: false,
       stacks: [stackOf('razors', 6), stackOf('sparks', 4)],
     } satisfies SideState;
     losing.stacks[0]!.started = 10;
@@ -244,8 +245,12 @@ describe('who gets away', () => {
       swing: 1,
       luck: 0,
       cohesionPercent: 0,
+      steadyNerve: false,
       stacks: [stackOf('ironsides', 5), stackOf('road_reavers', 3)],
     } satisfies SideState;
-    expect(pursuitSpeed(winning)).toBe(92);
+    // The Reavers' 65 rather than the Ironsides' 22: the mean of the two would be 38, and a
+    // pursuit run at the average of a shield wall and a motorbike is not a pursuit. 65 is what the
+    // speed rebalance put the Reavers at (the speed of the bike they ride); it was 92.
+    expect(pursuitSpeed(winning)).toBe(65);
   });
 });

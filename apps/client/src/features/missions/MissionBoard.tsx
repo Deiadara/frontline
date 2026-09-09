@@ -1,11 +1,10 @@
 import {
   type Fleet,
-  carriedSpeedPercent,
   VEHICLES,
   MISSION_STANCE_SPECS,
   findUnit,
   formatDuration,
-  hastenedMinutes,
+  hastenedRoadMinutes,
   missionTimings,
   isCombatUnit,
   missionCarry,
@@ -17,6 +16,7 @@ import {
   type MissionKind,
   type MissionOffer,
   type MissionStance,
+  type UnitLoadouts,
 } from '@frontline/shared';
 import { useState } from 'react';
 import { RewardLine } from '../../components/Resources';
@@ -28,6 +28,8 @@ import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
 import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
+import { walksAlways } from '../units/rules';
+import { readColumn } from '../battle/column';
 
 /**
  * §F1b: how a promised page reads on the card, by category and no further.
@@ -143,6 +145,8 @@ export interface MissionBoardProps {
   army: Army;
   /** §C3: what is parked in the Garage, for the send dialog's "what carries them" rows. */
   fleet: Fleet;
+  /** §C3: the crew's brackets. The armour line takes speed off a sheet, so the road reads them. */
+  loadouts: UnitLoadouts;
   roster: Roster;
   /** Every crew is out: no job on any board can be taken. */
   atCapacity: boolean;
@@ -194,6 +198,7 @@ export function MissionBoard({
   areas,
   army,
   fleet,
+  loadouts,
   roster,
   atCapacity,
   pendingTemplateId,
@@ -309,6 +314,7 @@ export function MissionBoard({
           areaName={area.name}
           army={army}
           fleet={fleet}
+          loadouts={loadouts}
           roster={roster}
           onClose={() => setSending(null)}
           onSend={(force, officerId, vehicles) => {
@@ -503,6 +509,7 @@ function SendDialog({
   areaName,
   army,
   fleet,
+  loadouts,
   roster,
   onClose,
   onSend,
@@ -512,6 +519,8 @@ function SendDialog({
   army: Army;
   /** §C3: what is parked in the Garage and could carry them there. */
   fleet: Fleet;
+  /** §C3: the crew's brackets, folded into the pace the same way the launch folds them. */
+  loadouts: UnitLoadouts;
   roster: Roster;
   onClose: () => void;
   onSend: (force: Army, officerId?: string, vehicles?: Fleet) => void;
@@ -530,13 +539,23 @@ function SendDialog({
 
   const going = Object.values(force).reduce((total, count) => total + count, 0);
   const carry = missionCarry(force);
-  // What the machines picked are worth against the crew picked: see `carriedSpeedPercent`.
-  const ridingSpeed = Math.round(carriedSpeedPercent(riding, going));
+  /** §C3: whether anything is being driven at all, which is what makes "walks" worth saying. */
+  const anyRiding = Object.values(riding).some((count) => (count ?? 0) > 0);
+  /*
+   * §C3: what this crew travels at, which is the pace of its slowest group.
+   *
+   * `columnSpeed` is the server's own function (`missions/launch.ts` runs it over the same force
+   * and the same machines), so what the dialog quotes is what the launch charges. It replaced
+   * `carriedSpeedPercent`, which averaged the machines' percentages weighted by the seats they
+   * filled: two bikes in front of forty walkers made all forty measurably faster, and they do not.
+   * They arrive first and wait.
+   */
+  const column = readColumn(riding, force, loadouts);
   /*
    * The clock, with the machines two sections below already taken off it.
    *
    * `offer.totalMinutes` is the bare template: `missions/board.ts` builds the board with
-   * `templateTimings`. The launch runs `hastenedMinutes(TRAVEL_BAND_MINUTES[band],
+   * `templateTimings`. The launch runs `hastenedRoadMinutes(TRAVEL_BAND_MINUTES[band],
    * missionSpeedPercent + carried)` on the road, so the dialog was printing "3h 20m there and back"
    * beside "-55% off the road" and neither number described the run.
    *
@@ -546,7 +565,7 @@ function SendDialog({
    * payload. Both only ever shorten it, so the run is this or quicker, never longer.
    */
   const clockMinutes = missionTimings({
-    travelMinutes: hastenedMinutes(offer.travelMinutes, ridingSpeed),
+    travelMinutes: hastenedRoadMinutes(offer.travelMinutes, column.speed),
     durationMinutes: offer.durationMinutes,
   }).totalMinutes;
   const fighters = Object.entries(force).some(
@@ -612,6 +631,14 @@ function SendDialog({
                   <span className="block font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
                     {count} at home · carries {unit.stats.lootCapacity}
                     {isCombatUnit(unit) ? '' : ' · cannot fight'}
+                    {/* §C3: this one is not getting on the truck, so the column waits for it.
+                        Only worth saying once something is loaded: with nothing picked everybody
+                        walks and the note is noise on every row. */}
+                    {anyRiding && walksAlways(unit.id) && (
+                      <span className="text-oxblood-300" data-testid={`walks-${unit.id}`}>
+                        {' · '}walks
+                      </span>
+                    )}
                   </span>
                 </span>
                 {/* Half and Max beside the field.
@@ -693,8 +720,8 @@ function SendDialog({
          * has always seen.
          *
          * The saving is quoted live and against the force actually picked, because an empty seat
-         * buys nothing: sending two people in a war hauler is a truck full of air, and the number
-         * says so before the crew leaves rather than in the report afterwards.
+         * buys nothing: sending two people in a thirty-seat bus is a run mostly full of air, and
+         * the number says so before the crew leaves rather than in the report afterwards.
          */}
         {Object.values(fleet).some((count) => (count ?? 0) > 0) && (
           <div className="flex flex-col gap-1.5" data-testid="mission-vehicles">
@@ -702,13 +729,21 @@ function SendDialog({
               <span className="font-display text-[11px] uppercase tracking-[0.18em] text-brass-300">
                 What carries them
               </span>
-              <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-                {ridingSpeed > 0 ? (
+              <span
+                className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300"
+                data-testid="mission-column"
+              >
+                {column.speed > 0 ? (
                   <>
-                    <span className="tabular-nums text-brass-300">{ridingSpeed}%</span> off the road
+                    {column.heldBy === null ? 'Rides at' : 'Held to'}{' '}
+                    <span className="tabular-nums text-brass-300">{column.speed}</span>
+                    {column.heldBy !== null && <> by {column.heldBy}</>}
+                    {' · '}
+                    {formatDuration(hastenedRoadMinutes(offer.travelMinutes, column.speed))} on the
+                    road
                   </>
                 ) : (
-                  'On foot'
+                  'Nobody picked yet'
                 )}
               </span>
             </div>

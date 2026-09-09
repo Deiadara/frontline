@@ -125,6 +125,8 @@ function fakeRepos(): {
       updateEconomy: () => undefined,
       updateCommanders: () => undefined,
       updateProgression: () => undefined,
+      pendingLevelUp: () => undefined,
+      setPendingLevelUp: () => undefined,
       updateAddons: () => undefined,
       updateDistrict: () => undefined,
     },

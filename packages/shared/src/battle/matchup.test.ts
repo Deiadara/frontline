@@ -104,13 +104,18 @@ describe('evasion is a chance to miss', () => {
 describe('range works against slow units', () => {
   /**
    * Snipers out-range everything. What decides whether that is worth anything is how fast the
-   * target crosses the ground: Ironsides walk into the fire, Road Reavers are inside it before the
+   * target crosses the ground: Ironsides walk into the fire, Cyberhounds are inside it before the
    * second shot.
+   *
+   * The fast exemplar used to be the Road Reavers, and it is the Cyberhounds since the speed
+   * rebalance: the board put the Reavers at exactly the speed of the bike they ride (65), so they
+   * are a quick brawler now rather than the quickest thing in the game. The rule under this test
+   * did not change and neither did the engine. What changed is which sheet is the extreme.
    */
   it('pays a sniper far more against a slow target than a fast one', () => {
     const snipers = bare('snipers');
     const slow = engagementMultiplier(snipers, bare('ironsides'));
-    const fast = engagementMultiplier(snipers, bare('road_reavers'));
+    const fast = engagementMultiplier(snipers, bare('cyber_dogs'));
 
     expect(slow).toBeGreaterThan(fast * 1.25);
     expect(engagementEdge(snipers, bare('ironsides')).reach).toBeGreaterThan(0.6);
@@ -118,7 +123,7 @@ describe('range works against slow units', () => {
 
   it('pays a knife-fighter nothing for reach, whatever it is facing', () => {
     const razors = bare('razors');
-    for (const target of ['ironsides', 'road_reavers', 'snipers']) {
+    for (const target of ['ironsides', 'cyber_dogs', 'snipers']) {
       expect(engagementEdge(razors, bare(target)).reach, target).toBe(0);
     }
   });
@@ -131,12 +136,12 @@ describe('fast units kill snipers easier', () => {
    * just a fight.
    */
   it('pays a fast unit for catching something built to stay at range', () => {
-    const reavers = bare('road_reavers');
-    const ontoSniper = engagementMultiplier(reavers, bare('snipers'));
-    const ontoBrawler = engagementMultiplier(reavers, bare('razors'));
+    const hounds = bare('cyber_dogs');
+    const ontoSniper = engagementMultiplier(hounds, bare('snipers'));
+    const ontoBrawler = engagementMultiplier(hounds, bare('razors'));
 
     expect(ontoSniper).toBeGreaterThan(ontoBrawler * 1.2);
-    expect(engagementEdge(reavers, bare('snipers')).closing).toBeGreaterThan(0.4);
+    expect(engagementEdge(hounds, bare('snipers')).closing).toBeGreaterThan(0.4);
   });
 
   it('pays a slow unit nothing for chasing anything', () => {
@@ -145,11 +150,11 @@ describe('fast units kill snipers easier', () => {
   });
 
   /** The whole point, stated as the outcome rather than as the multiplier. */
-  it('makes a Reaver better against a Sniper than a Sniper is against a Reaver', () => {
-    const reavers = bare('road_reavers');
+  it('makes a Cyberhound better against a Sniper than a Sniper is against a Cyberhound', () => {
+    const hounds = bare('cyber_dogs');
     const snipers = bare('snipers');
-    const onto = exchange(reavers, unit('road_reavers').modifiers, snipers, snipers.morale);
-    const back = exchange(snipers, unit('snipers').modifiers, reavers, reavers.morale);
+    const onto = exchange(hounds, unit('cyber_dogs').modifiers, snipers, snipers.morale);
+    const back = exchange(snipers, unit('snipers').modifiers, hounds, hounds.morale);
     expect(onto.perBody).toBeGreaterThan(back.perBody);
   });
 });

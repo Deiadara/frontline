@@ -9,8 +9,8 @@ import {
   type ReimagineResponse,
   BARTER_MINIMUM,
   BarterRequestSchema,
-  BuyFromVendorRequestSchema,
   BuySupplyRequestSchema,
+  PlaceVendorBidRequestSchema,
   OfferActionRequestSchema,
   PostOfferRequestSchema,
   type Base,
@@ -19,17 +19,18 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import {
-  MARKET_REFUSAL_TEXT,
   acceptOffer,
   barter,
-  buyFromVendor,
   buySupply,
+  marketRefusalText,
   postOffer,
   projectMarket,
   sweepExpiredOffers,
   withdrawOffer,
   type MarketRefusal,
+  type RefusalFigures,
 } from '../market/board.js';
+import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from './own-base.js';
 import { seatedRoles } from '../crew/roster.js';
@@ -46,8 +47,8 @@ import { seatedRoles } from '../crew/roster.js';
  * handing back a delta would leave the client showing a listing that is already gone.
  */
 
-function refuse(reason: MarketRefusal): never {
-  throw new AppError('MARKET_REFUSED', MARKET_REFUSAL_TEXT[reason]);
+function refuse(reason: MarketRefusal, figures?: RefusalFigures): never {
+  throw new AppError('MARKET_REFUSED', marketRefusalText(reason, figures));
 }
 
 export function registerMarketRoutes(app: FastifyInstance): void {
@@ -57,23 +58,31 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     const now = new Date();
     const base = ownBase(app, request.currentUser.id);
     app.db.transaction(() => sweepExpiredOffers(app.repos, now))();
+    // Before the board is drawn: any lot whose visit is over. A player who opens the market five
+    // minutes after he packed up is the one who closes it if the world clock has not got there
+    // first, and they must see what they won on this very read rather than on the next one.
+    settleVendorAuctions(app.repos, now);
     return board(app.repos.bases.findByOwnerId(base.ownerId) ?? base, now);
   });
 
-  /** Buy from the Runner, while he is in. */
-  app.post('/market/buy', { preHandler: app.authenticate }, (request): MarketMutationResponse => {
-    const { lineId, count } = parseBody(BuyFromVendorRequestSchema, request.body);
+  /** Bid on a lot, while he is in. The close hands it over when he packs up. */
+  app.post('/market/bid', { preHandler: app.authenticate }, (request): MarketMutationResponse => {
+    const { lineId, amount } = parseBody(PlaceVendorBidRequestSchema, request.body);
     const now = new Date();
+    // The close first, the way `/bar` does it: a bid landing just after a visit ended belongs to
+    // the next one, and the lot it names has to be settled before anything is written against it.
+    settleVendorAuctions(app.repos, now);
     return app.db.transaction(() => {
-      const result = buyFromVendor(
-        app.repos,
-        ownBase(app, request.currentUser.id),
+      const base = ownBase(app, request.currentUser.id);
+      const result = placeVendorBid(app.repos, {
+        base,
+        userId: request.currentUser.id,
         lineId,
-        count,
+        amount,
         now,
-      );
-      if (result.kind === 'refused') refuse(result.reason);
-      return { market: board(result.base, now) };
+      });
+      if (result.kind === 'refused') refuse(result.reason, result);
+      return { market: board(base, now) };
     })();
   });
 

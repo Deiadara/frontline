@@ -1,6 +1,7 @@
 import {
   MissionSchema,
   withoutRetiredUnits,
+  withoutRetiredVehicles,
   type Mission,
   type PartialResources,
 } from '@frontline/shared';
@@ -16,6 +17,7 @@ interface MissionRow {
   xp: number;
   force_json: string;
   vehicles_json: string;
+  priced_minutes: number;
   started_at: string;
   recalled_at: string | null;
   page_prize: string | null;
@@ -95,8 +97,11 @@ function rowToStored(row: MissionRow): StoredMission {
       payPercent: row.pay_percent,
       xp: row.xp,
       force: withoutRetiredUnits(readJson(row.force_json)),
-      // §C3: whatever carried them, frozen at launch like the force and the clock.
-      vehicles: readJson(row.vehicles_json),
+      // §C3: whatever carried them, frozen at launch like the force and the clock, and repaired
+      // on the way out the same way the force is: a run launched with a machine the catalogue has
+      // since dropped would otherwise fail `MissionSchema.parse` and take the whole board with it.
+      vehicles: withoutRetiredVehicles(readJson(row.vehicles_json)),
+      pricedMinutes: row.priced_minutes,
       startedAt: row.started_at,
       recalledAt: row.recalled_at,
       travelMinutes: row.travel_minutes,
@@ -119,9 +124,9 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   const insertStmt = db.prepare(
     `INSERT INTO missions
        (id, base_id, template_id, area_id, pay_percent, xp, force_json, vehicles_json,
-        started_at, travel_minutes, duration_minutes, success_chance, seed, status, officer_id,
-        outcome, rewards_json, resolved_at, page_prize)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        priced_minutes, started_at, travel_minutes, duration_minutes, success_chance, seed, status,
+        officer_id, outcome, rewards_json, resolved_at, page_prize)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
   const byIdStmt = db.prepare('SELECT * FROM missions WHERE id = ?');
@@ -168,6 +173,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         mission.xp,
         JSON.stringify(mission.force),
         JSON.stringify(mission.vehicles),
+        mission.pricedMinutes,
         mission.startedAt,
         mission.travelMinutes,
         mission.durationMinutes,

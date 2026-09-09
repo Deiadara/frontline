@@ -16,8 +16,12 @@ import {
   contributionOf,
   crewEffects,
   crewSheet,
+  DISRUPTED_CHANNELS,
+  DISRUPTION_EXEMPT_CHANNELS,
+  disrupted,
   effectsOfSheet,
   noCrewEffects,
+  PERCENT_EFFECT_CHANNELS,
   speedMultiplier,
   peakUplift,
   IMPORTANCE_SHARE,
@@ -556,5 +560,122 @@ describe('how far a crew can see', () => {
       { ...noCrewEffects(), defensePercent: 15 },
     );
     expect(combined.defensePercent).toBe(25);
+  });
+});
+
+/**
+ * §A4, board 2026-09-09: what a raid takes off a crew for the hours the disruption lasts.
+ *
+ * Production losing a quarter of its hours was the whole of a raid's aftermath, and it is the half
+ * a victim can see coming. This is the other half: every positive percentage the crew holds is
+ * worth a quarter less while the place is limping, whatever paid for it.
+ */
+describe('a raided crew, while the disruption lasts', () => {
+  it('names every percent channel and nothing that is not one', () => {
+    // The list is derived from the struct, so this is what pins the derivation rather than the
+    // list: a channel added tomorrow whose name ends in `Percent` joins it, and one that holds a
+    // record or flat points must not. Both halves are checked because the filter tests both.
+    const blank: Record<string, unknown> = { ...noCrewEffects() };
+    for (const channel of PERCENT_EFFECT_CHANNELS) {
+      expect(typeof blank[channel], `${channel} is not a number`).toBe('number');
+      expect(channel.endsWith('Percent'), channel).toBe(true);
+    }
+    const named = new Set<string>(PERCENT_EFFECT_CHANNELS);
+    for (const [channel, value] of Object.entries(blank)) {
+      if (typeof value === 'number' && channel.endsWith('Percent')) {
+        expect(named.has(channel), `${channel} is a percent channel and is not on the list`).toBe(
+          true,
+        );
+      } else {
+        expect(named.has(channel), `${channel} is on the list and is not a percent channel`).toBe(
+          false,
+        );
+      }
+    }
+  });
+
+  it('takes the same share off every positive percentage', () => {
+    const held = {
+      ...noCrewEffects(),
+      defensePercent: 40,
+      lootCapacityPercent: 12,
+      leadLootPercent: 8,
+    };
+    const cut = disrupted(held, 25);
+    expect(cut.defensePercent).toBe(30);
+    expect(cut.lootCapacityPercent).toBe(9);
+    expect(cut.leadLootPercent).toBe(6);
+  });
+
+  /**
+   * ...and **not** off production, which the settle walk has already charged for.
+   *
+   * `district/settle.ts` cuts the disruption off the *hours* of each segment and
+   * `accrueProduction` multiplies those hours by `1 + productionPercent / 100`. Both scale the same
+   * output, so cutting the channel here as well takes 25% twice for one raid.
+   *
+   * Pinned in both directions on purpose. The first half fails if anybody puts `productionPercent`
+   * back in the cut; the second fails if anybody takes a *different* channel out of it, which is
+   * the mistake an exemption list invites. Without the second half, exempting the whole list would
+   * pass.
+   */
+  it('leaves production alone, and cuts every other percent channel', () => {
+    expect(disrupted({ ...noCrewEffects(), productionPercent: 20 }, 25).productionPercent).toBe(20);
+    expect([...DISRUPTED_CHANNELS]).not.toContain('productionPercent');
+
+    /*
+     * The exemption list itself, against a literal rather than against anything derived.
+     *
+     * This is the only line in the file a second exemption cannot satisfy. Every other assertion
+     * here reads `DISRUPTION_EXEMPT_CHANNELS`, including the loop below, so all of them simply get
+     * *smaller* when somebody adds one: measured, not deduced, a mutant that also exempted
+     * `refitDiscountPercent` passed all fifty tests. An exemption is a channel a raid stops
+     * reaching, which is the least visible way to undo this feature, so it costs a line here.
+     */
+    expect([...DISRUPTION_EXEMPT_CHANNELS]).toEqual(['productionPercent']);
+
+    // The list is exactly the derived one minus the named exemptions, so a channel quietly dropped
+    // from the cut shows up here rather than as a bonus a raid silently stopped reaching.
+    const exempt = new Set<string>(DISRUPTION_EXEMPT_CHANNELS);
+    expect([...DISRUPTED_CHANNELS]).toEqual(
+      PERCENT_EFFECT_CHANNELS.filter((channel) => !exempt.has(channel)),
+    );
+    expect(DISRUPTED_CHANNELS.length).toBe(PERCENT_EFFECT_CHANNELS.length - exempt.size);
+
+    // And each of them is really scaled, one at a time: a list that names a channel `disrupted`
+    // does not walk would pass every assertion above.
+    for (const channel of DISRUPTED_CHANNELS) {
+      const cut = disrupted({ ...noCrewEffects(), [channel]: 40 }, 25);
+      expect(cut[channel], `${channel} was not cut by the disruption`).toBe(30);
+    }
+    // The mirror: every exempt channel survives untouched.
+    for (const channel of DISRUPTION_EXEMPT_CHANNELS) {
+      const cut = disrupted({ ...noCrewEffects(), [channel]: 40 }, 25);
+      expect(cut[channel], `${channel} is exempt and was cut anyway`).toBe(40);
+    }
+  });
+
+  it('leaves negatives and flat channels exactly where they were', () => {
+    // A negative percent is a penalty somebody is carrying, and scaling it down would pay a crew
+    // for having been robbed. A flat channel is points on a rating or a whole extra fight, and a
+    // quarter of one of those is not a smaller version of the thing.
+    const held = {
+      ...noCrewEffects(),
+      defensePercent: -40,
+      unitMoraleFlat: 12,
+      declarationsFlat: 2,
+      unitEvasionFlat: 5,
+    };
+    const cut = disrupted(held, 25);
+    expect(cut.defensePercent).toBe(-40);
+    expect(cut.unitMoraleFlat).toBe(12);
+    expect(cut.declarationsFlat).toBe(2);
+    expect(cut.unitEvasionFlat).toBe(5);
+  });
+
+  it('changes nothing at all when nothing is disrupted', () => {
+    const held = { ...noCrewEffects(), defensePercent: 40 };
+    expect(disrupted(held, 0)).toBe(held);
+    expect(disrupted(held, -10).defensePercent).toBe(40);
   });
 });

@@ -14,6 +14,7 @@ import {
   scaledSpoils,
   missionTimings,
   hastenedMinutes,
+  hastenedRoadMinutes,
   TRAVEL_BAND_MINUTES,
   type Base,
   type District,
@@ -87,9 +88,10 @@ export function offerFor(
    * clock, so a crew holding the Smuggler's Tunnel finished sooner and was therefore paid *less*
    * than the card promised, and the quoted countdown was the unmodified one as well.
    *
-   * What a card still cannot quote is the vehicles: `carriedSpeedPercent` is a fact about the
-   * column the player has not chosen yet when they read this. That is the right side of the line,
-   * because the card is a quote for the job as offered rather than for a plan.
+   * What a card still cannot quote is the column: `columnSpeed` is a fact about the people and the
+   * machines the player has not chosen yet when they read this. That is the right side of the line,
+   * because the card is a quote for the job as offered rather than for a plan, and it is the same
+   * number `launchMission` freezes into `pricedMinutes` and pays out against.
    */
   speedPercent = 0,
   /**
@@ -101,7 +103,7 @@ export function offerFor(
   board?: { areaId: string; day: string },
 ): MissionOffer {
   const timings = missionTimings({
-    travelMinutes: hastenedMinutes(TRAVEL_BAND_MINUTES[template.travelBand], speedPercent),
+    travelMinutes: hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], 0, speedPercent),
     durationMinutes: hastenedMinutes(template.durationMinutes, speedPercent),
   });
   const rewards = scaledSpoils(

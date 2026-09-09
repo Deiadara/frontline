@@ -76,9 +76,27 @@ describe('PERK_CATALOG', () => {
     }
   });
 
+  /**
+   * The kinds that carry no number, because what they grant is a rule (board brief, 2026-09-09).
+   *
+   * Written out rather than inferred from "has no numeric field", which is the version that passes
+   * on the day somebody authors `{ kind: 'unit_offense', percent: undefined }`. A kind added to the
+   * union with no magnitude and no entry here fails the check below, which is the direction the
+   * guard is supposed to point.
+   */
+  const RULE_KINDS: readonly string[] = ['carriers_fight', 'any_ride', 'steady_nerve', 'unit_mark'];
+
   it('grants something on every entry, and nothing on an id it does not carry', () => {
     for (const entry of PERK_CATALOG) {
-      // Every bonus is a discriminated union member with one numeric payload. A perk whose
+      if (RULE_KINDS.includes(entry.bonus.kind)) {
+        // A rule's payload is the rule. What is checked instead is that it says which one, so
+        // `unit_mark` with no unit or no mark on it cannot ship as a chip that does nothing.
+        for (const [key, value] of Object.entries(entry.bonus)) {
+          expect(String(value ?? '').length, `${entry.id}.${key} is empty`).toBeGreaterThan(0);
+        }
+        continue;
+      }
+      // Every other bonus is a discriminated union member with one numeric payload. A perk whose
       // magnitude is zero is a keyword that reads as a bonus and does nothing.
       const magnitude = Object.entries(entry.bonus)
         .filter(([key]) => key !== 'kind')

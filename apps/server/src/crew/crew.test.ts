@@ -241,6 +241,26 @@ describe('the Training tab over HTTP', () => {
     );
   });
 
+  /**
+   * The fold on this response used to be `effectsOfSheet`, the ten attribute channels alone, so
+   * every perk-only channel was zero for ever: the district panel quoted the payroll step at full
+   * price and greyed a button `POST /bar/payroll` would have taken.
+   */
+  it('reports the perk channels, not only what the sheet drives', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    const base = app.repos.bases.findByOwnerId(app.repos.users.findByUsername('driller')?.id ?? '');
+    if (!base) throw new Error('no base');
+    app.repos.bases.updateCommanders(base.id, [
+      createCommander('officer-1', 'Ada Vance', null, {}, ['ledger_hand'], 0),
+    ]);
+
+    const res = await app.inject({ method: 'GET', url: '/api/overseer/me', headers: auth(token) });
+    expect(res.statusCode).toBe(200);
+    const effects = res.json<{ effects: Record<string, number> }>().effects;
+    expect(effects.payrollStepDiscountPercent).toBeGreaterThan(0);
+  });
+
   it('trains an officer, not only the Overseer', async () => {
     const app = await makeApp();
     const token = await signIn(app);
@@ -435,10 +455,10 @@ describe('an attribute changes an outcome', () => {
 
   it('takes caps off what an officer asks for, for Authority and Negotiation', () => {
     const sheet = makeAttributes(30);
-    expect(askingWage(sheet, 0, 20)).toBeLessThan(askingWage(sheet));
+    expect(askingWage(sheet, 20)).toBeLessThan(askingWage(sheet));
     // Never free, whatever the crew.
-    expect(askingWage(sheet, 0, 100)).toBeGreaterThan(0);
-    expect(askingWage(sheet, 0, 100)).toBe(askingWage(sheet, 0, MAX_WAGE_DISCOUNT));
+    expect(askingWage(sheet, 100)).toBeGreaterThan(0);
+    expect(askingWage(sheet, 100)).toBe(askingWage(sheet, MAX_WAGE_DISCOUNT));
   });
 
   it('blurs a garrison count for the holder, and sharpens it for the reader', () => {

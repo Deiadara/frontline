@@ -75,6 +75,17 @@ export type CrewOnlyBonus =
   | { kind: 'whole_district'; percent: number }
   /** One named structure is cheaper to raise. Not every structure: this one. */
   | { kind: 'building_cost'; building: BuildingKind; percent: number }
+  /**
+   * One named structure is **priced** as though it were this many levels lower.
+   *
+   * A rule where `building_cost` is a percentage, and the two are not the same shape of thing. The
+   * cost curve compounds at {@link BUILDING_COST_GROWTH} a level, so a credit is worth more the
+   * higher the structure already is: at level 3 one level is a fifth off, and at level 18 it is
+   * still a fifth off a bill twenty times the size. That makes it the bonus a crew pushing one
+   * structure deep actually wants, and worth almost nothing to a crew starting everything at once.
+   * It never prices below level 1: see `creditedLevel`.
+   */
+  | { kind: 'building_credit'; building: BuildingKind; levels: number }
   /** One named unit is better at one thing. The narrowest bonus in the game, so the biggest. */
   | { kind: 'unit_kind'; unitId: string; stat: UnitTierStat; percent: number }
   /** Everything that pays experience pays more of it. */
@@ -341,6 +352,45 @@ const CATALOG: Perk[] = [
   }),
 
   // --- Military: what the units do when it starts --------------------------------------------
+  /*
+   * The rules, and why they sit at the head of the military book rather than in it.
+   *
+   * Everything below this is percentage points on a figure the roster already prints, which is a
+   * fine thing for a hire to be and a poor thing for all of them to be: with a hundred and forty
+   * perks and three slots, a book of nothing but numbers makes the judgement at the Bar an
+   * arithmetic problem. These six change what a unit is allowed to do. They are worth nothing at
+   * all to a crew that does not field the sheet they name, which is the point: a perk you would
+   * turn down is what makes the one you take a decision.
+   */
+  perk(
+    'pit_boss',
+    'Pit Boss',
+    'military',
+    'Ran the ring on the east side. Everybody who worked for him can hold a line.',
+    // The Fight Pit's rule, bought in a chair instead of on the map, at the same half strength:
+    // see `CARRIER_STRENGTH`. Two sources of one permission, which is the design `crew/effects.ts`
+    // is built around, and holding both buys it once.
+    { kind: 'carriers_fight' },
+  ),
+  perk(
+    'chaplain',
+    'Chaplain',
+    'military',
+    'Walks the line before it starts and nobody remembers what he said.',
+    // Cuts the cascade term out of the crew's morale phase (`steady_nerve`). The strongest thing in
+    // this book on a bad day and worth nothing on a good one: a fight the crew is winning has no
+    // cascade to cut.
+    { kind: 'steady_nerve' },
+  ),
+  perk(
+    'kennel_master',
+    'Kennel Master',
+    'military',
+    'Raised the pack from pups. They do not need telling twice.',
+    // The narrowest bonus in the book: one mark, one unit. Cyberhounds already run in packs, so
+    // this is the other half of what a pack is, the first bite before anybody is set.
+    { kind: 'unit_mark', unitId: 'cyber_dogs', mark: 'strikes_first' },
+  ),
   perk('drill_sergeant', 'Drill Sergeant', 'military', 'Shouts in a way that survives contact.', {
     kind: 'unit_offense',
     percent: 4,
@@ -639,6 +689,39 @@ const CATALOG: Perk[] = [
   }),
 
   // --- Logistics: builds, training, roads, jobs -----------------------------------------------
+  perk(
+    'crane_hand',
+    'Crane Hand',
+    'logistics',
+    'Has put things on a flatbed that had no business being on one.',
+    // Waives `no_ride` (`any_ride`). Nothing at all to a crew with no legend on the roster, and the
+    // difference between a Colossus at 15 and a Colossus in a truck for the crew that has one.
+    { kind: 'any_ride' },
+  ),
+  perk(
+    'shortcut_runner',
+    'Shortcut Runner',
+    'logistics',
+    'Knows a way through the yards that is not on anybody’s map.',
+    // Three minutes flat, against the Tram Depot's four. A percentage is worth what the clock is
+    // worth and this is worth the same on the short hop as on the long march: see `roadMinutes`.
+    { kind: 'road_shortcut', minutes: 3 },
+  ),
+  perk(
+    'permit_forger',
+    'Permit Forger',
+    'logistics',
+    'Files the paperwork for a building that is already three floors up.',
+    /*
+     * One level off the *price* of one structure (`building_credit`), never off the order.
+     *
+     * A level is 28% of the bill at every height (`BUILDING_COST_GROWTH`), so this is the same
+     * share as a strong `building_cost` perk and it is deliberately not more: what makes it worth
+     * hiring is that it does not shrink as a crew's other discounts pile up, because it moves the
+     * exponent rather than taking a share off the result.
+     */
+    { kind: 'building_credit', building: 'lab', levels: 1 },
+  ),
   perk('site_foreman', 'Site Foreman', 'logistics', 'A build with them on it does not stop.', {
     kind: 'build_speed',
     percent: 6,
@@ -893,6 +976,15 @@ const CATALOG: Perk[] = [
   ),
 
   // --- Intel: what you know, and what they do not -----------------------------------------------
+  perk(
+    'second_glass',
+    'Second Glass',
+    'intel',
+    'Trains their own watchers, so the crew is never waiting on one pair of eyes.',
+    // A second party out at once, which the scouting door's one limit otherwise refuses outright.
+    // One, matching the Watchtower: two evenings of answers is the whole of what this buys.
+    { kind: 'scout_parties', flat: 1 },
+  ),
   perk(
     'street_ears',
     'Street Ears',
@@ -1297,6 +1389,8 @@ export function describePerkBonus(bonus: PerkBonus): string {
       return `+${bonus.percent}% defense holding the whole district`;
     case 'building_cost':
       return `-${bonus.percent}% ${BUILDING_CATALOG[bonus.building].name} cost`;
+    case 'building_credit':
+      return `${BUILDING_CATALOG[bonus.building].name} priced ${bonus.levels} level${bonus.levels === 1 ? '' : 's'} lower`;
     case 'unit_kind':
       return `+${bonus.percent}% ${findUnit(bonus.unitId)?.name ?? bonus.unitId} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
     case 'xp_gain':
@@ -1313,7 +1407,7 @@ export function describePerkBonus(bonus: PerkBonus): string {
     case 'lead_loot':
       return `+${bonus.percent}% loot while leading`;
     case 'lead_arrival':
-      return `+${bonus.percent}% travel speed while leading`;
+      return `-${bonus.percent}% off the road while leading`;
     case 'officer_attribute':
       return `+${bonus.flat} ${ATTRIBUTE_LABELS[bonus.attribute]} to every other officer`;
     case 'officer_threshold':

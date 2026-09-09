@@ -4,6 +4,10 @@
  */
 export * from './primitives.js';
 export * from './time/zone.js';
+// The speed model itself, not only the caps: `roadMinutes` is the one clock every road in the
+// game is measured with and the client draws quotes off it. The modules that spend each cap still
+// re-export their own, so nothing that already imported one had to move.
+export * from './time/speed.js';
 export * from './attributes.js';
 export * from './roles.js';
 export * from './figures.js';

@@ -20,17 +20,24 @@ import { cn } from '../../lib/cn';
 export function MarkStamp({
   mark,
   className,
-  title,
+  tip,
 }: {
   mark: OfficerMark;
   className?: string;
-  title?: string;
+  /** What the letter is a grade *of*, for the pointer that lands on it. */
+  tip?: string;
 }) {
   return (
+    /*
+     * The explanation is the game's own tooltip (`data-tip`, drawn by `TooltipLayer`), not a
+     * `title` attribute. It used to be a `title` on a `pointer-events-none` span, which is a
+     * tooltip nothing could ever open: the OS tip on an element the pointer passes through.
+     * Pointer events stay on, and a click on the stamp still reaches whatever card it is on.
+     */
     <span
-      className={cn('pointer-events-none absolute select-none', className)}
+      className={cn('absolute select-none', className)}
       data-testid={`mark-stamp-${mark}`}
-      title={title ?? `Fit for this chair: ${mark}`}
+      data-tip={tip ?? `Fit for this chair: ${mark}`}
     >
       <svg
         viewBox="0 0 100 100"

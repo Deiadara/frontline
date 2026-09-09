@@ -183,5 +183,13 @@ export type NotificationMutationResponse = z.infer<typeof NotificationMutationRe
 export const UnreadCountsSchema = z.object({
   messages: z.number().int().nonnegative(),
   notifications: z.number().int().nonnegative(),
+  /**
+   * Fights still to come that were called on this crew's ground (board request, 2026-09-08).
+   *
+   * A declaration is public eight hours out and the bell for it can be dismissed, so the shell
+   * carries the count on the one poll it always runs and draws it as the red mark on the bottom
+   * bar. Defaulted, so a response from before the field parses as a quiet day.
+   */
+  fightsOnYou: z.number().int().nonnegative().default(0),
 });
 export type UnreadCounts = z.infer<typeof UnreadCountsSchema>;

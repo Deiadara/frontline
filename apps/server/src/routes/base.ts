@@ -37,7 +37,7 @@ import { buyBuildBoost } from '../district/boost.js';
 import { clearSlot, fitIntoSlot } from '../district/modifications.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
-import { levelUpFrom } from '../progression/award.js';
+import { takeLevelUp } from '../progression/award.js';
 
 /**
  * Every refusal is a 409: none of them is a malformed request, they are all the district saying
@@ -87,6 +87,9 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
 
     const settled = settleBase(app.repos, owned, new Date());
+    // Drained before the refusal below can be thrown, because both exits announce it: `takeLevelUp`
+    // clears the durable marker (migration 0083) so `/me` cannot draw the same card again.
+    const levelUp = takeLevelUp(app.repos, settled.base.id);
     const result = app.db.transaction(() =>
       queueBuild(app.repos, {
         base: settled.base,
@@ -103,10 +106,10 @@ export function registerBaseRoutes(app: FastifyInstance): void {
         refusalMessage(result.reason, kind, settled.base),
         // A refusal can still have banked a level-up on its way to refusing (MOU-280): the settle
         // above is a write, and no later read re-resolves it.
-        levelUpFrom(settled.awards),
+        levelUp,
       );
     }
-    return { base: result.base, levelUp: levelUpFrom(settled.awards) };
+    return { base: result.base, levelUp };
   });
 
   /**

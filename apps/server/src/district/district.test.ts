@@ -37,7 +37,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { settleBase } from './settle.js';
-import { queueBuild } from './build.js';
+import { queueBuild, buildClocksFor } from './build.js';
 import { buyBuildBoost } from './boost.js';
 import { clearSlot, fitIntoSlot } from './modifications.js';
 import { districtPopulation } from './population.js';
@@ -734,6 +734,43 @@ describe('the build clock a player is quoted is the one they get', () => {
     };
     expect(raised.buildQueue[0]?.durationSeconds).toBe(quoted);
     expect(buildingBuildSeconds('quarters', 1, raised.buildings)).toBeLessThan(quoted);
+  });
+
+  /**
+   * The dialog quotes `/me`'s clock, and that clock has to be the one the order freezes. It used
+   * to quote the catalogue's bare seconds, which no crew with a lit Generator or a speed effect
+   * was ever actually charged.
+   */
+  it('quotes a clock that is exactly what the order then freezes, burn included', () => {
+    const repos = openStack();
+    const seeded = seedBase(repos, {
+      resources: {
+        caps: 99999,
+        supplies: 99999,
+        oil: 99999,
+        scrap: 99999,
+        highQualityMetal: 99999,
+        planks: 99999,
+      },
+    });
+    const lit: Base = {
+      ...seeded,
+      economy: {
+        ...seeded.economy,
+        buildBoostUntil: new Date(NOW.getTime() + 60 * 60_000).toISOString(),
+      },
+    };
+    repos.bases.updateEconomy(lit.id, lit.economy);
+
+    const clocks = buildClocksFor(repos, lit, NOW, false);
+    const quoted = clocks.quarters;
+    expect(quoted).toBeDefined();
+    expect(quoted).toBeLessThan(buildingBuildSeconds('quarters', 1, lit.buildings));
+
+    const result = queueBuild(repos, { base: lit, structure: 'quarters', id: 'q1', now: NOW });
+    expect(result.kind).toBe('queued');
+    if (result.kind !== 'queued') return;
+    expect(result.entry.durationSeconds).toBe(quoted);
   });
 });
 

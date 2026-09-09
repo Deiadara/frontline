@@ -937,27 +937,31 @@ export const VEHICLE_ICON_SUBJECTS: Readonly<Record<VehicleId, string>> = {
     #f59e0b highlight along the tank.
   `),
   dirt_runner: block(`
-    A knobble-tyred bike with a raised front mudguard and a strapped fuel can, mud-caked
-    #8a5209 lower half.
+    A reinforced pickup in side view, bolted plate over the doors and bed, a bull bar across the
+    grille, oversized tyres, "OFFIE" sprayed on the door, cyan and magenta light bars under the
+    sills.
   `),
   scrap_car: block(`
     A boxy saloon welded out of three donor bodies, mismatched panels, one headlamp lit
     #ffd166.
   `),
   armoured_car: block(`
-    A plated four-door with slit windows and a rolled bar over the roof, cold #94a3b8 steel.
-  `),
-  flatbed: block(`
-    A flatbed lorry in side view, rail sides and a rolled tarpaulin, deck stacked with crates.
-  `),
-  war_hauler: block(`
-    A six-axle hauler with a slab-sided cab and no visible glass, dust plume at the wheels.
+    A school bus in three-quarter view, riveted plate over every window, a ram plough under the
+    grille, a roof rack and a ragged flag on a mast, "CHEESE WAGON" painted across the front above
+    the windscreen, oversized tyres.
   `),
   gas_balloon: block(`
     A patched gas envelope over a slung basket, mooring lines trailing, pale #7ff0ff sky behind.
   `),
   rotorcraft: block(`
-    A light helicopter with an open frame tail boom and a bulbous canopy, rotor blurred.
+    A home-built helicopter in three-quarter view, an open lattice tail boom, a bubble canopy
+    glazed in mismatched panels, skids welded out of scaffold tube, one rotor blade a different
+    colour from the others, oil streaks down the boom.
+  `),
+  heli_porter: block(`
+    A heavy transport helicopter in three-quarter view on a cracked pad, wide sliding cabin door
+    open on bench seats, twin engines above the roof, five-blade rotor turning, landing gear rather
+    than skids, warm #f59e0b light along the flank and a cold #22d3ee glow in the cockpit.
   `),
 };
 

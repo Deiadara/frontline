@@ -8,6 +8,7 @@ import {
   type PlayerXpAward,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { overseerOf } from '../crew/training.js';
 import { notifyBase } from '../social/notify.js';
 import { awardPlayerXp } from '../progression/award.js';
 
@@ -34,7 +35,12 @@ export interface ResearchSettlement {
 export function settleResearch(
   repos: Repositories,
   base: Base,
-  overseer: Overseer,
+  /**
+   * §F3: whose Charisma the finished rung is presented with. Optional because this settles on
+   * every read path now (`district/settle.ts`), and a base whose owner row has gone must still
+   * bank its rung rather than throw; an absent Overseer simply adds nothing.
+   */
+  overseer: Overseer | undefined,
   now: Date,
 ): ResearchSettlement {
   const active = base.research.active;
@@ -71,11 +77,31 @@ export function settleResearch(
     repos,
     settled,
     'researchCompleted',
-    factionXpFromLeadership(overseer.attributes),
+    overseer ? factionXpFromLeadership(overseer.attributes) : 0,
     // Off the rung's own clock, on the same curve the mission board pays: "the longest single
     // commitment in the game" was paying a flat 150 whether it ran two minutes or twelve hours.
     xpForClock('researchCompleted', active.durationMinutes * 60),
   );
 
   return { base: progressed.base, awards: [progressed.award] };
+}
+
+/**
+ * The same, on the read paths that do not know what an Overseer is.
+ *
+ * The Lab used to settle on `GET /research` and `POST /research/tech` and nowhere else, which made
+ * it the one clock in the game that does not run when nobody is looking at *its own screen*. A
+ * rung that landed while the player was on the battle board stayed unfinished: the technology it
+ * grants was not in `base.research.technologies`, so every door it opens (a declaration slot, a
+ * mission slot, a chair at the Bar, every percentage in the standing fold) stayed shut, and the
+ * `research_done` receipt only rang when the player opened the very page it points at.
+ *
+ * The due check is here rather than inside the settle so the common case, a read with nothing
+ * finished, costs one comparison and no lookup: `overseerOf` is two queries and `settleBase` runs
+ * on every request in the server.
+ */
+export function settleResearchFor(repos: Repositories, base: Base, now: Date): ResearchSettlement {
+  const active = base.research.active;
+  if (!active || !isResearchDue(active, now)) return { base, awards: [] };
+  return settleResearch(repos, base, overseerOf(repos, base), now);
 }

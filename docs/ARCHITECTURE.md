@@ -52,7 +52,7 @@ or client-facing type.
 | `units/`                | 27 battle units, their sheets, multi-clause unlocks, training and the army cap       |
 | `raid.ts`               | Loot capacity in kg, what a raid takes, and the disruption it leaves                 |
 | `economy/`              | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                            |
-| `bar/`                  | §H join gates, wage negotiation, the haggle                                          |
+| `bar/`                  | §H join gates, the daily roster, the §H7a auction and its close                      |
 | `delegation/`           | §G6 terms for a run that goes out with nobody leading it                             |
 | `research/`             | §B9/§F2 projects, discovered facts, effects                                          |
 | `progression/`          | §I player levels, grants, the (empty) §I3 unlock catalogue                           |
@@ -90,6 +90,13 @@ why the client can render the same numbers the server enforces without a DTO for
   UTC ISO-8601 and converted at display time; a player's own zone is an IANA _name_ on their
   account (never an offset, which does not know about summer time) and changes only what they are
   shown, never when the day turns over. See `packages/shared/src/time/zone.ts`.
+- **One arithmetic for every road**: `roadMinutes(base, speed, reductionPercent)` in
+  `packages/shared/src/time/speed.ts` is the only function that turns a distance into minutes, and
+  the march, a mission's travel leg, a scouting run and the city view's estimates all call it. Speed
+  is a stat 0 to 100 on units and machines alike and **divides**; a crew's travel reduction is a
+  percentage of what is left and **multiplies**. The two used to be one number, so a Rotorcraft and
+  a Rail Yard were the same kind of thing and a unit's own speed reached no clock at all. See
+  `docs/PLAN-research-and-blueprints.md` §AE.
 - **Snapshots every ten minutes**: `VACUUM INTO` writes a whole consistent database file while the
   server keeps taking writes, and the newest 24 are kept. A file copy is not an option: in WAL mode
   the newest commits live in the `-wal` sidecar. Recovery path in `docs/RECOVERY.md`.
@@ -159,9 +166,9 @@ looked at for three days owes exactly the same amount whenever it is next opened
 background job to keep alive.
 
 `settleBase` (`apps/server/src/district/settle.ts`) is the one entry point every route uses. It
-runs the district first and training second. There used to be a weekly upkeep pass between the
-two; nothing in the game is charged on a clock any more, so what is left is production and then
-the batches it paid for.
+runs the district first, training second and the Lab third. There used to be a weekly upkeep pass
+between the first two; nothing in the game is charged on a clock any more, so what is left is
+production, the batches it paid for, and whatever research finished while nobody was looking.
 
 Two rules the settle paths follow, both learned the hard way:
 

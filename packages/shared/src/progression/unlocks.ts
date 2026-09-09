@@ -90,7 +90,7 @@ const AREA_COPY: Readonly<Record<GatedArea, { name: string; description: string 
 export const MILESTONE_STEP = 10;
 export const FIRST_MILESTONE_LEVEL = 40;
 
-/** Level 40: two signings a day at the Bar instead of one. */
+/** Level 40: a third auction at the Bar at once, instead of two. */
 export const MILESTONE_SECOND_SIGNATURE = 'second_signature';
 /** Level 50: two takes a day off the Black Market shelf instead of one. */
 export const MILESTONE_STANDING_INVITATION = 'standing_invitation';
@@ -106,7 +106,7 @@ const MILESTONES: readonly PlayerLevelUnlock[] = [
     id: MILESTONE_SECOND_SIGNATURE,
     level: 40,
     name: 'The Second Signature',
-    description: 'You can sign two people a day at the Bar. Nobody else in the city can.',
+    description: 'You can bid on three people at once at the Bar. Nobody else in the city can.',
   },
   {
     id: MILESTONE_STANDING_INVITATION,

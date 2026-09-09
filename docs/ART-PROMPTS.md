@@ -1415,7 +1415,7 @@ One marker per _kind_ of place, not per place: thirty-one places share twenty ki
 
 ---
 
-## 6b. Vehicle portraits: 8 assets
+## 6b. Vehicle portraits: 7 assets
 
 The Garage's catalogue (`building/vehicles.ts`). Its own class rather than an icon: a machine is
 painted whole, on its own ground, and drawn at card width. Square, opaque, 1024x1024 as delivered,
@@ -1432,16 +1432,15 @@ and mismatched panels visible, one cool accent light on the machine itself. No p
 logos.
 ```
 
-| Key                    | Seed     | Prompt                                                                                                                                 |
-| ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `vehicle-motorcycle`   | `161001` | `SUBJECT: A stripped street bike in three-quarter view, no fairing, welded rack over the tail, warm #f59e0b highlight along the tank.` |
-| `vehicle-dirt-runner`  | `161002` | `SUBJECT: A knobble-tyred bike with a raised front mudguard and a strapped fuel can, mud-caked #8a5209 lower half.`                    |
-| `vehicle-scrap-car`    | `161003` | `SUBJECT: A boxy saloon welded out of three donor bodies, mismatched panels, one headlamp lit #ffd166.`                                |
-| `vehicle-armoured-car` | `161004` | `SUBJECT: A plated four-door with slit windows and a rolled bar over the roof, cold #94a3b8 steel.`                                    |
-| `vehicle-flatbed`      | `161005` | `SUBJECT: A flatbed lorry in side view, rail sides and a rolled tarpaulin, deck stacked with crates.`                                  |
-| `vehicle-war-hauler`   | `161006` | `SUBJECT: A six-axle hauler with a slab-sided cab and no visible glass, dust plume at the wheels.`                                     |
-| `vehicle-gas-balloon`  | `161007` | `SUBJECT: A patched gas envelope over a slung basket, mooring lines trailing, pale #7ff0ff sky behind.`                                |
-| `vehicle-rotorcraft`   | `161008` | `SUBJECT: A light helicopter with an open frame tail boom and a bulbous canopy, rotor blurred.`                                        |
+| Key                    | Seed     | Prompt                                                                                                                                                                                                                                                                                         |
+| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vehicle-motorcycle`   | `161001` | `SUBJECT: A stripped street bike in three-quarter view, no fairing, welded rack over the tail, warm #f59e0b highlight along the tank.`                                                                                                                                                         |
+| `vehicle-dirt-runner`  | `161002` | `SUBJECT: A reinforced pickup in side view, bolted plate over the doors and bed, a bull bar across the grille, oversized tyres, "OFFIE" sprayed on the door, cyan and magenta light bars under the sills.`                                                                                     |
+| `vehicle-scrap-car`    | `161003` | `SUBJECT: A boxy saloon welded out of three donor bodies, mismatched panels, one headlamp lit #ffd166.`                                                                                                                                                                                        |
+| `vehicle-armoured-car` | `161004` | `SUBJECT: A school bus in three-quarter view, riveted plate over every window, a ram plough under the grille, a roof rack and a ragged flag on a mast, "CHEESE WAGON" painted across the front above the windscreen, oversized tyres.`                                                         |
+| `vehicle-gas-balloon`  | `161005` | `SUBJECT: A patched gas envelope over a slung basket, mooring lines trailing, pale #7ff0ff sky behind.`                                                                                                                                                                                        |
+| `vehicle-rotorcraft`   | `161006` | `SUBJECT: A home-built helicopter in three-quarter view, an open lattice tail boom, a bubble canopy glazed in mismatched panels, skids welded out of scaffold tube, one rotor blade a different colour from the others, oil streaks down the boom.`                                            |
+| `vehicle-heli-porter`  | `161007` | `SUBJECT: A heavy transport helicopter in three-quarter view on a cracked pad, wide sliding cabin door open on bench seats, twin engines above the roof, five-blade rotor turning, landing gear rather than skids, warm #f59e0b light along the flank and a cold #22d3ee glow in the cockpit.` |
 
 ---
 

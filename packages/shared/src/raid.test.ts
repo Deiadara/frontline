@@ -18,6 +18,7 @@ import {
   RESOURCE_KEYS,
   RESOURCE_KG,
   plunder,
+  weightOf,
   type Resources,
 } from './index.js';
 
@@ -70,5 +71,46 @@ describe('what a raid can take', () => {
   it('never takes a fraction of a unit', () => {
     const haul = plunder(stocked(3), 1_000);
     for (const amount of Object.values(haul)) expect(Number.isInteger(amount)).toBe(true);
+  });
+});
+
+/**
+ * §A4, board 2026-09-09: a raid on a home takes a share of everything **except caps**.
+ *
+ * The exclusion is the whole reason the carry sheet matters. Caps are first in the priority order
+ * and weigh one apiece, so a raid that could take them filled its hold with the victim's wallet and
+ * left every material behind: the test above ("fills the hold in priority order") is that fact
+ * stated as a feature, and it is what a raid must no longer do.
+ */
+describe('what a raid leaves in the till', () => {
+  it('never carries out an excluded line, however much room it has', () => {
+    const haul = plunder(stocked(), Number.MAX_SAFE_INTEGER, ['caps']);
+    expect(haul.caps ?? 0).toBe(0);
+  });
+
+  it('spends the hold on the next line instead of stopping at the excluded one', () => {
+    // The same 100kg hold as the priority test above, which loaded 100 caps and nothing else.
+    // Without caps the hold goes to high-quality metal, which is next in the order at 5kg apiece.
+    const haul = plunder(stocked(), 100, ['caps']);
+    expect(haul.caps ?? 0).toBe(0);
+    expect(haul.highQualityMetal).toBe(20);
+  });
+
+  it('still respects the quarter share and the carry with a line excluded', () => {
+    const haul = plunder(stocked(), Number.MAX_SAFE_INTEGER, ['caps']);
+    for (const key of RESOURCE_KEYS.filter((key) => key !== 'caps')) {
+      expect(haul[key], `${key} was left behind by a raid with room for it`).toBe(
+        10_000 * MAX_RAID_SHARE,
+      );
+    }
+    // And the carry still bounds it: a hold of 5kg takes one bar of metal and nothing else.
+    const small = plunder(stocked(), 5, ['caps']);
+    expect(weightOf(small)).toBeLessThanOrEqual(5);
+    expect(small.highQualityMetal).toBe(1);
+  });
+
+  it('takes caps like anything else when nothing is excluded', () => {
+    // The positive control for the three above: the exclusion is doing the work, not the stock.
+    expect(plunder(stocked(), 100).caps).toBe(100);
   });
 });

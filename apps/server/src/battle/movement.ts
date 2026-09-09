@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import {
   CITY_DISTRICTS,
-  carriedSpeedPercent,
+  columnSpeed,
   emptyDeployment,
+  fittedFor,
   movementArrived,
   movementCancellable,
   movementForce,
   travelMinutesBetween,
+  unitColumnSpeed,
+  type Army,
   type Base,
   type BattleSide,
   type Fleet,
@@ -34,25 +37,45 @@ const MINUTE_MS = 60_000;
 /**
  * How long it takes this crew to reach the fight, in milliseconds.
  *
- * §C3: the machines are counted here rather than in `standingEffectsFor`, because what a vehicle is
- * worth depends on how many people it is carrying. A yard full of bikes and a column of four
- * hundred is four people on bikes and everybody else walking, and the column arrives when the
- * walkers do. `carriedSpeedPercent` is the whole of that rule.
+ * §C3, and it is two different numbers rather than one sum. The **column's speed** is what the
+ * slowest group in it moves at: every unit type on its own sheet, and everybody in a machine on
+ * that machine's (`columnSpeed`). The crew's **travel reduction** is what its holdings take off
+ * whatever clock that produced. A yard full of bikes and a column of four hundred is four people
+ * on bikes and everybody else walking, and the column arrives when the walkers do.
+ *
+ * The machines are counted here rather than in `standingEffectsFor` because what a vehicle is worth
+ * depends on who is in it, and that is a fact about this column rather than about the base.
  */
 export function travelMsTo(
   repos: Repositories,
   base: Base,
   districtId: string,
-  /** What this crew is taking to the fight, and how many bodies are in this column. */
-  riding: { vehicles: Fleet; bodies: number } = { vehicles: {}, bodies: 0 },
+  /** What this crew is taking to the fight, and who is in this column. */
+  riding: { vehicles: Fleet; force: Army } = { vehicles: {}, force: {} },
 ): number {
   const from = CITY_DISTRICTS.find((district) => district.id === base.districtId);
   const to = CITY_DISTRICTS.find((district) => district.id === districtId);
   if (!from || !to) return 0;
-  const speed =
-    standingEffectsFor(repos, base).travelSpeedPercent +
-    carriedSpeedPercent(riding.vehicles, riding.bodies);
-  return travelMinutesBetween(from, to, speed) * MINUTE_MS;
+  const effects = standingEffectsFor(repos, base);
+  const speed = columnSpeed(riding.vehicles, riding.force, (unitId) =>
+    unitColumnSpeed(unitId, {
+      percent: effects.unitSpeedPercent,
+      // The same sheet the fight will read (`battle/effects.ts`). A Neural Lace is twelve points
+      // of speed and the workshop fits it to a unit type, so the road has to fold it the way the
+      // engine does or the same body is quicker in the fight than on the way to it.
+      fitted: fittedFor(base.unitLoadouts, unitId),
+      // The crew's `any_ride` holding, so the Colossus that used to hold the whole column to 15
+      // takes a seat like everybody else (`city/locations.ts`).
+      anyRide: effects.anyRide,
+    }),
+  );
+  return (
+    travelMinutesBetween(from, to, {
+      speed,
+      reductionPercent: effects.travelSpeedPercent,
+      flatMinutesOff: effects.roadMinutesOff,
+    }) * MINUTE_MS
+  );
 }
 
 /** Puts a column on the road. Callers have already taken the units off the roster. */
@@ -76,13 +99,9 @@ export function sendColumn(
    * a column sent before any machine was picked walks, which is the honest answer.
    */
   const committed = repos.sieges.deployment(input.battleId, input.side, input.base.id);
-  const bodies = [input.army, input.perimeter].reduce(
-    (total, force) => total + Object.values(force).reduce((sum, count) => sum + count, 0),
-    0,
-  );
   const travel = travelMsTo(repos, input.base, input.toDistrictId, {
     vehicles: committed?.vehicles ?? {},
-    bodies,
+    force: mergeArmies(input.army, input.perimeter),
   });
   const movement: Movement = {
     id: randomUUID(),
@@ -98,6 +117,34 @@ export function sendColumn(
   };
   repos.movements.put(movement);
   return movement;
+}
+
+/**
+ * §C3: the machines caught the column up.
+ *
+ * A column's clock is set when it leaves, off whatever the crew had committed to the fight by
+ * then. The picker is on the same screen as the deploy and nothing orders the two, so a crew that
+ * sent the column and *then* loaded the yard onto it was walking at the old pace with the machines
+ * sitting on the deployment row doing nothing. Re-timed from departure rather than from now, so
+ * the ground already covered counts once: a column that would have arrived by now on the new
+ * clock arrives now, and a narrower set lengthens the walk the same way it would have shortened it.
+ */
+export function retimeColumns(
+  repos: Repositories,
+  base: Base,
+  battleId: string,
+  vehicles: Fleet,
+  now: Date,
+): void {
+  for (const movement of repos.movements.forBattle(battleId)) {
+    if (movement.baseId !== base.id || movementArrived(movement, now)) continue;
+    const travel = travelMsTo(repos, base, movement.toDistrictId, {
+      vehicles,
+      force: movementForce(movement),
+    });
+    const arrivesAt = Math.max(now.getTime(), Date.parse(movement.departedAt) + travel);
+    repos.movements.put({ ...movement, arrivesAt: new Date(arrivesAt).toISOString() });
+  }
 }
 
 /**

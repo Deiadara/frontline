@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { PartialResources } from '../resources.js';
+import { effectiveSpeed } from '../time/speed.js';
 
 /**
  * What the Garage builds (GDD §C, buildings-and-combat patch).
@@ -17,21 +18,39 @@ import type { PartialResources } from '../resources.js';
  *   to its capacity: a truck is a bigger prize than a bike because it was carrying more.
  * - Whatever comes home goes back in the yard.
  *
+ * ## Speed is the same stat units have
+ *
+ * A machine no longer carries a percentage off the road. It carries a **speed**, 0 to 100, on the
+ * same scale as `UnitStats.speed`, and everybody it is carrying travels at exactly that number
+ * (the board: *"the total population riding the vehicle has exactly the speed of the vehicle"*).
+ * What a speed is worth on a clock is `time/speed.ts`: `base / (1 + speed/100)`, so 95 takes a
+ * twenty-minute road down to about ten and 45 takes it to fourteen.
+ *
+ * That makes a machine comparable with the people in it, which is the point: the Road Reavers ride
+ * at 65 and the Scrappy they ride is 65, so putting a Reaver on a bike changes nothing and putting
+ * a Warden on one nearly doubles their pace. A handful of sheets outrun most of the yard on their
+ * own legs (Cyberhounds, Kite Crews, three of the legendaries), and only the Heli Porter beats all
+ * of them.
+ *
  * ## The four classes
  *
  * The classes trade speed against capacity, and the trade is the whole design: a motorbike column is
- * faster per body than a truck column and cannot move an army, so a crew that wants forty people
- * somewhere by dawn is choosing between six trips and one slower one. Every machine in a class
- * outruns every machine in the class that carries more than it, and `vehicles.test.ts` pins that
- * rather than trusting the table to stay sorted.
+ * faster per body than a truck column and cannot move an army, so a crew that wants thirty people
+ * somewhere by dawn is choosing between fifteen trips on the Scrappy and one slower one on the
+ * Cheese Wagon. Every machine in a class outruns every machine in the class that carries more than
+ * it, and `vehicles.test.ts` pins that rather than trusting the table to stay sorted.
  *
- * It did not stay sorted. The War Hauler was written at 28 and the Motorcycle at 22, so the biggest
- * truck in the game was faster than the bike this doc used as its example of the opposite, and the
- * Armoured Car at 32 outran both bikes while carrying twelve. The ladder is a rule now, with a test
- * under it.
+ * It did not stay sorted. The biggest truck in the game was written at 28 against the bike's 22, so
+ * the thing this doc used as its example of "slow but it moves an army" outran the thing it used as
+ * the opposite, and the plated saloon at 32 beat both bikes while carrying twelve. The ladder is a
+ * rule now, with a test under it.
  *
  * Within a class the later machine is the upgrade: more seats and a little quicker, gated on a
  * Garage level, a blueprint and a much larger bill. Across classes it is a trade.
+ *
+ * The class is a rule about the numbers, not a heading. The Garage page lists every machine in
+ * one run, in the order the Garage lets them out, so the catalogue below is kept in Garage-level
+ * order and `vehicles.test.ts` pins that too.
  *
  * ## Every machine needs its blueprint, and this module does not know which (§D12c)
  *
@@ -52,30 +71,14 @@ export const VEHICLE_CLASSES = ['motorbike', 'car', 'truck', 'flying'] as const;
 export const VehicleClassSchema = z.enum(VEHICLE_CLASSES);
 export type VehicleClass = z.infer<typeof VehicleClassSchema>;
 
-export const VEHICLE_CLASS_LABELS: Record<VehicleClass, string> = {
-  motorbike: 'Motorbikes',
-  car: 'Cars',
-  truck: 'Trucks',
-  flying: 'Flying',
-};
-
-/** What each class is *for*, in one line, at the head of its section on the Garage page. */
-export const VEHICLE_CLASS_BLURBS: Record<VehicleClass, string> = {
-  motorbike: 'Two wheels and no doors. Fastest per body, and it carries almost nobody.',
-  car: 'Room for a squad and something to hide behind on the way.',
-  truck: 'Moves an army. Slower than a bike and it does not need six trips.',
-  flying: 'Straight over the map. Nothing on the ground is in the way of one of these.',
-};
-
 export const VEHICLE_IDS = [
   'motorcycle',
   'dirt_runner',
   'scrap_car',
   'armoured_car',
-  'flatbed',
-  'war_hauler',
   'gas_balloon',
   'rotorcraft',
+  'heli_porter',
 ] as const;
 export const VehicleIdSchema = z.enum(VEHICLE_IDS);
 export type VehicleId = (typeof VEHICLE_IDS)[number];
@@ -91,15 +94,27 @@ export interface VehicleSpec {
   cost: PartialResources;
   buildSeconds: number;
   /**
-   * Percentage points off the road, for the force this machine is carrying.
+   * 0 to 100, the same stat a unit's sheet carries, and what everybody aboard travels at.
    *
-   * Not a fleet bonus. See {@link carriedSpeedPercent}: what a column travels at is the *weighted*
-   * contribution of the machines actually under it, so a fast bike carrying two does not speed up
-   * the forty people walking behind it.
+   * Not a fleet bonus and not a percentage off a clock. See {@link columnSpeed}: a column moves at
+   * its slowest group, so a fast bike carrying two does nothing at all for the forty people
+   * walking behind it, and the yard at home is worth nothing to anybody.
    */
-  speedPercent: number;
+  speed: number;
   /** Bodies it can carry. Also what it is worth in infamy to whoever destroys it (§C3). */
   capacity: number;
+  /**
+   * Built in somebody's yard out of what was to hand, and it shows when the shooting starts.
+   *
+   * Read by {@link wrecked} and by nothing else: at any given loss share the fragile machines are
+   * written off before the sound ones, so a Rotorcraft and a Heli Porter on the same mauling lose
+   * the Rotorcraft. It is the price of the Rotorcraft being the cheap way into the air, and its
+   * description says so in the yard rather than leaving a player to find out.
+   *
+   * Optional the way `UnitSpec.taunts` is: most machines are not, and writing `fragile: false` on
+   * six of seven rows buries the one that matters.
+   */
+  fragile?: boolean;
 }
 
 const SPECS: readonly VehicleSpec[] = [
@@ -112,19 +127,8 @@ const SPECS: readonly VehicleSpec[] = [
     requiresGarageLevel: 1,
     cost: { scrap: 900, oil: 200 },
     buildSeconds: 30 * 60,
-    speedPercent: 34,
+    speed: 65,
     capacity: 2,
-  },
-  {
-    id: 'dirt_runner',
-    name: 'Dirt Runner',
-    class: 'motorbike',
-    description: 'Knobbled tyres and a welded frame. Goes where the road stopped being a road.',
-    requiresGarageLevel: 3,
-    cost: { scrap: 1600, oil: 420, highQualityMetal: 60 },
-    buildSeconds: 55 * 60,
-    speedPercent: 40,
-    capacity: 3,
   },
   {
     id: 'scrap_car',
@@ -137,42 +141,39 @@ const SPECS: readonly VehicleSpec[] = [
     requiresGarageLevel: 4,
     cost: { scrap: 2600, oil: 800, highQualityMetal: 180 },
     buildSeconds: 2 * 3600,
-    speedPercent: 24,
+    speed: 55,
     capacity: 8,
   },
   {
-    id: 'armoured_car',
-    name: 'Armoured Car',
+    // The id stays `dirt_runner`, as `scrap_car` did for the Scar: it keys every stored fleet, the
+    // art asset and the blueprint pages already in satchels. The machine behind it changed class
+    // entirely: the board replaced the second bike with a reinforced pickup, so this is the bigger
+    // car now, above the Scar on seats, speed, price and Garage level.
+    id: 'dirt_runner',
+    name: 'The Offie',
     class: 'car',
-    description: 'Plated to the sills. Arrives with the same number of people it left with.',
-    requiresGarageLevel: 7,
-    cost: { scrap: 4200, oil: 1400, highQualityMetal: 460 },
-    buildSeconds: 3 * 3600,
-    speedPercent: 28,
-    capacity: 12,
+    description:
+      'A pickup with plate welded over everything that mattered and a bull bar over what did not. A squad rides in the bed, and it gets there with all of them.',
+    requiresGarageLevel: 5,
+    cost: { scrap: 3300, oil: 1050, highQualityMetal: 300 },
+    buildSeconds: 2 * 3600 + 30 * 60,
+    speed: 58,
+    capacity: 10,
   },
   {
-    id: 'flatbed',
-    name: 'Flatbed',
+    // The id stays `armoured_car` for the reason the two above give. The board replaced the plated
+    // saloon with a school bus in plate: a truck by the numbers, slower than either car and the
+    // only machine on the ground that moves most of a crew in one go.
+    id: 'armoured_car',
+    name: 'Cheese Wagon',
     class: 'truck',
     description:
-      'A deck, a rail and a tarpaulin. Twenty people sitting down is still twenty people.',
-    requiresGarageLevel: 6,
-    cost: { scrap: 5200, oil: 2000, highQualityMetal: 520 },
-    buildSeconds: 4 * 3600,
-    speedPercent: 14,
-    capacity: 24,
-  },
-  {
-    id: 'war_hauler',
-    name: 'War Hauler',
-    class: 'truck',
-    description: 'Six axles and a cab nobody can see into. The whole crew, in one thing, at once.',
-    requiresGarageLevel: 10,
-    cost: { scrap: 8400, oil: 3200, highQualityMetal: 1250 },
-    buildSeconds: 6 * 3600,
-    speedPercent: 18,
-    capacity: 40,
+      'A school bus with plate riveted over every window and a plough where the bumper was. Thirty in the seats, and it has never once stopped for anybody.',
+    requiresGarageLevel: 7,
+    cost: { scrap: 6400, oil: 2400, highQualityMetal: 760 },
+    buildSeconds: 4 * 3600 + 30 * 60,
+    speed: 48,
+    capacity: 30,
   },
   {
     id: 'gas_balloon',
@@ -183,7 +184,7 @@ const SPECS: readonly VehicleSpec[] = [
     requiresGarageLevel: 9,
     cost: { scrap: 6800, oil: 2600, highQualityMetal: 940 },
     buildSeconds: 5 * 3600,
-    speedPercent: 44,
+    speed: 70,
     capacity: 10,
   },
   {
@@ -191,12 +192,30 @@ const SPECS: readonly VehicleSpec[] = [
     name: 'Rotorcraft',
     class: 'flying',
     description:
-      'It should not fly and everyone who has seen it says so. The map stops being a map with one of these in the yard.',
+      'Somebody built a helicopter in a yard out of two other helicopters. It flies, it is quick, and it comes apart on days the Heli Porter walks away from.',
     requiresGarageLevel: 12,
     cost: { scrap: 11000, oil: 4200, highQualityMetal: 2400 },
     buildSeconds: 8 * 3600,
-    speedPercent: 52,
+    speed: 78,
     capacity: 18,
+    // The cheap way into the air, and the only machine in the yard that is written off first. See
+    // `VehicleSpec.fragile` and `wrecked`.
+    fragile: true,
+  },
+  {
+    // The board's strongest machine, and the top of the whole catalogue: nothing on the ground or
+    // in the air is quicker, and only three legendaries and a pack of Cyberhounds keep up with it
+    // on foot. Deliberately the last thing a Garage lets out and the dearest thing in it.
+    id: 'heli_porter',
+    name: 'Heli Porter',
+    class: 'flying',
+    description:
+      'A real transport helicopter, kept flying by people who understand it. Thirty in the cabin, over everything in the way, and it lands where it was told to.',
+    requiresGarageLevel: 14,
+    cost: { scrap: 15000, oil: 5800, highQualityMetal: 3400 },
+    buildSeconds: 11 * 3600,
+    speed: 95,
+    capacity: 30,
   },
 ];
 
@@ -208,7 +227,7 @@ export function findVehicle(id: string): VehicleSpec | undefined {
   return BY_ID.get(id);
 }
 
-/** The catalogue in class order, for a page that draws one section per class. */
+/** The machines of one class, for the ladder tests. */
 export function vehiclesOfClass(kind: VehicleClass): VehicleSpec[] {
   return SPECS.filter((spec) => spec.class === kind);
 }
@@ -219,6 +238,26 @@ export const FleetSchema: z.ZodType<Partial<Record<VehicleId, number>>> = z.part
   z.number().int().positive(),
 );
 export type Fleet = z.infer<typeof FleetSchema>;
+
+/**
+ * A stored fleet with the machines that no longer exist taken out of it.
+ *
+ * The same fault line `withoutRetiredUnits` covers for armies: `VehicleIdSchema` is a *key* schema
+ * over the live catalogue, so a fleet naming a retired machine does not lose a field, it fails
+ * `FleetSchema.parse` outright. On the server that is a row refusing to load, which is an account
+ * that will not open and a world tick that throws when it reaches that base. Every reader of a
+ * stored fleet runs this, and the migration that sweeps the rows is the tidy path rather than the
+ * only defence: a backup restored from before it still opens.
+ *
+ * Only unknown keys are dropped. A negative count or a string where a number belongs is corruption
+ * rather than history, and the schema still judges it exactly as it did.
+ */
+export function withoutRetiredVehicles(raw: unknown): unknown {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(([id]) => findVehicle(id) !== undefined),
+  );
+}
 
 /** However rich a crew gets, the yard holds this many of one kind. */
 export const MAX_PER_VEHICLE = 12;
@@ -238,40 +277,107 @@ export function fleetCapacity(fleet: Fleet): number {
 }
 
 /**
- * What a column of `bodies` travels at, given the machines it took (§C3).
+ * A machine's speed after whatever raises it, never past 100.
  *
- * The board's rule in one function: *"the force's speed is decided by what is actually carried,
- * not by what is parked at home"*. Each machine contributes its own percentage weighted by the
- * share of the force it is carrying, so:
- *
- * - Nobody riding is worth nothing, which is what stops a yard full of bikes from being a passive
- *   travel bonus the way the old model was.
- * - Two bikes taking four people out of a force of forty move four people, and the other
- *   thirty-six are still walking. The column arrives when the walkers do.
- * - Seats past the size of the force are wasted, because there is nobody to put in them.
- *
- * Seats are filled from the **fastest** machine down, so a crew that brings a Rotorcraft and a
- * Flatbed for eighteen people gets the Rotorcraft's number for all of them rather than an average
- * that punishes them for owning a truck.
+ * Nothing raises one today: no location bonus, no perk and no refit pays into a vehicle. The cap is
+ * written anyway because the rule is the same one units get (`time/speed.ts`, `effectiveSpeed`),
+ * and the first channel that does pay into it should find the ceiling already here rather than
+ * discover that the Heli Porter at 95 plus a flat +8 halves a road twice.
  */
-export function carriedSpeedPercent(fleet: Fleet, bodies: number): number {
-  if (bodies <= 0) return 0;
-  const riding = [...Object.entries(fleet)]
+export function effectiveVehicleSpeed(spec: VehicleSpec, bonusPercent = 0, flat = 0): number {
+  return effectiveSpeed(spec.speed, { percent: bonusPercent, flat });
+}
+
+/**
+ * One unit type's contribution to a column: how fast it walks, and whether it will get in.
+ *
+ * `columnSpeed` sits in `building/`, which is below `units/` in the import graph, so it cannot read
+ * a sheet or a rule table for itself. The caller looks both up and hands them over; `units/` ships
+ * {@link ColumnUnit} producers so no caller has to write the lookup twice.
+ */
+export interface ColumnUnit {
+  /** 0..100, after the crew's `unitSpeedPercent` channel and any flat bonus. */
+  speed: number;
+  /** False for a sheet carrying the `no_ride` rule. The Colossus does not fit in anything. */
+  rides: boolean;
+}
+
+/** The bodies to be moved, by unit id. Sparse, and a zero is the same as absent. */
+export type ColumnForce = Readonly<Record<string, number>>;
+
+const ridingOrder = (fleet: Fleet): VehicleSpec[] =>
+  [...Object.entries(fleet)]
     .flatMap(([id, count]) => {
       const spec = findVehicle(id);
       return spec ? Array.from({ length: count ?? 0 }, () => spec) : [];
     })
-    .sort((a, b) => b.speedPercent - a.speedPercent);
+    .sort((a, b) => b.speed - a.speed);
 
-  let seated = 0;
-  let weighted = 0;
-  for (const spec of riding) {
-    if (seated >= bodies) break;
-    const carried = Math.min(spec.capacity, bodies - seated);
-    weighted += spec.speedPercent * carried;
-    seated += carried;
+/**
+ * What a column travels at (§C3): the speed of its **slowest group**.
+ *
+ * A column arrives when its last people do. That sentence has been at the top of this module since
+ * the vehicles were rewritten and the arithmetic under it said something else: the old
+ * `carriedSpeedPercent` averaged the machines' percentages weighted by the share of the force they
+ * seated, so two bikes in front of forty walkers made all forty of them measurably faster. They do
+ * not. They arrive first and wait.
+ *
+ * The column is a set of groups, each moving at one speed: every unit type still on foot at its own
+ * effective speed, and every machine carrying anybody at that machine's speed. The answer is the
+ * minimum over the groups that have somebody in them, and nothing else.
+ *
+ * Two loading rules follow from that, and both are what a crew would actually do:
+ *
+ * - **Seats go to the slowest walkers first.** Putting the Cyberhounds in the truck and leaving the
+ *   Ironsides on foot does nothing at all, because the Ironsides are still the answer. Seating the
+ *   Ironsides is the only way a seat raises the column.
+ * - **The fastest machines are filled first**, so a crew that owns a truck is never punished for it.
+ * - **Nobody boards a machine slower than their own legs.** A seat is an offer, not an order: two
+ *   Cyberhounds on 90 handed a Scrappy on 65 do not climb on and lose twenty-five points of pace,
+ *   they run alongside it. Without this the two rules above are not enough to keep the promise
+ *   they make, because the fill is otherwise unconditional and an early bike could hold a column
+ *   of fast sheets below its own speed.
+ *
+ * A unit whose sheet refuses to ride (`ColumnUnit.rides`) never takes a seat and drags the column
+ * at its own pace whatever is in the yard. Seats past the size of the force are worth nothing,
+ * because there is nobody to put in them, and an empty force has no speed at all.
+ */
+export function columnSpeed(
+  fleet: Fleet,
+  force: ColumnForce,
+  effectiveSpeedOf: (unitId: string) => ColumnUnit,
+): number {
+  const groups = [...Object.entries(force)]
+    .filter(([, count]) => (count ?? 0) > 0)
+    .map(([unitId, count]) => ({ ...effectiveSpeedOf(unitId), left: count ?? 0 }));
+  if (groups.length === 0) return 0;
+
+  // Slowest first, and only the ones that will get in: those are the seats worth spending.
+  const boarding = groups.filter((group) => group.rides).sort((a, b) => a.speed - b.speed);
+  let slowest = Number.POSITIVE_INFINITY;
+  for (const machine of ridingOrder(fleet)) {
+    let seats = machine.capacity;
+    let carried = 0;
+    for (const group of boarding) {
+      if (seats === 0) break;
+      // `boarding` is slowest first, so the first group this machine cannot outrun is also the
+      // last: nobody behind it would be helped by a seat either.
+      if (group.speed >= machine.speed) break;
+      const aboard = Math.min(seats, group.left);
+      group.left -= aboard;
+      seats -= aboard;
+      carried += aboard;
+    }
+    // Nobody left worth seating, either because everybody is aboard or because everybody still
+    // walking is quicker than this. Machines are in speed order, so neither can come back.
+    if (carried === 0) break;
+    slowest = Math.min(slowest, machine.speed);
   }
-  return Math.round(weighted / bodies);
+
+  for (const group of groups) {
+    if (group.left > 0) slowest = Math.min(slowest, group.speed);
+  }
+  return slowest;
 }
 
 /**
@@ -280,17 +386,14 @@ export function carriedSpeedPercent(fleet: Fleet, bodies: number): number {
  * Trims what the player picked down to what there is somebody to sit in, fastest first, so a crew
  * that ticks the whole yard sends the machines that matter and leaves the rest at home rather than
  * marching an empty truck into a fight where it can be destroyed for free.
+ *
+ * `bodies` is the count that will **ride**, so a caller with a `no_ride` sheet in the force counts
+ * it out first: a Colossus cannot fill a seat and must not keep a truck on the road.
  */
 export function loadable(chosen: Fleet, bodies: number): Fleet {
   const taken: Fleet = {};
   let seated = 0;
-  const riding = [...Object.entries(chosen)]
-    .flatMap(([id, count]) => {
-      const spec = findVehicle(id);
-      return spec ? Array.from({ length: count ?? 0 }, () => spec) : [];
-    })
-    .sort((a, b) => b.speedPercent - a.speedPercent);
-  for (const spec of riding) {
+  for (const spec of ridingOrder(chosen)) {
     if (seated >= bodies) break;
     taken[spec.id] = (taken[spec.id] ?? 0) + 1;
     seated += spec.capacity;
@@ -302,7 +405,7 @@ export function loadable(chosen: Fleet, bodies: number): Fleet {
  * What the enemy earns for wrecking these (§C3): the sum of what they could carry.
  *
  * Capacity rather than price, because capacity is what the fight actually took off the board: a
- * War Hauler is a bigger thing to have destroyed than a Motorcycle whatever either cost to build.
+ * Cheese Wagon is a bigger thing to have destroyed than a Scrappy whatever either cost to build.
  */
 export function vehicleInfamy(destroyed: Fleet): number {
   let earned = 0;
@@ -321,17 +424,18 @@ export function vehicleInfamy(destroyed: Fleet): number {
  * A force that was wiped loses everything it took; a force that walked it off loses nothing.
  *
  * Rounded down on destruction, so a scratch is never a write-off: half a squad lost off two bikes
- * wrecks one bike, and losing one body out of forty in a truck wrecks nothing.
+ * wrecks one bike, and losing one body out of thirty in a bus wrecks nothing.
+ *
+ * Fragile machines go first at any share (`VehicleSpec.fragile`), which is the whole of what "less
+ * reliable" buys the Rotorcraft's price: a crew flying a Rotorcraft and a Heli Porter into the same
+ * mauling loses the Rotorcraft.
  */
 export function wrecked(took: Fleet, survivingShare: number): Fleet {
   const lost = Math.min(1, Math.max(0, 1 - survivingShare));
   const destroyed: Fleet = {};
-  const riding = [...Object.entries(took)]
-    .flatMap(([id, count]) => {
-      const spec = findVehicle(id);
-      return spec ? Array.from({ length: count ?? 0 }, () => spec) : [];
-    })
-    .sort((a, b) => b.speedPercent - a.speedPercent);
+  const riding = ridingOrder(took).sort(
+    (a, b) => Number(b.fragile ?? false) - Number(a.fragile ?? false),
+  );
 
   const count = Math.floor(riding.length * lost);
   for (const spec of riding.slice(0, count)) {

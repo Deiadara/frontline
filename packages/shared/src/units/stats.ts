@@ -323,7 +323,8 @@ export const UNIT_STAT_LABELS: Record<(typeof UNIT_STAT_KEYS)[number], string> =
  * they are the copy behind the hover on every stat row.
  */
 export const UNIT_STAT_EXPLAINERS: Record<(typeof UNIT_STAT_KEYS)[number], string> = {
-  speed: 'Who moves first, and who gets a shot away before the other side has decided anything.',
+  speed:
+    'How fast they cross the city, and who gets a shot away before the other side has decided anything. A column moves at its slowest body, and a machine lends its riders its own.',
   vitality: 'How much punishment one of them absorbs before they are out of the fight.',
   morale: 'How far it has to go badly before they break and run rather than hold the line.',
   armor: 'Taken off every hit that lands. Cheap weapons stop mattering against enough of it.',

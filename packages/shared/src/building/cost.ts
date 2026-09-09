@@ -86,6 +86,19 @@ export function baseBuildingCost(kind: BuildingKind, level: number): PartialReso
  * as it climbs. Rounded to whole units, resources are counted, not measured, and floored at 1 for
  * any line the catalogue charges at all, so a deep discount can never make a material free.
  */
+/**
+ * The level a bill is written at, once a crew's credit is taken off (the `building_credit` perk).
+ *
+ * Never below the first level, which is the whole of the clamp: a credit big enough to price a
+ * level-2 Lab at level zero would be asking {@link BUILDING_COST_GROWTH} for a negative exponent,
+ * and the answer is a bill smaller than the catalogue's own floor rather than a free structure.
+ * The *order* is still for the real level; only the price moves. That distinction is load-bearing:
+ * the queue, the clock and the cap all read the level the structure is actually going to.
+ */
+export function creditedLevel(level: number, credit = 0): number {
+  return Math.max(1, level - Math.max(0, Math.trunc(credit)));
+}
+
 export function buildingCost(
   kind: BuildingKind,
   level: number,

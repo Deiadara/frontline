@@ -12,11 +12,15 @@ import {
   type Base,
   type Building,
   type Resources,
+  declarationWindow,
+  type BattleTarget,
+  type ScheduledBattle,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { ADMIN_ACTION_SECONDS } from '../admin/mode.js';
 import { listBackups } from '../db/backup.js';
 import { AppError, parseBody } from '../errors.js';
+import { declareBattle } from '../battle/declare.js';
 import { ownBase } from './own-base.js';
 
 /**
@@ -105,6 +109,75 @@ function buildingsAt(
   });
 }
 
+/**
+ * A fight called on the reviewer, by whoever else is in the city (board request, 2026-09-08).
+ *
+ * Through the real declaration and nothing else: the same gates, the same bell, the same mark on
+ * the bottom bar, the same settle at the mark. What the console adds is only the two things a
+ * reviewer's fresh crew lacks. Somebody to call it: the seeded rival if there is one, otherwise
+ * any other crew, and nobody at all is a refusal rather than an invented account. And ground to
+ * be called on: a residential district has no gate and no locations, so a crew that holds nothing
+ * cannot be fought (`docs/PLAN` Q, still true), and the console hands them one unheld location in
+ * a contested district first, which is what a reviewer would have done by hand.
+ *
+ * The caller is marked as having scouted the ground, because the declaration refuses an unscouted
+ * district and a bot has scouted nothing. Everything after that is `declareBattle`'s own answer.
+ */
+function mockBattleOn(app: FastifyInstance, base: Base, now: Date): ScheduledBattle {
+  const rival = app.repos.bases
+    .listSummaries()
+    .filter((summary) => summary.id !== base.id)
+    .sort((a, b) => Number(b.isBot) - Number(a.isBot))[0];
+  const attacker = rival ? app.repos.bases.findById(rival.id) : undefined;
+  if (!attacker) throw new AppError('PLACE_UNAVAILABLE', 'Nobody else is in the city to call it');
+
+  const held = [...app.repos.city.controls().values()].filter(
+    (control) => control.holder.kind === 'crew' && control.holder.baseId === base.id,
+  );
+  const candidates: BattleTarget[] = [];
+  if (held.length === 0) {
+    const spare = CITY_DISTRICTS.flatMap((district) =>
+      district.locations
+        .filter((location) => {
+          const control = app.repos.city.control(location.id);
+          return !control || control.holder.kind !== 'crew';
+        })
+        .map((location) => ({ districtId: district.id, locationId: location.id })),
+    )[0];
+    if (!spare) throw new AppError('PLACE_UNAVAILABLE', 'No ground left in the city to hand you');
+    const control = app.repos.city.control(spare.locationId);
+    if (!control) throw new AppError('PLACE_UNAVAILABLE', 'No ground left in the city to hand you');
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: base.id }, garrison: {} });
+    candidates.push({ kind: 'location', ...spare });
+  }
+  for (const control of held) {
+    const district = CITY_DISTRICTS.find((entry) =>
+      entry.locations.some((location) => location.id === control.locationId),
+    );
+    if (!district) continue;
+    candidates.push({ kind: 'location', districtId: district.id, locationId: control.locationId });
+    candidates.push({ kind: 'gate', districtId: district.id });
+  }
+
+  let refusal = 'nothing to call';
+  for (const target of candidates) {
+    if (!findDistrict(target.districtId)) continue;
+    app.repos.city.markScouted(attacker.id, target.districtId, now.toISOString());
+    const result = declareBattle(app.repos, {
+      base: attacker,
+      target,
+      scheduledFor: declarationWindow(now).earliest,
+      now,
+    });
+    if (result.kind === 'ok') return result.battle;
+    refusal = result.reason;
+  }
+  throw new AppError(
+    'PLACE_UNAVAILABLE',
+    `Nothing of yours can be called on right now (${refusal})`,
+  );
+}
+
 export function registerAdminRoutes(app: FastifyInstance): void {
   app.get('/admin', { preHandler: app.authenticate }, (request): AdminSnapshot => {
     requireAdmin(app);
@@ -118,6 +191,19 @@ export function registerAdminRoutes(app: FastifyInstance): void {
    * genuinely visited leaves that visit on record, and turning admin mode off shows the crew
    * exactly what it has seen and nothing else. Home cannot be hidden; you live there.
    */
+  app.post(
+    '/admin/mock-battle',
+    { preHandler: app.authenticate },
+    (request): AdminMutationResponse => {
+      requireAdmin(app);
+      return app.db.transaction(() => {
+        const base = ownBase(app, request.currentUser.id);
+        mockBattleOn(app, base, new Date());
+        return { admin: snapshot(app, base) };
+      })();
+    },
+  );
+
   app.post('/admin/fog', { preHandler: app.authenticate }, (request): AdminMutationResponse => {
     requireAdmin(app);
     const { districtId, visible } = parseBody(AdminFogRequestSchema, request.body);

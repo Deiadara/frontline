@@ -6,6 +6,8 @@ import {
   breachExpiry,
   clampLevel,
   damageBuilding,
+  disruptionFrom,
+  refreshDisruption,
   districtDefense,
   findDistrict,
   LOCATION_CATALOG,
@@ -67,6 +69,9 @@ import {
   type BattleOfficer,
   type BattleSide,
   type Commander,
+  loadable,
+  findVehicle,
+  ridingBodies,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
 import { recallOvertaken } from './movement.js';
@@ -144,7 +149,7 @@ function assemble(
   }
 
   /*
-   * A gate, or a structure behind a broken one, is defended by whoever is standing in the district.
+   * A gate, or the district behind a broken one, is defended by whoever is standing in it.
    *
    * "Standing in" is literal, and the distinction is the whole of this block. `defenderBase` is the
    * crew whose books this fight is settled against, and for a gate that is whoever holds the
@@ -603,32 +608,66 @@ function settleInjuries(
 /**
  * §C3: what a side's machines came home to, and what the other side gets for the rest.
  *
- * Writes the survivors straight back onto the base's fleet and clears the deployment's, so a fight
- * that has been settled cannot hand the same machines back twice on a second read. Returns what was
- * destroyed, which is what the *enemy's* infamy is priced off.
+ * Per crew, not per side. A side can be several crews (`battle/side.ts`) and each row on it
+ * holds its own machines, so settling the declarer's row alone left an ally's Cheese Wagon on a
+ * deployment row for ever: never wrecked, never home, and gone from their yard. Each row's
+ * survivors are its share of the side's, split the way the bodies are (`splitSurvivors`).
+ *
+ * Only the machines somebody was riding are at risk. `loadable` trims the row's set to what the
+ * bodies could fill, fastest first, and the rest never left the yard in any sense that matters:
+ * an empty truck cannot be wrecked by killing everybody on it, and it cannot hand the enemy
+ * infamy for a seating plan. A row that fielded nobody gets everything back for the same reason.
+ *
+ * Writes the survivors straight back onto each base's fleet and clears the row's, so a fight that
+ * has been settled cannot hand the same machines back twice on a second read. Returns what was
+ * destroyed, which is what the *enemy's* infamy is priced off, and who lost what, for the receipt.
  */
-function settleVehicles(
+function settleSideVehicles(
   repos: Repositories,
-  battle: ScheduledBattle,
-  side: BattleSide,
-  base: Base,
-  force: { committed: number; survivors: number },
-): { destroyed: Fleet } {
-  const deployment = repos.sieges.deployment(battle.id, side, base.id);
-  const took = deployment?.vehicles ?? {};
-  if (Object.keys(took).length === 0) return { destroyed: {} };
+  rows: readonly BattleDeployment[],
+  survivors: Army,
+): { destroyed: Fleet; lostBy: Map<string, Fleet> } {
+  const shares = splitSurvivors(rows, survivors, (row) => mergeArmies(row.army, row.perimeter));
+  let destroyed: Fleet = {};
+  const lostBy = new Map<string, Fleet>();
+  for (const row of rows) {
+    if (row.baseId === null || Object.keys(row.vehicles).length === 0) continue;
+    // The row's own crew, read once: their `any_ride` holding decides who filled a seat, and their
+    // yard is what the survivors go back into. Per row rather than per side, because a side can be
+    // several crews and each of them holds their own ground (`battle/side.ts`).
+    const owner = repos.bases.findById(row.baseId);
+    const anyRide = owner ? standingEffectsFor(repos, owner).anyRide : false;
+    const fielded = mergeArmies(row.army, row.perimeter);
+    const committed = forceSize(fielded);
+    const survived = forceSize(shares.get(row.baseId) ?? {});
+    // Seats, not bodies: a sheet that will not ride (§C3, `no_ride`) fills none, so counting it
+    // here kept a machine on the road that nobody was ever in. A crew that walked a Colossus to a
+    // fight beside one truck lost the truck on a mauling and paid the enemy thirty infamy for a
+    // seating plan. `loadable`'s own doc has said `bodies` means the riders since it was written.
+    const riding = loadable(row.vehicles, ridingBodies(fielded, anyRide));
+    const idle = removeFleet(row.vehicles, riding);
+    const lost = committed <= 0 ? {} : wrecked(riding, survived / committed);
+    const home = mergeFleets(idle, removeFleet(riding, lost));
 
-  // A force of nobody that somehow took machines lost all of them: there was nobody to drive one
-  // home, which is the same answer a wipe gets and for the same reason.
-  const surviving = force.committed <= 0 ? 0 : force.survivors / force.committed;
-  const destroyed = wrecked(took, surviving);
-  const home = removeFleet(took, destroyed);
-
-  repos.sieges.putDeployment({ ...deployment!, vehicles: {} });
-  if (Object.keys(home).length > 0) {
-    repos.bases.updateFleet(base.id, mergeFleets(repos.bases.findById(base.id)?.fleet ?? {}, home));
+    repos.sieges.putDeployment({ ...row, vehicles: {} });
+    if (Object.keys(home).length > 0) {
+      const yard = owner?.fleet ?? {};
+      repos.bases.updateFleet(row.baseId, mergeFleets(yard, home));
+    }
+    if (Object.keys(lost).length > 0) {
+      destroyed = mergeFleets(destroyed, lost);
+      lostBy.set(row.baseId, lost);
+    }
   }
-  return { destroyed };
+  return { destroyed, lostBy };
+}
+
+/** "1 Cheese Wagon, 2 Scrappy": what a receipt says was wrecked. */
+function describeFleet(fleet: Fleet): string {
+  return Object.entries(fleet)
+    .filter(([, count]) => (count ?? 0) > 0)
+    .map(([id, count]) => `${count} ${findVehicle(id)?.name ?? id}`)
+    .join(', ');
 }
 
 /** The roster with one officer laid up for a day. Written by the settler and nowhere else. */
@@ -979,7 +1018,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * fight.
    *
    * Only on a **won location**, and the two qualifications are both load-bearing. A lost fight has
-   * nothing to hold, and a gate or a building is not a thing anybody can stand on afterwards: the
+   * nothing to hold, and a gate or a raid is not a thing anybody can stand on afterwards: the
    * breach is a window in time rather than a position on the map, so there is no garrison for it to
    * be.
    */
@@ -1051,20 +1090,17 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * everything it committed and a side that walked it off loses nothing. Whatever survives goes
    * straight back in the yard, which is the other half of the board's rule.
    *
-   * The infamy is the machines' **capacity**, not their price: a War Hauler is a bigger thing to
-   * have destroyed than a Motorcycle whatever either cost to build, and capacity is what the fight
+   * The infamy is the machines' **capacity**, not their price: a Cheese Wagon is a bigger thing to
+   * have destroyed than a Scrappy whatever either cost to build, and capacity is what the fight
    * actually took off the board.
    */
-  const attackerVehicles = settleVehicles(repos, battle, 'attacker', attacker, {
-    committed: forceSize(input.committed),
-    survivors: forceSize(attackerSurvivors),
-  });
-  const defenderVehicles = defenderBase
-    ? settleVehicles(repos, battle, 'defender', defenderBase, {
-        committed: forceSize(assembled.defending),
-        survivors: forceSize(defenderSurvivors),
-      })
-    : { destroyed: {} as Fleet };
+  const defenderRows = repos.sieges.side(battle.id, 'defender');
+  const attackerVehicles = settleSideVehicles(repos, attackerRows, attackerHome);
+  const defenderVehicles = settleSideVehicles(
+    repos,
+    defenderRows,
+    mergeArmies(defenderSurvivors, defenderRingHome),
+  );
 
   const attackerInfamy =
     infamyForKills(defenderDead) + captureInfamy + vehicleInfamy(defenderVehicles.destroyed);
@@ -1088,6 +1124,13 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * banked. A mechanic that is visible and inert is worse than one that is absent.
    */
   let haul: PartialResources = refundFor(attackerDead, attackerGround.salvageRefundPercent);
+  /**
+   * §A4: whether the raiders actually got into a structure, which is what leaves the place limping.
+   *
+   * Carried out of {@link breakIn} rather than derived from the target, because a `district` call
+   * on ground nobody lives on loots nothing and must disrupt nothing either.
+   */
+  let raided = false;
   /*
    * §D5: what the officer's own book adds to the take, when they led and the fight was won.
    *
@@ -1178,7 +1221,9 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       repos.city.setGarrison(battle.target.locationId, defenderSurvivors);
     }
   } else if (attackerWon) {
-    haul = mergeResources(haul, breakIn(repos, input));
+    const broken = breakIn(repos, input);
+    haul = mergeResources(haul, broken.haul);
+    raided = broken.raided;
   }
 
   if (leadLoot > 0) haul = scaledSpoils(haul, leadLoot);
@@ -1221,7 +1266,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
        * attacker kept the haul and the defender lost nothing, which is resource duplication on
        * every raid against a defender holding a Bone Market or carrying a salvage perk.
        *
-       * A building target is always the resident's own base (`defendingBaseOf` returns the
+       * A district target is always the resident's own base (`defendingBaseOf` returns the
        * resident when the target is not a location), so this is the same row every time, not an
        * unlucky alias.
        */
@@ -1291,16 +1336,21 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    */
   const rows: [BattleSide, ReturnType<Repositories['sieges']['side']>][] = [
     ['attacker', attackerRows],
-    ['defender', repos.sieges.side(battle.id, 'defender')],
+    ['defender', defenderRows],
   ];
   for (const [side, sideRows] of rows) {
     if (input.injured[side]) continue;
+    const lostBy = side === 'attacker' ? attackerVehicles.lostBy : defenderVehicles.lostBy;
     for (const row of sideRows) {
       if (row.baseId === null) continue;
+      // §C3: the machines are not on the report's table, so the receipt is where a crew hears
+      // that a wreck is why the yard came back short.
+      const wrecks = lostBy.get(row.baseId);
+      const settled = `${targetName(battle.target, residentOf(repos, battle.target.districtId))} is settled.`;
       notifyBase(repos, row.baseId, {
         kind: 'battle_report',
         title: attackerWon ? 'A fight was won' : 'A fight was lost',
-        body: `${targetName(battle.target, residentOf(repos, battle.target.districtId))} is settled.`,
+        body: wrecks ? `${settled} Wrecked on the way: ${describeFleet(wrecks)}.` : settled,
         link: '/game/battles',
         now,
       });
@@ -1317,17 +1367,48 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     repos.bases.updateResources(attackerNext.id, addResources(banked.resources, haul));
   }
 
+  /*
+   * §A4: what stays broken.
+   *
+   * "What leaves is bounded by what the raiders can carry; what stays broken is disruption" is
+   * `raid.ts`'s whole second half, and `settleDistrict` reads `economy.disruption` per segment of
+   * every production walk. Nothing wrote it: `disruptionFrom` and `refreshDisruption` were
+   * exported, documented and called by nobody, so the one consequence of a raid the victim cannot
+   * buy back never happened.
+   *
+   * Written last, off a fresh read, and against the **resident** rather than the defending crew.
+   * Those are the same row on an ordinary break-in and not on the odd one where a crew holds a
+   * district it does not live in: the structures that were wrecked are the resident's, so the
+   * hours of bad running are the resident's too. Last, because the defender's own economy write
+   * above rebuilds that column from the snapshot this settle opened with.
+   */
+  if (raided && input.resident) {
+    const limping = repos.bases.findById(input.resident.id);
+    if (limping) {
+      repos.bases.updateEconomy(limping.id, {
+        ...limping.economy,
+        // A second raid refreshes rather than stacks: two crews taking turns must not be able to
+        // hold a district at zero output for ever.
+        disruption: refreshDisruption(limping.economy.disruption, disruptionFrom(now)),
+      });
+    }
+  }
+
   return { attackerInfamy, defenderInfamy, haul };
 }
 
 /**
  * What a won siege takes out of a lived-in district (§A4).
  *
- * A gate goes down for a day and everything behind it becomes reachable; a structure that was hit
- * is carried out of and left running badly. What never happens is the district changing hands:
- * losing three weeks of building because you were asleep is not a strategy game.
+ * A gate goes down for a day and everything behind it becomes reachable; a raid inside that day
+ * carries off a share of the stockpile and leaves three roofs in a state. What never happens is the
+ * district changing hands: losing three weeks of building because you were asleep is not a strategy
+ * game.
  */
-function breakIn(repos: Repositories, input: SettleInput): PartialResources {
+function breakIn(
+  repos: Repositories,
+  input: SettleInput,
+): { haul: PartialResources; raided: boolean } {
   const { battle, resident, outcome, now } = input;
   if (battle.target.kind === 'gate') {
     /*
@@ -1339,33 +1420,69 @@ function breakIn(repos: Repositories, input: SettleInput): PartialResources {
      * `city/gates.ts`.
      */
     repos.sieges.breakGate(battle.target.districtId, breachExpiry(now));
-    return {};
+    return { haul: {}, raided: false };
   }
-  if (battle.target.kind !== 'building' || !resident) return {};
+  if (battle.target.kind !== 'district' || !resident) return { haul: {}, raided: false };
 
-  const targetId = battle.target.buildingId;
-  const building = resident.buildings.find((candidate) => candidate.id === targetId);
-  if (!building) return {};
-
-  // How badly it was hit follows how badly the defence lost, so a fight that went the distance
-  // leaves the location scratched and one nobody turned up for leaves it wrecked.
+  // How badly the place was hit follows how badly the defence lost, so a fight that went the
+  // distance leaves it scratched and one nobody turned up for leaves it wrecked.
   const defenderStarted = forceSize(input.assembled.defending);
   const lossShare =
     defenderStarted === 0 ? 1 : Math.min(1, forceSize(outcome.killed) / defenderStarted);
-  const damaged = damageBuilding(building, strikeDamage(lossShare), input.now.toISOString());
-  repos.bases.updateBuildings(
-    resident.id,
-    resident.buildings.map((candidate) => (candidate.id === building.id ? damaged : candidate)),
-  );
+  const hit = strikeDamage(lossShare);
+  const at = now.toISOString();
+  const wrecked = new Set(structuresToWreck(resident.buildings).map((building) => building.id));
+  if (wrecked.size > 0) {
+    repos.bases.updateBuildings(
+      resident.id,
+      resident.buildings.map((building) =>
+        wrecked.has(building.id) ? damageBuilding(building, hit, at) : building,
+      ),
+    );
+  }
 
-  // What left with them, bounded by what the force could physically carry.
+  /*
+   * What left with them, bounded by what the force could physically carry, and never in caps.
+   *
+   * Caps come off the top of `PLUNDER_PRIORITY` and weigh one apiece, so a raid that could take
+   * them carried nothing else: the whole hold filled with the victim's wallet and their materials
+   * were never touched. The board's rule is a share of everything *except* caps, which is what
+   * makes the carry sheet matter, so the exclusion is passed to `plunder` rather than fixed in the
+   * priority order: a location raid, if one ever pays out again, is a different question.
+   */
   const capacity = lootCapacityOf(
     input.committed,
     standingEffectsFor(repos, input.attacker).lootCapacityPercent,
   );
-  const haul = plunder(resident.resources, capacity);
+  const haul = plunder(resident.resources, capacity, ['caps']);
   repos.bases.updateResources(resident.id, spendResources(resident.resources, haul));
-  return haul;
+  return { haul, raided: true };
+}
+
+/**
+ * How many of the resident's structures one won raid leaves limping.
+ *
+ * Three. A raid on a district is one fight rather than thirteen declarations, so it has to reach
+ * more than one roof or the rework would have made wrecking a home thirteen times cheaper to
+ * defend against. Three out of thirteen is an afternoon's damage rather than a demolition, and the
+ * repair clock (`REPAIR_HOURS`) puts them all back on their own by tomorrow.
+ */
+export const STRUCTURES_WRECKED_PER_RAID = 3;
+
+/**
+ * Which three the raiders get to.
+ *
+ * The tallest standing structures, ties broken by id. Deterministic rather than rolled off the
+ * battle seed, and that is the useful half: a defender can predict what a lost raid costs them and
+ * decide whether their Gate or their Nexus is what they are actually defending. A structure already
+ * wrecked is skipped, so a second raid the same evening spreads to the ones still working rather
+ * than re-flattening the same roof.
+ */
+function structuresToWreck(buildings: readonly Building[]): Building[] {
+  return [...buildings]
+    .filter((building) => building.damage < 100)
+    .sort((a, b) => b.level - a.level || a.id.localeCompare(b.id))
+    .slice(0, STRUCTURES_WRECKED_PER_RAID);
 }
 
 function holderWord(kind: ScheduledBattle['defender']['kind']): string {

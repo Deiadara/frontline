@@ -33,6 +33,7 @@ const settings: SettingsResponse = {
     displayName: 'The Ninth Street Crew',
     icon: 'shield',
     timezone: 'Europe/Athens',
+    soundVolume: 60,
   },
   icons: [...PLAYER_ICONS],
   serverNow: NOW,

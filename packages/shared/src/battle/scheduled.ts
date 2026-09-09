@@ -9,18 +9,22 @@ import { ArmySchema, type Army } from '../units/training.js';
  *
  * ## What you may attack
  *
- * Three targets, and which of them is legal is decided entirely by who holds the district:
+ * Three targets, and which of them is legal is decided entirely by the state of the district:
  *
  * - **A location.** The normal case. A district split between several parties has a way in, so you go
  *   for the thing you actually want.
- * - **The gate.** When one party holds *every* location in a district, the district is shut: there is
- *   no seam to walk through and the only thing to attack is the way in. That is what "the gate is
- *   armed" means, and it is why a crew that finishes a district gets a breathing space rather than a
- *   free-for-all: anybody who wants in has to break the door first, in public, with a day's notice.
- * - **A building.** Only inside the {@link GATE_BREACH_HOURS} window a broken gate opens, and only
- *   where somebody actually lives. This is the loot-and-wreck phase: a home district can never be
- *   taken (that rule has not moved), so what a breach buys is the chance to take things out of it
- *   and leave the structures limping.
+ * - **The gate.** When a district is shut there is no seam to walk through and the only thing to
+ *   attack is the way in. Two things shut one: one party holding *every* location in it, and a crew
+ *   living on it. A home has a front door whether or not anybody holds a location there, and the
+ *   door is the resident's own Gate structure. That is why finishing a district, or living on one,
+ *   buys a breathing space rather than a free-for-all: anybody who wants in has to break the door
+ *   first, in public, with a day's notice.
+ * - **The district.** One raid on the whole of somebody's home, legal only inside the
+ *   {@link GATE_BREACH_HOURS} window a broken gate opens and only where somebody actually lives.
+ *   This is the loot-and-wreck phase: a home district can never be taken (that rule has not moved),
+ *   so what a breach buys is the chance to carry things out of it and leave the structures limping.
+ *   It replaced a per-building target, which turned one raid into thirteen declarations for the
+ *   same afternoon's work.
  *
  * The rule set is one function, {@link declarationRefusal}, so the route, the client's picker and
  * the settler cannot disagree about what is legal.
@@ -32,7 +36,7 @@ import { ArmySchema, type Army } from '../units/training.js';
  * the mark. Declaring names the ground and starts the clock, and nothing else.
  */
 
-export const BATTLE_TARGET_KINDS = ['location', 'gate', 'building'] as const;
+export const BATTLE_TARGET_KINDS = ['location', 'gate', 'district'] as const;
 export const BattleTargetKindSchema = z.enum(BATTLE_TARGET_KINDS);
 export type BattleTargetKind = z.infer<typeof BattleTargetKindSchema>;
 
@@ -46,7 +50,7 @@ export type BattleTargetKind = z.infer<typeof BattleTargetKindSchema>;
 export const BattleTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('location'), districtId: IdSchema, locationId: z.string().min(1) }),
   z.object({ kind: z.literal('gate'), districtId: IdSchema }),
-  z.object({ kind: z.literal('building'), districtId: IdSchema, buildingId: IdSchema }),
+  z.object({ kind: z.literal('district'), districtId: IdSchema }),
 ]);
 export type BattleTarget = z.infer<typeof BattleTargetSchema>;
 
@@ -68,9 +72,28 @@ export const DistrictGateSchema = z.object({
 });
 export type DistrictGate = z.infer<typeof DistrictGateSchema>;
 
-/** Whether a district is shut. One holder for the whole of it and there is no way round. */
+/** Whether one party holds the whole of a district, which is what arms a contested gate. */
 export function gateArmed(holder: LocationHolder | null): boolean {
   return holder !== null && holder.kind !== 'unoccupied';
+}
+
+/**
+ * Whether a district is shut: no seam to walk through, so the only way in is the front.
+ *
+ * Two ways to be shut and they are different facts. On contested ground it is the control table:
+ * one holder for the whole of it and there is no way round. On residential ground it is the
+ * resident, because a home *is* a walled plot with a Gate standing on it. `districtHolder` answers
+ * null for a residential district (it has no locations to hold), so reading only the control table
+ * left every crew's home permanently open: every one of their thirteen structures was its own
+ * target and none of them was ever behind anything.
+ *
+ * `inhabited` means *a crew lives on this plot*, which is only ever true of residential ground.
+ * Holding a district is not living in it, and a crew that has taken a contested district outright
+ * is already shut by its holder: counting them as a resident as well would shut ground they only
+ * hold on paper and take the locations in it off the board.
+ */
+export function districtIsShut(holder: LocationHolder | null, inhabited: boolean): boolean {
+  return inhabited || gateArmed(holder);
 }
 
 /** Whether a breach is still open. A null or expired clock is a gate standing again. */
@@ -95,18 +118,18 @@ export type DeclarationRefusal = z.infer<typeof DeclarationRefusalSchema>;
 
 export const DECLARATION_REFUSAL_MESSAGES: Readonly<Record<DeclarationRefusal, string>> = {
   gate_armed: 'That district is shut. The only thing to hit is the gate',
-  no_gate: 'Nobody holds all of that district. There is no gate to break, only locations to take',
+  no_gate: 'Nobody holds all of that district and nobody lives there. There is no gate to break',
   gate_intact: 'The gate is standing. Nothing behind it can be reached',
-  nothing_to_break: 'There is nothing built there to break',
+  nothing_to_break: 'Nobody lives there, so there is nothing to raid',
 };
 
 /** What the map says about the district a declaration names. */
 export interface DistrictStanding {
-  /** One party holds every location in it, so the gate is armed. */
+  /** No way in but the front: one party holds every location, or a crew lives here. */
   shut: boolean;
   /** A breach is currently open. */
   breached: boolean;
-  /** Somebody lives here, so there are structures worth hitting once the gate is down. */
+  /** A crew *lives* here, so there is a home to raid once the gate is down. See `districtIsShut`. */
   inhabited: boolean;
 }
 
@@ -114,8 +137,9 @@ export interface DistrictStanding {
  * Whether this target may be declared against right now, or why not.
  *
  * The three cases are mutually exclusive by construction, which is the point of running them through
- * one function: a shut district admits only `gate`, an open one only `location`, and `building` only
- * inside a breach. Anything else is a client asking for a fight that does not exist.
+ * one function: a shut district admits only `gate`, an open one only `location`, and `district` only
+ * inside a breach on ground somebody lives on. Anything else is a client asking for a fight that
+ * does not exist.
  */
 export function declarationRefusal(
   target: BattleTarget,
@@ -126,7 +150,7 @@ export function declarationRefusal(
       return standing.shut && !standing.breached ? 'gate_armed' : null;
     case 'gate':
       return standing.shut ? null : 'no_gate';
-    case 'building':
+    case 'district':
       if (!standing.breached) return 'gate_intact';
       return standing.inhabited ? null : 'nothing_to_break';
   }

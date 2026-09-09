@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { DECLARE_REFUSALS } from '../battle/declare.js';
 import { DEPLOY_REFUSALS } from '../battle/deploy.js';
+import { BID_REFUSALS } from '../bar/auction.js';
 import { HIRE_REFUSALS } from '../bar/hire.js';
 import { BUILD_REFUSALS } from '../district/build.js';
 import { CITY_REFUSALS } from '../city/actions.js';
@@ -25,8 +26,8 @@ import { WAIVED_REFUSALS, adminWaives } from './mode.js';
  * decided it should be.
  *
  * Both have happened. `'reputation'` outlived the mechanic that produced it by a whole rework, and
- * the payroll book, the recruit level gate and the walkout standoff all arrived without anyone
- * classifying them, so the bench could not sign a good officer at all.
+ * the payroll book and the recruit level gate arrived without anyone classifying them, so the
+ * bench could not sign a good officer at all.
  *
  * Only the first direction can be asserted mechanically, and it is the one worth having: every
  * string in the list must be a refusal something can still return.
@@ -40,6 +41,7 @@ const LIVE_REFUSALS: readonly string[] = [
   ...CITY_REFUSALS,
   ...TRAINING_REFUSALS,
   ...HIRE_REFUSALS,
+  ...BID_REFUSALS,
   ...BUILD_REFUSALS,
   ...MISSION_FORCE_REFUSALS,
   ...SUPPLY_REFUSALS,

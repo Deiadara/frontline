@@ -22,11 +22,32 @@ import { ItemGlyph } from '../inventory/ItemGlyph';
  * before the eye has finished moving. That is the difference between a ledger and a market.
  */
 
+/**
+ * How big a pile is drawn.
+ *
+ * `md` is the chip beside a quote or a form, where the pile is one line of a panel that is about
+ * something else. `lg` is for the board, where the two piles *are* the screen: a card whose whole
+ * subject is what for what has to be legible from across a desk, and a 24px icon with a 13px
+ * figure beside it is not.
+ */
+export type ChipSize = 'md' | 'lg';
+
+const CHIP_SIZE: Record<ChipSize, { frame: string; well: string; figure: string; art: string }> = {
+  md: { frame: 'gap-1.5 py-1 pl-1 pr-2', well: 'h-7 w-7', figure: 'text-[13px]', art: 'h-6 w-6' },
+  lg: {
+    frame: 'gap-2 py-1.5 pl-1.5 pr-2.5',
+    well: 'h-10 w-10',
+    figure: 'text-[16px]',
+    art: 'h-8 w-8',
+  },
+};
+
 /** One quantity of one thing: the art in a lit well, the figure beside it. */
 export function GoodChip({
   amount,
   children,
   tone = 'plain',
+  size = 'md',
   className,
 }: {
   amount: number;
@@ -34,22 +55,34 @@ export function GoodChip({
   children: ReactNode;
   /** `give` reads as leaving, `take` as arriving. `plain` is neither, for a total. */
   tone?: 'plain' | 'give' | 'take';
+  size?: ChipSize;
   className?: string;
 }) {
   return (
     <span
       className={cn(
-        'edge-lit inline-flex shrink-0 items-center gap-1.5 rounded-md border bg-surface-950/50 py-1 pl-1 pr-2',
+        'edge-lit inline-flex shrink-0 items-center rounded-md border bg-surface-950/50',
+        CHIP_SIZE[size].frame,
         tone === 'give' && 'border-oxblood-500/40',
         tone === 'take' && 'border-verdigris-300/40',
         tone === 'plain' && 'border-surface-600/70',
         className,
       )}
     >
-      <span className="resource-well flex h-7 w-7 items-center justify-center rounded-md">
+      <span
+        className={cn(
+          'resource-well flex items-center justify-center rounded-md',
+          CHIP_SIZE[size].well,
+        )}
+      >
         {children}
       </span>
-      <span className="font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
+      <span
+        className={cn(
+          'font-display font-bold leading-none tabular-nums text-ink-100',
+          CHIP_SIZE[size].figure,
+        )}
+      >
         {amount.toLocaleString()}
       </span>
     </span>
@@ -66,10 +99,12 @@ export function GoodChip({
 export function BundleChips({
   bundle,
   tone = 'plain',
+  size = 'md',
   empty = 'nothing',
 }: {
   bundle: TradeBundle;
   tone?: 'plain' | 'give' | 'take';
+  size?: ChipSize;
   empty?: string;
 }) {
   const resources = RESOURCE_ORDER.filter((key) => (bundle.resources[key] ?? 0) > 0);
@@ -87,15 +122,15 @@ export function BundleChips({
     <span className="flex flex-wrap items-center gap-1.5">
       {resources.map((key) => (
         <span key={key} data-tip={RESOURCE_LABELS[key]}>
-          <GoodChip amount={bundle.resources[key] ?? 0} tone={tone}>
-            <ResourceIcon kind={key} className="h-6 w-6" />
+          <GoodChip amount={bundle.resources[key] ?? 0} tone={tone} size={size}>
+            <ResourceIcon kind={key} className={CHIP_SIZE[size].art} />
           </GoodChip>
         </span>
       ))}
       {items.map(([id, count]) => (
         <span key={id} data-tip={ITEM_CATALOG[id as ItemId].name}>
-          <GoodChip amount={count ?? 0} tone={tone}>
-            <ItemGlyph id={id as ItemId} className="h-6 w-6" />
+          <GoodChip amount={count ?? 0} tone={tone} size={size}>
+            <ItemGlyph id={id as ItemId} className={CHIP_SIZE[size].art} />
           </GoodChip>
         </span>
       ))}

@@ -11,7 +11,6 @@ import type {
   LaunchMissionInput,
   LaunchMissionResponse,
   MeResponse,
-  CrewResponse,
   TrainUnitsResponse,
   UnitsResponse,
   FitSlotRequest,
@@ -66,8 +65,8 @@ import {
   getCity,
   getMe,
   getMissions,
-  hireRecruit,
-  negotiateWithRecruit,
+  placeBid,
+  sealBid,
   launchMission,
   renameDistrict,
   getResearch,
@@ -75,7 +74,7 @@ import {
   startTraining,
   getCrewStanding,
   getMarket,
-  buyFromVendor,
+  placeVendorBid,
   unlockBlueprint,
   reimagine,
   barterResources,
@@ -89,6 +88,7 @@ import {
   updateProfile,
   changePassword,
   getAdmin,
+  mockBattleOnMe,
   setAdminFog,
   setAdminKnobs,
   getWorkshop,
@@ -336,93 +336,54 @@ export function useLaunchMission() {
   });
 }
 
-/** The Bar: today's roster plus the officers already on the books (GDD §H). */
+/**
+ * How often the Bar re-asks the server.
+ *
+ * The Bar used to be a read of a roster that only this crew could change, so it had no poll at
+ * all. It is an auction now: every table on the screen is one other crews are bidding into, and a
+ * leading bid that is ten minutes stale is worse than no figure, because a player will bid against
+ * it. Ten seconds, and the countdowns tick locally off `useServerClock` in between.
+ */
+const BAR_POLL_MS = 10_000;
+
+/** The Bar: tonight's tables plus the officers already on the books (GDD §H). */
 export function useBar() {
   const token = useSession((s) => s.token);
-  return useQuery({ queryKey: queryKeys.bar, queryFn: getBar, enabled: token !== null });
-}
-
-/**
- * Make an offer (§H7). The Bar is refetched either way: a counter-offer leaves the roster alone
- * but a signing moves caps, slots and the officer list all at once.
- */
-export function useHireRecruit() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: hireRecruit,
-    // The Bar either way, and on a refusal as well as on a signing: see
-    // "settle first, refuse second": `/bar` settles the crew’s pay and alignment before it
-    // decides whether the hire can happen at all.
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: queryKeys.bar }),
-    onError: () => void queryClient.invalidateQueries({ queryKey: queryKeys.me }),
-    onSuccess: (data) => {
-      if (!data.accepted) return;
-      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-
-      /*
-       * The new officer, written into the cached crew *before* the invalidation.
-       *
-       * Invalidating alone refetches an open query and only marks a closed one stale, so a player
-       * who signs somebody at the Bar and walks to the Crew screen is served the pre-hire list
-       * first and the new officer appears a round trip later. On the one screen whose whole
-       * content is "who works here", that reads as the signing not having happened.
-       *
-       * Written first and invalidated after, in that order: `setQueryData` clears the invalidated
-       * flag, so doing it the other way round would leave the cache holding an optimistic entry
-       * that nothing ever reconciles. The entry itself is built from the officer the server just
-       * handed back, so nothing here is invented.
-       */
-      const officer = data.officer;
-      if (officer) {
-        queryClient.setQueryData<CrewResponse>(queryKeys.crew, (current) =>
-          current && !current.officers.some((held) => held.officerId === officer.id)
-            ? {
-                ...current,
-                officers: [
-                  ...current.officers,
-                  {
-                    officerId: officer.id,
-                    name: officer.name,
-                    role: officer.role,
-                    attributes: officer.attributes,
-                    perks: officer.perks,
-                    weeklyWage: officer.weeklyWage,
-                    // §D4: nobody is hired hurt.
-                    injuredUntil: null,
-                    /*
-                     * Null until the server says otherwise, even when the officer arrives seated.
-                     *
-                     * The mark is computed from the role requirement table, which is server-side
-                     * only, so this is the one field of the optimistic entry the client genuinely
-                     * cannot invent. The invalidation on the next line fills it in; guessing one
-                     * here would put a wrong stamp on a portrait for a round trip.
-                     */
-                    mark: null,
-                  },
-                ],
-              }
-            : current,
-        );
-      }
-
-      // And reconciled against the server, which owns the bed count beside the list.
-      void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
-    },
+  return useQuery({
+    queryKey: queryKeys.bar,
+    queryFn: getBar,
+    enabled: token !== null,
+    refetchInterval: BAR_POLL_MS,
   });
 }
 
 /**
- * One exchange of a wage negotiation (§H7).
+ * §H7: a bid, open or sealed.
  *
- * Deliberately does **not** invalidate the Bar. The conversation state comes back on the response
- * and the window renders it directly, so a refetch here would replace a live exchange with a
- * whole-roster reload mid-sentence. The Bar is refreshed when the hire actually lands, which is
- * `useHireRecruit`'s job.
+ * Both routes answer with the table as it now stands, which the window renders straight away, and
+ * both then invalidate: the response covers one auction and the screen shows eight, so the rest of
+ * the room, the table counter and the payroll book all come from the refetch. `me` goes with it
+ * because the Bar settles yesterday's auctions on read, and a settle that signed somebody has
+ * moved the crew and the stockpile behind the HUD.
+ *
+ * `onSettled` rather than `onSuccess`: `/bar` settles before it refuses, so a refusal has usually
+ * changed something too. See "settle first, refuse second" above.
  */
-export function useNegotiate() {
-  return useMutation({ mutationFn: negotiateWithRecruit });
+function bidMutation(mutationFn: typeof placeBid) {
+  return function useBidMutation() {
+    const queryClient = useQueryClient();
+    return useMutation({
+      mutationFn,
+      onSettled: () => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      },
+    });
+  };
 }
+
+export const usePlaceBid = bidMutation(placeBid);
+export const useSealBid = bidMutation(sealBid);
 
 /**
  * §H7: let an officer go.
@@ -635,13 +596,21 @@ export function useTrainUnits(baseId: string | undefined) {
  * than only invalidated: every sheet on the page is folded from the loadout at read time, so the
  * numbers under a bracket have to change on the same frame the bracket does. Still invalidated as
  * well, so a poll already in flight cannot land the pre-change roster on top of it.
+ *
+ * `me` with it, though fitting is free: `POST /units/loadout` settles the base on its first line
+ * and only then asks whether the bracket will take the plate, so a refit banks production and a
+ * *refused* one banks it too. Its twin `useBurnUpgrade` already dropped `me`; this one did not,
+ * which left the two halves of the same screen disagreeing about the stockpile for a poll.
  */
 export function useFitSlot() {
   const queryClient = useQueryClient();
   return useMutation<UnitsResponse, ApiRequestError, FitSlotRequest>({
     mutationFn: fitSlot,
     onSuccess: (roster) => queryClient.setQueryData(queryKeys.units, roster),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.units }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
   });
 }
 
@@ -750,7 +719,8 @@ function marketMutation<TArgs>(mutationFn: (args: TArgs) => Promise<MarketMutati
   };
 }
 
-export const useBuyFromVendor = marketMutation(buyFromVendor);
+/** A bid on a lot at the barrow. The answer is the whole board with the lot's table moved. */
+export const usePlaceVendorBid = marketMutation(placeVendorBid);
 /**
  * §D10: assemble a blueprint out of the pages the satchel is holding.
  *
@@ -1041,6 +1011,18 @@ export function useAdminKnobs() {
  * The Console's fog of war. Everything is invalidated on success for the same reason the knobs
  * are: what the city, the board and the battles show all follows from what is visible.
  */
+/** The console's mock fight. Everything invalidated, like a knob: a declaration moves the board, the map and the shell's mark. */
+export function useAdminMockBattle() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: mockBattleOnMe,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.admin, response.admin);
+      void queryClient.invalidateQueries();
+    },
+  });
+}
+
 export function useAdminFog() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1262,8 +1244,11 @@ function useFactionMutation<TInput>(
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
-    onSuccess: (response) => {
-      queryClient.setQueryData(queryKeys.faction, response.faction);
+    onSuccess: (response) => queryClient.setQueryData(queryKeys.faction, response.faction),
+    // `onSettled`, not `onSuccess`: "settle first, refuse second", at the top of this file.
+    // `POST /factions/reinforce` settles the base and only then asks whether the fight is still
+    // open, and "they are already through the gate" is the answer it gives most often.
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       // A reinforcement takes units off the roster and puts a column on the road.
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });

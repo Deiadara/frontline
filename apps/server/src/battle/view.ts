@@ -9,7 +9,8 @@ import {
   declarableSlots,
   deploymentBlurPercent,
   districtHolder,
-  gateArmed,
+  districtIsShut,
+  gateIsBroken,
   deploymentIsOpen,
   deployedSize,
   findDistrict,
@@ -53,7 +54,7 @@ import { cityLevelFor } from '../blackmarket/shelf.js';
 import { cityContextFor, scoutingRunView } from '../city/view.js';
 import { sideOf } from './deploy.js';
 import { defendingBaseOf } from './declare.js';
-import { residentOf, targetName } from './ground.js';
+import { districtsLivedIn, isInhabited, residentOf, targetName } from './ground.js';
 import { battlefieldOf } from './resolve.js';
 import { seatedRoles } from '../crew/roster.js';
 
@@ -389,20 +390,21 @@ function gatesFor(
   now: Date,
 ): DistrictGateView[] {
   const controls = repos.city.controls();
+  // Read once for the whole city rather than per district: this runs for every district a crew can
+  // see on every read of the board, and the lookup behind it is a scan.
+  const lived = districtsLivedIn(repos);
   return CITY_DISTRICTS.filter((district) => visible.has(district.id)).map((district) => {
     const gate = repos.sieges.gate(district.id);
     return {
       districtId: district.id,
       name: district.name,
-      shut: gateArmed(districtHolder(district, controls)),
-      brokenUntil: gate && gateIsBrokenAt(gate.brokenUntil, now) ? gate.brokenUntil : null,
+      // The same two facts `districtStandingFor` reads, through the same functions: a home is shut
+      // by its resident and contested ground by its holder, and the screen has to be told so or it
+      // would offer a fight the declaration rules refuse.
+      shut: districtIsShut(districtHolder(district, controls), isInhabited(district, lived)),
+      brokenUntil: gate && gateIsBroken(gate, now) ? gate.brokenUntil : null,
     };
   });
-}
-
-/** A breach that has run out is a gate standing again: read once, here. */
-function gateIsBrokenAt(brokenUntil: string | null, now: Date): boolean {
-  return brokenUntil !== null && Date.parse(brokenUntil) > now.getTime();
 }
 
 /**
@@ -430,6 +432,9 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
         size: movementSize(movement),
         departedAt: movement.departedAt,
         arrivesAt: movement.arrivesAt,
+        // §C3: what it rides in, off this crew's row for the fight (`sendColumn` reads the same).
+        vehicles:
+          repos.sieges.deployment(movement.battleId, movement.side, base.id)?.vehicles ?? {},
         recallable: movementCancellable(movement, now),
       };
     }),

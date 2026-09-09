@@ -1,4 +1,4 @@
-import { useId, type KeyboardEventHandler } from 'react';
+import { useEffect, useId, useState, type KeyboardEventHandler } from 'react';
 import { Icon } from './Icon';
 import { cn } from '../../lib/cn';
 
@@ -11,10 +11,30 @@ import { cn } from '../../lib/cn';
  * and vanishes again, which is the one behaviour an affordance must not have.
  *
  * So the native spinners are hidden and two real buttons take their place: full-height, in the
- * chrome's own brass, with the field's own border around all three. The input stays a real
- * `type="number"` underneath, so a keyboard still gets arrow keys, a phone still gets the numeric
- * pad, and assistive tech still hears a spinbutton.
+ * chrome's own brass, with the field's own border around all three.
+ *
+ * ## Typing (board request, 2026-09-09)
+ *
+ * The input is text with a numeric keypad, not `type="number"`, and it holds a **draft** while it
+ * has focus. A controlled number input cannot be emptied: the moment the last digit went, the
+ * empty string parsed to zero, zero clamped to the floor, and the floor was written back, so a
+ * player who cleared a field to type an exact figure got the floor's digit in front of whatever
+ * they typed. Now the draft is what the player typed, digits only, leading zeros dropped, and the
+ * field opens with its figure selected so the first keystroke replaces it. The value the screen
+ * reads follows every keystroke (capped at the ceiling, so a quote beside the field is live), and
+ * the floor is applied when the field is left or Enter is pressed: a figure under the floor is a
+ * figure still being typed, not a mistake to correct mid-word.
+ *
+ * ## Width
+ *
+ * Six digits, always. The field is sized to `MAX_DIGITS` in tabular figures rather than to the
+ * number in it, so a count growing from 1 to 100,000 changes nothing around it: the digits fill
+ * more of the same box. A caller may still set the outer width; the box never gets narrower than
+ * the digits it promises.
  */
+
+/** How many digits the box is sized for. Six covers every count and price a field holds. */
+export const MAX_DIGITS = 6;
 
 export interface NumberFieldProps {
   value: number;
@@ -35,6 +55,26 @@ export interface NumberFieldProps {
   'data-testid'?: string;
 }
 
+/** Digits only, leading zeros gone, at most the digits the box holds. */
+export function digitsOf(raw: string): string {
+  return raw
+    .replace(/\D/g, '')
+    .replace(/^0+(?=\d)/, '')
+    .slice(0, MAX_DIGITS);
+}
+
+/**
+ * What the box shows while it is typed in: the digits, behind a minus where the floor allows one.
+ *
+ * A field whose floor is under zero is a field of deltas (the deploy dialog pulls bodies off a
+ * ring by typing a negative count), so the sign is kept there and only there. A bare minus is a
+ * draft with no figure in it yet.
+ */
+export function draftOf(raw: string, negative: boolean): string {
+  const sign = negative && raw.trimStart().startsWith('-') ? '-' : '';
+  return sign + digitsOf(raw);
+}
+
 export function NumberField({
   value,
   onChange,
@@ -51,12 +91,60 @@ export function NumberField({
   const clamp = (next: number): number =>
     Math.min(max, Math.max(min, Number.isFinite(next) ? Math.trunc(next) : min));
 
-  const step = (delta: number) => () => onChange(clamp(value + delta));
+  /*
+   * The draft: null while the field is not being typed in, so the input shows `value`; a string
+   * of digits while it is. Reset whenever the value moves from outside (a stepper, a quick
+   * fraction, the table's floor rising under the bid window), or the field would go on showing
+   * what was typed over a figure the screen has since changed.
+   */
+  const [draft, setDraft] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft((current) => (current === null ? null : current === String(value) ? current : null));
+  }, [value]);
+
+  const step = (delta: number) => () => {
+    setDraft(null);
+    onChange(clamp(value + delta));
+  };
+
+  const type = (raw: string) => {
+    const next = draftOf(raw, min < 0);
+    setDraft(next);
+    const digits = next.replace('-', '');
+    if (digits === '') return;
+    const typed = Number(next);
+    /*
+     * Live for the screen, and the floor applied once the figure is as long as the floor: "7" in
+     * a field whose floor is 10 is a figure still being typed, but "75" is not, and "-5" against
+     * a floor of -3 is a delta the screen should refuse now rather than after the press. A lone
+     * zero is never clamped, or the zero a player typed over would come back as the floor.
+     */
+    const settled = digits !== '0' && digits.length >= String(Math.abs(min)).length;
+    onChange(settled ? clamp(typed) : Math.min(max, typed));
+  };
+
+  const settle = () => {
+    setDraft(null);
+    onChange(clamp(draft === null || draft === '' ? value : Number(draft)));
+  };
+
+  const keys: KeyboardEventHandler<HTMLInputElement> = (event) => {
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      step(by)();
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      step(-by)();
+    } else if (event.key === 'Enter') {
+      settle();
+    }
+    onKeyDown?.(event);
+  };
 
   return (
     <span
       className={cn(
-        'edge-lit flex items-stretch overflow-hidden rounded-sm border border-surface-600 bg-surface-950',
+        'edge-lit inline-flex items-stretch overflow-hidden rounded-sm border border-surface-600 bg-surface-950',
         disabled && 'opacity-50',
         className,
       )}
@@ -67,23 +155,36 @@ export function NumberField({
         disabled={disabled || value <= min}
         label={by === 1 ? `One fewer ${label}` : `${by} fewer ${label}`}
       />
-      <label className="sr-only" htmlFor={id}>
-        {label}
-      </label>
+      {/*
+       * Named on the input rather than by a clipped `<label>`. `sr-only` clips its text to a 1px
+       * box, which is the exact shape every "is any text cut off?" gate looks for, so a stepper
+       * on a gated screen read as a cut word. `aria-label` names it the same to a reader and to
+       * `getByLabelText`, and draws nothing. `role="spinbutton"` with the three values is what a
+       * reader heard from the number input this replaces.
+       */}
       <input
+        aria-label={label}
         id={id}
-        type="number"
+        type="text"
+        role="spinbutton"
         inputMode="numeric"
+        pattern="[0-9]*"
         min={min}
         max={max}
-        value={value}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuenow={value}
+        value={draft ?? String(value)}
         disabled={disabled}
-        onChange={(event) => onChange(clamp(Number(event.target.value)))}
-        onKeyDown={onKeyDown}
+        onChange={(event) => type(event.target.value)}
+        onFocus={(event) => event.target.select()}
+        onBlur={settle}
+        onKeyDown={keys}
         data-testid={testId}
-        // `appearance-none` is the whole point: it takes the browser's own spinners out, and the
-        // two `::-webkit-*` rules in `index.css` take them out of Chromium, which ignores it.
-        className="no-spinner w-12 grow appearance-none border-x border-surface-600 bg-transparent px-1 py-1.5 text-center font-display text-[14px] font-bold tabular-nums text-ink-100 focus-visible:outline-none"
+        // Sized to the digits, not to the number: see the note on width above. `min-w` rather than
+        // `w`, so a caller's wider frame still stretches the box and a narrower one cannot squeeze
+        // a six-figure count.
+        className="no-spinner min-w-[4.25rem] grow appearance-none border-x border-surface-600 bg-transparent px-1 py-1.5 text-center font-display text-[14px] font-bold tabular-nums text-ink-100 focus-visible:outline-none"
       />
       <Step
         direction="up"

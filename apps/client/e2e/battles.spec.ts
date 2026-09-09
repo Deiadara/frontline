@@ -1,4 +1,11 @@
 import { expect, test } from '@playwright/test';
+import {
+  effectiveStats,
+  findUnit,
+  labelText,
+  noTerritoryEffects,
+  type StatKey,
+} from '@frontline/shared';
 import { battles, lateGame } from './fixtures';
 import {
   growPastTheFold,
@@ -28,7 +35,9 @@ test('the list scans, and opening a fight says what is on the ground', async ({ 
   await page.goto('/game/battles');
 
   await expect(page.getByRole('heading', { name: 'Battles' })).toBeVisible();
-  await expect(page.getByTestId('board-infamy')).toHaveText(`${battles.infamy} infamy`);
+  await expect(page.getByTestId('board-infamy')).toHaveText(
+    `${battles.infamy.toLocaleString()} infamy`,
+  );
 
   const coming = page.getByTestId('coming-battles');
   await expect(coming.getByText('Kessler Press')).toBeVisible();
@@ -46,6 +55,33 @@ test('the list scans, and opening a fight says what is on the ground', async ({ 
   }
 
   /*
+   * §A4: the location characteristics, on the fight, with their tiers.
+   *
+   * They decide a real share of every outcome and this screen said nothing about any of them: a
+   * player could only learn that the Press is Crammed by walking into the district, opening the
+   * location and remembering. Read off the fixture's own battlefield rather than typed, so the row
+   * is asserted against what the server would send rather than against four words in this file.
+   */
+  const row = detail.getByTestId('battle-characteristics');
+  await expect(row).toContainText('Characteristics');
+  expect(mine.battlefield.labels.length, 'the fixture must carry some').toBeGreaterThan(1);
+  for (const label of mine.battlefield.labels) {
+    const chip = row.getByTestId(`label-${label.id}`);
+    await expect(chip, label.id).toHaveText(labelText(label));
+    await expect(chip, label.id).toHaveAttribute('data-tier', String(label.tier));
+  }
+  /*
+   * The row's own shot, taken before anything is hovered.
+   *
+   * Order matters here: `hover()` scrolls its target into view, and the detail column is a
+   * scroller taller than the frame, so a shot taken after the hover below is a shot of a pane
+   * scrolled past its own heading. That is an artefact of the test rather than of the layout, and
+   * it is exactly the kind of thing a screenshot gate goes on to enshrine.
+   */
+  await settleFonts(page);
+  await page.screenshot({ path: 'e2e-out/battles-characteristics.png' });
+
+  /*
    * The forecast, which is the number a player most needs before committing anybody.
    *
    * It runs `battle/forecast.ts` against the ground the fight will actually happen on, which is why
@@ -57,6 +93,42 @@ test('the list scans, and opening a fight says what is on the ground', async ({ 
   await expect(odds).toBeVisible();
   await expect(odds).toContainText('runs of the real thing');
   await expect(odds).toContainText('%');
+
+  /*
+   * §A4: hovering a unit in the muster says what it will fight as *here*.
+   *
+   * The row above says the Press is Crammed II and Wet II. This is the other half: what those cost
+   * a Sniper and what they buy a Razor, from `battle/effects.ts`, which is the function the fight
+   * itself runs. A player could read both halves before and had no way to put them together.
+   *
+   * The expectation is computed rather than typed, and the assertion demands a *difference*: a card
+   * that quietly printed the sheet twice would satisfy every "is it visible" check ever written.
+   */
+  const unitId = 'razors';
+  const spec = findUnit(unitId)!;
+  const effective = effectiveStats(
+    spec,
+    mine.battlefield,
+    { defending: mine.side === 'defender', outnumbered: false },
+    noTerritoryEffects(),
+  );
+  const key: StatKey = 'offense';
+  const here = Math.round(effective.offense);
+  expect(here, 'the ground must actually move this unit, or the gate proves nothing').not.toEqual(
+    spec.stats[key],
+  );
+
+  await forces.getByTestId(`force-${unitId}`).hover();
+  const sheetRow = page.getByTestId(`effective-${unitId}-${key}`);
+  await expect(sheetRow).toBeVisible();
+  await expect(sheetRow).toContainText(String(spec.stats[key]));
+  await expect(sheetRow).toContainText(String(here));
+  // And the reason it moved, in the words the report uses.
+  await expect(page.getByTestId(`effective-${unitId}`)).toBeVisible();
+
+  await page.screenshot({ path: 'e2e-out/battles-effective.png' });
+  await page.mouse.move(0, 0);
+  await expect(sheetRow).toBeHidden();
 
   // The one they are defending: the other side is running dark, so it says so rather than "0".
   const theirs = battles.coming[1]!;
@@ -140,6 +212,37 @@ test('the tabs move between what is coming, what came back and what you hold', a
   await expect(page.getByTestId('coming-battles')).toBeVisible();
 });
 
+/**
+ * Picking another fight starts that fight's page at the top of it.
+ *
+ * The detail is the only scrolling region on this screen and it used to keep its offset across a
+ * change of subject, so a player who had scrolled to the boost on one fight and then pressed
+ * another row landed halfway down the new one, with the ground, the odds and the leader above the
+ * fold. Nothing about the screen said anything had moved.
+ *
+ * Driven by setting `scrollTop` rather than by a wheel gesture: the pane is the third scroller on
+ * the page and a wheel lands on whatever is under the pointer, which made the same assertion pass
+ * against a pane that had never scrolled at all.
+ */
+test('opening another fight scrolls its page back to the top', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/battles');
+  await expect(page.getByTestId('coming-battles')).toBeVisible();
+
+  const pane = page.getByTestId('battle-detail-pane');
+  const scrollTop = () => pane.evaluate((el) => Math.round(el.scrollTop));
+  await pane.evaluate((el) => {
+    el.scrollTop = 400;
+  });
+  // The control: a pane that cannot scroll would make the assertion below vacuous.
+  expect(await scrollTop(), 'the detail pane did not scroll, so this proves nothing').toBe(400);
+
+  const other = battles.coming.find((view) => view.side === 'defender')!.battle.id;
+  await page.getByTestId(`battle-${other}`).click();
+  await expect(page.getByTestId(`battle-detail-${other}`)).toBeVisible();
+  expect(await scrollTop(), 'the new fight opened part-way down its own page').toBe(0);
+});
+
 test('a report reads as a document, and a silent one says so instead of showing an empty table', async ({
   page,
 }) => {
@@ -177,6 +280,21 @@ test('a report reads as a document, and a silent one says so instead of showing 
   // A ring is a fight now, so what it paid is a number the report has to carry.
   expect(mine).toContain('Lost holding the ring');
   expect(await labelsOf('theirs'), 'the two ledgers do not line up').toEqual(mine);
+
+  /*
+   * Each side is headed by the crew it is about, in full.
+   *
+   * The heading was `truncate`, and at 0.2em of tracking in a 300px column that cut every
+   * full-length crew name mid-word: the fixture's own read "Yours · The Ninth Street Reclamation
+   * Comp…". Measured as scroll width against client width rather than by matching the string,
+   * because a truncated line's `textContent` is the whole name and reads as correct in the DOM.
+   */
+  const cutHeadings = await page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid^="report-side-"] h3')]
+      .filter((heading) => heading.scrollWidth > heading.clientWidth + 1)
+      .map((heading) => heading.textContent?.trim() ?? ''),
+  );
+  expect(cutHeadings, `a side of the report is cut: ${cutHeadings.join(' | ')}`).toEqual([]);
 
   // §D1: who led and what came of them. On the analysis since officers could lead, drawn nowhere.
   await expect(dialog.getByTestId('report-officer-mine')).toContainText('led, and put out 940');
@@ -303,4 +421,28 @@ test('a district that is held end to end offers the gate and nothing else', asyn
 
   await expectNothingClippedVertically(page, '[data-testid="district-painting-chrome-row"]');
   await page.screenshot({ path: 'e2e-out/battles-gate.png', fullPage: true });
+});
+
+/**
+ * The red mark (board request, 2026-09-08): a fight called on your ground is a mark on the left
+ * of the bottom bar on every screen, and pressing it opens the board.
+ */
+test('a fight called on you is a red mark on the bar that opens the board', async ({ page }) => {
+  await installApi(page, {
+    ...lateGame,
+    unread: { messages: 0, notifications: 0, fightsOnYou: 2 },
+  });
+  await page.goto('/game/units');
+  const mark = page.getByTestId('nav-fights');
+  await expect(mark).toBeVisible();
+  await expect(page.getByTestId('nav-fights-count')).toHaveText('2');
+  await mark.click();
+  await expect(page).toHaveURL(/\/game\/battles$/);
+});
+
+test('a quiet day draws no mark', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/units');
+  await expect(page.getByTestId('nav-units')).toBeVisible();
+  await expect(page.getByTestId('nav-fights')).toHaveCount(0);
 });

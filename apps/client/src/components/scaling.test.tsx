@@ -301,10 +301,12 @@ describe('a readout is sized by the instrument, never by the reading', () => {
   for (const testCase of CASES) {
     it(`draws something to check: ${testCase.name}`, () => {
       const { container } = testCase.render();
-      expect(
-        (container.textContent ?? '').trim().length,
-        `${testCase.name} rendered no text at all`,
-      ).toBeGreaterThan(0);
+      // A field's reading is its input's value, not a text node: the number field names itself
+      // by `aria-label` and draws its figure inside the input, so the value counts as drawn text.
+      const drawn =
+        (container.textContent ?? '') +
+        [...container.querySelectorAll('input')].map((input) => input.value).join('');
+      expect(drawn.trim().length, `${testCase.name} rendered no text at all`).toBeGreaterThan(0);
     });
   }
 

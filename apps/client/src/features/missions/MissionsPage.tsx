@@ -16,6 +16,7 @@ import {
 import { useEffect, useState } from 'react';
 import { LevelUpBanner } from '../../components/LevelUp';
 import { RewardLine } from '../../components/Resources';
+import { Button } from '../../components/ui/Button';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { LoadFailure } from '../../components/ui/LoadFailure';
@@ -218,13 +219,16 @@ export function MissionsPage() {
       {levelUp && (
         <div className="flex flex-col gap-2">
           <LevelUpBanner levelUp={levelUp} />
-          <button
-            type="button"
-            onClick={() => setLevelUp(null)}
-            className="self-end font-display text-[11px] uppercase tracking-[0.18em] text-ink-300 hover:text-ink-200"
-          >
-            Dismiss
-          </button>
+          {/* Drawn, because it is the only way off this banner. Bare uppercase text at the far
+              right of a full-width sheet reads as a caption on the notice above it, and a player
+              who does not recognise it as a control is left with the banner for the rest of the
+              session. `ghost` is the register the Close on every dialog in the game already
+              wears. */}
+          <div className="self-end">
+            <Button variant="ghost" size="sm" onClick={() => setLevelUp(null)}>
+              Dismiss
+            </Button>
+          </div>
         </div>
       )}
 
@@ -320,6 +324,7 @@ export function MissionsPage() {
                   areas={data?.areas ?? []}
                   army={data?.army ?? {}}
                   fleet={me.data?.base?.fleet ?? {}}
+                  loadouts={me.data?.base?.unitLoadouts ?? {}}
                   roster={roster}
                   atCapacity={atCapacity}
                   pendingTemplateId={

@@ -1,31 +1,30 @@
-import { adminCaps, adminWaives } from '../admin/mode.js';
 import { randomUUID } from 'node:crypto';
 import {
   askingWage,
   assessJoin,
-  barHiresPerDay,
   buildingLevel,
   dismissalFee,
   payrollBonusPercent,
   payrollFits,
-  inStandoff,
   payrollLedger,
   playerLevelGrants,
-  reservationWage,
   type Base,
   type Commander,
   type JoinBlocker,
-  type OfficerRole,
   type PayrollLedger,
-  type Standoff,
 } from '@frontline/shared';
-import type { Repositories } from '../db/repos/index.js';
+import { adminCaps, adminWaives } from '../admin/mode.js';
 import { crewEffectsFor } from '../crew/standing.js';
+import type { Repositories } from '../db/repos/index.js';
 import { barDay, type BarCharacter } from './roster.js';
 
 /**
- * Hiring out of the Bar (GDD §H3, §H4, §H7, §H8): every gate between "that one" and a signed
- * officer, in the order the fiction puts them.
+ * Signing somebody out of the Bar (GDD §H3, §H7, §H8), and letting them go again.
+ *
+ * There is no hire *route* any more. The auction decides who signs (`bar/auction.ts`), and this is
+ * the gate it walks a ranking through: the first crew that clears everything here takes the person.
+ * So the file is smaller than it was by exactly the parts that were a conversation, a daily
+ * allowance and a walk-out, all of which the auction replaced with a price.
  *
  * No caps change hands. An officer's fee is a **commitment against the payroll book**
  * (`economy/payroll.ts`), so signing writes the agreed figure into `payroll.commitments` and takes
@@ -34,55 +33,36 @@ import { barDay, type BarCharacter } from './roster.js';
  * somebody is let go: see `releaseOfficer`.
  */
 
-export interface HireInput {
+export interface SignInput {
   base: Base;
-  /** The account signing them. Needed for the §H2b daily limit and for the shared hire log. */
+  /** The account whose crew they join. The signing log is keyed by it. */
   userId: string;
-  /** §H2b, which seat of the shared room they are sitting in, so it can be turned over. */
-  seat: number;
   recruit: BarCharacter;
-  /**
-   * §C2: the role the player is hiring them *into*. A character has none until now.
-   *
-   * `null` signs them to the bench (board request), which is a hire with the chair left undecided.
-   * Everything else about it is identical: the wage is committed, the seat at the Bar turns over,
-   * the daily limit is spent. Only the assignment is deferred.
-   */
-  role: OfficerRole | null;
-  /** §H7: the weekly fee in caps being offered. */
-  offerWage: number;
-  /** What this crew has already made of them: a walked negotiation marks the price up. */
-  standoff?: Standoff;
+  /** §H7: the price the table closed at, which is the city's number and not this crew's. */
+  price: number;
   now: Date;
-  /**
-   * Testing mode (`admin/mode.ts`).
-   *
-   * Waives the daily limit, the beds, the free seats and the standing an officer would normally
-   * want: every gate that is a rule about how far along a crew is. It does **not** waive the
-   * negotiation: a counter-offer is the officer's answer rather than a lock, and a mode that made
-   * everybody accept any number would hide the one part of hiring a reviewer is here to look at.
-   */
-  admin?: boolean;
 }
 
-/** Why the hire cannot proceed at all, as opposed to §H7's counter-offer, which is a negotiation. */
+/** Why a crew cannot take the person they just won. */
 export const HIRE_REFUSALS = [
   'already_hired',
-  'daily_limit',
   'no_slots',
-  'role_taken',
   'requirement',
   'level',
-  'standoff',
   'no_payroll',
 ] as const;
 export type HireRefusal = (typeof HIRE_REFUSALS)[number];
 
-export type HireResult =
+export type SignResult =
   | { kind: 'refused'; reason: HireRefusal }
-  /** §H7. They are interested but not at that price, and this is what they came back with. */
-  | { kind: 'countered'; wage: number }
-  | { kind: 'hired'; base: Base; officer: Commander; wage: number; payroll: PayrollLedger };
+  | {
+      kind: 'signed';
+      base: Base;
+      officer: Commander;
+      /** What the book is actually charged: the price after this crew's negotiators (§H7). */
+      wage: number;
+      payroll: PayrollLedger;
+    };
 
 /** §H3 judged against this crew: the one place the two doors are read for a base. */
 export function assessAgainst(base: Base, recruit: BarCharacter): ReturnType<typeof assessJoin> {
@@ -93,19 +73,63 @@ export function assessAgainst(base: Base, recruit: BarCharacter): ReturnType<typ
 }
 
 /**
- * What this character is asking of *this* crew (§H7).
+ * What this character asks for, which is what their auction opens at once `reservationWage` has
+ * taken its cut (§H7).
  *
- * The only thing that moves it off their sheet is how many times they have already walked out on
- * this crew: `WALKOUT_MARKUP` per walkout, compounding. Nothing about the crew's standing discounts
- * it any more, which is the point of the rework: the price is a fact about the person and about
- * how you have treated them, not a reward for a word.
+ * ## The asking price is the city's, not this crew's
+ *
+ * `discountPercent` is `wageDiscountPercent`, the channel four perks, two attributes and a
+ * technology feed, and every Bar path passes nothing here on purpose. An auction has **one**
+ * floor, because two crews bidding against each other have to be bidding against the same number:
+ * a per-crew reserve would mean a bid that is legal for one crew and under the floor for the other
+ * at the same table, and a close that has to pick which of two reserves the ranking is measured
+ * against.
+ *
+ * The channel has a sink all the same, one table further down: see {@link committedWage}. What the
+ * crew's negotiators buy is not a cheaper table, it is a cheaper **contract**, which keeps the
+ * bidding fair and still pays for hiring a Union Rep.
  */
-export function wageAskedOf(
-  recruit: BarCharacter,
-  standoff?: Standoff,
-  discountPercent = 0,
-): number {
-  return askingWage(recruit.attributes, standoff?.walkouts ?? 0, discountPercent);
+export function wageAskedOf(recruit: BarCharacter, discountPercent = 0): number {
+  return askingWage(recruit.attributes, discountPercent);
+}
+
+/**
+ * §H7a: the highest price a crew can bid and still hold the contract.
+ *
+ * The inverse of {@link committedWage} against what is left of the book: the largest whole number
+ * whose talked-down figure still fits, which is what makes "the server refuses above this and only
+ * above this" true on the wire.
+ */
+export function bidCeilingFor(available: number, discountPercent: number): number {
+  const room = Math.max(0, Math.floor(available));
+  if (room <= 0) return 0;
+  const share = Math.max(0, 1 - Math.max(0, discountPercent) / 100);
+  if (share <= 0) return room;
+  // Rounding means several raw prices land on the same charged figure, so the arithmetic answer
+  // can sit a cap or two under the true edge as easily as over it. Walk to the edge from wherever
+  // it lands, in both directions, so the ceiling is exactly the last bid the gate takes.
+  let ceiling = Math.floor(room / share);
+  while (ceiling > 0 && committedWage(ceiling, discountPercent) > room) ceiling -= 1;
+  while (committedWage(ceiling + 1, discountPercent) <= room) ceiling += 1;
+  return ceiling;
+}
+
+/**
+ * What the payroll book is actually charged for a contract that closed at `price` (§H7, board
+ * 2026-09-07).
+ *
+ * The auction compares, reports and remembers the price everybody at the table could see. What the
+ * winner's own negotiators do is talk that number down **after** it is won, so the crew's Union
+ * Rep, its Authority and its Negotiation come off the book entry and off nothing anybody bid
+ * against. Everything shared stays shared: the result row, the notification, the results panel and
+ * every leaderboard read the price, and only this crew's ledger and their officer's `weeklyWage`
+ * carry the figure below it.
+ *
+ * Deliberately not capped at `MAX_WAGE_DISCOUNT`, which belongs to the asking price: the floor
+ * here is one cap, because a contract nobody is paid for is not a contract.
+ */
+export function committedWage(price: number, discountPercent: number): number {
+  return Math.max(1, Math.round(price * (1 - Math.max(0, discountPercent) / 100)));
 }
 
 /**
@@ -128,148 +152,64 @@ export function ledgerFor(base: Base, stepDiscountPercent = 0): PayrollLedger {
 }
 
 /**
- * §H3, §H4, §H8 and §C3: everything that has to be true before a salary is even discussed.
- * Returns the first reason it is not, or `null` when the character will talk terms.
+ * §H3 and §H8: everything that has to be true before this crew can put somebody on the books.
+ *
+ * Ordered by what a player most wants to be told. The same list gates a *bid*
+ * (`bar/auction.ts`), which is the point: a crew that cannot take somebody should be told at the
+ * table rather than at the close, when there is nothing left to do about it.
  */
 function refusalFor(
-  {
-    base,
-    recruit,
-    role,
-    standoff,
-    hiresToday,
-    slots,
-    now,
-  }: Omit<HireInput, 'offerWage' | 'userId' | 'seat'> & {
-    hiresToday: number;
-    /** The chairs on the books: the level's, plus the ones research has added. */
-    slots: number;
-  },
+  base: Base,
+  recruit: BarCharacter,
   blockers: readonly JoinBlocker[],
+  slots: number,
 ): HireRefusal | null {
-  /*
-   * The two that admin mode does **not** waive come first, and that ordering is load-bearing.
-   *
-   * This function returns the *first* reason, and the caller applies the waiver to that single
-   * reason: `if (refusal && !adminWaives(refusal, admin))`. So a waivable gate standing in front of
-   * a non-waivable one hides it completely. `no_slots` is waived and used to sit ahead of
-   * `role_taken`, which is not: on a full roster in admin mode the hire reached `no_slots`, had it
-   * waived, and never evaluated `role_taken`, so two officers were signed into one chair. Nothing
-   * dedupes by role in `crewSheetsFor`, so both were paid as the seated officer, both sets of perks
-   * were summed into the crew's channels, and the row survived the flag being turned off again.
-   *
-   * The list below is still ordered by what a player most wants to be told; it is only these two
-   * that have been lifted, and they are lifted because they are the ones a waiver must never skip.
-   *
-   * §C3: a role is either filled or empty, so an occupied one cannot take a second officer.
-   *
-   * The bench is the exception and it is not really one: `null` is the *absence* of a chair, so
-   * "somebody else already has that chair" cannot be true of it however many people are sitting
-   * there. Without the guard this read `officer.role === null` for a bench hire and refused the
-   * second one, which would have made the bench a chair with one seat in it.
-   */
   if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
-  if (role !== null && base.commanders.some((officer) => officer.role === role)) {
-    return 'role_taken';
-  }
-
   // §H8: 2 at the start, +1 per level, read off W6's grant table rather than restated here.
   if (base.commanders.length >= slots) return 'no_slots';
-
-  // The two limits that are about the crew's *capacity* rather than about this request being
-  // nonsense, so they come after the ones above: a player asking to fill a post that is already
-  // held should be told that, not told to come back tomorrow.
-  //
-  // §H2b: the shared room's stock is finite, so one signing per player per UTC day. Two from
-  // level 40 (§I3), read off the same function the Bar screen quotes.
-  if (hiresToday >= barHiresPerDay(base.level)) return 'daily_limit';
   if (blockers.includes('notoriety')) return 'requirement';
   if (blockers.includes('level')) return 'level';
-  /*
-   * §H7: the six hours a walkout buys, enforced *here* and not only in the conversation.
-   *
-   * `/bar/negotiate` refuses to open a chair that is still cold, which is what a player sees. It
-   * is not what a request has to go through: signing is its own route, and a tab left open across
-   * a walkout, or anything posting the floor price straight at `/bar/hire`, would put the officer
-   * on the books during the standoff. The markup already applied because `wageAskedOf` reads the
-   * same record; the clock did not, and the clock is the half that makes a walkout cost something
-   * today rather than next week.
-   */
-  if (inStandoff(standoff, now)) return 'standoff';
   return null;
 }
 
 /**
- * Signs a recruit, or says why not (§H7).
+ * Puts a won recruit on the books at the price their table closed at, or says why not.
  *
- * On agreement two things happen together: the officer joins the books, and the agreed fee is
- * committed against the payroll book. Nothing is charged. A fee that does not fit in what is left
- * of the book is refused outright, and that refusal is the one the whole mechanic turns on: the
- * question a player answers at the table is not "can I afford this week" but "is this person worth
- * this much of a ceiling I have to buy".
+ * Always onto the **bench**: a role is a decision the player makes on the Crew screen, and the
+ * close happens while they are asleep. Two things happen together: the officer joins the books,
+ * and the fee is committed against the payroll book. Nothing is charged.
  */
-export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
-  const { base, userId, seat, recruit, role, offerWage, standoff, now, admin = false } = input;
-  const day = barDay(now);
+export function signRecruit(repos: Repositories, input: SignInput): SignResult {
+  const { base, userId, recruit, now } = input;
+  const price = Math.max(0, Math.round(input.price));
 
   const { blockers } = assessAgainst(base, recruit);
-  const refusal = refusalFor(
-    {
-      base,
-      recruit,
-      role,
-      ...(standoff ? { standoff } : {}),
-      now,
-      hiresToday: repos.bar.hiresBy(userId, day),
-      slots: recruitSlotsFor(repos, base),
-    },
-    blockers,
-  );
-  if (refusal && !adminWaives(refusal, admin)) return { kind: 'refused', reason: refusal };
+  const refusal = refusalFor(base, recruit, blockers, recruitSlotsFor(repos, base));
+  if (refusal) return { kind: 'refused', reason: refusal };
 
-  // The conversation is the negotiation route's business, and it has already happened: what
-  // arrives here is the number the two of them shook on. This is the backstop, not the haggle. A
-  // request that skipped the window and posted a lowball gets their floor back as a counter.
-  /*
-   * §H7: what the crew's own negotiators take off the ask.
-   *
-   * Computed here rather than passed in, because this is the backstop every path ends at and a
-   * parameter is a thing a caller can forget. `wageDiscountPercent` was folded by four perks, two
-   * attributes and a technology and read by nobody at all: hiring a negotiator moved no number at
-   * the Bar, in the window, or on the books.
-   *
-   * The same figure has to reach `projectRecruit` and the negotiation route, or the price on the
-   * screen and the price charged would differ, which is the one pricing bug that looks like a
-   * refund. See the note on `ledgerFor` about exactly that.
-   */
-  const asking = wageAskedOf(recruit, standoff, crewEffectsFor(repos, base).wageDiscountPercent);
-  const wage = Math.max(0, Math.round(offerWage));
-  const floor = reservationWage(asking);
-  if (wage < floor) return { kind: 'countered', wage: floor };
-
-  // The same discount `GET /bar` and the payroll route apply, or the step price on the signing
-  // response differs from the one that leaves the stockpile when the button is pressed.
-  const stepDiscount = crewEffectsFor(repos, base).payrollStepDiscountPercent;
-  const ledger = ledgerFor(base, stepDiscount);
-  if (!payrollFits(ledger, wage) && !adminWaives('no_payroll', admin)) {
-    return { kind: 'refused', reason: 'no_payroll' };
-  }
+  // Read once. The step discount is the same figure `GET /bar` and the payroll route apply, or the
+  // step price on the response differs from the one that leaves the stockpile when the button is
+  // pressed; the wage discount is what this crew's negotiators take off the contract.
+  const effects = crewEffectsFor(repos, base);
+  const wage = committedWage(price, effects.wageDiscountPercent);
+  const ledger = ledgerFor(base, effects.payrollStepDiscountPercent);
+  if (!payrollFits(ledger, wage)) return { kind: 'refused', reason: 'no_payroll' };
 
   const officer: Commander = {
     id: recruit.id,
     name: recruit.name,
-    role,
+    role: null,
     attributes: recruit.attributes,
     // §D4: nobody is hired hurt. The clock is only ever written by a fight the settler ran.
     injuredUntil: null,
     // §B7: the perks come with the person, exactly as the card at the Bar advertised them.
     perks: recruit.perks,
-    // §H7: the wage that was actually agreed, which is what the payroll book is charged and what
-    // the crew card prints. It is the whole of the ongoing relationship now.
+    // §H7: what the book is charged and what the crew card prints, which is the closing price
+    // after this crew's own negotiators have been at it. The whole of the relationship now.
     weeklyWage: wage,
   };
 
-  const hired: Base = {
+  const signed: Base = {
     ...base,
     economy: {
       ...base.economy,
@@ -281,16 +221,23 @@ export function hireRecruit(repos: Repositories, input: HireInput): HireResult {
     commanders: [...base.commanders, officer],
   };
 
-  repos.bases.updateEconomy(hired.id, hired.economy);
-  repos.bases.updateCommanders(hired.id, hired.commanders);
-  // §H2b, and they walk out of the room. Somebody else takes the seat on the next read, for
-  // everyone, which is what makes the Bar a shop rather than a catalogue.
-  repos.bar.recordHire(
-    { id: randomUUID(), day, userId, recruitId: recruit.id, hiredAt: now.toISOString() },
-    seat,
-  );
+  repos.bases.updateEconomy(signed.id, signed.economy);
+  repos.bases.updateCommanders(signed.id, signed.commanders);
+  repos.bar.recordHire({
+    id: randomUUID(),
+    day: barDay(now),
+    userId,
+    recruitId: recruit.id,
+    hiredAt: now.toISOString(),
+  });
 
-  return { kind: 'hired', base: hired, officer, wage, payroll: ledgerFor(hired, stepDiscount) };
+  return {
+    kind: 'signed',
+    base: signed,
+    officer,
+    wage,
+    payroll: ledgerFor(signed, effects.payrollStepDiscountPercent),
+  };
 }
 
 /**

@@ -8,7 +8,6 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
-import { settleResearch } from '../research/settle.js';
 import { startResearch, type ResearchRefusal } from '../research/start.js';
 import { labResearchItems, researchHead, trackStatuses } from '../research/tracks.js';
 
@@ -23,10 +22,9 @@ import { labResearchItems, researchHead, trackStatuses } from '../research/track
 /**
  * The caller's district, with everything that settles on the clock already settled.
  *
- * Payroll first, then research: a rung that landed while the player was away is banked before the
- * page is rendered, so the very response that reports it done already counts it as finished. The
- * Overseer is loaded because the settlement pays their Charisma into the allegiance (§F3), not
- * because anything on this screen is theirs.
+ * A rung that landed while the player was away is banked before the page is rendered, so the very
+ * response that reports it done already counts it as finished. `settleBase` does that now, for
+ * every route rather than only for these two.
  */
 function settledBase(
   app: FastifyInstance,
@@ -37,10 +35,14 @@ function settledBase(
   const owned = app.repos.bases.findByOwnerId(ownerId);
   if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
 
-  const chosen = overseerId ? app.repos.overseers.findById(overseerId) : undefined;
-  if (!chosen) throw new AppError('NO_BASE', 'You have not chosen an Overseer yet');
+  // The screen is the Overseer's Lab, so a player who has not chosen one has no screen. The
+  // *settle* no longer needs them: `settleBase` banks a finished rung on every read path there is
+  // (`research/settle.ts`), so this route is a reader like every other one.
+  if (!overseerId || !app.repos.overseers.findById(overseerId)) {
+    throw new AppError('NO_BASE', 'You have not chosen an Overseer yet');
+  }
 
-  return settleResearch(app.repos, settleBase(app.repos, owned, now).base, chosen, now).base;
+  return settleBase(app.repos, owned, now).base;
 }
 
 /**

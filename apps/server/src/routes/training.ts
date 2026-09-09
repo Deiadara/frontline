@@ -4,9 +4,7 @@ import {
   StartTrainingRequestSchema,
   TRAINING_SECONDS,
   beginTraining,
-  EFFECT_CHANNELS,
   crewSheet,
-  effectsOfSheet,
   trainingBlocker,
   type Base,
   type CrewStandingResponse,
@@ -15,7 +13,7 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { projectTraining, settleTrainingFor } from '../crew/training.js';
-import { crewSheetsFor } from '../crew/standing.js';
+import { crewEffectsFor, crewSheetsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { ownBase } from './own-base.js';
@@ -110,14 +108,23 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
     if (!settled.overseer) throw new AppError('NOT_FOUND', 'You have not chosen an overseer yet');
 
     const sheet = crewSheet(crewSheetsFor(app.repos, settled.base));
-    const effects = effectsOfSheet(sheet);
+    // The whole crew fold, not the sheet's ten channels alone. `effectsOfSheet` writes only what
+    // attributes drive, so every perk-only channel on this response was structurally zero: the
+    // district panel quoted the payroll step at full price and greyed a button `POST /bar/payroll`
+    // would have taken, and the crew effects page listed thirteen channels as dormant for ever.
+    const effects = crewEffectsFor(app.repos, settled.base);
     return {
       overseer: settled.overseer,
       crewSheet: sheet,
-      // Channel by channel rather than the whole struct: `perHour` is a resource map, not a
-      // number, and a response typed `Record<string, number>` has to be built from the list of
-      // things that actually are numbers.
-      effects: Object.fromEntries(EFFECT_CHANNELS.map((channel) => [channel, effects[channel]])),
+      // Every numeric channel of the fold, not the `EFFECT_CHANNELS` list: that list is the sheet's
+      // twenty-two, and the perk-only channels (`payrollStepDiscountPercent` among them) are not on
+      // it, so filtering by it dropped exactly the figures this response exists to carry. `perHour`
+      // is a resource map rather than a number and is the one thing the filter keeps out.
+      effects: Object.fromEntries(
+        Object.entries(effects).filter(
+          (entry): entry is [string, number] => typeof entry[1] === 'number',
+        ),
+      ),
     };
   });
 }

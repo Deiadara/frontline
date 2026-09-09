@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_ATTRIBUTE, makeAttributes, type Attributes } from '../attributes.js';
 import { UnitStatsSchema, type Army } from '../units/index.js';
 import { bareBattlefield } from './battlefield.js';
+import { dayInZone, formatClock } from '../time/zone.js';
 import { officerOutcomeOf, officerStackOf, simulate, allocate, type Stack } from './engine.js';
 import {
   MAX_OFFICER_INJURY_CHANCE,
@@ -18,6 +19,7 @@ import {
   officerInjured,
   officerInjuryChance,
   officerIsInjured,
+  OFFICER_INJURY_HOURS,
   officerRecoveryAt,
   officerRecoverySeconds,
   officerStat,
@@ -288,6 +290,49 @@ describe('officer injury (§D4)', () => {
   it('clamps the margin, so a nonsense share cannot produce a chance outside the band', () => {
     expect(battleMargin(3, -3)).toBe(1);
     expect(battleMargin(-3, 3)).toBe(-1);
+  });
+
+  /**
+   * An officer hurt at half past eleven at night, through a game-day boundary and a clock change.
+   *
+   * §D4's clock is the one daily clock in the game that is **not** the game day. The Bar, the
+   * market and the black market all turn over at Athens midnight; an injury does not, because it is
+   * a fixed number of hours of real time from the moment somebody was carried off. Two things fall
+   * out of that and both are worth pinning, because the rest of the game reads the other way:
+   *
+   *   * a midnight in the middle of it changes nothing, so the officer is not back at the stroke of
+   *     the new day;
+   *   * a summer-time change in the middle of it does not shorten or lengthen the injury, which
+   *     means the officer comes back an hour *later on the wall clock* than they went down. That is
+   *     the correct answer for a duration and the wrong answer for a schedule, and it is exactly the
+   *     distinction `time/zone.ts` is about.
+   */
+  it('runs a fixed number of hours through a midnight and a summer-time change', () => {
+    // 23:30 in Athens on the night the clocks go forward (29 March 2026, 03:00 becomes 04:00).
+    const hurt = new Date('2026-03-28T21:30:00.000Z');
+    const until = officerRecoveryAt(hurt);
+    expect(Date.parse(until) - hurt.getTime(), 'the same hours, whatever the calendar did').toBe(
+      OFFICER_INJURY_HOURS * 3_600_000,
+    );
+
+    // Athens midnight comes and goes, and they are still laid up.
+    const midnight = new Date('2026-03-28T22:00:00.000Z');
+    expect(dayInZone(midnight), 'the game day really did turn').not.toBe(dayInZone(hurt));
+    expect(officerIsInjured(until, midnight)).toBe(true);
+
+    // So does the clock change, three and a half hours in, and the countdown is still real time.
+    const afterTheChange = new Date('2026-03-29T01:00:00.000Z');
+    expect(officerIsInjured(until, afterTheChange)).toBe(true);
+    expect(officerRecoverySeconds(until, afterTheChange)).toBe(
+      (Date.parse(until) - afterTheChange.getTime()) / 1000,
+    );
+
+    // Back on the millisecond the duration says, and not before it.
+    expect(officerIsInjured(until, new Date(Date.parse(until) - 1))).toBe(true);
+    expect(officerIsInjured(until, new Date(until))).toBe(false);
+    // An hour later on the wall clock than they went down, because the night was an hour short.
+    expect(formatClock(hurt)).toBe('23:30');
+    expect(formatClock(new Date(until)), 'a duration, not a time of day').toBe('00:30');
   });
 
   it('settles recovery off a stored timestamp rather than a running clock', () => {

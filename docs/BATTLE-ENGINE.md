@@ -100,8 +100,12 @@ alone is disconnected.
 
 Two of them behave in ways worth knowing:
 
-- **Speed does nothing in the round loop.** It is spent entirely on the withdrawal: `pursuitSpeed`
-  and `fleeChance`. "+20% speed changed no outcome" is correct rather than broken.
+- **Speed is a difference, not a level.** It reaches the round loop only through `engagementEdge`
+  (`reach = range - their speed`, `closing = speed - their speed` weighted by their range), so a
+  rebalance that moves every sheet by the same amount moves almost nothing, and a bonus on one side
+  moves a lot. `+20% unitSpeedPercent` on 20 Razors against 20 Snipers takes their survivors from
+  10.8% to 13.6% over 1500 runs; on the Razors mirror it takes the attacker from 44.4% to 46.9%. It
+  is spent again after the fight, on `pursuitSpeed` and `fleeChance`.
 - **Cohesion is capped** at `MAX_COHESION_WIDTH`, so 50% and 100% buy the same ground, and on open
   ground (frontage 48) a force of 40 already fits and it buys nothing at all.
 

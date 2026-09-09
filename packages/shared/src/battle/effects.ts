@@ -8,6 +8,7 @@ import {
   type UnitSpec,
   type UnitStats,
 } from '../units/index.js';
+import { effectiveSpeed } from '../time/speed.js';
 import type { Battlefield } from './battlefield.js';
 import type { UnitTierStat } from '../units/tiers.js';
 
@@ -216,7 +217,10 @@ export function effectiveStats(
       0,
       100,
     ),
-    speed: sheet.speed * (1 + territory.unitSpeedPercent / 100),
+    // Capped at 100 like every other speed in the game (`time/speed.ts`): the same number decides
+    // this unit's road, and a body cannot be quicker than the top of its own scale on one of them
+    // and not the other. Deliberately unrounded, so the engagement terms keep their resolution.
+    speed: effectiveSpeed(sheet.speed, { percent: territory.unitSpeedPercent }),
     range: sheet.range,
     // Points, not a multiplier, and clamped for the same reason armour is: no stack of bonuses may
     // produce a body nothing can hit.

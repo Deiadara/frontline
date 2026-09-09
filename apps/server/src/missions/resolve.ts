@@ -13,9 +13,8 @@ import {
   findMissionTemplate,
   isMissionDue,
   missionRewards,
-  missionTimings,
+  pricedTotalMinutes,
   type Base,
-  type LevelUp,
   type Mission,
   type MissionOutcome,
   addItems,
@@ -26,7 +25,7 @@ import { createRng } from '../characters/rng.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
 import type { StoredMission } from '../db/repos/missions.js';
-import { awardPlayerXp, levelUpFrom } from '../progression/award.js';
+import { awardPlayerXp } from '../progression/award.js';
 
 /**
  * The roll, taken from the seed frozen at launch.
@@ -44,11 +43,6 @@ export interface MissionSettlement {
   base: Base;
   /** The missions that came home on this call, in launch order. */
   resolved: Mission[];
-  /**
-   * Set when the awards *this call* banked crossed a level, so whichever route settled them can
-   * announce it (MOU-227). Aggregated across the crews, never one of them.
-   */
-  levelUp?: LevelUp | undefined;
 }
 
 /**
@@ -98,12 +92,15 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     // A failure pays nothing, and that is `FAILURE_REWARD_SHARE`'s business rather than a second
     // condition here: `missionRewards` already returns an empty bundle for one, and a guard on
     // `outcome` beside it would be the same rule written twice and free to drift.
+    //
+    // Priced off `pricedTotalMinutes`, which is the card's own clock without the machines: §X4
+    // put the figure on the row and froze the XP against it, and this was still reading the
+    // *ridden* clock, so a crew that used the Garage came home with about 12% less pay and
+    // salvage than the card quoted, which is exactly the bug X4 was written to close.
+    const pricedMinutes = pricedTotalMinutes(stored.mission);
     const paid =
       template && !recalled
-        ? scaledSpoils(
-            missionRewards(template, outcome, missionTimings(stored.mission).totalMinutes),
-            stored.mission.payPercent,
-          )
+        ? scaledSpoils(missionRewards(template, outcome, pricedMinutes), stored.mission.payPercent)
         : {};
     const rewards = carriedHome(paid, missionCarry(stored.mission.force), RESOURCE_KG);
 
@@ -117,9 +114,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      */
     const rng = createRng(stored.seed);
     rng(); // The outcome's own draw, consumed so the finds do not reuse it.
-    const found = recalled
-      ? {}
-      : rollSalvage(missionTimings(stored.mission).totalMinutes, outcome === 'success', rng);
+    const found = recalled ? {} : rollSalvage(pricedMinutes, outcome === 'success', rng);
     /*
      * §F1e/§F1f: the page, decided on arrival rather than when the card was drawn.
      *
@@ -237,17 +232,15 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   // multi-mission settlement banks every award and the base handed back carries the level it
   // ended on, rather than a pre-award copy the caller would then serve as current.
   //
-  // The awards are kept, not just the base, because several of them are one announcement: two crews
-  // that cross two thresholds owe the player `levelsGained: 2`, not the last award's 1.
+  // Threaded rather than looped over a stale copy: two crews that cross two thresholds owe the
+  // player `levelsGained: 2`, and `awardPlayerXp` accumulates that into the durable marker.
   let progressed = settled;
-  const awards = settlements.map((settlement) => {
+  for (const settlement of settlements) {
     // Priced per run rather than off the table: a day-long expedition is worth more than a scrap
     // run, a battle more than a standard job of the same length, and a run that came home empty
     // still pays a fifth. `missionXp` owns all three; this only banks what it said.
-    const awarded = awardPlayerXp(repos, progressed, 'missionCompleted', 0, settlement.xp);
-    progressed = awarded.base;
-    return awarded.award;
-  });
+    progressed = awardPlayerXp(repos, progressed, 'missionCompleted', 0, settlement.xp).base;
+  }
 
   // §H6 used to pay the officer who led each run their own character XP here. Officers have no
   // level any more (see `commander.ts`): a run pays the crew, and who led it decides how well it
@@ -265,9 +258,14 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     });
   }
 
-  return {
-    base: progressed,
-    resolved: settlements.map((s) => s.mission),
-    levelUp: levelUpFrom(awards),
-  };
+  /*
+   * The level-up, if this settlement crossed one, is **not** returned.
+   *
+   * It used to be, and the world clock is why that was not enough: the tick calls this function
+   * every second and throws the answer away, so a threshold crossed at 03:00 reached nobody.
+   * `awardPlayerXp` banks every crossing into the durable marker instead (migration 0083) and the
+   * responses that announce drain it with `takeLevelUp`, so this function has nothing left to say
+   * about it and two sources cannot disagree.
+   */
+  return { base: progressed, resolved: settlements.map((s) => s.mission) };
 }

@@ -42,6 +42,7 @@ function out(
     xp: 240,
     force: { razors: 1 },
     vehicles: {},
+    pricedMinutes: 0,
     startedAt: minutesAgo(launchedMinutesAgo),
     travelMinutes: 5,
     durationMinutes,

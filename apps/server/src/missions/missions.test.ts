@@ -20,6 +20,17 @@ import {
   createCommander,
   findMissionTemplate,
   missionRewards,
+  hastenedRoadMinutes,
+  findUnit,
+  findVehicle,
+  effectiveSpeed,
+  upgradedStats,
+  MAX_LOCATION_LEVEL,
+  UNIT_UPGRADES,
+  leading,
+  TRAVEL_BAND_MINUTES,
+  missionTimings,
+  pricedTotalMinutes,
   playerLevelGrants,
   templateTimings,
   type Base,
@@ -39,7 +50,9 @@ import { launchMission } from './launch.js';
 import { projectUnits } from '../units/roster.js';
 import { removeForce } from '../battle/forces.js';
 import { resolveDueMissions } from './resolve.js';
+import { tickWorld } from '../live/clock.js';
 import { MISSION_HISTORY_LIMIT } from '../db/repos/missions.js';
+import { standingEffectsFor } from '../crew/standing.js';
 
 /**
  * A launch payload for `POST /api/missions`.
@@ -94,6 +107,26 @@ function aJobToday(): { template: MissionTemplate; areaId: string } {
     if (template) return { template, areaId };
   }
   throw new Error(`no job a delegation can run on any board on ${day}`);
+}
+
+/**
+ * The longest road on any board today, with the area that offers it.
+ *
+ * The tests about the *road* need a leg long enough that a change in pace survives the rounding to
+ * whole minutes: a `close` job is five of them, and everything from a walking Razor to a Razor at
+ * the game's ceiling of 100 lands on three, so a road test that runs on one passes whatever the
+ * code does. Measured rather than assumed: every day in an 800-day window offers a `furthest` job
+ * somewhere, so this is not the expiry-dated fixture `launchBody` warns about. Difficulty is not
+ * filtered because on 21 of those 800 days every long job is hard, so a caller sends an officer
+ * with it (§G6) rather than the suite going red on a date.
+ */
+function theFurthestJobToday(): { template: MissionTemplate; areaId: string } {
+  const day = missionBoardDay(new Date());
+  for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
+    const template = missionOffers(areaId, day).find((entry) => entry.travelBand === 'furthest');
+    if (template) return { template, areaId };
+  }
+  throw new Error(`no long job on any board on ${day}`);
 }
 
 /** `aJobToday` as a launch payload. */
@@ -271,18 +304,30 @@ function withOfficers(stack: Stack, count: number): string[] {
 }
 
 /** Puts a mission on the board with a pinned seed and launch time. */
-function planted(stack: Stack, template: MissionTemplate, seed: number, startedAt = T0): Mission {
+function planted(
+  stack: Stack,
+  template: MissionTemplate,
+  seed: number,
+  startedAt = T0,
+  /** §C3: machines under the crew, for the tests about what riding is and is not worth. */
+  vehicles: Record<string, number> = {},
+  /**
+   * Who goes. Enough bags by default that nothing is left on the floor: what a crew can carry is
+   * measured elsewhere (`missions.areas.test.ts`), and a payout trimmed by accident here would
+   * look like a pricing bug in every timer assertion below. The tests about the road override it,
+   * because the road's clock is now the *column's* speed and four hundred bodies need seats.
+   */
+  force: Record<string, number> = { haulers: 400 },
+): Mission {
   const stored = launchMission({
     id: `mission-${seed}-${template.id}`,
     base: stack.base,
     template,
     areaId: areasOffering(template.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
-    // Enough bags that nothing is left on the floor: what a crew can carry is measured elsewhere
-    // (`missions.areas.test.ts`), and a payout trimmed by accident here would look like a pricing
-    // bug in every timer assertion below.
-    force: { haulers: 400 },
+    force,
     now: startedAt,
     seed,
+    vehicles,
   });
   stack.repos.missions.insert(stored);
   return stored.mission;
@@ -334,8 +379,16 @@ function resourcesOf(stack: Stack): Resources {
 describe('mission timers are authoritative server-side (§E2, §E8)', () => {
   it('does not pay out one millisecond before the round trip is over', async () => {
     const stack = await makeStack();
-    const { totalMinutes } = templateTimings(scrapRun);
-    planted(stack, scrapRun, ALWAYS_SUCCEEDS);
+    /*
+     * The row's own clock, not the template's.
+     *
+     * A force's speed shortens the mission road now (§C3, the speed rebalance), so the four hundred
+     * Haulers `planted` sends walk their five-minute leg in four. Reading the template here made
+     * this test wind the clock a minute past the finish and call the payout early.
+     */
+    const mission = planted(stack, scrapRun, ALWAYS_SUCCEEDS);
+    const { totalMinutes } = missionTimings(mission);
+    expect(totalMinutes).toBeLessThan(templateTimings(scrapRun).totalMinutes);
     const before = resourcesOf(stack);
 
     const justEarly = new Date(T0.getTime() + totalMinutes * MINUTE_MS - 1);
@@ -649,7 +702,10 @@ describe('the mission routes', () => {
     expect(res.statusCode, res.body).toBe(200);
 
     const mission = res.json<{ mission: Mission }>().mission;
-    expect(mission.travelMinutes).toBe(templateTimings(template).travelMinutes);
+    // The template's road at the column's own pace: one Razor walking, and nothing else on it.
+    expect(mission.travelMinutes).toBe(
+      hastenedRoadMinutes(templateTimings(template).travelMinutes, findUnit('razors')!.stats.speed),
+    );
     expect(mission.durationMinutes).toBe(template.durationMinutes);
   });
 
@@ -1061,6 +1117,49 @@ describe('a settlement announces its level-up on the response that caused it (§
     expect(freshBase(stack).level).toBe(3);
   });
 
+  /**
+   * ...and when the settle was the **world clock's**, which has no response at all.
+   *
+   * The Q pass left this open: "the clock brings crews home every second and discards `levelUp`,
+   * so a mission's level-up never reaches `GET /missions`". It never reached anything: the tick
+   * throws the settlement away, and `/missions` afterwards re-resolves nothing, so a threshold
+   * crossed at 03:00 was banked and never drawn. The durable marker (migration 0083) is what makes
+   * the announcement survive the settle that caused it.
+   */
+  it('announces a level-up the world clock banked overnight, on the next read', async () => {
+    const stack = await makeStack('sleeper');
+    planted(
+      stack,
+      findMissionTemplate('deep-expedition') as MissionTemplate,
+      ALWAYS_SUCCEEDS,
+      LONG_AGO,
+    );
+    const before = freshBase(stack).level;
+
+    // The tick, exactly as `index.ts` drives it: no request, no response, nobody looking.
+    tickWorld(stack.repos, stack.app.skirmishEngine, new Date());
+    expect(freshBase(stack).level, 'the clock really did bank it').toBeGreaterThan(before);
+
+    // The shell's own poll is the backstop, and it draws the card the clock could not.
+    const me = await stack.app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: auth(stack.token),
+    });
+    expect(me.statusCode, me.body.slice(0, 200)).toBe(200);
+    const { levelUp } = me.json<LevelUpBody>();
+    expect(levelUp?.levelsGained).toBeGreaterThan(0);
+    expect(levelUp?.level).toBe(freshBase(stack).level);
+
+    // Drawn once: a second poll has nothing left to say.
+    const again = await stack.app.inject({
+      method: 'GET',
+      url: '/api/me',
+      headers: auth(stack.token),
+    });
+    expect(again.json<LevelUpBody>().levelUp).toBeUndefined();
+  });
+
   it('stays silent when a crew came home without crossing a level', async () => {
     const stack = await makeStack();
     // Level 3 costs 600; one mission is worth 120, so this settles without levelling.
@@ -1245,6 +1344,15 @@ describe('a settlement announces its level-up on the response that caused it (§
  * back whatever the run did. That is not an oversight to be tidied up later, it is the rule.
  */
 describe('vehicles on a mission (§C3)', () => {
+  /**
+   * The longest road the board authors, so a machine's saving is minutes rather than a rounding
+   * step. Named rather than picked off today's boards: `planted` launches directly and does not
+   * need the job to be on offer, and a fixture that changes with the date is a suite that goes red
+   * on a Tuesday.
+   */
+  const longestRoad =
+    MISSION_TEMPLATES.find((entry) => entry.travelBand === 'furthest') ?? scrapRun;
+
   const yardWith = (stack: Stack, fleet: Record<string, number>) => {
     stack.repos.bases.updateFleet(stack.base.id, fleet);
     return stack.repos.bases.findById(stack.base.id)!;
@@ -1284,21 +1392,33 @@ describe('vehicles on a mission (§C3)', () => {
   /**
    * The point of the whole feature: the road is shorter.
    *
-   * Compared against the same job launched on foot rather than against a fixed number, because the
-   * travel band is authored per template and a hard-coded figure would be pinning the template.
+   * Measured on the longest road in the game rather than on whatever is on the board today.
+   * `roadMinutes` rounds to the minute and a `close` job is five of them, so a walking Razor (45)
+   * and a Razor on a Scrappy (65) both come out at three: at that length the test is a coin flip
+   * against the rounding step rather than a test. Twenty Razors and twenty seats, so the whole
+   * column rides and nobody is left setting its pace.
    */
   it('gets the crew there sooner than the same job on foot', async () => {
     const walking = await makeStack('walker');
     const riding = await makeStack('driver');
-    yardWith(riding, { motorcycle: 2 });
 
-    const onFoot = await launchWith(walking, {});
-    const onWheels = await launchWith(riding, { motorcycle: 2 });
+    const onFoot = planted(walking, longestRoad, ALWAYS_SUCCEEDS, T0, {}, { razors: 20 });
+    const onWheels = planted(
+      riding,
+      longestRoad,
+      ALWAYS_SUCCEEDS,
+      T0,
+      { motorcycle: 10 },
+      { razors: 20 },
+    );
 
-    expect(onFoot.statusCode, onFoot.body).toBe(200);
-    expect(onWheels.statusCode, onWheels.body).toBe(200);
-    expect(onWheels.json<{ mission: Mission }>().mission.travelMinutes).toBeLessThan(
-      onFoot.json<{ mission: Mission }>().mission.travelMinutes,
+    expect(onWheels.travelMinutes).toBeLessThan(onFoot.travelMinutes);
+    // And it is the shared clock rather than a second copy of it: the walkers at their own 45, the
+    // riders at the Scrappy's 65.
+    const band = TRAVEL_BAND_MINUTES[longestRoad.travelBand];
+    expect(onFoot.travelMinutes).toBe(hastenedRoadMinutes(band, findUnit('razors')!.stats.speed));
+    expect(onWheels.travelMinutes).toBe(
+      hastenedRoadMinutes(band, findVehicle('motorcycle')!.speed),
     );
   });
 
@@ -1316,31 +1436,105 @@ describe('vehicles on a mission (§C3)', () => {
     );
   });
 
+  /**
+   * And the road being shorter is not a discount on the take. `missionXp` and `missionRewards`
+   * scale with the clock, and the launch used to price them off the hastened one, so a crew that
+   * rode was paid less than the card said, about 12% on a long road.
+   */
+  it('pays and rewards the ride exactly what it pays the walk', async () => {
+    const walking = await makeStack('paidwalker');
+    const riding = await makeStack('paiddriver');
+
+    const walked = planted(walking, longestRoad, ALWAYS_SUCCEEDS, T0, {}, { razors: 20 });
+    const rode = planted(
+      riding,
+      longestRoad,
+      ALWAYS_SUCCEEDS,
+      T0,
+      { motorcycle: 10 },
+      { razors: 20 },
+    );
+
+    // The precondition: the two clocks differ, so a price off the clock would too.
+    expect(rode.travelMinutes).toBeLessThan(walked.travelMinutes);
+    expect(rode.pricedMinutes).toBe(walked.pricedMinutes);
+    expect(rode.xp).toBe(walked.xp);
+    expect(pricedTotalMinutes(rode)).toBe(pricedTotalMinutes(walked));
+    // A row from before the field is priced off its own clock, as it always was.
+    expect(pricedTotalMinutes({ ...rode, pricedMinutes: 0 })).toBe(
+      missionTimings(rode).totalMinutes,
+    );
+  });
+
   /** An empty seat buys nothing: a truck sent with four people is a truck mostly full of air. */
   it('pays for the share of the crew a machine actually carries', async () => {
     const few = await makeStack('few');
     const many = await makeStack('many');
-    yardWith(few, { war_hauler: 1 });
-    yardWith(many, { war_hauler: 1 });
+    yardWith(few, { armoured_car: 1 });
+    yardWith(many, { armoured_car: 1 });
 
     const smallForce = await few.app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: { authorization: `Bearer ${few.token}` },
-      payload: { ...launchAnyJobToday(), force: { razors: 1 }, vehicles: { war_hauler: 1 } },
+      payload: { ...launchAnyJobToday(), force: { razors: 1 }, vehicles: { armoured_car: 1 } },
     });
     const bigForce = await many.app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: { authorization: `Bearer ${many.token}` },
-      payload: { ...launchAnyJobToday(), force: { razors: 20 }, vehicles: { war_hauler: 1 } },
+      payload: { ...launchAnyJobToday(), force: { razors: 20 }, vehicles: { armoured_car: 1 } },
     });
 
-    // Both ride the same truck; the fuller one is not slower for it. The rule under test is that
-    // the *hauler's* contribution is weighted by what it carries, so neither run is penalised.
+    // Both ride the same bus; the fuller one is not slower for it. The rule under test is that
+    // the *machine's* contribution is weighted by what it carries, so neither run is penalised.
     expect(smallForce.statusCode, smallForce.body).toBe(200);
     expect(bigForce.statusCode, bigForce.body).toBe(200);
-    expect(bigForce.json<{ mission: Mission }>().mission.vehicles.war_hauler).toBe(1);
+    expect(bigForce.json<{ mission: Mission }>().mission.vehicles.armoured_car).toBe(1);
+  });
+
+  /**
+   * And what the settle pays is the card's number too, not just what the launch froze.
+   *
+   * X4 put `pricedMinutes` on the row and priced the XP off it, and the settle went on reading
+   * `missionTimings(row).totalMinutes`: the *ridden* clock. So `missionRewards` and `rollSalvage`
+   * still charged a crew for using the Garage, which is the whole of the bug X4 was written to
+   * close, surviving in the one place that actually hands resources over. The launch-side test
+   * above could not see it: it reads `xp` and `pricedTotalMinutes`, both of which were already
+   * right.
+   *
+   * Two stacks, one template, one seed, so the outcome, the page and the salvage stream are the
+   * same run twice: everything that differs is the road.
+   */
+  it('pays a settled ride exactly what it pays a settled walk', async () => {
+    const walkers = await makeStack('settlewalk');
+    const riders = await makeStack('settleride');
+    // The longest road on the board, so the ride is worth something and the two clocks differ by
+    // more than a rounding step.
+    const template = MISSION_TEMPLATES.find((entry) => entry.travelBand === 'furthest') ?? scrapRun;
+
+    // Enough seats for all four hundred: twelve Heli Porters seat 360 and two Cheese Wagons take
+    // the rest, so nobody walks and the column moves at the slowest machine that is carrying
+    // anybody.
+    const walked = planted(walkers, template, ALWAYS_SUCCEEDS);
+    const rode = planted(riders, template, ALWAYS_SUCCEEDS, T0, {
+      heli_porter: 12,
+      armoured_car: 2,
+    });
+
+    // The precondition: a price off the row's own clock would differ.
+    expect(rode.travelMinutes).toBeLessThan(walked.travelMinutes);
+    expect(rode.pricedMinutes).toBe(walked.pricedMinutes);
+
+    const onFoot = resolveDueMissions(walkers.repos, walkers.base, after(10_000));
+    const onWheels = resolveDueMissions(riders.repos, riders.base, after(10_000));
+
+    // What the job paid, what came home on the truck, and what they found on the way.
+    expect(onWheels.resolved[0]?.spoils).toEqual(onFoot.resolved[0]?.spoils);
+    expect(onWheels.resolved[0]?.rewards).toEqual(onFoot.resolved[0]?.rewards);
+    expect(freshBase(riders).inventory).toEqual(freshBase(walkers).inventory);
+    // And the pay is a real number rather than two empty bundles agreeing with each other.
+    expect(Object.keys(onFoot.resolved[0]?.spoils ?? {}).length).toBeGreaterThan(0);
   });
 
   it('brings every machine home when the crew comes back', async () => {
@@ -1365,6 +1559,108 @@ describe('vehicles on a mission (§C3)', () => {
     const yard = stack.repos.bases.findById(stack.base.id)!.fleet;
     expect(yard.motorcycle).toBe(2);
     expect(yard.scrap_car).toBe(1);
+  });
+
+  /**
+   * The crew's own speed is worth the same on a job's road as on a march (§C3).
+   *
+   * The Skate Ground says "everything you field moves faster", and `unitSpeedPercent` is the
+   * channel it says it through: `battle/movement.ts` has fed it to `columnSpeed` since the column
+   * had a speed at all, and the launch called `columnSpeed(vehicles, force, unitColumnSpeed)` with
+   * no bonus at all. So the same Razors walked to a fight quicker than they walked to a job on the
+   * same streets, and the only holding in the game whose whole reward line is movement bought
+   * nothing on the screen a player uses it on most.
+   *
+   * Measured on the longest leg on offer, because `roadMinutes` rounds to the minute.
+   */
+  it('reads a mission road at the pace the crew actually moves at', async () => {
+    const stack = await makeStack('skater');
+    const skate = CITY_LOCATIONS.find((location) => location.kind === 'skate_ground');
+    if (!skate) throw new Error('no Skate Ground on the map');
+    const control = stack.repos.city.control(skate.id);
+    if (!control) throw new Error(`no control row for ${skate.id}`);
+    stack.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId: stack.base.id },
+      level: MAX_LOCATION_LEVEL,
+      garrison: {},
+    });
+
+    // Somebody leads it, because the only legs long enough to measure a pace on are sometimes all
+    // hard (§G6). `leading` is then the fold the route itself launches from.
+    const officerId = withOfficer(stack);
+    const effects = leading(
+      standingEffectsFor(stack.repos, stack.repos.bases.findById(stack.base.id)!),
+    );
+    expect(effects.unitSpeedPercent).toBeGreaterThan(0);
+
+    const { template, areaId } = theFurthestJobToday();
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: { authorization: `Bearer ${stack.token}` },
+      payload: { templateId: template.id, areaId, force: { razors: 4 }, vehicles: {}, officerId },
+    });
+    expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+
+    const band = TRAVEL_BAND_MINUTES[template.travelBand];
+    const printed = findUnit('razors')!.stats.speed;
+    const quickened = effectiveSpeed(printed, { percent: effects.unitSpeedPercent });
+    expect(res.json<{ mission: Mission }>().mission.travelMinutes).toBe(
+      hastenedRoadMinutes(band, quickened, effects.missionSpeedPercent),
+    );
+    // The teeth: the printed sheet is a different number on this leg, so the assertion above
+    // cannot pass by reading the channel and by ignoring it both.
+    expect(hastenedRoadMinutes(band, printed, effects.missionSpeedPercent)).toBeGreaterThan(
+      hastenedRoadMinutes(band, quickened, effects.missionSpeedPercent),
+    );
+  });
+
+  /**
+   * ...and the workshop's own speed points reach both roads (§C3).
+   *
+   * `upgradedStats` is what the engine reads, so a Neural Lace is twelve points of speed inside a
+   * fight. Both roads read `unit.stats.speed` straight off the catalogue, so the same body crossed
+   * the city slower than it crossed a battlefield, and the one upgrade line whose flavour is "goes
+   * faster" did nothing to the clock a player watches. The armour line's negative speed is the
+   * same rule in the other direction and rides in on the same fix.
+   */
+  it('reads the road at the sheet the workshop actually fitted', async () => {
+    const stack = await makeStack('laced');
+    // The largest of them, so the two sheets are more than a rounding step apart on this road.
+    const quickening = [...UNIT_UPGRADES]
+      .sort((a, b) => (b.effect.speed ?? 0) - (a.effect.speed ?? 0))
+      .find((spec) => (spec.effect.speed ?? 0) > 0);
+    if (!quickening) throw new Error('no upgrade adds speed');
+    const base = stack.repos.bases.findById(stack.base.id)!;
+    stack.repos.bases.updateUnitLoadouts(base.id, { razors: [quickening.id] });
+    const officerId = withOfficer(stack);
+    const effects = leading(
+      standingEffectsFor(stack.repos, stack.repos.bases.findById(stack.base.id)!),
+    );
+
+    const { template, areaId } = theFurthestJobToday();
+    const res = await stack.app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: { authorization: `Bearer ${stack.token}` },
+      payload: { templateId: template.id, areaId, force: { razors: 4 }, vehicles: {}, officerId },
+    });
+    expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+
+    const band = TRAVEL_BAND_MINUTES[template.travelBand];
+    const sheet = findUnit('razors')!.stats;
+    const printed = effectiveSpeed(sheet.speed, { percent: effects.unitSpeedPercent });
+    const fitted = effectiveSpeed(upgradedStats(sheet, [quickening.id]).speed, {
+      percent: effects.unitSpeedPercent,
+    });
+    expect(fitted).toBeGreaterThan(printed);
+    expect(res.json<{ mission: Mission }>().mission.travelMinutes).toBe(
+      hastenedRoadMinutes(band, fitted, effects.missionSpeedPercent),
+    );
+    expect(hastenedRoadMinutes(band, printed, effects.missionSpeedPercent)).toBeGreaterThan(
+      hastenedRoadMinutes(band, fitted, effects.missionSpeedPercent),
+    );
   });
 });
 

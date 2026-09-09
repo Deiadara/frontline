@@ -74,13 +74,34 @@ export const PLUNDER_PRIORITY: readonly ResourceKey[] = [
  */
 export const MAX_RAID_SHARE = 0.25;
 
-/** How much this force can carry home, in kilograms. */
+/**
+ * Loads a body with the `picker` mark brings home over and above its sheet (`UnitSpec.picker`).
+ *
+ * Twelve, which is a Sniper's whole carry and a bit over half a Razor's. Sized so that a handful of
+ * pickers in a raiding party is worth roughly as much as the +25% carry the deepest `loot_capacity`
+ * holdings buy, and no more: the rule is meant to be a reason to bring a few of them, not a second
+ * economy that runs beside the one the map already pays for.
+ */
+export const PICKER_EXTRA_LOAD = 12;
+
+/**
+ * How much this force can carry home, in kilograms.
+ *
+ * The picker's flat load is added **after** the percentage rather than into the base, and that is
+ * the whole difference between this mark and a bigger `lootCapacity`. A percentage on the base
+ * pays the crews that already carry well the most; a flat load per body is worth the same to
+ * everybody, which is what the sheet promises.
+ */
 export function lootCapacityOf(army: Army, bonusPercent = 0): number {
-  const base = Object.entries(army).reduce((total, [unitId, count]) => {
+  let base = 0;
+  let extra = 0;
+  for (const [unitId, count] of Object.entries(army)) {
     const unit = findUnit(unitId);
-    return unit ? total + unit.stats.lootCapacity * count : total;
-  }, 0);
-  return Math.max(0, base) * (1 + Math.max(0, bonusPercent) / 100);
+    if (!unit) continue;
+    base += unit.stats.lootCapacity * count;
+    if (unit.picker === true) extra += PICKER_EXTRA_LOAD * count;
+  }
+  return Math.max(0, base) * (1 + Math.max(0, bonusPercent) / 100) + Math.max(0, extra);
 }
 
 /**
@@ -89,13 +110,25 @@ export function lootCapacityOf(army: Army, bonusPercent = 0): number {
  * Walks {@link PLUNDER_PRIORITY}, taking up to {@link MAX_RAID_SHARE} of each line and stopping
  * when the raiders run out of arms. Rounded **down** at every step: a raid never carries away a
  * fraction of a unit, and rounding up would let a tiny force take a whole one.
+ *
+ * `without` names lines the raiders leave alone. A raid on a home skips `caps`: caps are the only
+ * resource a player spends on everything, they are first in the priority order and they weigh a
+ * kilogram apiece, so a raid that could take them filled its whole hold with somebody's wallet and
+ * left the interesting half of the stockpile standing. The rest of the order is unchanged, so an
+ * excluded line costs the raiders nothing but their place in the queue.
  */
-export function plunder(stock: Resources, capacityKg: number): PartialResources {
+export function plunder(
+  stock: Resources,
+  capacityKg: number,
+  without: readonly ResourceKey[] = [],
+): PartialResources {
   let left = Math.max(0, capacityKg);
   const taken: Record<string, number> = {};
+  const skip = new Set(without);
 
   for (const key of PLUNDER_PRIORITY) {
     if (left <= 0) break;
+    if (skip.has(key)) continue;
     const available = Math.floor(stock[key] * MAX_RAID_SHARE);
     if (available <= 0) continue;
 

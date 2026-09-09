@@ -7,7 +7,6 @@ import {
   canAfford,
   canSettle,
   creditResources,
-  currentVendorSession,
   hasItems,
   marketDay,
   nextVendorOpening,
@@ -22,14 +21,12 @@ import {
   supplyBoard,
   supplyPrice,
   supplyRefusal,
-  vendorClosesAt,
-  vendorOpenAt,
   vendorSessionsFor,
   vendorStockFor,
+  vendorVisitAt,
   visibleTo,
   type Base,
   type ItemCost,
-  type ItemId,
   type MarketOffer,
   type MarketResponse,
   type ResourceKey,
@@ -37,16 +34,22 @@ import {
   type TradeBundle,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { standingEffectsFor } from '../crew/standing.js';
 import { seatedRoles } from '../crew/roster.js';
+import {
+  bidderNames,
+  latestLotResultsFor,
+  projectVendorAuction,
+  type VendorBidRefusal,
+} from './auction.js';
 
 /**
  * The market, server side.
  *
  * Three things happen here and they share one rule: **goods move in a single transaction, or not at
- * all.** A purchase spends caps and hands over an item; a barter takes one resource and gives
- * another; a settlement moves two bundles between two crews. Every one of them writes both sides
- * with `updateHoldings`, which is a single statement, inside a transaction opened by the route.
+ * all.** A barter takes one resource and gives another; a settlement moves two bundles between two
+ * crews; the barrow's close (`market/auction.ts`) spends caps and hands over a unit. Every one of
+ * them writes both sides with `updateHoldings`, which is a single statement, inside a transaction
+ * opened by the route.
  *
  * The Runner's hours and stock are *derived*, never stored: `vendorSessionsFor` and
  * `vendorStockFor` are pure functions of the UTC date, so the server does not have to schedule
@@ -90,16 +93,6 @@ function releaseEscrow(repos: Repositories, offer: MarketOffer): void {
 export function projectMarket(repos: Repositories, base: Base, now: Date): MarketResponse {
   const day = marketDay(now);
   /*
-   * §A4: the Downtown Market's discount, on the **quoted** price as well as the charged one.
-   *
-   * The two came apart: `buyFromVendor` charged the discounted figure and this quoted the
-   * catalogue one. A player holding that floor saw the full price on every card and was charged
-   * less at the till, and, worse, `affordable` was judged against the price they were *not* going
-   * to pay, so a purchase they could comfortably make showed a dead button. The black market's own
-   * code carries a comment about exactly this failure; the vendor had it.
-   */
-  const discount = standingEffectsFor(repos, base).marketDiscountPercent;
-  /*
    * The barrow is empty while he is away, and it is empty **here** rather than on the screen.
    *
    * What he has that day is a pure function of the date, so a shut shop that still answered with
@@ -108,14 +101,34 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
    * only looked at the page could not. That is not a shop with opening hours, it is a shop with a
    * keyhole. Nobody sees the goods until he is standing there.
    */
-  const open = vendorOpenAt(now);
-  const stock = open
+  const visit = vendorVisitAt(now);
+  /*
+   * The price on a line is the city's number, not this crew's.
+   *
+   * It used to be quoted with §A4's Downtown Market discount on it. A lot cannot be: the reserve is
+   * what every crew bids against, and a per-crew floor would make the same bid legal for one of
+   * them and under the reserve for the other. The winner's ground comes off what they pay at the
+   * close instead (`market/auction.ts`), where nobody they were bidding against can see it.
+   */
+  const bids = visit ? repos.vendorAuctions.bidsOn(visit.day, visit.session) : [];
+  const usernames = bidderNames(repos, bids);
+  const stock = visit
     ? vendorStockFor(day).map((line) => {
         const left = Math.max(0, line.stock - vendorSoldCount(repos, day, line.id));
-        const price = discountedCaps(line.price, discount);
         return {
-          line: { ...line, stock: left, price },
-          affordable: left > 0 && base.resources.caps >= price,
+          line: { ...line, stock: left },
+          // Nothing left on the line is nothing to bid on: the city cleared him out on an earlier
+          // visit, and he will not have another until tomorrow's barrow is drawn.
+          auction:
+            left > 0
+              ? projectVendorAuction({
+                  reader: base.ownerId,
+                  visit,
+                  line,
+                  bids: bids.filter((bid) => bid.lineId === line.id),
+                  usernames,
+                })
+              : null,
         };
       })
     : [];
@@ -127,11 +140,15 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
     resources: base.resources,
     inventory: base.inventory,
     vendor: {
-      open,
+      open: visit !== null,
       sessions: vendorSessionsFor(day),
-      closesAt: vendorClosesAt(now)?.toISOString() ?? null,
+      session: visit?.session ?? null,
+      closesAt: visit?.closesAt.toISOString() ?? null,
       opensAt: nextVendorOpening(now).toISOString(),
       stock,
+      // Only the lots this crew bid on, from the last visit it bid at. A panel carrying every close
+      // in the city would be a leaderboard nobody asked for.
+      results: latestLotResultsFor(repos, base.ownerId, now),
     },
     // Somebody else's public listings, plus counters aimed at this crew. Never its own. Those are
     // `mine`, and a board that showed a crew its own listing twice would read as two offers.
@@ -193,10 +210,8 @@ export function buySupply(
 }
 
 export type MarketRefusal =
-  | 'vendor_closed'
-  | 'unknown_line'
-  | 'sold_out'
-  | 'cannot_afford'
+  // The barrow's own, spelled by the module that owns the lot rules.
+  | VendorBidRefusal
   | 'too_small'
   | 'same_resource'
   | 'unknown_offer'
@@ -212,52 +227,6 @@ export type MarketRefusal =
 
 export type MarketResult =
   { kind: 'done'; base: Base } | { kind: 'refused'; reason: MarketRefusal };
-
-/**
- * A price with the crew's market discount taken off (§A4).
- *
- * Floored at one cap: no amount of ground makes anything free, which is the same rule
- * `discounted` applies to every other price in the game.
- */
-export const MAX_MARKET_DISCOUNT = 45;
-
-export function discountedCaps(price: number, percent: number): number {
-  const off = Math.min(MAX_MARKET_DISCOUNT, Math.max(0, percent));
-  return Math.max(1, Math.round(price * (1 - off / 100)));
-}
-
-/** Buy from the Runner. Only while he is actually in the district. */
-export function buyFromVendor(
-  repos: Repositories,
-  base: Base,
-  lineId: string,
-  count: number,
-  now: Date,
-): MarketResult {
-  if (currentVendorSession(now) === null) return { kind: 'refused', reason: 'vendor_closed' };
-
-  const day = marketDay(now);
-  const line = vendorStockFor(day).find((candidate) => candidate.id === lineId);
-  if (!line) return { kind: 'refused', reason: 'unknown_line' };
-
-  const left = line.stock - vendorSoldCount(repos, day, lineId);
-  if (left < count) return { kind: 'refused', reason: 'sold_out' };
-
-  // §A4: the Downtown Market. Every price in this city is quoted to whoever holds that floor at
-  // a better number than to anybody else, and the Spire's unified bonus is more of the same.
-  // Per unit, then multiplied: the same arithmetic in the same order the card quoted, so buying
-  // three never costs a cap more or less than three times what the shelf said one costs.
-  const unit = discountedCaps(line.price, standingEffectsFor(repos, base).marketDiscountPercent);
-  const price = unit * count;
-  if (base.resources.caps < price) return { kind: 'refused', reason: 'cannot_afford' };
-
-  const resources = spendResources(base.resources, { caps: price });
-  const inventory = addItems(base.inventory, { [line.item as ItemId]: count });
-  repos.bases.updateHoldings(base.id, resources, inventory);
-  repos.market.recordVendorSale(day, lineId, count, now.toISOString());
-
-  return { kind: 'done', base: { ...base, resources, inventory } };
-}
 
 /**
  * The Broker: any resource into any other, at half.
@@ -409,8 +378,27 @@ export function acceptOffer(
   return { kind: 'done', base: { ...base, resources: buyerResources, inventory: buyerInventory } };
 }
 
-/** A player-facing sentence for every refusal, so the client never invents one. */
-export const MARKET_REFUSAL_TEXT: Record<MarketRefusal, string> = {
+/** The figures a refusal may name. Only `too_low` reads them. */
+export interface RefusalFigures {
+  /** The least this crew could have bid. */
+  minimum: number;
+  /** What the leader is at, or null on an untouched lot. */
+  leading: number | null;
+}
+
+const NO_FIGURES: RefusalFigures = { minimum: 0, leading: null };
+
+/**
+ * A player-facing sentence for every refusal, so the client never invents one.
+ *
+ * `too_low` is a function rather than a string for the reason the Bar's `BID_ERRORS` is: "somebody
+ * is at 40" and "you need at least 42" are the whole of what the screen has to say, and a client
+ * deriving the second one from a stale read would print a number the server would refuse.
+ */
+export const MARKET_REFUSAL_TEXT: Record<
+  MarketRefusal,
+  string | ((figures: RefusalFigures) => string)
+> = {
   // The supply run's own refusals, spelled by the module that owns the rules rather than restated.
   // First, so the one word the two sets share, `cannot_afford`, keeps the market's more general
   // wording: the Broker and the barrow raise it too, and neither of them is about caps.
@@ -418,6 +406,11 @@ export const MARKET_REFUSAL_TEXT: Record<MarketRefusal, string> = {
   vendor_closed: 'The Runner is not in the district right now',
   unknown_line: 'That is not on the barrow today',
   sold_out: 'The city cleared him out of those',
+  outbid_yourself: 'You are already the highest bid. Save your caps',
+  too_low: ({ minimum, leading }) =>
+    leading === null
+      ? `He will not take under ${minimum}`
+      : `Somebody is at ${leading}. You need at least ${minimum}`,
   cannot_afford: 'You cannot cover that',
   too_small: 'The Broker will not get out of his chair for that little',
   same_resource: 'The Broker trades one thing for another, not for itself',
@@ -431,6 +424,15 @@ export const MARKET_REFUSAL_TEXT: Record<MarketRefusal, string> = {
   too_many_offers: 'You have too many listings standing already',
   untradeable: 'That is not something anybody will take off you',
 };
+
+/** The sentence for a refusal, with the figures the one numbered refusal needs. */
+export function marketRefusalText(
+  reason: MarketRefusal,
+  figures: RefusalFigures = NO_FIGURES,
+): string {
+  const text = MARKET_REFUSAL_TEXT[reason];
+  return typeof text === 'string' ? text : text(figures);
+}
 
 /**
  * Whether a crew holds a set of parts.

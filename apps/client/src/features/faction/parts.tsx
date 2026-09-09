@@ -37,7 +37,8 @@ export function Figure({
   return (
     <span
       className="flex min-w-0 items-center gap-1 rounded-sm border border-surface-600/80 bg-surface-950/50 px-1.5 py-0.5"
-      title={title}
+      data-tip={title}
+      aria-label={title}
     >
       <Icon name={icon} aria-hidden className="h-3 w-3 shrink-0 text-brass-300" />
       <span className="truncate font-display text-[12px] font-bold tabular-nums text-ink-100">

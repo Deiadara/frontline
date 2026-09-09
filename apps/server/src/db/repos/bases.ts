@@ -11,6 +11,8 @@ import {
   findVehicle,
   ITEM_CATALOG,
   BaseSchema,
+  LevelUpSchema,
+  type LevelUp,
   defaultLoadout,
   BaseSummarySchema,
   type Base,
@@ -128,6 +130,15 @@ export interface BasesRepo {
    * write would leave progress sitting above its own level's threshold.
    */
   updateProgression(baseId: string, level: number, progression: ProgressionState): void;
+  /**
+   * §I2: the level-up nothing has announced yet, and clearing it.
+   *
+   * Kept off {@link Base} on purpose (migration 0083): it is a delivery receipt for the shell
+   * rather than a fact about a district, and putting it on the wire inside `Base` would make every
+   * screen that draws a base a place a level-up could be announced from.
+   */
+  pendingLevelUp(baseId: string): LevelUp | undefined;
+  setPendingLevelUp(baseId: string, levelUp: LevelUp | null): void;
   /** Where the fungible pool is standing (GDD §G). Placements only: the pool size is derived. */
   /**
    * The officers on the books (GDD §H). Recruitment, the §H5 alignment drift and the §H6
@@ -486,6 +497,12 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const updateProgressionStmt = db.prepare(
     'UPDATE bases SET level = ?, progression_json = ? WHERE id = ?',
   );
+  const pendingLevelUpStmt = db.prepare(
+    'SELECT pending_level_up_json AS json FROM bases WHERE id = ?',
+  );
+  const setPendingLevelUpStmt = db.prepare(
+    'UPDATE bases SET pending_level_up_json = ? WHERE id = ?',
+  );
   const updateCommandersStmt = db.prepare('UPDATE bases SET commanders_json = ? WHERE id = ?');
   // Officers and the training board move together whenever a session finishes on an officer, so
   // they are written in one statement: two updates would let a crash land the gain without the
@@ -606,6 +623,17 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateProgression(baseId, level, progression) {
       updateProgressionStmt.run(level, JSON.stringify(progression), baseId);
+    },
+    pendingLevelUp(baseId) {
+      const row = pendingLevelUpStmt.get(baseId) as { json: string | null } | undefined;
+      if (!row?.json) return undefined;
+      // Salvaged rather than trusted, like every other stored blob here: a shape written by an
+      // older build must not take a player's shell down on the one response that draws it.
+      const parsed = LevelUpSchema.safeParse(readJson(row.json));
+      return parsed.success ? parsed.data : undefined;
+    },
+    setPendingLevelUp(baseId, levelUp) {
+      setPendingLevelUpStmt.run(levelUp === null ? null : JSON.stringify(levelUp), baseId);
     },
     updateCommanders(baseId, commanders) {
       updateCommandersStmt.run(JSON.stringify(commanders), baseId);

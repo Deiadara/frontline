@@ -6,6 +6,8 @@ import {
   type EconomyState,
 } from '@frontline/shared';
 import { useUpgradeNotoriety } from '../lib/queries';
+import type { DeltaMark } from '../lib/deltas';
+import { DeltaFloat } from './ui/Delta';
 import { HoverCard } from './ui/HoverCard';
 import { InfoWindow, WindowSection } from './ui/InfoWindow';
 import { Icon } from './ui/Icon';
@@ -28,10 +30,19 @@ export function CrewLevelChip({
   level,
   xpIntoLevel,
   xpToNextLevel,
+  deltas,
 }: {
   level: number;
   xpIntoLevel: number;
   xpToNextLevel: number;
+  /**
+   * What the crew just learned, from `useDeltaMarks` over {@link xpBehind}.
+   *
+   * Opt-in the way the infamy chip's is: the standing bar and the base screen both draw this chip
+   * and only one of them should announce the award. No trickle and no floor either, because
+   * nothing pays XP passively: every point of it was a job somebody finished.
+   */
+  deltas?: readonly DeltaMark[];
 }) {
   const pct =
     xpToNextLevel > 0 ? Math.max(0, Math.min(100, (xpIntoLevel / xpToNextLevel) * 100)) : 0;
@@ -71,9 +82,21 @@ export function CrewLevelChip({
       <div
         // `px-3` rather than `px-1.5`: the level was set hard against the chip's own edge, which
         // reads as a number that has run out of room rather than as one sitting on a plate.
-        className="resource-chip flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1"
+        // `relative`, so the XP figure hangs from this chip's own box; portalled out of it, see
+        // `DeltaFloat`.
+        className="resource-chip relative flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1"
         data-testid="level-chip"
       >
+        <DeltaFloat
+          marks={deltas ?? []}
+          data-testid="delta-xp"
+          unit="XP"
+          icon={
+            <span className="block h-full w-full [&_svg]:h-full [&_svg]:w-full">
+              <Icon name="level" />
+            </span>
+          }
+        />
         <span
           aria-hidden
           className="resource-well flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-hextech-100 [&_svg]:h-8 [&_svg]:w-8"
@@ -116,7 +139,20 @@ export function CrewLevelChip({
  * The card is interactive, so the button inside it is a real button. The chip itself does nothing
  * on click: a purchase this expensive should not be one stray click away.
  */
-export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: number }) {
+export function InfamyChip({
+  infamy,
+  notoriety,
+  deltas,
+}: {
+  infamy: number;
+  notoriety: number;
+  /**
+   * What the wallet just did, from `useDeltaMarks`. Opt-in for the reason `ResourceChip`'s is:
+   * the standing bar and the base screen's readout both draw this chip, and only one of them
+   * should announce a move.
+   */
+  deltas?: readonly DeltaMark[];
+}) {
   const tier = notorietyTier(notoriety);
   const next = nextNotorietyTier(notoriety);
   const cost = notorietyUpgradeCost(notoriety);
@@ -127,7 +163,7 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
   return (
     <HoverCard
       data-testid="infamy-hover"
-      label={`Infamy: ${Math.round(infamy)} points, and they call you ${tier}`}
+      label={`Infamy: ${Math.round(infamy).toLocaleString()} points, and they call you ${tier}`}
       size="window"
       interactive
       card={
@@ -143,8 +179,11 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
           }
           figure={
             <span className="flex items-baseline gap-2">
+              {/* Grouped, like the price under it. The chip beside this one is allowed to say
+                  `15.7K` because it is 58px wide; the card is where the exact figure lives, and
+                  `40000` is not a figure anybody reads at a glance. */}
               <span className="font-display text-2xl font-bold tabular-nums text-oxblood-300">
-                {Math.round(infamy)}
+                {Math.round(infamy).toLocaleString()}
               </span>
               <span className="font-display text-base text-ink-300">infamy</span>
             </span>
@@ -199,9 +238,20 @@ export function InfamyChip({ infamy, notoriety }: { infamy: number; notoriety: n
       <div
         // Same room as the level beside it, and a little more between the points and the rank:
         // `Nobody` was touching the right edge of the plate.
-        className="resource-chip flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1"
+        // `relative`, so the spend and gain figures hang from this chip's own box. Portalled out
+        // of it: see `DeltaFloat`.
+        className="resource-chip relative flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1"
         data-testid="infamy-chip"
       >
+        <DeltaFloat
+          marks={deltas ?? []}
+          data-testid="delta-infamy"
+          icon={
+            <span className="block h-full w-full [&_svg]:h-full [&_svg]:w-full">
+              <Icon name="infamy" />
+            </span>
+          }
+        />
         <span
           aria-hidden
           className="resource-well flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-oxblood-300 [&_svg]:h-8 [&_svg]:w-8"

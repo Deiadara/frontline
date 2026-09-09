@@ -2,7 +2,9 @@ import { randomInt } from 'node:crypto';
 import {
   missionBoardDay,
   pagePrizeFor,
-  carriedSpeedPercent,
+  columnSpeed,
+  fittedFor,
+  unitColumnSpeed,
   type Fleet,
   TRAVEL_BAND_MINUTES,
   delegatedMinutes,
@@ -20,6 +22,7 @@ import {
   type MissionTemplate,
   type Overseer,
   hastenedMinutes,
+  hastenedRoadMinutes,
 } from '@frontline/shared';
 import { adminMinutes } from '../admin/mode.js';
 import type { StoredMission } from '../db/repos/missions.js';
@@ -72,9 +75,9 @@ export function launchMission(args: {
    * §C3: the machines carrying them, taken out of the Garage for this run.
    *
    * They buy time off the road and nothing else: a mission's odds, its pay and its haul are
-   * untouched by what the crew arrived in. Priced against how much of the force they can actually
-   * seat (`carriedSpeedPercent`), so parking a truck in the yard is worth nothing and sending one
-   * with two people in it is worth almost nothing.
+   * untouched by what the crew arrived in. What the road is worth is `columnSpeed`, so parking a
+   * truck in the yard is worth nothing and a machine that leaves half the crew walking is worth
+   * exactly what the walkers are worth.
    */
   vehicles?: Fleet;
   /** Overridable so tests can pin the roll. */
@@ -94,6 +97,16 @@ export function launchMission(args: {
    * road: a shorter way across the city is shorter in both directions and while you are there.
    */
   missionSpeedPercent?: number;
+  /**
+   * §A4: what the crew's own people and ground add to how fast its **units** move
+   * (`TerritoryEffects.unitSpeedPercent`, the Skate Ground and the officers' Speed).
+   *
+   * A separate number from `missionSpeedPercent` because the two are spent differently and always
+   * were: this one raises the column's pace and divides, that one is a percentage off whatever
+   * clock the pace produced. The battle road has read this channel since the column had a speed at
+   * all, and a crew whose people move faster to a fight moves faster to a job on the same streets.
+   */
+  unitSpeedPercent?: number;
   /**
    * §E: what the crew's own people add to the run's pay (`TerritoryEffects.missionSpoilsPercent`).
    *
@@ -117,6 +130,7 @@ export function launchMission(args: {
     admin = false,
     missionSpeedPercent = 0,
     missionSpoilsPercent = 0,
+    unitSpeedPercent = 0,
     areaId,
     force,
     vehicles = {},
@@ -131,24 +145,48 @@ export function launchMission(args: {
   /*
    * §C3: the road only. What a machine buys is the journey, not the job.
    *
-   * Folded into `missionSpeedPercent` for the *travel* leg and deliberately not into the duration:
-   * a van gets a crew to the site sooner and does not make the work there go faster, which is the
-   * same rule the battle side applies to a marching column. Adding it to both would have made a
-   * truck worth more on a long job than on a long road, which is backwards.
+   * The column's pace shortens the *travel* leg and deliberately not the duration: a van gets a
+   * crew to the site sooner and does not make the work there go faster, which is the same rule the
+   * battle side applies to a marching column. Adding it to both would have made a truck worth more
+   * on a long job than on a long road, which is backwards.
+   *
+   * The ground's `missionSpeedPercent` is a reduction on top of that pace rather than another term
+   * added into it: `roadMinutes` divides by the speed and then takes the percentage off what is
+   * left. It stays a divisor on the job leg, where there is no column to have a speed.
    */
-  const bodies = Object.values(force).reduce((total, count) => total + count, 0);
-  const carried = carriedSpeedPercent(vehicles, bodies);
+  const pace = columnSpeed(vehicles, force, (unitId) =>
+    unitColumnSpeed(unitId, {
+      percent: unitSpeedPercent,
+      fitted: fittedFor(base.unitLoadouts, unitId),
+    }),
+  );
+  const durationMinutes = adminMinutes(
+    hastenedMinutes(
+      terms ? delegatedMinutes(template.durationMinutes, terms) : template.durationMinutes,
+      missionSpeedPercent,
+    ),
+    admin,
+  );
   const timings = missionTimings({
     travelMinutes: admin
       ? 0
-      : hastenedMinutes(TRAVEL_BAND_MINUTES[template.travelBand], missionSpeedPercent + carried),
-    durationMinutes: adminMinutes(
-      hastenedMinutes(
-        terms ? delegatedMinutes(template.durationMinutes, terms) : template.durationMinutes,
-        missionSpeedPercent,
-      ),
-      admin,
-    ),
+      : hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], pace, missionSpeedPercent),
+    durationMinutes,
+  });
+  /*
+   * What the pay is priced on: the card's own clock, at nobody's pace at all.
+   *
+   * `missionRewards` and `missionXp` scale with the minutes, so pricing off `timings` charged the
+   * crew for riding: the card's quote is for the job as offered, and a faster road is what the
+   * Garage was for, not a discount on the take. Speed 0 rather than the walkers' own, because the
+   * card is drawn before a crew is picked and has to quote the same number the settle pays out.
+   * Frozen on the row with everything else (`MissionSchema.pricedMinutes`).
+   */
+  const priced = missionTimings({
+    travelMinutes: admin
+      ? 0
+      : hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], 0, missionSpeedPercent),
+    durationMinutes,
   });
 
   const afterOverseer = overseer
@@ -166,9 +204,10 @@ export function launchMission(args: {
       // is the perk channel for officers who negotiate the contracts (`crew/perks.ts`). Frozen here
       // with everything else, so hiring a better fixer does not retroactively repay a run already out.
       payPercent: areaPayPercent(areaId) + levelPayPercent(base.level) + missionSpoilsPercent,
-      xp: missionXp(template, timings.totalMinutes, base.level),
+      xp: missionXp(template, priced.totalMinutes, base.level),
       force,
       vehicles,
+      pricedMinutes: priced.totalMinutes,
       startedAt: now.toISOString(),
       recalledAt: null,
       travelMinutes: timings.travelMinutes,

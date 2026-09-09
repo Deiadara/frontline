@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_PLAYER_ICON,
+  DEFAULT_SOUND_VOLUME,
   GAME_TIMEZONE,
   LoginRequestSchema,
   RegisterRequestSchema,
@@ -37,11 +38,12 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       username: body.username,
       overseerId: null,
       createdAt: new Date().toISOString(),
-      // The house defaults. A new account is called by its username, wears a shield and reads the
-      // game on Athens time until Settings says otherwise.
+      // The house defaults. A new account is called by its username, wears a shield, reads the
+      // game on Athens time and hears it at 60 until Settings says otherwise.
       displayName: null,
       icon: DEFAULT_PLAYER_ICON,
       timezone: GAME_TIMEZONE,
+      soundVolume: DEFAULT_SOUND_VOLUME,
       passwordHash,
     };
     app.repos.users.insert(record);

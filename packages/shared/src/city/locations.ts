@@ -8,6 +8,7 @@ import {
   type UnitTierStat,
 } from '../units/tiers.js';
 import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
+import { UNIT_RULES, type UnitRuleId } from '../units/rules.js';
 import {
   MAX_MISSION_SPEED_BONUS,
   MAX_TRAINING_SPEED_BONUS,
@@ -170,7 +171,71 @@ export type HoldBonus =
    * For the handful of locations that are somewhere people actually live or eat. A camp at the
    * green belt fence houses hundreds; a Cinema houses nobody, however much they like it there.
    */
-  | { kind: 'population'; flat: number };
+  | { kind: 'population'; flat: number }
+  /*
+   * The rules (board brief, 2026-09-09).
+   *
+   * Everything above this line is a figure going up or a price coming down, and a catalogue of
+   * nothing but those reads as one slider with forty labels on it. Each of these changes what
+   * *happens* instead: what a porter is allowed to do, what the sky is worth, which sheet the
+   * enemy has to deal with first. They carry no percentage on purpose, so a card cannot quote one.
+   */
+  /**
+   * Flat minutes off every road, taken after the column's own pace has been spent.
+   *
+   * The one travel bonus a short road can feel. `travel_speed` is a percentage of whatever the
+   * clock came to, so on a nine-minute hop between neighbours it is worth under a minute however
+   * much of it you hold; this is worth the same four minutes on that hop as on an hour's march,
+   * which makes it the bonus a crew fighting over its own corner of the city actually wants.
+   */
+  | { kind: 'road_shortcut'; minutes: number }
+  /**
+   * The porters take a place in the line, at half of what they are.
+   *
+   * `combat: false` is otherwise absolute: a Scavenger is never in a battle line, never draws fire
+   * and contributes nothing (`units/catalog.ts`). This suspends that for the crew that holds it,
+   * which is a different thing from a damage bonus: it changes what a *unit* is for. A crew with
+   * this can send forty porters on a raid and have them be forty bodies rather than forty
+   * bystanders, and the half is what stops the cheapest sheet in the game becoming the best one.
+   */
+  | { kind: 'carriers_fight' }
+  /**
+   * Anything gets a seat, including the things there is no seat for.
+   *
+   * Waives `no_ride` (`units/catalog.ts`), which is the rule that holds a whole column to a
+   * Colossus's fifteen. There is no percentage that says this: the column moves at its slowest
+   * group, so the answer to a walking legend is not a faster road, it is a way to put it on
+   * something.
+   */
+  | { kind: 'any_ride' }
+  /**
+   * One named unit picks up a mark it was not written with (`units/rules.ts`).
+   *
+   * The narrowest of these and the one that reads most like a decision: it does nothing at all
+   * unless you field that unit, and it changes what fielding it means rather than how much of it
+   * you get. A rung that makes your Wardens open fire is a reason to build a crew around Wardens.
+   */
+  | { kind: 'unit_mark'; unitId: string; mark: UnitRuleId }
+  /**
+   * Nobody runs because somebody else did.
+   *
+   * The morale cascade is how a fight in this engine is actually lost: one stack breaks, the next
+   * one is shaken by it, and a force that was ahead on casualties walks off the ground in two
+   * rounds (`battle/morale.ts`). This cuts the cascade term out of the crew's own morale phase, so
+   * a line still breaks from its own losses and from what is opposite it, and never from the panic
+   * beside it. A percentage of morale could not say that: it would slow every collapse rather than
+   * stopping the one that spreads.
+   */
+  | { kind: 'steady_nerve' }
+  /**
+   * More than one scouting party out at a time.
+   *
+   * The scouting door has exactly one limit and it is not a price: a crew may have one officer out
+   * casing the city, full stop, so knowing the map is paced by evenings rather than by resources.
+   * This widens that, which is a different kind of thing from a shorter run: a second party is a
+   * second question answered tonight, and no percentage off `scoutRunMinutes` ever buys that.
+   */
+  | { kind: 'scout_parties'; flat: number };
 
 /**
  * How far a location can be worked up, and what each level is worth.
@@ -511,8 +576,19 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
   barricade: {
     label: 'Barricade',
     blurb: 'Sea containers, rubble and rebar, arranged by somebody who had thought about it.',
-    reward: 'A harder approach to everything behind it.',
-    bonuses: [{ kind: 'defense_percent', percent: 8 }],
+    reward: 'A harder approach to everything behind it, held by people who will not leave it.',
+    bonuses: [
+      { kind: 'defense_percent', percent: 8 },
+      /*
+       * The line learns the wall (`unit_mark`, `city/locations.ts`).
+       *
+       * Ironsides already taunt, which is the sheet that most wants `stalwart` and least deserves
+       * it for free: a shield line that pulls three quarters of the fire and then runs is the exact
+       * failure the taunt was written to fix. Granted rather than written onto the sheet, so it is
+       * ground somebody has to hold instead of a unit that got quietly better.
+       */
+      { kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' },
+    ],
     baseDefense: 5,
     labels: [L('crammed', 2), L('open', 1)],
     upgradeCost: { caps: 300, scrap: 260, planks: 280 },
@@ -530,6 +606,15 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [
       { kind: 'intel', percent: 20 },
       { kind: 'vision', districts: 1 },
+      /*
+       * A second pair of glasses, which is a second question answered tonight.
+       *
+       * The scouting door's only limit is one party out at a time, so knowing the map is paced by
+       * evenings rather than by resources and no percentage off `scoutRunMinutes` widens it. One,
+       * not two: doubling the rate is the whole of what the ground is worth here, and a crew that
+       * holds the tower and the Uplink is already seeing further than anybody.
+       */
+      { kind: 'scout_parties', flat: 1 },
     ],
     baseDefense: 5,
     labels: [L('elevated', 4), L('open', 2), L('windy', 2), L('crammed', 1)],
@@ -591,8 +676,20 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
   war_machine_graveyard: {
     label: 'War Machine Graveyard',
     blurb: 'A field of dead armour, half of it sunk, some of it not as dead as it looks.',
-    reward: 'Hulls, plate and running gear, and troops that come back from more than they should.',
-    bonuses: [{ kind: 'unit_vitality', percent: 10 }],
+    reward:
+      'Hulls, plate and running gear, a gantry that will lift anything, and troops that come back from more than they should.',
+    bonuses: [
+      { kind: 'unit_vitality', percent: 10 },
+      /*
+       * The crane, and the only answer in the game to a legend that walks.
+       *
+       * `no_ride` holds a whole column to a Colossus's 15 (`columnSpeed`), and no percentage
+       * touches it: the column moves at its slowest group, so a faster road for everybody else buys
+       * nothing at all. Priced at nothing extra because it is worth nothing to a crew that does not
+       * field one, which is most of them, and a great deal to the one crew that does.
+       */
+      { kind: 'any_ride' },
+    ],
     baseDefense: 6,
     labels: [L('open', 3), L('eerie', 2), L('toxic', 1)],
     upgradeCost: { caps: 560, scrap: 320, oil: 100, planks: 120 },
@@ -626,8 +723,20 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
   fight_pit: {
     label: 'Fight Pit',
     blurb: 'A sunk ring, a standing crowd, and a bookmaker who knows everyone.',
-    reward: 'Your people are harder to frighten, and better for the practice.',
-    bonuses: [{ kind: 'unit_morale', flat: 8 }],
+    reward:
+      'Your people are harder to frighten, and everybody on the books can hold a line, porters included.',
+    bonuses: [
+      { kind: 'unit_morale', flat: 8 },
+      /*
+       * The pit is where a hauler learns to stand somewhere and not move.
+       *
+       * `carriers_fight` at half strength (`CARRIER_STRENGTH`), which is the whole balance of it: a
+       * Scavenger is a sixth of a Razor's price and there is no supply pressure on porters, so at
+       * full strength this would make the cheapest sheet in the game the correct one. At half it is
+       * a reason to bring the porters you were bringing anyway, which is what a fight pit is.
+       */
+      { kind: 'carriers_fight' },
+    ],
     baseDefense: 2,
     labels: [L('crammed', 3), L('noisy', 4)],
     upgradeCost: { caps: 300, supplies: 80, planks: 160 },
@@ -690,7 +799,19 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     blurb:
       'Eight roads under one roof, half the fleet still on them, and overhead line that is live in places.',
     reward: 'The city gets smaller. Everything you send anywhere leaves sooner and arrives faster.',
-    bonuses: [{ kind: 'travel_speed', percent: 18 }],
+    bonuses: [
+      { kind: 'travel_speed', percent: 18 },
+      /*
+       * Four minutes flat, and it is the half the percentage cannot buy.
+       *
+       * The depot's 18% is worth eighteen minutes on a two-hour march and under two on the ten
+       * minute hop to the district next door, which is the road a crew fighting over its own corner
+       * of the city actually walks. Four is a little under half of that hop and a rounding error on
+       * the long one, so the two bonuses answer different journeys instead of the same one twice.
+       * `MIN_TRAVEL_MINUTES` is the floor, so no amount of this ever makes a road free.
+       */
+      { kind: 'road_shortcut', minutes: 4 },
+    ],
     baseDefense: 3,
     labels: [L('crammed', 2), L('noisy', 2), L('dark', 1)],
     upgradeCost: { caps: 400, scrap: 220, oil: 60, planks: 150 },
@@ -925,8 +1046,21 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     label: 'The Chapel',
     blurb:
       'Twelve pews, a working bell, and a man who has buried more of this district than anybody would like to count.',
-    reward: 'Everyone on your books holds together better under things that break people.',
-    bonuses: [{ kind: 'officer_group', group: 'mental', flat: 5 }],
+    reward:
+      'Everyone on your books holds together better under things that break people, and nobody runs because the person beside them did.',
+    bonuses: [
+      { kind: 'officer_group', group: 'mental', flat: 5 },
+      /*
+       * The cascade, cut (`steady_nerve`).
+       *
+       * A collapse in this engine spreads: one stack breaks, the next is shaken by it, and a force
+       * ahead on casualties walks off in two rounds (`battle/morale.ts`). This removes that term
+       * and nothing else, so a line still breaks from its own losses and from what is opposite it.
+       * Deliberately the whole of the bonus rather than a share: half a cascade is a slower
+       * collapse, and what a chapel buys is that the panic does not travel.
+       */
+      { kind: 'steady_nerve' },
+    ],
     baseDefense: 2,
     labels: [L('eerie', 2), L('dark', 2), L('crammed', 1), L('cold', 1)],
     upgradeCost: { caps: 380, planks: 160 },
@@ -1012,6 +1146,22 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
     case 'officer_group':
     case 'population':
       return { ...bonus, flat: grow(bonus.flat) };
+    case 'road_shortcut':
+      return { ...bonus, minutes: grow(bonus.minutes) };
+    case 'scout_parties':
+      return { ...bonus, flat: step(bonus.flat) };
+    /*
+     * The rules do not scale, and that is the point of them.
+     *
+     * A level buys more of a quantity; there is no more of "the porters may fight". Working one of
+     * these up is worth whatever else the place pays, which is the honest reading and also the only
+     * one: half a rule is not a thing a card can say.
+     */
+    case 'carriers_fight':
+    case 'any_ride':
+    case 'steady_nerve':
+    case 'unit_mark':
+      return bonus;
     default:
       return { ...bonus, percent: grow(bonus.percent) };
   }
@@ -1170,6 +1320,23 @@ export interface TerritoryEffects {
    * fact about *how many* you hold rather than about any one of them.
    */
   populationBonus: number;
+  /** Flat minutes off every road, spent after the column's pace. See the `road_shortcut` bonus. */
+  roadMinutesOff: number;
+  /** Whether the porters may stand in the line. See the `carriers_fight` bonus. */
+  carriersFight: boolean;
+  /** Whether `no_ride` is waived, so everything gets a seat. See the `any_ride` bonus. */
+  anyRide: boolean;
+  /**
+   * Marks granted to units that were not written with them, by unit id.
+   *
+   * A plain record rather than a `Partial<Record<UnitRuleId, ...>>` keyed the other way round,
+   * because the engine's question is "what does *this* unit carry", asked once per roster row.
+   */
+  unitMarks: Record<string, readonly UnitRuleId[]>;
+  /** Whether a stack that broke can shake the ones beside it. See the `steady_nerve` bonus. */
+  steadyNerve: boolean;
+  /** Scouting parties a crew may have out at once, on top of the one everybody gets. */
+  scoutPartiesFlat: number;
 }
 
 export function noTerritoryEffects(): TerritoryEffects {
@@ -1205,6 +1372,12 @@ export function noTerritoryEffects(): TerritoryEffects {
     intelYieldPercent: 0,
     officerGroupFlat: {},
     populationBonus: 0,
+    roadMinutesOff: 0,
+    carriersFight: false,
+    anyRide: false,
+    unitMarks: {},
+    steadyNerve: false,
+    scoutPartiesFlat: 0,
   };
 }
 
@@ -1318,6 +1491,33 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
         [bonus.group]: (into.officerGroupFlat[bonus.group] ?? 0) + bonus.flat,
       };
       return into;
+    case 'road_shortcut':
+      into.roadMinutesOff += bonus.minutes;
+      return into;
+    // The three switches are ORs rather than counters. Holding a second Tram Depot does not make
+    // the porters fight twice, and a channel that counted would invite somebody to read it as a
+    // magnitude later.
+    case 'carriers_fight':
+      into.carriersFight = true;
+      return into;
+    case 'any_ride':
+      into.anyRide = true;
+      return into;
+    case 'steady_nerve':
+      into.steadyNerve = true;
+      return into;
+    case 'unit_mark': {
+      const held = into.unitMarks[bonus.unitId] ?? [];
+      // Deduplicated: two holdings granting the same mark grant it once, and a mark the sheet
+      // already carries is not a second copy of anything.
+      into.unitMarks = held.includes(bonus.mark)
+        ? into.unitMarks
+        : { ...into.unitMarks, [bonus.unitId]: [...held, bonus.mark] };
+      return into;
+    }
+    case 'scout_parties':
+      into.scoutPartiesFlat += bonus.flat;
+      return into;
   }
 }
 
@@ -1370,7 +1570,9 @@ export function describeHoldBonus(bonus: HoldBonus): string {
     case 'intimidation':
       return `+${bonus.flat} intimidation`;
     case 'travel_speed':
-      return `+${bonus.percent}% travel speed`;
+      // A cut off the clock, not a rise in speed: the road is `roadMinutes`, where the ground's
+      // percent multiplies what the column's own speed left. Said the way the vehicle discount is.
+      return `-${bonus.percent}% off the road`;
     case 'vision':
       return `sees ${bonus.districts} district${bonus.districts === 1 ? '' : 's'}`;
     case 'infamy_gain':
@@ -1405,6 +1607,18 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `+${bonus.flat} to officer ${GROUP_LABELS[bonus.group]} skills`;
     case 'population':
       return `+${bonus.flat} population`;
+    case 'road_shortcut':
+      return `-${bonus.minutes} min off every road`;
+    case 'carriers_fight':
+      return 'porters fight, at half strength';
+    case 'any_ride':
+      return 'anything can be put on a machine';
+    case 'unit_mark':
+      return `${UNIT_RULES[bonus.mark].label} for one unit`;
+    case 'steady_nerve':
+      return 'a stack that breaks shakes nobody';
+    case 'scout_parties':
+      return `+${bonus.flat} scouting part${bonus.flat === 1 ? 'y' : 'ies'} out at once`;
   }
 }
 

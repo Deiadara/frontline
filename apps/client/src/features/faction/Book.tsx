@@ -6,7 +6,6 @@ import {
   FACTION_RANK_LABELS,
   canEditDescription,
   canEditIdentity,
-  leavingDisbands,
   type FactionBadge as Badge,
   type FactionResponse,
 } from '@frontline/shared';
@@ -20,22 +19,22 @@ import { FactionBadge } from './FactionBadge';
 import { Heading, WindowHead } from './parts';
 
 /**
- * The book: what the faction is called, what each rank carries, and the way out.
+ * The book: what the faction is called, what each rank carries, and the leader's way to end it.
  *
- * A window rather than a band on the page, because all four of these are things you come here to
- * *change* rather than to read, and none of them is worth a line of the arrival view. The badge
- * builder alone is six rows of swatches: on the page it was most of the screen for a control that
- * a leader touches twice in the life of a faction.
+ * A window rather than a band on the page, because these are things you come here to *change*
+ * rather than to read, and none of them is worth a line of the arrival view. The badge builder
+ * alone is six rows of swatches: on the page it was most of the screen for a control that a leader
+ * touches twice in the life of a faction.
  *
- * Each part is gated differently and the window says so: the leader owns the name and the badge, a
- * chief keeps the description, and the door is everybody's.
+ * Each part is gated differently and the window says so: the leader owns the name, the badge and
+ * the disbanding, a chief keeps the description. Your own way out is not in here: it is on your own
+ * file, opened from your seat (`MemberWindow`), where the person leaving is the person on screen.
  */
 export function Book({
   data,
   faction,
   onIdentity,
   onDescription,
-  onLeave,
   onDisband,
   onClose,
   busy,
@@ -44,7 +43,6 @@ export function Book({
   faction: NonNullable<FactionResponse['faction']>;
   onIdentity: (name: string, badge: Badge) => void;
   onDescription: (blurb: string) => void;
-  onLeave: () => void;
   onDisband: () => void;
   onClose: () => void;
   busy: boolean;
@@ -53,12 +51,10 @@ export function Book({
   const [name, setName] = useState(faction.name);
   const [badge, setBadge] = useState<Badge>(faction.badge);
   const [blurb, setBlurb] = useState(faction.blurb);
-  const [leaving, setLeaving] = useState(false);
   const [disbanding, setDisbanding] = useState(false);
 
   const mayIdentity = rank !== null && canEditIdentity(rank);
   const mayDescribe = rank !== null && canEditDescription(rank);
-  const takesItWithYou = rank !== null && leavingDisbands(rank, data.members.length);
 
   return (
     <Modal onClose={onClose} labelledBy="book-title" size="full" data-testid="faction-book">
@@ -155,55 +151,25 @@ export function Book({
           </ul>
         </section>
 
-        <section className="flex flex-col gap-2">
-          <Heading>The door</Heading>
-          <p className="font-body text-[13px] leading-relaxed text-ink-300">
-            {takesItWithYou
-              ? data.members.length > 1
-                ? 'You lead this faction, so leaving ends it for everybody at the table. Hand it to somebody first if you want it to carry on without you.'
-                : 'You are the only one here, so leaving ends it.'
-              : 'You can walk out whenever you like. What you have sent to a fight already in flight stays sent.'}
-          </p>
-          <div className="flex flex-wrap gap-2">
+        {mayIdentity && data.members.length > 1 && (
+          <section className="flex flex-col gap-2">
+            <Heading>Ending it</Heading>
+            <p className="font-body text-[13px] leading-relaxed text-ink-300">
+              Disbanding closes the table for everybody at it. To walk out and leave it standing,
+              hand it to somebody first, then leave from your own seat.
+            </p>
             <Button
               variant="danger"
+              className="self-start"
               disabled={busy}
-              data-testid="leave-faction"
-              onClick={() => setLeaving(true)}
+              data-testid="disband-faction"
+              onClick={() => setDisbanding(true)}
             >
-              Leave the faction
+              Disband it
             </Button>
-            {mayIdentity && data.members.length > 1 && (
-              <Button
-                variant="danger"
-                disabled={busy}
-                data-testid="disband-faction"
-                onClick={() => setDisbanding(true)}
-              >
-                Disband it
-              </Button>
-            )}
-          </div>
-        </section>
+          </section>
+        )}
       </div>
-
-      {leaving && (
-        <Confirm
-          title={takesItWithYou ? 'This ends the faction' : 'Leave the faction?'}
-          body={
-            takesItWithYou
-              ? `${faction.name} is disbanded the moment you go, for all ${data.members.length} of you. This cannot be undone.`
-              : `You leave ${faction.name}. Its fights stop showing up on your screen.`
-          }
-          confirm={takesItWithYou ? 'Leave and disband it' : 'Leave'}
-          testId="confirm-leave"
-          onCancel={() => setLeaving(false)}
-          onConfirm={() => {
-            setLeaving(false);
-            onLeave();
-          }}
-        />
-      )}
 
       {disbanding && (
         <Confirm

@@ -1,4 +1,4 @@
-import type { ReinforceRequest, UnitsResponse } from '@frontline/shared';
+import { UNIT_CATALOG, type ReinforceRequest, type UnitsResponse } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -116,36 +116,43 @@ describe('sending help to an ally', () => {
   it('has a unit selected once the roster lands, without the player touching the dropdown', async () => {
     await renderFaction();
 
-    const picker = await screen.findByTestId<HTMLSelectElement>(
+    const picker = await screen.findByTestId<HTMLButtonElement>(
       `reinforce-unit-${BATTLE.battleId}`,
     );
-    await waitFor(() => expect(picker.value).not.toBe(''));
+    // The painted picker shows a name once it has one; until then it shows its placeholder.
+    await waitFor(() => expect(picker).not.toHaveTextContent('Choose'));
     expect(screen.getByTestId(`reinforce-${BATTLE.battleId}`)).toBeEnabled();
 
     fireEvent.click(screen.getByTestId(`reinforce-${BATTLE.battleId}`));
     // The wire carries `army`, one unit at a time, so this is where the empty id used to surface.
-    await waitFor(() => expect(Object.keys(sentBody().army)).toEqual([picker.value]));
-    expect(units.army[picker.value] ?? 0).toBeGreaterThan(0);
+    await waitFor(() => expect(Object.keys(sentBody().army)).toHaveLength(1));
+    const [sent] = Object.keys(sentBody().army);
+    expect(units.army[sent!] ?? 0).toBeGreaterThan(0);
+    expect(picker).toHaveTextContent(UNIT_CATALOG.find((unit) => unit.id === sent)!.name);
   });
 
   it('brings the count down with the unit rather than sending more than the crew has', async () => {
     await renderFaction();
 
-    const picker = await screen.findByTestId<HTMLSelectElement>(
+    const picker = await screen.findByTestId<HTMLButtonElement>(
       `reinforce-unit-${BATTLE.battleId}`,
     );
-    await waitFor(() => expect(picker.value).not.toBe(''));
+    await waitFor(() => expect(picker).not.toHaveTextContent('Choose'));
 
     const row = picker.closest('li');
     if (!row) throw new Error('the reinforcement row has no list item');
     const count = within(row).getByLabelText<HTMLInputElement>('How many');
+    const pick = async (name: RegExp) => {
+      fireEvent.click(picker);
+      fireEvent.click(await screen.findByRole('option', { name }));
+    };
 
     // Forty Razors, which the crew has, then switch to the two Snipers they have.
-    fireEvent.change(picker, { target: { value: 'razors' } });
+    await pick(/Razors/);
     fireEvent.change(count, { target: { value: '40' } });
     expect(count.value).toBe('40');
 
-    fireEvent.change(picker, { target: { value: 'snipers' } });
+    await pick(/Snipers/);
     await waitFor(() => expect(count.value).toBe('2'));
 
     fireEvent.click(screen.getByTestId(`reinforce-${BATTLE.battleId}`));

@@ -8,6 +8,7 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE_URL } from './api';
 import { queryKeys } from './queries';
+import { playSound, type SoundKind } from './sound';
 import { useSession } from '../store/session';
 
 /**
@@ -48,6 +49,71 @@ function applyEvent(queryClient: QueryClient, event: LiveEvent): void {
   for (const key of INVALIDATES[event.kind]) {
     void queryClient.invalidateQueries({ queryKey: key });
   }
+}
+
+/**
+ * What each kind of event sounds like.
+ *
+ * `base` is the kind the game moves under you on: a mission home, a build finished, research or
+ * training done. `notification` is the receipt written for one of those. Both get the chime. A
+ * fight, declared or resolved, gets the drum, because it is the one event a player may have to do
+ * something about tonight.
+ *
+ * Mail and faction churn are silent on purpose. A message is not an achievement, and a game that
+ * chimes when somebody else's rank moved is a game whose sound the player switches off.
+ */
+type EventSound = Extract<SoundKind, 'done' | 'call'>;
+
+const EVENT_SOUND: Readonly<Record<LiveEventKind, EventSound | null>> = {
+  notification: 'done',
+  base: 'done',
+  battle: 'call',
+  message: null,
+  faction: null,
+};
+
+/** Which sound wins when two arrive together. The drum outranks the chime. */
+const EVENT_RANK: Readonly<Record<EventSound, number>> = { done: 1, call: 2 };
+
+/**
+ * How long the announcer waits before it plays anything.
+ *
+ * One thing happening in this game emits more than one event: a fight resolving pushes `battle`
+ * and the `notification` for its report, and a settle that finished three queues pushes `base`
+ * three times. They arrive as separate SSE frames milliseconds apart, so playing on arrival means
+ * a chime under a drum under a chime. Holding for a fifth of a second and playing the loudest
+ * thing that turned up is one sound for one event.
+ */
+const EVENT_SETTLE_MS = 200;
+
+interface EventAnnouncer {
+  announce(sound: EventSound): void;
+  cancel(): void;
+}
+
+function createEventAnnouncer(): EventAnnouncer {
+  let pending: EventSound | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  return {
+    announce(sound) {
+      if (pending === null || EVENT_RANK[sound] > EVENT_RANK[pending]) pending = sound;
+      if (timer !== undefined) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        const chosen = pending;
+        pending = null;
+        // `playSound` holds its own floor of just over a second per kind, so a burst that keeps
+        // arriving across several of these windows is still one sound.
+        if (chosen !== null) playSound(chosen);
+      }, EVENT_SETTLE_MS);
+    },
+    cancel() {
+      clearTimeout(timer);
+      timer = undefined;
+      pending = null;
+    },
+  };
 }
 
 /**
@@ -106,6 +172,7 @@ export function useLiveEvents(): LiveStatus {
     let cancelled = false;
     let attempt = 0;
     const controllers = new Set<AbortController>();
+    const sounds = createEventAnnouncer();
     /** The backoff sleep in flight, so unmounting does not leave up to 39s of timer behind. */
     let retry: ReturnType<typeof setTimeout> | undefined;
 
@@ -169,7 +236,10 @@ export function useLiveEvents(): LiveStatus {
             buffer = frames.pop() ?? '';
             for (const frame of frames) {
               const event = parseFrame(frame);
-              if (event && !cancelled) applyEvent(clientRef.current, event);
+              if (!event || cancelled) continue;
+              applyEvent(clientRef.current, event);
+              const sound = EVENT_SOUND[event.kind];
+              if (sound !== null) sounds.announce(sound);
             }
           }
         } catch {
@@ -192,6 +262,7 @@ export function useLiveEvents(): LiveStatus {
     return () => {
       cancelled = true;
       clearTimeout(retry);
+      sounds.cancel();
       for (const controller of controllers) controller.abort();
     };
   }, [token]);

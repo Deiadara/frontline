@@ -12,20 +12,20 @@ build; this file says _who owns which symbol_ so two workstreams never define th
 
 ## 1. Ownership map
 
-| Symbol / file                                                          | Owner          | Consumers                |
-| ---------------------------------------------------------------------- | -------------- | ------------------------ |
-| `packages/shared/src/attributes.ts`, `crew/perks.ts`, `roles.ts`       | W1             | W3-W7                    |
-| `apps/server/src/roles/requirements.ts` (hidden, server-only)          | W1             | W5, W7 (read-only)       |
-| `packages/shared/src/resources.ts`: `ResourcesSchema`, `RESOURCE_KEYS` | W2             | everyone                 |
-| Morale / infamy / reputation counters                                  | W2             | W3, W5, W10              |
-| Weekly payroll engine (§H7)                                            | W2             | W5 (negotiation UI only) |
-| `Base.level`: the **player** progression level (§I)                    | W6             | W4, W5, W8               |
-| Player XP tally, level curve, level-up grant (§I1-I2)                  | W6             | W3, W4, W5, W8           |
-| Mission definitions, travel/duration bands, resolution (§E)            | W3             | W4, W6                   |
-| `Building.level`, per-structure level                                  | W8             | ,                        |
-| Resource icon **keys** (`icon-<resourceKey>`)                          | W2             | W9                       |
-| Resource icon **prompt copy** (ART-PROMPTS §6.1)                       | W9             | :                        |
-| `packages/shared/src/index.ts` (barrel)                                | shared, see §3 | ,                        |
+| Symbol / file                                                          | Owner          | Consumers                 |
+| ---------------------------------------------------------------------- | -------------- | ------------------------- |
+| `packages/shared/src/attributes.ts`, `crew/perks.ts`, `roles.ts`       | W1             | W3-W7                     |
+| `apps/server/src/roles/requirements.ts` (hidden, server-only)          | W1             | W5, W7 (read-only)        |
+| `packages/shared/src/resources.ts`: `ResourcesSchema`, `RESOURCE_KEYS` | W2             | everyone                  |
+| Morale / infamy / reputation counters                                  | W2             | W3, W5, W10               |
+| Weekly payroll engine (§H7)                                            | W2             | W5 (the auction reads it) |
+| `Base.level`: the **player** progression level (§I)                    | W6             | W4, W5, W8                |
+| Player XP tally, level curve, level-up grant (§I1-I2)                  | W6             | W3, W4, W5, W8            |
+| Mission definitions, travel/duration bands, resolution (§E)            | W3             | W4, W6                    |
+| `Building.level`, per-structure level                                  | W8             | ,                         |
+| Resource icon **keys** (`icon-<resourceKey>`)                          | W2             | W9                        |
+| Resource icon **prompt copy** (ART-PROMPTS §6.1)                       | W9             | :                         |
+| `packages/shared/src/index.ts` (barrel)                                | shared, see §3 | ,                         |
 
 ---
 

@@ -1,7 +1,4 @@
 import {
-  BLUEPRINTS,
-  ITEM_CATALOG,
-  RESOURCE_CAP_VALUE,
   RESOURCE_KEYS,
   STORAGE_SHARES,
   supplyBoard,
@@ -9,21 +6,19 @@ import {
   type Resources,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketPage } from './MarketPage';
-import { FAIR_BAND, valueVerdict } from './TradeParts';
 import { useSession } from '../../store/session';
 
 /**
- * The market's one arithmetic claim: whether a deal is good for *you*.
+ * The front of the market: the Runner's window and the day it turns over on.
  *
- * Both sides of this screen price a trade, and the two objects they price arrive with opposite
- * meanings. A board offer's `give` is what the other allegiance hands over, so it is what you
- * receive; the composer's field called `give` is what leaves your own store. Feed the second one
- * into a badge written for the first and the screen congratulates a player for proposing a deal
- * that robs them, which is a worse failure than printing nothing at all.
+ * Trading between crews moved to `/game/market/offers` and its cases went with it, into
+ * `OffersPage.test.tsx`. What is left here is the two claims this screen makes on its own: that
+ * nothing is on the barrow until the Runner is standing behind it, and that every daily boundary
+ * is quoted on the house clock rather than on the reader's.
  */
 
 const NOW = '2026-08-26T12:00:00.000Z';
@@ -41,7 +36,15 @@ const market: MarketResponse = {
   caps: resources.caps,
   resources,
   inventory: {},
-  vendor: { open: false, sessions: [], closesAt: null, opensAt: NOW, stock: [] },
+  vendor: {
+    open: false,
+    sessions: [],
+    session: null,
+    closesAt: null,
+    opensAt: NOW,
+    stock: [],
+    results: [],
+  },
   offers: [
     {
       id: 'offer-1',
@@ -105,8 +108,8 @@ function renderMarket() {
   });
   return render(
     <QueryClientProvider client={client}>
-      {/* The tab strip is a pair of `NavLink`s, so the page needs a router even though nothing
-          under test navigates. */}
+      {/* The tab strip is three `NavLink`s, so the page needs a router even though nothing under
+          test navigates. */}
       <MemoryRouter initialEntries={['/game/market']}>
         <MarketPage />
       </MemoryRouter>
@@ -129,88 +132,6 @@ afterEach(() => {
 });
 
 /**
- * The composer's item picker only offers what a listing may actually move.
- *
- * `offerRefusal` refuses a listing that moves an untradeable item, and an unlocked blueprint is the
- * one kind in the catalogue that is. The picker listed the whole satchel, so the single item a
- * player cannot trade was offered to them beside the ones they can, and the only way to learn that
- * was to fill in the rest of the form and be turned down.
- */
-describe('the offer composer', () => {
-  const document = BLUEPRINTS[0];
-  const page = document.pages[0];
-
-  beforeEach(() => {
-    fetchMock.mockImplementation((path: string) => {
-      if (path.endsWith('/market'))
-        return reply({ ...market, inventory: { [document.id]: 1, [page.id]: 2 } });
-      throw new Error(`unstubbed request: ${path}`);
-    });
-  });
-
-  it('offers a page and not the document it belongs to', async () => {
-    renderMarket();
-    fireEvent.click(await screen.findByTestId('offer-item'));
-
-    const options = (await screen.findAllByRole('option')).map((node) => node.textContent ?? '');
-    // A page is named "<document>: <page>", so a substring match on the document's own name would
-    // be satisfied by the page. Count instead: "Nothing", plus the one item that may be traded.
-    expect(
-      options,
-      `expected Nothing and the page only, got ${JSON.stringify(options)}`,
-    ).toHaveLength(2);
-    expect(options[0]).toContain('Nothing');
-    expect(options[1]).toContain(ITEM_CATALOG[page.id].name);
-  });
-});
-
-describe('the fairness verdict', () => {
-  it('reads a lopsided trade from the receiver’s side', () => {
-    expect(valueVerdict(1_000, 100).label).toBe('in your favour');
-    expect(valueVerdict(100, 1_000).label).toBe('steep');
-    expect(valueVerdict(1_000, 1_000).label).toBe('about fair');
-    expect(valueVerdict(1_000, 0).label).toBe('a gift');
-  });
-
-  it('calls a generous offer on the board what it is', async () => {
-    renderMarket();
-    // 4,000 oil in for 400 scrap out: the badge on the listing, not on the composer.
-    expect(await screen.findByText('in your favour')).toBeVisible();
-  });
-
-  /**
-   * The composer's own badge, driven through the controls a player uses.
-   *
-   * `give` there is what *leaves*, so an offer of a mountain of oil for a handful of scrap is the
-   * mirror of the listing above and has to read as the opposite. Both assertions are here on
-   * purpose: a badge wired to the wrong pair of bundles passes whichever one it was written
-   * against, so only the pair together pins the orientation.
-   */
-  it('calls the player’s own over-generous proposal steep', async () => {
-    renderMarket();
-    await screen.findByTestId('offer-give');
-
-    // Oil out, scrap in, at the same lopsided ratio the board offer runs the other way.
-    fireEvent.click(screen.getByTestId('offer-give-oil'));
-    fireEvent.change(screen.getByTestId('offer-give-amount-oil'), { target: { value: '4000' } });
-    fireEvent.click(screen.getByTestId('offer-want-scrap'));
-    fireEvent.change(screen.getByTestId('offer-want-amount-scrap'), { target: { value: '400' } });
-
-    // The precondition the expectation rests on, priced by the market's own table: the proposal
-    // hands over far more value than it asks back, well outside the band that reads as fair.
-    expect(4_000 * RESOURCE_CAP_VALUE.oil).toBeGreaterThan(
-      (1 + FAIR_BAND) * 400 * RESOURCE_CAP_VALUE.scrap,
-    );
-
-    await waitFor(() => {
-      // Two badges are on screen now: the board's, which stays generous, and the composer's.
-      expect(screen.getByText('steep')).toBeVisible();
-      expect(screen.getByText('in your favour')).toBeVisible();
-    });
-  });
-});
-
-/**
  * The Runner's barrow is covered until he is standing behind it.
  *
  * Both states are driven off the same fixture, because the interesting failure is the shut one
@@ -223,12 +144,29 @@ describe('the Runner\u2019s barrow', () => {
     vendor: {
       open,
       sessions: [{ startHour: 10, hours: 2 }],
+      session: open ? 0 : null,
       closesAt: open ? NOW : null,
       opensAt: NOW,
       // What the server sends: nothing at all while he is away.
       stock: open
-        ? [{ line: { id: 'l1', item: 'neural_shunt', stock: 2, price: 1180 }, affordable: true }]
+        ? [
+            {
+              line: { id: 'l1', item: 'neural_shunt', stock: 2, price: 1180 },
+              auction: {
+                lineId: 'l1',
+                session: 0,
+                closesAt: NOW,
+                reserve: 1180,
+                leading: null,
+                nextBid: 1180,
+                bids: [],
+                bidders: 0,
+                yourBid: null,
+              },
+            },
+          ]
         : [],
+      results: [],
     },
   });
 
@@ -249,9 +187,24 @@ describe('the Runner\u2019s barrow', () => {
   it('draws the barrow the moment he is in', async () => {
     serve(true);
     renderMarket();
-    await screen.findByTestId('vendor-stock');
+    const barrow = await screen.findByTestId('vendor-stock');
     expect(screen.queryByTestId('vendor-shut')).toBeNull();
-    expect(screen.getByText('Neural Shunt')).toBeVisible();
+    // Inside the barrow: the tape along the top names the lot too, which is the point of a tape.
+    expect(within(barrow).getByText('Neural Shunt')).toBeVisible();
+  });
+
+  /**
+   * A line is a lot, and the card says so: the figure on its tag is where the lot opens, and the
+   * door on it is a bid rather than a purchase. The wire has no buy any more; a card that still
+   * said Buy would be a button with no route behind it.
+   */
+  it('prints the lot as a bid at the opening figure', async () => {
+    serve(true);
+    renderMarket();
+    await screen.findByTestId('vendor-stock');
+    expect(screen.getByTestId('lot-tag-l1')).toHaveTextContent('1,180');
+    expect(screen.getByTestId('bid-l1')).toHaveTextContent('Bid');
+    expect(screen.queryByText('Buy')).toBeNull();
   });
 });
 
@@ -293,49 +246,10 @@ describe('the day boundary is the house clock, quoted on the player’s own', ()
     renderMarket();
 
     // 17:00 is what the same hour renders as if it is mistaken for a UTC one.
+    // The hours live on the standing note's hover, on the tab row: open it the way a pointer does.
+    const note = await screen.findByTestId('info-note');
+    fireEvent.mouseEnter(note);
     await waitFor(() => expect(screen.getByText(/Today he is in at/)).toHaveTextContent('14:00'));
     expect(screen.getByText(/Today he is in at/)).not.toHaveTextContent('17:00');
-  });
-});
-
-/**
- * A posted offer leaves the composer, because posting it spent the goods.
- *
- * `market/board.ts`'s `postOffer` escrows `give` out of the stockpile the moment the listing goes
- * up, on purpose: a board of listings that cannot be honoured is worse than no board. The form kept
- * the pile and re-enabled its button, so a second press escrowed a second copy, up to
- * `MAX_OPEN_OFFERS = 8` of them. The counter case was quieter: `onDone` cleared `counterTo` and not
- * the bundle, so the same-looking form turned from "counter that listing" into "public listing".
- */
-describe('after a listing is posted', () => {
-  it('empties the composer rather than leaving a second press armed', async () => {
-    fetchMock.mockImplementation((path: string) => {
-      if (path.endsWith('/market/offer')) return reply({ market });
-      if (path.endsWith('/me')) return reply(meIn('Europe/Athens'));
-      if (path.endsWith('/market')) return reply(market);
-      throw new Error(`unstubbed request: ${path}`);
-    });
-
-    renderMarket();
-    await screen.findByTestId('offer-give');
-
-    fireEvent.click(screen.getByTestId('offer-give-oil'));
-    fireEvent.change(screen.getByTestId('offer-give-amount-oil'), { target: { value: '400' } });
-    fireEvent.click(screen.getByTestId('offer-want-scrap'));
-    fireEvent.change(screen.getByTestId('offer-want-amount-scrap'), { target: { value: '400' } });
-
-    // The precondition: the pile really is in the form, so the emptiness asserted below is the
-    // post's doing rather than a form that was never filled.
-    const post = screen.getByRole('button', { name: 'Post it' });
-    expect(post).toBeEnabled();
-    expect(screen.getByTestId('offer-give-oil')).toHaveAttribute('aria-pressed', 'true');
-
-    fireEvent.click(post);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('offer-give-oil')).toHaveAttribute('aria-pressed', 'false'),
-    );
-    expect(screen.getByTestId('offer-want-scrap')).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: 'Post it' })).toBeDisabled();
   });
 });

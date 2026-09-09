@@ -3,8 +3,10 @@ import {
   meetsNotoriety,
   notorietyTier,
   notorietyToField,
+  travelMinutes,
   type Army,
   type BattleView,
+  type UnitLoadouts,
   type UnitOption,
   type UnitsResponse,
 } from '@frontline/shared';
@@ -17,6 +19,10 @@ import { NumberField } from '../../components/ui/NumberField';
 import { cn } from '../../lib/cn';
 import { useUnits } from '../../lib/queries';
 import { UnitCard } from '../units/UnitCard';
+import { walksAlways } from '../units/rules';
+import { heldToLine, readColumn } from './column';
+import { OnThisGround } from './EffectiveCard';
+import { formatDuration } from '../base/format';
 
 /**
  * Moving people to a fight that has not happened yet (GDD §A4).
@@ -70,6 +76,10 @@ const COPY: Record<DeployMode, ModeCopy> = {
 interface DeployDialogProps {
   view: BattleView;
   army: Army;
+  /** §C3: the crew's brackets. The armour line takes speed off a sheet, so the road reads them. */
+  loadouts: UnitLoadouts;
+  /** §C3: where the column starts, so the window can quote the road. Null puts no clock on it. */
+  homeDistrictId: string | null;
   /** §D7: the crew's rank, which is what decides who will take a contract. */
   notoriety: number;
   mode: DeployMode;
@@ -82,6 +92,8 @@ interface DeployDialogProps {
 export function DeployDialog({
   view,
   army,
+  loadouts,
+  homeDistrictId,
   notoriety,
   mode,
   pending,
@@ -106,6 +118,27 @@ export function DeployDialog({
   const alreadyThere = (mode === 'line' ? view.muster?.army : view.muster?.perimeter) ?? {};
   const onGround = view.muster?.army ?? {};
   const onRing = view.muster?.perimeter ?? {};
+  /** §C3: whether anything is being driven to this fight at all. */
+  const riding = Object.values(view.vehicles).some((count) => (count ?? 0) > 0);
+
+  /*
+   * §C3: what this column will actually travel at, and how long that takes.
+   *
+   * This is the one window where a column exists: the deltas the player has typed *are* the force
+   * about to walk out of the gate, which is exactly what `battle/movement.ts` puts on the road. So
+   * it quotes the pace through `columnSpeed` and the clock through `travelMinutes`, both the
+   * server's own functions, rather than a percentage that described the machines instead of the
+   * people. Only what is being *sent* counts: a negative delta is somebody coming home.
+   *
+   * An upper bound, and it says so: the crew's travel reduction is not on this payload and only
+   * ever shortens a road.
+   */
+  const sending: Army = Object.fromEntries(Object.entries(deltas).filter(([, delta]) => delta > 0));
+  const column = readColumn(view.vehicles, sending, loadouts);
+  const road =
+    homeDistrictId === null
+      ? null
+      : travelMinutes(homeDistrictId, view.battle.target.districtId, { speed: column.speed });
 
   // Every unit the crew can put anywhere: at home, already in the line, or already on the ring.
   // Both places, in both modes: a unit standing on the ring is one this crew owns and can pull
@@ -172,7 +205,35 @@ export function DeployDialog({
                     {locked
                       ? `Will not sign for a crew under ${notorietyTier(gate)}`
                       : `${atHome} at home · ${alreadyThere[unit.id] ?? 0} ${copy.where}`}
+                    {/* §C3: this one is not getting on the truck. Only worth saying once there is
+                        a truck: with nothing loaded every unit walks and the note is noise. */}
+                    {!locked && riding && walksAlways(unit.id) && (
+                      <span className="text-oxblood-300" data-testid={`walks-${unit.id}`}>
+                        {' · '}walks
+                      </span>
+                    )}
                   </span>
+                  {/*
+                    §A4: what this unit is worth *on the ground of this fight*.
+                    
+                    Beside the name rather than on it, because the name already opens the roster
+                    card and the two answer different questions: the roster card is the sheet, and
+                    this is the sheet after the characteristics of the place have had their say.
+                    Deciding who to send is the one moment both are worth reading.
+                  */}
+                  <OnThisGround
+                    unitId={unit.id}
+                    view={view}
+                    label={`${unit.name} on this ground`}
+                    className="mt-0.5"
+                  >
+                    <span
+                      className="font-display text-[10px] uppercase tracking-[0.14em] text-brass-300 underline decoration-dotted underline-offset-2"
+                      data-testid={`on-ground-${unit.id}`}
+                    >
+                      On this ground
+                    </span>
+                  </OnThisGround>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
                   {/* Half and all, because the stepper is one body a press and a crew that has
@@ -185,7 +246,7 @@ export function DeployDialog({
                     disabled={locked || atHome < 1}
                     onClick={() => set(halfOf(atHome))}
                     data-testid={`deploy-half-${unit.id}`}
-                    title={`Half of what is at home: ${halfOf(atHome)}`}
+                    data-tip={`Half of what is at home: ${halfOf(atHome)}`}
                   >
                     Half
                   </Button>
@@ -195,7 +256,7 @@ export function DeployDialog({
                     disabled={locked || atHome < 1}
                     onClick={() => set(atHome)}
                     data-testid={`deploy-max-${unit.id}`}
-                    title={`Everybody at home: ${atHome}`}
+                    data-tip={`Everybody at home: ${atHome}`}
                   >
                     Max
                   </Button>
@@ -221,7 +282,20 @@ export function DeployDialog({
         )}
       </div>
 
-      <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-surface-700 px-5 py-4">
+      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-surface-700 px-5 py-4">
+        {/* The column, as it stands. Empty until somebody is picked: a pace quoted over nobody is
+            a number with no force behind it. */}
+        <span
+          className="min-w-0 font-body text-[11px] leading-snug text-ink-300"
+          data-testid="deploy-column"
+        >
+          {column.speed > 0 && (
+            <>
+              {heldToLine(column)}
+              {road !== null && <> · {formatDuration(road * 60)} on the road at most</>}
+            </>
+          )}
+        </span>
         <span className="flex gap-3">
           <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel

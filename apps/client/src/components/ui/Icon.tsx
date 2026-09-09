@@ -67,6 +67,7 @@ export const ICON_NAMES = [
   'messages',
   'bell',
   'faction',
+  'alert',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -256,6 +257,14 @@ const PATHS: Record<IconName, ReactNode> = {
         d="M14.5 3.5a4.5 4.5 0 0 0-5.6 5.6L3.5 14.5V20h5.5l5.4-5.4a4.5 4.5 0 0 0 5.6-5.6l-3 3-2.5-2.5z"
         {...S}
       />
+    </>
+  ),
+  // A fight called on your ground: the mark on the bottom bar. A triangle and a bar, the road sign.
+  alert: (
+    <>
+      <path d="M12 3.5 21 19.5H3z" {...S} />
+      <path d="M12 9.5v4.5" {...S} />
+      <path d="M12 16.6v.3" {...S} />
     </>
   ),
   lock: (

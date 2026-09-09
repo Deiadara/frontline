@@ -3,6 +3,7 @@ import {
   declarationRefusal,
   emptyDeployment,
   findDistrict,
+  formatDayClock,
   isHeldBy,
   scheduleRefusal,
   type BattleTarget,
@@ -14,8 +15,9 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { cityContextFor } from '../city/view.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { defenderOf, districtStandingFor, residentOf } from './ground.js';
+import { defenderOf, districtStandingFor, residentOf, targetName } from './ground.js';
 import { npcMuster } from './npc.js';
+import { notifyBase } from '../social/notify.js';
 
 /**
  * Calling a fight (GDD §A4, battle rework).
@@ -74,7 +76,6 @@ function alreadyCalled(repos: Repositories, target: BattleTarget): boolean {
 export function sameTarget(a: BattleTarget, b: BattleTarget): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === 'location' && b.kind === 'location') return a.locationId === b.locationId;
-  if (a.kind === 'building' && b.kind === 'building') return a.buildingId === b.buildingId;
   return a.districtId === b.districtId;
 }
 
@@ -105,12 +106,15 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
     if (control && isHeldBy(control, base.id)) return { kind: 'refused', reason: 'own_ground' };
   }
   /*
-   * Your own structure is not a target either. `defenderOf` answers the *district's* holder for a
-   * building, so a crew sharing a district somebody else holds outright could declare against a
-   * structure on its own plot, and the settle then looted the resident (itself) and paid the haul
-   * back off a stockpile read before the loot: the same fight minted resources out of nothing.
+   * Your own home is not a target either, at the gate or behind it.
+   *
+   * `defenderOf` answers the *district's* holder, and residential ground has no locations to hold,
+   * so it answers `unoccupied` and the check above cannot see this case at all. The party actually
+   * being called out is the resident, and the resident may be the caller: a crew could declare a
+   * raid on itself, and the settle then looted the resident (itself) and paid the haul back off a
+   * stockpile read before the loot, so the same fight minted resources out of nothing.
    */
-  if (target.kind === 'building' && base.buildings.some((held) => held.id === target.buildingId)) {
+  if (target.kind !== 'location' && residentOf(repos, target.districtId)?.id === base.id) {
     return { kind: 'refused', reason: 'own_ground' };
   }
 
@@ -150,13 +154,66 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
     army: npcMuster(defender, district, battle.seed),
   });
 
+  tellTheDefender(repos, battle, base, now);
   return { kind: 'ok', battle };
 }
 
+/**
+ * §A4: the defender is told, and told early enough to do something about it.
+ *
+ * That sentence is the whole reason a declaration is public and eight hours out, and nothing was
+ * saying it: `district_attacked` is one of the two receipts a player is not allowed to silence
+ * and it had no emitter anywhere in the server, so the only way to find out somebody had called a
+ * fight on your ground was to open the battle board and read it.
+ *
+ * Written here rather than in the route because a declaration is the only thing that creates one,
+ * and `notify` never throws: a bell that cannot ring must not take the call down with it.
+ *
+ * A `gate` or `district` target names no crew on the row, so the crew being called out is found
+ * the same way the settler finds it (`defendingBaseOf`). An NPC holder has no base and hears
+ * nothing, which is what `notifyBase` already does with a district nobody lives in.
+ */
+function tellTheDefender(
+  repos: Repositories,
+  battle: ScheduledBattle,
+  attacker: Base,
+  now: Date,
+): void {
+  const defending = defendingBaseOf(repos, battle);
+  // A crew cannot declare on its own ground (`own_ground` above), so this is never self-addressed.
+  if (!defending || defending.id === attacker.id) return;
+  notifyBase(repos, defending.id, {
+    kind: 'district_attacked',
+    title: `${attacker.name} has called a fight on you`,
+    // The house clock (`time/zone.ts`): a mark quoted in anything else is a mark two players
+    // read differently.
+    body: `${targetName(battle.target, defending)}, at ${formatDayClock(new Date(battle.scheduledFor))}.`,
+    link: '/game/battles',
+    subjectId: battle.id,
+    now,
+  });
+}
+
 /** The crew standing behind the defending side, if one is. */
+/**
+ * How many fights still to come somebody has called on this crew's ground.
+ *
+ * The number behind the red mark on the bottom bar (`UnreadCounts.fightsOnYou`). Counted the way
+ * the settler finds the defender (`defendingBaseOf`), so a fight called on the gate of a district
+ * this crew lives in, or on the district itself, counts, and a fight this crew called does not.
+ */
+export function fightsCalledOn(repos: Repositories, base: Base): number {
+  return repos.sieges
+    .pending()
+    .filter(
+      (battle) =>
+        battle.attackerBaseId !== base.id && defendingBaseOf(repos, battle)?.id === base.id,
+    ).length;
+}
+
 export function defendingBaseOf(repos: Repositories, battle: ScheduledBattle): Base | undefined {
   if (battle.defender.kind === 'crew') return repos.bases.findById(battle.defender.baseId);
-  // A gate or a structure names a district rather than a party, and a lived-in district has a crew
+  // A gate or a raid names a district rather than a party, and a lived-in district has a crew
   // behind it whether or not the control table calls them the holder.
   if (battle.target.kind !== 'location') return residentOf(repos, battle.target.districtId);
   return undefined;

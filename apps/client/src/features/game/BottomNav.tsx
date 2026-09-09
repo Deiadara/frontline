@@ -243,6 +243,61 @@ function Destination({
   );
 }
 
+/**
+ * The red mark: fights still to come that somebody has called on this crew's ground.
+ *
+ * On the left of the bar (board request), on every screen, because a declaration is the one thing
+ * in the game that arrives whether or not the player is looking and gives them hours to answer.
+ * A link straight to the board rather than a badge on the Battles door: the door is one of
+ * thirteen, and a mark that has to be found is a mark that is not doing its job.
+ */
+function FightMark({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <NavLink
+      to="/game/battles"
+      className={cn(
+        'group flex w-[72px] flex-col items-center gap-1 focus-visible:outline-none',
+        '[@media(min-width:1500px)]:!absolute [@media(min-width:1500px)]:left-4',
+        // `top-3`, which is the bar's own `pt-3`: pinned out of the flow, this mark has to be told
+        // where the row of doors starts or it floats to its own height. Centring it in the bar put
+        // its plate eight pixels above every plate beside it.
+        '[@media(min-width:1500px)]:top-3',
+      )}
+      data-testid="nav-fights"
+      data-tip={
+        count === 1 ? 'A fight has been called on you' : `${count} fights have been called on you`
+      }
+      aria-label={`${count} ${count === 1 ? 'fight' : 'fights'} called on you`}
+    >
+      <span
+        className={cn(
+          'door-tile relative flex h-[52px] w-[52px] items-center justify-center rounded-lg border',
+          'border-oxblood-300/80 text-oxblood-300 shadow-[0_0_14px_rgba(201,88,79,0.45)]',
+          'motion-safe:animate-pulse group-hover:-translate-y-1 group-hover:scale-[1.04]',
+          'transition-all duration-150 ease-out',
+        )}
+      >
+        <Icon
+          name="alert"
+          className="relative z-[2] h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]"
+        />
+        {count > 1 && (
+          <span
+            className="absolute -right-1.5 -top-1.5 z-[3] min-w-[1.25rem] rounded-full border border-oxblood-300 bg-surface-950 px-1 text-center font-display text-[11px] font-bold tabular-nums text-oxblood-100"
+            data-testid="nav-fights-count"
+          >
+            {count}
+          </span>
+        )}
+      </span>
+      <span className="font-display text-[11px] font-bold uppercase tracking-[0.1em] text-oxblood-300">
+        Fight
+      </span>
+    </NavLink>
+  );
+}
+
 export function BottomNav() {
   const admin = useAdmin();
   const me = useMe();
@@ -266,8 +321,17 @@ export function BottomNav() {
       // on a second row instead, which the shell absorbs for free because it measures this bar's
       // height rather than assuming it. Adding `shrink-0` here without the wrap is the version that
       // really does push a destination off the side of the screen.
-      className="glass painted washed rivets pointer-events-auto relative flex shrink-0 flex-wrap items-end justify-center gap-x-1.5 gap-y-2 border-t-2 border-brass-500/45 px-4 pb-2.5 pt-3 shadow-panel"
+      // `items-start`, so the row of plates is one straight line.
+      //
+      // It was `items-end`, which lines up the *bottoms* of the doors, and a door behind a level
+      // (§I3) is taller than the rest by the `Lv N` line under its label. The four gated doors
+      // therefore sat 13px above their neighbours: at 1440 the Bar, Research, Training and Market
+      // glyphs were visibly higher than City, District and Units in the same row. Aligning the
+      // tops puts every plate on one line and lets the extra line hang below, where a caption
+      // belongs.
+      className="glass painted washed rivets pointer-events-auto relative flex shrink-0 flex-wrap items-start justify-center gap-x-1.5 gap-y-2 border-t-2 border-brass-500/45 px-4 pb-2.5 pt-3 shadow-panel"
     >
+      <FightMark count={me.data?.unread?.fightsOnYou ?? 0} />
       {destinations.map((destination) => (
         <Destination
           key={destination.label}
@@ -297,7 +361,9 @@ export function BottomNav() {
           // plaque's corner brackets, which use a plain `absolute`. The important flag makes the
           // outcome a decision instead of a coincidence a Tailwind upgrade could reverse.
           '[@media(min-width:1500px)]:!absolute [@media(min-width:1500px)]:right-4',
-          '[@media(min-width:1500px)]:top-1/2 [@media(min-width:1500px)]:-translate-y-1/2',
+          // `top-3`, the bar's own `pt-3`. See the fight mark: an absolutely positioned door is
+          // outside the row's alignment and has to be given the row's own starting edge.
+          '[@media(min-width:1500px)]:top-3',
         )}
       >
         <Destination destination={SETTINGS} locked={null} />

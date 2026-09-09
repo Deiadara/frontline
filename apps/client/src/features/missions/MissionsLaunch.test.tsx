@@ -113,6 +113,7 @@ const accepted: LaunchMissionResponse = {
     xp: 240,
     force: { razors: 1 },
     vehicles: {},
+    pricedMinutes: 0,
     startedAt: NOW,
     travelMinutes: 5,
     durationMinutes: 3,

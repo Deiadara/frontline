@@ -190,7 +190,10 @@ function summarise(
     district,
     scouted,
     travelMinutes: home
-      ? travelMinutesBetween(home, district, context.effects.travelSpeedPercent)
+      ? travelMinutesBetween(home, district, {
+          reductionPercent: context.effects.travelSpeedPercent,
+          flatMinutesOff: context.effects.roadMinutesOff,
+        })
       : 0,
     holder: scouted ? districtHolder(district, context.controls) : null,
     // Null rather than 0/0 on unscouted ground: zero is a fact about the world, null is a fact
@@ -380,7 +383,10 @@ export function projectDistrict(
     district,
     scouted,
     travelMinutes: home
-      ? travelMinutesBetween(home, district, context.effects.travelSpeedPercent)
+      ? travelMinutesBetween(home, district, {
+          reductionPercent: context.effects.travelSpeedPercent,
+          flatMinutesOff: context.effects.roadMinutesOff,
+        })
       : 0,
     // The fog, enforced in one location: unscouted ground returns nothing at all.
     locations: scouted

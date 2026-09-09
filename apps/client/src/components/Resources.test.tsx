@@ -1,7 +1,7 @@
 import { STARTING_RESOURCES } from '@frontline/shared';
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CostLine, ResourceChip, ResourceIcon } from './Resources';
+import { CostLine, RewardLine, ResourceChip, ResourceIcon } from './Resources';
 
 const deliveredUrl = vi.hoisted(() => vi.fn<() => string | null>(() => null));
 vi.mock('../assets/delivered', () => ({ deliveredUrl }));
@@ -71,5 +71,25 @@ describe('the readouts that use it', () => {
       expect(node?.getAttribute('class') ?? '').not.toMatch(/\btext-/);
     }
     expect(glyph?.getAttribute('fill')).toBe('none');
+  });
+});
+
+/**
+ * A price is read to decide on, so it is grouped like every other figure in the game.
+ *
+ * These two lines printed `6400` where the chip above them printed `6,400`. The Garage is where it
+ * showed: the Cheese Wagon is 6,400 scrap and 2,400 oil, and the bill under it was the only place
+ * in the interface quoting a five-figure sum as a run of digits.
+ */
+describe('a bill and a payout', () => {
+  it('groups a four-figure cost', () => {
+    render(<CostLine cost={{ scrap: 6400, oil: 2400 }} stock={STARTING_RESOURCES} />);
+    expect(screen.getByText('6,400')).toBeInTheDocument();
+    expect(screen.getByText('2,400')).toBeInTheDocument();
+  });
+
+  it('groups a four-figure payout', () => {
+    render(<RewardLine rewards={{ caps: 12_400 }} />);
+    expect(screen.getByText('+12,400')).toBeInTheDocument();
   });
 });

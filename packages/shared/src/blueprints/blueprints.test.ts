@@ -155,6 +155,19 @@ describe('what needs a blueprint (§D12)', () => {
     expect(seen.size).toBe(VEHICLE_IDS.length);
   });
 
+  /**
+   * The document is named after the machine as the Garage lists it. "Motorbike Blueprint" gated
+   * a machine every other screen called The Scrappy, so a player holding the pages had to guess
+   * which row on the yard they were for. A leading "The" is dropped, the way the unit documents
+   * drop the plural.
+   */
+  it('names every vehicle document after the machine it builds', () => {
+    for (const id of VEHICLE_IDS) {
+      const machine = findVehicle(id)?.name.replace(/^The /, '');
+      expect(blueprintForVehicle(id)?.name, id).toBe(`${machine} Blueprint`);
+    }
+  });
+
   it('gates the five uniques (§D12d)', () => {
     for (const unitId of [
       'the_abomination',

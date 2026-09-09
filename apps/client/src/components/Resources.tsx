@@ -8,6 +8,8 @@ import {
 import type { ReactNode } from 'react';
 import { deliveredUrl } from '../assets/delivered';
 import { cn } from '../lib/cn';
+import type { DeltaMark } from '../lib/deltas';
+import { DeltaFloat } from './ui/Delta';
 import { HoverCard } from './ui/HoverCard';
 import { InfoWindow } from './ui/InfoWindow';
 
@@ -225,6 +227,15 @@ interface ResourceChipProps {
    *   the standing bar. A plain labelled figure, no window.
    */
   capacity?: number | 'uncapped' | undefined;
+  /**
+   * Figures to float off this chip: what the crew just spent or was just paid, from
+   * `useDeltaMarks`.
+   *
+   * Opt-in rather than wired into the chip itself, because the same chip is drawn in three places
+   * at once (the standing bar, the district's readout, a cost line) and a move would otherwise pop
+   * three times. The standing bar is the one that carries it.
+   */
+  deltas?: readonly DeltaMark[];
 }
 
 /**
@@ -259,7 +270,7 @@ export const STORAGE_WARN_AT = 0.9;
  *
  * The chip stays wordless: the resource's name and its ceiling are still the hover card's job.
  */
-export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
+export function ResourceChip({ kind, value, capacity, deltas }: ResourceChipProps) {
   const meta = RESOURCE_META[kind];
   const amount = Math.round(value);
   const fill = fillFraction(value, capacity);
@@ -283,9 +294,16 @@ export function ResourceChip({ kind, value, capacity }: ResourceChipProps) {
    */
   const chip = (
     <div
-      className="resource-chip flex shrink-0 items-center gap-1 rounded-lg px-1 py-1"
+      // `relative`, so the spend and gain figures have this chip's own box to hang from. They are
+      // portalled out of it: see `DeltaFloat`.
+      className="resource-chip relative flex shrink-0 items-center gap-1 rounded-lg px-1 py-1"
       data-testid={`resource-chip-${kind}`}
     >
+      <DeltaFloat
+        marks={deltas ?? []}
+        data-testid={`delta-${kind}`}
+        icon={<ResourceIcon kind={kind} className="h-full w-full" />}
+      />
       {/*
         Tight padding and a slightly smaller number, and that is a fit rather than a taste.
         Six stockpiles, three buttons, two meters and an identity share one line. The sixth
@@ -453,7 +471,9 @@ export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resou
             )}
           >
             <ResourceIcon kind={kind} />
-            <span className="font-semibold tabular-nums">{Math.round(amount)}</span>
+            <span className="font-semibold tabular-nums">
+              {Math.round(amount).toLocaleString()}
+            </span>
             <span className="text-[11px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
           </span>
         );
@@ -482,7 +502,9 @@ export function RewardLine({ rewards }: { rewards: PartialResources }) {
             className={cn('flex items-center gap-1.5 font-display text-xs', meta.color)}
           >
             <ResourceIcon kind={kind} />
-            <span className="font-semibold tabular-nums">+{Math.round(amount)}</span>
+            <span className="font-semibold tabular-nums">
+              +{Math.round(amount).toLocaleString()}
+            </span>
             <span className="text-[11px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
           </span>
         );

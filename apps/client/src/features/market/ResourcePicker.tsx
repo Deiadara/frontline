@@ -24,6 +24,8 @@ export function ResourcePicker({
   disabled,
   caption,
   label,
+  size = 'md',
+  grow = false,
   'data-testid': testId,
 }: {
   value: ResourceKey;
@@ -37,6 +39,13 @@ export function ResourcePicker({
   /** What to print under the art instead of the held amount. */
   caption?: (key: ResourceKey) => ReactNode;
   label: string;
+  /**
+   * `sm` is the market's counters, where six tiles have to share a column with a whole trade, and
+   * `grow` lets a small tile take its full size on a screen 800px tall or more, where the column
+   * has the room and a small tile leaves it half empty.
+   */
+  size?: 'md' | 'sm';
+  grow?: boolean;
   'data-testid'?: string;
 }) {
   return (
@@ -61,7 +70,11 @@ export function ResourcePicker({
             data-tip={`${RESOURCE_LABELS[key]} · ${(held[key] ?? 0).toLocaleString()} held`}
             data-testid={testId === undefined ? undefined : `${testId}-${key}`}
             className={cn(
-              'door-tile group relative flex w-[4.5rem] flex-col items-center gap-1 rounded-lg border px-1 py-1.5',
+              'door-tile group relative flex flex-col items-center gap-1 rounded-lg border px-1',
+              size === 'sm' ? 'w-[3.75rem] py-1' : 'w-[4.5rem] py-1.5',
+              size === 'sm' &&
+                grow &&
+                '[@media(min-height:800px)]:w-[4.5rem] [@media(min-height:800px)]:py-1.5',
               'transition-all duration-150 ease-out focus-visible:outline-none',
               chosen
                 ? 'door-tile-active z-10 -translate-y-0.5 border-brass-300 text-brass-100'
@@ -72,7 +85,13 @@ export function ResourcePicker({
           >
             <ResourceIcon
               kind={key}
-              className="relative z-[2] h-8 w-8 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]"
+              className={cn(
+                'relative z-[2] drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
+                size === 'sm' ? 'h-6 w-6' : 'h-8 w-8',
+                size === 'sm' &&
+                  grow &&
+                  '[@media(min-height:800px)]:h-8 [@media(min-height:800px)]:w-8',
+              )}
             />
             <span className="relative z-[2] flex items-center gap-0.5 font-display text-[10px] font-bold leading-none tabular-nums">
               {caption?.(key) ?? (held[key] ?? 0).toLocaleString()}

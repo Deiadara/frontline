@@ -14,6 +14,8 @@ import {
   MISSIONS_PER_AREA,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
+  UNIT_TIER_LABELS,
+  UNIT_TIERS,
 } from '@frontline/shared';
 import {
   activeResearch,
@@ -25,6 +27,7 @@ import {
   meNoOverseer,
   missionsResponse,
   pagesHeld,
+  unitsResponse,
 } from './fixtures';
 import {
   expectControlNotDimmed,
@@ -127,6 +130,57 @@ async function expectWholeCardRows(page: Page, fitsWholeRoster: boolean): Promis
   } else {
     await expect(hint, 'hidden cards must be advertised, and counted correctly').toHaveText(
       new RegExp(`Scroll for ${hidden} more`),
+    );
+  }
+}
+
+/**
+ * The training sheet gives up whole drill rows, and owns up to the ones it gave up.
+ *
+ * Thirty-three rows in four columns do not fit a short viewport: eleven Technical rows want 455px
+ * and a 1440x900 laptop leaves 399 for them. The sheet has always been a scrolling region, so
+ * nothing was ever unreachable, and every gate in this file passed it: the failure was that the
+ * cut landed wherever the frame ended, slicing the last visible row through its digits with no
+ * sign that scrolling recovered it. That is what the board reported, and it is what this pins.
+ *
+ * `fitsWholeSheet` records which branch a viewport is in rather than being a target, the way the
+ * character select's roster flag does. Both branches are real and both have to be checked: a fold
+ * that swallowed rows at 1920x1080 and a sheet that sliced one at 1280x720 are the same bug seen
+ * from two sides, and reading the hidden count off the DOM and only checking the line agrees with
+ * it would be self-fulfilling.
+ */
+async function expectWholeDrillRows(page: Page, fitsWholeSheet: boolean): Promise<void> {
+  const fold = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLElement>('[data-testid="training-sheet"]');
+    const grid = frame?.firstElementChild;
+    if (!grid) throw new Error('the training sheet is not on the page');
+    const cut = grid.getBoundingClientRect().bottom;
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-testid^="drill-"]')];
+    return {
+      total: rows.length,
+      sliced: rows.filter((row) => {
+        const box = row.getBoundingClientRect();
+        return box.top < cut - 1 && box.bottom > cut + 1;
+      }).length,
+      hidden: rows.filter((row) => row.getBoundingClientRect().bottom > cut + 1).length,
+    };
+  });
+
+  expect(fold.total, 'no drill rows on the training page').toBeGreaterThan(20);
+  expect(fold.sliced, 'the sheet cut a drill row in half').toBe(0);
+  expect(
+    fold.hidden === 0,
+    fitsWholeSheet
+      ? 'this viewport has room for every drill'
+      : 'this viewport is too short for eleven Technical rows, so rows must drop',
+  ).toBe(fitsWholeSheet);
+
+  const line = page.getByTestId('training-fold');
+  if (fold.hidden === 0) {
+    await expect(line, 'a sheet that fits must not advertise dropped rows').toHaveCount(0);
+  } else {
+    await expect(line, 'dropped rows must be advertised, and counted correctly').toHaveText(
+      new RegExp(`Scroll for ${fold.hidden} more`),
     );
   }
 }
@@ -617,6 +671,10 @@ for (const size of VIEWPORTS) {
 
       // §H8: the slot counter is the one figure the room itself carries, on the door to the crew.
       await expect(page.getByTestId('open-crew')).toBeInViewport({ ratio: 1 });
+      // §H7: and the tables strip, which is the other thing standing on the painting now. It is
+      // the one readout on this screen whose height depends on the fixture, so it is the one that
+      // pushes the row off the floor of the frame when a crew is in three auctions at once.
+      await expect(page.getByTestId('your-tables')).toBeInViewport({ ratio: 1 });
 
       // And the three controls standing on the artwork are lit, not buried under something drawn
       // over them. See `expectControlNotDimmed`: this is the one screen where a room's own vignette
@@ -685,6 +743,16 @@ for (const size of VIEWPORTS) {
       const cutCrew = await clipped();
       expect(cutCrew, `cut text in the crew list: ${cutCrew.join(' | ')}`).toEqual([]);
       await page.screenshot({ path: `screenshots/visual/bar-crew-${tag}.png` });
+      await page.keyboard.press('Escape');
+
+      /* §H7: last night's four outcomes, which are four different sentences with four different
+         sets of figures in them, so the row is as fat as this screen gets. */
+      await page.getByTestId('open-results').click();
+      await expect(page.getByTestId('auction-results')).toBeVisible();
+      await settleFonts(page);
+      const cutResults = await clipped();
+      expect(cutResults, `cut text in last night's results: ${cutResults.join(' | ')}`).toEqual([]);
+      await page.screenshot({ path: `screenshots/visual/bar-results-${tag}.png` });
     });
 
     /**
@@ -883,31 +951,113 @@ for (const size of VIEWPORTS) {
       expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeGreaterThan(0.12);
       expect(share, `portrait took ${Math.round(share * 100)}% of the card`).toBeLessThan(0.45);
 
-      // Every card the same card. Heights first, then the one control a player hunts for.
-      const aligned = await page.evaluate(() => {
-        const cards = [
-          ...document.querySelectorAll('[data-testid="unit-catalogue"] > [data-testid^="unit-"]'),
-        ];
-        const heights = new Set(
-          cards.map((card) => Math.round(card.getBoundingClientRect().height)),
+      /*
+       * Every card the same card, on **every tier**.
+       *
+       * The tier walk is not padding. The marks band prints all of a unit's rules, modifiers and
+       * characteristics and wraps (board request, 2026-09-08), and the frame budgets a fixed number
+       * of rows for it, so the card that breaks the frame is the one with the most marks: the
+       * Colossus, on Legendary, which the screen never shows until somebody clicks the tab. A sweep
+       * that only ever measured the tier the page opens on would have passed the entire time.
+       */
+      for (const tier of UNIT_TIERS) {
+        await page.getByRole('button', { name: UNIT_TIER_LABELS[tier] }).click();
+        await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+        await settleFonts(page);
+
+        const aligned = await page.evaluate(() => {
+          const cards = [
+            ...document.querySelectorAll('[data-testid="unit-catalogue"] > [data-testid^="unit-"]'),
+          ];
+          const heights = new Set(
+            cards.map((card) => Math.round(card.getBoundingClientRect().height)),
+          );
+          // The action *box*, not the control inside it: a locked card's box holds a padlock and an
+          // unlocked one holds a stepper and a button, so measuring the control would report the
+          // two states as a misalignment. What has to land on the same line is the box.
+          const actions = new Set(
+            cards.map((card) => {
+              const box = card.getBoundingClientRect();
+              const action = card.querySelector('[data-testid^="action-"]');
+              return action ? Math.round(action.getBoundingClientRect().top - box.top) : -1;
+            }),
+          );
+          // Every mark on every card, whole. A chip cut in half by the bottom of its own band is
+          // the defect the frame's headroom exists to prevent, and the card-level spill sweep
+          // further down only sees a chip that leaves the *card*.
+          const cropped = cards.flatMap((card) => {
+            const band = card.querySelector('[data-testid^="marks-"]');
+            if (!band) return [];
+            const box = band.getBoundingClientRect();
+            return [...band.children]
+              .filter((chip) => chip.getBoundingClientRect().bottom > box.bottom + 1)
+              .map((chip) => `"${chip.textContent?.trim()}"`);
+          });
+          // ...and nothing pushed out of the card by a band that grew. The price box is `shrink-0`
+          // precisely so this can see it: left shrinkable it swallows the overflow and moves the
+          // Train button instead, which is a defect no overflow sweep can find.
+          const outside = cards.flatMap((card) => {
+            const frame = card.getBoundingClientRect();
+            return [...card.querySelectorAll('*')]
+              .filter((el) => {
+                const box = el.getBoundingClientRect();
+                return box.height > 0 && box.bottom > frame.bottom + 1;
+              })
+              .slice(0, 2)
+              .map((el) => `"${el.textContent?.trim().slice(0, 24)}"`);
+          });
+          return {
+            cards: cards.length,
+            heights: [...heights],
+            actions: [...actions],
+            cropped,
+            outside,
+          };
+        });
+        expect(aligned.cards, `${tier} draws no cards`).toBeGreaterThan(0);
+        expect(
+          aligned.heights,
+          `${tier}: cards of ${aligned.heights.length} different heights`,
+        ).toHaveLength(1);
+        expect(aligned.actions, `${tier}: the action box moves between cards`).toHaveLength(1);
+        expect(aligned.cropped, `${tier}: marks cut off: ${aligned.cropped.join(' | ')}`).toEqual(
+          [],
         );
-        // The action *box*, not the control inside it: a locked card's box holds a padlock and an
-        // unlocked one holds a stepper and a button, so measuring the control would report the two
-        // states as a misalignment. What has to land on the same line is the box.
-        const actions = new Set(
-          cards.map((card) => {
-            const box = card.getBoundingClientRect();
-            const action = card.querySelector('[data-testid^="action-"]');
-            return action ? Math.round(action.getBoundingClientRect().top - box.top) : -1;
-          }),
-        );
-        return { cards: cards.length, heights: [...heights], actions: [...actions] };
+        expect(
+          aligned.outside,
+          `${tier}: pushed out of its card: ${aligned.outside.join(' | ')}`,
+        ).toEqual([]);
+      }
+
+      // The machines, on the last tab (board request, 2026-09-08): every card whole, nothing
+      // out of the screen, and its own picture of the sheet.
+      await page.getByTestId('tier-vehicles').click();
+      await expect(page.getByTestId('vehicle-catalogue')).toBeVisible();
+      await settleFonts(page);
+      const machines = await page.evaluate<string[]>(() => {
+        const cards = [...document.querySelectorAll('[data-testid="vehicle-catalogue"] article')];
+        return cards.flatMap((card) => {
+          const frame = card.getBoundingClientRect();
+          return [...card.querySelectorAll('*')]
+            .filter((el) => {
+              const box = el.getBoundingClientRect();
+              return (
+                box.height > 0 && (box.bottom > frame.bottom + 1 || box.right > frame.right + 1)
+              );
+            })
+            .slice(0, 2)
+            .map((el) => `"${el.textContent?.trim().slice(0, 24)}"`);
+        });
       });
-      expect(aligned.cards, 'the roster must draw some cards').toBeGreaterThan(1);
-      expect(aligned.heights, `cards of ${aligned.heights.length} different heights`).toHaveLength(
-        1,
-      );
-      expect(aligned.actions, 'the action box moves between cards').toHaveLength(1);
+      expect(machines, `content outside its machine card: ${machines.join(' | ')}`).toEqual([]);
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/units-vehicles-${tag}.png` });
+
+      // Back to the tier the page opens on, so the sweeps below and the screenshot are of the
+      // screen a player actually lands on.
+      await page.getByRole('button', { name: UNIT_TIER_LABELS[UNIT_TIERS[0]] }).click();
+      await settleFonts(page);
 
       // Cut text, horizontally: the stat labels sit in a two-column table inside two thirds of a
       // card, which is the narrowest any of them ever get.
@@ -973,6 +1123,95 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/visual/units-${tag}.png` });
     });
 
+    /*
+     * The card closes on the picture (board request, 2026-09-08).
+     *
+     * Four measurements, on every card of every tier, with **every unit unlocked**: the sweep
+     * above runs on the late-game fixture, where most of the roster is locked and the price box
+     * holds a padlock, so it never laid out a five-material price at the two-up width. Those wrap
+     * to a second line, and the box is sized to exactly that: a box that fits a padlock and not
+     * a price is the defect this exists to catch.
+     *
+     * The card is 12px over the portrait and 12px under it; the brackets sit the same distance
+     * under the sheet's rule as the price box sits under them; the price box's bottom edge is
+     * the portrait's bottom edge; and the box's contents fit inside it. The column is budgeted
+     * to the pixel for the tallest card in the game (see `UnitCard.tsx`), so any band that grows
+     * by a line shows up here as the box sliding off the picture, before it is far enough out to
+     * leave the card and trip the spill sweep.
+     */
+    test(`the roster card closes on its portrait at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.route('**/api/units', (route) =>
+        route.fulfill({
+          json: {
+            ...unitsResponse,
+            units: unitsResponse.units.map((unit) => ({ ...unit, unlocked: true, missing: [] })),
+          },
+        }),
+      );
+      await page.goto('/game/units');
+      await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+      await settleFonts(page);
+
+      for (const tier of UNIT_TIERS) {
+        await page.getByTestId(`tier-${tier}`).click();
+        await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+        await settleFonts(page);
+
+        const off = await page.evaluate(() => {
+          const cards = [
+            ...document.querySelectorAll<HTMLElement>(
+              '[data-testid="unit-catalogue"] > [data-testid^="unit-"]',
+            ),
+          ];
+          return cards.flatMap((card) => {
+            const frame = card.getBoundingClientRect();
+            const rect = (selector: string) =>
+              card.querySelector(selector)!.getBoundingClientRect();
+            const portrait = rect('[data-testid^="unit-portrait-"]');
+            const sheet = rect('.border-y');
+            const slots = rect('[data-testid^="slots-"]');
+            const action = rect('[data-testid^="action-"]');
+            const box = card.querySelector('[data-testid^="action-"]')!.firstElementChild!;
+            // The children against the box's padding edge, rather than `scrollHeight`: the box
+            // centres what it holds, so a price that outgrows it eats the padding first, then
+            // leaks out of the top as well as the bottom, and only the bottom half of that is
+            // scrollable overflow. Sized right, the padding is intact on the tallest price.
+            const boxRect = box.getBoundingClientRect();
+            const boxStyle = getComputedStyle(box);
+            const inset = {
+              top:
+                boxRect.top + parseFloat(boxStyle.borderTopWidth) + parseFloat(boxStyle.paddingTop),
+              bottom:
+                boxRect.bottom -
+                parseFloat(boxStyle.borderBottomWidth) -
+                parseFloat(boxStyle.paddingBottom),
+            };
+            const leak = Math.max(
+              0,
+              ...[...box.children].flatMap((child) => {
+                const r = child.getBoundingClientRect();
+                return [inset.top - r.top, r.bottom - inset.bottom];
+              }),
+            );
+            const faults = [
+              [
+                'portrait margins',
+                Math.abs(portrait.top - frame.top - (frame.bottom - portrait.bottom)),
+              ],
+              ['bracket gaps', Math.abs(slots.top - sheet.bottom - (action.top - slots.bottom))],
+              ['box off the portrait', Math.abs(action.bottom - portrait.bottom)],
+              ['box contents', leak],
+            ] as const;
+            return faults
+              .filter(([, px]) => px > 1)
+              .map(([what, px]) => `${card.dataset.testid}: ${what} by ${Math.round(px)}px`);
+          });
+        });
+        expect(off, `${tier}: ${off.join(' | ')}`).toEqual([]);
+      }
+    });
+
     /** §F2: the Training tab, with an hour already running and an officer idle beside it. */
     test(`training at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
@@ -1025,6 +1264,15 @@ for (const size of VIEWPORTS) {
         expect(gauge.fill).toBeGreaterThan(0);
         expect(gauge.fill).toBeLessThan(gauge.track);
       }
+
+      // The sheet is a fixed region on a page that does not scroll, so a row that does not fit is
+      // cut rather than pushed below a fold: the vertical guard is the one that sees it, and this
+      // is the screen it was missing.
+      await expectNothingClippedVertically(page);
+      // Only a 1080-tall frame has the room for all eleven Technical rows once the banner above
+      // them has been paid for. See the note on the helper: this records the branch, it is not a
+      // target, and it moves whenever the banner or the row height does.
+      await expectWholeDrillRows(page, size.height >= 1000);
 
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
@@ -1271,10 +1519,41 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('vendor-stock')).toBeVisible();
       await settleFonts(page);
 
-      // The three things a market screen has to actually say.
-      await expect(page.getByTestId('vendor-state')).toContainText('In');
+      // The three things a market screen has to actually say: whether he is in, what the Broker
+      // gives, and what is left of the day's run. The board between crews is its own page now.
+      await expect(page.getByTestId('info-note')).toContainText('The Runner: in');
       await expect(page.getByTestId('barter-quote')).toContainText('50');
-      await expect(page.getByTestId('market-board')).toBeVisible();
+      await expect(page.getByTestId('supply-allowance')).toContainText('left');
+
+      /*
+       * The frame does not scroll, and neither does anything in it at the sizes the game is
+       * drawn at (board request, 2026-09-08). The sheet's body is `overflow-hidden`, so a counter
+       * pushed below its fold is not caught by the page-overflow sweep: it is simply cut. The
+       * barrow and the Broker are the two panels that give when the frame is short, each behind
+       * its own scroller, and this is what says neither had to.
+       *
+       * Below 1100px wide the barrow draws three lots to a row and the second row scrolls: that
+       * is the one concession, on the one size where six lots cannot share a line, so the barrow
+       * check is not asked there. The sheet and the Broker are held at every size.
+       */
+      const fit = await page.evaluate((wide: boolean) => {
+        const inside = (selector: string) => {
+          const el = document.querySelector<HTMLElement>(selector);
+          if (!el) return `${selector} missing`;
+          return el.scrollHeight > el.clientHeight + 1
+            ? `${selector} scrolls ${el.scrollHeight - el.clientHeight}px`
+            : null;
+        };
+        const sheet = document.querySelector<HTMLElement>('[data-testid="page-sheet"] > div');
+        return [
+          sheet && sheet.scrollHeight > sheet.clientHeight + 1
+            ? `the sheet's body hides ${sheet.scrollHeight - sheet.clientHeight}px`
+            : null,
+          wide ? inside('[data-testid="vendor-stock"]') : null,
+          inside('[data-testid="barter-quote"]'),
+        ].filter((fault): fault is string => fault !== null);
+      }, size.width >= 1100);
+      expect(fit, `the market does not fit its frame: ${fit.join(' | ')}`).toEqual([]);
 
       const clipped = await page.evaluate<string[]>(() =>
         [...document.querySelectorAll<HTMLElement>('span, p, h3, li')]
@@ -1287,6 +1566,37 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/market-${tag}.png` });
+    });
+
+    /**
+     * The offers board: two halves of a table, theirs and ours.
+     *
+     * Its own screen since the board left the front of the market, and the one in the suite made
+     * entirely of piles: two columns of cards whose whole content is chips, an arrow and a row of
+     * buttons. That is the shape that wraps badly first, so it is measured at every width the rest
+     * of the matrix is.
+     */
+    test(`the offers board at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/market/offers');
+      await expect(page.getByTestId('market-board')).toBeVisible();
+      await settleFonts(page);
+
+      // Both halves, drawn: somebody else's listings, and the composer that answers them.
+      await expect(page.getByTestId('my-offers')).toBeVisible();
+      await expect(page.getByTestId('offer-composer')).toBeVisible();
+
+      const clipped = await page.evaluate<string[]>(() =>
+        [...document.querySelectorAll<HTMLElement>('span, p, h3, li')]
+          .filter((el) => el.childElementCount === 0 && el.scrollWidth > el.clientWidth + 1)
+          .map((el) => `"${el.textContent?.trim()}"`),
+      );
+      expect(clipped, `cut text on the offers board: ${clipped.join(' | ')}`).toEqual([]);
+
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/market-offers-${tag}.png` });
     });
 
     /**
@@ -1365,24 +1675,31 @@ for (const size of VIEWPORTS) {
     });
 
     /**
-     * §C: the Garage, which is where the machines went.
+     * §C: the Garage's page is the door, and the machines are behind it on the roster (board
+     * request, 2026-09-08).
      *
-     * Carries what the Workshop's yard assertion used to: a machine already in the yard, and one
-     * held behind a blueprint saying so. The page had no screenshot at all when it landed, which
-     * is how a new full-width grid reaches the board unreviewed.
+     * The page is the yard's level and seats and one button; the roster's Vehicles tab carries
+     * what the Workshop's yard assertion used to, a machine already in the yard and one held
+     * behind a blueprint saying so, and `units at` above sweeps that tab. Both get a screenshot,
+     * which the Garage did not have at all when it landed: that is how a new full-width grid
+     * reaches the board unreviewed.
      */
     test(`the garage at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.goto('/game/garage');
-      await expect(page.getByTestId('vehicle-motorcycle')).toBeVisible();
+      await expect(page.getByTestId('garage-machines')).toBeVisible();
       await settleFonts(page);
-
-      await expect(page.getByTestId('vehicle-motorcycle')).toContainText('in the yard');
-      await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Needs the');
+      await expect(page.locator('[data-testid^="vehicle-"]')).toHaveCount(0);
 
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/garage-${tag}.png`, fullPage: true });
+
+      await page.getByTestId('garage-machines').click();
+      await expect(page.getByTestId('vehicle-motorcycle')).toBeVisible();
+      await settleFonts(page);
+      await expect(page.getByTestId('vehicle-motorcycle')).toContainText('in the yard');
+      await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Needs the');
     });
 
     /** The satchel, grouped by what a player would do with the thing. */
@@ -1504,6 +1821,33 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('board-players')).toBeVisible();
       await expect(page.getByTestId('local-only')).toBeVisible();
       await expect(page.getByTestId('your-rank')).toBeInViewport({ ratio: 1 });
+
+      /*
+       * One left edge down the faction column, whether or not a crew is at a table.
+       *
+       * The badge was drawn only for the crews that have one, so a named faction started 30px
+       * further in than `none` did and the column read as two ragged lists. The fixture carries
+       * both kinds, which is what makes this measurable at all.
+       */
+      const factionEdges = await page.evaluate(() =>
+        [...document.querySelectorAll<HTMLElement>('[data-testid^="standing-"]')].map((row) => {
+          // The leaf, not the cell around it: the `w-40` cell holds the same text and sits at the
+          // column's own edge whatever is inside it, so matching on text alone reported one edge
+          // for every row and passed against the ragged column this exists to catch.
+          const cell = [...row.querySelectorAll<HTMLElement>('span')].find(
+            (span) =>
+              span.childElementCount === 0 &&
+              /^(none|The Ninth Circle)$/.test(span.textContent?.trim() ?? ''),
+          );
+          return cell === undefined ? null : Math.round(cell.getBoundingClientRect().left);
+        }),
+      );
+      const named = factionEdges.filter((edge): edge is number => edge !== null);
+      expect(named.length, 'no faction cells on the ladder to compare').toBeGreaterThan(1);
+      expect(
+        new Set(named).size,
+        `the faction column has ${new Set(named).size} left edges: ${named.join(', ')}`,
+      ).toBe(1);
 
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);

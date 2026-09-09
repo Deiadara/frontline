@@ -23,7 +23,10 @@ export type ErrorCode =
   | 'NO_RECRUIT_SLOTS'
   | 'ROLE_TAKEN'
   | 'INSUFFICIENT_CAPS'
-  | 'NEGOTIATION_CLOSED'
+  /** §H7a: the table will not take that bid. The message carries the number that would. */
+  | 'BID_REFUSED'
+  /** §H7a: the crew is already sitting at as many tables as its level allows. */
+  | 'TOO_MANY_AUCTIONS'
   | 'NO_PAYROLL'
   | 'AREA_LOCKED'
   // research (GDD §C)
@@ -50,7 +53,6 @@ export type ErrorCode =
   | 'BUILD_QUEUE_FULL'
   | 'MISSING_PARTS'
   | 'NO_HOUSING'
-  | 'DAILY_HIRE_LIMIT'
   // the city and its units (GDD §A4, §A5)
   | 'DISTRICT_UNSCOUTED'
   | 'NO_FORCE'
@@ -91,7 +93,8 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   RECRUIT_UNAVAILABLE: 409,
   NO_RECRUIT_SLOTS: 409,
   INSUFFICIENT_CAPS: 409,
-  NEGOTIATION_CLOSED: 409,
+  BID_REFUSED: 409,
+  TOO_MANY_AUCTIONS: 409,
   // 403 rather than 404: the screen exists, this crew is not senior enough to be in it, and the
   // message says which level opens it. A 404 would teach a player that the feature is not built.
   AREA_LOCKED: 403,
@@ -109,7 +112,6 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   BUILD_QUEUE_FULL: 409,
   MISSING_PARTS: 409,
   NO_HOUSING: 409,
-  DAILY_HIRE_LIMIT: 409,
   DISTRICT_UNSCOUTED: 409,
   NO_FORCE: 409,
   PLACE_UNAVAILABLE: 409,

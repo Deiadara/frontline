@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useMe } from './lib/queries';
+import { useSoundLayer } from './lib/sound';
 import { useSession } from './store/session';
 import { TooltipLayer } from './components/ui/TooltipLayer';
 import { AuthScreen } from './screens/AuthScreen';
@@ -24,6 +25,7 @@ import { ResearchPage } from './features/research/ResearchPage';
 import { TrainingPage } from './features/overseer/TrainingPage';
 import { OverseerProfilePage } from './features/overseer/OverseerProfilePage';
 import { MarketPage } from './features/market/MarketPage';
+import { OffersPage } from './features/market/OffersPage';
 import { BlackMarketPage } from './features/market/BlackMarketPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { AdminPage } from './features/admin/AdminPage';
@@ -67,6 +69,11 @@ function BootGate({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  // One listener for every button and link in the game, and one gesture unlock for the browser's
+  // autoplay policy: see `lib/sound.ts`. A hook rather than a mounted component because it also
+  // has to read the account's volume off `/me`.
+  useSoundLayer();
+
   return (
     <BootGate>
       {/* One listener for every `data-tip` in the game: see `TooltipLayer`. Mounted at the root
@@ -157,6 +164,14 @@ export default function App() {
             element={
               <RequireLevel area="market">
                 <MarketPage />
+              </RequireLevel>
+            }
+          />
+          <Route
+            path="market/offers"
+            element={
+              <RequireLevel area="market">
+                <OffersPage />
               </RequireLevel>
             }
           />

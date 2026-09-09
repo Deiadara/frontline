@@ -17,11 +17,33 @@ import {
   type GarageResponse,
   type PartialResources,
   type VehicleRefusal,
+  mergeFleets,
+  type Fleet,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { standingEffectsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from '../routes/own-base.js';
+
+/**
+ * §C3: every machine of this crew's that is not in the yard because it is somewhere else.
+ *
+ * Committed to a fight still coming (the deployment row holds them until the settle hands the
+ * survivors back), or carrying a crew on a run (the mission row holds them until the crew is
+ * home). Both leave `base.fleet` on the request that names them, so this is the only way the page
+ * can say where the yard went.
+ */
+function machinesOut(app: FastifyInstance, base: Base): Fleet {
+  const committed = app.repos.sieges
+    .deploymentsFor(base.id)
+    .map((deployment) => deployment.vehicles)
+    .reduce(mergeFleets, {} as Fleet);
+  const riding = app.repos.missions
+    .listActiveByBaseId(base.id)
+    .map((stored) => stored.mission.vehicles)
+    .reduce(mergeFleets, {} as Fleet);
+  return mergeFleets(committed, riding);
+}
 
 /**
  * The Garage (GDD §B11, §C).
@@ -54,13 +76,21 @@ function holdsVehicleBlueprint(base: Base): (vehicleId: string) => boolean {
   return (vehicleId) => blueprintGateMet(base.inventory, 'vehicle', vehicleId);
 }
 
-/** The one thing in the way, in the player's words, or null when the yard will build it today. */
-function blockerFor(app: FastifyInstance, base: Base, id: string): string | null {
+/**
+ * The one thing in the way, in the player's words, or null when the yard will build it today.
+ *
+ * `out` is what this crew has committed to a fight or loaded onto a run. It has to be counted
+ * against `MAX_PER_VEHICLE`, because those machines have *left* `base.fleet` and are coming
+ * back: without it, "however rich a crew gets, the yard holds this many of one kind" was enforced
+ * against the wrong number. Send twelve Cheese Wagons out on a mission, build twelve more while
+ * they are away, and the yard holds twenty-four when the crew gets home.
+ */
+function blockerFor(app: FastifyInstance, base: Base, id: string, out: Fleet): string | null {
   const spec = findVehicle(id);
   if (!spec) return VEHICLE_REFUSAL_MESSAGES.unknown_vehicle;
   const reason: VehicleRefusal | null = vehicleRefusal(
     id,
-    base.fleet,
+    mergeFleets(base.fleet, out),
     buildingLevel(base.buildings, 'garage'),
     holdsVehicleBlueprint(base),
     (cost) => canAfford(base.resources, price(app, base, cost)),
@@ -79,6 +109,7 @@ function blockerFor(app: FastifyInstance, base: Base, id: string): string | null
 
 export function projectGarage(app: FastifyInstance, base: Base): GarageResponse {
   const holds = holdsVehicleBlueprint(base);
+  const out = machinesOut(app, base);
   return {
     resources: base.resources,
     garageLevel: buildingLevel(base.buildings, 'garage'),
@@ -90,15 +121,18 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
       class: spec.class,
       description: spec.description,
       owned: base.fleet[spec.id] ?? 0,
+      out: out[spec.id] ?? 0,
       // Quoted with the crew's own discount on it, because the door charges that number.
       cost: price(app, base, spec.cost),
       buildSeconds: spec.buildSeconds,
       capacity: spec.capacity,
-      speedPercent: spec.speedPercent,
+      speed: spec.speed,
+      // Deprecated duplicate, one release only: see `GarageVehicleSchema.speedPercent`.
+      speedPercent: spec.speed,
       requiresGarageLevel: spec.requiresGarageLevel,
       requiresBlueprint: blueprintForVehicle(spec.id)?.name ?? null,
       hasBlueprint: holds(spec.id),
-      refusal: blockerFor(app, base, spec.id),
+      refusal: blockerFor(app, base, spec.id, out),
     })),
   };
 }
@@ -113,7 +147,7 @@ export function registerGarageRoutes(app: FastifyInstance): void {
     const { vehicleId } = parseBody(BuildVehicleRequestSchema, request.body);
     return app.db.transaction(() => {
       const base = ownBase(app, request.currentUser.id);
-      const blocker = blockerFor(app, base, vehicleId);
+      const blocker = blockerFor(app, base, vehicleId, machinesOut(app, base));
       if (blocker !== null) throw new AppError('WORKSHOP_REFUSED', blocker);
 
       const spec = findVehicle(vehicleId);

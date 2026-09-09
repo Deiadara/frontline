@@ -1,3 +1,4 @@
+import { MAX_TRAVEL_SPEED_BONUS, roadMinutes } from '../time/speed.js';
 import { CITY_DISTRICTS, findDistrict, type District, type Position } from './districts.js';
 
 /**
@@ -26,27 +27,41 @@ export function mapDistance(a: Position, b: Position): number {
 }
 
 /**
- * Travel time between two districts, in minutes.
+ * How a column is moving, for the two numbers a road is measured with.
  *
- * `speedPercent` is everything that makes a crew faster: the Rail Yard, the Skate Ground, a
- * district's unified bonus, as one already-summed number, so this module never has to know what
- * a location is. Capped at {@link MAX_TRAVEL_SPEED_BONUS}: at some point the city stops being big,
- * and a map you cross instantly is a map with no geography.
+ * `speed` is the pace of the slowest group in the column, 0 to 100: everybody walking at their own
+ * sheet, and everybody in a machine at the machine's (`building/vehicles.ts`, `columnSpeed`).
+ * `reductionPercent` is what the crew's holdings then take off the clock, already summed, so this
+ * module never has to know what a Rail Yard is.
+ *
+ * An object rather than two positional numbers because the two used to be one argument and meant
+ * the reduction: a caller that kept passing its old figure positionally would now be claiming its
+ * ground makes the *walkers* faster, which is a silent wrong answer rather than a compile error.
  */
-export const MAX_TRAVEL_SPEED_BONUS = 60;
+export interface RoadPace {
+  speed?: number;
+  reductionPercent?: number;
+  /** Whole minutes the crew's holdings take off after the percentage. See `roadMinutes`. */
+  flatMinutesOff?: number;
+}
 
-export function travelMinutesBetween(from: District, to: District, speedPercent = 0): number {
-  const bonus = Math.min(MAX_TRAVEL_SPEED_BONUS, Math.max(0, speedPercent));
+/** Re-exported from `time/speed.ts`, where the arithmetic that spends it lives. */
+export { MAX_TRAVEL_SPEED_BONUS };
+
+export function travelMinutesBetween(from: District, to: District, pace: RoadPace = {}): number {
   const raw = mapDistance(from.position, to.position) * TRAVEL_MINUTES_PER_MAP_UNIT;
-  return Math.max(MIN_TRAVEL_MINUTES, Math.round(raw / (1 + bonus / 100)));
+  return Math.max(
+    MIN_TRAVEL_MINUTES,
+    roadMinutes(raw, pace.speed ?? 0, pace.reductionPercent ?? 0, pace.flatMinutesOff ?? 0),
+  );
 }
 
 /** The same, by id. Returns `null` when either end is not on the map. */
-export function travelMinutes(fromId: string, toId: string, speedPercent = 0): number | null {
+export function travelMinutes(fromId: string, toId: string, pace: RoadPace = {}): number | null {
   const from = findDistrict(fromId);
   const to = findDistrict(toId);
   if (!from || !to) return null;
-  return travelMinutesBetween(from, to, speedPercent);
+  return travelMinutesBetween(from, to, pace);
 }
 
 /**

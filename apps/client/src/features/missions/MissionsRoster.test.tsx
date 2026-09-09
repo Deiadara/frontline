@@ -2,26 +2,12 @@ import {
   MISC_AREA_ID,
   missionOffers,
   templateTimings,
-  createCommander,
-  type CrewResponse,
-  type HireRecruitResponse,
   type MissionsResponse,
-  makeAttributes,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import {
-  act,
-  fireEvent,
-  render,
-  renderHook,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MissionsPage } from './MissionsPage';
-import { queryKeys, useHireRecruit } from '../../lib/queries';
 import { useSession } from '../../store/session';
 
 /**
@@ -82,23 +68,6 @@ async function openSend(): Promise<HTMLElement> {
   fireEvent.click(await screen.findByTestId(`send-${anyOffer().templateId}`));
   return screen.getByRole('dialog');
 }
-
-const staffed: CrewResponse = {
-  level: 6,
-  housing: { used: 0, capacity: 8 },
-  officers: [
-    {
-      officerId: 'off-1',
-      name: 'Reza Malik',
-      role: 'raid_boss',
-      attributes: makeAttributes(15),
-      perks: [],
-      weeklyWage: 40,
-      injuredUntil: null,
-      mark: 'C' as const,
-    },
-  ],
-};
 
 const fetchMock = vi.fn();
 
@@ -180,60 +149,5 @@ describe('the board cannot read the roster', () => {
     const dialog = await openSend();
     await within(dialog).findByText('Could not read your officers.');
     expect(within(dialog).queryByText(/Nobody on your books/)).toBeNull();
-  });
-});
-
-describe('a signing reaches the board', () => {
-  const signed: HireRecruitResponse = {
-    accepted: true,
-    wage: 40,
-    officer: createCommander('off-9', 'Reza Malik', 'raid_boss'),
-    payroll: {
-      capacity: 300,
-      committed: 40,
-      available: 260,
-      purchasedSteps: 0,
-      nextStepCost: 500,
-      stepSize: 30,
-    },
-  };
-
-  /**
-   * The Bar is where officers come from, and the mission board's §G6 picker is a *consumer* of
-   * that list. Without this invalidation the cached roster stays authoritative for its whole
-   * 30s `staleTime`, so a player who hires their first officer and walks straight to the board is
-   * told, on all four hard cards, to go to the Bar and hire one.
-   */
-  /**
-   * The §G list the Crew screen and the mission board's officer picker both read.
-   *
-   * Two claims, and the first is the one a player feels: the officer is *in the cached list* the
-   * moment the hire lands, so the Crew screen shows them without waiting for a round trip. The
-   * second is that the list is still reconciled against the server afterwards, because the counts
-   * beside it are the server's arithmetic.
-   */
-  it('puts the new officer in the crew list at once, and still reconciles it', async () => {
-    fetchMock.mockImplementation((path: string) => {
-      if (path.endsWith('/bar/hire')) return reply(signed);
-      throw new Error(`unstubbed request: ${path}`);
-    });
-    const queryClient = appClient();
-    queryClient.setQueryData(queryKeys.crew, { ...staffed, officers: [] });
-
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    );
-    const { result } = renderHook(() => useHireRecruit(), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync({ recruitId: 'r-1', role: 'raid_boss', offerWage: 40 });
-    });
-
-    const cached = queryClient.getQueryData<CrewResponse>(queryKeys.crew);
-    expect(cached?.officers.map((officer) => officer.officerId)).toEqual(['off-9']);
-    expect(cached?.officers[0]?.name).toBe('Reza Malik');
-
-    await waitFor(() =>
-      expect(queryClient.getQueryState(queryKeys.crew)?.isInvalidated).toBe(true),
-    );
   });
 });

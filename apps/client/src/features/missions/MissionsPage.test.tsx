@@ -15,6 +15,7 @@ const returned = (id: string, startedAt: string, resolvedAt: string): Mission =>
   xp: 240,
   force: { razors: 1 },
   vehicles: {},
+  pricedMinutes: 0,
   startedAt,
   travelMinutes: 5,
   durationMinutes: 3,

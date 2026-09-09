@@ -17,6 +17,8 @@ import {
   officerIsInjured,
   FACTION_CARD_SPECS,
   cardBonusPercent,
+  disrupted,
+  disruptionPercentAt,
   type Commander,
   type NumericEffectChannel,
 } from '@frontline/shared';
@@ -36,6 +38,15 @@ import { benchedMember, overseerMember, seatedMember } from '../roles/duties.js'
  *
  * Bot bases have no Overseer and usually no officers; they get their territory and nothing else,
  * which is correct rather than a gap. An AI rival is the ground it stands on.
+ *
+ * §A4: **the fold is the last thing a raid takes off you.** Both folds end in `disrupted`, so for
+ * the hours a raid's disruption lasts every positive percentage this crew holds is worth a quarter
+ * less, whatever paid it: the ground, the people, the Lab, the table, the Gate. Applied here rather
+ * than at each consumer for the reason everything else is folded here: a consumer that read the raw
+ * fold would be a system a raid quietly did not reach, and there are two dozen of them. Production
+ * takes it twice on purpose, once as hours off the walk (`district/settle.ts`) and once as a
+ * smaller bonus in the walk's multiplier: a raided district makes less *and* the crew running it is
+ * worse at making it.
  */
 export function standingEffectsFor(
   repos: Repositories,
@@ -90,7 +101,7 @@ export function standingEffectsFor(
    * a modification and a hold bonus are one figure on the report rather than two to reconcile.
    */
   total.lootCapacityPercent += raidLootBonus(base.buildings);
-  return total;
+  return disrupted(total, disruptionPercentAt(base.economy.disruption, now));
 }
 
 /** Just the people: the same fold without the ground, for anything that is not about territory. */
@@ -103,7 +114,8 @@ export function crewEffectsFor(
   const people = sheets.length === 0 ? noCrewEffects() : crewEffects(sheets);
   // Production, storage and costs are read through *this* fold rather than the territory one, so
   // the Lab has to land here too or half its tech tree would do nothing at all.
-  return mergeCrewEffects(people, researchEffects(base.research.technologies));
+  const total = mergeCrewEffects(people, researchEffects(base.research.technologies));
+  return disrupted(total, disruptionPercentAt(base.economy.disruption, now));
 }
 
 /**

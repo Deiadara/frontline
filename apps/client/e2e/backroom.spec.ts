@@ -64,7 +64,17 @@ async function open(page: Page, path: string, width: number, height: number): Pr
 const LAYOUT_PROBE_HEIGHT = 2600;
 
 async function expectLaidOutWhole(page: Page, width: number, name: string): Promise<void> {
-  await page.setViewportSize({ width, height: LAYOUT_PROBE_HEIGHT });
+  // Grown to the content, not to a fixed number. A fixed height is a knife edge: the settings
+  // sheet gained one notification row and its last button slid nine pixels under the fold, which
+  // the gate reported as cut text on a screen nobody had touched.
+  // The page scrolls inside `PageShell`'s own div, not the document, so the document is only ever
+  // as tall as the viewport: the tallest scroller on the page is the honest measure.
+  const tall = await page.evaluate(() =>
+    Math.max(...[...document.querySelectorAll('*')].map((element) => element.scrollHeight)),
+  );
+  // Plus the two fixed bars the scroller sits between, with room to spare: the scroller is the
+  // viewport less the HUD and the nav, so the content has to fit in *that*, not in the viewport.
+  await page.setViewportSize({ width, height: Math.max(LAYOUT_PROBE_HEIGHT, tall + 600) });
   await settleFonts(page);
   await expectNothingClippedVertically(page, 'main section');
   await expectNoImagesClipped(page, 'main section');
@@ -119,21 +129,16 @@ test.describe('the black market', () => {
     await expect(page.getByTestId('market-tab-black')).toHaveAttribute('aria-current', 'page');
 
     await page.getByTestId('market-tab-market').click();
-    await expect(page.getByTestId('market-board')).toBeVisible();
+    await expect(page.getByTestId('vendor-stock')).toBeVisible();
   });
 
-  test('counts down to the refresh and says what time it lands', async ({ page }) => {
+  test('counts down to the refresh', async ({ page }) => {
     await open(page, '/game/market/black', 1280, 720);
     // The countdown is a duration, not a wall clock, so it reads the same wherever the player is.
-    // When it lands is in the note beside it, which is a hover now: the clock is live and stays on
-    // the page, the rule is reference and does not.
-    //
-    // The note quotes a time and does *not* name a zone. Naming one is Settings' job: everywhere
-    // else the numbers are already drawn in whatever clock the player picked, so a zone in the
-    // sentence is either redundant or, for a player who has moved theirs, wrong.
+    // The note that used to quote the landing time went with the board's 2026-09-09 pass: the
+    // shelf's rules are on the cards, and the clock is what a player checks.
     await expect(page.getByTestId('black-refresh')).toContainText(/\d/);
-    await page.getByTestId('info-note').hover();
-    await expect(page.getByText(/turns over once a day, at \d{2}:\d{2}/)).toBeVisible();
+    await expect(page.getByTestId('info-note')).toHaveCount(0);
   });
 
   /**
@@ -187,6 +192,43 @@ test.describe('settings', () => {
     await expect(preview).toContainText('GMT-4');
   });
 
+  /*
+   * The marks are the same two rows on every browser.
+   *
+   * Twelve glyphs in a wrapping row broke 10 + 1 at 1440 and 9 + 2 at 1280, so the block a player
+   * picks their mark out of had a different shape, and a stray orphan in a different place, at
+   * every width. Asserted as "the same shape at two widths" rather than as "six a row", which
+   * would go red the day a thirteenth glyph is drawn without anything being wrong.
+   */
+  test('lays the marks out the same way whatever the browser is', async ({ page }) => {
+    const shapeAt = async (width: number, height: number) => {
+      await open(page, '/game/settings', width, height);
+      await expect(page.getByTestId('settings-icons').getByRole('button').first()).toBeVisible();
+      return page.evaluate(() => {
+        const grid = document.querySelector('[data-testid="settings-icons"]') as HTMLElement;
+        const rows = new Map<number, number>();
+        for (const mark of grid.children) {
+          const top = Math.round(mark.getBoundingClientRect().top);
+          rows.set(top, (rows.get(top) ?? 0) + 1);
+        }
+        return [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, count]) => count);
+      });
+    };
+
+    const narrow = await shapeAt(1280, 720);
+    const wide = await shapeAt(1440, 900);
+    expect(narrow.length, 'the marks did not wrap at all').toBeGreaterThan(1);
+    expect(
+      wide,
+      `the marks rewrap with the browser: ${narrow.join('+')} vs ${wide.join('+')}`,
+    ).toEqual(narrow);
+    // ...and no row is a lone orphan under a full one.
+    expect(
+      Math.min(...narrow),
+      `a row of marks is left with ${Math.min(...narrow)}`,
+    ).toBeGreaterThan(Math.max(...narrow) / 2);
+  });
+
   test('offers a glyph to be recognised by', async ({ page }) => {
     await open(page, '/game/settings', 1280, 720);
     const icons = page.getByTestId('settings-icons').getByRole('button');
@@ -201,6 +243,17 @@ test.describe('settings', () => {
 });
 
 test.describe('the console', () => {
+  test('calls a fight on the reviewer through the console', async ({ page }) => {
+    await open(page, '/game/admin', 1440, 900);
+    const calls: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().endsWith('/api/admin/mock-battle')) calls.push(request.method());
+    });
+    await page.getByTestId('admin-mock-battle').click();
+    await expect(page.getByTestId('admin-mock-called')).toBeVisible();
+    expect(calls).toEqual(['POST']);
+  });
+
   for (const { name, width, height } of WIDTHS) {
     test(`lays out the knobs at ${name}`, async ({ page }) => {
       await open(page, '/game/admin', width, height);
@@ -218,6 +271,19 @@ test.describe('the console', () => {
         CITY_DISTRICTS.length,
       );
       await expect(fog.locator('input[type="checkbox"]:disabled')).toHaveCount(1);
+      /*
+       * Every row in the list names a different district.
+       *
+       * The unclaimed plots are all stored as `Player District`, so the snapshot's own names put
+       * four identical rows here and a reviewer un-ticking one had no way to know which ground
+       * they had just put back under fog. The rows carry the numbers the map uses.
+       */
+      const fogNames = await fog.locator('li').allInnerTexts();
+      expect(fogNames.length).toBe(CITY_DISTRICTS.length);
+      expect(
+        new Set(fogNames).size,
+        `two districts in the console read the same: ${fogNames.join(' | ')}`,
+      ).toBe(fogNames.length);
       /*
        * One row per structure, whatever the catalogue holds.
        *

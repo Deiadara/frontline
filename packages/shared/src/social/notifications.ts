@@ -24,9 +24,15 @@ import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
  * the future, which is how a player reads it. The unread badge is therefore always a count of
  * things they asked for.
  *
+ * A kind with no emitter anywhere in the server is the other side of that: a switch that turns
+ * nothing off and a row that never appears. `apps/server/src/social/receipts.test.ts` refuses one,
+ * with a named exception list for the kinds that are honestly not built yet. `payroll_due` was in
+ * that state, left behind when the weekly wage draw became the payroll book (§H7, "nothing is
+ * charged on a clock"), and it is gone rather than excused.
+ *
  * ## Groups
  *
- * The settings screen groups the kinds, because thirteen switches in one column is a wall. The
+ * The settings screen groups the kinds, because a column of switches this long is a wall. The
  * groups have no mechanical meaning beyond that.
  */
 
@@ -53,9 +59,11 @@ export const NOTIFICATION_KINDS = [
   'training_done',
   'unit_trained',
   'district_attacked',
+  'market_won',
+  'market_outbid',
   // The crew
   'officer_hired',
-  'payroll_due',
+  'bar_outbid',
   // People
   'message_received',
   'faction_invite',
@@ -147,11 +155,11 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     blurb: 'Somebody has signed, or walked.',
     icon: 'bar',
   },
-  payroll_due: {
+  bar_outbid: {
     group: 'crew',
-    label: 'Payroll',
-    blurb: 'The weekly wage bill has come out of the stockpile.',
-    icon: 'caps',
+    label: 'Auctions at the Bar',
+    blurb: 'A table you were bidding at has closed, and somebody else took them.',
+    icon: 'bar',
   },
   message_received: {
     group: 'social',
@@ -176,6 +184,18 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     label: 'People leaving',
     blurb: 'Somebody has left your faction, or been shown the door.',
     icon: 'faction',
+  },
+  market_won: {
+    group: 'district',
+    label: 'Lots you won',
+    blurb: 'A lot you were bidding on at the barrow closed with you on top.',
+    icon: 'market',
+  },
+  market_outbid: {
+    group: 'district',
+    label: 'Lots at the barrow',
+    blurb: 'A lot you were bidding on has gone to somebody else, or gone unsold.',
+    icon: 'market',
   },
   scout_home: {
     group: 'district',

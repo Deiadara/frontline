@@ -1,0 +1,12 @@
+-- How loud the interface is for this player, 0 to 100.
+--
+-- On `users` beside `timezone` and `icon`, because it is the same sort of fact: a preference about
+-- how the game is presented to one person, not a fact about their crew. It follows the account
+-- rather than the browser, so a player who set it on a laptop does not have to set it again on a
+-- phone; the client also mirrors it into `localStorage` so the first click of a session is at the
+-- right level before `/me` has landed, and that mirror is a cache, not the record.
+--
+-- NOT NULL with a default rather than nullable: unlike `icon` and `timezone`, which arrived as
+-- nullable columns and lean on `UserSchema`'s defaults to fill a NULL, there is no reason to spell
+-- "never set" differently from 60 here. Every existing row gets 60, which is what a new one gets.
+ALTER TABLE users ADD COLUMN sound_volume INTEGER NOT NULL DEFAULT 60;

@@ -1,18 +1,12 @@
-import {
-  BAR_HIRES_PER_DAY,
-  MAX_BUILD_QUEUE,
-  createCommander,
-  playerLevelGrants,
-  type BarResponse,
-} from '@frontline/shared';
+import { MAX_BUILD_QUEUE, MAX_OPEN_AUCTIONS, type BarResponse } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { WAIVED_REFUSALS } from './mode.js';
-import { hireRecruit } from '../bar/hire.js';
-import { barDay, barRoster } from '../bar/roster.js';
+import { committedWage } from '../bar/hire.js';
+import { crewEffectsFor } from '../crew/standing.js';
 
 /**
  * Every gate admin mode waives, driven the way an ordinary player meets it.
@@ -84,6 +78,20 @@ const errorOf = (body: string): string => {
   }
 };
 
+/**
+ * The Bar's tests bid, and a bid is refused outside the open phase, so the clock is pinned.
+ *
+ * Only `Date` is faked: Fastify's own timers have to keep running or `app.inject` never settles.
+ */
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-08-13T09:00:00.000Z'));
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
+
 describe('the gates admin mode waives, met by an ordinary player', () => {
   it('refuses a build the crew cannot pay for', async () => {
     const app = await makeApp();
@@ -146,138 +154,78 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
     expect(errorOf(overflow.body).toLowerCase()).toContain('build slots');
   });
 
-  it('refuses a second signing on the same day', async () => {
+  /**
+   * §H7a: two tables at once, and the third is refused.
+   *
+   * The daily hire limit this replaced was waived by admin mode; the cap on tables is not, and it
+   * is checked here as an ordinary player meets it: three bids, the last one refused.
+   */
+  it('refuses a third table at once', async () => {
     const app = await makeApp();
-    const { token, baseId } = await makePlayer(app, 'recruiter');
-    app.repos.bases.updateResources(baseId, {
-      caps: 900_000,
-      supplies: 900_000,
-      oil: 900_000,
-      scrap: 900_000,
-      highQualityMetal: 900_000,
-      planks: 900_000,
-    });
+    const { token } = await makePlayer(app, 'recruiter');
 
     const room = await app.inject({ method: 'GET', url: '/api/bar', headers: auth(token) });
-    const open = room
-      .json<BarResponse>()
-      .recruits.filter(
-        (recruit) => recruit.assessment.blockers.length === 0 && recruit.askingWage !== null,
-      );
+    const bar = room.json<BarResponse>();
+    const open = bar.recruits
+      .filter((recruit) => recruit.assessment.blockers.length === 0)
+      .map((recruit) => bar.auctions.find((auction) => auction.recruitId === recruit.id))
+      .filter((auction) => auction !== undefined);
     expect(open.length, 'fixture: the room has nobody a new crew can approach').toBeGreaterThan(
-      BAR_HIRES_PER_DAY,
+      MAX_OPEN_AUCTIONS,
     );
 
-    for (let hire = 0; hire < BAR_HIRES_PER_DAY; hire += 1) {
-      const recruit = open[hire];
-      if (!recruit) throw new Error('fixture: not enough open recruits');
-      const res = await app.inject({
+    const bid = (recruitId: string, amount: number) =>
+      app.inject({
         method: 'POST',
-        url: '/api/bar/hire',
+        url: '/api/bar/bid',
         headers: auth(token),
-        payload: { recruitId: recruit.id, role: null, offerWage: recruit.askingWage ?? 0 },
+        payload: { recruitId, amount },
       });
+
+    for (let table = 0; table < MAX_OPEN_AUCTIONS; table += 1) {
+      const auction = open[table];
+      if (!auction) throw new Error('fixture: not enough open tables');
+      const res = await bid(auction.recruitId, auction.nextBid);
       expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
     }
 
-    const oneMore = open[BAR_HIRES_PER_DAY];
-    if (!oneMore) throw new Error('fixture: not enough open recruits');
-    const refused = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: auth(token),
-      payload: { recruitId: oneMore.id, role: null, offerWage: oneMore.askingWage ?? 0 },
-    });
+    const oneMore = open[MAX_OPEN_AUCTIONS];
+    if (!oneMore) throw new Error('fixture: not enough open tables');
+    const refused = await bid(oneMore.recruitId, oneMore.nextBid);
     expect(refused.statusCode).toBe(409);
-    expect(refused.json<{ error: { code: string } }>().error.code).toBe('DAILY_HIRE_LIMIT');
+    expect(refused.json<{ error: { code: string } }>().error.code).toBe('TOO_MANY_AUCTIONS');
   });
 
-  it('refuses two officers into one chair, which is the gate a waiver used to hide', async () => {
+  /** §H7: the payroll book still refuses a fee it cannot hold, which admin mode would waive. */
+  it('refuses a bid the payroll book will not stretch to', async () => {
     const app = await makeApp();
-    const { token, baseId } = await makePlayer(app, 'double_booker');
-    app.repos.bases.updateResources(baseId, {
-      caps: 900_000,
-      supplies: 900_000,
-      oil: 900_000,
-      scrap: 900_000,
-      highQualityMetal: 900_000,
-      planks: 900_000,
-    });
-    const room = await app.inject({ method: 'GET', url: '/api/bar', headers: auth(token) });
-    const open = room
-      .json<BarResponse>()
-      .recruits.filter(
-        (recruit) => recruit.assessment.blockers.length === 0 && recruit.askingWage !== null,
-      );
-    const [first, second] = open;
-    if (!first || !second) throw new Error('fixture: not enough open recruits');
-
-    const seated = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: auth(token),
-      payload: { recruitId: first.id, role: 'head_spy', offerWage: first.askingWage ?? 0 },
-    });
-    expect(seated.statusCode, seated.body.slice(0, 300)).toBe(200);
-
-    const clash = await app.inject({
-      method: 'POST',
-      url: '/api/bar/hire',
-      headers: auth(token),
-      payload: { recruitId: second.id, role: 'head_spy', offerWage: second.askingWage ?? 0 },
-    });
-    // An ordinary player is told about the chair. (The daily limit is also true by now, which is
-    // why the admin-mode case below goes at the function rather than at the route: only there can
-    // both a waivable and a non-waivable reason be true of the same request.)
-    expect(clash.statusCode).toBe(409);
-    expect(['ROLE_TAKEN', 'DAILY_HIRE_LIMIT']).toContain(
-      clash.json<{ error: { code: string } }>().error.code,
-    );
-  });
-
-  /**
-   * The chair rule is not waivable, and a waivable gate in front of it must not skip it.
-   *
-   * `refusalFor` returns the *first* reason and the caller applies the waiver to that single
-   * reason, so a waived gate standing ahead of a hard one hides it completely. `no_slots` is waived
-   * and `role_taken` is not. On a full roster in admin mode the hire reached `no_slots`, had it
-   * waived, and never evaluated `role_taken`: two officers signed into one chair, both paid as the
-   * seated officer by `crewSheetsFor` (which does not dedupe by role), both sets of perks summed
-   * into the crew's channels, and the row surviving the flag being turned off.
-   *
-   * Driven at `hireRecruit` rather than over HTTP because this is the one case where a waivable and
-   * a non-waivable reason have to be true of the same request, and the daily limit gets in the way
-   * of setting that up through the route.
-   */
-  it('does not let admin mode waive a full roster into a double-booked chair', async () => {
-    const app = await makeApp();
-    const { baseId, userId } = await makePlayer(app, 'bench_stuffer');
+    const { token, baseId } = await makePlayer(app, 'overcommitted');
     const base = app.repos.bases.findById(baseId);
     if (!base) throw new Error('no base');
 
-    // A roster that is both full (`no_slots`, waived) and already holding the chair
-    // (`role_taken`, not waived).
-    const seated = createCommander('off-1', 'Halvard', 'head_spy');
-    const filler = createCommander('off-2', 'Vasso', 'lead_engineer');
-    const full = { ...base, commanders: [seated, filler] };
-    expect(full.commanders.length).toBeGreaterThanOrEqual(
-      playerLevelGrants(full.level).recruitSlots,
+    const room = await app.inject({ method: 'GET', url: '/api/bar', headers: auth(token) });
+    const bar = room.json<BarResponse>();
+    const target = bar.auctions.find((auction) =>
+      bar.recruits.some(
+        (recruit) => recruit.id === auction.recruitId && recruit.assessment.interested,
+      ),
     );
+    if (!target) throw new Error('fixture: nobody to bid on');
 
-    const recruit = barRoster(barDay(new Date()))[0];
-    if (!recruit) throw new Error('fixture: the room is empty');
+    // Over the ceiling *after* this crew's own negotiators have talked the contract down, which is
+    // the figure the gate reads (§H7, `committedWage`). A bid one cap over the raw capacity fits.
+    const discount = crewEffectsFor(app.repos, base).wageDiscountPercent;
+    const amount = Math.ceil((bar.payroll.capacity + 1) / (1 - discount / 100)) + 1;
+    expect(committedWage(amount, discount)).toBeGreaterThan(bar.payroll.capacity);
 
-    const result = hireRecruit(app.repos, {
-      base: full,
-      userId,
-      seat: 0,
-      recruit,
-      role: 'head_spy',
-      offerWage: 1000,
-      now: new Date(),
-      admin: true,
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/api/bar/bid',
+      headers: auth(token),
+      payload: { recruitId: target.recruitId, amount },
     });
-    expect(result).toEqual({ kind: 'refused', reason: 'role_taken' });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { code: string } }>().error.code).toBe('NO_PAYROLL');
   });
 
   it('names every waived refusal, so a new one cannot be added without a decision', () => {
@@ -286,7 +234,6 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
     expect([...WAIVED_REFUSALS].sort()).toEqual(
       [
         'cannot_afford',
-        'daily_limit',
         'level',
         'locked',
         'missing_parts',
@@ -295,9 +242,9 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
         'no_slots',
         'no_supply',
         'not_enough_infamy',
+        'not_interested',
         'queue_full',
         'requirement',
-        'standoff',
       ].sort(),
     );
   });

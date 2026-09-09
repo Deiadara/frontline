@@ -11,6 +11,7 @@ import {
   garrisonOf,
   maxFortifyBonusPercent,
   quoteFortify,
+  weatherAt,
   type Army,
   type BattleTarget,
   type Building,
@@ -21,12 +22,14 @@ import {
 import { useState, type CSSProperties } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
+import { PLAQUE_PLATE, PlaqueFace } from '../../components/DistrictPlaque';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { FortifyMeter } from '../../components/ui/FortifyMeter';
-import { LabelRow } from '../../components/ui/LabelChip';
+import { Characteristics } from '../../components/ui/LabelChip';
+import { whenItHolds } from './characteristics';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
 import { ContestedScene, hasPainting } from './ContestedScene';
 import { DistrictScene } from '../base/DistrictScene';
@@ -165,7 +168,6 @@ export function DistrictView() {
     return (
       <VisitedDistrict
         data={data}
-        viewer={viewer}
         gate={gate}
         playerLevel={me.data?.base?.level ?? 1}
         onLeave={() => void navigate('/game')}
@@ -174,6 +176,7 @@ export function DistrictView() {
         slots={slots}
         declare={declare}
         onDone={() => setCalling(null)}
+        now={now}
       />
     );
   }
@@ -501,10 +504,16 @@ function LocationCard({
       <p className="font-body text-xs leading-relaxed text-ink-300">{spec.blurb}</p>
       <p className="font-body text-xs leading-relaxed text-brass-300/80">{view.reward}</p>
 
-      {/* What the ground is like: the location's own character folded with today's sky (§A4).
-          Above the numbers on purpose: this is what decides *what to bring*, and a player who
-          reads nothing else on the card should still see that a tunnel is Crammed IV and Dark. */}
-      <LabelRow labels={view.labels} size="sm" />
+      {/* §A4: the location's own character folded with today's sky, titled, because this is the
+          section that decides *what to bring*. A player who reads nothing else on the card should
+          still see that a tunnel is Crammed IV and Dark II. Each chip carries its tier as a numeral
+          and its own hover; the ones the sky put there say so, so nobody plans tomorrow around
+          rain that will have stopped. */}
+      <Characteristics
+        labels={view.labels}
+        when={whenItHolds(view.location.kind, weatherAt(now))}
+        data-testid={`characteristics-${view.location.id}`}
+      />
 
       <dl className="flex flex-col divide-y divide-surface-700 border-y border-surface-700">
         <Row label="Pays" value={view.bonuses.join(' · ')} />
@@ -811,12 +820,14 @@ function Waiting({ until, now }: { until: string; now: Date }) {
  * who has learned where the Nexus sits on their own street knows where it sits on this one, because
  * it is the same painting with the same plates in the same places.
  *
- * The one difference is what a plate does. On your ground it opens the build dialog; here it opens
- * the only thing you can do to a building that is not yours.
+ * **One call on the screen, and it is about the district rather than about a roof.** A home is shut
+ * by the crew living on it (§A4), so while their Gate stands the only thing to hit is the gate, and
+ * inside the day a breach lasts the only thing to hit is the whole place at once. The plates are
+ * information now: what the building is and how far along it is. They used to each offer a fight,
+ * which meant turning a district over cost thirteen declarations against a cap of three.
  */
 function VisitedDistrict({
   data,
-  viewer,
   gate,
   playerLevel,
   onLeave,
@@ -825,9 +836,9 @@ function VisitedDistrict({
   slots,
   declare,
   onDone,
+  now,
 }: {
   data: DistrictDetailResponse;
-  viewer: { ownDistrictId: string | null; ownName: string | null };
   gate: { districtId: string; shut: boolean; brokenUntil: string | null } | undefined;
   playerLevel: number;
   onLeave: () => void;
@@ -836,14 +847,37 @@ function VisitedDistrict({
   slots: readonly string[];
   declare: ReturnType<typeof useDeclareBattle>;
   onDone: () => void;
+  now: Date;
 }) {
   const [picked, setPicked] = useState<BuildingKind | null>(null);
   const standing =
     picked === null ? undefined : data.residentBuildings.find((b) => b.kind === picked);
 
-  // The way in, in the server's words rather than this screen's. A gate that is shut and unbroken
-  // is why a fight cannot be called, and it is the only reason worth spelling out here.
-  const shut = gate?.shut === true && gate.brokenUntil === null;
+  /*
+   * Whose plot this is, in their own words.
+   *
+   * The one screen that names the resident rather than numbering the plot. The map numbers them,
+   * because there the reader is a stranger to nine of the ten; here they have walked in and the
+   * crew's name is already printed two inches below in the panel copy and on every receipt the
+   * fight produces. `districtDisplayName` is still the rule, given the resident as the viewer,
+   * which is the same call `battle/ground.ts` makes for a report.
+   */
+  const name = districtDisplayName(data.district, {
+    ownDistrictId: data.district.id,
+    ownName: data.base?.name ?? null,
+  });
+
+  /*
+   * The way in, in the server's words rather than this screen's.
+   *
+   * `brokenUntil` is re-read against the clock rather than trusted for being non-null: the board is
+   * cached, and a breach that ran out three minutes ago would otherwise leave a raid button on the
+   * screen for the server to refuse.
+   */
+  const breachEnds = gate?.brokenUntil === undefined ? null : gate.brokenUntil;
+  const breachLeft = breachEnds === null ? 0 : Date.parse(breachEnds) - now.getTime();
+  const breached = breachLeft > 0;
+  const shut = gate?.shut === true && !breached;
 
   return (
     <div
@@ -877,17 +911,32 @@ function VisitedDistrict({
           >
             ← Back to the city
           </button>
-          <span className="font-display text-[13px] font-bold tracking-[0.1em] text-ink-100">
-            {districtDisplayName(data.district, viewer)}
-          </span>
-          {data.raidable && (
+          {/* Their name on their wall, on the same plate yours is drawn on in the standing bar
+              (`DistrictPlaque`). A sign, not a heading: this is a place you are standing in. */}
+          <div className={PLAQUE_PLATE} data-testid="visited-district-name">
+            <PlaqueFace name={name} />
+          </div>
+          {/* One call, and which one it is is a fact about the door rather than a choice. While
+              their Gate stands there is nothing behind it to reach; inside a breach the raid is
+              the whole district at once and the clock says how long that lasts. */}
+          {data.raidable && shut && (
             <Button
               size="sm"
               variant="danger"
               data-testid="call-gate"
               onClick={() => onCall({ kind: 'gate', districtId: data.district.id })}
             >
-              Call a fight at the gate
+              Break the gate
+            </Button>
+          )}
+          {data.raidable && breached && (
+            <Button
+              size="sm"
+              variant="danger"
+              data-testid="call-district"
+              onClick={() => onCall({ kind: 'district', districtId: data.district.id })}
+            >
+              Raid the district ({formatRemaining(breachLeft)} left)
             </Button>
           )}
         </div>
@@ -897,29 +946,15 @@ function VisitedDistrict({
         <VisitedBuildingDialog
           kind={picked}
           standing={standing}
-          districtName={districtDisplayName(data.district, viewer)}
-          shut={shut}
+          districtName={name}
           onClose={() => setPicked(null)}
-          onCall={() => {
-            if (standing === undefined) return;
-            onCall({
-              kind: 'building',
-              districtId: data.district.id,
-              buildingId: standing.id,
-            });
-            setPicked(null);
-          }}
         />
       )}
 
       {calling && (
         <DeclareDialog
           target={calling}
-          targetName={
-            calling.kind === 'building'
-              ? `${BUILDING_CATALOG[data.residentBuildings.find((b) => b.id === calling.buildingId)?.kind ?? 'nexus'].name} at ${districtDisplayName(data.district, viewer)}`
-              : `the gate at ${districtDisplayName(data.district, viewer)}`
-          }
+          targetName={calling.kind === 'gate' ? `the gate at ${name}` : `a raid on ${name}`}
           slots={slots}
           pending={declare.isPending}
           error={declare.error}
@@ -937,27 +972,25 @@ function VisitedDistrict({
 }
 
 /**
- * What one of their buildings is, and the one thing you can do about it.
+ * What one of their buildings is, and nothing you can do about it.
  *
  * The mirror of `StructureDialog` on your own ground, and the difference is the whole point of the
- * screen: there it says what the next level costs, and here it says what breaking into this one
- * would take. A building behind a standing gate says so rather than offering a control that the
- * server would refuse, because a refusal after a confirmation is a worse answer than a reason.
+ * screen: there it says what the next level costs, and here it says what is standing and how far
+ * along it is. It carried a `Call a fight here` button until the board made a raid one call on the
+ * whole district (§A4): thirteen roofs meant thirteen declarations against a cap of three, so the
+ * per-roof fight was a control almost nobody could afford to press. The one call lives on the
+ * screen behind this dialog now.
  */
 function VisitedBuildingDialog({
   kind,
   standing,
   districtName,
-  shut,
   onClose,
-  onCall,
 }: {
   kind: BuildingKind;
   standing: Building | undefined;
   districtName: string;
-  shut: boolean;
   onClose: () => void;
-  onCall: () => void;
 }) {
   const spec = BUILDING_CATALOG[kind];
   return (
@@ -978,28 +1011,7 @@ function VisitedBuildingDialog({
           </p>
         )}
 
-        {shut ? (
-          <p className="font-body text-[13px] leading-relaxed text-oxblood-300">
-            The gate is standing, so nothing behind it can be reached. Break the gate first and
-            everything in here is open for a day.
-          </p>
-        ) : (
-          <p className="font-body text-[13px] leading-relaxed text-ink-300">
-            Breaking in damages the building and takes whatever your people can carry out of the
-            stockpile behind it.
-          </p>
-        )}
-
         <div className="flex flex-wrap items-center gap-2.5">
-          <Button
-            size="sm"
-            variant="danger"
-            disabled={shut || standing === undefined}
-            data-testid="call-building"
-            onClick={onCall}
-          >
-            Call a fight here
-          </Button>
           <Button size="sm" variant="ghost" onClick={onClose}>
             Close
           </Button>

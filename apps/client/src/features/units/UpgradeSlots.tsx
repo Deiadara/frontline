@@ -194,6 +194,7 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
               <button
                 type="button"
                 disabled={unit.slots[open]?.upgradeId === null || burn.isPending}
+                data-sound="confirm"
                 onClick={() => {
                   const fitted = unit.slots[open]?.upgradeId;
                   if (!fitted) return;

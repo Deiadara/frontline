@@ -2,6 +2,8 @@ import {
   BUILDING_CATALOG,
   BUILDING_KINDS,
   BUILDING_MAX_LEVEL,
+  CITY_DISTRICTS,
+  districtDisplayName,
   RESOURCE_KEYS,
   type AdminKnobsRequest,
   type AdminSnapshot,
@@ -12,10 +14,11 @@ import { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { NumberField } from '../../components/ui/NumberField';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
-import { useAdmin, useAdminFog, useAdminKnobs } from '../../lib/queries';
+import { useAdmin, useAdminFog, useAdminKnobs, useAdminMockBattle } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
 import { formatDayClock } from '@frontline/shared';
 import { usePlayerZone } from '../settings/usePlayerZone';
@@ -116,20 +119,20 @@ function StructureKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
             />
           </label>
 
-          <label className="flex flex-col gap-1.5">
+          {/* The same stepper every other count in the game uses, not a browser range slider. */}
+          <div className="flex flex-col gap-1.5">
             <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
-              Level ({level})
+              Level
             </span>
-            <input
-              type="range"
+            <NumberField
+              label="Level"
+              value={level}
               min={0}
               max={BUILDING_MAX_LEVEL}
-              value={level}
-              onChange={(event) => setLevel(Number(event.target.value))}
+              onChange={setLevel}
               data-testid="admin-level"
-              className="h-9 w-56 accent-brass-300"
             />
-          </label>
+          </div>
 
           <Button
             size="sm"
@@ -295,6 +298,20 @@ function FogPanel({ snapshot }: { snapshot: AdminSnapshot }) {
   const fog = useAdminFog();
 
   const hidden = snapshot.fog.filter((entry) => !entry.visible).length;
+  /*
+   * The plots are numbered here, exactly as they are on the map.
+   *
+   * Every unclaimed residential district is stored as `Player District`, so the snapshot's own
+   * names put four identical rows in this list and left a reviewer un-ticking one at random to
+   * find out which was which. `districtDisplayName` is the rule the city, the district screen and
+   * the standings all name a plot by, and it numbers them from the viewer's own: the home row is
+   * already marked, so it keeps the bare name and the rest read I, II, III.
+   */
+  const home = snapshot.fog.find((entry) => entry.home)?.districtId ?? '';
+  const nameOf = (districtId: string, fallback: string): string => {
+    const district = CITY_DISTRICTS.find((one) => one.id === districtId);
+    return district ? districtDisplayName(district, { ownDistrictId: home }) : fallback;
+  };
   const setAll = (visible: boolean) => {
     for (const entry of snapshot.fog) {
       if (entry.visible !== visible) fog.mutate({ districtId: entry.districtId, visible });
@@ -327,7 +344,9 @@ function FogPanel({ snapshot }: { snapshot: AdminSnapshot }) {
                   }
                   data-testid={`admin-fog-${entry.districtId}`}
                 />
-                <span className="min-w-0 flex-1 break-words leading-snug">{entry.name}</span>
+                <span className="min-w-0 flex-1 break-words leading-snug">
+                  {nameOf(entry.districtId, entry.name)}
+                </span>
                 {entry.home && (
                   <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
                     Home
@@ -403,6 +422,46 @@ function BackupsPanel({ snapshot }: { snapshot: AdminSnapshot }) {
   );
 }
 
+/** A fight called on the reviewer by whoever else is in the city, through the real declaration. */
+function FightsPanel() {
+  const mock = useAdminMockBattle();
+  return (
+    <Panel title="Fights">
+      <div className="flex flex-col gap-3 p-4">
+        <p className="font-body text-[13px] leading-relaxed text-ink-300">
+          Somebody else in the city calls a fight on your ground at the earliest mark, through the
+          same declaration a player makes: the bell rings, the red mark lands on the bar, and the
+          board carries it. A crew holding nothing is handed one location first.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={mock.isPending}
+            onClick={() => mock.mutate()}
+            data-testid="admin-mock-battle"
+          >
+            {mock.isPending ? 'Calling…' : 'Call a fight on me'}
+          </Button>
+          {mock.isSuccess && (
+            <span
+              className="font-body text-[12px] text-verdigris-300"
+              data-testid="admin-mock-called"
+            >
+              Called. It is on the Battles board.
+            </span>
+          )}
+          {mock.error !== null && (
+            <span role="alert" className="font-body text-[12px] text-oxblood-300">
+              {mock.error.message}
+            </span>
+          )}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 export function AdminPage() {
   const query = useAdmin();
   const knobs = useAdminKnobs();
@@ -473,6 +532,7 @@ export function AdminPage() {
         <FogPanel snapshot={snapshot} />
         <div className="flex flex-col gap-5">
           <StateKnobs snapshot={snapshot} />
+          <FightsPanel />
           <BackupsPanel snapshot={snapshot} />
         </div>
       </div>

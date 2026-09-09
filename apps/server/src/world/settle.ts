@@ -1,4 +1,6 @@
 import type { SkirmishEngine } from '@frontline/shared';
+import { settleBarAuctions } from '../bar/auction.js';
+import { settleVendorAuctions } from '../market/auction.js';
 import { settleBattles } from '../battle/resolve.js';
 import { settleMovements } from '../battle/movement.js';
 import { settleFortifications } from '../city/actions.js';
@@ -33,8 +35,14 @@ import type { Repositories } from '../db/repos/index.js';
  * 3. **Captured gates**, because a gate that finished going up before the mark changes how hard
  *    that ground is to take, and it changes it for somebody else.
  * 4. **Battles**, which read all three.
- * 5. **Crews coming home** and **scouting**, which read nothing above them and write receipts. Last
- *    because a receipt only has to arrive, not to arrive in any particular order.
+ * 5. **Crews coming home**, **scouting** and **the two closed auctions**, the Bar's and the
+ *    Runner's, which read nothing above them and write receipts. Last because a receipt only has to
+ *    arrive, not to arrive in any particular order.
+ *
+ * Both auctions are here rather than only on their own read paths, because a table closes at
+ * midnight and a lot closes when the Runner packs up whether or not anybody is looking: the crew
+ * that won should find the officer on the books or the goods in the satchel and a bell rung, not
+ * discover both by opening the right screen three days later.
  *
  * Crews coming home is passed in rather than imported, because it lives in `live/clock.ts` with the
  * missions half of the tick and importing it here would be a cycle.
@@ -52,5 +60,7 @@ export function settleWorld(
   const fights = settleBattles(repos, engine, now).length;
   bringCrewsHome?.(repos, now);
   settleScouting(repos, now);
+  settleBarAuctions(repos, now);
+  settleVendorAuctions(repos, now);
   return fights;
 }

@@ -2,6 +2,7 @@ import type { AppDatabase } from '../index.js';
 import { createBarRepo, type BarRepo } from './bar.js';
 import { createBasesRepo, type BasesRepo } from './bases.js';
 import { createMarketRepo, type MarketRepo } from './market.js';
+import { createVendorAuctionsRepo, type VendorAuctionsRepo } from './vendor-auctions.js';
 import { createBlackMarketRepo, type BlackMarketRepo } from './blackmarket.js';
 import { createCapturedGatesRepo, type CapturedGatesRepo } from './gates.js';
 import { createHistoryRepo, type HistoryRepo } from './history.js';
@@ -29,13 +30,15 @@ export interface Repositories {
   /** Declared battles, the forces moved up for them, gates and traps (GDD §A4). */
   sieges: SiegeRepo;
   missions: MissionsRepo;
-  /** The Bar's shared seat turnover and hire log (GDD §H2, §H2b). */
+  /** The Bar's bids, closed auctions and signing log (GDD §H2, §H7a). */
   bar: BarRepo;
   /** Who holds the city, and who has seen it (GDD §A4). */
   city: CityRepo;
   movements: MovementRepo;
   /** The trading board: listings between players. */
   market: MarketRepo;
+  /** The Runner's lots: every bid on the barrow, and how each lot closed. */
+  vendorAuctions: VendorAuctionsRepo;
   /** The back room: slot turnover, receipts, and boosts nobody has spent yet. */
   blackMarket: BlackMarketRepo;
   /** §B7: the gates on districts crews have taken whole. Keyed by ground, not by crew. */
@@ -74,6 +77,7 @@ export function createRepositories(
     city: createCityRepo(db, options.admin ?? false),
     movements: createMovementRepo(db),
     market: createMarketRepo(db),
+    vendorAuctions: createVendorAuctionsRepo(db),
     blackMarket: createBlackMarketRepo(db),
     capturedGates: createCapturedGatesRepo(db),
     history: createHistoryRepo(db),

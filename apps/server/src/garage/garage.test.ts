@@ -1,4 +1,4 @@
-import { findVehicle, type GarageResponse } from '@frontline/shared';
+import { MAX_PER_VEHICLE, findVehicle, type GarageResponse } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
@@ -100,7 +100,7 @@ describe('the Garage page (§B11)', () => {
   it('lists every machine in the catalogue, locked or not, with a reason on each lock', async () => {
     const { app, token } = await makeStack();
     const page = await garage(app, token);
-    expect(page.vehicles).toHaveLength(8);
+    expect(page.vehicles).toHaveLength(7);
     expect(page.garageLevel).toBe(0);
     // Nothing is buildable without a Garage, and every row says so rather than being absent.
     for (const vehicle of page.vehicles) {
@@ -143,9 +143,12 @@ describe('the Garage page (§B11)', () => {
     const { app, token, baseId } = await makeStack();
     raiseGarage(app, baseId, 1);
     stock(app, baseId);
+    // The plans and the money are both in hand, so the Garage level is the only thing left to
+    // refuse on: without this the door still says 409, for the blueprint, whatever the level does.
+    grantBlueprint(app, baseId, 'bp_armoured_car');
     const before = app.repos.bases.findById(baseId)!.resources;
 
-    const res = await build(app, token, 'war_hauler');
+    const res = await build(app, token, 'armoured_car');
     // 409, the `WORKSHOP_REFUSED` code: a refusal about the *state of the world* rather than about
     // the request, which is well-formed.
     expect(res.statusCode).toBe(409);
@@ -178,7 +181,7 @@ describe('the Garage page (§B11)', () => {
     const refused = await build(app, token, 'motorcycle');
     expect(refused.statusCode).toBe(409);
     expect(refused.json<{ error: { message: string } }>().error.message).toBe(
-      'Needs the Motorbike Blueprint',
+      'Needs the Scrappy Blueprint',
     );
     expect(app.repos.bases.findById(baseId)!.resources).toEqual(before);
     expect(app.repos.bases.findById(baseId)!.fleet).toEqual({});
@@ -198,5 +201,99 @@ describe('the Garage page (§B11)', () => {
     await build(app, token, 'motorcycle');
     const page = await garage(app, token);
     expect(page.capacity).toBe(2 * findVehicle('motorcycle')!.capacity);
+  });
+});
+
+/**
+ * §C: "however rich a crew gets, the yard holds this many of one kind".
+ *
+ * `vehicleRefusal` was handed `base.fleet` alone, and a machine committed to a fight or loaded
+ * onto a run has *left* `base.fleet`: it sits on the deployment or the mission row until the crew
+ * is home. So the yard's ceiling was enforced against the machines standing in it rather than
+ * against the machines the crew owns. Send the yard out, build a second yard while it is away, and
+ * the cap is exactly doubled the moment they come back. The page already computed what is out, for
+ * the "1 in the yard, 2 out" line: the door simply was not reading it.
+ */
+describe('how many of one machine a yard holds (§C)', () => {
+  /** A full yard of bikes, the cheap way: written straight to the fleet column. */
+  function park(app: FastifyInstance, baseId: string, fleet: Record<string, number>): void {
+    app.repos.bases.updateFleet(baseId, fleet);
+  }
+
+  it('counts the machines that are out on the road against the ceiling', async () => {
+    const { app, token, baseId } = await makeStack();
+    raiseGarage(app, baseId, 2);
+    stock(app, baseId);
+    grantBlueprint(app, baseId, 'bp_motorcycle');
+
+    // The whole yard, minus one, and one bike out on a job: that is the cap, in total.
+    park(app, baseId, { motorcycle: MAX_PER_VEHICLE - 1 });
+    const base = app.repos.bases.findById(baseId)!;
+    app.repos.missions.insert({
+      seed: 1,
+      successChance: 1,
+      mission: {
+        id: 'out-on-a-run',
+        baseId: base.id,
+        templateId: 'scrap-run',
+        areaId: 'misc',
+        payPercent: 0,
+        xp: 0,
+        force: { razors: 1 },
+        vehicles: { motorcycle: 1 },
+        pricedMinutes: 60,
+        startedAt: new Date().toISOString(),
+        recalledAt: null,
+        travelMinutes: 30,
+        durationMinutes: 60,
+        status: 'active',
+        officerId: null,
+        outcome: null,
+        rewards: {},
+        spoils: {},
+        resolvedAt: null,
+        pagePrize: null,
+        pageWon: null,
+      },
+    });
+
+    // The page says the ceiling is reached, counting the one on the road.
+    const page = await garage(app, token);
+    const bike = page.vehicles.find((row) => row.id === 'motorcycle')!;
+    expect(bike.owned).toBe(MAX_PER_VEHICLE - 1);
+    expect(bike.out).toBe(1);
+    expect(bike.refusal).toBe('There is nowhere left to park another one');
+
+    // And the door agrees, which is the half that could mint a thirteenth bike.
+    const refused = await build(app, token, 'motorcycle');
+    expect(refused.statusCode, refused.body.slice(0, 200)).toBe(409);
+    expect(app.repos.bases.findById(baseId)!.fleet.motorcycle).toBe(MAX_PER_VEHICLE - 1);
+
+    // The positive control: one fewer out, and the same request stands.
+    app.repos.missions.markResolved('out-on-a-run', {
+      outcome: 'success',
+      rewards: {},
+      spoils: {},
+      resolvedAt: new Date().toISOString(),
+      pageWon: null,
+    });
+    const allowed = await build(app, token, 'motorcycle');
+    expect(allowed.statusCode, allowed.body.slice(0, 200)).toBe(200);
+    expect(app.repos.bases.findById(baseId)!.fleet.motorcycle).toBe(MAX_PER_VEHICLE);
+  });
+
+  it('still refuses the machine after the ceiling with nothing out at all', async () => {
+    const { app, token, baseId } = await makeStack();
+    raiseGarage(app, baseId, 2);
+    stock(app, baseId);
+    grantBlueprint(app, baseId, 'bp_motorcycle');
+
+    // Cap minus one: the last one goes in.
+    park(app, baseId, { motorcycle: MAX_PER_VEHICLE - 1 });
+    expect((await build(app, token, 'motorcycle')).statusCode).toBe(200);
+    expect(app.repos.bases.findById(baseId)!.fleet.motorcycle).toBe(MAX_PER_VEHICLE);
+    // Cap plus one: refused.
+    expect((await build(app, token, 'motorcycle')).statusCode).toBe(409);
+    expect(app.repos.bases.findById(baseId)!.fleet.motorcycle).toBe(MAX_PER_VEHICLE);
   });
 });

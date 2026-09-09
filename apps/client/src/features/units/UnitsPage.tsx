@@ -11,18 +11,37 @@ import {
   type TrainingOrder,
   type UnitTier,
 } from '@frontline/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { InfoWindow } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
+import { useDeltaMarks } from '../../lib/deltas';
 import { useCancelTraining, useMe, useTrainUnits, useUnits } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { UnitCard } from './UnitCard';
 import { PageShell } from '../game/PageShell';
+import { VehicleCatalogue } from '../garage/VehicleCatalogue';
+
+/**
+ * The tabs across the roster: the six tiers, then the machines (board request, 2026-09-08).
+ *
+ * The Garage's catalogue is a tab here rather than a page of its own because a machine is chosen
+ * against the legs of the people who will ride it, and `speed` on a vehicle card is the same 0 to
+ * 100 a unit's sheet carries. `vehicles` is not a `UnitTier`: nothing in the domain calls a
+ * machine a unit, so the tab is a fact about this screen and stays in it.
+ */
+type RosterTab = UnitTier | 'vehicles';
+const ROSTER_TABS: readonly RosterTab[] = [...UNIT_TIERS, 'vehicles'];
+const ROSTER_TAB_LABELS: Record<RosterTab, string> = { ...UNIT_TIER_LABELS, vehicles: 'Vehicles' };
+
+function isRosterTab(value: string | null): value is RosterTab {
+  return value !== null && (ROSTER_TABS as readonly string[]).includes(value);
+}
 
 /**
  * The roster (GDD §A5): what this crew can field, what it has, and what is on the bench.
@@ -42,8 +61,17 @@ export function UnitsPage() {
    *
    * The tier a player opens this screen to look at is the one that decides whether a mission comes
    * home with the loot it earned, and it was four clicks down the list behind the fighting tiers.
+   *
+   * The open tab lives in the URL (`?tab=vehicles`), the way the Scrapyard's bench does, so the
+   * Garage page can send a player to the machines with a plain link. `replace`, because picking
+   * through the tabs is browsing rather than navigating: one press of Back leaves the roster.
    */
-  const [tier, setTier] = useState<UnitTier>('carrier');
+  const [params, setParams] = useSearchParams();
+  const requested = params.get('tab');
+  const tab: RosterTab = isRosterTab(requested) ? requested : 'carrier';
+  const setTab = (next: RosterTab) => {
+    setParams(next === 'carrier' ? {} : { tab: next }, { replace: true });
+  };
 
   const data = query.data;
 
@@ -77,6 +105,20 @@ export function UnitsPage() {
     if (settled) void refetchUnits();
   }, [settled, refetchUnits]);
 
+  /*
+   * What each count on the roster just did.
+   *
+   * Nothing trickles into a unit count, so there is no rate to write off: a body appearing was
+   * trained and a body vanishing marched out or died. Above the early return below, because a hook
+   * cannot be called conditionally; `useDeltaMarks` announces nothing until it has two readings,
+   * so a page that has not loaded yet costs it nothing.
+   */
+  const owned = useMemo(
+    () => Object.fromEntries((data?.units ?? []).map((unit) => [unit.id, unit.owned])),
+    [data?.units],
+  );
+  const mustered = useDeltaMarks(owned);
+
   if (!data) {
     return (
       <ScreenLoad
@@ -88,7 +130,7 @@ export function UnitsPage() {
     );
   }
 
-  const shown = data.units.filter((unit) => unit.tier === tier);
+  const shown = data.units.filter((unit) => unit.tier === tab);
   const overSupply = data.supplyUsed >= data.supplyCap;
 
   return (
@@ -193,24 +235,24 @@ export function UnitsPage() {
 
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap gap-2">
-          {UNIT_TIERS.map((option) => (
+          {ROSTER_TABS.map((option) => (
             <button
               key={option}
               type="button"
-              onClick={() => setTier(option)}
+              onClick={() => setTab(option)}
               // The one control on this page a test could not reach: every card, mark row and
               // action box carries a handle and the tier tabs did not, so a check that wanted to
               // look at the Heavy roster had to match the label text through its uppercase CSS.
               data-testid={`tier-${option}`}
-              aria-pressed={option === tier}
+              aria-pressed={option === tab}
               className={cn(
                 'border px-3 py-1.5 font-display text-[11px] uppercase tracking-[0.18em] transition-colors',
-                option === tier
+                option === tab
                   ? 'border-brass-300 text-brass-300'
                   : 'border-surface-600 text-ink-300 hover:border-surface-500',
               )}
             >
-              {UNIT_TIER_LABELS[option]}
+              {ROSTER_TAB_LABELS[option]}
             </button>
           ))}
         </div>
@@ -234,31 +276,36 @@ export function UnitsPage() {
           </p>
         )}
 
-        <div
-          className="grid gap-4 [@media(min-width:1440px)]:grid-cols-2"
-          data-testid="unit-catalogue"
-        >
-          {shown.map((unit) => (
-            <UnitCard
-              key={unit.id}
-              unit={unit}
-              built={data.built}
-              garrisoned={data.garrisoned[unit.id] ?? 0}
-              abroad={data.abroad[unit.id] ?? 0}
-              training={{
-                resources: data.resources,
-                spare: Math.max(0, data.supplyCap - data.supplyUsed),
-                // §A4: the crew-wide cut plus what this unit's own ground takes off it, which is
-                // the same sum the training route charges with. Quoting only the crew-wide figure
-                // would have **Max** offering a batch at a price the server does not charge.
-                discountPercent: data.trainingCostReduction + (unit.homeCostReduction ?? 0),
-                suppliesPercent: data.trainingSuppliesReduction ?? 0,
-                pending: train.isPending,
-                onTrain: (count) => train.mutate({ unitId: unit.id, count }),
-              }}
-            />
-          ))}
-        </div>
+        {tab === 'vehicles' ? (
+          <VehicleCatalogue />
+        ) : (
+          <div
+            className="grid gap-4 [@media(min-width:1440px)]:grid-cols-2"
+            data-testid="unit-catalogue"
+          >
+            {shown.map((unit) => (
+              <UnitCard
+                key={unit.id}
+                unit={unit}
+                built={data.built}
+                garrisoned={data.garrisoned[unit.id] ?? 0}
+                abroad={data.abroad[unit.id] ?? 0}
+                deltas={mustered[unit.id] ?? []}
+                training={{
+                  resources: data.resources,
+                  spare: Math.max(0, data.supplyCap - data.supplyUsed),
+                  // §A4: the crew-wide cut plus what this unit's own ground takes off it, which is
+                  // the same sum the training route charges with. Quoting only the crew-wide figure
+                  // would have **Max** offering a batch at a price the server does not charge.
+                  discountPercent: data.trainingCostReduction + (unit.homeCostReduction ?? 0),
+                  suppliesPercent: data.trainingSuppliesReduction ?? 0,
+                  pending: train.isPending,
+                  onTrain: (count) => train.mutate({ unitId: unit.id, count }),
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </PageShell>
   );

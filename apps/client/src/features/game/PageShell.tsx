@@ -3,6 +3,7 @@ import { deliveredUrl } from '../../assets/delivered';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { InfoWindow } from '../../components/ui/InfoWindow';
+import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Quote } from '../../components/ui/Quote';
 import { cn } from '../../lib/cn';
 
@@ -194,6 +195,28 @@ export function PageShell({
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * The two states before a screen's data lands, inside the frame the screen will have.
+ *
+ * A screen that has not loaded has not drawn its `PageShell` yet, so a bare {@link ScreenLoad}
+ * goes straight into the shell's outlet at the top-left of the viewport, which is where the
+ * standing bar is drawn. Seven screens shipped that way: the market, the back room, the board,
+ * the workshop, the yard, the garage and the gym all put "would not load" and a Try again button
+ * in the DOM, correctly worded, six inches under an opaque bar. A player got a blurred district
+ * and nothing else, which is the failure `LoadFailure` was written to end, arrived at from the
+ * other side.
+ *
+ * So the framed version is a component rather than seven copies of `<PageShell><ScreenLoad/>`:
+ * a screen returns this before its data is there, and cannot put the message where the chrome is.
+ */
+export function ScreenLoadSheet(props: Parameters<typeof ScreenLoad>[0]) {
+  return (
+    <PageShell wide>
+      <ScreenLoad {...props} />
+    </PageShell>
   );
 }
 

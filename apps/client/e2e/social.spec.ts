@@ -68,7 +68,7 @@ test('the faction screen is a room with the table standing in it', async ({ page
   await expect(sableCard).toContainText('Defences');
   await expect(sableCard).toContainText('Toughness, Organization and Resolve');
   await expect(members.getByRole('img', { name: 'King of diamonds' })).toBeVisible();
-  await expect(members.getByTitle('Defences: D+')).toBeVisible();
+  await expect(members.locator('[data-tip="Defences: D+"]')).toBeVisible();
   await expect(page.getByTestId('faction-card-Nikos')).toContainText('Attacks');
 
   await settleFonts(page);
@@ -516,11 +516,16 @@ test('leaving as the leader says what it will cost before it does it', async ({ 
   await installApi(page, lateGame);
   await page.goto('/game/faction');
 
+  // The way out is on your own file, not in the book: the book keeps the badge and the disbanding.
   await page.getByTestId('faction-door-book').click();
-  // The three ranks, each with what it carries.
   await expect(page.getByTestId('rank-book').getByText('Chief')).toBeVisible();
+  await expect(page.getByTestId('leave-faction')).toHaveCount(0);
+  await page.keyboard.press('Escape');
 
-  await page.getByTestId('leave-faction').click();
+  await page.getByTestId('faction-seat-Nikos').click();
+  const file = page.getByTestId('member-window-Nikos');
+  await expect(file).toBeVisible();
+  await file.getByTestId('leave-faction').click();
   const confirm = page.getByTestId('confirm-leave');
   await expect(confirm).toBeVisible();
   // The fixture's player leads a faction of two, so leaving disbands it, and it says so.
@@ -732,7 +737,9 @@ test('the mission picker offers half and max as one press', async ({ page }) => 
   await expect(page.locator('[data-testid^="half-"]').first()).toBeVisible();
 
   // The field is still a typed number with steppers; Max just fills it.
-  const field = page.locator('input[type="number"]').first();
+  // The count field is a text input with a spinbutton role now (it holds a typed draft), so it
+  // is found by that role rather than by the input type it used to be.
+  const field = page.locator('input[role="spinbutton"]').first();
   await expect(field).toHaveValue('0');
   await max.click();
   await expect(field).not.toHaveValue('0');

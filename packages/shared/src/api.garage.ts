@@ -22,11 +22,30 @@ export const GarageVehicleSchema = z.object({
   description: z.string(),
   /** How many are parked in the yard right now. */
   owned: z.number().int().nonnegative(),
+  /**
+   * §C3: how many are out, committed to a fight or carrying a crew on a run. Committed machines
+   * leave the yard, so without this a crew that sent the whole Garage to a battle opened the page
+   * to an empty yard and no word of where anything went.
+   */
+  out: z.number().int().nonnegative().default(0),
   cost: PartialResourcesSchema,
   buildSeconds: z.number().int().positive(),
   /** Bodies it carries, which is also what the enemy earns for destroying it (§C3). */
   capacity: z.number().int().positive(),
-  /** Percentage points off the road, for the force it is actually carrying. */
+  /**
+   * 0..100, the same stat a unit's sheet carries: what everybody aboard travels at (§C3).
+   *
+   * Not a percentage off a clock any more. `time/speed.ts` turns it into minutes, and
+   * `columnSpeed` decides which machines a given force actually gets that number from.
+   */
+  speed: z.number().int().min(0).max(100),
+  /**
+   * @deprecated The old name for {@link speed}, shipped equal to it for one release.
+   *
+   * Here so a client built against the previous payload keeps rendering while it is switched over.
+   * Nothing on the server reads it, its value carries no extra information, and it goes on the next
+   * pass through this file.
+   */
   speedPercent: z.number().int().nonnegative(),
   requiresGarageLevel: z.number().int().nonnegative(),
   /** The plans it needs, named, or null. Named rather than flagged: the player has to find it. */

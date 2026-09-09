@@ -17,7 +17,16 @@ import {
   blueprintForModification,
   blueprintForUnitUpgrade,
   type ScrapyardResponse,
-  BAR_HIRES_PER_DAY,
+  AUCTION_SEALED_WINDOW_MS,
+  MAX_OPEN_AUCTIONS,
+  nextMinimumBid,
+  nextLotBid,
+  reservationWage,
+  type BarAuction,
+  type BarAuctionResult,
+  type BarBidView,
+  type VendorAuction,
+  type VendorBidView,
   barterRateFor,
   storageCapacity,
   storageCapacityFor,
@@ -69,6 +78,7 @@ import {
   upgradeCost,
   upgradeNote,
   weatherAt,
+  type WeatherKind,
   weatherLabels,
   UNIT_CATALOG,
   BOT_DISTRICT_ID,
@@ -76,6 +86,7 @@ import {
   UNIT_MODIFIERS,
   battlefieldFor,
   unitRules,
+  markedUnit,
   districtPopulationCapacity,
   noTerritoryEffects,
   populationDraw,
@@ -87,6 +98,7 @@ import {
   unitUnlockClauses,
   findDistrict,
   unitsUnlockedByLocation,
+  type BaseSummary,
   type Building,
   type District,
   type DistrictDetailResponse,
@@ -154,6 +166,7 @@ import {
   type AdminSnapshot,
   type BlackMarketResponse,
   type SettingsResponse,
+  DEFAULT_SOUND_VOLUME,
   GAME_TIMEZONE,
   PLAYER_ICONS,
   blackMarketBoard,
@@ -220,6 +233,7 @@ const user: User = {
   displayName: null,
   icon: 'shield',
   timezone: GAME_TIMEZONE,
+  soundVolume: DEFAULT_SOUND_VOLUME,
 };
 const userNoOverseer: User = { ...user, overseerId: null };
 
@@ -535,6 +549,7 @@ export function districtDetailFor(id: string): DistrictDetailResponse {
       scoutPlan: { officerId: 'off-3', officerName: 'Vela', minutes: 214 },
     };
   }
+  const lived = district.kind === 'residential';
   return {
     ...districtDetail,
     district,
@@ -549,9 +564,36 @@ export function districtDetailFor(id: string): DistrictDetailResponse {
      * district screen untestable in the same way the empty `locations` made the Docks untestable:
      * the page renders the ground somebody else built on, and with nothing built there is no page.
      */
-    residentBuildings: district.kind === 'residential' ? NEIGHBOUR_BUILDINGS : [],
+    residentBuildings: lived ? NEIGHBOUR_BUILDINGS : [],
+    /*
+     * ...and somebody in them.
+     *
+     * `base` and `raidable` came off the Rustyard's own row, which is contested ground: null and
+     * false. So every visited plot in this fixture was a street of buildings with nobody living in
+     * it, and the one control the screen exists for, the call on the district, never rendered at
+     * all. The spec that covered the screen asserted the *dialog's* button instead and passed
+     * against a page with no fight on it anywhere.
+     */
+    base: lived ? { ...NEIGHBOUR, districtId: district.id } : null,
+    // Every plot but the player's own, which they never visit as a stranger.
+    raidable: lived && district.id !== STARTER_DISTRICT_ID,
   };
 }
+
+/**
+ * The crew on the plot next door.
+ *
+ * A summary rather than a whole base, which is all the wire carries about somebody else's home:
+ * their name, their plot and their level. The name is what the sign over the painting prints.
+ */
+const NEIGHBOUR: BaseSummary = {
+  id: 'neighbour-base',
+  ownerId: 'neighbour-user',
+  name: 'The Ashen Sons',
+  districtId: 'ashen-terraces',
+  level: 9,
+  isBot: false,
+};
 
 /**
  * What a neighbour has standing, as a passer-by sees it.
@@ -588,6 +630,11 @@ function fittedSlots(ids: (string | null)[]): FittedSlot[] {
     };
   });
 }
+
+const GRANTED_MARKS = {
+  carriersFight: false,
+  unitMarks: { ironsides: ['stalwart'] as const },
+};
 
 export const unitsResponse: UnitsResponse = {
   serverNow: NOW,
@@ -650,6 +697,13 @@ export const unitsResponse: UnitsResponse = {
     fittedTo: index === 0 ? 'razors' : null,
     fittedToName: index === 0 ? 'Razors' : '',
   })),
+  /**
+   * What this fixture's crew has granted its own units (`unit_mark`, `city/locations.ts`).
+   *
+   * The Barricade grants Ironsides `stalwart`, so a crew holding one fields a shield line that also
+   * does not run. One entry rather than several: the point is that the card prints a granted mark
+   * beside the sheet's own, and a roster where half the units carry one says nothing about which.
+   */
   units: UNIT_CATALOG.map((unit) => {
     const unlocked = unit.tier === 'rabble';
     return {
@@ -665,7 +719,10 @@ export const unitsResponse: UnitsResponse = {
         description: UNIT_MODIFIERS[id].description,
         when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
       })),
-      rules: unitRules(unit),
+      // §A5: the sheet's own marks plus whatever this crew's ground has granted, which is exactly
+      // what `units/roster.ts` sends. Without the fold the fixture screenshots a card that cannot
+      // show a granted mark, and `unit_mark` is one of the bonuses the location cards now print.
+      rules: unitRules(markedUnit(unit, GRANTED_MARKS)),
       // §A4: the same fold the server does: only the labels the sheet does not already say.
       affinities: ENV_LABEL_IDS.flatMap((id) => {
         const immune = unit.immuneTo?.includes(id) ?? false;
@@ -717,9 +774,8 @@ export const authResponse: AuthResponse = { token: TOKEN, user };
  *
  * Deliberately the fat case, per MOU-207: the starting state of this screen is an empty crew and
  * eight identical-looking cards, and that has never caught a layout bug. This is a late-game crew:
- * the longest officer names the generator can produce, a four-digit wage, every §H5 band
- * including the walkout warning and the skill-bonus line, and recruits covering all three card
- * states (interested, gated, already hired).
+ * the longest officer names the generator can produce, a four-digit wage, and eight tables covering
+ * every state the auction screen can be in.
  */
 function barRecruit(id: string, name: string, overrides: Partial<BarRecruit> = {}): BarRecruit {
   return {
@@ -731,7 +787,6 @@ function barRecruit(id: string, name: string, overrides: Partial<BarRecruit> = {
     assessment: { meetsNotoriety: true, meetsLevel: true, interested: true, blockers: [] },
     askingWage: 48,
     hired: false,
-    standoff: null,
     ...overrides,
   };
 }
@@ -756,6 +811,113 @@ function barOfficer(
   };
   return { commander, weeklyWage, dismissalFee: weeklyWage * DISMISSAL_WEEKS };
 }
+
+/**
+ * The reader, as the tables name them.
+ *
+ * Read off the session fixture rather than typed again: the `yours` flag on a bid is what draws
+ * every "You" mark on the screen, and a hand-typed username here would let the two drift and leave
+ * the auction quietly attributing the player's own bids to a stranger.
+ */
+const YOU = user.username;
+
+/** One open bid, `minutesAgo` before the fixture's clock. */
+function barBid(username: string, amount: number, minutesAgo: number): BarBidView {
+  return {
+    username,
+    amount,
+    at: new Date(Date.parse(NOW) - minutesAgo * 60_000).toISOString(),
+    yours: username === YOU,
+  };
+}
+
+/**
+ * One table (§H7), with its phase set by where its close sits relative to the fixture's clock.
+ *
+ * The phase is not a field to be typed here. `auctionPhaseAt` reads `sealedFrom` and `closesAt`
+ * and nothing else, so a table four minutes off its close is sealed and one six hours off is open,
+ * and the fixture cannot claim a phase its own timestamps contradict. Which is exactly the
+ * disagreement a hand-set `phase` would have hidden.
+ */
+function barAuction(
+  recruitId: string,
+  reserve: number,
+  bids: readonly BarBidView[],
+  closesInMinutes = 360,
+): BarAuction {
+  const closesAt = Date.parse(NOW) + closesInMinutes * 60_000;
+  const sealedFrom = closesAt - AUCTION_SEALED_WINDOW_MS;
+  const leading = bids.reduce<BarBidView | null>(
+    (best, one) => (best === null || one.amount > best.amount ? one : best),
+    null,
+  );
+  return {
+    recruitId,
+    reserve,
+    sealedFrom: new Date(sealedFrom).toISOString(),
+    closesAt: new Date(closesAt).toISOString(),
+    phase: Date.parse(NOW) >= sealedFrom ? 'sealed' : 'open',
+    leading,
+    nextBid: nextMinimumBid(reserve, leading?.amount ?? null),
+    bids: [...bids],
+    bidders: new Set(bids.map((one) => one.username)).size,
+    yourBid: bids.find((one) => one.yours)?.amount ?? null,
+    yourSealed: null,
+  };
+}
+
+/**
+ * Tonight's eight tables, in roster order, which is what `BarResponseSchema` promises.
+ *
+ * The states are chosen so that every branch of the auction screen is drawn by the static fixture:
+ * an untouched table nobody has opened, a hot one priced past this crew's payroll book, two the
+ * §H3 doors shut this crew out of, a table the reader has been outbid on, and one in the sealed
+ * phase that the reader is leading and has not locked a value on yet. The locked state is the one
+ * the fixture cannot hold still: it is the far side of a one-way press, so `bidding.spec.ts`
+ * produces it and screenshots it there.
+ */
+const BAR_AUCTIONS: BarAuction[] = [
+  barAuction('bar-1', reservationWage(48), []),
+  barAuction('bar-2', reservationWage(1240), [
+    barBid('Kalder_Vex', 1180, 5),
+    barBid('Marrow', 1090, 18),
+    barBid('Sable_Ninth', 1000, 44),
+    barBid('Kalder_Vex', 992, 77),
+  ]),
+  // Somebody the §H3 doors shut this crew out of. The table still runs: the room is the city's.
+  barAuction('bar-3', 62, [barBid('Marrow', 70, 30)]),
+  barAuction('bar-4', 55, []),
+  barAuction('bar-8', reservationWage(55), [
+    barBid('Sable_Ninth', 96, 8),
+    barBid('Marrow', 62, 40),
+  ]),
+  barAuction('bar-5', reservationWage(96), [
+    barBid('Marrow', 120, 14),
+    barBid('Kalder_Vex', 96, 33),
+    barBid('Sable_Ninth', 77, 60),
+  ]),
+  // The reader is in this one and losing it, which is the state the bid controls are read in.
+  barAuction('bar-6', reservationWage(61), [
+    barBid('Kalder_Vex', 84, 2),
+    barBid(YOU, 80, 9),
+    barBid('Marrow', 72, 24),
+    barBid(YOU, 61, 51),
+    barBid('Kalder_Vex', 49, 95),
+  ]),
+  // Four minutes off the close, so this one is sealed *and* inside the last five minutes: the two
+  // states the clock changes colour for.
+  barAuction(
+    'bar-7',
+    reservationWage(74),
+    [
+      barBid(YOU, 95, 12),
+      barBid('Marrow', 88, 35),
+      barBid(YOU, 74, 68),
+      barBid('Kalder_Vex', 60, 140),
+    ],
+    4,
+  ),
+];
 
 export const bar: BarResponse = {
   day: '2026-08-12',
@@ -783,16 +945,14 @@ export const bar: BarResponse = {
       askingWage: null,
       requirement: { minNotoriety: 5, minLevel: 24 },
     }),
-    // Somebody this crew walked out on: the chair is cold for another few hours, and their price
-    // has already gone up for it.
-    barRecruit('bar-8', 'Wren Adisa', {
-      askingWage: null,
-      standoff: {
-        until: new Date(Date.parse(NOW) + 4 * 60 * 60 * 1000).toISOString(),
-        walkouts: 1,
-      },
+    barRecruit('bar-8', 'Wren Adisa', { askingWage: 55, perks: ['skim_route'] }),
+    // §B7: a card carrying the rule perks rather than the percentage ones (board brief 2026-09-09).
+    // Three chips whose hovers are sentences instead of figures, which is the state the perk row
+    // had no fixture for at all: every recruit on this board bought a number.
+    barRecruit('bar-5', 'Ilse Abara', {
+      askingWage: 96,
+      perks: ['pit_boss', 'crane_hand', 'permit_forger'],
     }),
-    barRecruit('bar-5', 'Ilse Abara', { hired: true, askingWage: 96 }),
     barRecruit('bar-6', 'Juno Petrosyan', { askingWage: 61, perks: ['haggler'] }),
     // §B7: a flaw on the card, so the layout guards cover the state a player must be able to read.
     barRecruit('bar-7', 'Casimir Adeyemi-Lindqvist', { askingWage: 74, perks: ['haggler'] }),
@@ -819,23 +979,56 @@ export const bar: BarResponse = {
     stepSize: PAYROLL_STEP,
   },
   filledRoles: ['head_spy', 'finance_officer', 'raid_boss'],
-  /** §H2b: this crew has not signed anybody today, so the offer buttons are live. */
-  hiresLeftToday: BAR_HIRES_PER_DAY,
+  auctions: BAR_AUCTIONS,
   /**
-   * §H7: one conversation already under way, so the screenshot carries both states: a card that
-   * has been talked to and cards that have not. Mid-negotiation rather than closed, because the
-   * open state is the one with the window, the standing demand and the reply on it.
+   * §H7: two of the two tables this crew may sit at, which is what makes the room's cap readable.
+   *
+   * Deliberately at the ceiling: a fixture one under it would never draw the refusal a player
+   * meets on their third table, and that refusal is the whole shape of the mechanic.
    */
-  negotiations: {
-    'bar-2': {
-      rounds: 2,
-      patience: 3,
-      standing: 1120,
-      lastOffer: 900,
-      mood: 'considering',
-      closed: false,
+  auctionsUsed: 2,
+  auctionsAllowed: MAX_OPEN_AUCTIONS,
+  // What the book holds after the fixture crew's negotiators: a little past `payroll.available`.
+  bidCeiling: 780,
+  /** One of each outcome, because the four read differently and three of them are consolations. */
+  results: [
+    {
+      day: '2026-08-11',
+      recruitId: 'bar-y1',
+      name: 'Ottoline Reyes-Baptiste',
+      outcome: 'won',
+      price: 210,
+      winner: 'operator',
+      yourFinal: 210,
     },
-  },
+    {
+      day: '2026-08-11',
+      recruitId: 'bar-y2',
+      name: 'Bram Oyelaran',
+      outcome: 'lost',
+      price: 480,
+      winner: 'Kalder_Vex',
+      yourFinal: 455,
+    },
+    {
+      day: '2026-08-11',
+      recruitId: 'bar-y3',
+      name: 'Sunniva Achterberg',
+      outcome: 'passed',
+      price: 300,
+      winner: 'Marrow',
+      yourFinal: 340,
+    },
+    {
+      day: '2026-08-11',
+      recruitId: 'bar-y4',
+      name: 'Teodor Nakashima',
+      outcome: 'unsold',
+      price: null,
+      winner: null,
+      yourFinal: 120,
+    },
+  ] satisfies BarAuctionResult[],
 };
 
 /**
@@ -913,6 +1106,10 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     xp: 240,
     force: { razors: 3, scavengers: 4 },
     vehicles: {},
+    // What the card quoted, which for a fixture crew with no machines is simply the run's own
+    // total. Zero is the pre-0081 fallback and a live server never writes it any more, so leaving
+    // it there made every screenshot a row the server cannot produce.
+    pricedMinutes: 2 * travelMinutes + durationMinutes,
     startedAt,
     travelMinutes,
     durationMinutes,
@@ -1245,6 +1442,25 @@ export const research: ResearchResponse = {
   completesAt: null,
 };
 
+/**
+ * The Lab after a named rung has been put on the bench.
+ *
+ * The harness answers `POST /api/research/tech` with this, so the rung the payload says is running
+ * is the rung the spec clicked. Answering with `activeResearch` instead would have the fixture
+ * agreeing that *something* started, which is the one thing a start test must not take on trust.
+ */
+export function startedResearch(techId: string, now: Date = new Date()): ResearchResponse {
+  const rung = fixtureTechnologies.find((one) => one.id === techId);
+  if (!rung) throw new Error(`no such rung in the research fixture: ${techId}`);
+  const active = {
+    id: `r-${techId}`,
+    project: { kind: 'technology' as const, techId },
+    startedAt: now.toISOString(),
+    durationMinutes: rung.minutes,
+  };
+  return { ...researchBase, active, completesAt: researchCompletesAt(active).toISOString() };
+}
+
 /** A rung on the bench, built live so the countdown is real. */
 export function activeResearch(now: Date = new Date()): ResearchResponse {
   const running = fixtureTechnologies.find((rung) => !rung.known && rung.blocker === null);
@@ -1463,6 +1679,41 @@ export const crewStanding: CrewStandingResponse = {
  * a screenshot of it says nothing about whether the stock rows lay out. The hours are pinned rather
  * than derived so the fixture reads the same on every run.
  */
+/**
+ * One lot on the barrow, from its bids.
+ *
+ * Newest first, as the wire carries them; the leader is the highest, and the reader's own row is
+ * whichever is marked `yours`. `nextBid` comes from the shared step so the harness and the screen
+ * agree about what the next legal figure is.
+ */
+function lotOn(
+  lineId: string,
+  reserve: number,
+  placed: readonly { username: string; amount: number; minutesAgo: number; yours: boolean }[],
+): VendorAuction {
+  const bids: VendorBidView[] = placed.map((bid) => ({
+    username: bid.username,
+    amount: bid.amount,
+    at: new Date(Date.parse(NOW) - bid.minutesAgo * 60_000).toISOString(),
+    yours: bid.yours,
+  }));
+  const leading = bids.reduce<VendorBidView | null>(
+    (best, bid) => (best === null || bid.amount > best.amount ? bid : best),
+    null,
+  );
+  return {
+    lineId,
+    session: 0,
+    closesAt: new Date(Date.parse(NOW) + 42 * 60 * 1000).toISOString(),
+    reserve,
+    leading,
+    nextBid: nextLotBid(reserve, leading?.amount ?? null),
+    bids,
+    bidders: bids.length,
+    yourBid: bids.find((bid) => bid.yours)?.amount ?? null,
+  };
+}
+
 export const market: MarketResponse = {
   // §G4: this is the late-game crew, so the Lab will do the trade. The locked state is covered by
   // the unit tests, which can toggle it; a screenshot fixture wants the state with a button in it.
@@ -1477,13 +1728,60 @@ export const market: MarketResponse = {
       { startHour: 7, hours: 2 },
       { startHour: 19, hours: 2 },
     ],
+    // The first of today's two visits, forty-two minutes from packing up.
+    session: 0,
     closesAt: new Date(Date.parse(NOW) + 42 * 60 * 1000).toISOString(),
     opensAt: new Date(Date.parse(NOW) + 9 * 3600 * 1000).toISOString(),
+    /*
+     * Four lots in the four states the barrow can draw: somebody else in front of us, us in
+     * front, nobody in yet, and a line the city has already cleared (no lot at all). Each lot's
+     * `nextBid` is worked out by the shared step function rather than typed, because the harness
+     * refuses a bid under it with the same arithmetic the server uses.
+     */
     stock: [
-      { line: { id: 'l1', item: 'neural_shunt', stock: 2, price: 1180 }, affordable: true },
-      { line: { id: 'l2', item: 'blueprint_rotorcraft', stock: 1, price: 4600 }, affordable: true },
-      { line: { id: 'l3', item: 'gyro_assembly', stock: 4, price: 410 }, affordable: true },
-      { line: { id: 'l4', item: 'ceramic_plate', stock: 0, price: 360 }, affordable: false },
+      {
+        line: { id: 'l1', item: 'neural_shunt', stock: 2, price: 1180 },
+        auction: lotOn('l1', 1180, [
+          { username: 'The Kettle Row Combine', amount: 1300, minutesAgo: 6, yours: false },
+          { username: 'The Ninth Street Crew', amount: 1240, minutesAgo: 14, yours: true },
+          { username: 'Sisters of the Undergrid', amount: 1180, minutesAgo: 25, yours: false },
+        ]),
+      },
+      {
+        line: { id: 'l2', item: 'blueprint_rotorcraft', stock: 1, price: 4600 },
+        auction: lotOn('l2', 4600, [
+          { username: 'The Ninth Street Crew', amount: 4830, minutesAgo: 3, yours: true },
+          { username: 'Sisters of the Undergrid', amount: 4600, minutesAgo: 9, yours: false },
+        ]),
+      },
+      {
+        line: { id: 'l3', item: 'gyro_assembly', stock: 4, price: 410 },
+        auction: lotOn('l3', 410, []),
+      },
+      { line: { id: 'l4', item: 'ceramic_plate', stock: 0, price: 360 }, auction: null },
+    ],
+    // The visit before this one: one lot taken, one lost to the Combine.
+    results: [
+      {
+        day: NOW.slice(0, 10),
+        session: 0,
+        lineId: 'p1',
+        item: 'scrap_servo',
+        outcome: 'won',
+        price: 260,
+        winner: 'The Ninth Street Crew',
+        yourBid: 260,
+      },
+      {
+        day: NOW.slice(0, 10),
+        session: 0,
+        lineId: 'p2',
+        item: 'optic_cluster',
+        outcome: 'lost',
+        price: 910,
+        winner: 'The Kettle Row Combine',
+        yourBid: 860,
+      },
     ],
   },
   offers: [
@@ -1618,10 +1916,15 @@ export const garage: GarageResponse = {
     class: spec.class,
     description: spec.description,
     owned: spec.id === 'motorcycle' ? 2 : 0,
+    // One more of them committed to the fight at the Press: the row says so rather than losing it.
+    out: spec.id === 'motorcycle' ? 1 : 0,
     cost: spec.cost,
     buildSeconds: spec.buildSeconds,
     capacity: spec.capacity,
-    speedPercent: spec.speedPercent,
+    speed: spec.speed,
+    // The deprecated duplicate of `speed`, shipped equal to it for one release: the fixture keeps
+    // it only because the schema still requires it, and nothing on a screen reads it.
+    speedPercent: spec.speed,
     requiresGarageLevel: spec.requiresGarageLevel,
     // §D12c: every machine is behind a document now, and this crew has assembled exactly one.
     requiresBlueprint: blueprintForVehicle(spec.id)?.name ?? null,
@@ -1742,6 +2045,14 @@ export const adminSnapshot: AdminSnapshot = {
  * three read as different things.
  */
 export const BOARD_NOW = '2026-08-16T12:00:00.000Z';
+
+/**
+ * When the breach on `south-quay` runs out: nine hours after the district screen's clock.
+ *
+ * Inside `GATE_BREACH_HOURS` and comfortably ahead of `NOW`, so the raid button and its countdown
+ * are drawn in every run rather than in the ones that happen to be quick.
+ */
+export const BREACH_ENDS = new Date(Date.parse(NOW) + 9 * 3_600_000).toISOString();
 const boardSlots = declarableSlots(new Date(BOARD_NOW)).map((slot) => slot.toISOString());
 
 const boardAnalysis: BattleAnalysis = {
@@ -1869,6 +2180,15 @@ const comingBattle = (
   scheduledFor: string,
   muster: { army: Record<string, number>; perimeter: Record<string, number> },
   enemySize: number | null,
+  /**
+   * The sky over this fight (§A4).
+   *
+   * Pinned rather than rolled off `scheduledFor`, so a screenshot of the characteristics row is
+   * comparable between runs. One of the two fights below is under rain on purpose: the location's
+   * own characteristics are permanent and the sky's are not, and the only way to gate the chip that
+   * says which is which is to have a fixture that carries both kinds at once.
+   */
+  weather: WeatherKind = 'normal',
 ): BattleView => ({
   battle: {
     id,
@@ -1891,7 +2211,7 @@ const comingBattle = (
     fortifyDifficulty: 'medium',
     fortifyLevel: 0,
     at: new Date(scheduledFor),
-    weather: 'normal',
+    weather,
   }),
   role,
   side: role,
@@ -1983,6 +2303,10 @@ export const battles: BattlesResponse = {
       boardSlots[0] ?? BOARD_NOW,
       { army: { razors: 22, snipers: 6 }, perimeter: { road_reavers: 4 } },
       40,
+      // §A4: rain over a press house. The Press is Noisy and Crammed whatever the sky is doing; Wet
+      // and Cold are the day's, and go with it. Four characteristics at three different tiers is
+      // the row worth screenshotting and the one the hover has something to say about.
+      'rainy',
     ),
     comingBattle(
       'bonefield',
@@ -2017,6 +2341,25 @@ export const battles: BattlesResponse = {
   infamy: BOARD_INFAMY,
   gates: [
     { districtId: 'rustyard', name: 'The Rustyard', shut: false, brokenUntil: null },
+    /*
+     * The two lived-in plots the visiting screen is measured on (§A4, board 2026-09-09).
+     *
+     * A home is shut by its resident, so both rows say so, and the difference between them is the
+     * only difference the screen has: `ashen-terraces` still has its door and offers the gate,
+     * `south-quay` is inside a breach and offers the raid with the clock on it. Neither row existed
+     * before, so `DistrictView` found no gate for either plot and drew no call at all.
+     *
+     * The breach runs from the district fixture's own clock rather than the board's: the screen
+     * counts down against `DistrictDetailResponse.serverNow`, and a window anchored four days later
+     * would have read as expired.
+     */
+    { districtId: 'ashen-terraces', name: 'Ashen Terraces', shut: true, brokenUntil: null },
+    {
+      districtId: 'south-quay',
+      name: 'South Quay',
+      shut: true,
+      brokenUntil: BREACH_ENDS,
+    },
     /*
      * The Docks' gate, shut.
      *
@@ -2069,6 +2412,8 @@ export const actionsResponse: ActionsResponse = {
       departedAt: new Date(Date.parse(BOARD_NOW) - 60_000).toISOString(),
       arrivesAt: new Date(Date.parse(BOARD_NOW) + 19 * 60_000).toISOString(),
       recallable: true,
+      // Riding: two on the Scrappy, the rest walking, which is what the chip beside the line says.
+      vehicles: { motorcycle: 1 },
     },
     {
       id: 'col-2',
@@ -2084,6 +2429,7 @@ export const actionsResponse: ActionsResponse = {
       departedAt: new Date(Date.parse(BOARD_NOW) - 30 * 60_000).toISOString(),
       arrivesAt: new Date(Date.parse(BOARD_NOW) + 10 * 60_000).toISOString(),
       recallable: false,
+      vehicles: {},
     },
   ],
   // Somebody out looking: ten minutes into an hour's walk to the Rustyard.
@@ -2332,8 +2678,38 @@ export const notificationsScreen: NotificationsResponse = {
       createdAt: '2026-08-13T09:00:00.000Z',
       readAt: '2026-08-13T09:05:00.000Z',
     },
+    /*
+     * The two kinds a live server writes most, and neither was on this fixture.
+     *
+     * `district_attacked` is always-on, so it is the row that proves the settings screen draws a
+     * switch it cannot turn off; `unit_trained` is one per finished batch, which is the highest
+     * volume the bell ever sees. A fixture that carried neither screenshotted a bell nobody's
+     * bell looks like.
+     */
+    {
+      id: 'note-4',
+      kind: 'district_attacked',
+      title: 'Somebody has called a fight on you',
+      body: 'Sable_Ninth has declared on The Ninth Street Crew.',
+      link: '/game/battles',
+      subjectId: null,
+      createdAt: '2026-08-13T10:30:00.000Z',
+      readAt: null,
+    },
+    {
+      id: 'note-5',
+      kind: 'unit_trained',
+      title: 'A batch is off the bench',
+      body: '6 Razors.',
+      link: '/game/units',
+      subjectId: null,
+      createdAt: '2026-08-13T08:00:00.000Z',
+      readAt: '2026-08-13T08:10:00.000Z',
+    },
   ],
-  unread: 2,
+  // The rows with no `readAt` on them. It said 2 against three unread rows, which is a count no
+  // server produces: `unreadCounts` is `COUNT(*) WHERE read_at IS NULL`.
+  unread: 4,
   settings: { muted: ['training_done'] },
   serverNow: NOW,
 };

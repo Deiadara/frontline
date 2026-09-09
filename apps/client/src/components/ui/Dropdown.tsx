@@ -266,17 +266,20 @@ export function Dropdown<T extends string>({
 
       {open &&
         createPortal(
-          <ul
-            ref={listRef}
-            id={id}
-            role="listbox"
-            aria-label={label}
-            aria-activedescendant={`${id}-${active}`}
-            tabIndex={-1}
+          /*
+           * Two boxes on purpose: the frame and the scroller.
+           *
+           * The painted frame (`.painted::before`, the `.rivets` corner dots) is drawn by absolute
+           * pseudo-elements inset from the box's edges. Put on the list itself, which scrolls once
+           * it holds more than eighteen rems of chairs, that frame scrolled with the options and
+           * drew a second brass box across the middle of the menu. The frame sits on a wrapper
+           * that never scrolls; the options scroll inside it.
+           */
+          <div
             onPointerDown={(event) => event.stopPropagation()}
             className={cn(
-              'glass-strong painted rivets brushed z-[210] max-h-[18rem] overflow-y-auto',
-              'rounded-md border-2 border-brass-300/60 py-1 shadow-panel',
+              'glass-strong painted rivets brushed z-[210] overflow-hidden',
+              'rounded-md border-2 border-brass-300/60 shadow-panel',
               placement === null && 'pointer-events-none opacity-0',
             )}
             /*
@@ -301,48 +304,58 @@ export function Dropdown<T extends string>({
                   }
             }
           >
-            {options.map((option, index) => (
-              <Fragment key={option.value}>
-                {option.group !== undefined && option.group !== options[index - 1]?.group && (
-                  <li
-                    role="presentation"
-                    className="px-3.5 pb-1 pt-2 font-display text-[10px] uppercase tracking-[0.2em] text-brass-300"
-                  >
-                    {option.group}
-                  </li>
-                )}
-                <li
-                  id={`${id}-${index}`}
-                  role="option"
-                  aria-selected={option.value === value}
-                  aria-disabled={option.disabled}
-                  onPointerEnter={() => !option.disabled && setActive(index)}
-                  onClick={() => choose(index)}
-                  className={cn(
-                    'flex cursor-pointer flex-col gap-0.5 px-3.5 py-2',
-                    option.disabled && 'cursor-not-allowed opacity-40',
-                    index === active && !option.disabled && 'bg-brass-300/15',
-                    option.value === value && 'border-l-2 border-brass-300',
-                    option.value !== value && 'border-l-2 border-transparent',
+            <ul
+              ref={listRef}
+              id={id}
+              role="listbox"
+              aria-label={label}
+              aria-activedescendant={`${id}-${active}`}
+              tabIndex={-1}
+              className="relative max-h-[18rem] overflow-y-auto py-1"
+            >
+              {options.map((option, index) => (
+                <Fragment key={option.value}>
+                  {option.group !== undefined && option.group !== options[index - 1]?.group && (
+                    <li
+                      role="presentation"
+                      className="px-3.5 pb-1 pt-2 font-display text-[10px] uppercase tracking-[0.2em] text-brass-300"
+                    >
+                      {option.group}
+                    </li>
                   )}
-                >
-                  <span
+                  <li
+                    id={`${id}-${index}`}
+                    role="option"
+                    aria-selected={option.value === value}
+                    aria-disabled={option.disabled}
+                    onPointerEnter={() => !option.disabled && setActive(index)}
+                    onClick={() => choose(index)}
                     className={cn(
-                      'font-stamp text-[14px] leading-tight',
-                      option.value === value ? 'text-brass-100' : 'text-ink-100',
+                      'flex cursor-pointer flex-col gap-0.5 px-3.5 py-2',
+                      option.disabled && 'cursor-not-allowed opacity-40',
+                      index === active && !option.disabled && 'bg-brass-300/15',
+                      option.value === value && 'border-l-2 border-brass-300',
+                      option.value !== value && 'border-l-2 border-transparent',
                     )}
                   >
-                    {option.label}
-                  </span>
-                  {option.hint !== undefined && (
-                    <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
-                      {option.hint}
+                    <span
+                      className={cn(
+                        'font-stamp text-[14px] leading-tight',
+                        option.value === value ? 'text-brass-100' : 'text-ink-100',
+                      )}
+                    >
+                      {option.label}
                     </span>
-                  )}
-                </li>
-              </Fragment>
-            ))}
-          </ul>,
+                    {option.hint !== undefined && (
+                      <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
+                        {option.hint}
+                      </span>
+                    )}
+                  </li>
+                </Fragment>
+              ))}
+            </ul>
+          </div>,
           document.body,
         )}
     </>

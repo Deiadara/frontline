@@ -42,6 +42,24 @@ describe('CharacterSelectScreen', () => {
 
   // B7: traits are public. They are half of what a player has to guess fit from, since the
   // requirement table itself is hidden (B8).
+  /*
+   * The bio is clamped to two lines and every one of the four runs to three in that column, so
+   * the card shows a sentence cut mid-word on the one screen where a player is choosing *on* the
+   * description. The clamp stays (a taller card drops a whole card row at 1280x800); what cannot
+   * stay is there being nowhere to read the rest.
+   */
+  it('carries the whole bio on the hover, not just the two lines it shows', () => {
+    renderScreen();
+    for (const preset of OVERSEER_PRESETS) {
+      const bio = screen.getByText(preset.bio);
+      expect(bio.className, `${preset.presetId}'s bio is not clamped`).toContain('line-clamp-2');
+      expect(bio, `${preset.presetId}'s cut bio cannot be read anywhere`).toHaveAttribute(
+        'data-tip',
+        preset.bio,
+      );
+    }
+  });
+
   it('names each preset perk', () => {
     renderScreen();
     for (const preset of OVERSEER_PRESETS) {

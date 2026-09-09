@@ -1,4 +1,4 @@
-import { GAME_TIMEZONE, type SettingsResponse } from '@frontline/shared';
+import { DEFAULT_SOUND_VOLUME, GAME_TIMEZONE, type SettingsResponse } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
@@ -10,10 +10,11 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
  * are mostly about the ways it must refuse: a username somebody else holds, a passphrase change
  * without the old passphrase, a timezone that is an offset rather than a zone.
  *
- * The defaults are pinned too. A row written before this feature existed has three NULL columns,
- * and the schema is what turns those into a shield, a username and the house clock, if that
- * default ever moves to the database, every account created before the move silently keeps the old
- * one and there is no way to tell the two groups apart.
+ * The defaults are pinned too. A row written before this feature existed has NULL where the glyph,
+ * the display name and the clock go, and the schema is what turns those into a shield, a username
+ * and the house clock, if that default ever moves to the database, every account created before the
+ * move silently keeps the old one and there is no way to tell the two groups apart. The volume is
+ * the one that is `NOT NULL DEFAULT 60` in SQL instead, so both ends have to agree on 60.
  */
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -63,6 +64,7 @@ describe('GET /api/settings', () => {
     expect(current.user.displayName).toBeNull();
     expect(current.user.icon).toBe('shield');
     expect(current.user.timezone).toBe(GAME_TIMEZONE);
+    expect(current.user.soundVolume).toBe(DEFAULT_SOUND_VOLUME);
     expect(current.gameTimezone).toBe(GAME_TIMEZONE);
     expect(current.icons.length).toBeGreaterThan(1);
     expect(current.user).not.toHaveProperty('passwordHash');
@@ -167,6 +169,60 @@ describe('PATCH /api/settings/profile', () => {
     });
     expect(bad.statusCode).toBe(400);
     expect((await settings(app, token)).user.timezone).toBe('America/New_York');
+  });
+
+  it('takes a sound volume anywhere on the bar and refuses one off it', async () => {
+    const { app } = await makeApp();
+    const token = await register(app, 'operator');
+
+    for (const volume of [0, 35, 100]) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/settings/profile',
+        headers: auth(token),
+        payload: { soundVolume: volume },
+      });
+      expect(res.statusCode).toBe(200);
+      // Read back through a fresh request rather than out of the write's own answer: what is being
+      // tested is that the column was written, not that the handler can echo its own body.
+      expect((await settings(app, token)).user.soundVolume).toBe(volume);
+    }
+
+    // The bar is 0 to 100 whole percent. Anything else is a client that has invented its own scale,
+    // and storing it would leave a gain nobody can reproduce from the interface.
+    for (const bad of [-1, 101, 12.5]) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/settings/profile',
+        headers: auth(token),
+        payload: { soundVolume: bad },
+      });
+      expect(res.statusCode, `${bad} was accepted`).toBe(400);
+    }
+    expect((await settings(app, token)).user.soundVolume).toBe(100);
+  });
+
+  it('changes the volume without touching the clock or the glyph', async () => {
+    const { app } = await makeApp();
+    const token = await register(app, 'operator');
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/profile',
+      headers: auth(token),
+      payload: { icon: 'sword', timezone: 'America/New_York' },
+    });
+
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/profile',
+      headers: auth(token),
+      payload: { soundVolume: 15 },
+    });
+
+    const after = await settings(app, token);
+    expect(after.user.soundVolume).toBe(15);
+    expect(after.user.icon).toBe('sword');
+    expect(after.user.timezone).toBe('America/New_York');
   });
 
   it('refuses a request that asks for nothing', async () => {

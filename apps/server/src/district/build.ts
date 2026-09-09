@@ -5,6 +5,8 @@ import {
   MAX_BUILD_QUEUE,
   buildingBuildSeconds,
   buildingCost,
+  creditedLevel,
+  type Building,
   buildingLevel,
   canAfford,
   isUnlockedForQueue,
@@ -131,6 +133,32 @@ function discountFor(effects: CrewEffects, structure: BuildingKind): number {
 }
 
 /**
+ * What this crew is actually charged for `level` of `structure`: the one place the sum is written.
+ *
+ * Three things, in this order. The **credit** moves the level the bill is written at
+ * (`building_credit`, a §B7 perk that is a rule rather than a percentage), the catalogue curve
+ * prices that level, and the **discounts** come off the result. Credit first because it is a
+ * different quantity: one is a step down a compounding curve and the other is a share off whatever
+ * the curve came to, and applying a percentage before the exponent would mean something else.
+ *
+ * Three call sites read this and they must not come apart: the quote on `/me`, the affordability
+ * gate, and the charge. A player told one number and charged another is the Downtown Market bug,
+ * and it is fixed the same way it was there, by having one function.
+ */
+function priceOf(
+  structure: BuildingKind,
+  level: number,
+  buildings: readonly Building[],
+  effects: CrewEffects,
+): PartialResources {
+  const credit = effects.buildingCreditLevels[structure] ?? 0;
+  return discounted(
+    buildingCost(structure, creditedLevel(level, credit), buildings),
+    discountFor(effects, structure),
+  );
+}
+
+/**
  * The price a crew would actually be charged for the next level of each structure.
  *
  * On the wire because the client cannot work it out: `buildingCostPercent` is a per-structure
@@ -151,12 +179,58 @@ export function buildQuotesFor(
   for (const structure of BUILDING_KINDS) {
     const level = nextQueuedLevel(structure, base.buildings, base.buildQueue);
     if (level === null) continue;
-    quotes[structure] = discounted(
-      buildingCost(structure, level, base.buildings),
-      discountFor(effects, structure),
-    );
+    quotes[structure] = priceOf(structure, level, base.buildings, effects);
   }
   return quotes;
+}
+
+/**
+ * How long an order for `level` of `structure` takes if placed now: the catalogue's seconds after
+ * the crew's build-speed fold and the Generator's burn (§B4), frozen onto the entry.
+ *
+ * The one place the clock is written, read by the order and by the quote on `/me`, so the dialog
+ * cannot say one figure and the queue another. It used to be inline in the order alone, and the
+ * dialog quoted the bare catalogue seconds: over the truth for any crew with a speed effect.
+ */
+function orderSeconds(
+  structure: BuildingKind,
+  level: number,
+  base: Base,
+  effects: ReturnType<typeof standingEffectsFor>,
+  now: Date,
+  admin: boolean,
+): number {
+  const burn = buildBoostPercent(base.economy.buildBoostUntil, now);
+  return adminSeconds(
+    Math.max(
+      1,
+      Math.round(
+        withReduction(
+          buildingBuildSeconds(structure, level, base.buildings) /
+            speedMultiplier(effects.buildSpeedPercent),
+          burn,
+        ),
+      ),
+    ),
+    admin,
+  );
+}
+
+/** The clock beside each quote on `/me`: what `queueBuild` would freeze for each next level. */
+export function buildClocksFor(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  admin: boolean,
+): Partial<Record<BuildingKind, number>> {
+  const effects = standingEffectsFor(repos, base);
+  const clocks: Partial<Record<BuildingKind, number>> = {};
+  for (const structure of BUILDING_KINDS) {
+    const level = nextQueuedLevel(structure, base.buildings, base.buildQueue);
+    if (level === null) continue;
+    clocks[structure] = orderSeconds(structure, level, base, effects, now, admin);
+  }
+  return clocks;
 }
 
 /**
@@ -175,12 +249,7 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
   const effects = standingEffectsFor(repos, base);
   const quotedLevel = nextQueuedLevel(structure, base.buildings, base.buildQueue);
   const quoted =
-    quotedLevel === null
-      ? null
-      : discounted(
-          buildingCost(structure, quotedLevel, base.buildings),
-          discountFor(effects, structure),
-        );
+    quotedLevel === null ? null : priceOf(structure, quotedLevel, base.buildings, effects);
   const refusal = refusalFor(input, quoted);
   if (refusal && !adminWaives(refusal, admin)) return { kind: 'refused', reason: refusal };
 
@@ -210,9 +279,7 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
    * `quoted` above is this same figure, and it is what the affordability gate now reads. The two
    * cannot come apart because `discountFor` is the only place the sum is written.
    */
-  const cost =
-    quoted ??
-    discounted(buildingCost(structure, level, base.buildings), discountFor(effects, structure));
+  const cost = quoted ?? priceOf(structure, level, base.buildings, effects);
   // §A1: the handful of levels that ask for a part as well as a price. Taken at the moment the
   // order is placed, like the materials: a queued build has already been paid for.
   const parts = buildingParts(structure, level);
@@ -220,25 +287,12 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
   // §B4: an order placed while the Generator's burn is running is short by the same quarter the
   // burn already took off everything ahead of it. Applied here, at order time, alongside every
   // other discount, so the entry's frozen duration stays the one true answer for that order.
-  const burn = buildBoostPercent(base.economy.buildBoostUntil, now);
   const entry: BuildQueueEntry = {
     id,
     kind: structure,
     level,
     startedAt: queueStartsAt(base.buildQueue, now).toISOString(),
-    durationSeconds: adminSeconds(
-      Math.max(
-        1,
-        Math.round(
-          withReduction(
-            buildingBuildSeconds(structure, level, base.buildings) /
-              speedMultiplier(effects.buildSpeedPercent),
-            burn,
-          ),
-        ),
-      ),
-      admin,
-    ),
+    durationSeconds: orderSeconds(structure, level, base, effects, now, admin),
   };
 
   const queued: Base = {

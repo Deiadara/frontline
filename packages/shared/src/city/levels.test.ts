@@ -87,7 +87,13 @@ describe('a location at a level', () => {
             ? bonus.districts
             : 'flat' in bonus
               ? bonus.flat
-              : bonus.perHour;
+              : 'minutes' in bonus
+                ? bonus.minutes
+                : 'perHour' in bonus
+                  ? bonus.perHour
+                  : // The rules carry no quantity at all: see `scaledBonus`. Nothing here ladders
+                    // one, so anything that reaches this arm has nothing to compare.
+                    0;
       });
 
     // Straight multiplication, rounded: percentages, flat points and per-hour rates.
@@ -151,7 +157,11 @@ describe('a location at a level', () => {
                   ? bonus.districts
                   : 'flat' in bonus
                     ? bonus.flat
-                    : bonus.percent;
+                    : 'minutes' in bonus
+                      ? bonus.minutes
+                      : 'percent' in bonus
+                        ? bonus.percent
+                        : 0;
             return sum + value;
           }, 0);
         expect(total(next), `${kind} level ${level + 1}`).toBeGreaterThan(total(now));

@@ -170,13 +170,33 @@ Conventions used below:
     not the carrier's own: `+6% build speed`, `+3 armour on Heavy units`, `-5% to widen the payroll`.
     Each officer rolls **nought to three**, weighted so three is rare. They **sum** across the roster,
     which is what makes filling all nineteen chairs worth the wage bill.
-  - **H4c [CEO]** How hard somebody is to haggle with is read off the sheet the player can already see:
-    **Composure** is their patience and **Negotiation** is how little ground they give. That replaces
-    the two hidden personality tags §H4 used, and it is strictly more legible: both numbers are printed
-    on the card while the player decides whether to sit down.
-- **H7 [BOARD]** Recruitment involves **negotiating a salary** if the character is interested. Salary is
-  in **caps**, paid **once a week on the real-world clock**. The **first payment happens at recruitment**
-  and covers **however much of the week is left**.
+  - **H4c [CEO]** ~~How hard somebody is to haggle with is read off the sheet the player can already
+    see: **Composure** is their patience and **Negotiation** is how little ground they give.~~
+    **Superseded by H7a**: nobody haggles at the Bar. What is left of the idea is the part that was
+    worth having, which H7a keeps: everything the price turns on is printed on the card before a cap
+    is committed. Composure and Negotiation are ordinary attributes again, read by the systems that
+    read every other attribute.
+- **H7 [BOARD]** ~~Recruitment involves **negotiating a salary** if the character is interested.~~
+  **Superseded by H7a**: there is no negotiation. A salary is still what recruitment is about, still in
+  **caps**, and still quoted per week. Nothing is paid weekly: signing commits the fee against the
+  payroll book (§H7a, W2's `economy/payroll.ts`) and only a dismissal moves caps.
+- **H7a [BOARD, 2026-09-07]** The Bar is a **city-wide daily auction**, not a private haggle.
+  - The same eight people, for everybody, all day. **Nobody is replaced when they are won**: the room
+    is what it is until it rotates whole at **midnight Athens**, the clock every other daily reset uses.
+  - **Open phase**, from the turn of the day until **thirty minutes** before the next one. Bids are
+    public: the amount, who made it, who is leading. A bid has to beat the leader by the increment.
+  - **Sealed phase**, the last thirty minutes. No more open bids. Each crew may lock **one** secret
+    final value. Nobody sees anybody else's, and a locked value cannot be changed.
+  - **The close**, at midnight. Each bidder's final is the higher of their open bid and their sealed
+    value. Highest final wins and pays it; **a tie goes to a coin** seeded on the auction, so a faster
+    clock is not a strategy.
+  - The recruit still has a floor (`reservationWage` off their asking price) and the table opens
+    there. It is printed on the card: a hidden floor in an auction is a guessing game.
+  - A crew may sit at **2 tables at once**, 3 from level 40 (§I3, which used to buy a second signing
+    a day). A bid is a commitment, so a losing table still counts until it closes.
+  - Every gate a hire ever had is checked again at the close: the §H3 doors, a free chair (§H8), a fee
+    the payroll book can hold. A winner who cannot take them passes to the next final, and a table
+    nobody can take goes unsold.
 - **H8 [BOARD]** You can hold **2 recruits at the start**, **+1 per level**.
 
 ## J. Factions [BOARD]

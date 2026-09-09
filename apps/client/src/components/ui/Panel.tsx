@@ -31,6 +31,13 @@ interface PanelProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   action?: ReactNode;
   /** Which room this panel is in. Defaults to the game's own brass. */
   tone?: PanelTone;
+  /**
+   * A shorter head, for a panel that has to share a frame that does not scroll.
+   *
+   * The market's supply run sits under the barrow on a screen the board asked to fit in one
+   * frame, and a full head there is a row of lots. The name keeps the hand face, a size down.
+   */
+  dense?: boolean;
 }
 
 /**
@@ -42,7 +49,15 @@ interface PanelProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
  * over a painting has to look like it is *above* the painting, and a glow just looks like part of
  * the picture.
  */
-export function Panel({ title, action, tone = 'brass', className, children, ...rest }: PanelProps) {
+export function Panel({
+  title,
+  action,
+  tone = 'brass',
+  dense = false,
+  className,
+  children,
+  ...rest
+}: PanelProps) {
   return (
     <div
       className={cn(
@@ -63,14 +78,23 @@ export function Panel({ title, action, tone = 'brass', className, children, ...r
       {(title !== undefined || action !== undefined) && (
         <div
           className={cn(
-            'relative flex items-center justify-between gap-2 px-4 py-3',
+            'relative flex items-center justify-between gap-2 px-4',
+            dense ? 'py-1.5' : 'py-3',
             TONE[tone].head,
           )}
         >
           {/* The hand face, and a step up in size again. A panel heading is a *name*: "On the
               shelf", "Your crew", and it is the label a player scans a screen by, so it is one of
               the places the board asked for lettering rather than a field label. */}
-          <h2 className={cn('font-stamp text-[16px] leading-none', TONE[tone].heading)}>{title}</h2>
+          <h2
+            className={cn(
+              'font-stamp leading-none',
+              dense ? 'text-[14px]' : 'text-[16px]',
+              TONE[tone].heading,
+            )}
+          >
+            {title}
+          </h2>
           {action}
           {/* Hand-drawn, not a border: a heading underlined with a ruler reads as a spreadsheet. */}
           <span aria-hidden className="ink-rule absolute inset-x-0 -bottom-[2px]" />

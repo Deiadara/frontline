@@ -1,21 +1,19 @@
 import {
   BLACK_MARKET_KIND_LABELS,
   findBlackMarketGood,
-  formatClock,
   type BlackMarketGoodSpec,
   type BlackMarketKind,
 } from '@frontline/shared';
+import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
-import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Icon } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { useBlackMarket, useTakeFromBlackMarket } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
-import { InfoNote, PageShell } from '../game/PageShell';
+import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
-import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * The Black Market, behind the door at the end of the arcade.
@@ -38,9 +36,17 @@ import { usePlayerZone } from '../settings/usePlayerZone';
  * wrong wastes the purchase they get today.
  */
 
-/** The strip that makes the two shops read as two tabs of one place. */
-export function MarketTabs({ active }: { active: 'market' | 'black' }) {
-  const tab = (to: string, label: string, mine: 'market' | 'black') => {
+/** Which of the three rooms behind the strip a page is standing in. */
+export type MarketTab = 'market' | 'offers' | 'black';
+
+/**
+ * The strip that makes the three rooms read as three tabs of one place.
+ *
+ * `action` is the far-right slot: a chip a page wants beside its own tabs rather than in the
+ * sheet's header, which the market has no room for. A page that passes nothing gets nothing.
+ */
+export function MarketTabs({ active, action }: { active: MarketTab; action?: ReactNode }) {
+  const tab = (to: string, label: string, mine: MarketTab) => {
     // The back-room tab keeps its own colours in *both* states, so the door is visible from the
     // shop rather than only once a player is through it.
     const black = mine === 'black';
@@ -68,12 +74,16 @@ export function MarketTabs({ active }: { active: 'market' | 'black' }) {
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="market-tabs">
       {tab('/game/market', 'The Market', 'market')}
+      {tab('/game/market/offers', 'Faction Offers', 'offers')}
       {tab('/game/market/black', 'Black Market', 'black')}
       {active === 'market' && (
-        <span className="font-display text-[11px] uppercase tracking-[0.14em] text-tangerine-300/80">
+        // Only where the strip has the width: on a narrow sheet the line wrapped the strip onto
+        // a second row, and the market's frame does not scroll, so that row came off the lots.
+        <span className="hidden font-display text-[11px] uppercase tracking-[0.14em] text-tangerine-300/80 [@media(min-width:1200px)]:inline">
           There is a door at the end of the arcade. It costs infamy, not caps.
         </span>
       )}
+      {action !== undefined && <div className="ml-auto">{action}</div>}
     </div>
   );
 }
@@ -184,13 +194,12 @@ function SlotCard({
 export function BlackMarketPage() {
   const query = useBlackMarket();
   const take = useTakeFromBlackMarket();
-  const zone = usePlayerZone();
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
 
   const data = query.data;
   if (!data) {
     return (
-      <ScreenLoad
+      <ScreenLoadSheet
         what="The back room"
         loading="Knocking on the back door…"
         isError={query.isError}
@@ -226,13 +235,6 @@ export function BlackMarketPage() {
             {data.infamy.toLocaleString()}
           </span>
         </span>
-        <InfoNote tone="warn" label="How the shelf works">
-          Five things sit on the shelf, the same five for everybody in the city, and{' '}
-          <strong>you may take {data.takesPerDay} of them a day</strong>. Anything taken is replaced
-          at once, so the shelf is never bare, and whatever you are looking at may be gone a minute
-          from now. The whole shelf turns over once a day, at{' '}
-          {formatClock(new Date(data.refreshesAt), zone)}.
-        </InfoNote>
       </div>
 
       {/* The bag used to sit beside the shelf here. Contraband is applied on the battle it is

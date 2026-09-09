@@ -1,6 +1,7 @@
 import {
   BENCH_LABEL,
   dismissalFee,
+  maxOpenAuctionsFor,
   OFFICER_ROLES,
   OFFICER_ROLE_LABELS,
   officerPortraits,
@@ -90,18 +91,24 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
             vacancy is a shape waiting to be filled, and a solid panel reads as something that is
             broken instead. Most of the nineteen start empty, so this is the state a player spends
             the most time looking at and it earns a real drawing rather than an icon. */}
-        <span
-          className="relative flex w-full shrink-0 items-center justify-center overflow-hidden"
-          style={{ aspectRatio: '4 / 5' }}
-        >
+        {/*
+         * As tall as the drawing needs, not as tall as a portrait.
+         *
+         * This frame was `aspect-[4/5]` to match a filled card, which on a four-column grid is a
+         * 410px box holding a 58px chair and two short lines: the four vacancies at the top of the
+         * roster filled the whole window on their own and pushed every hired officer past the fold.
+         * `flex-1` still stretches it to the tallest card in its own grid row, so a vacancy beside
+         * somebody's portrait lines up; it just no longer sets that height itself.
+         */}
+        <span className="relative flex min-h-[8rem] w-full flex-1 items-center justify-center overflow-hidden">
           <span
             aria-hidden
             className="absolute inset-3 rounded-sm border border-dashed border-surface-600/70"
           />
           <span className="relative flex flex-col items-center gap-3">
             {/* Sized off the card's own width, with the height derived from it by `aspect-ratio`.
-                A percentage *height* draws nothing here: the parent's height comes from its own
-                aspect ratio rather than from a definite value, so there is nothing for the child
+                A percentage *height* draws nothing here: the parent's height is settled by the
+                grid row rather than by a definite value, so there is nothing for the child
                 to take a share of, and the chair silently vanished. Width has a definite parent to
                 resolve against, so this scales with the card the way the intent was. */}
             <span
@@ -161,7 +168,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
           <MarkStamp
             mark={officer.mark}
             className="right-[7%] top-[5%] h-[26%] w-[26%] text-oxblood-300/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)]"
-            title={`${label}: ${officer.mark}`}
+            tip={`${label}: ${officer.mark}`}
           />
         )}
         {/* A wash up from the bottom so the name reads off the painting rather than on a bar over
@@ -226,13 +233,17 @@ function BenchCard({
   onOpen: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      data-testid={`bench-${officer.officerId}`}
-      className={cn(CARD, 'text-left hover:border-brass-300/50')}
-    >
-      <span className="relative w-full shrink-0 overflow-hidden" style={{ aspectRatio: '4 / 5' }}>
+    <div className={cn(CARD, 'text-left hover:border-brass-300/50')}>
+      {/* The picture opens the file, as every seated card does; the door under it is the one
+          thing a benched officer is for (board request, 2026-09-09): a chair, drawn as a button
+          rather than left to the file's dropdown, so finding them one is a press and not a hunt. */}
+      <button
+        type="button"
+        onClick={onOpen}
+        data-testid={`bench-${officer.officerId}`}
+        className="relative w-full shrink-0 overflow-hidden text-left focus-visible:outline-none"
+        style={{ aspectRatio: '4 / 5' }}
+      >
         <OfficerPortrait
           portraitId={portraitId}
           name={officer.name}
@@ -251,8 +262,8 @@ function BenchCard({
             {officer.name}
           </span>
         </span>
-      </span>
-      <span className={FOOTER}>
+      </button>
+      <span className={cn(FOOTER, 'gap-2')}>
         {officer.perks.length > 0 ? (
           <PerkTags perks={officer.perks} tone="card" side="top" nested />
         ) : (
@@ -260,8 +271,16 @@ function BenchCard({
             No specialities. Just the work.
           </span>
         )}
+        <Button
+          size="sm"
+          className="w-full"
+          onClick={onOpen}
+          data-testid={`assign-chair-${officer.officerId}`}
+        >
+          Assign a chair
+        </Button>
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -269,10 +288,10 @@ function BenchCard({
  * What an empty chair offers (board request).
  *
  * It used to be a link straight to the Bar, which was right when the Bar was the only source of an
- * officer. With a bench there are two, and the difference matters: the Bar costs a signing and one
- * of the day's hires, and the bench costs nothing because you have already paid for these people.
- * Somebody sitting on the bench is the cheapest way to fill a chair in the game, and a control that
- * walked past them to the Bar would hide that.
+ * officer. With a bench there are two, and the difference matters: the Bar is an auction that only
+ * settles at midnight, against every other crew in the city, and the bench costs nothing because
+ * you have already paid for these people. Somebody sitting on the bench is the cheapest way to
+ * fill a chair in the game, and a control that walked past them to the Bar would hide that.
  *
  * The Bar is still the first thing on it, because on most rosters the bench is empty.
  */
@@ -280,6 +299,7 @@ function ChairWindow({
   role,
   bench,
   faces,
+  level,
   pending,
   onAssign,
   onClose,
@@ -287,6 +307,8 @@ function ChairWindow({
   role: OfficerRole;
   bench: readonly CrewOfficer[];
   faces: ReadonlyMap<string, string>;
+  /** The crew's level, because the table cap moves at 40 (`maxOpenAuctionsFor`). */
+  level: number;
   pending: boolean;
   onAssign: (officerId: string) => void;
   onClose: () => void;
@@ -314,8 +336,15 @@ function ChairWindow({
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-5 py-4">
           <div className="flex flex-col gap-2">
             <Heading>Sign somebody</Heading>
+            {/* The Bar has not been a hire button since it became an auction (§H7a): nobody is
+                signed on the spot, the room turns over whole at midnight, and what is limited is
+                how many tables a crew can sit at rather than how many people it can take in a day.
+                The cap is read from the shared function the server gates on, so the sentence and
+                the refusal cannot say different numbers. */}
             <p className="font-body text-[13px] leading-relaxed text-ink-300">
-              The Bar turns over at {resetsAt}, and you may sign a limited number a day.
+              The Bar is an auction. Bid against the rest of the city and the highest bid signs them
+              at {resetsAt}, when the room turns over. You can be at {maxOpenAuctionsFor(level)}{' '}
+              tables at once.
             </p>
             <InkButton to="/game/bar" icon="bar" className="self-start">
               Go to the Bar
@@ -350,7 +379,10 @@ function ChairWindow({
                           {officer.name}
                         </span>
                         <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
-                          <span className="tabular-nums">{officer.weeklyWage}</span> caps / wk
+                          <span className="tabular-nums">
+                            {officer.weeklyWage.toLocaleString()}
+                          </span>{' '}
+                          caps / wk
                         </span>
                       </span>
                     </button>
@@ -441,7 +473,7 @@ function OfficerWindow({
                 On the books
               </span>
               <span className="mt-1 font-display text-[15px] font-bold tabular-nums text-brass-300">
-                {officer.weeklyWage}
+                {officer.weeklyWage.toLocaleString()}
                 <span className="ml-1 text-[10px] font-normal tracking-[0.12em] text-ink-400">
                   caps / wk
                 </span>
@@ -566,6 +598,28 @@ function OfficerWindow({
   );
 }
 
+/**
+ * The nineteen chairs, the ones with somebody in them first.
+ *
+ * In `OFFICER_ROLES` order alone the roster opened on whoever happened to fall at the top of that
+ * list, and on most crews that is nobody: at 1440 the first row was four vacancies 479px tall and
+ * every hired officer was past the fold, on the one screen whose subject is the people. Filled
+ * before empty, each group still in the catalogue's own order, so a card only ever moves when
+ * somebody sits down in it or leaves.
+ */
+export function chairOrder(
+  officers: readonly CrewOfficer[],
+): { role: OfficerRole; officer: CrewOfficer | undefined }[] {
+  const seats = OFFICER_ROLES.map((role) => ({
+    role,
+    officer: officers.find((candidate) => candidate.role === role),
+  }));
+  return [
+    ...seats.filter((seat) => seat.officer !== undefined),
+    ...seats.filter((seat) => seat.officer === undefined),
+  ];
+}
+
 /** Chairs that are actually taken. Somebody on the bench takes none, so every seat stays open. */
 function seated(officers: readonly CrewOfficer[]): OfficerRole[] {
   return officers
@@ -636,6 +690,7 @@ function Layout({ data }: { data: CrewResponse }) {
           role={chair}
           bench={bench}
           faces={faces}
+          level={data.level}
           pending={reassign.isPending}
           onAssign={(officerId) => {
             reassign.mutate({ officerId, role: chair }, { onSuccess: () => setChair(null) });
@@ -666,22 +721,25 @@ function Layout({ data }: { data: CrewResponse }) {
          * viewport. Narrower columns bring the height back down without cropping anybody, which is
          * the trade this grid exists to make.
          */
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 [@media(min-width:1600px)]:grid-cols-5 [@media(min-width:1920px)]:grid-cols-6"
+        /*
+         * Every row the height of the tallest: a vacancy under the people is the same card as a
+         * vacancy beside them (board request, 2026-09-09). Without this the rows below the fold
+         * shrank to the chair drawing while the first row stood at a portrait's height, and the
+         * roster read as two different kinds of card.
+         */
+        className="grid auto-rows-fr gap-4 sm:grid-cols-2 lg:grid-cols-4 [@media(min-width:1600px)]:grid-cols-5 [@media(min-width:1920px)]:grid-cols-6"
         data-testid="crew-books"
       >
-        {OFFICER_ROLES.map((role) => {
-          const officer = data.officers.find((candidate) => candidate.role === role);
-          return (
-            <Seat
-              key={role}
-              role={role}
-              officer={officer}
-              portraitId={officer ? (faces.get(officer.officerId) ?? null) : null}
-              // A filled chair opens the person's file; an empty one asks where to fill it from.
-              onOpen={() => (officer ? setOpened(officer.officerId) : setChair(role))}
-            />
-          );
-        })}
+        {chairOrder(data.officers).map(({ role, officer }) => (
+          <Seat
+            key={role}
+            role={role}
+            officer={officer}
+            portraitId={officer ? (faces.get(officer.officerId) ?? null) : null}
+            // A filled chair opens the person's file; an empty one asks where to fill it from.
+            onOpen={() => (officer ? setOpened(officer.officerId) : setChair(role))}
+          />
+        ))}
       </div>
 
       {/*
